@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Microsoft sign-in</title>
+  </head>
+  <body>
+    <!-- Microsoft sign-in returns here in its popup and hands the result back to the app. -->
+    <script type="module">
+      import { broadcastResponseToMainFrame } from '@azure/msal-browser/redirect-bridge';
+      broadcastResponseToMainFrame().catch(() => window.close());
+    </script>
+  </body>
+</html>

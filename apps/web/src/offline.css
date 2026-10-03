@@ -1,0 +1,298 @@
+/* The installable offline app: install and offline UI, touch sizes and the phone layout. */
+
+.hint {
+  align-content: center;
+  gap: 12px;
+}
+
+.hint .btn {
+  pointer-events: auto;
+  justify-self: center;
+}
+
+.status-offline {
+  height: 18px;
+  line-height: 18px;
+  padding: 0 8px;
+  border-radius: 3px;
+  background: rgba(234, 179, 8, 0.22);
+  color: #fde68a;
+  white-space: nowrap;
+}
+
+.status-offline.sending {
+  background: rgba(59, 130, 246, 0.22);
+  color: #bfdbfe;
+}
+
+.install-steps {
+  margin: 8px 0;
+  padding-left: 20px;
+  line-height: 1.6;
+}
+
+.storage-use {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.storage-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.storage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.storage-parts,
+.ocr-offline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+}
+
+.ocr-offline li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  color: var(--text);
+}
+
+.project-meta .stale {
+  color: #fbbf24;
+}
+
+.project-offline {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(234, 179, 8, 0.14);
+  color: #fde68a;
+}
+
+.project-queue {
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-queue li {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.project-queue li.failed {
+  color: #fca5a5;
+}
+
+/* Drawer close buttons show only in the phone layout, where panels cover the drawing. */
+.drawer-close {
+  display: none;
+}
+
+/*
+ * Narrow screens (tablets upright, phones): the side panel is a drawer over the drawing, next to
+ * the rail that switches or closes it, rather than squeezing the drawing.
+ */
+.app {
+  --rail-w: 36px;
+}
+
+@media (max-width: 1000px) {
+  .body {
+    position: relative;
+  }
+
+  .body .panel.left {
+    display: flex;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--rail-w);
+    z-index: 30;
+    max-width: calc(100% - var(--rail-w));
+    box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .drawer-close {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 32px;
+    margin-left: auto;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .panel.left h2 {
+    display: flex;
+    align-items: center;
+  }
+}
+
+/* Fingers and pens: larger targets for the controls around the drawing. */
+@media (pointer: coarse) {
+  .app {
+    --rail-w: 44px;
+  }
+
+  .rail button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .rail {
+    width: 44px;
+  }
+
+  .btn.tool {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .menu-item {
+    min-height: 36px;
+  }
+
+  .status-toggle {
+    height: 26px;
+  }
+}
+
+/*
+ * Phones: one scrolling row of menus and one of tools, panels as drawers over the drawing, and
+ * dropdowns anchored to the screen (the scrolling rows would otherwise clip them).
+ */
+@media (max-width: 720px) {
+  .app {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .menubar,
+  .toolbar.tools {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .menubar::-webkit-scrollbar,
+  .toolbar.tools::-webkit-scrollbar {
+    display: none;
+  }
+
+  .toolbar.tools {
+    padding: 4px 6px;
+  }
+
+  .toolbar.tools > * {
+    flex: none;
+  }
+
+  .menu-drop {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 27px);
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+    max-height: calc(100vh - 80px);
+    border-radius: 0 0 8px 8px;
+  }
+
+  .menu-flyout {
+    left: 8px !important;
+    right: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .tool-flyout {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 76px);
+    left: 8px;
+    right: 8px;
+    max-height: 60vh;
+    overflow: auto;
+  }
+
+  .body .panel.left {
+    right: 0;
+    width: auto !important;
+  }
+
+  .panel-split,
+  .dock-split {
+    display: none;
+  }
+
+  .app {
+    --rail-w: 44px;
+  }
+
+  .rail {
+    width: 44px;
+  }
+
+  .rail button {
+    width: 44px;
+    height: 44px;
+  }
+
+  /* The Markups list slides over the lower part of the drawing. */
+  .workspace .bottom-dock {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 25;
+    height: min(60%, 420px) !important;
+    box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.45);
+  }
+
+  .bottom-dock .tabs {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Dialogs fill the screen width. */
+  .modal {
+    max-width: calc(100vw - 16px);
+    max-height: calc(100vh - 32px);
+    overflow: auto;
+  }
+
+  .prefs-body {
+    flex-direction: column;
+  }
+
+  .prefs-nav {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .statusbar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .stats {
+    display: none;
+  }
+}
