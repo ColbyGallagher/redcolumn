@@ -164,3 +164,20 @@ test('diameter and radius draw their circle; bounds cover it', () => {
   const r: Markup = { ...d, type: 'radius', points: [[50, 50], [100, 50]] };
   assert.ok(markupBounds(r).x < 1);
 });
+
+test('a callout leader always meets its box head-on: horizontal at a side, vertical at the top or bottom', async () => {
+  const { calloutLanding } = await import('./callout.ts');
+  const box = { x: 100, y: 40, w: 80, h: 20 };
+  // Knee beside the box, level with it: lands straight in.
+  assert.deepEqual(calloutLanding([90, 50], box), { side: 'left', knee: [90, 50], attach: [100, 50] });
+  // Knee beside the box but above its top edge: the final stretch still runs along a horizontal line.
+  const high = calloutLanding([60, 10], box);
+  assert.equal(high.side, 'left');
+  assert.equal(high.attach[1], high.knee[1]);
+  // Knee above the box: vertical into the top; below: vertical into the bottom.
+  assert.deepEqual(calloutLanding([130, 20], box), { side: 'top', knee: [130, 20], attach: [130, 40] });
+  assert.deepEqual(calloutLanding([150, 90], box), { side: 'bottom', knee: [150, 90], attach: [150, 60] });
+  // Off to a corner: whichever way it overshoots most, never a diagonal.
+  const corner = calloutLanding([20, 120], box);
+  assert.ok(corner.attach[0] === corner.knee[0] || corner.attach[1] === corner.knee[1]);
+});

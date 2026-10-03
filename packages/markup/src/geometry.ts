@@ -1,6 +1,6 @@
 import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
-import { calloutAttach } from './callout';
+import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { boundsOf, outlinePoints, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
@@ -61,16 +61,20 @@ function baseShape(m: Markup): ShapePart[] {
     case 'signature': {
       const b = boundsOf(points);
       const path: PathCmd[] = [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']];
-      return [{ path, stroke: m.type === 'rect' || style.width > 0, fill: style.fill }];
+      const boxless = style.noBox && m.type === 'text';
+      return [{ path, stroke: !boxless && (m.type === 'rect' || style.width > 0), fill: boxless ? null : style.fill }];
     }
     case 'polygon':
       return [{ path: points.length > 2 ? [...polyline(points), ['Z']] : polyline(points), stroke: true, fill: style.fill }];
     case 'callout': {
       if (points.length < 4) return withEnds(m, points.slice(0, 2));
       const box = contentBox(m);
-      const leader = withEnds(m, [points[0]!, points[1]!, calloutAttach(points[1]!, box)]);
+      const leaders = calloutLeaders(points).flatMap(([tip, knee]) => {
+        const land = calloutLanding(knee, box);
+        return withEnds(m, [tip, land.knee, land.attach]);
+      });
       const rect: PathCmd[] = [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
-      return [{ path: rect, stroke: style.width > 0, fill: style.fill }, ...leader];
+      return [{ path: rect, stroke: style.width > 0 && !style.noBox, fill: style.noBox ? null : style.fill }, ...leaders];
     }
     case 'note':
       return notePath(boundsOf(points), style.fill);

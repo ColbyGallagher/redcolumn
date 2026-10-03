@@ -5,7 +5,7 @@ type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { AREA_LABELS, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
 import { arcPoints } from './arc';
-import { calloutAttach } from './callout';
+import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
 import { legendLayout, legendRows } from './legend';
 import { stampLayout } from './stamp';
@@ -356,6 +356,8 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const curved = (closed: boolean): Point[] => (m.bulges?.some(Boolean) ? expandArcs(m.points, m.bulges, closed).map((p) => apply(matrix, p)) : user);
   const color = rgb(m.style.stroke);
   const fill = m.style.fill ? rgb(m.style.fill) : null;
+  // A boxless text box has no border for other readers to draw.
+  const borderWidth = m.style.noBox && m.type === 'text' ? 0 : m.style.width;
   const dash = dashPattern(m.style.dash, m.style.width);
   const [startCap, endCap] = lineEnds(m);
   const le = [PDF_LINE_ENDINGS[startCap], PDF_LINE_ENDINGS[endCap]];
@@ -367,7 +369,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     F: (m.hidden ? 2 : 4) | (m.locked ? 128 : 0), // Print (Hidden when hidden), and Locked when locked
     C: color,
     CA: m.style.opacity,
-    BS: dash.length ? { Type: 'Border', W: m.style.width, S: 'D', D: dash } : { Type: 'Border', W: m.style.width, S: 'S' },
+    BS: dash.length ? { Type: 'Border', W: borderWidth, S: 'D', D: dash } : { Type: 'Border', W: borderWidth, S: 'S' },
     T: pdfText(m.author),
     NM: pdfText(m.id),
     M: pdfDate(m.modifiedAt),
@@ -564,7 +566,8 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       const box = contentBox(m);
       const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
       const bx = [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])] as const;
-      const leader = m.points.length >= 4 ? [m.points[0]!, m.points[1]!, calloutAttach(m.points[1]!, box)] : m.points.slice(0, 2);
+      const land = m.points.length >= 4 ? calloutLanding(m.points[1]!, box) : null;
+      const leader = land ? [m.points[0]!, land.knee, land.attach] : m.points.slice(0, 2);
       specific = {
         Subtype: 'FreeText',
         IT: 'FreeTextCallout',

@@ -65,6 +65,8 @@ export interface WorkspaceState {
   toolbarTools: Tool[] | null;
   /** Side panels hidden from the panel rail and Window menu. */
   hiddenPanels: string[];
+  /** Order of the panel rail (panel ids); panels not listed follow in their default order. */
+  panelOrder: string[];
   showToolbar: boolean;
   list: MarkupListSettings;
   /** Custom columns and statuses given to documents that have none of their own. */
@@ -87,14 +89,18 @@ const RECENT_ID = 'recent';
 export const RECENT_TOOLS_ID = RECENT_ID;
 const RECENT_LIMIT = 12;
 
+/** The toolbar a new profile starts with; the rest are added from the toolbar's right-click menu. */
+export const DEFAULT_TOOLBAR_TOOLS: Tool[] = ['line', 'polyline', 'rect', 'ellipse', 'cloud', 'cloudPlus', 'pen', 'highlighter', 'text', 'callout', 'stamp'];
+
 export function defaultWorkspace(): WorkspaceState {
   return {
     toolChests: [
       { id: RECENT_ID, name: 'Recent Tools', collapsed: false, view: 'icon', items: [] },
       { id: crypto.randomUUID(), name: 'My Tools', collapsed: false, view: 'icon', items: [] },
     ],
-    toolbarTools: null,
+    toolbarTools: [...DEFAULT_TOOLBAR_TOOLS],
     hiddenPanels: [],
+    panelOrder: [],
     showToolbar: true,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null },
     columnTemplate: null,

@@ -29,7 +29,6 @@ export type LeftTab =
   | 'signatures'
   | 'flags'
   | 'search'
-  | 'sheets'
   | 'forms'
   | 'sets'
   | 'sessions';
@@ -47,7 +46,6 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   signatures: 'Signatures',
   flags: 'Flags',
   search: 'Search',
-  sheets: 'Sheets',
   forms: 'Forms',
   sets: 'Sets',
   sessions: 'Sessions',

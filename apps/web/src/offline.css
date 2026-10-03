@@ -189,15 +189,6 @@
     max-width: none;
   }
 
-  .tool-flyout {
-    position: fixed;
-    top: calc(env(safe-area-inset-top) + 76px);
-    left: 8px;
-    right: 8px;
-    max-height: 60vh;
-    overflow: auto;
-  }
-
   .body .panel.left {
     right: 0;
     width: auto !important;

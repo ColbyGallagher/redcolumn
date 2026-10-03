@@ -3,7 +3,11 @@ import {
   boundsOf,
   canOffset,
   eraseStroke,
+  calloutLanding,
+  calloutLeaders,
   calloutPoints,
+  contentBox,
+  isCalloutTip,
   CLICK_SHAPES,
   DEFAULT_STYLES,
   drawMarkup,
@@ -867,6 +871,41 @@ export class MarkupTools implements ViewerOverlay {
       .forEach((m, i) => this.store!.update(m.id, { createdAt: edge + i }));
   }
 
+  /** Gives a callout another leader, on the side of its text box away from the existing ones. */
+  addCalloutLeader(id: string) {
+    const m = this.store?.get(id);
+    if (!this.store || !m || m.type !== 'callout' || m.locked || m.points.length < 4) return;
+    const z = this.viewer.zoomFor(m.pageIndex);
+    const box = contentBox(m);
+    const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2];
+    const land = CALLOUT_LANDING_PX / z;
+    const reach = 50 / z;
+    const used = calloutLeaders(m.points).length;
+    // Opposite the first leader, then fanned out so further ones do not sit on top of each other.
+    const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const;
+    const side = opposite[calloutLanding(m.points[1]!, box).side];
+    const fan = (((used - 1) % 3) - 1) * 30 / z;
+    const [knee, tip]: [Point, Point] =
+      side === 'left'
+        ? [[box.x - land, cy + fan], [box.x - land - reach, cy + fan + 30 / z]]
+        : side === 'right'
+          ? [[box.x + box.w + land, cy + fan], [box.x + box.w + land + reach, cy + fan + 30 / z]]
+          : side === 'top'
+            ? [[cx + fan, box.y - land], [cx + fan + 30 / z, box.y - land - reach]]
+            : [[cx + fan, box.y + box.h + land], [cx + fan + 30 / z, box.y + box.h + land + reach]];
+    this.store.checkpoint();
+    this.store.update(id, { points: [...m.points, tip, knee] });
+    this.select([id]);
+  }
+
+  /** Takes away a callout's most recently added leader (the first one stays). */
+  removeCalloutLeader(id: string) {
+    const m = this.store?.get(id);
+    if (!this.store || !m || m.type !== 'callout' || m.locked || m.points.length < 6) return;
+    this.store.checkpoint();
+    this.store.update(id, { points: m.points.slice(0, m.points.length - 2) });
+  }
+
   /** Deletes the selected markups, except locked ones (which stay selected). */
   deleteSelected() {
     if (!this.store || !this.state.selected.size) return;
@@ -1327,11 +1366,12 @@ export class MarkupTools implements ViewerOverlay {
       this.setGesture({ kind: 'hyperlink', markup: hit, start: p });
       return true;
     }
-    // The text box of a grouped callout (Cloud+) drags on its own, leaving the arrow on its cloud.
-    if (hit.type === 'callout' && hit.groupId && !hit.locked && !e.shiftKey && !this.store.readOnly && hit.points.length >= 4) {
-      const box = boundsOf(hit.points.slice(2));
+    // A callout's text box drags on its own, leaving the arrow tip where it points.
+    if (hit.type === 'callout' && !hit.locked && !e.shiftKey && !this.store.readOnly && hit.points.length >= 4) {
+      const box = boundsOf(hit.points.slice(2, 4));
       if (p[0] >= box.x && p[0] <= box.x + box.w && p[1] >= box.y && p[1] <= box.y + box.h) {
-        this.setState({ selected: new Set([hit.id]) });
+        // The whole group (a Cloud+'s cloud and callout) is selected, but only the text box moves.
+        if (!this.state.selected.has(hit.id)) this.select(this.withGroups([hit.id]));
         this.setGesture({ kind: 'calloutBox', id: hit.id, start: p, dx: 0, dy: 0 });
         return true;
       }
@@ -2019,9 +2059,9 @@ function handleEdit(m: Markup, index: number, point: Point): Point[] {
   return points;
 }
 
-/** A callout's points with everything but the arrow tip (the knee and the box) moved by (dx, dy). */
+/** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
 function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Point[] {
-  return points.map((q, i): Point => (i === 0 ? q : [q[0] + dx, q[1] + dy]));
+  return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
 }
 
 function toPoint(pt: PagePoint): Point {

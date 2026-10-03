@@ -87,18 +87,31 @@ export function FlagsPanel({
   statuses,
   selected,
   onSelect,
+  onAdd,
 }: {
   markups: Markup[];
   statuses: readonly MarkupStatusDef[];
   selected: ReadonlySet<string>;
   onSelect: (m: Markup) => void;
+  /** Starts the Flag tool; null when no document can be marked up. */
+  onAdd: (() => void) | null;
 }) {
   // Flags on the page (Flag markups), markups flagged for follow-up, and markups with a status.
   const flags = markups.filter((m) => m.type === 'flag').sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt);
   const flagged = markups.filter((m) => m.flagged && m.type !== 'flag');
   const withStatus = markups.filter((m) => m.status !== 'none');
+  const add = (
+    <button className="btn small" disabled={!onAdd} title="Click on the page to place a flag" onClick={onAdd ?? undefined}>
+      ⚑ Add Flag
+    </button>
+  );
   if (!flags.length && !flagged.length && !withStatus.length) {
-    return <p className="empty">Flags you place (Tools › Markup › Flag), markups you flag (right-click › Flag) and markups with a status appear here.</p>;
+    return (
+      <div className="flags-panel">
+        {add}
+        <p className="empty">Flags you place, markups you flag (right-click › Flag) and markups with a status appear here.</p>
+      </div>
+    );
   }
   const item = (m: Markup, tag: ReactNode, name: string) => (
     <li key={m.id}>
@@ -110,6 +123,7 @@ export function FlagsPanel({
   );
   return (
     <div className="flags-panel">
+      {add}
       {flags.length > 0 && (
         <>
           <h3 className="panel-subhead">Flags</h3>

@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { FONT_FAMILIES, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type MarkupType } from '@nb/markup';
+import { Fragment } from 'react';
+import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type MarkupStyle, type MarkupType } from '@nb/markup';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
+import { ComboField } from './ComboField';
 import { shortcutLabel } from '../commands/shortcuts';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -100,90 +101,35 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   cutout: 'click the hole inside the area; click the first point to finish',
 };
 
-const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12];
+/** Cloud bubble sizes (pt): fine steps for everyday clouds, wider ones for very large bubbles. */
+const BUBBLE_SIZES = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
 
-/**
- * Related markup tools share one toolbar button (a flyout): the button draws with
- * the group's last-used tool and its ▾ lists the rest.
- */
-const TOOL_GROUPS: { name: string; tools: Tool[] }[] = [
-  { name: 'Select', tools: ['select'] },
-  { name: 'Lasso', tools: ['lasso'] },
-  { name: 'Lines', tools: ['line', 'arrow', 'polyline', 'arc', 'dimension'] },
-  { name: 'Shapes', tools: ['rect', 'ellipse', 'polygon', 'cloud', 'cloudPlus'] },
-  { name: 'Pen', tools: ['pen', 'highlighter', 'eraser'] },
-  { name: 'Text markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
-  { name: 'Text', tools: ['text', 'callout', 'typewriter', 'note'] },
-  { name: 'Insert', tools: ['image', 'attachment', 'stamp', 'legend', 'hyperlink', 'flag', 'snapshot'] },
+/** What a measurement line can end in from the toolbar (more in Properties). */
+const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
+  { value: 'filledArrow', label: 'Filled arrow' },
+  { value: 'openArrow', label: 'Open arrow' },
+  { value: 'closedArrow', label: 'Closed arrow' },
+  { value: 'tick', label: 'Tick' },
+  { value: 'none', label: 'None' },
 ];
 
-const MEASURE_GROUPS: { name: string; tools: Tool[] }[] = [
-  { name: 'Calibrate', tools: ['calibrate'] },
-  { name: 'Length', tools: ['length', 'polylength', 'arcLength'] },
-  { name: 'Area', tools: ['area', 'perimeter', 'volume', 'dynamicFill'] },
-  { name: 'Circle', tools: ['diameter', 'radius'] },
-  { name: 'Count', tools: ['count', 'visualSearch'] },
-  { name: 'Angle', tools: ['angle'] },
-];
+const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
+/** The highlighter sweeps wide bands. */
+const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
 
 const ICONS = new Map([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
-
-function ToolGroup({ name, tools, state, enabled, onPick }: { name: string; tools: Tool[]; state: ToolsState; enabled: boolean; onPick: (t: Tool) => void }) {
-  const [last, setLast] = useState<Tool>(tools[0]!);
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const activeHere = tools.includes(state.tool) && !state.preset;
-  // The button shows the group's tool in use, else the one used last.
-  const current = tools.includes(state.tool) ? state.tool : tools.includes(last) ? last : tools[0]!;
-  useEffect(() => {
-    if (tools.includes(state.tool)) setLast(state.tool);
-  }, [state.tool, tools]);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, [open]);
-  return (
-    <div className="tool-group" ref={root}>
-      <button className={`btn tool${activeHere ? ' active' : ''}`} disabled={!enabled} title={toolTitle(current)} onClick={() => onPick(current)}>
-        {ICONS.get(current)}
-      </button>
-      {tools.length > 1 && (
-        <button className="btn tool-caret" disabled={!enabled} title={`${name} tools`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-          ▾
-        </button>
-      )}
-      {open && (
-        <div className="tool-flyout" role="menu">
-          {tools.map((t) => (
-            <button
-              key={t}
-              role="menuitem"
-              className={`menu-item${state.tool === t ? ' checked' : ''}`}
-              onClick={() => {
-                setOpen(false);
-                onPick(t);
-              }}
-            >
-              <span className="check">{ICONS.get(t)}</span>
-              <span className="label">{toolLabel(t)}</span>
-              {toolShortcut(t) && <span className="sc">{toolShortcut(t)}</span>}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 interface Props {
   tools: MarkupTools;
   state: ToolsState;
   /** Type whose style the controls edit: the active tool, or the selected markups' type. */
   styleType: MarkupType | null;
+  /** Cloud bubble size (pt): the selected cloud's, else the default for new ones (undefined: sized to the zoom). */
+  /** Type whose font controls the toolbar shows (a Cloud+ offers its callout's). */
+  textType: MarkupType | null;
+  /** Style of the selected text markup, which the text controls show instead of the tool's defaults. */
+  textMarkupStyle?: MarkupStyle;
+  cloudBubble: { value: number | undefined } | null;
   enabled: boolean;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
@@ -198,21 +144,23 @@ function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, enabled, visibleTools, onUndo, onRedo }: Props) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, enabled, visibleTools, onUndo, onRedo }: Props) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
+  const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
   const toolsPick = (tool: Tool) => tools.setTool(tool);
   return (
     <div className="toolbar tools">
-      {TOOL_GROUPS.map((g) => {
-        const tools = g.tools.filter((tool) => shown({ tool }));
-        return tools.length ? <ToolGroup key={g.name} name={g.name} tools={tools} state={state} enabled={enabled} onPick={toolsPick} /> : null;
-      })}
-      <span className="sep" />
-      {MEASURE_GROUPS.map((g) => {
-        const tools = g.tools.filter((tool) => shown({ tool }));
-        return tools.length ? <ToolGroup key={g.name} name={g.name} tools={tools} state={state} enabled={enabled} onPick={toolsPick} /> : null;
-      })}
+      {[MARKUP_TOOLS, MEASURE_TOOLS].map((list, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className="sep" />}
+          {list.filter(shown).map(({ tool, icon }) => (
+            <button key={tool} className={`btn tool${state.tool === tool && !state.preset ? ' active' : ''}`} data-toolbar-tool={tool} disabled={!enabled} title={toolTitle(tool)} onClick={() => toolsPick(tool)}>
+              {icon}
+            </button>
+          ))}
+        </Fragment>
+      ))}
       {state.tool === 'dynamicFill' && (
         <label className="field" title="What Smart Fill makes from the region it finds">
           Fill as
@@ -225,65 +173,90 @@ export function ToolBar({ tools, state, styleType, enabled, visibleTools, onUndo
           </select>
         </label>
       )}
-      <label className="field" title="Snap to drawing lines, endpoints and intersections (hold Alt to bypass; Shift for 45°)">
-        <input type="checkbox" checked={state.snap} onChange={(e) => tools.setSnap(e.target.checked)} />
-        Snap
-      </label>
       <span className="sep" />
-      <label className="field" title="Color">
-        <input
-          type="color"
-          disabled={!style}
-          value={style?.stroke ?? '#000000'}
-          onChange={(e) => styleType && tools.setStyle(styleType, { stroke: e.target.value })}
-        />
-      </label>
-      <label className="field" title="Fill">
-        <input
-          type="checkbox"
-          disabled={!style || !styleType || !styleCapabilities(styleType).fill}
-          checked={!!style?.fill}
-          onChange={(e) => styleType && tools.setStyle(styleType, { fill: e.target.checked ? '#fef9c3' : null })}
-        />
-        Fill
-      </label>
-      <label className="field" title="Line width (pt)">
-        <select
-          disabled={!style}
-          value={style?.width ?? 1}
-          onChange={(e) => styleType && tools.setStyle(styleType, { width: Number(e.target.value) })}
-        >
-          {WIDTHS.map((w) => (
-            <option key={w} value={w}>
-              {w} pt
-            </option>
-          ))}
-        </select>
-      </label>
-      {style && styleType && styleCapabilities(styleType).dash && (
-        <label className="field" title="Line style">
-          <select value={style.dash ?? 'solid'} onChange={(e) => tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash) })}>
-            {LINE_DASHES.map((d) => (
-              <option key={d.value} value={d.value}>
-                {d.label}
-              </option>
-            ))}
-          </select>
+      {style && styleType && (
+        <>
+          <label className="field" title="Color">
+            <input
+              type="color"
+              value={style.stroke}
+              onChange={(e) => tools.setStyle(styleType, { stroke: e.target.value })}
+            />
+          </label>
+          <label className="field" title="Fill">
+            <input
+              type="checkbox"
+              disabled={!styleCapabilities(styleType).fill}
+              checked={!!style.fill}
+              onChange={(e) => tools.setStyle(styleType, { fill: e.target.checked ? '#fef9c3' : null })}
+            />
+            Fill
+          </label>
+          <label className="field">
+            <ComboField
+              title="Line width"
+              value={style.width}
+              options={styleType === 'highlighter' ? HIGHLIGHT_WIDTHS : WIDTHS}
+              min={0}
+              max={200}
+              unit="pt"
+              onChange={(w) => tools.setStyle(styleType, { width: w })}
+            />
+          </label>
+          {styleCapabilities(styleType).dash && (
+            <label className="field" title="Line style">
+              <select value={style.dash ?? 'solid'} onChange={(e) => tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash) })}>
+                {LINE_DASHES.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="field">
+            <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
+          </label>
+        </>
+      )}
+      {style && styleType && (styleType === 'length' || styleType === 'polylength') && (
+        <>
+          <label className="field" title="Arrowheads on the ends of the line">
+            Arrows
+            <select
+              value={lineEnds({ type: styleType, style })[1]}
+              onChange={(e) => tools.setStyle(styleType, { startCap: e.target.value as LineEnding, endCap: e.target.value as LineEnding })}
+            >
+              {ARROW_CHOICES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+              {!ARROW_CHOICES.some((c) => c.value === lineEnds({ type: styleType, style })[1]) && <option value={lineEnds({ type: styleType, style })[1]}>Other</option>}
+            </select>
+          </label>
+          {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
+            <label className="field">
+              <ComboField title="Arrow size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => tools.setStyle(styleType, { capScale: v / 100 })} />
+            </label>
+          )}
+        </>
+      )}
+      {cloudBubble && (
+        <label className="field" title="Size of the cloud's bubbles (pt)">
+          Bubbles
+          <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
         </label>
       )}
-      <label className="field" title="Opacity">
-        <select disabled={!style} value={Math.round((style?.opacity ?? 1) * 100)} onChange={(e) => styleType && tools.setStyle(styleType, { opacity: Number(e.target.value) / 100 })}>
-          {[100, 80, 60, 40, 20].map((o) => (
-            <option key={o} value={o}>
-              {o}%
-            </option>
-          ))}
-          {style && ![100, 80, 60, 40, 20].includes(Math.round(style.opacity * 100)) && <option value={Math.round(style.opacity * 100)}>{Math.round(style.opacity * 100)}%</option>}
-        </select>
-      </label>
-      {style && styleType && styleCapabilities(styleType).font && (
+      {textStyle && (textType === 'text' || textType === 'callout') && (
+        <label className="field" title="Draw the box around the text (outline and fill)">
+          <input type="checkbox" checked={!textStyle.noBox} onChange={(e) => tools.setStyle(textType, { noBox: e.target.checked ? undefined : true })} />
+          Box
+        </label>
+      )}
+      {textStyle && textType && styleCapabilities(textType).font && (
         <label className="field" title="Font">
-          <select className="font-family" value={style.fontFamily ?? 'sans'} onChange={(e) => tools.setStyle(styleType, { fontFamily: e.target.value as FontFamily })}>
+          <select className="font-family" value={textStyle.fontFamily ?? 'sans'} onChange={(e) => tools.setStyle(textType, { fontFamily: e.target.value as FontFamily })}>
             {FONT_FAMILIES.map((f) => (
               <option key={f.value} value={f.value} style={{ fontFamily: f.css }}>
                 {f.label}
@@ -292,16 +265,16 @@ export function ToolBar({ tools, state, styleType, enabled, visibleTools, onUndo
           </select>
         </label>
       )}
-      {style && styleType && styleCapabilities(styleType).font && (
+      {textStyle && textType && styleCapabilities(textType).font && (
         <label className="field" title="Font size (pt)">
           <input
             className="font-size"
             type="number"
             min={4}
             max={144}
-            value={style.fontSize ?? ''}
+            value={textStyle.fontSize ?? ''}
             placeholder="Auto"
-            onChange={(e) => Number(e.target.value) > 0 && tools.setStyle(styleType, { fontSize: Number(e.target.value) })}
+            onChange={(e) => Number(e.target.value) > 0 && tools.setStyle(textType, { fontSize: Number(e.target.value) })}
           />
           pt
         </label>

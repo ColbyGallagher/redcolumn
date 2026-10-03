@@ -2029,41 +2029,6 @@
   flex: 1;
 }
 
-/* Grouped tools: the button uses the group's current tool; the caret lists the others. */
-.tool-group {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-}
-
-.btn.tool-caret {
-  width: 14px;
-  min-width: 0;
-  margin-left: -1px;
-  padding: 0;
-  justify-content: center;
-  font-size: 9px;
-  color: var(--muted);
-}
-
-.tool-flyout {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 60;
-  min-width: 200px;
-  padding: 4px 0;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--panel);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-
-.tool-flyout .menu-item .check {
-  width: 22px;
-  text-align: center;
-}
-
 /* Tools › Stamp › Manage Stamps. */
 .modal.stamps-dialog {
   width: min(560px, calc(100vw - 32px));
@@ -3270,4 +3235,64 @@ tr.hidden-markup td {
   border: 2px dashed #1a6cff;
   background: rgba(26, 108, 255, 0.12);
   pointer-events: none;
+}
+
+/* Number fields with a dropdown of common values (toolbar line width, opacity, cloud bubbles). */
+.combo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.combo-input {
+  width: 38px;
+  height: 100%;
+  padding: 0 2px 0 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+}
+
+.combo-unit {
+  padding: 0 2px;
+  color: var(--muted);
+}
+
+.combo-caret {
+  height: 100%;
+  padding: 0 5px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.combo-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 100%;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.combo-list .menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
 }

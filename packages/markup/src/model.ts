@@ -89,6 +89,8 @@ export interface MarkupStyle {
   capScale?: number;
   /** Hatch pattern drawn inside closed shapes, in the line color. */
   hatch?: HatchPattern;
+  /** Text boxes and callouts: draw the text without its box (no outline or fill). */
+  noBox?: boolean;
   /** Font for text boxes and measurement labels. */
   fontFamily?: FontFamily;
   bold?: boolean;

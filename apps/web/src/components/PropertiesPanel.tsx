@@ -289,7 +289,7 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
           <input type="color" value={style.stroke} onChange={(e) => set('stroke', e.target.value)} />
         </Row>
         <Row label="Line width">
-          <NumberField value={style.width} min={0} max={72} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
+          <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
         </Row>
         {caps.dash && (
           <Row label="Line style">

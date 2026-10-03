@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
-import { actionTarget, boundsOf, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
-import { isMarkupTool, MarkupTools, type FormWidgetHit, type Tool } from './markup/MarkupTools';
+import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
@@ -25,7 +25,7 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { settings, useSettings } from './settings/settings';
 import { buildRows, listColumns, resolveLayout, rowsToCsv, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
-import { addToToolSet, createToolSet, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
+import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
@@ -93,7 +93,6 @@ import type { IncomingPage } from './documents/slipSheet';
 import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
 import { ScaleControl } from './components/ScaleControl';
-import { SheetsPanel } from './components/SheetsPanel';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel } from './components/SearchPanel';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
@@ -544,6 +543,7 @@ export function App() {
   const toggleToolbar = () => updateWorkspace((w) => ({ ...w, showToolbar: !w.showToolbar }));
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState<{ rows: ListRowData[]; columns: ListColumn[] } | null>(null);
   const [exportBusy, setExportBusy] = useState(false);
@@ -973,7 +973,7 @@ export function App() {
       activateTab(pane, packed);
       if (pane === 'a') {
         // Stay on Sessions or Sets when opening from them (or joining from an invite link).
-        setLeftTab((tab) => (tab === 'sessions' || tab === 'sets' ? tab : 'sheets'));
+        setLeftTab((tab) => (tab === 'sessions' || tab === 'sets' ? tab : 'pages'));
         // On narrow screens the panel covers the drawing, so it opens only when asked.
         if (!narrowScreen()) setLeftOpen(true);
       }
@@ -3570,7 +3570,25 @@ export function App() {
   // Style controls edit the active tool's style, or the selected markups' type in select mode.
   const selectedTypes = new Set(markups.filter((m) => toolsState.selected.has(m.id)).map((m) => m.type));
   const styleType =
-    isMarkupTool(toolsState.tool) ? toolsState.tool : toolsState.tool !== 'select' ? null : selectedTypes.size === 1 ? [...selectedTypes][0]! : null;
+    toolsState.tool === 'cloudPlus'
+      ? 'cloud'
+      : isMarkupTool(toolsState.tool)
+        ? toolsState.tool
+        : toolsState.tool !== 'select'
+          ? null
+          : selectedTypes.size === 1
+            ? [...selectedTypes][0]!
+            : null;
+  // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
+  const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
+  const selectedText = textType && toolsState.tool === 'select' ? markups.find((m) => m.type === textType && toolsState.selected.has(m.id)) : undefined;
+  // Cloud bubble size: shown while drawing a cloud, or when the selection includes one (a Cloud+ is a cloud and its callout).
+  // `value` is the selected cloud's size, else the default for new ones (undefined: sized to the zoom).
+  const selectedCloud = markups.find((m) => m.type === 'cloud' && toolsState.selected.has(m.id));
+  const cloudBubble =
+    toolsState.tool === 'cloud' || toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedCloud)
+      ? { value: selectedCloud && toolsState.tool === 'select' ? cloudRadius(selectedCloud) : toolsState.styles.cloud.arcRadius }
+      : null;
   const pageIndex = (paneB ? statsB : stats)?.pageIndex ?? 0;
   const pageCount = (paneB ? statsB : stats)?.pageCount ?? 0;
   // A calibration line drawn inside a viewport calibrates that viewport.
@@ -4169,6 +4187,9 @@ export function App() {
     if (!first) return [];
     const ro = store.readOnly;
     const one = ms.length === 1;
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    const callouts = ms.filter((m) => m.type === 'callout');
+    const callout = callouts.length === 1 ? callouts[0] : undefined;
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -4347,6 +4368,12 @@ export function App() {
         ? [
             { label: 'Open Attachment', onClick: () => openAttachment(first) },
             { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
+          ]
+        : []),
+      ...(callout
+        ? [
+            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
+            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
           ]
         : []),
       SEP,
@@ -4566,16 +4593,68 @@ export function App() {
     ];
   };
 
+  /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
+  const orderedRail = [...RAIL].sort((a, b) => {
+    const ia = ws.panelOrder.indexOf(a.id);
+    const ib = ws.panelOrder.indexOf(b.id);
+    return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
+  });
+
+  /** Moves a panel next to another on the rail. */
+  const moveRailPanel = (id: LeftTab, target: LeftTab, after: boolean) => {
+    if (id === target) return;
+    const ids = orderedRail.map((r) => r.id).filter((x) => x !== id);
+    ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, id);
+    updateWorkspace((w) => ({ ...w, panelOrder: ids }));
+  };
+
+  /** Right-click on the markup toolbar: add any tool to it as a button, or take one off. */
+  const toolbarMenu = (e: { target: EventTarget | null }): MenuEntry[] => {
+    const clicked = (e.target as HTMLElement).closest<HTMLElement>('[data-toolbar-tool]')?.dataset.toolbarTool as Tool | undefined;
+    const all = [...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => t.tool);
+    const onToolbar = (tool: Tool) => !ws.toolbarTools || ws.toolbarTools.includes(tool);
+    const toggle = (tool: Tool) =>
+      updateWorkspace((w) => {
+        const cur = w.toolbarTools ?? all;
+        const next = cur.includes(tool) ? cur.filter((t) => t !== tool) : all.filter((t) => t === tool || cur.includes(t));
+        return { ...w, toolbarTools: next.length === all.length ? null : next };
+      });
+    const list = (tools: { tool: Tool; icon: string }[]): MenuEntry[] =>
+      tools.map(({ tool, icon }) => ({ label: `${icon}  ${toolLabel(tool)}`, checked: onToolbar(tool), onClick: () => toggle(tool) }));
+    return [
+      ...(clicked ? [{ label: `Remove ${toolLabel(clicked)} from Toolbar`, onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
+      { label: 'Toolbar Tools', items: [{ label: 'Markup', items: list(MARKUP_TOOLS) }, { label: 'Measure', items: list(MEASURE_TOOLS) }] },
+      {
+        label: 'Reset Toolbar to Defaults',
+        disabled: ws.toolbarTools?.length === DEFAULT_TOOLBAR_TOOLS.length && DEFAULT_TOOLBAR_TOOLS.every((t) => ws.toolbarTools?.includes(t)),
+        onClick: () => updateWorkspace((w) => ({ ...w, toolbarTools: [...DEFAULT_TOOLBAR_TOOLS] })),
+      },
+      SEP,
+      ...layoutMenu(),
+    ];
+  };
+
+  /** Right-click on the panel rail: turn each panel on or off, or restore the default order. */
+  const panelsMenu = (): MenuEntry[] => [
+    ...orderedRail.map(({ id, title }): MenuEntry => ({
+      label: title,
+      checked: !ws.hiddenPanels.includes(id),
+      disabled: id === 'files',
+      onClick: () => {
+        const hide = !ws.hiddenPanels.includes(id);
+        updateWorkspace((w) => ({ ...w, hiddenPanels: hide ? [...w.hiddenPanels, id] : w.hiddenPanels.filter((x) => x !== id) }));
+        if (hide && leftTab === id) setLeftOpen(false);
+      },
+    })),
+    SEP,
+    { label: 'Reset Panel Order', disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
+  ];
+
   /** Right-click on the menu bar, toolbars, panel rail or status bar: which parts of the window show. */
   const layoutMenu = (): MenuEntry[] => [
     { label: 'Markup Toolbar', checked: showTools, onClick: toggleToolbar },
     { label: 'Panels', checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
     { label: 'Markups List', checked: showBottom, onClick: () => setShowBottom((s) => !s) },
-    SEP,
-    {
-      label: 'Show Panel',
-      items: RAIL.map(({ id, title }) => ({ label: title, checked: leftOpen && leftTab === id, onClick: () => showLeft(id) })),
-    },
     { label: split ? 'Unsplit' : 'Split View', shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
     SEP,
     { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
@@ -5193,7 +5272,9 @@ export function App() {
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
-        if (target.closest('.menubar, .toolbar, .rail, .statusbar, .doc-tabs, .tabs, .panel.left > h2')) showMenu(e, layoutMenu());
+        if (target.closest('.rail')) showMenu(e, panelsMenu());
+        else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
+        else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.left > h2')) showMenu(e, layoutMenu());
         else if (!target.closest('.modal, .ctx-root, a')) e.preventDefault();
       }}
     >
@@ -5272,6 +5353,9 @@ export function App() {
           tools={activeTools}
           state={toolsState}
           styleType={styleType}
+          cloudBubble={cloudBubble}
+          textType={textType}
+          textMarkupStyle={selectedText?.style}
           enabled={!!activeOpen && !activeReadOnly}
           visibleTools={ws.toolbarTools}
           onUndo={() => activeOpen?.store.undo()}
@@ -5294,13 +5378,37 @@ export function App() {
             </svg>
             <span className="rail-label">Collapse</span>
           </button>
-          {RAIL.filter(({ id }) => !ws.hiddenPanels.includes(id)).map(({ id, title, icon }) => (
+          {orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id)).map(({ id, title, icon }) => (
             <button
               key={id}
               type="button"
-              className={leftOpen && leftTab === id ? 'active' : ''}
+              className={[
+                leftOpen && leftTab === id ? 'active' : '',
+                railDrag?.id === id ? 'dragging' : '',
+                railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
+              ].filter(Boolean).join(' ')}
               title={title}
               aria-pressed={leftOpen && leftTab === id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', id);
+                setRailDrag({ id, over: null, after: false });
+              }}
+              onDragOver={(e) => {
+                if (!railDrag || railDrag.id === id) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                const r = e.currentTarget.getBoundingClientRect();
+                const after = e.clientY > r.top + r.height / 2;
+                if (railDrag.over !== id || railDrag.after !== after) setRailDrag({ ...railDrag, over: id, after });
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (railDrag) moveRailPanel(railDrag.id, id, railDrag.after);
+                setRailDrag(null);
+              }}
+              onDragEnd={() => setRailDrag(null)}
               onClick={() => {
                 if (leftOpen && leftTab === id) setLeftOpen(false);
                 else showLeft(id);
@@ -5452,24 +5560,6 @@ export function App() {
                 onIndex={(ids) => void indexSetFiles(ids)}
                 onOpenSheet={(fileId, page) => void openSetSheet(fileId, page)}
               />
-            ) : leftTab === 'sheets' ? (
-              <SheetsPanel
-                pageCount={pageCount}
-                currentPage={pageIndex}
-                sheets={sheets}
-                progress={indexProgress}
-                applicableScales={detectedScales.length}
-                onGoTo={(i) => v?.goToPage(i)}
-                onEdit={(i, patch) => activeOpen?.store.editSheet(i, patch)}
-                onDetect={() => void detectSheetsOffline()}
-                onApplyScales={() => {
-                  for (const [i, scale] of detectedScales) activeOpen?.store.setScale([i], scale);
-                }}
-                onCancel={() => indexAbort.current?.abort()}
-                stitchGroups={stitchGroups}
-                onOpenStitch={(g) => openStitch(g)}
-                onRestitch={() => void restitch()}
-              />
             ) : leftTab === 'properties' ? (
               <PropertiesPanel
                 markups={markups}
@@ -5586,7 +5676,7 @@ export function App() {
                 }}
               />
             ) : leftTab === 'flags' ? (
-              <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} />
+              <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flag') : null} />
             ) : leftTab === 'sessions' ? (
               <SessionsPanel
                 joined={sessions.map((session, i) => ({ session, snapshot: snapshots[i]! }))}
@@ -6777,15 +6867,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M7 2a5 5 0 0 1 3.9 8.1l2.5 2.5-1.4 1.4-2.5-2.5A5 5 0 1 1 7 2zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'sheets',
-    title: 'Sheets',
-    icon: (
-      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-        <path fill="currentColor" d="M2 3h12v2H2V3zm0 4h12v2H2V7zm0 4h12v2H2v-2z" />
       </svg>
     ),
   },

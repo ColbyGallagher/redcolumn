@@ -214,7 +214,8 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   },
   length: {
     label: 'Length',
-    style: { stroke: '#dc2626', fill: null, width: 1, opacity: 1 },
+    // New lengths get arrowheads; older ones without these set keep their ticks.
+    style: { stroke: '#dc2626', fill: null, width: 1, opacity: 1, startCap: 'filledArrow', endCap: 'filledArrow' },
     draw: 'click',
     click: { min: 2, fixed: 2 },
     closed: false,
