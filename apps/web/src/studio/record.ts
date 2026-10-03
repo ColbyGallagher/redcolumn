@@ -1,5 +1,5 @@
-// Mirrors services/studio/src/record.ts. redcolumn server sessions have the server write Record lines;
-// Google Drive sessions have no server, so each attendee's app writes lines for its own edits.
+// Live Sessions in Google Drive and OneDrive have no server, so each attendee's app writes Record
+// lines for its own edits.
 import * as Y from 'yjs';
 import { isTextType, MARKUP_LABELS, type Markup, type MarkupType } from '@nb/markup';
 import type { RecordEntry } from './protocol';

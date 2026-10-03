@@ -20,11 +20,6 @@
   white-space: nowrap;
 }
 
-.status-offline.sending {
-  background: rgba(59, 130, 246, 0.22);
-  color: #bfdbfe;
-}
-
 .install-steps {
   margin: 8px 0;
   padding-left: 20px;
@@ -64,35 +59,6 @@
   gap: 8px;
   padding: 3px 0;
   color: var(--text);
-}
-
-.project-meta .stale {
-  color: #fbbf24;
-}
-
-.project-offline {
-  margin: 4px 0;
-  padding: 6px 8px;
-  border-radius: 4px;
-  background: rgba(234, 179, 8, 0.14);
-  color: #fde68a;
-}
-
-.project-queue {
-  margin: 4px 0;
-  padding: 0;
-  list-style: none;
-}
-
-.project-queue li {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 2px 0;
-}
-
-.project-queue li.failed {
-  color: #fca5a5;
 }
 
 /* Drawer close buttons show only in the phone layout, where panels cover the drawing. */

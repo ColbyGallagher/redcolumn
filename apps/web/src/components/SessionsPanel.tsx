@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { customStudioServer, setStudioServer, studioConfig, StudioSession, studioServer } from '../studio/StudioSession';
 import { googleSignInConfigured, googleUser, signInWithGoogle, signOutOfGoogle, subscribeGoogleUser } from '../studio/drive/google';
 import { microsoftUser, oneDriveConfigured, signInWithMicrosoft, signOutOfMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
 import { forgetRecentSession, recentSessions, type SessionRef } from '../studio/local';
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
-import { attendeeColor, myAccess, StudioError, type CollabSession, type StudioSnapshot } from '../studio/types';
+import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
 import { ACCESS_SHORT } from './sessions/AccessEditor';
 import { offlineReason, useOnline } from '../offline/network';
 import { JoinSessionDialog, SessionSettingsDialog, StartSessionDialog, type StartRequest } from './sessions/SessionDialogs';
@@ -54,7 +53,7 @@ interface Props {
   /** Runs a session action, showing its error in the panel. */
   onRun: (job: () => Promise<void>) => void;
   onReport: (sessionId: string, format: 'pdf' | 'csv') => void;
-  /** Invites people by email (the server sends it, or the user's mail app does). */
+  /** Invites people by email (the user's mail app sends it). */
   onInviteEmail?: (sessionId: string) => void;
   /** Host: replace a document with a new revision (markups stay). */
   onUpdateDocument: (sessionId: string, docId: string, file: File) => void;
@@ -76,10 +75,6 @@ export function SessionsPanel(props: Props) {
   const [startDocs, setStartDocs] = useState<string[] | null>(null);
   const google = useSyncExternalStore(subscribeGoogleUser, googleUser);
   const microsoft = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
-  const [serverGoogle, setServerGoogle] = useState(false);
-  useEffect(() => {
-    if (dialog === 'start') void studioConfig().then((c) => setServerGoogle(c.google && googleSignInConfigured));
-  }, [dialog]);
   useEffect(() => {
     if (!props.startRequest) return;
     setStartDocs(props.startRequest.fileIds);
@@ -97,7 +92,6 @@ export function SessionsPanel(props: Props) {
           me={props.me}
           googleEmail={google?.email ?? null}
           microsoftEmail={microsoft?.email ?? null}
-          serverGoogle={serverGoogle}
           driveAvailable={props.driveAvailable}
           oneDriveAvailable={props.oneDriveAvailable}
           openFiles={props.openFiles}
@@ -118,7 +112,6 @@ export function SessionsPanel(props: Props) {
           oneDriveAvailable={props.oneDriveAvailable}
           busy={props.busy}
           onClose={() => setDialog(null)}
-          onJoinId={(id) => void props.onJoin({ backend: 'server', id }).then((ok) => ok && setDialog(null))}
           onJoinOneDrive={(id) => void props.onJoin({ backend: 'onedrive', id }).then((ok) => ok && setDialog(null))}
           onJoinDrive={() => void props.onJoin({ backend: 'drive', id: null }).then((ok) => ok && setDialog(null))}
         />
@@ -161,29 +154,6 @@ export function SessionsPanel(props: Props) {
   );
 }
 
-type Info = { state: 'loading' } | { state: 'ok'; meta: SessionMeta; isHost: boolean } | { state: 'error'; status: number; message: string };
-
-/** Live details of sessions this browser knows about (server sessions only; Drive needs a sign-in). */
-function useSessionInfo(me: string, refresh: number) {
-  const [info, setInfo] = useState<Record<string, Info>>({});
-  const recent = useMemo(recentSessions, [refresh]);
-  useEffect(() => {
-    let live = true;
-    for (const r of recent) {
-      if (r.backend !== 'server') continue;
-      setInfo((i) => ({ ...i, [r.id]: i[r.id]?.state === 'ok' ? i[r.id]! : { state: 'loading' } }));
-      StudioSession.peek(r.id, me).then(
-        ({ session, isHost }) => live && setInfo((i) => ({ ...i, [r.id]: { state: 'ok', meta: session, isHost } })),
-        (err) => live && setInfo((i) => ({ ...i, [r.id]: { state: 'error', status: err instanceof StudioError ? err.status : 0, message: String(err?.message ?? err) } })),
-      );
-    }
-    return () => {
-      live = false;
-    };
-  }, [recent, me]);
-  return { recent, info };
-}
-
 function SessionList({
   joined,
   me,
@@ -201,30 +171,16 @@ function SessionList({
   const [refresh, setRefresh] = useState(0);
   const online = useOnline();
   const [filter, setFilter] = useState<'active' | 'all'>('active');
-  const [server, setServer] = useState(customStudioServer);
-  const { recent, info } = useSessionInfo(me, refresh + joined.length);
+  // Sessions in Drive and OneDrive show their details once joined (reading them needs a sign-in).
+  const recent = useMemo(recentSessions, [refresh, joined.length]);
 
   const rows = recent
     .map((r) => {
       const j = joined.find((x) => x.session.id === r.id);
-      const i = info[r.id];
-      const meta = j?.snapshot.meta ?? (i?.state === 'ok' ? i.meta : null);
-      let status: string;
-      let usable = true;
-      if (j) status = j.snapshot.meta.status === 'finished' ? 'Finished' : 'Joined';
-      else if (r.backend === 'drive') status = 'Google Drive';
-      else if (r.backend === 'onedrive') status = 'OneDrive';
-      else if (!i || i.state === 'loading') status = '…';
-      else if (i.state === 'ok') status = i.meta.status === 'finished' ? 'Finished' : 'Active';
-      else {
-        usable = false;
-        status = i.status === 401 ? 'Sign in' : i.status === 403 ? 'No access' : i.status === 404 ? 'Not found' : 'Offline';
-        // Sessions for Google accounts join with a sign-in.
-        if (i.status === 401) usable = googleSignInConfigured;
-      }
-      const isHost = j ? j.snapshot.isHost : !!meta && i?.state === 'ok' && i.isHost;
-      const access = meta ? (isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta, me, isHost: false })]) : null;
-      return { ref: r, joined: j, meta, status, usable, access };
+      const meta = j?.snapshot.meta ?? null;
+      const status = j ? (j.snapshot.meta.status === 'finished' ? 'Finished' : 'Joined') : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
+      const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
+      return { ref: r, joined: j, meta, status, usable: true, access };
     })
     .filter((row) => filter === 'all' || row.joined || (row.usable && row.meta?.status !== 'finished'));
 
@@ -277,7 +233,7 @@ function SessionList({
       </h3>
       {rows.length === 0 ? (
         <p className="empty">
-          {recent.length ? 'No active sessions. Show All to see finished ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together, or join with a Session ID.'}
+          {recent.length ? 'No active sessions. Show All to see finished ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
         </p>
       ) : (
         <ul className="session-list">
@@ -295,7 +251,7 @@ function SessionList({
                   <span className={`status ${status.toLowerCase().replace(/\s/g, '-')}`}>{status}</span>
                 </span>
                 <span className="line2">
-                  <span className="sid">{ref.backend === 'server' ? ref.id : ref.backend === 'onedrive' ? 'OneDrive' : 'Drive'}</span>
+                  <span className="sid">{ref.backend === 'onedrive' ? 'OneDrive' : 'Drive'}</span>
                   {meta && (
                     <span>
                       {meta.host} · {meta.documents.length} doc{meta.documents.length === 1 ? '' : 's'}
@@ -327,13 +283,6 @@ function SessionList({
       </p>
       <GoogleIdentity onChanged={() => setRefresh((n) => n + 1)} />
       <MicrosoftIdentity onChanged={() => setRefresh((n) => n + 1)} />
-      <details className="session-server">
-        <summary>redcolumn server</summary>
-        <label className="field">
-          Address
-          <input value={server} onChange={(e) => setServer(e.target.value)} onBlur={() => setStudioServer(server)} placeholder={studioServer()} />
-        </label>
-      </details>
     </div>
   );
 }
@@ -440,27 +389,13 @@ function InSession({
           <b title={meta.name}>{meta.name}</b>
           <span className={`access-badge ${isHost ? 'host' : access}`}>{isHost ? 'Host' : ACCESS_SHORT[access]}</span>
         </div>
-        {(meta.requireGoogle || snapshot.email) && (
-          <p className="session-identity">
-            {meta.requireGoogle ? 'Google accounts only · ' : ''}
-            {snapshot.email ? `you are ${snapshot.email}` : 'not signed in'}
-          </p>
-        )}
+        {snapshot.email && <p className="session-identity">you are {snapshot.email}</p>}
         {!finished && meta.expiresAt ? <p className="session-identity">Ends {new Date(meta.expiresAt).toLocaleString()}</p> : null}
         {(isHost || allows(meta, 'invite')) && (
         <div className="session-id">
-          {backend === 'server' ? (
-            <>
-              <span>{meta.id}</span>
-              <button className="btn small" onClick={() => copy('id', meta.id)} title="Copy session ID">
-                {copied === 'id' ? 'Copied' : 'Copy ID'}
-              </button>
-            </>
-          ) : (
-            <a className="drive-link" href={snapshot.folderUrl} target="_blank" rel="noreferrer" title={`Open the session folder in ${backend === 'onedrive' ? 'OneDrive' : 'Google Drive'}`}>
-              {backend === 'onedrive' ? 'OneDrive' : 'Google Drive'} ↗
-            </a>
-          )}
+          <a className="drive-link" href={snapshot.folderUrl} target="_blank" rel="noreferrer" title={`Open the session folder in ${backend === 'onedrive' ? 'OneDrive' : 'Google Drive'}`}>
+            {backend === 'onedrive' ? 'OneDrive' : 'Google Drive'} ↗
+          </a>
           <button className="btn small" onClick={() => copy('link', snapshot.inviteLink)} title="Copy a link that opens this session">
             {copied === 'link' ? 'Copied' : 'Invite link'}
           </button>
@@ -474,9 +409,7 @@ function InSession({
         {denied && <p className="session-error">The host has removed your access to this session.</p>}
         {needsAuth && (
           <div className="session-offline">
-            {backend === 'server'
-              ? 'This session is for Google accounts: sign in to connect.'
-              : `Signed out of ${backend === 'onedrive' ? 'Microsoft' : 'Google'}. Your edits are kept here and saved when you reconnect.`}{' '}
+            {`Signed out of ${backend === 'onedrive' ? 'Microsoft' : 'Google'}. Your edits are kept here and saved when you reconnect.`}{' '}
             <button className="btn small primary" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
               Reconnect
             </button>

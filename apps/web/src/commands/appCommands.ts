@@ -22,7 +22,6 @@ export interface Command {
 export interface CommandActions {
   open: () => void;
   newPdf: () => void;
-  newProject: () => void;
   newFromTemplate: () => void;
   fromCamera: () => void;
   combine: () => void;
@@ -188,7 +187,6 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
 
   return [
     cmd('file.newPdf', 'File', 'New PDF…', a.newPdf),
-    cmd('file.newProject', 'File', 'New Team Project…', a.newProject),
     cmd('file.fromCamera', 'File', 'From Camera…', a.fromCamera),
     cmd('file.newFromTemplate', 'File', 'New PDF from Template…', a.newFromTemplate, s.templateCount > 0),
     cmd('file.open', 'File', 'Open…', a.open),
