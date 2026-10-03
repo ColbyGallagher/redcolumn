@@ -7,7 +7,6 @@ two), **M** (about a week), **L** (several weeks).
 
 | Work | Notes | Size |
 |---|---|---|
-| Translate markups | Translate selected markups' text and comments through `services/ai` | S |
 | Spreadsheet links for quantities | Export measurement totals as `.xlsx` with named cells, or a CSV that refreshes when markups change | M |
 | Account settings | A settings page for the Google and Microsoft sign-ins used by Live Sessions | S |
 | More storage providers | Dropbox and SharePoint, through the same provider interface as `apps/web/src/studio/drive/` | M |
@@ -17,8 +16,6 @@ two), **M** (about a week), **L** (several weeks).
 
 ## Later
 
-- An MCP server in `services/ai` exposing markups, measurements, search and page operations to AI
-  assistants (L).
 - Detached windows for multi-monitor work (L).
 
 ## Not planned

@@ -110,7 +110,7 @@ import {
 } from './components/SidePanels';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { AiUnavailableError, ESTIMATED_AI_COST_PER_SHEET, forgetText, importPdfAnnotations, indexFromText, indexWithAi, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, importPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -1148,30 +1148,6 @@ export function App() {
     },
     [ctl, ctlB],
   );
-
-  const aiIndexSheets = useCallback(() => {
-    const cur = openRef.current;
-    if (!cur) return;
-    const all = cur.store.allSheets();
-    // Pages the user corrected by hand are left alone.
-    const pages = Array.from({ length: cur.doc.pages.length }, (_, i) => i).filter((i) => all[i]?.source !== 'manual');
-    if (!pages.length) return;
-    const cost = (pages.length * ESTIMATED_AI_COST_PER_SHEET).toFixed(2);
-    const plural = pages.length > 1 ? 's' : '';
-    if (!confirm(`Send ${pages.length} sheet image${plural} to Claude to read the title blocks?\n\nNeeds an internet connection. Estimated cost about $${cost}.`)) return;
-    void runIndexJob(async (bytes, c, signal) => {
-      try {
-        const { failed } = await indexWithAi(bytes, c.store, pages, setIndexProgress, signal);
-        // Sheet numbers may have changed, which changes what callouts and match lines resolve to.
-        await linkFromText(() => readFile(c.file.hash), c.store, setIndexProgress, signal);
-        await stitchFromText(() => readFile(c.file.hash), c.store, setIndexProgress, signal);
-        if (failed.length) setError(`AI could not read ${failed.length} sheet(s): pages ${failed.map((i) => i + 1).join(', ')}.`);
-      } catch (err) {
-        if (err instanceof AiUnavailableError) setError(`${err.message} Offline detection results are kept.`);
-        else throw err;
-      }
-    });
-  }, [runIndexJob]);
 
   /** Opens PDFs from disk, one tab each. */
   /**
@@ -5486,7 +5462,6 @@ export function App() {
                 onGoTo={(i) => v?.goToPage(i)}
                 onEdit={(i, patch) => activeOpen?.store.editSheet(i, patch)}
                 onDetect={() => void detectSheetsOffline()}
-                onAiIndex={aiIndexSheets}
                 onApplyScales={() => {
                   for (const [i, scale] of detectedScales) activeOpen?.store.setScale([i], scale);
                 }}

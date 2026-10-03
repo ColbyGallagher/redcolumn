@@ -69,7 +69,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
       </div>
       <div className="status-group right">
         {!online && (
-          <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, AI indexing, time stamps and cloud storage wait for the network.">
+          <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, time stamps and cloud storage wait for the network.">
             Offline
           </span>
         )}

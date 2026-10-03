@@ -67,9 +67,6 @@ Google and Microsoft handle these files under their own terms and privacy polici
 
 These only run when you use them:
 
-- **AI sheet indexing** (where the app offers it) sends images of the drawing sheets you choose to
-  an AI service, which uses Anthropic's Claude to read the title blocks. You are asked to confirm
-  first. Anthropic handles the images under its own policies.
 - **Digital signatures:** if you turn on trusted time stamps, or check whether a certificate has
   been revoked, your browser contacts the certificate service named in your settings or in the
   certificate (for example DigiCert). It sends a fingerprint of the signature or certificate, not

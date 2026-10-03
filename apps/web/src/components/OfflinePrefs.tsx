@@ -29,7 +29,7 @@ export function OfflinePrefs() {
     <>
       <h4>This device</h4>
       <p className="pref-hint">
-        {online ? 'Online.' : 'Offline: documents, markups, measurements and everything else on this device keep working; Live Sessions, AI indexing, signatures’ time stamps and cloud storage wait for the network.'}{' '}
+        {online ? 'Online.' : 'Offline: documents, markups, measurements and everything else on this device keep working; Live Sessions, signatures’ time stamps and cloud storage wait for the network.'}{' '}
         {appCached ? 'The app is saved on this device and opens without a network.' : 'The app is not saved for offline use yet (it is once it has loaded from the web, not from a development server).'}
       </p>
       <h4>Storage</h4>

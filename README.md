@@ -27,7 +27,6 @@ Needs Node.js 22 and pnpm.
 ```sh
 pnpm install
 pnpm dev          # the web app
-pnpm dev:ai       # optional: AI sheet indexing (needs an Anthropic API key)
 pnpm test
 pnpm typecheck
 ```
@@ -45,12 +44,11 @@ is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
-| `services/ai` | Sheet indexing with the Claude API |
 
 ## Privacy
 
 redcolumn has no server, account, analytics or tracking. See [PRIVACY.md](PRIVACY.md) for what the
-optional features (Live Sessions, AI sheet indexing, signature checks) send and to whom.
+optional features (Live Sessions and signature checks) send and to whom.
 
 ## Licence
 
