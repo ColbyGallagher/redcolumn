@@ -2994,6 +2994,17 @@ tr.hidden-markup td {
 
 .whats-new h4 {
   margin: 12px 0 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border, currentColor);
+}
+
+.whats-new h4 .muted {
+  font-weight: normal;
+  opacity: 0.7;
+}
+
+.whats-new h5 {
+  margin: 10px 0 4px;
 }
 
 .whats-new ul {

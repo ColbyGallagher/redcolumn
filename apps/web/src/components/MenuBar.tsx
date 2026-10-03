@@ -2,7 +2,20 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { isStandalone, onInstallChange } from '../offline/install';
-import { MEASURE_TOOLS, MARKUP_TOOLS } from './ToolBar';
+import type { Tool } from '../markup/MarkupTools';
+import { MEASURE_TOOLS } from './ToolBar';
+
+/**
+ * Tools › Markup, in groups. Left out because the menus list them elsewhere: Stamp, File
+ * Attachment, Hyperlink, Eraser, Redaction and Snapshot. Select and Lasso are not markups.
+ */
+const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
+  { label: 'Lines & Shapes', tools: ['line', 'arrow', 'dimension', 'polyline', 'arc', 'rect', 'ellipse', 'polygon', 'cloud', 'cloudPlus'] },
+  { label: 'Freehand', tools: ['pen', 'highlighter'] },
+  { label: 'Text Markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
+  { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'note'] },
+  { label: 'Other', tools: ['image', 'flag', 'legend', 'space'] },
+];
 
 export type LeftTab =
   | 'files'
@@ -407,8 +420,12 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         return (
           <>
             <Submenu label="Markup">
-              {MARKUP_TOOLS.map(({ tool }) => (
-                <Cmd key={tool} id={`tool.${tool}`} />
+              {MARKUP_GROUPS.map((group) => (
+                <Submenu key={group.label} label={group.label}>
+                  {group.tools.map((tool) => (
+                    <Cmd key={tool} id={`tool.${tool}`} />
+                  ))}
+                </Submenu>
               ))}
             </Submenu>
             <Submenu label="Stamp">
@@ -460,18 +477,6 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
       case 'window':
         return (
           <>
-            {(Object.keys(LEFT_TITLES) as LeftTab[]).filter((tab) => !hiddenPanels.includes(tab)).map((tab) => (
-              <Item
-                key={tab}
-                label={LEFT_TITLES[tab]}
-                checked={panels.showLeft && panels.leftTab === tab}
-                onClick={run(() => on.showLeft(tab))}
-              />
-            ))}
-            <Sep />
-            <Item label="Markups" checked={panels.showBottom && panels.bottomTab === 'markups'} onClick={run(() => on.showBottom('markups'))} />
-            <Item label="Links" checked={panels.showBottom && panels.bottomTab === 'links'} onClick={run(() => on.showBottom('links'))} />
-            <Sep />
             <Cmd id="window.toolbar" />
             <Cmd id="window.leftPanel" />
             <Cmd id="window.bottomPanel" />
@@ -521,7 +526,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       {!installed && (
-        <button type="button" className="install-app-btn" title="Install redcolumn as an app: its own window, works offline" onClick={on.install}>
+        <button type="button" className="install-app-btn" title={'Install redcolumn as an app:\n• Works offline, even with no signal\n• Its own window, with a taskbar, dock or home screen icon\n• Offered as the opener for PDFs in your file manager (desktop)\n• Share PDFs to it from other apps (phone)\n• Right-click the icon for Open and New PDF shortcuts\n• Updates install in the background without interrupting your work'} onClick={on.install}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path fill="none" stroke="currentColor" strokeWidth="1.8" d="M8 2v8m-3-3 3 3 3-3M3 13h10" />
           </svg>

@@ -927,7 +927,8 @@ body,
   left: 0;
   z-index: 40;
   min-width: 230px;
-  max-height: min(70vh, 520px);
+  /* Whole menu whenever the window is tall enough; scrolls only when it truly does not fit. */
+  max-height: calc(100vh - 40px);
   padding: 4px 0;
   overflow: auto;
   border: 1px solid var(--border);
