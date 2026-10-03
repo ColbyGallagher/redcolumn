@@ -75,6 +75,7 @@ test('the manifest is installable: id, scope, PNG and maskable icons, shortcuts,
   assert.equal(m.start_url, '/redcolumn/');
   assert.equal(m.scope, '/redcolumn/');
   assert.equal(m.display, 'standalone');
+  assert.deepEqual(m.display_override, ['window-controls-overlay', 'standalone']);
   const sizes = (purpose: string) => m.icons.filter((i) => i.type === 'image/png' && i.purpose === purpose).map((i) => i.sizes);
   assert.deepEqual(sizes('any'), ['192x192', '512x512']);
   assert.deepEqual(sizes('maskable'), ['192x192', '512x512']);

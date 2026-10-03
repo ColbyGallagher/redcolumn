@@ -880,6 +880,24 @@ body,
   user-select: none;
 }
 
+/* Installed desktop app with window controls overlay: the menu bar fills the title bar strip, stays
+   clear of the window buttons, and the empty part of it drags the window. */
+@media (display-mode: window-controls-overlay) {
+  .menubar {
+    box-sizing: border-box;
+    min-height: env(titlebar-area-height, 33px);
+    padding-left: env(titlebar-area-x, 0px);
+    padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+  .menubar .menu,
+  .menubar button {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
+
 .install-app-btn {
   display: inline-flex;
   align-items: center;
