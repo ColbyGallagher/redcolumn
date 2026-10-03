@@ -2,7 +2,8 @@
 
 Open-source PDF markup and takeoff for construction drawings, in the browser. Mark up and measure
 drawings, run takeoffs, compare revisions, manage drawing sets, and review together in live
-sessions. It installs as an app and works offline.
+sessions over Google Drive or OneDrive. It installs as an app and works offline. Your documents
+stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](PRIVACY.md)).
 
 ## Features
 
@@ -14,8 +15,8 @@ sessions. It installs as an app and works offline.
   revisions, slip sheets, batch processing.
 - **Documents:** page tools, headers and footers, OCR, forms, redaction, digital signatures,
   encryption and PDF/A.
-- **Working together:** Live Sessions over Google Drive, OneDrive or your own redcolumn server, and
-  Team Projects with check out and check in.
+- **Working together:** Live Sessions in the host's Google Drive or OneDrive, with access levels,
+  chat, markup alerts and session reports.
 - **Compatibility:** reads and writes standard PDF annotations and XFDF, and imports Bluebeam®
   Revu® tool sets (`.btx`).
 
@@ -26,14 +27,12 @@ Needs Node.js 22 and pnpm.
 ```sh
 pnpm install
 pnpm dev          # the web app
-pnpm dev:studio   # optional: the redcolumn server for Live Sessions and Team Projects
-pnpm dev:ai       # optional: AI sheet indexing (needs an Anthropic API key)
 pnpm test
 pnpm typecheck
 ```
 
-`apps/web/.env.example` lists the optional settings for Google Drive and OneDrive. The server is
-described in `services/studio/README.md`. Planned work is in `docs/ROADMAP.md`.
+`apps/web/.env.example` lists the optional settings for Google Drive and OneDrive; setting them up
+is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 
 ## Repository
 
@@ -45,8 +44,11 @@ described in `services/studio/README.md`. Planned work is in `docs/ROADMAP.md`.
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
-| `services/studio` | The redcolumn server for Live Sessions and Team Projects |
-| `services/ai` | Sheet indexing with the Claude API |
+
+## Privacy
+
+redcolumn has no server, account, analytics or tracking. See [PRIVACY.md](PRIVACY.md) for what the
+optional features (Live Sessions and signature checks) send and to whom.
 
 ## Licence
 

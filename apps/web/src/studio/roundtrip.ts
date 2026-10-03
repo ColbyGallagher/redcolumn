@@ -1,10 +1,10 @@
 /**
- * Session Roundtrip: where each session document came from (a library file, or a Project file
- * checked out to the session), so finishing the session can send the result back there.
+ * Session Roundtrip: which library file each session document came from, so finishing the
+ * session can send the result back there.
  * Kept by the host's browser, which is the one that finishes the session.
  */
 
-export type RoundtripSource = { kind: 'file'; fileId: string; name: string } | { kind: 'project'; projectId: string; fileId: string; name: string };
+export type RoundtripSource = { kind: 'file'; fileId: string; name: string };
 
 const KEY = 'nb.roundtrip';
 

@@ -35,18 +35,19 @@ export interface RecentSession extends SessionRef {
 
 /** Sessions this browser has created or joined, newest first: the Sessions list. */
 export function recentSessions(): RecentSession[] {
-  // Entries from before Google Drive sessions have no backend: they are server sessions.
-  return readLocal<(Omit<RecentSession, 'backend'> & { backend?: Backend })[]>(RECENT_KEY, []).map((r) => ({ ...r, backend: r.backend ?? 'server' }));
+  // Older builds also kept redcolumn server sessions (no backend, or 'server'): they are dropped.
+  return readLocal<(Omit<RecentSession, 'backend'> & { backend?: string })[]>(RECENT_KEY, []).filter((r): r is RecentSession => isBackend(r.backend));
 }
 
 /** The sessions this browser is in (it can be in several at once), rejoined on the next visit. */
 export function currentSessions(): SessionRef[] {
-  // Older builds kept one session: an id string, or one ref.
-  const cur = readLocal<SessionRef[] | SessionRef | string | null>(CURRENT_KEY, null);
-  if (!cur) return [];
-  if (typeof cur === 'string') return [{ backend: 'server', id: cur }];
-  return Array.isArray(cur) ? cur : [cur];
+  // Older builds kept one session (an id string, or one ref), and also server sessions: dropped.
+  const cur = readLocal<{ backend?: string; id: string }[] | { backend?: string; id: string } | string | null>(CURRENT_KEY, null);
+  if (!cur || typeof cur === 'string') return [];
+  return (Array.isArray(cur) ? cur : [cur]).filter((r): r is SessionRef => isBackend(r.backend));
 }
+
+const isBackend = (b: string | undefined): b is Backend => b === 'drive' || b === 'onedrive';
 
 export function rememberSession(ref: SessionRef, name: string) {
   const recent = recentSessions().filter((r) => r.id !== ref.id);
@@ -65,11 +66,11 @@ export function forgetRecentSession(id: string) {
   forgetCurrentSession(id);
 }
 
-/** A link that opens the app and joins a session: `?studio=` (server), `?gdrive=` (Drive), `?onedrive=`. */
+/** A link that opens the app and joins a session: `?gdrive=` (Google Drive) or `?onedrive=`. */
 export function inviteLink(ref: SessionRef): string {
   const url = new URL(typeof window === 'undefined' ? 'http://localhost/' : window.location.href);
   url.search = '';
   url.hash = '';
-  url.searchParams.set(ref.backend === 'drive' ? 'gdrive' : ref.backend === 'onedrive' ? 'onedrive' : 'studio', ref.id);
+  url.searchParams.set(ref.backend === 'drive' ? 'gdrive' : 'onedrive', ref.id);
   return url.href;
 }

@@ -42,7 +42,7 @@ function AccessSelect({ value, onChange, inherit, label }: { value: Access | nul
 }
 
 /**
- * Edits who may do what in a session: a default for anyone with the session ID, people with their
+ * Edits who may do what in a session: a default for anyone with the invite link, people with their
  * own level (or their groups'), and groups of people sharing a level.
  */
 export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy; onChange: (p: AccessPolicy) => void; host: string }) {
@@ -64,7 +64,7 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
   return (
     <div className="access-editor">
       <label className="access-default">
-        <span>Anyone else with the session ID</span>
+        <span>Anyone else with the invite link</span>
         <AccessSelect label="Access for anyone else" value={policy.default} onChange={(a) => onChange({ ...policy, default: a ?? 'markup' })} />
       </label>
 

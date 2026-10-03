@@ -1649,12 +1649,6 @@ body,
   background: #7f1d1d;
 }
 
-.session-server {
-  margin-top: 12px;
-  color: var(--muted);
-}
-
-.session-server summary,
 .host-tools summary {
   cursor: pointer;
 }

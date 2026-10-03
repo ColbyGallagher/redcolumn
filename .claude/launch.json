@@ -26,26 +26,6 @@
         "--strictPort"
       ],
       "port": 4173
-    },
-    {
-      "name": "ai-service",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "@nb/ai",
-        "dev"
-      ],
-      "port": 8787
-    },
-    {
-      "name": "studio-service",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--filter",
-        "@nb/studio",
-        "dev"
-      ],
-      "port": 8788
     }
   ]
 }

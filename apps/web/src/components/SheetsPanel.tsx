@@ -13,7 +13,6 @@ interface Props {
   onGoTo: (pageIndex: number) => void;
   onEdit: (pageIndex: number, patch: { number?: string | null; title?: string | null }) => void;
   onDetect: () => void;
-  onAiIndex: () => void;
   onApplyScales: () => void;
   onCancel: () => void;
   stitchGroups: StoredStitchGroup[];
@@ -26,24 +25,20 @@ const SOURCE_BADGE: Record<SheetInfo['source'], string> = { text: 'auto', ai: 'A
 const PHASE_LABEL: Record<IndexProgress['phase'], string> = {
   annotations: 'Importing markups',
   text: 'Reading text',
-  ai: 'AI reading title blocks',
   links: 'Finding links',
   stitch: 'Stitching match lines',
 };
 
-/** Sheet index: number and title per page, from the title block (offline) or AI, editable. */
-export function SheetsPanel({ pageCount, currentPage, sheets, progress, applicableScales, onGoTo, onEdit, onDetect, onAiIndex, onApplyScales, onCancel, stitchGroups, onOpenStitch, onRestitch }: Props) {
+/** Sheet index: number and title per page, read from the title block text, editable. */
+export function SheetsPanel({ pageCount, currentPage, sheets, progress, applicableScales, onGoTo, onEdit, onDetect, onApplyScales, onCancel, stitchGroups, onOpenStitch, onRestitch }: Props) {
   const [editing, setEditing] = useState<number | null>(null);
   const unidentified = Array.from({ length: pageCount }, (_, i) => i).filter((i) => !sheets[i]?.number).length;
 
   return (
     <div className="sheets">
       <div className="sheet-actions">
-        <button className="btn small" disabled={!pageCount || !!progress} onClick={onDetect} title="Read sheet numbers and titles from the text layer (works offline)">
+        <button className="btn small primary" disabled={!pageCount || !!progress} onClick={onDetect} title="Read sheet numbers and titles from the text layer (works offline)">
           Detect
-        </button>
-        <button className="btn small primary" disabled={!pageCount || !!progress} onClick={onAiIndex} title="Read title blocks with Claude (needs internet)">
-          AI index
         </button>
         {applicableScales > 0 && (
           <button className="btn small" disabled={!!progress} onClick={onApplyScales} title="Set page scales from the scale printed in each title block">
@@ -63,7 +58,7 @@ export function SheetsPanel({ pageCount, currentPage, sheets, progress, applicab
         </div>
       )}
       {!progress && unidentified > 0 && Object.keys(sheets).length > 0 && (
-        <p className="empty">{unidentified} page{unidentified > 1 ? 's' : ''} not identified — try AI index.</p>
+        <p className="empty">{unidentified} page{unidentified > 1 ? 's' : ''} not identified: double-click a page to type its sheet number, or run OCR on scanned sheets first.</p>
       )}
       {stitchGroups.length > 0 && (
         <div className="stitch-groups">

@@ -7,14 +7,13 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { isMarkupTool, MarkupTools, type FormWidgetHit, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
-import { StudioSession } from './studio/StudioSession';
 import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
 import { microsoftUser, OneDrive, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
-import { allows, parseSessionId, type RecordEntry } from './studio/protocol';
-import { myAccess, recordToCsv, StudioError, type CollabSession, type StudioSnapshot } from './studio/types';
+import { allows, type RecordEntry } from './studio/protocol';
+import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
 import { askText, AskTextHost } from './components/AskText';
@@ -102,8 +101,7 @@ import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
 import { FinishSessionDialog, type DocumentSource, type StartRequest } from './components/sessions/SessionDialogs';
-import { InviteDialog, ProjectsPanel } from './components/ProjectsPanel';
-import { libraryCopyOf, linkOf, mailtoInvite, projectsApi, setLink, type ProjectFile } from './studio/projects';
+import { InviteDialog } from './components/sessions/InviteDialog';
 import { forgetSession as forgetRoundtrip, rememberSource, sourceOf } from './studio/roundtrip';
 import {
   FlagsPanel,
@@ -112,14 +110,13 @@ import {
 } from './components/SidePanels';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { AiUnavailableError, ESTIMATED_AI_COST_PER_SHEET, forgetText, importPdfAnnotations, indexFromText, indexWithAi, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, importPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { canPromptInstall, promptInstall } from './offline/install';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
-import { isUnreachable, noteText, projectQueue } from './studio/projectQueue';
 import { runningJobs } from './jobs/jobs';
 
 interface Controllers {
@@ -336,22 +333,20 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
 
 /** A JPEG re-encoded at `quality` through a canvas; null if the browser cannot decode it. */
 /**
- * Certificate services (time stamp servers, OCSP responders, revocation lists) through the Studio
- * server's relay: browsers cannot reach them directly.
+ * Certificate services (time stamp servers, OCSP responders, revocation lists), reached straight from
+ * the browser. Many do not allow that (CORS); then the step fails with a clear reason and signing or
+ * validating carries on without it.
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
   requireOnline('Time stamps and revocation checks');
-  const { studioServer } = await import('./studio/StudioSession');
+  const host = new URL(url).host;
   let res: Response;
   try {
-    res = await fetch(`${studioServer()}/v1/pki?url=${encodeURIComponent(url)}`, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
+    res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
   } catch {
-    throw new Error('The redcolumn server, which relays requests to certificate services, cannot be reached');
+    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it)`);
   }
-  if (!res.ok) {
-    const why = await res.json().then((j: { error?: string }) => j.error, () => null);
-    throw new Error(why ?? `${new URL(url).host} answered ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`${host} answered ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
 }
 
@@ -609,9 +604,7 @@ export function App() {
   /** The revision of each session document open in a tab, to reload it when the host updates it. */
   const loadedVersions = useRef(new Map<string, number>());
   const [finishFor, setFinishFor] = useState<{ sessionId: string; authors: string[] } | null>(null);
-  // Team Projects: File › New Team Project, a ?project= link, and email invitations to sessions.
-  const [projectCreate, setProjectCreate] = useState(false);
-  const [projectLinkId] = useState(() => new URLSearchParams(window.location.search).get('project'));
+  // Email invitations to a session.
   const [inviteSession, setInviteSession] = useState<string | null>(null);
   // Bookmarks › Action…: the bookmark whose action is being set.
   const [bookmarkAction, setBookmarkAction] = useState<string | null>(null);
@@ -1155,30 +1148,6 @@ export function App() {
     },
     [ctl, ctlB],
   );
-
-  const aiIndexSheets = useCallback(() => {
-    const cur = openRef.current;
-    if (!cur) return;
-    const all = cur.store.allSheets();
-    // Pages the user corrected by hand are left alone.
-    const pages = Array.from({ length: cur.doc.pages.length }, (_, i) => i).filter((i) => all[i]?.source !== 'manual');
-    if (!pages.length) return;
-    const cost = (pages.length * ESTIMATED_AI_COST_PER_SHEET).toFixed(2);
-    const plural = pages.length > 1 ? 's' : '';
-    if (!confirm(`Send ${pages.length} sheet image${plural} to Claude to read the title blocks?\n\nNeeds an internet connection. Estimated cost about $${cost}.`)) return;
-    void runIndexJob(async (bytes, c, signal) => {
-      try {
-        const { failed } = await indexWithAi(bytes, c.store, pages, setIndexProgress, signal);
-        // Sheet numbers may have changed, which changes what callouts and match lines resolve to.
-        await linkFromText(() => readFile(c.file.hash), c.store, setIndexProgress, signal);
-        await stitchFromText(() => readFile(c.file.hash), c.store, setIndexProgress, signal);
-        if (failed.length) setError(`AI could not read ${failed.length} sheet(s): pages ${failed.map((i) => i + 1).join(', ')}.`);
-      } catch (err) {
-        if (err instanceof AiUnavailableError) setError(`${err.message} Offline detection results are kept.`);
-        else throw err;
-      }
-    });
-  }, [runIndexJob]);
 
   /** Opens PDFs from disk, one tab each. */
   /**
@@ -3105,18 +3074,6 @@ export function App() {
           return;
         }
         const { holder, onRemoved } = removedHandler();
-        if (ref.backend === 'server') {
-          holder.id = ref.id;
-          try {
-            enterStudio(await StudioSession.join(ref.id, authorRef.current, onRemoved));
-          } catch (err) {
-            // A session for Google accounts: sign in (a popup, so only from a click) and try again.
-            if (!(err instanceof StudioError && err.status === 401) || !interactive || !googleSignInConfigured) throw err;
-            await signInWithGoogle();
-            enterStudio(await StudioSession.join(ref.id, authorRef.current, onRemoved));
-          }
-          return;
-        }
         if (ref.backend === 'onedrive') {
           holder.id = ref.id;
           if (interactive) await signInWithMicrosoft();
@@ -3238,8 +3195,7 @@ export function App() {
                   return await create();
                 }
               })()
-            : req.backend === 'drive'
-            ? await (async () => {
+            : await (async () => {
                 await signInWithGoogle();
                 return DriveSession.create(driveApi, req.name, authorRef.current, permissions, {
                   authorize: authorizeGoogle,
@@ -3250,10 +3206,6 @@ export function App() {
                   email: googleEmail(),
                   identify: googleEmail,
                 });
-              })()
-            : await (async () => {
-                if (req.requireGoogle) await signInWithGoogle();
-                return StudioSession.create(req.name, authorRef.current, permissions, req.access, req.requireGoogle, onRemoved, req.expiresAt);
               })();
         holder.id = session.id;
         enterStudio(session);
@@ -3324,13 +3276,7 @@ export function App() {
           );
           if (choice.save) await saveFile(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`, out.slice().buffer);
           try {
-            if (back?.kind === 'project') {
-              // Checked back in as a new revision (the session held the check-out).
-              const r = await projectsApi(authorRef.current).checkin(back.projectId, back.fileId, out.slice().buffer, `From the Session “${meta.name}”`);
-              const copy = libraryCopyOf(back.projectId, back.fileId);
-              if (copy) setLink(copy, { ...linkOf(copy)!, rev: 0 });
-              sentBack.push(`${back.name} (Project revision ${r.file.revisions.at(-1)!.n})`);
-            } else if (back?.kind === 'file') {
+            if (back) {
               // The library document gets the session's markups (and its newer revision, if the host updated it).
               const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
               const held = tab ? null : await acquireDocument(back.fileId);
@@ -3361,140 +3307,6 @@ export function App() {
       if (parts.length) setNotice(`Finished. ${parts.join('. ')}.`);
     },
     [withSessionMarkups, refreshLibrary, acquireDocument, commitDocument],
-  );
-
-  // --- Team Projects ---------------------------------------------------------------------------
-
-  /** Opens a Project file: its library copy (brought up to the latest revision), or an older revision on its own. */
-  const openProjectFile = useCallback(
-    async (projectId: string, file: ProjectFile, rev?: number) => {
-      const api = projectsApi(authorRef.current);
-      const latest = file.revisions.at(-1)?.n ?? 0;
-      if (rev && rev !== latest) {
-        const { bytes } = await api.download(projectId, file.id, rev);
-        await openCreated(`${file.name.replace(/\.pdf$/i, '')} (revision ${rev}).pdf`, bytes);
-        return;
-      }
-      const copyId = libraryCopyOf(projectId, file.id);
-      const stored = copyId ? (await listFiles()).find((f) => f.id === copyId) : undefined;
-      if (stored && copyId) {
-        const link = linkOf(copyId)!;
-        if (link.rev < latest) {
-          const got = await api.download(projectId, file.id).catch((err) => {
-            // Offline: the copy on this device opens as it is.
-            if (!isUnreachable(err)) throw err;
-            setNotice(`Offline: opened your copy of ${file.name} (revision ${link.rev}); the Project has revision ${latest}.`);
-            return null;
-          });
-          if (!got) return void (await openFromLibrary(stored));
-          const { bytes, rev: n } = got;
-          const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === copyId);
-          const held = tab ? null : await acquireDocument(copyId);
-          const target: OpenFile = tab ?? held!.open;
-          try {
-            // Markups that came from the file are read again from the new revision.
-            await commitDocument(target, bytes, () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before Project revision ${n}`);
-          } finally {
-            held?.release();
-          }
-          setLink(copyId, { ...link, rev: n });
-          setNotice(`${file.name}: updated to revision ${n} from the Project.`);
-        }
-        await openFromLibrary((await listFiles()).find((f) => f.id === copyId)!);
-        return;
-      }
-      const { bytes, rev: n } = await api.download(projectId, file.id);
-      const saved = await saveFile(file.name, bytes.slice(0));
-      setLink(saved.id, { projectId, fileId: file.id, rev: n, name: file.name });
-      await openFromLibrary(saved);
-      void refreshLibrary();
-    },
-    [openCreated, openFromLibrary, acquireDocument, commitDocument, refreshLibrary],
-  );
-
-  /** Checks the library copy in (its markups written into the PDF as annotations). */
-  const checkInProjectFile = useCallback(
-    async (projectId: string, file: ProjectFile, comment: string, keep: boolean) => {
-      const copyId = libraryCopyOf(projectId, file.id);
-      if (!copyId) throw new Error('Open the file from the Project first, then make your changes.');
-      const held = await acquireDocument(copyId);
-      let bytes: Uint8Array;
-      try {
-        bytes = await annotatedBytes(held.open);
-      } finally {
-        held.release();
-      }
-      const r = await projectsApi(authorRef.current).checkin(projectId, file.id, bytes.slice().buffer, comment, keep);
-      const n = r.file.revisions.at(-1)!.n;
-      setLink(copyId, { ...linkOf(copyId)!, rev: n });
-      setNotice(`Checked in ${file.name} as revision ${n}.`);
-    },
-    [acquireDocument],
-  );
-
-  const addToProject = useCallback(
-    async (projectId: string, folderId: string | null, sources: { name: string; bytes: ArrayBuffer; libraryId?: string }[]) => {
-      const api = projectsApi(authorRef.current);
-      for (const s of sources) {
-        const r = await api.upload(projectId, folderId, s.name, s.bytes);
-        if (s.libraryId) setLink(s.libraryId, { projectId, fileId: r.file.id, rev: 1, name: s.name });
-      }
-      setNotice(`Added ${sources.map((s) => s.name).join(', ')} to the Project.`);
-    },
-    [],
-  );
-
-  /** Sends Team Project check-ins and notes made offline, in order (src/studio/projectQueue.ts). */
-  const sendQueuedProjectChanges = useCallback(async () => {
-    const queue = projectQueue();
-    if (!queue.all().length || !navigator.onLine) return;
-    const api = projectsApi(authorRef.current);
-    const r = await queue.send(async (c) => {
-      if (c.kind === 'note') return void (await api.note(c.projectId, c.fileId, noteText(c)));
-      const { project, me } = await api.get(c.projectId);
-      const file = project.files.find((f) => f.id === c.fileId);
-      if (!file) throw new Error('It is no longer in the Project.');
-      if (file.checkout?.key !== me.key) throw new Error(file.checkout ? `${file.checkout.by} has it checked out.` : 'It is no longer checked out to you. Check it out again, then retry.');
-      if ((file.revisions.at(-1)?.n ?? 0) > c.baseRev) throw new Error(`Someone checked in revision ${file.revisions.at(-1)!.n} after your copy (revision ${c.baseRev}).`);
-      await checkInProjectFile(c.projectId, file, c.comment, c.keep);
-    });
-    if (r.sent.length) setNotice(`Sent ${r.sent.length} Team Project change${r.sent.length === 1 ? '' : 's'} made offline.`);
-    if (r.failed.length) setError(`Not sent: ${r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ')}. Retry or discard them in the Team Projects panel.`);
-  }, [checkInProjectFile]);
-  const sendQueuedRef = useRef(sendQueuedProjectChanges);
-  sendQueuedRef.current = sendQueuedProjectChanges;
-  useEffect(() => {
-    const send = () => void sendQueuedRef.current().catch(() => {});
-    window.addEventListener('online', send);
-    // Also on a timer: the network can come back without an 'online' event (a redcolumn server restart).
-    const timer = setInterval(send, 30_000);
-    send();
-    return () => {
-      window.removeEventListener('online', send);
-      clearInterval(timer);
-    };
-  }, []);
-  const queuedProjectChanges = useSyncExternalStore(projectQueue().subscribe, () => projectQueue().all().length);
-
-  /** Session Roundtrip from a Project: checked out to the session, added to it, checked back in when it finishes. */
-  const sendProjectFileToSession = useCallback(
-    async (projectId: string, file: ProjectFile, sessionId: string) => {
-      const session = sessionById(sessionId);
-      if (!session) throw new Error('That session is no longer open.');
-      const api = projectsApi(authorRef.current);
-      await api.checkout(projectId, file.id, `in the Session “${session.meta.name}” (${sessionId})`);
-      try {
-        const { bytes } = await api.download(projectId, file.id);
-        const added = await session.addDocument(file.name, bytes);
-        rememberSource(sessionId, added.id, { kind: 'project', projectId, fileId: file.id, name: file.name });
-        await openSessionDocument(sessionId, added.id);
-        setNotice(`${file.name} is in the Session “${session.meta.name}”, checked out to it. Finishing the session checks it back in.`);
-      } catch (err) {
-        await api.undoCheckout(projectId, file.id).catch(() => {});
-        throw err;
-      }
-    },
-    [openSessionDocument],
   );
 
   // Session documents the host updated to a new revision reload in their tabs (markups stay).
@@ -3568,18 +3380,17 @@ export function App() {
     [ctl, ctlB, activateTab, openSessionDocument],
   );
 
-  // Rejoin the sessions this browser was in, or join one from an invite link: `?studio=123-456-789`
-  // (redcolumn server), `?gdrive=<folder id>` (Google Drive) or `?onedrive=<share id>` (OneDrive); the
-  // drives wait for a click to sign in.
+  // Rejoin the sessions this browser was in, or offer to join one from an invite link:
+  // `?gdrive=<folder id>` (Google Drive) or `?onedrive=<share id>` (OneDrive), which wait for a click
+  // to sign in. Links to redcolumn server sessions (`?studio=`) are dropped.
   useEffect(() => {
     if (!ctl) return;
     const params = new URLSearchParams(window.location.search);
-    const invited = parseSessionId(params.get('studio') ?? '');
     const gdrive = params.get('gdrive')?.match(/^[\w-]{10,}$/)?.[0] ?? null;
     const onedrive = parseOneDriveInvite(params.get('onedrive') ?? '');
     const driveInvite = gdrive ?? onedrive;
     const inviteBackend = gdrive ? 'drive' : 'onedrive';
-    if (invited || driveInvite) {
+    if (params.has('studio') || driveInvite) {
       params.delete('studio');
       params.delete('gdrive');
       params.delete('onedrive');
@@ -3591,11 +3402,10 @@ export function App() {
     const current = currentSessions();
     void (async () => {
       for (const ref of current) await joinStudio(ref, false);
-      if (invited) await joinStudio({ backend: 'server', id: invited });
-      else if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: inviteBackend, id: driveInvite });
+      if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: inviteBackend, id: driveInvite });
       else if (driveInvite) setFocusedSession(driveInvite);
       // After rejoining several, start on the list rather than whichever joined last.
-      if (!invited && !driveInvite && current.length > 1) setFocusedSession(null);
+      if (!driveInvite && current.length > 1) setFocusedSession(null);
     })();
     // Once, when the viewer is ready.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3614,7 +3424,6 @@ export function App() {
     if (!ctl) return;
     const offs = [
       addBusyCheck('jobs', () => (runningJobs().length ? `${runningJobs()[0]!.label.toLowerCase()} is running` : null)),
-      addBusyCheck('projects', () => (projectQueue().busy ? 'Team Project changes are being sent' : null)),
       addBusyCheck('drawing', () => (ctl.tools.inProgress || ctlBRef.current?.tools.inProgress ? 'a markup is being drawn' : null)),
     ];
     return () => offs.forEach((o) => o());
@@ -4749,9 +4558,7 @@ export function App() {
             ],
           },
       sessionDoc
-        ? snap?.folderUrl
-          ? { label: snap.backend === 'onedrive' ? 'Open in OneDrive' : 'Open in Google Drive', onClick: () => window.open(snap.folderUrl, '_blank', 'noopener') }
-          : { label: 'Copy Session ID', onClick: () => void navigator.clipboard?.writeText(sessionDoc.sessionId) }
+        ? { label: snap?.backend === 'onedrive' ? 'Open in OneDrive' : 'Open in Google Drive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
         : { label: 'Show in File Access', onClick: () => { showLeft('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
@@ -4907,10 +4714,6 @@ export function App() {
     newFromTemplate: () => void newFromTemplate(),
     fromCamera: () => setCameraOpen(true),
     newPdf: () => setBlankPdf('new'),
-    newProject: () => {
-      showLeft('projects');
-      setProjectCreate(true);
-    },
     combine: () => setCombineOpen(true),
     close: closeDocument,
     closeAll: () => {
@@ -4948,6 +4751,7 @@ export function App() {
         [
           'redcolumn: PDF markup and takeoff for construction drawings.',
           'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
+          'Your documents stay in this browser; there is no redcolumn server or account. Privacy policy: ' + `${PROJECT_URL}/blob/master/PRIVACY.md`,
           'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',
           'redcolumn is not affiliated with or endorsed by Bluebeam, Inc. or Nemetschek. Bluebeam and Revu are their trademarks.',
         ].join('\n\n'),
@@ -5658,7 +5462,6 @@ export function App() {
                 onGoTo={(i) => v?.goToPage(i)}
                 onEdit={(i, patch) => activeOpen?.store.editSheet(i, patch)}
                 onDetect={() => void detectSheetsOffline()}
-                onAiIndex={aiIndexSheets}
                 onApplyScales={() => {
                   for (const [i, scale] of detectedScales) activeOpen?.store.setScale([i], scale);
                 }}
@@ -5784,27 +5587,6 @@ export function App() {
               />
             ) : leftTab === 'flags' ? (
               <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} />
-            ) : leftTab === 'projects' ? (
-              <ProjectsPanel
-                me={author}
-                current={activeOpen && !studioDocOf(activeOpen.file.id) ? { id: activeOpen.file.id, name: activeOpen.file.name } : null}
-                sessions={snapshots.filter((x) => x.isHost && x.backend === 'server' && x.meta.status === 'active').map((x) => ({ id: x.meta.id, name: x.meta.name }))}
-                openId={projectLinkId}
-                createRequest={projectCreate}
-                onCreateHandled={() => setProjectCreate(false)}
-                onOpen={openProjectFile}
-                onCheckIn={checkInProjectFile}
-                onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
-                onAddCurrent={async (projectId, folderId) => {
-                  const cur = activeOpen;
-                  if (!cur) return;
-                  const bytes = await annotatedBytes(cur);
-                  await addToProject(projectId, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }]);
-                }}
-                onAddFiles={async (projectId, folderId, files) => addToProject(projectId, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))))}
-                onSendToSession={sendProjectFileToSession}
-                onNotice={setNotice}
-              />
             ) : leftTab === 'sessions' ? (
               <SessionsPanel
                 joined={sessions.map((session, i) => ({ session, snapshot: snapshots[i]! }))}
@@ -6142,7 +5924,6 @@ export function App() {
         onSnapContent={(on) => activeTools?.setSnap(on)}
         disabled={!activeOpen}
         {...(split ? { sync, onSync: setSync } : {})}
-        queued={queuedProjectChanges}
       />
       {redactFor && (
         <ApplyRedactionsDialog
@@ -6405,28 +6186,11 @@ export function App() {
             <InviteDialog
               title={`Invite to ${snap.meta.name}`}
               onCancel={() => setInviteSession(null)}
-              onSend={async ({ emails, note }) => {
-                if (!session.emailInvite && session.invite) {
-                  // Drive and OneDrive share the session folder, and they send the email.
-                  await session.invite(emails);
-                  setInviteSession(null);
-                  setNotice(`Shared the session with ${emails.join(', ')}.`);
-                  return;
-                }
-                const server = session.emailInvite ? await session.emailInvite(emails, note) : { sent: false, failed: [] };
+              onSend={async (emails) => {
+                // Google Drive or OneDrive shares the session folder and emails the link.
+                await session.invite?.(emails);
                 setInviteSession(null);
-                if (server.sent) {
-                  setNotice(`Invited ${emails.join(', ')}${server.failed.length ? `; could not email ${server.failed.join(', ')}` : ''}.`);
-                  return;
-                }
-                window.location.href = mailtoInvite(emails, `${author} invited you to the Live Session “${snap.meta.name}”`, [
-                  `${author} invited you to the Live Session “${snap.meta.name}”.`,
-                  '',
-                  `Join: ${snap.inviteLink}`,
-                  ...(snap.backend === 'server' ? [`Session ID: ${snap.meta.id}`] : []),
-                  ...(note ? ['', note] : []),
-                ]);
-                setNotice(snap.backend === 'server' ? `Added ${emails.join(', ')}. This redcolumn server does not send email, so your mail app has the invitation ready to send.` : 'Your mail app has the invitation ready to send.');
+                setNotice(`Shared the session with ${emails.join(', ')}.`);
               }}
             />
           );
@@ -6437,7 +6201,7 @@ export function App() {
           authors={finishFor.authors}
           sendBack={(sessionById(finishFor.sessionId)?.meta.documents ?? []).flatMap((d) => {
             const src = sourceOf(finishFor.sessionId, d.id);
-            return src ? [{ docId: d.id, name: d.name, target: src.kind === 'project' ? `check it back into the Project` : `update ${src.name} in your library` }] : [];
+            return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
           })}
           busy={studioBusy}
           onClose={() => setFinishFor(null)}
@@ -7041,15 +6805,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M5 2.5h8.5v10M3.5 4h8.5v10H3.5z" />
-      </svg>
-    ),
-  },
-  {
-    id: 'projects',
-    title: 'Team Projects',
-    icon: (
-      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-        <path fill="currentColor" d="M1.5 3h5l1.5 1.5h6.5v9h-13v-10.5zm1.5 3v6h10v-6h-10z" />
       </svg>
     ),
   },

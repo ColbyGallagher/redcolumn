@@ -7,8 +7,6 @@
     "dev": "pnpm --filter @nb/web dev",
     "build": "pnpm --filter @nb/web build",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "dev:ai": "pnpm --filter @nb/ai dev",
-    "dev:studio": "pnpm --filter @nb/studio dev"
+    "test": "pnpm -r test"
   }
 }

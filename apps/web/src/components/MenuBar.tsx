@@ -19,8 +19,7 @@ export type LeftTab =
   | 'sheets'
   | 'forms'
   | 'sets'
-  | 'sessions'
-  | 'projects';
+  | 'sessions';
 export type BottomTab = 'markups' | 'links';
 
 export const LEFT_TITLES: Record<LeftTab, string> = {
@@ -39,7 +38,6 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   forms: 'Forms',
   sets: 'Sets',
   sessions: 'Sessions',
-  projects: 'Team Projects',
 };
 
 export interface RecentFile {
@@ -215,7 +213,6 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
                 recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)
               )}
             </Submenu>
-            <Cmd id="file.newProject" />
             <Submenu label="Create">
               <Cmd id="file.newPdf" label="Blank PDF…" />
               <Cmd id="file.fromCamera" />

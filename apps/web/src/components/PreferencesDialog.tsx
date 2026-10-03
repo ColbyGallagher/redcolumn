@@ -2,9 +2,8 @@ import { useState, type ReactNode } from 'react';
 import { DEFAULT_SETTINGS, settings, steppedZoom, useSettings, type Settings } from '../settings/settings';
 import { personalWords, removeFromDictionary } from '../spelling/spell';
 import { OfflinePrefs } from './OfflinePrefs';
-import { customStudioServer, setStudioServer, studioServer } from '../studio/StudioSession';
 
-type Section = 'general' | 'interface' | 'zoom' | 'display' | 'grid' | 'markup' | 'tools' | 'toolchest' | 'spelling' | 'snapshot' | 'studio' | 'offline';
+type Section = 'general' | 'interface' | 'zoom' | 'display' | 'grid' | 'markup' | 'tools' | 'toolchest' | 'spelling' | 'snapshot' | 'offline';
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -17,7 +16,6 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'toolchest', label: 'Tool Library' },
   { id: 'spelling', label: 'Spelling' },
   { id: 'snapshot', label: 'Snapshot' },
-  { id: 'studio', label: 'Server' },
   { id: 'offline', label: 'Offline' },
 ];
 
@@ -60,21 +58,6 @@ function Toggle({ label, hint, checked, onChange }: { label: string; hint?: stri
         {hint && <span className="pref-hint">{hint}</span>}
       </span>
     </label>
-  );
-}
-
-/** The redcolumn server's address (Sessions, Projects, and the relay for time stamps and revocation checks). */
-function StudioPrefs() {
-  const [server, setServer] = useState(customStudioServer());
-  return (
-    <>
-      <h4>redcolumn server</h4>
-      <label className="pref-slider">
-        <span className="pref-label">Address</span>
-        <input value={server} placeholder={studioServer()} onChange={(e) => setServer(e.target.value)} onBlur={() => setStudioServer(server)} aria-label="redcolumn server address" />
-        <span className="pref-hint">Sessions and Projects live there, and it relays time stamp and revocation requests for signatures. Empty uses the default.</span>
-      </label>
-    </>
   );
 }
 
@@ -271,7 +254,6 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
         <Slider label="Resolution" hint="Of the picture Snapshot copies (at most 4096 pixels across)." value={prefs.snapshotDpi} min={72} max={600} unit="dpi" onChange={(v) => set({ snapshotDpi: v })} />
       </>
     ),
-    studio: <StudioPrefs />,
     offline: <OfflinePrefs />,
     toolchest: (
       <>

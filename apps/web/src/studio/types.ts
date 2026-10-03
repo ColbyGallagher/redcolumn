@@ -1,8 +1,8 @@
 import type { MarkupStore } from '@nb/markup';
 import { accessFor, type Access, type AccessPolicy, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from './protocol';
 
-/** Where a session lives: the redcolumn server, or a folder in the host's Google Drive or OneDrive. */
-export type Backend = 'server' | 'drive' | 'onedrive';
+/** Where a session lives: a folder in the host's Google Drive or OneDrive. */
+export type Backend = 'drive' | 'onedrive';
 
 export type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
@@ -22,7 +22,7 @@ export interface StudioSnapshot {
   meta: SessionMeta;
   isHost: boolean;
   me: string;
-  /** This attendee's Google email (verified by the redcolumn server), when signed in. */
+  /** This attendee's Google or Microsoft email, when signed in. */
   email?: string | null;
   status: ConnectionStatus;
   record: RecordEntry[];
@@ -77,21 +77,11 @@ export interface CollabSession {
   update(patch: SessionUpdate): Promise<void>;
   /** Invites people by email (Google Drive sessions). */
   invite?(emails: string[]): Promise<void>;
-  /** redcolumn server: invitation emails (sent by the server if it can send mail). */
-  emailInvite?(emails: string[], note: string): Promise<{ sent: boolean; failed: string[] }>;
   /** Signs in again after it lapsed (Google Drive sessions); must run from a click. */
   reconnect?(): Promise<void>;
   retry(): void;
   leave(): void;
   destroy(): void;
-}
-
-export class StudioError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-  }
 }
 
 const COLORS = ['#e11d48', '#2563eb', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777'];

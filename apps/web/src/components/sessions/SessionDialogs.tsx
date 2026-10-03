@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseOneDriveInvite } from '../../studio/drive/onedrive';
-import { parseSessionId, type AccessPolicy } from '../../studio/protocol';
+import type { AccessPolicy } from '../../studio/protocol';
 import type { Backend } from '../../studio/types';
 import { AccessEditor, emptyPolicy } from './AccessEditor';
 
@@ -12,8 +12,6 @@ export interface StartRequest {
   backend: Backend;
   addDocuments: boolean;
   linkCanEdit: boolean;
-  /** redcolumn server: only Google-signed-in people may join, matched by their email. */
-  requireGoogle: boolean;
   access: AccessPolicy;
   documents: DocumentSource[];
   saveCopy: boolean;
@@ -40,7 +38,7 @@ function MoreOptions({ ends, setEnds, saveCopy, setSaveCopy, invite, setInvite }
         <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} />
         Attendees may save copies of documents
       </label>
-      <label className="check" title="Attendees see the Session ID and invite link">
+      <label className="check" title="Attendees see the invite link">
         <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
         Attendees may invite others
       </label>
@@ -93,7 +91,6 @@ export function StartSessionDialog({
   initialDocs,
   googleEmail,
   microsoftEmail,
-  serverGoogle,
   busy,
   onStart,
   onClose,
@@ -110,21 +107,18 @@ export function StartSessionDialog({
   googleEmail?: string | null;
   /** The signed-in Microsoft email, if any. */
   microsoftEmail?: string | null;
-  /** Whether the redcolumn server supports Google sign-in. */
-  serverGoogle?: boolean;
   busy: boolean;
   onStart: (req: StartRequest) => void;
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>('general');
   const [name, setName] = useState('');
-  const [backend, setBackend] = useState<Backend>(driveAvailable ? 'drive' : oneDriveAvailable ? 'onedrive' : 'server');
+  const [backend, setBackend] = useState<Backend>(driveAvailable || !oneDriveAvailable ? 'drive' : 'onedrive');
   const [addDocuments, setAddDocuments] = useState(true);
   const [linkCanEdit, setLinkCanEdit] = useState(true);
   const [saveCopy, setSaveCopy] = useState(true);
   const [invite, setInvite] = useState(true);
   const [ends, setEnds] = useState('');
-  const [requireGoogle, setRequireGoogle] = useState(false);
   const [policy, setPolicy] = useState<AccessPolicy>(emptyPolicy);
   const [docs, setDocs] = useState<DocumentSource[]>(() =>
     initialDocs
@@ -166,8 +160,8 @@ export function StartSessionDialog({
             nameRef.current?.focus();
             return;
           }
-          if (!sessionEndIsValid(ends)) return;
-          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit, requireGoogle: backend === 'server' && requireGoogle, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends) });
+          if (!sessionEndIsValid(ends) || !(backend === 'drive' ? driveAvailable : oneDriveAvailable)) return;
+          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends) });
         }}
       >
         {step === 'general' && (
@@ -178,10 +172,6 @@ export function StartSessionDialog({
             </label>
             <fieldset className="stack">
               <legend>Host the session in</legend>
-              <label className="check">
-                <input type="radio" name="backend" checked={backend === 'server'} onChange={() => setBackend('server')} />
-                redcolumn server <span className="hint">instant sync; others join with the session ID</span>
-              </label>
               <label className="check">
                 <input type="radio" name="backend" checked={backend === 'drive'} disabled={!driveAvailable} onChange={() => setBackend('drive')} />
                 My Google Drive <span className="hint">{driveAvailable ? 'a shared folder; syncs within seconds' : 'not set up in this build'}</span>
@@ -198,27 +188,15 @@ export function StartSessionDialog({
                 Attendees who can comment may also add documents
               </label>
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
-              {backend === 'server' && (
-                <label className="check" title={serverGoogle ? 'People sign in with Google; people and groups are matched by Google email' : 'This redcolumn server is not set up for Google sign-in (STUDIO_GOOGLE_CLIENT_ID)'}>
-                  <input type="checkbox" checked={requireGoogle} disabled={!serverGoogle} onChange={(e) => setRequireGoogle(e.target.checked)} />
-                  Only people signed in with Google can join <span className="hint">{serverGoogle ? 'identify people by Google email' : 'server not set up for Google'}</span>
-                </label>
-              )}
-              {(backend === 'drive' || backend === 'onedrive') && (
-                <label className="check" title="Otherwise the link gives view-only access, and people are invited as editors by email">
-                  <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
-                  Anyone with the link can edit the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder
-                </label>
-              )}
+              <label className="check" title="Otherwise the link gives view-only access, and people are invited as editors by email">
+                <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
+                Anyone with the link can edit the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder
+              </label>
             </fieldset>
             <p className="hint">
               You host as <b>{me}</b>
               {backend === 'onedrive' ? (microsoftEmail ? ` (${microsoftEmail})` : '') : googleEmail ? ` (${googleEmail})` : ''}.{' '}
-              {backend === 'onedrive'
-                ? 'Add people by their Microsoft account email.'
-                : backend === 'drive' || requireGoogle
-                  ? 'Add people by their Google email.'
-                  : 'Access is matched on each attendee’s name, or their Google email when they sign in.'}
+              {backend === 'onedrive' ? 'Add people by their Microsoft account email.' : 'Add people by their Google email.'}
             </p>
           </div>
         )}
@@ -309,7 +287,7 @@ export function StartSessionDialog({
               Next
             </button>
           )}
-          <button type="submit" className="btn primary" disabled={busy || !name.trim()}>
+          <button type="submit" className="btn primary" disabled={busy || !name.trim() || !(backend === 'drive' ? driveAvailable : oneDriveAvailable)}>
             {busy ? 'Starting…' : 'Start session'}
           </button>
         </div>
@@ -318,13 +296,12 @@ export function StartSessionDialog({
   );
 }
 
-/** Join by session ID (redcolumn server), by picking a shared folder (Google Drive), or by link (OneDrive). */
+/** Join by picking a shared session folder (Google Drive) or by pasting a session link (OneDrive). */
 export function JoinSessionDialog({
   me,
   driveAvailable,
   oneDriveAvailable,
   busy,
-  onJoinId,
   onJoinDrive,
   onJoinOneDrive,
   onClose,
@@ -333,40 +310,25 @@ export function JoinSessionDialog({
   driveAvailable: boolean;
   oneDriveAvailable: boolean;
   busy: boolean;
-  onJoinId: (id: string) => void;
   onJoinDrive: () => void;
   onJoinOneDrive: (shareId: string) => void;
   onClose: () => void;
 }) {
-  const [id, setId] = useState('');
   const [link, setLink] = useState('');
-  const parsed = parseSessionId(id);
   const oneDriveId = parseOneDriveInvite(link);
   return (
     <Dialog title="Join Session" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (parsed) onJoinId(parsed);
+          if (oneDriveId) onJoinOneDrive(oneDriveId);
         }}
       >
-        <p>Enter the 9-digit Session ID from the host. You join as {me}.</p>
-        <div className="row">
-          <input
-            autoFocus
-            value={id}
-            onChange={(e) => setId(e.target.value)}
-            placeholder="123-456-789"
-            inputMode="numeric"
-            autoComplete="off"
-            aria-label="Session ID"
-            aria-invalid={id.trim() !== '' && !parsed}
-          />
-        </div>
+        <p>You join as {me}. The easiest way in is the invite link from the host.</p>
+        {!driveAvailable && !oneDriveAvailable && <p className="hint">Live Sessions need Google Drive or OneDrive, and neither is set up in this build.</p>}
         {driveAvailable && (
-          <p className="or">
-            or{' '}
-            <button type="button" className="btn small" disabled={busy} onClick={onJoinDrive}>
+          <p>
+            <button type="button" className="btn" disabled={busy} onClick={onJoinDrive}>
               Choose a session folder in Google Drive…
             </button>
           </p>
@@ -374,25 +336,25 @@ export function JoinSessionDialog({
         {oneDriveAvailable && (
           <div className="row">
             <input
+              autoFocus
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder="or paste a OneDrive session link"
+              placeholder="Paste a OneDrive session link"
               autoComplete="off"
               aria-label="OneDrive session link"
               aria-invalid={link.trim() !== '' && !oneDriveId}
             />
-            <button type="button" className="btn small" disabled={busy || !oneDriveId} onClick={() => oneDriveId && onJoinOneDrive(oneDriveId)}>
-              Join OneDrive
-            </button>
           </div>
         )}
         <div className="actions">
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={!parsed || busy}>
-            {busy ? 'Joining…' : 'Join'}
-          </button>
+          {oneDriveAvailable && (
+            <button type="submit" className="btn primary" disabled={!oneDriveId || busy}>
+              {busy ? 'Joining…' : 'Join OneDrive session'}
+            </button>
+          )}
         </div>
       </form>
     </Dialog>
@@ -494,7 +456,7 @@ export function FinishSessionDialog({
   busy: boolean;
   onFinish: (choice: { save: boolean; authors: string[]; sendBack: string[] }) => void;
   onClose: () => void;
-  /** Session Roundtrip: documents that came from the library or a Project, and where they would go back. */
+  /** Session Roundtrip: documents that came from the library, and where they would go back. */
   sendBack?: { docId: string; name: string; target: string }[];
 }) {
   const [save, setSave] = useState(!sendBack.length);

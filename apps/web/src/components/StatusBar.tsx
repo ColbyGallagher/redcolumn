@@ -17,8 +17,6 @@ interface Props {
   /** Synchronised split panes (null: off; undefined: no split). */
   sync?: 'document' | 'page' | null;
   onSync?: (mode: 'document' | 'page' | null) => void;
-  /** Team Project changes made offline, waiting to be sent. */
-  queued?: number;
 }
 
 function Toggle({ label, title, on, onChange, disabled }: { label: string; title: string; on: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
@@ -34,7 +32,7 @@ function Toggle({ label, title, on, onChange, disabled }: { label: string; title
  * the page's scale) on the right. It follows the pointer itself so moving the mouse does not
  * re-render the rest of the app.
  */
-export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSnapContent, disabled, sync, onSync, queued = 0 }: Props) {
+export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSnapContent, disabled, sync, onSync }: Props) {
   const prefs = useSettings();
   const online = useOnline();
   const [cursor, setCursor] = useState<{ pageIndex: number; point: PagePoint } | null>(null);
@@ -71,13 +69,8 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
       </div>
       <div className="status-group right">
         {!online && (
-          <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; shared sessions and projects, AI indexing, time stamps and cloud storage wait for the network.">
-            Offline{queued ? ` · ${queued} to send` : ''}
-          </span>
-        )}
-        {online && queued > 0 && (
-          <span className="status-offline sending" role="status" title="Team Project changes made offline are being sent">
-            Sending {queued}…
+          <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, time stamps and cloud storage wait for the network.">
+            Offline
           </span>
         )}
         {turns !== 0 && (

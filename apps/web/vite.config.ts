@@ -124,7 +124,7 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // msal-redirect.html receives Microsoft sign-in results in its query string, which the
         // precache would not match; let it load from the network rather than fall back to the app.
-        navigateFallbackDenylist: [/^\/api\//, /^\/studio\//, /msal-redirect\.html/, /share-target/],
+        navigateFallbackDenylist: [/msal-redirect\.html/, /share-target/],
         runtimeCaching: [
           {
             // The cache name is shared with src/offline/ocrCache.ts, which fills it ahead of time.
@@ -146,14 +146,6 @@ export default defineConfig({
         // The page Microsoft sign-in popups return to (see src/studio/drive/onedrive.ts).
         'msal-redirect': fileURLToPath(new URL('msal-redirect.html', import.meta.url)),
       },
-    },
-  },
-  server: {
-    // services/ai runs separately (pnpm dev:ai); the browser only ever calls same-origin /api.
-    proxy: {
-      '/api': { target: 'http://127.0.0.1:8787', rewrite: (path) => path.replace(/^\/api/, '') },
-      // services/studio (pnpm dev:studio): Live Sessions, including their WebSockets.
-      '/studio': { target: 'http://127.0.0.1:8788', ws: true, rewrite: (path) => path.replace(/^\/studio/, '') },
     },
   },
 });

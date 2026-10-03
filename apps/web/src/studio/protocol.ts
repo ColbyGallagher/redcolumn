@@ -1,24 +1,13 @@
-// Mirrors services/studio/src/protocol.ts (the server this app talks to). Keep the two in step.
-
-export const MSG_SYNC = 0;
-export const MSG_AWARENESS = 1;
-export const MSG_META = 3;
+// A Live Session's shared data: kept in a Google Drive or OneDrive folder that attendees sync.
 
 export const SESSION_ROOM = 'session';
-
-/** WebSocket close code the server uses when a document is removed from the session. */
-export const CLOSE_REMOVED = 4404;
-/** WebSocket close code when this attendee has no access to the session. */
-export const CLOSE_DENIED = 4403;
-/** WebSocket close code when the session needs a Google sign-in (missing or expired). */
-export const CLOSE_SIGN_IN = 4401;
 
 export interface Permissions {
   markup: boolean;
   addDocuments: boolean;
   /** Attendees may save copies of documents (download, export, print); missing means yes. */
   saveCopy?: boolean;
-  /** Attendees may see the Session ID and invite link to invite others; missing means yes. */
+  /** Attendees may see the invite link to invite others; missing means yes. */
   invite?: boolean;
 }
 
@@ -53,11 +42,6 @@ export interface SessionMeta {
   attendees: Attendee[];
   /** Who may view or markup; missing on sessions from before access control. */
   access?: AccessPolicy;
-  /**
-   * Only people signed in with Google may join, and people and groups match their Google email
-   * (typed names no longer count). The redcolumn server verifies the sign-in.
-   */
-  requireGoogle?: boolean;
   /** The host's Google email: signed in with it, the host has host rights on any device. */
   hostEmail?: string;
   /** When the session ends by itself (ms since epoch); null or missing for never. */
@@ -77,16 +61,6 @@ export interface RecordEntry {
   docId?: string;
   page?: number;
   markupId?: string;
-}
-
-export function formatSessionId(digits: string): string {
-  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 9)}`;
-}
-
-/** Accepts `123456789`, `123-456-789`, `123 456 789`; returns the canonical form or null. */
-export function parseSessionId(input: string): string | null {
-  const digits = input.replace(/[\s-]/g, '');
-  return /^\d{9}$/.test(digits) ? formatSessionId(digits) : null;
 }
 
 /**
@@ -116,7 +90,7 @@ export interface AccessPerson {
 
 /** Who may do what. The host always has full control. */
 export interface AccessPolicy {
-  /** For anyone with the session ID who is not listed. */
+  /** For anyone with the invite link who is not listed. */
   default: Access;
   people: AccessPerson[];
   groups: AccessGroup[];
@@ -137,15 +111,14 @@ export function policyOf(meta: Pick<SessionMeta, 'access' | 'permissions'>): Acc
  * typed name unless the session requires Google sign-in.
  */
 export function accessFor(
-  meta: Pick<SessionMeta, 'access' | 'permissions' | 'requireGoogle' | 'hostEmail'>,
+  meta: Pick<SessionMeta, 'access' | 'permissions' | 'hostEmail'>,
   name: string,
   isHost: boolean,
   email?: string | null,
 ): Access {
   if (isHost || (email && meta.hostEmail && sameName(email, meta.hostEmail))) return 'markup';
-  if (meta.requireGoogle && !email) return 'none';
   const policy = policyOf(meta);
-  const matches = (who: string) => (!!email && sameName(who, email)) || (!meta.requireGoogle && sameName(who, name));
+  const matches = (who: string) => (!!email && sameName(who, email)) || sameName(who, name);
   const own = policy.people.find((p) => matches(p.name));
   if (own?.access) return own.access;
   const groups = policy.groups.filter((g) => g.members.some(matches));
