@@ -26,6 +26,8 @@ interface OpenDoc {
   dataPtr: number;
   /** pageIndex -> page handle; Map insertion order doubles as LRU order. */
   pages: Map<number, number>;
+  /** Pages in use while others are loaded (annotations whose links point at other pages): never closed to make room. */
+  pinned: Set<number>;
   /** Annotations (by /Annots index) not to draw, applied whenever the page is loaded. */
   hidden: Map<number, Set<number>>;
   /** Form-fill environment, so form fields (widgets) are drawn; 0 when PDFium couldn't make one. */
@@ -77,10 +79,15 @@ function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): numbe
   if (doc.form) m.FORM_OnAfterLoadPage(page, doc.form);
   doc.pages.set(pageIndex, page);
   if (doc.pages.size > PAGE_CACHE_SIZE) {
-    const [oldIndex, oldPage] = doc.pages.entries().next().value!;
-    if (doc.form) m.FORM_OnBeforeClosePage(oldPage, doc.form);
-    m.FPDF_ClosePage(oldPage);
-    doc.pages.delete(oldIndex);
+    // The least recently used page that is not in use: closing one in use would leave its
+    // annotation handles dangling, and PDFium then crashes (table index out of bounds).
+    for (const [oldIndex, oldPage] of doc.pages) {
+      if (oldIndex === pageIndex || doc.pinned.has(oldIndex)) continue;
+      if (doc.form) m.FORM_OnBeforeClosePage(oldPage, doc.form);
+      m.FPDF_ClosePage(oldPage);
+      doc.pages.delete(oldIndex);
+      break;
+    }
   }
   return page;
 }
@@ -111,7 +118,7 @@ async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number;
   const formInfo = m.PDFiumExt_OpenFormFillInfo();
   const form = formInfo ? m.PDFiumExt_InitFormFillEnvironment(handle, formInfo) : 0;
   const docId = nextDocId++;
-  docs.set(docId, { handle, dataPtr, pages: new Map(), hidden: new Map(), form, formInfo });
+  docs.set(docId, { handle, dataPtr, pages: new Map(), pinned: new Set(), hidden: new Map(), form, formInfo });
   return { docId, pages };
 }
 
@@ -1232,6 +1239,9 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
   const { malloc, free } = m.pdfium.wasmExports;
   const tmp = malloc(32);
   const out: PdfAnnotation[] = [];
+  // Links load the pages they point at; this one stays open meanwhile.
+  const wasPinned = doc.pinned.has(pageIndex);
+  doc.pinned.add(pageIndex);
   try {
     const count = m.FPDFPage_GetAnnotCount(page);
     for (let index = 0; index < count; index++) {
@@ -1299,6 +1309,7 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
     }
   } finally {
     free(tmp);
+    if (!wasPinned) doc.pinned.delete(pageIndex);
   }
   return out;
 }
