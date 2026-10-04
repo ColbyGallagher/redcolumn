@@ -149,6 +149,16 @@ export async function keepRevision(id: string, note: string): Promise<void> {
   }));
 }
 
+/** Renames a document (its contents and markups are unchanged). */
+export async function renameFile(id: string, name: string): Promise<StoredFile | null> {
+  return updateIndex((entries) => {
+    const entry = entries.find((e) => e.id === id);
+    if (!entry) return { entries, result: null };
+    const next = { ...entry, name };
+    return { entries: entries.map((e) => (e.id === id ? next : e)), result: next };
+  });
+}
+
 /** Marks a document as a template (or not). */
 export async function setTemplate(id: string, on: boolean): Promise<void> {
   await updateIndex((entries) => ({ entries: entries.map((e) => (e.id === id ? { ...e, template: on || undefined } : e)), result: undefined }));
