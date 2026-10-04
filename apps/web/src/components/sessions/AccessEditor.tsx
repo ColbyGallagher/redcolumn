@@ -4,13 +4,15 @@ import { accessFor, sameName, type Access, type AccessGroup, type AccessPolicy }
 export const ACCESS_LABELS: Record<Access, string> = {
   none: 'No access',
   view: 'View documents',
-  markup: 'Add comments',
+  markup: 'Add comments, edit own',
+  markupAny: 'Add comments, edit anyone’s',
 };
 
 export const ACCESS_SHORT: Record<Access, string> = {
   none: 'No access',
   view: 'View',
   markup: 'Comment',
+  markupAny: 'Comment (edit all)',
 };
 
 export const emptyPolicy = (): AccessPolicy => ({ default: 'markup', people: [], groups: [] });
@@ -32,7 +34,7 @@ function AccessSelect({ value, onChange, inherit, label }: { value: Access | nul
   return (
     <select aria-label={label} value={value ?? ''} onChange={(e) => onChange((e.target.value || null) as Access | null)}>
       {inherit && <option value="">{inherit}</option>}
-      {(['markup', 'view', 'none'] as const).map((a) => (
+      {(['markupAny', 'markup', 'view', 'none'] as const).map((a) => (
         <option key={a} value={a}>
           {ACCESS_LABELS[a]}
         </option>

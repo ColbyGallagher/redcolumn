@@ -4,6 +4,7 @@ import { DEFAULT_SCALE, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet } from './columns';
 import { mapGeometry, type Markup, type Point } from './model';
+import { openPatch, type EditRule } from './ownership';
 import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
@@ -75,6 +76,7 @@ export class MarkupStore {
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private locked = false;
+  private editRule: EditRule | null = null;
 
   readonly fileHash: string;
 
@@ -138,6 +140,21 @@ export class MarkupStore {
     if (this.locked === readOnly) return;
     this.locked = readOnly;
     this.refresh();
+  }
+
+  /**
+   * Limits which markups this person may change beyond their status and replies (a Live Session
+   * where they may edit only their own); null lifts the limit. Edits to others' markups are ignored.
+   */
+  setEditRule(rule: EditRule | null) {
+    if (this.editRule === rule) return;
+    this.editRule = rule;
+    this.refresh();
+  }
+
+  /** Whether this person may change the markup itself, not only its status and replies. */
+  mayEdit(m: Pick<Markup, 'author'>): boolean {
+    return !this.editRule || this.editRule(m);
   }
 
   static async open(fileHash: string): Promise<MarkupStore> {
@@ -508,7 +525,7 @@ export class MarkupStore {
     this.doc.transact(() => {
       for (const id of ids) {
         const m = this.map.get(id);
-        if (!m) continue;
+        if (!m || !this.mayEdit(m)) continue;
         const fields = { ...m.fields };
         if (value === '') delete fields[columnId];
         else fields[columnId] = value;
@@ -547,6 +564,12 @@ export class MarkupStore {
     if (this.locked) return;
     const current = this.map.get(id);
     if (!current) return;
+    if (!this.mayEdit(current)) {
+      // Someone else's markup: only its status and replies change here.
+      const open = openPatch(patch);
+      if (!open) return;
+      patch = open;
+    }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     this.doc.transact(() => this.map.set(id, next as unknown as Markup), LOCAL);
@@ -555,7 +578,10 @@ export class MarkupStore {
   remove(ids: Iterable<string>) {
     if (this.locked) return;
     this.doc.transact(() => {
-      for (const id of ids) this.map.delete(id);
+      for (const id of ids) {
+        const m = this.map.get(id);
+        if (m && this.mayEdit(m)) this.map.delete(id);
+      }
     }, LOCAL);
   }
 

@@ -257,6 +257,8 @@ export function MarkupList(props: Props) {
 
   const editor = (m: Markup, col: ListColumn, missing: boolean) => {
     const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
+    // Someone else's markup without the right to edit anyone's: only its status can change.
+    const fixed = readOnly || (!!store && !store.mayEdit(m));
     const c = col.custom;
     if (col.key === 'status') {
       const def = columnSet.statuses.find((s) => s.id === m.status);
@@ -280,7 +282,7 @@ export function MarkupList(props: Props) {
           // Keyed by value so remote/undo changes replace the draft.
           key={`${m.comment ?? ''}|${m.text ?? ''}`}
           value={(isTextType(m.type) ? m.text : m.comment) ?? ''}
-          disabled={isTextType(m.type) || readOnly}
+          disabled={isTextType(m.type) || fixed}
           onSave={(comment) => store?.update(m.id, { comment })}
         />
       );
@@ -293,7 +295,7 @@ export function MarkupList(props: Props) {
             key={m.subject ?? ''}
             className="bare"
             defaultValue={m.subject || MARKUP_LABELS[m.type]}
-            disabled={readOnly}
+            disabled={fixed}
             title="Subject"
             onClick={stop}
             onBlur={(e) => {
@@ -319,7 +321,7 @@ export function MarkupList(props: Props) {
         return null;
       case 'choice':
         return (
-          <select className={cls} value={raw} disabled={readOnly} onClick={stop} onChange={(e) => commit(e.target.value)}>
+          <select className={cls} value={raw} disabled={fixed} onClick={stop} onChange={(e) => commit(e.target.value)}>
             <option value="">{c.required ? '— required —' : '—'}</option>
             {(c.options ?? []).map((o) => (
               <option key={o} value={o}>
@@ -330,7 +332,7 @@ export function MarkupList(props: Props) {
           </select>
         );
       case 'checkmark':
-        return <input type="checkbox" className={cls} checked={raw === 'true'} disabled={readOnly} onClick={stop} onChange={(e) => commit(e.target.checked ? 'true' : '')} />;
+        return <input type="checkbox" className={cls} checked={raw === 'true'} disabled={fixed} onClick={stop} onChange={(e) => commit(e.target.checked ? 'true' : '')} />;
       case 'multiline':
         return (
           <textarea
@@ -338,7 +340,7 @@ export function MarkupList(props: Props) {
             className={`cell-multiline ${cls}`}
             rows={1}
             defaultValue={raw}
-            disabled={readOnly}
+            disabled={fixed}
             placeholder={c.required ? 'Required' : ''}
             onClick={stop}
             onBlur={(e) => commit(e.target.value)}
@@ -352,7 +354,7 @@ export function MarkupList(props: Props) {
             type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : 'text'}
             step="any"
             defaultValue={raw}
-            disabled={readOnly}
+            disabled={fixed}
             placeholder={c.required ? 'Required' : ''}
             onClick={stop}
             onBlur={(e) => commit(e.target.value)}

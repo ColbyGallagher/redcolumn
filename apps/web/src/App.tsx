@@ -12,7 +12,7 @@ import { DriveAuthError } from './studio/drive/DriveApi';
 import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
 import { microsoftUser, OneDrive, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
-import { allows, type RecordEntry } from './studio/protocol';
+import { allows, canAddMarkups, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
@@ -176,7 +176,7 @@ function openAttachment(m: Markup) {
 function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number, absolute = false) {
   store.checkpoint();
   for (const m of ms) {
-    if (m.locked) continue;
+    if (m.locked || !store.mayEdit(m)) continue;
     const next = ((((absolute ? 0 : (m.rotation ?? 0)) + degrees) % 360) + 360) % 360;
     store.update(m.id, { rotation: next || undefined });
   }
@@ -3171,7 +3171,7 @@ export function App() {
     (req: StartRequest) =>
       runStudio(async () => {
         const { holder, onRemoved } = removedHandler();
-        const permissions = { markup: req.access.default === 'markup', addDocuments: req.addDocuments, saveCopy: req.saveCopy, invite: req.invite };
+        const permissions = { markup: canAddMarkups(req.access.default), addDocuments: req.addDocuments, saveCopy: req.saveCopy, invite: req.invite };
         const session: CollabSession =
           req.backend === 'onedrive'
             ? await (async () => {
@@ -4197,13 +4197,16 @@ export function App() {
     };
     const bounds = boundsOf(ms.flatMap((m) => m.points));
     const anyLocked = ms.some((m) => m.locked);
-    const allLocked = ms.every((m) => m.locked);
+    // Someone else's markups, in a Live Session where this person may edit only their own: like
+    // locked ones, they keep only their status and replies open.
+    const theirs = ms.some((m) => !store.mayEdit(m));
+    const allLocked = ms.every((m) => m.locked || !store.mayEdit(m));
     const grouped = ms.some((m) => m.groupId);
     return [
-      { label: 'Edit Text', disabled: ro || !one || !isTextType(first.type), onClick: () => setEditingText(first.id) },
+      { label: 'Edit Text', disabled: ro || theirs || !one || !isTextType(first.type), onClick: () => setEditingText(first.id) },
       { label: 'Reply…', disabled: ro || !one, onClick: () => setReplyTo({ pane, id: first.id }) },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
-      { label: first.link ? 'Edit Action…' : 'Action…', disabled: ro || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
+      { label: first.link ? 'Edit Action…' : 'Action…', disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
       ...(studioDocOf(o.file.id)
         ? [
             {
@@ -4231,7 +4234,7 @@ export function App() {
             },
           ]
         : []),
-      { label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || !one || isTextType(first.type), onClick: () => setCommentEdit({ pane, id: first.id }) },
+      { label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs || !one || isTextType(first.type), onClick: () => setCommentEdit({ pane, id: first.id }) },
       {
         label: 'Status',
         disabled: ro,
@@ -4299,7 +4302,7 @@ export function App() {
       grouped
         ? { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
         : { label: 'Group', shortcut: 'Ctrl+G', disabled: ro || one || allLocked, onClick: () => c.tools.group() },
-      { label: anyLocked ? 'Unlock' : 'Lock', disabled: ro, onClick: () => c.tools.setLocked(!anyLocked) },
+      { label: anyLocked ? 'Unlock' : 'Lock', disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
       {
         label: 'Layer',
         disabled: ro,
