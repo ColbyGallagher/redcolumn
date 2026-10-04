@@ -19,7 +19,7 @@ interface Props {
   onCancel: () => void;
 }
 
-const TITLES: Record<ProcessKind, string> = { flatten: 'Flatten', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+export const PROCESS_TITLES: Record<ProcessKind, string> = { flatten: 'Flatten', reduce: 'Reduce File Size', colour: 'Colour Processing' };
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)} MB`;
 
@@ -56,7 +56,7 @@ export function ProcessDialog({ kind, pageCount, currentPage, markupCount, fileS
           });
         }}
       >
-        <h3>{TITLES[kind]}</h3>
+        <h3>{PROCESS_TITLES[kind]}</h3>
         {kind === 'flatten' && (
           <>
             <p>
@@ -108,7 +108,7 @@ export function ProcessDialog({ kind, pageCount, currentPage, markupCount, fileS
               )}
             </fieldset>
             {choice.ui}
-            <p className="print-hint">{typeof mode === 'object' ? 'Lines, fills and text of that colour change; pictures stay as they are.' : 'Lines, fills, text and pictures change.'} Markups are not changed.</p>
+            <p className="print-hint">{typeof mode === 'object' ? 'Lines, fills and text of that colour change; pictures stay as they are.' : 'Lines, fills, text and pictures change.'} Markups are not changed. The drawing as it was is kept under Document › Revisions.</p>
           </>
         )}
         {error && <p className="print-error">{error}</p>}

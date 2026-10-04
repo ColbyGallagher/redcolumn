@@ -49,7 +49,7 @@ import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
-import { ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
+import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
 import type { OverlayPageSpec } from './documents/overlay';
@@ -5207,7 +5207,7 @@ export function App() {
     process: (kind) => setProcessKind(kind),
     unflatten: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'unflatten' }).then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
     },
     compare: () => setCompareOpen('compare'),
     batch: (kind) => setBatchOpen(kind),
@@ -5238,7 +5238,7 @@ export function App() {
     },
     repair: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'repair' }).then((msg) => msg && setNotice(msg)).catch((err) => setError(`Repair failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'repair' }, 'Before Repair').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Repair failed: ${err instanceof Error ? err.message : String(err)}`));
     },
     deletePages: () => {
       const pages = currentPageOps();
@@ -6697,8 +6697,10 @@ export function App() {
           fileSize={activeOpen.file.size}
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
-            const msg = await runProcess(activeOpen, spec);
-            if (msg && spec.kind !== 'colour') setNotice(msg);
+            // The contents before are kept as a revision: these changes cannot be undone otherwise.
+            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES[spec.kind]}`);
+            const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
+            if (msg) setNotice(changed ? `${msg} Document › Revisions brings back the version before.` : msg);
             setProcessKind(null);
           }}
         />
