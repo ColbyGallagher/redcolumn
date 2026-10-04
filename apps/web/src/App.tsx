@@ -100,7 +100,7 @@ import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
-import { ProjectsPanel } from './components/ProjectsPanel';
+import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
 import { idFromText, openProject, projectById } from './studio/projects/store';
 import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
 import { libraryCopyOf, linkOf, setLink } from './studio/projects/local';
@@ -3436,8 +3436,9 @@ export function App() {
     [openCreated, openFromLibrary, acquireDocument, commitDocument, refreshLibrary],
   );
 
-  const addToProject = useCallback(async (project: Project, folderId: string | null, sources: { name: string; bytes: ArrayBuffer; libraryId?: string }[]) => {
-    for (const s of sources) {
+  const addToProject = useCallback(async (project: Project, folderId: string | null, sources: { name: string; bytes: ArrayBuffer; libraryId?: string }[], onProgress?: (p: UploadProgress) => void) => {
+    for (const [i, s] of sources.entries()) {
+      onProgress?.({ done: i, total: sources.length, name: s.name });
       const file = await project.addFile(s.name, folderId, s.bytes);
       if (s.libraryId) setLink(s.libraryId, { projectId: project.id, fileId: file.id, rev: 1, name: s.name });
     }
@@ -5839,16 +5840,18 @@ export function App() {
                 onDismissInvite={() => setProjectInvite(null)}
                 localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
                 onOpenFile={openProjectFile}
-                onAddFiles={async (project, folderId, files) =>
-                  addToProject(project, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))))
-                }
+                onAddFiles={async (project, folderId, files, onProgress) => {
+                  onProgress({ done: 0, total: files.length, name: 'Reading files' });
+                  return addToProject(project, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))), onProgress);
+                }}
                 onCheckIn={checkInProjectFile}
                 onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
-                onAddCurrent={async (project, folderId) => {
+                onAddCurrent={async (project, folderId, onProgress) => {
                   const cur = activeOpen;
                   if (!cur) return;
+                  onProgress({ done: 0, total: 1, name: cur.file.name });
                   const bytes = await annotatedBytes(cur);
-                  await addToProject(project, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }]);
+                  await addToProject(project, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }], onProgress);
                 }}
               />
             ) : leftTab === 'sessions' ? (

@@ -21,12 +21,19 @@ interface Props {
   localDocName: string | null;
   /** Opens a Project file in a tab (its library copy, brought up to date). */
   onOpenFile: (project: Project, file: ProjectFile, rev?: number) => Promise<void>;
-  onAddFiles: (project: Project, folderId: string | null, files: File[]) => Promise<void>;
-  onAddCurrent: (project: Project, folderId: string | null) => Promise<void>;
+  onAddFiles: (project: Project, folderId: string | null, files: File[], onProgress: (p: UploadProgress) => void) => Promise<void>;
+  onAddCurrent: (project: Project, folderId: string | null, onProgress: (p: UploadProgress) => void) => Promise<void>;
   /** Checks the library copy in; queued when OneDrive cannot be reached. */
   onCheckIn: (project: Project, file: ProjectFile, comment: string) => Promise<void>;
   /** Sends what was queued offline. */
   onSendQueued: () => void;
+}
+
+/** How far adding files to a Project has got: `done` of `total` are up, and `name` is being sent. */
+export interface UploadProgress {
+  done: number;
+  total: number;
+  name: string;
 }
 
 const when = (at: number) => new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' });
@@ -156,6 +163,16 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
   const fileInput = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showRecord, setShowRecord] = useState(false);
+  const [upload, setUpload] = useState<UploadProgress | null>(null);
+  /** Runs an add-files job with the progress panel showing until it ends, however it ends. */
+  const uploading = (job: (onProgress: (p: UploadProgress) => void) => Promise<void>) =>
+    run(async () => {
+      try {
+        await job(setUpload);
+      } finally {
+        setUpload(null);
+      }
+    });
   const queue = useSyncExternalStore(projectQueue().subscribe, () => projectQueue().all());
   const queued = queue.filter((c) => c.projectId === project.id);
   const snap = project.getSnapshot();
@@ -202,7 +219,7 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
         <button className="btn small" disabled={busy || !writable} title={net('Adding files') ?? 'Add PDFs from this computer to this folder'} onClick={() => fileInput.current?.click()}>
           Add PDFs…
         </button>
-        <button className="btn small" disabled={busy || !writable || !localDocName} title={localDocName ? `Add ${localDocName} to this folder` : 'Open a document first'} onClick={() => void run(() => onAddCurrent(project, current))}>
+        <button className="btn small" disabled={busy || !writable || !localDocName} title={localDocName ? `Add ${localDocName} to this folder` : 'Open a document first'} onClick={() => void uploading((p) => onAddCurrent(project, current, p))}>
           Add open document
         </button>
         <input
@@ -214,10 +231,19 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
           onChange={(e) => {
             const picked = [...(e.target.files ?? [])];
             e.target.value = '';
-            if (picked.length) void run(() => onAddFiles(project, current, picked));
+            if (picked.length) void uploading((p) => onAddFiles(project, current, picked, p));
           }}
         />
       </div>
+      {upload && (
+        <div className="upload-progress" role="status" aria-live="polite">
+          <b>
+            Uploading {Math.min(upload.done + 1, upload.total)} of {upload.total}
+          </b>
+          <span className="hint-text">{upload.name}</span>
+          <progress max={upload.total} value={upload.done} aria-label="Upload progress" />
+        </div>
+      )}
 
       <nav className="project-crumbs" aria-label="Folder">
         <button className="btn small flat" onClick={() => go(null)}>

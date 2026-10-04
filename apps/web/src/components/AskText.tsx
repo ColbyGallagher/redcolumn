@@ -55,15 +55,20 @@ export function AskTextHost() {
       >
         <h3>{req.title}</h3>
         {req.label && <p>{req.label}</p>}
-        <div className="row">
+        <div className={req.choices ? 'choice-list' : 'row'} role={req.choices ? 'radiogroup' : undefined} aria-label={req.choices ? req.title : undefined}>
           {req.choices ? (
-            <select autoFocus value={value} onChange={(e) => setValue(e.target.value)} size={Math.min(8, Math.max(2, req.choices.length))}>
-              {req.choices.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            req.choices.map((c, i) => {
+              const [head, ...rest] = c.label.split(': ');
+              return (
+                <label key={c.value} className={`choice ${value === c.value ? 'selected' : ''}`}>
+                  <input type="radio" name="ask-choice" value={c.value} checked={value === c.value} autoFocus={i === 0} onChange={() => setValue(c.value)} />
+                  <span>
+                    <b>{head}</b>
+                    {rest.length > 0 && <small>{rest.join(': ')}</small>}
+                  </span>
+                </label>
+              );
+            })
           ) : (
           <input
             autoFocus
