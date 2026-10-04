@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { googleSignInConfigured, googleUser, signInWithGoogle, signOutOfGoogle, subscribeGoogleUser } from '../studio/drive/google';
 import { microsoftUser, oneDriveConfigured, signInWithMicrosoft, signOutOfMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
-import { forgetRecentSession, recentSessions, type SessionRef } from '../studio/local';
+import { forgetRecentSession, recentSessions, restoreRecentSession, type SessionRef } from '../studio/local';
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
 import { ACCESS_SHORT } from './sessions/AccessEditor';
@@ -178,11 +178,11 @@ function SessionList({
     .map((r) => {
       const j = joined.find((x) => x.session.id === r.id);
       const meta = j?.snapshot.meta ?? null;
-      const status = j ? (j.snapshot.meta.status === 'finished' ? 'Finished' : 'Joined') : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
+      const status = j ? (j.snapshot.meta.status === 'finished' ? 'Finished' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
       const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
       return { ref: r, joined: j, meta, status, usable: true, access };
     })
-    .filter((row) => filter === 'all' || row.joined || (row.usable && row.meta?.status !== 'finished'));
+    .filter((row) => filter === 'all' || row.joined || (row.usable && !row.ref.removed && row.meta?.status !== 'finished'));
 
   return (
     <div className="sessions">
@@ -234,7 +234,7 @@ function SessionList({
       </h3>
       {rows.length === 0 ? (
         <p className="empty">
-          {recent.length ? 'No active sessions. Show All to see finished ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
+          {recent.length ? 'No active sessions. Show All to see finished and removed ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
         </p>
       ) : (
         <ul className="session-list">
@@ -261,18 +261,32 @@ function SessionList({
                   )}
                 </span>
               </button>
-              {!j && (
-                <button
-                  className="btn small flat"
-                  title="Remove from this list"
-                  onClick={() => {
-                    forgetRecentSession(ref.id);
-                    setRefresh((n) => n + 1);
-                  }}
-                >
-                  ×
-                </button>
-              )}
+              {!j &&
+                (ref.removed ? (
+                  <button
+                    className="btn small flat"
+                    title="Restore to the Active list"
+                    aria-label="Restore"
+                    onClick={() => {
+                      restoreRecentSession(ref.id);
+                      setRefresh((n) => n + 1);
+                    }}
+                  >
+                    ↺
+                  </button>
+                ) : (
+                  <button
+                    className="btn small flat"
+                    title="Remove from the Active list (restore it from All)"
+                    aria-label="Remove"
+                    onClick={() => {
+                      forgetRecentSession(ref.id);
+                      setRefresh((n) => n + 1);
+                    }}
+                  >
+                    ×
+                  </button>
+                ))}
             </li>
           ))}
         </ul>

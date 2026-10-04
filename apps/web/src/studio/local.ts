@@ -31,6 +31,8 @@ export interface SessionRef {
 export interface RecentSession extends SessionRef {
   name: string;
   joinedAt: number;
+  /** Removed from the list: hidden under Active, shown under All with a Restore button. */
+  removed?: boolean;
 }
 
 /** Sessions this browser has created or joined, newest first: the Sessions list. */
@@ -60,10 +62,15 @@ export function forgetCurrentSession(id: string) {
   writeLocal(CURRENT_KEY, currentSessions().filter((r) => r.id !== id));
 }
 
-/** Removes a session from the Sessions list. */
+/** Removes a session from the Sessions list: it moves to All, tagged Removed, until restored. */
 export function forgetRecentSession(id: string) {
-  writeLocal(RECENT_KEY, recentSessions().filter((r) => r.id !== id));
+  writeLocal(RECENT_KEY, recentSessions().map((r) => (r.id === id ? { ...r, removed: true } : r)));
   forgetCurrentSession(id);
+}
+
+/** Puts a removed session back in the Sessions list. */
+export function restoreRecentSession(id: string) {
+  writeLocal(RECENT_KEY, recentSessions().map((r) => (r.id === id ? { ...r, removed: undefined } : r)));
 }
 
 /** A link that opens the app and joins a session: `?gdrive=` (Google Drive) or `?onedrive=`. */

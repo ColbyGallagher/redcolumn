@@ -2275,6 +2275,11 @@ body,
   color: #bbf7d0;
 }
 
+.session-row .status.removed {
+  background: transparent;
+  border: 1px dashed var(--muted);
+}
+
 .session-row .status.no-access,
 .session-row .status.not-found {
   background: #7f1d1d;
