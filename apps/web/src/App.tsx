@@ -7,7 +7,7 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
-import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
@@ -139,6 +139,30 @@ interface OpenFile {
   file: StoredFile;
   doc: PdfDocument;
   store: MarkupStore;
+}
+
+/** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
+const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+function markSaved(t: OpenFile) {
+  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
+}
+function hasUnsavedChanges(t: OpenFile) {
+  let base = savedState.get(t.store);
+  if (!base) {
+    markSaved(t);
+    base = savedState.get(t.store)!;
+  }
+  return t.store.editCount !== base.edits || t.file.hash !== base.hash;
+}
+
+/** A tab's file name, followed by * when the document has changes that are not saved to its file. */
+function TabName({ t, saved }: { t: OpenFile; saved: number }) {
+  void saved;
+  useSyncExternalStore(
+    (l) => t.store.subscribe(l),
+    () => t.store.editCount,
+  );
+  return <span className="name">{t.file.name}{!studioDocOf(t.file.id) && hasUnsavedChanges(t) ? '*' : ''}</span>;
 }
 
 const AUTHOR_KEY = 'nb.author';
@@ -2979,32 +3003,49 @@ export function App() {
    * Save writes the document with its markups as PDF annotations over the file it was opened from
    * (asking once for permission). Documents with no file on disk, and Save As, ask where to put it.
    */
+  const [savedTick, setSavedTick] = useState(0);
   const saveDocument = useCallback(async (saveAs: boolean) => {
     const intoB = activePaneRef.current === 'b';
     const cur = intoB ? openBRef.current : openRef.current;
     if (!cur) return;
+    const pane: Pane = intoB ? 'b' : 'a';
+    // Marks the document saved and gives its tab the name of the file it was saved to.
+    const saved = async (fileName: string) => {
+      markSaved(cur);
+      let now = cur;
+      if (fileName !== cur.file.name) {
+        const renamed = await renameFile(cur.file.id, fileName);
+        if (renamed) {
+          now = { ...cur, file: renamed };
+          markSaved(now);
+          setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? now : t)));
+          if (openRefOf(pane).current === cur) setFront(pane, now);
+          void refreshLibrary();
+        }
+      }
+      setSavedTick((n) => n + 1);
+      setNotice(`Saved ${fileName}.`);
+    };
     try {
       const out = await annotatedBytes(cur);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const target = saveAs ? null : await recallHandle(cur.file.id);
       if (target) {
-        if (await writeToHandle(target, blob)) {
-          setNotice(`Saved ${target.name}.`);
-          return;
-        }
-        setError(`${target.name} was not saved: the browser did not allow writing to it.`);
+        if (await writeToHandle(target, blob)) await saved(target.name);
+        else setError(`${target.name} was not saved: the browser did not allow writing to it.`);
         return;
       }
       const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
       if (picked === 'unsupported') anchorDownload(cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', blob);
       else if (picked) {
         await rememberHandle(cur.file.id, picked);
-        setNotice(`Saved ${picked.name}.`);
+        await saved(picked.name);
       }
     } catch (err) {
       setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the pane helpers read only refs and stable setters
+  }, [setTabs, setFront, refreshLibrary]);
   const exportPdf = useCallback(() => saveDocument(false), [saveDocument]);
 
   /**
@@ -4488,7 +4529,7 @@ export function App() {
                   Live
                 </span>
               )}
-              <span className="name">{t.file.name}</span>
+              <TabName t={t} saved={savedTick} />
               <button
                 type="button"
                 className="close"

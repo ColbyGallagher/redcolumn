@@ -105,8 +105,17 @@ export class MarkupStore {
     this.undoManager.on('stack-item-updated', label as never);
     this.persistence = persist ? new IndexeddbPersistence(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
+      // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
+      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;
       if (tr.changed.size) this.refresh(tr.changed);
     });
+  }
+
+  private edits = 0;
+
+  /** Counts changes made here since the store opened; a different count than at the last save means unsaved changes. */
+  get editCount(): number {
+    return this.edits;
   }
 
   /**
