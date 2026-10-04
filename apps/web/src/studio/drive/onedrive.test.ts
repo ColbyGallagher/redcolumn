@@ -51,7 +51,8 @@ class FakeGraph {
     const path = decodeURIComponent(url.pathname.replace(/^\/v1\.0/, ''));
     this.calls.push({ method, path, search: url.searchParams, body });
 
-    if (method === 'POST' && path === '/me/drive/special/approot/children') {
+    if (method === 'GET' && path === '/me/drive/special/approot') return Response.json({ id: 'approot', parentReference: { driveId: 'd1' } });
+    if (method === 'POST' && path === '/drives/d1/items/approot/children') {
       const { name } = JSON.parse(String(init.body)) as { name: string };
       const item = this.add('approot', name);
       item.folder = true;
