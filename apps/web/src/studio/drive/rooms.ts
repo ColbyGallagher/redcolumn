@@ -95,6 +95,8 @@ export interface RoomFilesOptions {
   pollMs?: number;
   /** Called when the status changes. */
   onStatus?: (status: RoomStatus) => void;
+  /** Called with the folder's files each time it is read (for whatever else rides on them). */
+  onList?: (files: DriveFile[]) => void;
 }
 
 export class RoomFiles {
@@ -222,6 +224,7 @@ export class RoomFiles {
       }
       const changed = files.filter((f) => ROOM_FILE.test(f.name) && this.seen.get(f.id) !== f.version);
       await inPool(changed, READ_CONCURRENCY, (f) => this.readFile(f));
+      this.opts.onList?.(files);
       if (this.status !== 'viewOnly' && this.status !== 'needsAuth') this.setStatus('online');
       if (!this.synced) {
         this.synced = true;

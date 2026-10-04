@@ -10,7 +10,7 @@ import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevisio
 import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
-import { microsoftUser, OneDrive, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
+import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
 import { allows, canAddMarkups, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
@@ -101,7 +101,7 @@ import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
-import { idFromText, onProjectOpened, openProject, projectById } from './studio/projects/store';
+import { idFromText, onProjectOpened, openProject, openProjects, projectAuthor, projectById } from './studio/projects/store';
 import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
 import { libraryCopyOf, linkOf, setLink } from './studio/projects/local';
 import type { Project } from './studio/projects/Project';
@@ -515,6 +515,8 @@ export function App() {
   const openBRef = useRef<OpenFile | null>(null);
   /** Every document open in each pane, shown as tabs; `open`/`openB` is the one in front. */
   const [tabsA, setTabsA] = useState<OpenFile[]>([]);
+  /** Counts Projects opened, so what depends on the open Projects runs again. */
+  const [projectsOpened, setProjectsOpened] = useState(0);
   const tabsARef = useRef<OpenFile[]>([]);
   const [tabsB, setTabsB] = useState<OpenFile[]>([]);
   const tabsBRef = useRef<OpenFile[]>([]);
@@ -3501,9 +3503,22 @@ export function App() {
           const link = linkOf(tab.file.id);
           if (link?.projectId === project.id) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
         }
+        setProjectsOpened((n) => n + 1);
       }),
     [],
   );
+
+  // Reopen (without a sign-in prompt) the Projects of files in tabs, so their markups sync again
+  // after a reload. Each is tried once; one that needs a sign-in waits for a click in the panel.
+  const triedProjects = useRef(new Set<string>());
+  useEffect(() => {
+    for (const tab of [...tabsA, ...tabsB]) {
+      const id = linkOf(tab.file.id)?.projectId;
+      if (!id || projectById(id) || triedProjects.current.has(id)) continue;
+      triedProjects.current.add(id);
+      void openProject(id, authorRef.current, false).catch(() => {});
+    }
+  }, [tabsA, tabsB]);
 
   /** Sends check-ins and notes made offline, in order (src/studio/projects/queue.ts). */
   const sendQueuedProjectChanges = useCallback(async () => {
@@ -4116,6 +4131,20 @@ export function App() {
       s.setPresence(docId, docId ? pageIndex : null);
     }
   }, [sessions, activeStudioDoc?.sessionId, activeStudioDoc?.docId, pageIndex]);
+
+  // And tell everyone on a Project which of its files (and page) is in front of this person.
+  const activeProjectLink = activeOpen && !activeStudioDoc ? linkOf(activeOpen.file.id) : null;
+  // Markups (and replies) on a Project file are by the person's Microsoft email, as the Project
+  // knows them, rather than the app's own author name: everyone sees who made them, and editors'
+  // right to change their own markups matches.
+  useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
+  authorRef.current = activeProjectLink ? projectAuthor(author) : author;
+  useEffect(() => {
+    for (const p of openProjects()) {
+      const here = activeProjectLink?.projectId === p.id;
+      p.setPresence(here ? activeProjectLink.fileId : null, here ? pageIndex : null);
+    }
+  }, [activeProjectLink?.projectId, activeProjectLink?.fileId, pageIndex, projectsOpened]);
 
   const persistAuthor = (value: string) => {
     setAuthor(value);

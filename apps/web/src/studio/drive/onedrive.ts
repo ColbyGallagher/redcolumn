@@ -71,7 +71,10 @@ function setUser(next: MicrosoftUser | null) {
 }
 
 // Pick up an account remembered from an earlier visit.
-if (CLIENT_ID && typeof window !== 'undefined') void app().then((pca) => setUser(toUser(pca.getActiveAccount())), () => {});
+const restored = CLIENT_ID && typeof window !== 'undefined' ? app().then((pca) => setUser(toUser(pca.getActiveAccount())), () => {}) : Promise.resolve();
+
+/** Resolves once the account remembered from an earlier visit (if any) is known to `microsoftUser`. */
+export const microsoftUserRestored = (): Promise<void> => restored;
 
 export function microsoftUser(): MicrosoftUser | null {
   return user;

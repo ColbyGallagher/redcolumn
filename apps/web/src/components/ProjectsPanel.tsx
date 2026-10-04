@@ -164,6 +164,8 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
   const [selected, setSelected] = useState<string | null>(null);
   const [showRecord, setShowRecord] = useState(false);
   const [upload, setUpload] = useState<UploadProgress | null>(null);
+  /** The file being opened from a click, while it loads. */
+  const [opening, setOpening] = useState<string | null>(null);
   /** Runs an add-files job with the progress panel showing until it ends, however it ends. */
   const uploading = (job: (onProgress: (p: UploadProgress) => void) => Promise<void>) =>
     run(async () => {
@@ -325,12 +327,26 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
             <li key={f.id}>
               <button
                 className={`session-row ${selected === f.id ? 'selected' : ''}`}
-                onClick={() => setSelected(selected === f.id ? null : f.id)}
-                onDoubleClick={() => void run(() => onOpenFile(project, f))}
-                title="Click for actions; double-click to open"
+                disabled={busy}
+                onClick={() => {
+                  // Opens it, and shows what else can be done with it below.
+                  setSelected(f.id);
+                  setOpening(f.id);
+                  void run(() => onOpenFile(project, f)).finally(() => setOpening(null));
+                }}
+                title="Open this file"
+                aria-busy={opening === f.id}
               >
                 <span className="line1">
+                  {opening === f.id && <span className="spinner" role="status" aria-label={`Opening ${f.name}`} />}
                   <b>{f.name}</b>
+                  <span className="dots">
+                    {snap.presence
+                      .filter((p) => p.fileId === f.id && !p.self)
+                      .map((p) => (
+                        <i key={p.seat} style={{ background: p.color }} title={`${p.name} is viewing`} />
+                      ))}
+                  </span>
                   <span className="status">Rev {last.n}</span>
                   {f.checkout && <span className="status checked-out">{project.heldByMe(f) ? 'Out: you' : `Out: ${f.checkout.by}`}</span>}
                 </span>
@@ -454,6 +470,7 @@ function FileActions({
         {' '}Markups are shared live with everyone who has it open.
         {file.checkout?.note ? ` Checked out for: ${file.checkout.note}` : ''}
       </p>
+      <Viewers project={project} fileId={file.id} />
       <div className="row">
         <button
           className="btn small primary"
@@ -600,6 +617,25 @@ function FileActions({
         </ul>
       )}
     </div>
+  );
+}
+
+/** Who else has the file open now, and on which page. */
+function Viewers({ project, fileId }: { project: Project; fileId: string }) {
+  const others = project.getSnapshot().presence.filter((p) => p.fileId === fileId && !p.self);
+  if (!others.length) return null;
+  return (
+    <p className="project-viewers">
+      Viewing now:{' '}
+      {others.map((p, i) => (
+        <span key={p.seat}>
+          {i > 0 && ', '}
+          <i style={{ background: p.color }} aria-hidden="true" />
+          <b>{p.name}</b>
+          {p.page != null && <span className="hint-text"> (page {p.page + 1})</span>}
+        </span>
+      ))}
+    </p>
   );
 }
 

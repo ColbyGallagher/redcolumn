@@ -1,6 +1,7 @@
 import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission } from '../drive/DriveApi';
 import { claimSeat, RoomFiles } from '../drive/rooms';
+import { attendeeColor } from '../types';
 import { rememberedProjectSeat, rememberProjectSeat } from './local';
 import {
   MANIFEST_NAME,
@@ -54,7 +55,27 @@ export interface ProjectSnapshot {
   /** What this person can do. `viewer` once OneDrive refuses a write. */
   level: Level;
   loadedAt: number;
+  /** Who has which file open now (this person included, as `self`). */
+  presence: ProjectPresence[];
 }
+
+/** Someone with a Project file open, as in a Live Session. */
+export interface ProjectPresence {
+  /** Their presence file (one per browser tab's seat). */
+  seat: string;
+  name: string;
+  email?: string;
+  color: string;
+  fileId: string;
+  page: number | null;
+  self: boolean;
+}
+
+const PRESENCE = 'presence';
+/** Someone not heard from for this long is taken to have closed the file. */
+const ONLINE_MS = 60_000;
+const HEARTBEAT_MS = 20_000;
+const PRESENCE_DELAY_MS = 800;
 
 export interface ProjectOptions {
   /** Signs in (a click) before the drive is used. */
@@ -106,7 +127,17 @@ export class Project {
   /** Each file's markups, shared live as in a Live Session (made when a file is first opened). */
   private markupRooms: Promise<RoomFiles> | null = null;
   private releaseSeat: (() => void) | null = null;
+  private seatClaim: Promise<string> | null = null;
+  private seatId: string | null = null;
   private linked = new WeakMap<MarkupStore, () => void>();
+  /** The file and page this person has in front of them. */
+  private here: { fileId: string | null; page: number | null } = { fileId: null, page: null };
+  /** Everyone's presence files, as last listed. */
+  private listed: DriveFile[] = [];
+  private presenceId: string | null = null;
+  private presenceWrite: Promise<void> = Promise.resolve();
+  private presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  private heartbeat: ReturnType<typeof setInterval> | undefined;
   /** Our own markups only: what an editor (not the owner) may change. */
   private ownRule: EditRule;
 
@@ -121,11 +152,12 @@ export class Project {
   }
 
   /**
-   * The folder's markup rooms, with this browser's seat: remembered per Project, or a fresh one
-   * when another tab of this browser holds it (two tabs writing one seat would overwrite each other).
+   * This browser's seat in the Project (its own markup and presence files): remembered per
+   * Project, or a fresh one when another tab of this browser holds it (two tabs writing one seat
+   * would overwrite each other).
    */
-  private rooms(): Promise<RoomFiles> {
-    this.markupRooms ??= (async () => {
+  private seat(): Promise<string> {
+    this.seatClaim ??= (async () => {
       let seat = rememberedProjectSeat(this.folderId);
       let release = seat ? await claimSeat(this.folderId, seat) : null;
       if (!seat || !release) {
@@ -135,14 +167,88 @@ export class Project {
         if (fresh) rememberProjectSeat(this.folderId, seat);
       }
       this.releaseSeat = release;
-      return new RoomFiles(this.api, this.folderId, seat, {
-        pollMs: this.opts.markupPollMs,
-        onStatus: (status) => {
-          if (status === 'viewOnly' && !this.isOwner) this.set({ level: 'viewer' });
-        },
-      });
+      this.seatId = seat;
+      return seat;
     })();
+    return this.seatClaim;
+  }
+
+  /** The folder's markup rooms, read and written as this browser's seat. */
+  private rooms(): Promise<RoomFiles> {
+    this.markupRooms ??= this.seat().then(
+      (seat) =>
+        new RoomFiles(this.api, this.folderId, seat, {
+          pollMs: this.opts.markupPollMs,
+          onStatus: (status) => {
+            if (status === 'viewOnly' && !this.isOwner) this.set({ level: 'viewer' });
+          },
+          // The rooms read the folder every few seconds while a file is open: presence comes along.
+          onList: (files) => this.readPresence(files),
+        }),
+    );
     return this.markupRooms;
+  }
+
+  // ---- Presence: who has which file open, and on which page ----
+
+  /** Says which file (and page) this person has in front of them; null when none of this Project's. */
+  setPresence(fileId: string | null, page: number | null) {
+    if (this.here.fileId === fileId && this.here.page === page) return;
+    const was = this.here.fileId;
+    this.here = { fileId, page };
+    this.set({ presence: this.buildPresence() });
+    clearTimeout(this.presenceTimer);
+    if (this.opts.markupPollMs === 0) return;
+    this.presenceTimer = setTimeout(() => void this.pushPresence(), PRESENCE_DELAY_MS);
+    // Others drop someone not heard from in a minute, so say so now and then while viewing.
+    if (fileId && !this.heartbeat) this.heartbeat = setInterval(() => void this.pushPresence(), HEARTBEAT_MS);
+    if (!fileId && was && this.heartbeat) {
+      clearInterval(this.heartbeat);
+      this.heartbeat = undefined;
+    }
+  }
+
+  /** Writes this seat's presence file: who, which file and page, and when. */
+  async pushPresence(seen = Date.now()): Promise<void> {
+    if (!this.canWrite) return;
+    const props = {
+      nbRole: PRESENCE,
+      nbName: fit(this.me.name),
+      ...(this.me.email ? { nbEmail: fit(this.me.email) } : {}),
+      nbF: this.here.fileId ?? '',
+      nbPage: this.here.page != null ? String(this.here.page) : '',
+      nbSeen: String(seen),
+    };
+    const write = async () => {
+      const seat = await this.seat();
+      if (this.presenceId) await this.api.updateProperties(this.presenceId, props);
+      else this.presenceId = (await this.api.createFile(this.folderId, `presence-${seat}.json`, 'application/json', jsonBlob({ v: 1 }), props)).id;
+    };
+    // One write at a time, so a quick page change never makes a second presence file.
+    this.presenceWrite = this.presenceWrite.then(write).catch((err: unknown) => {
+      if (err instanceof DriveForbiddenError && !this.isOwner) this.set({ level: 'viewer' });
+    });
+    await this.presenceWrite;
+  }
+
+  private readPresence(files: DriveFile[]) {
+    this.listed = files.filter((f) => f.properties.nbRole === PRESENCE);
+    const mine = this.seatId && this.listed.find((f) => f.name === `presence-${this.seatId}.json`);
+    if (mine) this.presenceId ??= mine.id;
+    this.set({ presence: this.buildPresence() });
+  }
+
+  private buildPresence(): ProjectPresence[] {
+    const now = Date.now();
+    const out: ProjectPresence[] = [];
+    for (const f of this.listed) {
+      const p = f.properties;
+      if (f.name === `presence-${this.seatId}.json` || !p.nbName || !p.nbF) continue;
+      if (now - Number(p.nbSeen ?? 0) > ONLINE_MS) continue;
+      out.push({ seat: f.id, name: p.nbName, ...(p.nbEmail ? { email: p.nbEmail } : {}), color: attendeeColor(p.nbName), fileId: p.nbF, page: p.nbPage ? Number(p.nbPage) : null, self: false });
+    }
+    if (this.here.fileId) out.push({ seat: 'self', name: this.me.name, color: attendeeColor(this.me.name), fileId: this.here.fileId, page: this.here.page, self: true });
+    return out;
   }
 
   /**
@@ -191,6 +297,14 @@ export class Project {
 
   /** Stops syncing markups and lets another tab take this browser's seat. */
   close() {
+    clearTimeout(this.presenceTimer);
+    clearInterval(this.heartbeat);
+    this.heartbeat = undefined;
+    // Show as gone straight away rather than after the timeout.
+    if (this.presenceId) {
+      this.here = { fileId: null, page: null };
+      void this.pushPresence(0);
+    }
     const rooms = this.markupRooms;
     this.markupRooms = null;
     void rooms
@@ -238,7 +352,7 @@ export class Project {
     const folderId = (await api.shareWithLink(created, opts.linkCanEdit === false ? 'reader' : 'writer')) || created;
     const manifest: ProjectManifest = { v: 1, name: clean, owner: me.name, ...(me.email ? { ownerEmail: me.email } : {}), createdAt: Date.now(), members: [] };
     await api.createFile(folderId, MANIFEST_NAME, 'application/json', jsonBlob(manifest), { nbRole: ROLE.manifest });
-    const project = new Project(api, me, folderId, true, { manifest, folders: [], files: [], record: [], level: 'owner', loadedAt: Date.now() }, opts);
+    const project = new Project(api, me, folderId, true, { manifest, folders: [], files: [], record: [], level: 'owner', loadedAt: Date.now(), presence: [] }, opts);
     await project.note('project', `made the Project “${clean}”`);
     return project;
   }
@@ -251,7 +365,7 @@ export class Project {
     if (!mf) throw new ProjectError('That folder is not a redcolumn Project.');
     const manifest = JSON.parse(dec.decode(await api.download(mf.id))) as ProjectManifest;
     const isOwner = await api.ownedByMe(mf.id).catch(() => false);
-    const project = new Project(api, me, folderId, isOwner, { manifest, folders: [], files: [], record: [], level: isOwner ? 'owner' : 'editor', loadedAt: 0 }, opts);
+    const project = new Project(api, me, folderId, isOwner, { manifest, folders: [], files: [], record: [], level: isOwner ? 'owner' : 'editor', loadedAt: 0, presence: [] }, opts);
     await project.poll();
     return project;
   }
@@ -318,6 +432,7 @@ export class Project {
     const view = liveView(applyFolderEdits(dirs, edits), buildFiles(revisions, claims, edits));
     view.folders.sort((a, b) => a.name.localeCompare(b.name));
     this.set({ manifest, folders: view.folders, files: view.files, record: mergeRecord(shards), loadedAt: Date.now() });
+    this.readPresence(listed);
   }
 
   /** Runs a write; OneDrive refusing it means this person can only view. */

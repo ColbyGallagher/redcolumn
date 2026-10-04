@@ -70,8 +70,13 @@ class FakeDrive implements ProjectDrive {
     return f.version;
   }
 
-  async updateProperties(): Promise<string> {
-    return '1';
+  async updateProperties(fileId: string, properties: DriveProps): Promise<string> {
+    this.auth();
+    const f = this.store.files.get(fileId);
+    if (!f) throw new Error('404');
+    f.properties = { ...f.properties, ...properties };
+    f.version = String(Number(f.version) + 1);
+    return f.version;
   }
 
   async shareWithLink(): Promise<void> {
@@ -420,4 +425,27 @@ test('someone who can only view the folder gets read-only markups once OneDrive 
   const a = fakeStore();
   await owner.attachMarkups(f.id, a.store);
   assert.equal(a.markups.has('x'), false, 'nothing of the viewer’s reached the folder');
+});
+
+test('everyone sees who has which file open, and on which page', async () => {
+  const { owner, member } = await twoPeople();
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  const g = await owner.addFile('A-102.pdf', null, pdf('two'));
+  owner.setPresence(f.id, 2);
+  await owner.pushPresence();
+  member.setPresence(g.id, 0);
+  await member.pushPresence();
+  await member.poll();
+  const seen = (p: Project) => p.getSnapshot().presence.map((x) => [x.name, x.fileId === f.id ? 'A-101' : 'A-102', x.page, x.self]);
+  assert.deepEqual(seen(member), [['Hana', 'A-101', 2, false], ['Sam', 'A-102', 0, true]]);
+
+  owner.setPresence(f.id, 5);
+  await owner.pushPresence();
+  await member.poll();
+  assert.deepEqual(seen(member), [['Hana', 'A-101', 5, false], ['Sam', 'A-102', 0, true]], 'a page change updates, with no second presence file');
+
+  owner.close();
+  await new Promise((r) => setTimeout(r, 10));
+  await member.poll();
+  assert.deepEqual(seen(member), [['Sam', 'A-102', 0, true]], 'closing shows as gone straight away');
 });

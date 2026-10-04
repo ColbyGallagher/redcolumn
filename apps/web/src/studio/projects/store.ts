@@ -1,5 +1,5 @@
 import { DriveAuthError } from '../drive/DriveApi';
-import { OneDrive, microsoftUser, parseOneDriveInvite, signInWithMicrosoft } from '../drive/onedrive';
+import { OneDrive, microsoftUser, microsoftUserRestored, parseOneDriveInvite, signInWithMicrosoft } from '../drive/onedrive';
 import { Project, type ProjectDrive, type ProjectOptions } from './Project';
 import { forgetProject, rememberProject } from './local';
 import type { Person } from './model';
@@ -27,9 +27,17 @@ function changed() {
   for (const l of listeners) l();
 }
 
+/**
+ * Who this person is on a Project: their Microsoft email, which everyone on it can recognise (the
+ * app's own author name, often just "Me", only when the email is unknown).
+ */
 function person(name: string): Person {
-  return { name, email: microsoftUser()?.email ?? null };
+  const email = microsoftUser()?.email ?? null;
+  return { name: email ?? name, email };
 }
+
+/** The author name for markups on a Project's files: the same as the Project knows this person by. */
+export const projectAuthor = (name: string) => person(name).name;
 
 function track(project: Project) {
   open.get(project.id)?.off();
@@ -83,6 +91,8 @@ export function adoptProject(project: Project) {
 }
 
 export async function createProject(name: string, me: string): Promise<Project> {
+  // Signed in first, so the Project knows this person by their email from the start.
+  await opts.authorize();
   const project = await Project.create(drive(), name, person(me), opts);
   track(project);
   setProjectView(project.id);
@@ -92,16 +102,20 @@ export async function createProject(name: string, me: string): Promise<Project> 
 /**
  * Opens a Project by its ID, or by what someone pasted (this app's `?project=` link, a share ID,
  * or the OneDrive sharing link). With `interactive` (a click) it signs in, and again asks for more
- * access when opening someone else's folder needs it.
+ * access when opening someone else's folder needs it. `show` brings it up in the panel (by default
+ * when opened by a click).
  */
-export async function openProject(idOrLink: string, me: string, interactive: boolean): Promise<Project> {
+export async function openProject(idOrLink: string, me: string, interactive: boolean, show = interactive): Promise<Project> {
   const id = idFromText(idOrLink);
   if (!id) throw new Error('That is not a Project link. Paste the link the owner sent, or the OneDrive link to the Project folder.');
   const existing = open.get(id)?.project;
   if (existing) {
-    setProjectView(id);
+    if (show) setProjectView(id);
     return existing;
   }
+  // Signed in (or the remembered account known) first, so the Project knows this person by email.
+  if (interactive) await opts.authorize();
+  else await microsoftUserRestored();
   const attempt = () => Project.open(drive(), id, person(me), { ...opts, interactive });
   let project: Project;
   try {
@@ -119,7 +133,7 @@ export async function openProject(idOrLink: string, me: string, interactive: boo
     }
   }
   track(project);
-  setProjectView(project.id);
+  if (show) setProjectView(project.id);
   return project;
 }
 
