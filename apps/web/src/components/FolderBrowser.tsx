@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { bindHandle } from '../storage/diskHandles';
 
 interface Entry {
   name: string;
@@ -136,7 +137,11 @@ export function FolderBrowser({ onOpen }: Props) {
                   disabled={e.kind === 'file' && !/\.pdf$/i.test(e.name)}
                   onClick={async () => {
                     if (e.kind === 'directory') setPath([...path, e.handle as FileSystemDirectoryHandle]);
-                    else onOpen(await (e.handle as FileSystemFileHandle).getFile());
+                    else {
+                      const file = await (e.handle as FileSystemFileHandle).getFile();
+                      bindHandle(file, e.handle as FileSystemFileHandle);
+                      onOpen(file);
+                    }
                   }}
                 >
                   <span className="icon">{e.kind === 'directory' ? '📁' : /\.pdf$/i.test(e.name) ? '📄' : '·'}</span>

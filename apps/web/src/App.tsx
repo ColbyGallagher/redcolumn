@@ -124,6 +124,7 @@ import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { canPromptInstall, promptInstall } from './offline/install';
+import { handleOf,pickFilesToOpen, recallHandle, rememberHandle, saveAsWithPicker, writeToHandle } from './storage/diskHandles';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -198,6 +199,13 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
 const MARKUP_CLIP = 'redcolumn markups';
 
 function download(name: string, blob: Blob) {
+  // Browsers with the File System Access API show a Save As dialog; others download.
+  void saveAsWithPicker(name, blob.type, blob).then((r) => {
+    if (r === 'unsupported') anchorDownload(name, blob);
+  });
+}
+
+function anchorDownload(name: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -1231,10 +1239,15 @@ export function App() {
         try {
           // Pictures open as one-page PDFs at their real size.
           const image = isImageFile(file);
-          const bytes = image ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name);
+          const raw = image ? null : await file.arrayBuffer();
+          const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
           const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // The engine takes ownership of the buffer it is given, so store a copy first.
           const stored = await saveFile(name, bytes.slice(0));
+          // Save writes back over the file it came from, except pictures and protected PDFs
+          // (which are kept unprotected here and must not replace the original).
+          const source = handleOf(file);
+          if (source && bytes === raw) await rememberHandle(stored.id, source);
           await openStored(stored, bytes, target);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
@@ -1244,6 +1257,14 @@ export function App() {
     },
     [openStored, refreshLibrary, unlockBytes],
   );
+
+  /** The system Open dialog where the browser has one (so Save can write back to the file), else the file input. */
+  const openFromDisk = useCallback(() => {
+    void pickFilesToOpen().then((files) => {
+      if (files === null) openFileRef.current?.click();
+      else if (files.length) void openNewFile(files, split && activePaneRef.current === 'b' ? 'b' : 'a');
+    });
+  }, [openNewFile, split]);
 
   /** Opens a PDF made here (new or combined) as a new document in the active pane. */
   const openCreated = useCallback(
@@ -2954,17 +2975,37 @@ export function App() {
     }
   }, [ctl]);
 
-  const exportPdf = useCallback(async () => {
+  /**
+   * Save writes the document with its markups as PDF annotations over the file it was opened from
+   * (asking once for permission). Documents with no file on disk, and Save As, ask where to put it.
+   */
+  const saveDocument = useCallback(async (saveAs: boolean) => {
     const intoB = activePaneRef.current === 'b';
     const cur = intoB ? openBRef.current : openRef.current;
     if (!cur) return;
     try {
       const out = await annotatedBytes(cur);
-      download(cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
+      const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
+      const target = saveAs ? null : await recallHandle(cur.file.id);
+      if (target) {
+        if (await writeToHandle(target, blob)) {
+          setNotice(`Saved ${target.name}.`);
+          return;
+        }
+        setError(`${target.name} was not saved: the browser did not allow writing to it.`);
+        return;
+      }
+      const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
+      if (picked === 'unsupported') anchorDownload(cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', blob);
+      else if (picked) {
+        await rememberHandle(cur.file.id, picked);
+        setNotice(`Saved ${picked.name}.`);
+      }
     } catch (err) {
-      setError(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, []);
+  const exportPdf = useCallback(() => saveDocument(false), [saveDocument]);
 
   /**
    * Closes one tab. The next tab comes to the front; when the left pane runs out of tabs while
@@ -4470,7 +4511,7 @@ export function App() {
           onClick={() => {
             setActivePane(pane);
             activePaneRef.current = pane;
-            openFileRef.current?.click();
+            openFromDisk();
           }}
         >
           +
@@ -4743,7 +4784,7 @@ export function App() {
   const pageMenu = (pane: Pane, page: number, pt: PagePoint): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c) return [];
-    if (!o) return [{ label: 'Open…', shortcut: 'Ctrl+O', onClick: () => openFileRef.current?.click() }];
+    if (!o) return [{ label: 'Open…', shortcut: 'Ctrl+O', onClick: () => openFromDisk() }];
     const ro = o.store.readOnly;
     const v = c.viewer;
     const mode = (pane === 'b' ? statsB : stats)?.mode;
@@ -4913,7 +4954,8 @@ export function App() {
       { label: 'Close All But This', disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: 'Close Tabs to the Right', disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
       SEP,
-      { label: 'Save As (with markups)…', shortcut: 'Ctrl+S', onClick: withTab(() => void exportPdf()) },
+      { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
+      { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
       {
         label: 'Save a Copy of the Original…',
         onClick: () => void readFile(t.file.hash).then((bytes) => download(t.file.name, new Blob([bytes], { type: 'application/pdf' }))),
@@ -5138,7 +5180,7 @@ export function App() {
   };
 
   const commandActions: CommandActions = {
-    open: () => openFileRef.current?.click(),
+    open: () => openFromDisk(),
     newFromTemplate: () => void newFromTemplate(),
     fromCamera: () => setCameraOpen(true),
     newPdf: () => setBlankPdf('new'),
@@ -5167,7 +5209,8 @@ export function App() {
     share: () => void shareDocument(),
     markupsXfdf: (dir) => void markupsXfdf(dir),
     importMarkupsFromPdf: () => void importMarkupsFromPdf(),
-    save: () => void exportPdf(),
+    save: () => void saveDocument(false),
+    saveAs: () => void saveDocument(true),
     exportCsv: () => downloadCsv(rowsToCsv(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns)),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
@@ -6225,7 +6268,7 @@ export function App() {
                 {!open && (
                   <div className="hint">
                     <span>Drop a PDF here or choose File → Open</span>
-                    <button className={`btn${launchOpen ? ' primary' : ''}`} autoFocus={launchOpen} onClick={() => openFileRef.current?.click()}>
+                    <button className={`btn${launchOpen ? ' primary' : ''}`} autoFocus={launchOpen} onClick={() => openFromDisk()}>
                       Open a PDF…
                     </button>
                   </div>

@@ -34,6 +34,7 @@ export interface CommandActions {
   markupsXfdf: (dir: 'export' | 'import') => void;
   importMarkupsFromPdf: () => void;
   save: () => void;
+  saveAs: () => void;
   exportCsv: () => void;
   exportSummary: () => void;
   print: () => void;
@@ -195,7 +196,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.close', 'File', 'Close', a.close, doc),
     cmd('file.closeAll', 'File', 'Close All', a.closeAll, doc),
     cmd('file.save', 'File', 'Save', a.save, doc && s.canSaveCopy),
-    cmd('file.saveAs', 'File', 'Save As…', a.save, doc && s.canSaveCopy),
+    cmd('file.saveAs', 'File', 'Save As…', a.saveAs, doc && s.canSaveCopy),
     cmd('file.saveAll', 'File', 'Save All', a.saveAll, doc && s.canSaveCopy),
     cmd('file.revert', 'File', 'Revert', a.revert, s.editable && s.canUndo),
     cmd('file.publish', 'File', 'Publish…', () => a.publish('pdf'), doc && s.canSaveCopy),
