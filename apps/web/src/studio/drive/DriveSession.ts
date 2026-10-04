@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
-import type { MarkupStore } from '@nb/markup';
-import { accessFor, isExpired, sameName, SESSION_ROOM, type AccessPolicy, type Attendee, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from '../protocol';
+import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
+import { accessFor, canAddMarkups, isExpired, sameName, SESSION_ROOM, type AccessPolicy, type Attendee, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from '../protocol';
 import { forgetCurrentSession, inviteLink, readLocal, rememberSession, writeLocal } from '../local';
 import { appendRecord, describeChanges, recordId, watchMarkups } from '../record';
 import { attendeeColor, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
@@ -208,6 +208,8 @@ export class DriveSession implements CollabSession {
   private manifestVersion = '';
   private seatId: string | null;
   private releaseSeat: (() => void) | null;
+  /** Our own markups only: the edit rule without the right to edit anyone's. */
+  private ownRule: EditRule;
   private rememberSeat: boolean;
   /** Versions we wrote ourselves, as `<file id>@<version>`. */
   private ownVersions = new Set<string>();
@@ -243,6 +245,7 @@ export class DriveSession implements CollabSession {
     this.manifest = init.manifest;
     this.seatId = init.seatId;
     this.releaseSeat = init.release;
+    this.ownRule = ownMarkupsOnly(me);
     this.rememberSeat = init.remember;
     this.loaded = new Promise((r) => (this.markLoaded = r));
     const meta = this.buildMeta([]);
@@ -280,7 +283,7 @@ export class DriveSession implements CollabSession {
     const manifest: Manifest = { v: 1, name, host: me, createdAt: Date.now(), status: 'active', endedAt: null, permissions, removed: [], ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}) };
     if (opts.access) {
       manifest.access = opts.access;
-      manifest.permissions = { ...permissions, markup: opts.access.default === 'markup' };
+      manifest.permissions = { ...permissions, markup: canAddMarkups(opts.access.default) };
     }
     const mf = await api.createFile(folderId, 'session.json', 'application/json', json(manifest), { nbRole: MANIFEST });
     const seat = await DriveSession.createSeat(api, folderId, me, opts.email);
@@ -378,7 +381,19 @@ export class DriveSession implements CollabSession {
 
   get canMarkup(): boolean {
     const { meta, isHost, me, email } = this.snap;
-    return this.writable && meta.status === 'active' && !isExpired(meta) && accessFor(meta, me, isHost, email) === 'markup';
+    return this.writable && meta.status === 'active' && !isExpired(meta) && canAddMarkups(accessFor(meta, me, isHost, email));
+  }
+
+  /** May edit anyone's markups, not only their own. */
+  get canEditAny(): boolean {
+    const { meta, isHost, me, email } = this.snap;
+    return this.canMarkup && accessFor(meta, me, isHost, email) === 'markupAny';
+  }
+
+  /** Read-only without markup access; limited to our own markups without the right to edit anyone's. */
+  private applyRights(store: MarkupStore) {
+    store.setReadOnly(!this.canMarkup);
+    store.setEditRule(this.canEditAny ? null : this.ownRule);
   }
 
   get canAddDocuments(): boolean {
@@ -470,7 +485,7 @@ export class DriveSession implements CollabSession {
       this.set({ meta, presence: this.buildPresence(files), status: 'online' });
       // Drive sessions have no server: the host's app finishes the session at its end date.
       if (this.snap.isHost && this.writable && isExpired(meta)) void this.update({ status: 'finished' }).catch(() => undefined);
-      for (const a of this.attached.values()) a.store.setReadOnly(!this.canMarkup);
+      for (const a of this.attached.values()) this.applyRights(a.store);
       for (const d of before) if (!meta.documents.some((n) => n.id === d.id)) this.opts.onRemoved(d.id);
       if (!this.synced) {
         this.synced = true;
@@ -697,7 +712,7 @@ export class DriveSession implements CollabSession {
     this.manifestVersion = await this.api.updateContent(this.manifestId, json(next));
     this.manifest = next;
     this.set({ meta: this.buildMeta(this.files) });
-    for (const a of this.attached.values()) a.store.setReadOnly(!this.canMarkup);
+    for (const a of this.attached.values()) this.applyRights(a.store);
   }
 
   sendChat(text: string) {
@@ -737,7 +752,7 @@ export class DriveSession implements CollabSession {
     };
     store.doc.on('destroy', detach);
     this.attached.set(docId, { store, detach });
-    store.setReadOnly(!this.canMarkup);
+    this.applyRights(store);
   }
 
   fetchDocument(docId: string): Promise<ArrayBuffer> {
@@ -790,7 +805,7 @@ export class DriveSession implements CollabSession {
     if (patch.permissions?.markup !== undefined && before.access && !patch.access) next.access = { ...before.access, default: patch.permissions.markup ? 'markup' : 'view' };
     if (patch.access) {
       next.access = patch.access;
-      next.permissions = { ...(next.permissions ?? before.permissions), markup: patch.access.default === 'markup' };
+      next.permissions = { ...(next.permissions ?? before.permissions), markup: canAddMarkups(patch.access.default) };
     }
     if (patch.name?.trim()) next.name = patch.name.trim().slice(0, 120);
     if (patch.expiresAt !== undefined) {
@@ -850,7 +865,7 @@ export class DriveSession implements CollabSession {
       if (err instanceof DriveForbiddenError) this.set({ viewOnly: true });
       else throw err;
     }
-    for (const a of this.attached.values()) a.store.setReadOnly(!this.canMarkup);
+    for (const a of this.attached.values()) this.applyRights(a.store);
     await Promise.all([this.flush(), this.pushPresence(), this.poll()]);
   }
 

@@ -592,7 +592,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Midpoint knobs between the vertices of a selected outline or path: drag one to add a vertex. */
   private drawVertexKnobs(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
-    if (m.locked) return;
+    if (this.frozen(m)) return;
     const px = 1 / zoom;
     ctx.save();
     ctx.lineWidth = px;
@@ -634,10 +634,18 @@ export class MarkupTools implements ViewerOverlay {
     return out;
   }
 
-  /** Selected markups that exist and are not locked. */
+  /**
+   * Locked, or someone else's markup this person may not edit (in a Live Session): it cannot be
+   * moved, reshaped, restyled or deleted.
+   */
+  private frozen(m: Markup): boolean {
+    return !!m.locked || (!!this.store && !this.store.mayEdit(m));
+  }
+
+  /** Selected markups that exist and can be edited (not frozen). */
   private editable(): Markup[] {
     if (!this.store) return [];
-    return [...this.state.selected].map((id) => this.store!.get(id)).filter((m): m is Markup => !!m && !m.locked);
+    return [...this.state.selected].map((id) => this.store!.get(id)).filter((m): m is Markup => !!m && !this.frozen(m));
   }
 
   /** Writes new points for markups as one undo step. */
@@ -745,7 +753,7 @@ export class MarkupTools implements ViewerOverlay {
     this.store.checkpoint();
     for (const id of this.state.selected) {
       const m = this.store.get(id);
-      if (m && m.type === type && !m.locked) this.store.update(id, { style: { ...m.style, ...patch } });
+      if (m && m.type === type && !this.frozen(m)) this.store.update(id, { style: { ...m.style, ...patch } });
     }
   }
 
@@ -760,7 +768,7 @@ export class MarkupTools implements ViewerOverlay {
     if (!this.store) return;
     for (const id of ids) {
       const m = this.store.get(id);
-      if (m && !m.locked) this.store.update(id, { style: mergeStyle(m.style, patch) });
+      if (m && !this.frozen(m)) this.store.update(id, { style: mergeStyle(m.style, patch) });
     }
   }
 
@@ -874,7 +882,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Gives a callout another leader, on the side of its text box away from the existing ones. */
   addCalloutLeader(id: string) {
     const m = this.store?.get(id);
-    if (!this.store || !m || m.type !== 'callout' || m.locked || m.points.length < 4) return;
+    if (!this.store || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 4) return;
     const z = this.viewer.zoomFor(m.pageIndex);
     const box = contentBox(m);
     const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2];
@@ -901,7 +909,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Takes away a callout's most recently added leader (the first one stays). */
   removeCalloutLeader(id: string) {
     const m = this.store?.get(id);
-    if (!this.store || !m || m.type !== 'callout' || m.locked || m.points.length < 6) return;
+    if (!this.store || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 6) return;
     this.store.checkpoint();
     this.store.update(id, { points: m.points.slice(0, m.points.length - 2) });
   }
@@ -1007,7 +1015,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Starts drawing a cutout (a hole) in an area or volume measurement. */
   startCutout(id: string) {
     const m = this.store?.get(id);
-    if (!m || m.locked) return;
+    if (!m || this.frozen(m)) return;
     this.cutoutTarget = id;
     this.setTool('cutout');
     this.select([id]);
@@ -1176,7 +1184,7 @@ export class MarkupTools implements ViewerOverlay {
     if (tool === 'painter') {
       const hit = this.hitAt(toPoint(pt));
       const source = this.state.painterSource;
-      if (hit && source && !hit.locked && !this.store.readOnly) {
+      if (hit && source && !this.frozen(hit) && !this.store.readOnly) {
         this.store.checkpoint();
         this.store.update(hit.id, { style: paintedStyle(source, hit) });
       }
@@ -1299,7 +1307,7 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'rotate', id: m.id, angle: m.rotation ?? 0 });
         return true;
       }
-      const index = m && !m.locked ? handlePositions(m).findIndex(([x, y]) => Math.abs(x - p[0]) <= tol && Math.abs(y - p[1]) <= tol) : -1;
+      const index = m && !this.frozen(m) ? handlePositions(m).findIndex(([x, y]) => Math.abs(x - p[0]) <= tol && Math.abs(y - p[1]) <= tol) : -1;
       if (m && index >= 0) {
         // Ctrl- or Alt-click on a vertex removes it (keeping the least the shape needs).
         if ((e.ctrlKey || e.metaKey || e.altKey) && canEditVertices(m) && m.points.length > (CLICK_SHAPES[m.type]?.min ?? 2)) {
@@ -1312,7 +1320,7 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'handle', id: m.id, index, point: p });
         return true;
       }
-      const mid = m && !m.locked ? midpoints(m).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol) : undefined;
+      const mid = m && !this.frozen(m) ? midpoints(m).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol) : undefined;
       if (m && mid && e.altKey && ARC_TYPES.has(m.type)) {
         // Alt-dragging a midpoint knob curves that segment (arc segments in measurements).
         this.setGesture({ kind: 'bend', id: m.id, segment: mid.index - 1, bulge: m.bulges?.[mid.index - 1] ?? 0 });
@@ -1367,7 +1375,7 @@ export class MarkupTools implements ViewerOverlay {
       return true;
     }
     // A callout's text box drags on its own, leaving the arrow tip where it points.
-    if (hit.type === 'callout' && !hit.locked && !e.shiftKey && !this.store.readOnly && hit.points.length >= 4) {
+    if (hit.type === 'callout' && !this.frozen(hit) && !e.shiftKey && !this.store.readOnly && hit.points.length >= 4) {
       const box = boundsOf(hit.points.slice(2, 4));
       if (p[0] >= box.x && p[0] <= box.x + box.w && p[1] >= box.y && p[1] <= box.y + box.h) {
         // The whole group (a Cloud+'s cloud and callout) is selected, but only the text box moves.
@@ -1528,7 +1536,7 @@ export class MarkupTools implements ViewerOverlay {
       if (g.dx || g.dy) {
         for (const id of this.state.selected) {
           const m = this.store.get(id);
-          if (m && !m.locked) this.store.update(id, moved(m, g.dx, g.dy));
+          if (m && !this.frozen(m)) this.store.update(id, moved(m, g.dx, g.dy));
         }
       }
     } else if (g.kind === 'calloutBox') {
@@ -1555,11 +1563,11 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const hit = this.state.tool === 'select' ? this.hitAt(toPoint(pt)) : undefined;
-    if (hit && isTextType(hit.type) && !hit.locked) this.options.onEditText(hit.id);
+    if (hit && isTextType(hit.type) && !this.frozen(hit)) this.options.onEditText(hit.id);
     else if (hit?.type === 'note' || hit?.type === 'flag') this.options.onEditComment?.(hit.id);
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
-    else if ((hit?.type === 'dimension' || hit?.type === 'replaceText') && !hit.locked) this.options.onEditLabel?.(hit.id);
-    else if (hit?.type === 'hyperlink' && !hit.locked) this.options.onEditHyperlink?.(hit.id);
+    else if ((hit?.type === 'dimension' || hit?.type === 'replaceText') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
+    else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
   }
 
   hover(pt: PagePoint | null, pageIndex: number): string | null {
@@ -1910,13 +1918,13 @@ export class MarkupTools implements ViewerOverlay {
     const r = ERASER_PX[settings.get().eraserSize] / this.viewer.zoomFor(pageIndex);
     this.ghost = { pageIndex, at };
     if (settings.get().eraserWhole) {
-      const touched = this.pageMarkups(pageIndex).filter((m) => !m.locked && hitTest(m, at, r));
+      const touched = this.pageMarkups(pageIndex).filter((m) => !this.frozen(m) && hitTest(m, at, r));
       if (touched.length) this.store.remove(touched.map((m) => m.id));
       this.viewer.invalidate();
       return;
     }
     for (const m of this.pageMarkups(pageIndex)) {
-      if (TYPE_INFO[m.type].draw !== 'freehand' || m.locked) continue;
+      if (TYPE_INFO[m.type].draw !== 'freehand' || this.frozen(m)) continue;
       const pieces = eraseStroke(m.points, at, r + m.style.width / 2);
       if (!pieces) continue;
       this.store.remove([m.id]);
@@ -1963,7 +1971,7 @@ export class MarkupTools implements ViewerOverlay {
   /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
   private previewOf(m: Markup): Markup {
     const g = this.gesture;
-    if (g?.kind === 'move' && this.state.selected.has(m.id) && !m.locked) return { ...m, ...moved(m, g.dx, g.dy) };
+    if (g?.kind === 'move' && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };

@@ -70,6 +70,9 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
     );
   }
 
+  // Someone else's markup without the right to edit anyone's: only its status can change here.
+  const statusReadOnly = readOnly;
+  readOnly = readOnly || (!!store && chosen.some((c) => !store.mayEdit(c)));
   const m = chosen[0]!;
   const scale = cellContext.scaleOf(m);
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m)) : null;
@@ -119,7 +122,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         <Row label="Status">
           <select
             value={m.status}
-            disabled={readOnly}
+            disabled={statusReadOnly}
             onChange={(e) => {
               store?.checkpoint();
               for (const id of ids) store?.update(id, { status: e.target.value });

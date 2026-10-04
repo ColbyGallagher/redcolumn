@@ -67,11 +67,15 @@ export interface RecordEntry {
  * What one person may do in a session:
  * - `none`: cannot join or open its documents.
  * - `view`: sees documents, markups and the Record, and can chat, but cannot change markups.
- * - `markup`: can also add, edit and comment on markups.
+ * - `markup`: can also add markups and edit their own; on anyone's they can set the status and reply.
+ * - `markupAny`: can also edit anyone's markups, including those with no author.
  */
-export type Access = 'none' | 'view' | 'markup';
+export type Access = 'none' | 'view' | 'markup' | 'markupAny';
 
-export const ACCESS_LEVELS: readonly Access[] = ['none', 'view', 'markup'];
+export const ACCESS_LEVELS: readonly Access[] = ['none', 'view', 'markup', 'markupAny'];
+
+/** Whether this level may add markups (and so set statuses and reply). */
+export const canAddMarkups = (a: Access) => a === 'markup' || a === 'markupAny';
 
 /** A named set of people who share one access level. */
 export interface AccessGroup {
@@ -96,7 +100,7 @@ export interface AccessPolicy {
   groups: AccessGroup[];
 }
 
-const RANK: Record<Access, number> = { none: 0, view: 1, markup: 2 };
+const RANK: Record<Access, number> = { none: 0, view: 1, markup: 2, markupAny: 3 };
 
 export const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
@@ -116,7 +120,7 @@ export function accessFor(
   isHost: boolean,
   email?: string | null,
 ): Access {
-  if (isHost || (email && meta.hostEmail && sameName(email, meta.hostEmail))) return 'markup';
+  if (isHost || (email && meta.hostEmail && sameName(email, meta.hostEmail))) return 'markupAny';
   const policy = policyOf(meta);
   const matches = (who: string) => (!!email && sameName(who, email)) || sameName(who, name);
   const own = policy.people.find((p) => matches(p.name));

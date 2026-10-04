@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import * as Y from 'yjs';
-import type { MarkupStore } from '@nb/markup';
+import type { EditRule, MarkupStore } from '@nb/markup';
 import type { RecordEntry } from '../protocol';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { DriveSession } from './DriveSession';
@@ -102,10 +102,13 @@ class FakeDrive implements DriveApi {
 function fakeStore() {
   const doc = new Y.Doc();
   let readOnly = false;
+  let rule: EditRule | null = null;
   return {
-    store: { doc, setReadOnly: (v: boolean) => (readOnly = v) } as unknown as MarkupStore,
+    store: { doc, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
     doc,
     readOnly: () => readOnly,
+    /** Whether this store lets its user edit a markup by `author` (beyond status and replies). */
+    mayEdit: (author: string) => !rule || rule({ author }),
     markups: doc.getMap<{ id: string; type: string; pageIndex: number; status: string }>('markups'),
   };
 }
@@ -461,4 +464,36 @@ test('a failed join frees its seat, so trying again rejoins it', async () => {
     const again = await remembering(hana.id, seatId, () => DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true }));
     assert.equal(seatOf(again), seatId, 'the same seat, not a new one');
   });
+});
+
+test('attendees edit only their own markups unless allowed to edit anyone’s', async () => {
+  const drive = new FakeStore();
+  const access = { default: 'markup' as const, people: [{ name: 'Lee', access: 'markupAny' as const }], groups: [] };
+  const hana = await DriveSession.create(new FakeDrive(drive, 'hana'), 'L2', 'Hana', { markup: true, addDocuments: true }, { ...opts, linkCanEdit: true, access });
+  const sam = await DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true });
+  const lee = await DriveSession.join(new FakeDrive(drive, 'lee'), hana.id, 'Lee', { ...opts, interactive: true });
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  await Promise.all([sam.poll(), lee.poll()]);
+  const [h, s, l] = [fakeStore(), fakeStore(), fakeStore()];
+  await hana.attach(doc.id, h.store);
+  await sam.attach(doc.id, s.store);
+  await lee.attach(doc.id, l.store);
+
+  assert.equal(sam.canMarkup, true);
+  assert.equal(sam.canEditAny, false);
+  assert.equal(s.mayEdit('Sam'), true, 'their own');
+  assert.equal(s.mayEdit('Hana'), false, 'not someone else’s');
+  assert.equal(s.mayEdit(''), false, 'nor one without an author');
+  assert.equal(l.mayEdit('Hana'), true, 'Lee may edit anyone’s');
+  assert.equal(l.mayEdit(''), true);
+  assert.equal(h.mayEdit('Sam'), true, 'and the host always may');
+
+  await hana.update({ access: { ...access, people: [{ name: 'Sam', access: 'markupAny' }] } });
+  await Promise.all([sam.poll(), lee.poll()]);
+  assert.equal(s.mayEdit('Hana'), true, 'given the right, Sam may edit anyone’s');
+  assert.equal(l.mayEdit('Hana'), false, 'and Lee, back to the default, only their own');
+
+  await hana.update({ access: { ...access, default: 'view', people: [] } });
+  await sam.poll();
+  assert.equal(s.readOnly(), true, 'view access is still read-only');
 });
