@@ -191,6 +191,23 @@ export function dimensionNormal(a: Point, b: Point): [number, number] {
   return [-(b[1] - a[1]) / d, (b[0] - a[0]) / d];
 }
 
+/**
+ * Length and direction of segment a→b, the angle in degrees counter-clockwise from east as on
+ * paper (page y runs down), in [0, 360).
+ */
+export function segmentPolar(a: Point, b: Point): { length: number; angle: number } {
+  const dx = b[0] - a[0];
+  const dy = a[1] - b[1];
+  const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+  return { length: Math.hypot(dx, dy), angle: angle < 0 ? angle + 360 : angle };
+}
+
+/** The point `length` from `from` at `angle` degrees counter-clockwise from east. */
+export function polarPoint(from: Point, length: number, angle: number): Point {
+  const r = (angle * Math.PI) / 180;
+  return [from[0] + Math.cos(r) * length, from[1] - Math.sin(r) * length];
+}
+
 /** An open path with the markup's line endings; the shaft is trimmed so it ends at each ending's base. */
 function withEnds(m: Markup, pts: readonly Point[]): ShapePart[] {
   if (pts.length < 2) return [{ path: polyline(pts), stroke: true, fill: null }];

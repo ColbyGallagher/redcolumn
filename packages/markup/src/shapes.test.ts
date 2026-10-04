@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
-import { hitTest, markupShape } from './geometry.ts';
+import { hitTest, markupShape, polarPoint, segmentPolar } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { DEFAULT_STYLES, markupBounds, type Markup, type MarkupType, type Point } from './model.ts';
 
@@ -180,4 +180,20 @@ test('a callout leader always meets its box head-on: horizontal at a side, verti
   // Off to a corner: whichever way it overshoots most, never a diagonal.
   const corner = calloutLanding([20, 120], box);
   assert.ok(corner.attach[0] === corner.knee[0] || corner.attach[1] === corner.knee[1]);
+});
+
+test('segmentPolar and polarPoint measure angles counter-clockwise from east, as on paper', () => {
+  const close = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  // Page y runs down, so "up the sheet" is 90°.
+  const up = segmentPolar([10, 10], [10, 0]);
+  close(up.length, 10);
+  close(up.angle, 90);
+  close(segmentPolar([0, 0], [-5, 5]).angle, 225);
+  close(segmentPolar([0, 0], [3, 0]).angle, 0);
+  for (const angle of [0, 30, 135, 270, 359]) {
+    const p = polarPoint([4, 7], 12, angle);
+    const back = segmentPolar([4, 7], p);
+    close(back.length, 12);
+    close(back.angle, angle);
+  }
 });

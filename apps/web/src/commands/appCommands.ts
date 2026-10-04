@@ -311,7 +311,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.eraserMedium', 'Tools', 'Eraser Size: Medium', () => a.setSettings({ eraserSize: 'medium' }), true, s.settings.eraserSize === 'medium'),
     cmd('tools.eraserLarge', 'Tools', 'Eraser Size: Large', () => a.setSettings({ eraserSize: 'large' }), true, s.settings.eraserSize === 'large'),
     cmd('tools.eraserWhole', 'Tools', 'Annotation Eraser (Whole Markups)', () => a.setSettings({ eraserWhole: !s.settings.eraserWhole }), true, s.settings.eraserWhole),
-    cmd('tools.sketchToScale', 'Tools', 'Draw to Size', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
+    cmd('tools.sketchToScale', 'Tools', 'Draw to Scale', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
     cmd('tools.stamps', 'Tools', 'Manage Stamps…', a.manageStamps, doc),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),

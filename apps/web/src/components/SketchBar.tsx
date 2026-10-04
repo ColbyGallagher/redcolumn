@@ -72,7 +72,7 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCancel, onFinish 
         }
       }}
     >
-      <span className="sketch-title">Draw to Size · {MARKUP_LABELS[sketch.type]}</span>
+      <span className="sketch-title">Draw to Scale · {MARKUP_LABELS[sketch.type]}</span>
       <label>
         {box ? 'Width' : 'Length'}
         <input ref={first} value={a} onChange={(e) => setA(e.target.value)} placeholder={scale.unit === 'ft' ? `12'-6"` : '0'} aria-label={box ? 'Width' : 'Length'} />

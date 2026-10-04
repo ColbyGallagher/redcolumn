@@ -37,6 +37,8 @@ import {
   shapeBounds,
   translated,
   moved,
+  polarPoint,
+  segmentPolar,
   type Geometry,
   type Alignment,
   type Axis,
@@ -56,7 +58,7 @@ import {
   rotationCentre,
   type Attachment,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, pathLength, type Snap, type SnapIndex } from '@nb/measure';
+import { bulgeThrough, dynamicFill, formatLength, pathLength, type Scale, type Snap, type SnapIndex } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 
@@ -230,6 +232,8 @@ export interface SketchState {
 
 /** Drag-drawn shapes Draw to Size sizes by width and height after a click. */
 const SKETCH_BOX_TYPES: readonly MarkupType[] = ['rect', 'ellipse', 'cloud'];
+/** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
+const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
 const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
 
@@ -316,6 +320,8 @@ function snapTarget(type: MarkupType): boolean {
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'cutout') return { min: 3, closes: true };
+  // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
+  if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
 }
 
@@ -428,14 +434,9 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind !== 'multi' || !g.markup.points.length || !(length > 0)) return;
     const from = g.markup.points.at(-1)!;
-    let dir: [number, number];
-    if (angle !== null) dir = [Math.cos((angle * Math.PI) / 180), -Math.sin((angle * Math.PI) / 180)];
-    else {
-      const h = g.hover;
-      const d = h ? Math.hypot(h[0] - from[0], h[1] - from[1]) : 0;
-      dir = h && d > 1e-6 ? [(h[0] - from[0]) / d, (h[1] - from[1]) / d] : [1, 0];
-    }
-    const p: Point = [from[0] + dir[0] * length, from[1] + dir[1] * length];
+    const h = g.hover;
+    const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
+    const p = polarPoint(from, length, angle ?? toward);
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -1135,6 +1136,9 @@ export class MarkupTools implements ViewerOverlay {
       const { markup, hover } = g;
       const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
+      // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
+      const from = markup.points.at(-1);
+      if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) drawSketchReadout(ctx, from, hover, store.scaleAt(pageIndex, from), zoom);
     }
     if (this.snapHit && this.snapPage === pageIndex) drawSnapIndicator(ctx, this.snapHit, zoom);
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
@@ -2237,6 +2241,28 @@ function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Poin
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
+}
+
+/** Length and angle of the rubber-band segment, in a tag beside the pointer. */
+function drawSketchReadout(ctx: CanvasRenderingContext2D, from: Point, to: Point, scale: Scale, zoom: number) {
+  const { length, angle } = segmentPolar(from, to);
+  if (length * zoom < 2) return;
+  const text = `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`;
+  const px = 1 / zoom;
+  ctx.save();
+  ctx.font = `${12 * px}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 12 * px;
+  const h = 20 * px;
+  const x = to[0] + 14 * px;
+  const y = to[1] + 18 * px;
+  ctx.fillStyle = 'rgba(17, 24, 39, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect(x, y - h / 2, w, h, 4 * px);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, x + 6 * px, y);
   ctx.restore();
 }
 

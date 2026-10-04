@@ -185,7 +185,7 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
       <>
         <h4>Drawing</h4>
         <Toggle label="Reuse tools" hint="Keep a markup tool active after placing a markup; off goes back to Select." checked={prefs.reuseTool} onChange={(v) => set({ reuseTool: v })} />
-        <Toggle label="Draw to Size" hint="Type exact lengths, angles and sizes while drawing." checked={prefs.sketchToScale} onChange={(v) => set({ sketchToScale: v })} />
+        <Toggle label="Draw to Scale" hint="Type exact lengths, angles and sizes while drawing." checked={prefs.sketchToScale} onChange={(v) => set({ sketchToScale: v })} />
         <h4>Eraser</h4>
         <label className="pref-field">
           <span className="pref-label">Size</span>

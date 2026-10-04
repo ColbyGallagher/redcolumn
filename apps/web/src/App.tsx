@@ -3918,6 +3918,11 @@ export function App() {
     toolsState.tool === 'cloud' || toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedCloud)
       ? { value: selectedCloud && toolsState.tool === 'select' ? cloudRadius(selectedCloud) : toolsState.styles.cloud.arcRadius }
       : null;
+  // Draw to Scale: a single selected line's length and angle are edited in the toolbar.
+  const selectedLine =
+    prefs.sketchToScale && toolsState.tool === 'select' && toolsState.selected.size === 1
+      ? markups.find((m) => (m.type === 'line' || m.type === 'arrow') && m.points.length >= 2 && toolsState.selected.has(m.id))
+      : undefined;
   const pageIndex = (paneB ? statsB : stats)?.pageIndex ?? 0;
   const pageCount = (paneB ? statsB : stats)?.pageCount ?? 0;
   // A calibration line drawn inside a viewport calibrates that viewport.
@@ -5707,6 +5712,7 @@ export function App() {
           state={toolsState}
           styleType={styleType}
           cloudBubble={cloudBubble}
+          geometry={selectedLine && activeOpen ? { markup: selectedLine, scale: activeOpen.store.scaleOf(selectedLine), store: activeOpen.store, readOnly: activeReadOnly || !!selectedLine.locked || !activeOpen.store.mayEdit(selectedLine) } : null}
           textType={textType}
           textMarkupStyle={selectedText?.style}
           enabled={!!activeOpen && !activeReadOnly}
