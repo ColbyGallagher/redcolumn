@@ -36,6 +36,19 @@ export interface UploadProgress {
   name: string;
 }
 
+/** Uploads in flight, by Project. Kept outside the panel so switching side panels does not lose track of them. */
+const uploads = new Map<string, UploadProgress>();
+const uploadListeners = new Set<() => void>();
+const setUploadFor = (projectId: string, p: UploadProgress | null) => {
+  if (p) uploads.set(projectId, p);
+  else uploads.delete(projectId);
+  uploadListeners.forEach((l) => l());
+};
+const subscribeUploads = (l: () => void) => {
+  uploadListeners.add(l);
+  return () => void uploadListeners.delete(l);
+};
+
 const when = (at: number) => new Date(at).toLocaleDateString([], { day: 'numeric', month: 'short' });
 const size = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
@@ -204,16 +217,16 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
   const fileInput = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showRecord, setShowRecord] = useState(false);
-  const [upload, setUpload] = useState<UploadProgress | null>(null);
+  const upload = useSyncExternalStore(subscribeUploads, () => uploads.get(project.id) ?? null);
   /** The file being opened from a click, while it loads. */
   const [opening, setOpening] = useState<string | null>(null);
   /** Runs an add-files job with the progress panel showing until it ends, however it ends. */
   const uploading = (job: (onProgress: (p: UploadProgress) => void) => Promise<void>) =>
     run(async () => {
       try {
-        await job(setUpload);
+        await job((p) => setUploadFor(project.id, p));
       } finally {
-        setUpload(null);
+        setUploadFor(project.id, null);
       }
     });
   const queue = useSyncExternalStore(projectQueue().subscribe, () => projectQueue().all());
@@ -259,10 +272,10 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
         })}>
           + Folder
         </button>
-        <button className="btn small" disabled={busy || !writable} title={net('Adding files') ?? 'Add PDFs from this computer to this folder'} onClick={() => fileInput.current?.click()}>
+        <button className="btn small" disabled={busy || !!upload || !writable} title={net('Adding files') ?? 'Add PDFs from this computer to this folder'} onClick={() => fileInput.current?.click()}>
           Add PDFs…
         </button>
-        <button className="btn small" disabled={busy || !writable || !localDocName} title={localDocName ? `Add ${localDocName} to this folder` : 'Open a document first'} onClick={() => void uploading((p) => onAddCurrent(project, current, p))}>
+        <button className="btn small" disabled={busy || !!upload || !writable || !localDocName} title={localDocName ? `Add ${localDocName} to this folder` : 'Open a document first'} onClick={() => void uploading((p) => onAddCurrent(project, current, p))}>
           Add open document
         </button>
         <input
@@ -285,6 +298,7 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
           </b>
           <span className="hint-text">{upload.name}</span>
           <progress max={upload.total} value={upload.done} aria-label="Upload progress" />
+          <span className="hint-text">You can keep working while this uploads. Just don't close the app.</span>
         </div>
       )}
 

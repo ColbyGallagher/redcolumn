@@ -186,6 +186,13 @@ export function parseOneDriveInvite(text: string): string | null {
   return null;
 }
 
+/** SharePoint shows an app's access as a claims login, `i:0i.t|ms.sp.ext|<clientId>@<tenantId>`; say which app it is. */
+function friendlyPrincipal(s: string | undefined): string | undefined {
+  const m = s && /^i:0i\.t\|ms\.sp\.ext\|([0-9a-f-]+)@/i.exec(s);
+  if (!m) return s;
+  return CLIENT_ID && m[1]?.toLowerCase() === CLIENT_ID.toLowerCase() ? 'Redcolumn (this app)' : 'An app with access';
+}
+
 interface GraphPermission {
   id: string;
   roles?: string[];
@@ -588,11 +595,11 @@ export class OneDrive implements DriveApi {
         return { id: p.id, kind: 'link' as const, name: scope, role: p.link.type === 'edit' ? 'writer' : role, inherited: !!p.inheritedFrom };
       }
       const email = people.map((u) => u.email).find(Boolean) ?? p.invitation?.email;
-      const names = [...new Set(people.map((u) => u.displayName).filter(Boolean))].join(', ');
+      const names = [...new Set(people.map((u) => friendlyPrincipal(u.displayName)).filter(Boolean))].join(', ');
       return {
         id: p.id,
         kind: role === 'owner' ? ('owner' as const) : ('user' as const),
-        name: names || email || 'Someone',
+        name: names || friendlyPrincipal(email) || 'Someone',
         ...(email ? { email } : {}),
         role: p.link?.type === 'edit' && role === 'reader' ? ('writer' as const) : role,
         inherited: !!p.inheritedFrom,
