@@ -412,3 +412,53 @@ test('edits made before the folder could be read do not overwrite our unread del
   await kai.attach(doc.id, k.store);
   assert.deepEqual([...k.markups.keys()].sort(), ['m1', 'm2']);
 });
+
+/** Stands in for the browser's Web Locks while `fn` runs: `refuse` makes every request reject. */
+async function withLocks<T>(fn: () => Promise<T>, refuse = false): Promise<T> {
+  const held = new Set<string>();
+  const locks = {
+    request: async (name: string, _opts: unknown, cb: (lock: unknown) => unknown) => {
+      if (refuse) throw new DOMException('locks are not allowed here', 'SecurityError');
+      if (held.has(name)) return cb(null);
+      held.add(name);
+      try {
+        return await cb({ name });
+      } finally {
+        held.delete(name);
+      }
+    },
+  };
+  const before = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { locks }, configurable: true });
+  try {
+    return await fn();
+  } finally {
+    if (before) Object.defineProperty(globalThis, 'navigator', before);
+    else delete (globalThis as { navigator?: unknown }).navigator;
+  }
+}
+
+test('joining still works where locks are refused', async () => {
+  await withLocks(async () => {
+    const { hana, sam } = await twoAttendees();
+    assert.ok(seatOf(hana) && seatOf(sam));
+  }, true);
+});
+
+test('a failed join frees its seat, so trying again rejoins it', async () => {
+  await withLocks(async () => {
+    const { drive, hana } = await twoAttendees();
+    const first = await DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true });
+    const seatId = seatOf(first);
+    first.destroy();
+
+    const flaky = new FakeDrive(drive, 'sam');
+    flaky.ownedByMe = async () => {
+      throw new Error('Google Drive could not check the session host (500).');
+    };
+    await assert.rejects(remembering(hana.id, seatId, () => DriveSession.join(flaky, hana.id, 'Sam', { ...opts, interactive: true })), /500/);
+
+    const again = await remembering(hana.id, seatId, () => DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true }));
+    assert.equal(seatOf(again), seatId, 'the same seat, not a new one');
+  });
+});

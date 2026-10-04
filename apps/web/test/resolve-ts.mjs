@@ -20,7 +20,7 @@ registerHooks({
   load(url, context, next) {
     const result = next(url, context);
     if (!url.startsWith('file:') || url.includes('/node_modules/') || !/\.tsx?$/.test(url)) return result;
-    const source = String(result.source);
+    const source = typeof result.source === 'string' ? result.source : new TextDecoder().decode(result.source);
     return source.includes('import.meta.env') ? { ...result, source: `import.meta.env ??= {}; ${source}` } : result;
   },
 });

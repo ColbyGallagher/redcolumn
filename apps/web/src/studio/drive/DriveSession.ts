@@ -159,13 +159,16 @@ function claimSeat(folderId: string, seatId: string): Promise<(() => void) | nul
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (!locks) return Promise.resolve(() => {});
   return new Promise((resolve) => {
-    void locks.request(`nb-seat:${folderId}:${seatId}`, { ifAvailable: true }, (lock) => {
-      if (!lock) {
-        resolve(null);
-        return;
-      }
-      return new Promise<void>((release) => resolve(release));
-    });
+    locks
+      .request(`nb-seat:${folderId}:${seatId}`, { ifAvailable: true }, (lock) => {
+        if (!lock) {
+          resolve(null);
+          return;
+        }
+        return new Promise<void>((release) => resolve(release));
+      })
+      // Locks refused (a sandboxed frame): go on unguarded rather than never joining.
+      .catch(() => resolve(() => {}));
   });
 }
 
@@ -329,7 +332,11 @@ export class DriveSession implements CollabSession {
     } catch (err) {
       if (err instanceof DriveAuthError) needsAuth = true;
       else if (err instanceof DriveForbiddenError) viewOnly = true;
-      else throw err;
+      else {
+        // Free the seat, so trying again in this tab rejoins it rather than making another.
+        release?.();
+        throw err;
+      }
     }
     if (accessFor(manifest, me, isHost, opts.email) === 'none') {
       release?.();
