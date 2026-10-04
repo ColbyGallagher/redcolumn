@@ -3,7 +3,7 @@ import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities,
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
-import { LineGeometry } from './LineGeometry';
+import { ShapeGeometry } from './ShapeGeometry';
 import { shortcutLabel } from '../commands/shortcuts';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -132,7 +132,7 @@ interface Props {
   /** Style of the selected text markup, which the text controls show instead of the tool's defaults. */
   textMarkupStyle?: MarkupStyle;
   cloudBubble: { value: number | undefined } | null;
-  /** Draw to Scale: the selected line, whose length and angle the toolbar edits. */
+  /** Draw to Scale: the selected shape whose sizes the toolbar edits. */
   geometry: { markup: Markup; scale: Scale; store: MarkupStore; readOnly: boolean } | null;
   enabled: boolean;
   /** Tools the active profile shows (null: all). */
@@ -180,7 +180,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       <span className="sep" />
       {geometry && (
         <>
-          <LineGeometry {...geometry} />
+          <ShapeGeometry key={geometry.markup.id} {...geometry} />
           <span className="sep" />
         </>
       )}

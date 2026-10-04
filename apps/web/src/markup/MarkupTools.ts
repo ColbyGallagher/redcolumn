@@ -58,7 +58,7 @@ import {
   rotationCentre,
   type Attachment,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, formatLength, pathLength, type Scale, type Snap, type SnapIndex } from '@nb/measure';
+import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 
@@ -408,7 +408,7 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Box types: the corner a click placed, waiting for a typed width and height. */
-  private sketchAnchor: { type: MarkupType; pageIndex: number; at: Point } | null = null;
+  private sketchAnchor: { type: MarkupType; pageIndex: number; at: Point; markup: Markup; hover?: Point } | null = null;
 
   private sketchState(): SketchState | null {
     if (!settings.get().sketchToScale) return null;
@@ -444,12 +444,26 @@ export class MarkupTools implements ViewerOverlay {
     this.refreshSketch();
   }
 
-  /** Draw to Size: draws the anchored box type `width` by `height` points (right and down). */
+  /**
+   * Draw to Scale: draws the anchored box type `width` by `height` points, toward the pointer
+   * (right and down when it has not moved).
+   */
   sketchBox(width: number, height: number) {
     const a = this.sketchAnchor;
-    if (!a || !this.store || !(width > 0) || !(height > 0)) return;
+    if (!a || !(width > 0) || !(height > 0)) return;
+    const h = a.hover;
+    const sx = h && h[0] < a.at[0] ? -1 : 1;
+    const sy = h && h[1] < a.at[1] ? -1 : 1;
+    this.placeSketchBox([a.at[0] + sx * width, a.at[1] + sy * height]);
+  }
+
+  /** Draw to Scale: finishes the anchored box at its opposite corner. */
+  private placeSketchBox(corner: Point) {
+    const a = this.sketchAnchor;
+    if (!a || !this.store) return;
     this.sketchAnchor = null;
-    const m = this.newMarkup(a.type, a.pageIndex, [a.at, [a.at[0] + width, a.at[1] + height]]);
+    const now = Date.now();
+    const m: Markup = { ...a.markup, points: [a.at, corner], createdAt: now, modifiedAt: now };
     this.store.checkpoint();
     this.store.add(m);
     this.options.onCreated?.(m);
@@ -1138,7 +1152,20 @@ export class MarkupTools implements ViewerOverlay {
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
-      if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) drawSketchReadout(ctx, from, hover, store.scaleAt(pageIndex, from), zoom);
+      if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
+        const { length, angle } = segmentPolar(from, hover);
+        const scale = store.scaleAt(pageIndex, from);
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+      }
+    }
+    // Draw to Scale: the box from its first corner to the pointer, with its width and height.
+    const anchor = this.sketchAnchor;
+    if (!g && anchor?.pageIndex === pageIndex && anchor.hover) {
+      const [a, b] = [anchor.at, anchor.hover];
+      drawMarkup(ctx, { ...anchor.markup, points: [a, b] }, zoom, store.scaleOf(anchor.markup));
+      const scale = store.scaleAt(pageIndex, a);
+      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) * zoom >= 2) drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
     }
     if (this.snapHit && this.snapPage === pageIndex) drawSnapIndicator(ctx, this.snapHit, zoom);
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
@@ -1290,6 +1317,15 @@ export class MarkupTools implements ViewerOverlay {
       if (e.button !== 0) return false;
       this.ghost = null;
       this.placeTemplate(template, pageIndex, pt, !this.state.preset?.once);
+      return true;
+    }
+
+    // Draw to Scale: a click after the first corner places the opposite one.
+    const anchor = this.sketchAnchor;
+    if (anchor && tool === anchor.type && anchor.pageIndex === pageIndex && e.button === 0) {
+      const corner = this.resolve(pt, e, anchor.at);
+      const zoom = this.viewer.zoomFor(pageIndex);
+      if (Math.abs(corner[0] - anchor.at[0]) * zoom >= this.dragPx && Math.abs(corner[1] - anchor.at[1]) * zoom >= this.dragPx) this.placeSketchBox(corner);
       return true;
     }
 
@@ -1675,7 +1711,9 @@ export class MarkupTools implements ViewerOverlay {
     // Preview the snap target before the first click, and rubber-band between clicks.
     const g = this.gesture;
     const mods = lastModifiers;
+    const anchor = this.sketchAnchor;
     if (g?.kind === 'multi') g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!);
+    else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
     else if (tool === 'calibrate' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
@@ -1937,7 +1975,7 @@ export class MarkupTools implements ViewerOverlay {
     } else if (tiny) {
       // Draw to Size: a click puts down the corner; the size is typed.
       if (settings.get().sketchToScale && SKETCH_BOX_TYPES.includes(m.type)) {
-        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a };
+        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a, markup: m };
         this.refreshSketch();
       }
       return;
@@ -2244,11 +2282,8 @@ function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Poin
   ctx.restore();
 }
 
-/** Length and angle of the rubber-band segment, in a tag beside the pointer. */
-function drawSketchReadout(ctx: CanvasRenderingContext2D, from: Point, to: Point, scale: Scale, zoom: number) {
-  const { length, angle } = segmentPolar(from, to);
-  if (length * zoom < 2) return;
-  const text = `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`;
+/** Draw to Scale: the size of what is being drawn, in a tag beside the pointer at `to`. */
+function drawSketchReadout(ctx: CanvasRenderingContext2D, text: string, to: Point, zoom: number) {
   const px = 1 / zoom;
   ctx.save();
   ctx.font = `${12 * px}px system-ui, sans-serif`;

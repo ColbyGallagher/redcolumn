@@ -49,6 +49,7 @@ import { HyperlinkDialog } from './components/HyperlinkDialog';
 import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
+import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
 import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
@@ -3918,10 +3919,10 @@ export function App() {
     toolsState.tool === 'cloud' || toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedCloud)
       ? { value: selectedCloud && toolsState.tool === 'select' ? cloudRadius(selectedCloud) : toolsState.styles.cloud.arcRadius }
       : null;
-  // Draw to Scale: a single selected line's length and angle are edited in the toolbar.
-  const selectedLine =
+  // Draw to Scale: a single selected shape's sizes are edited in the toolbar.
+  const selectedShape =
     prefs.sketchToScale && toolsState.tool === 'select' && toolsState.selected.size === 1
-      ? markups.find((m) => (m.type === 'line' || m.type === 'arrow') && m.points.length >= 2 && toolsState.selected.has(m.id))
+      ? markups.find((m) => GEOMETRY_TYPES.has(m.type) && m.points.length >= 2 && toolsState.selected.has(m.id))
       : undefined;
   const pageIndex = (paneB ? statsB : stats)?.pageIndex ?? 0;
   const pageCount = (paneB ? statsB : stats)?.pageCount ?? 0;
@@ -5712,7 +5713,7 @@ export function App() {
           state={toolsState}
           styleType={styleType}
           cloudBubble={cloudBubble}
-          geometry={selectedLine && activeOpen ? { markup: selectedLine, scale: activeOpen.store.scaleOf(selectedLine), store: activeOpen.store, readOnly: activeReadOnly || !!selectedLine.locked || !activeOpen.store.mayEdit(selectedLine) } : null}
+          geometry={selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null}
           textType={textType}
           textMarkupStyle={selectedText?.style}
           enabled={!!activeOpen && !activeReadOnly}

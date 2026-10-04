@@ -4,7 +4,7 @@ export * from './style';
 export * from './columns';
 export { MarkupStore, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
-export { hitTest, layoutText, markupSegments, markupShape, moved, polarPoint, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated } from './geometry';
+export { hitTest, layoutText, markupSegments, markupShape, moved, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';
 export { arcPoints, circleThrough } from './arc';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetDistance, offsetPath, offsetPoints } from './offset';

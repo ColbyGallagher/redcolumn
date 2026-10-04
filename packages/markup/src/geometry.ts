@@ -2,7 +2,7 @@ import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
-import { boundsOf, outlinePoints, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type Markup, type Point } from './model';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { HATCH_ANGLES, lineEnds, type LineEnding } from './style';
 
@@ -206,6 +206,34 @@ export function segmentPolar(a: Point, b: Point): { length: number; angle: numbe
 export function polarPoint(from: Point, length: number, angle: number): Point {
   const r = (angle * Math.PI) / 180;
   return [from[0] + Math.cos(r) * length, from[1] - Math.sin(r) * length];
+}
+
+/**
+ * Points with segment `i` (from point i to i + 1) set to `length` at `angle` degrees: point i + 1
+ * and everything after it move together, so the rest of the path keeps its shape.
+ */
+export function withSegment(points: readonly Point[], i: number, length: number, angle: number): Point[] {
+  const out = points.map((p): Point => [p[0], p[1]]);
+  if (i < 0 || i + 1 >= out.length) return out;
+  const end = polarPoint(out[i]!, length, angle);
+  const dx = end[0] - out[i + 1]![0];
+  const dy = end[1] - out[i + 1]![1];
+  for (let j = i + 1; j < out.length; j++) out[j] = [out[j]![0] + dx, out[j]![1] + dy];
+  return out;
+}
+
+/**
+ * A two-point box `width` by `height`, growing away from its first corner (which stays where it
+ * is on the page, even when the box is rotated).
+ */
+export function resizedBox(m: Pick<Markup, 'type' | 'points' | 'rotation'>, width: number, height: number): Point[] {
+  const [p, q] = [m.points[0]!, m.points[1]!];
+  const points: Point[] = [[p[0], p[1]], [p[0] + (q[0] < p[0] ? -width : width), p[1] + (q[1] < p[1] ? -height : height)]];
+  if (!m.rotation) return points;
+  const before = rotatePoint(p, rotationCentre(m), m.rotation);
+  const after = rotatePoint(p, rotationCentre({ type: m.type, points }), m.rotation);
+  const [dx, dy] = [before[0] - after[0], before[1] - after[1]];
+  return points.map(([x, y]): Point => [x + dx, y + dy]);
 }
 
 /** An open path with the markup's line endings; the shaft is trimmed so it ends at each ending's base. */

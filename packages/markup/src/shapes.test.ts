@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
-import { hitTest, markupShape, polarPoint, segmentPolar } from './geometry.ts';
+import { hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
-import { DEFAULT_STYLES, markupBounds, type Markup, type MarkupType, type Point } from './model.ts';
+import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
 function markup(type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
   return { id: `${type}-1`, type, pageIndex: 0, points, style: { ...DEFAULT_STYLES[type] }, status: 'none', author: 'Test', createdAt: 1, modifiedAt: 1, ...extra };
@@ -196,4 +196,21 @@ test('segmentPolar and polarPoint measure angles counter-clockwise from east, as
     close(back.length, 12);
     close(back.angle, angle);
   }
+});
+
+test('withSegment sets one segment and carries the rest of the path along', () => {
+  const pts = withSegment([[0, 0], [10, 0], [10, 10]], 0, 20, 0);
+  assert.deepEqual(pts, [[0, 0], [20, 0], [20, 10]]);
+  // Out of range: unchanged.
+  assert.deepEqual(withSegment([[0, 0], [1, 1]], 1, 5, 0), [[0, 0], [1, 1]]);
+});
+
+test('resizedBox keeps the first corner, also when rotated', () => {
+  assert.deepEqual(resizedBox({ type: 'rect', points: [[10, 10], [0, 30]] }, 4, 5), [[10, 10], [6, 15]]);
+  const m = { type: 'rect' as const, points: [[0, 0], [10, 20]] as Point[], rotation: 30 };
+  const corner = rotatePoint([0, 0], rotationCentre(m), 30);
+  const points = resizedBox(m, 40, 8);
+  const moved = rotatePoint(points[0]!, rotationCentre({ type: 'rect', points }), 30);
+  assert.ok(Math.hypot(moved[0] - corner[0], moved[1] - corner[1]) < 1e-9);
+  assert.ok(Math.abs(points[1]![0] - points[0]![0] - 40) < 1e-9 && Math.abs(points[1]![1] - points[0]![1] - 8) < 1e-9);
 });
