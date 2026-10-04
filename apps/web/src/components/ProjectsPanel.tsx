@@ -124,7 +124,10 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite }: Props) 
           </div>
         </div>
       )}
-      <h3>My Projects</h3>
+      <h3>
+        My Projects
+        <span className="experimental-badge" title="Projects is experimental and may change">Experimental</span>
+      </h3>
       {rows.length === 0 ? (
         <p className="empty">Projects are shared folders of PDFs in OneDrive, with everyone on the Project able to open them from here. Make one, or open one from the link its owner sent.</p>
       ) : (

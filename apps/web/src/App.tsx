@@ -4839,8 +4839,8 @@ export function App() {
 
   /** Right-click on the panel rail: turn each panel on or off, or restore the default order. */
   const panelsMenu = (): MenuEntry[] => [
-    ...orderedRail.map(({ id, title }): MenuEntry => ({
-      label: title,
+    ...orderedRail.map(({ id, title, experimental }): MenuEntry => ({
+      label: experimental ? `${title} (Experimental)` : title,
       checked: !ws.hiddenPanels.includes(id),
       disabled: id === 'files',
       onClick: () => {
@@ -5582,7 +5582,7 @@ export function App() {
             </svg>
             <span className="rail-label">Collapse</span>
           </button>
-          {orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id)).map(({ id, title, icon }) => (
+          {orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id)).map(({ id, title, icon, experimental }) => (
             <button
               key={id}
               type="button"
@@ -5590,8 +5590,9 @@ export function App() {
                 leftOpen && leftTab === id ? 'active' : '',
                 railDrag?.id === id ? 'dragging' : '',
                 railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
+                experimental ? 'experimental' : '',
               ].filter(Boolean).join(' ')}
-              title={title}
+              title={experimental ? `${title} (Experimental)` : title}
               aria-pressed={leftOpen && leftTab === id}
               draggable
               onDragStart={(e) => {
@@ -5620,6 +5621,7 @@ export function App() {
             >
               {icon}
               <span className="rail-label">{title}</span>
+              {experimental && <span className="rail-exp">Exp</span>}
             </button>
           ))}
         </nav>
@@ -7022,7 +7024,7 @@ export function App() {
   );
 }
 
-const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
+const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean }[] = [
   {
     id: 'files',
     title: 'File Access',
@@ -7144,6 +7146,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
   {
     id: 'projects',
     title: 'Projects',
+    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2 4.5h4l1.2 1.5H14v6.5H2z" />
@@ -7153,6 +7156,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
   {
     id: 'sessions',
     title: 'Sessions',
+    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M8 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6zM3 13c0-2.2 2.2-4 5-4s5 1.8 5 4v1H3v-1z" />

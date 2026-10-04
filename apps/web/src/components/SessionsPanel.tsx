@@ -223,6 +223,7 @@ function SessionList({
 
       <h3>
         My Sessions
+        <span className="experimental-badge" title="Sessions is experimental and may change">Experimental</span>
         <span className="record-filter" role="tablist">
           {(['active', 'all'] as const).map((f) => (
             <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
