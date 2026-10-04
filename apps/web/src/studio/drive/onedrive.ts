@@ -554,15 +554,26 @@ export class OneDrive implements DriveApi {
     const res = await this.fetch(`/drives/${driveId}/items/${itemId}/permissions`, {}, 'see who the folder is shared with');
     const { value } = (await res.json()) as { value: GraphPermission[] };
     return value.map((p) => {
-      const person = p.grantedToV2?.user ?? p.grantedToIdentitiesV2?.[0]?.user ?? p.grantedTo?.user;
+      const people = [p.grantedToV2?.user, ...(p.grantedToIdentitiesV2 ?? []).map((i) => i.user), p.grantedTo?.user].filter((u): u is { displayName?: string; email?: string } => !!u);
+      const person = people[0];
       const roles = p.roles ?? [];
       const role = roles.includes('owner') ? 'owner' : roles.includes('write') ? 'writer' : 'reader';
-      if (p.link) {
+      // Someone invited by email shows up as a link limited to them ("users"); that is a person, not a shareable link.
+      const named = !!person || !!p.invitation?.email;
+      if (p.link && (!named || p.link.scope === 'anonymous' || p.link.scope === 'organization')) {
         const scope = p.link.scope === 'anonymous' ? 'Anyone with the link' : p.link.scope === 'organization' ? 'Your organization, with the link' : 'People with the link';
         return { id: p.id, kind: 'link' as const, name: scope, role: p.link.type === 'edit' ? 'writer' : role, inherited: !!p.inheritedFrom };
       }
-      const email = person?.email ?? p.invitation?.email;
-      return { id: p.id, kind: role === 'owner' ? ('owner' as const) : ('user' as const), name: person?.displayName ?? email ?? 'Someone', ...(email ? { email } : {}), role, inherited: !!p.inheritedFrom };
+      const email = people.map((u) => u.email).find(Boolean) ?? p.invitation?.email;
+      const names = [...new Set(people.map((u) => u.displayName).filter(Boolean))].join(', ');
+      return {
+        id: p.id,
+        kind: role === 'owner' ? ('owner' as const) : ('user' as const),
+        name: names || email || 'Someone',
+        ...(email ? { email } : {}),
+        role: p.link?.type === 'edit' && role === 'reader' ? ('writer' as const) : role,
+        inherited: !!p.inheritedFrom,
+      };
     });
   }
 
