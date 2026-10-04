@@ -197,6 +197,8 @@ export interface ToolPreset {
    * centred on the pointer instead of drawing a new shape.
    */
   template?: Markup[];
+  /** Template text that numbers on: each copy's number follows the last one in the document. */
+  sequence?: { start: number; increment: number };
 }
 
 export interface ToolsState {
@@ -573,7 +575,9 @@ export class MarkupTools implements ViewerOverlay {
       this.setState({ tool, preset: null, painterSource: structuredClone(source) });
       return;
     }
-    const armed = !isMarkupTool(tool) || !preset ? null : { ...preset, type: tool, ...(preset.style ? { style: { ...preset.style } } : {}) };
+    // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
+    const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
+    const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
     this.setState({ tool, selected: tool === 'select' || tool === 'lasso' ? this.state.selected : new Set(), preset: armed, painterSource: null });
   }
 
@@ -826,8 +830,9 @@ export class MarkupTools implements ViewerOverlay {
    * Places copies of Tool Library markups on `pageIndex`, centred on `at`. They become the
    * selection unless the tool stays armed for more.
    */
-  placeTemplate(template: readonly Markup[], pageIndex: number, at: PagePoint, keepTool = false) {
+  placeTemplate(template: readonly Markup[], pageIndex: number, at: PagePoint, keepTool = false, sequence = this.state.preset?.sequence) {
     if (!this.store || this.store.readOnly || !template.length) return;
+    if (sequence) template = this.numbered(template, sequence);
     const b = boundsOf(template.flatMap((m) => m.points));
     const dx = at[0] - (b.x + b.w / 2);
     const dy = at[1] - (b.y + b.h / 2);
@@ -857,6 +862,26 @@ export class MarkupTools implements ViewerOverlay {
     if (keepTool) return;
     this.setTool('select');
     this.select(ids);
+  }
+
+  /**
+   * A numbered template with the next number in the document: one more step than the highest in
+   * groups placed from it before (the same types and subject, with a number for text).
+   */
+  private numbered(template: readonly Markup[], sequence: { start: number; increment: number }): Markup[] {
+    const numberedText = (m: Markup) => isTextType(m.type) && /^\d+$/.test(m.text?.trim() ?? '');
+    if (!this.store || !template.some(numberedText)) return [...template];
+    const shape = (ms: readonly Markup[]) => ms.map((m) => `${m.type}:${m.subject ?? ''}`).sort().join('|');
+    const want = shape(template);
+    const groups = new Map<string, Markup[]>();
+    for (const m of this.store.all()) if (m.groupId) groups.set(m.groupId, [...(groups.get(m.groupId) ?? []), m]);
+    let last: number | null = null;
+    for (const g of groups.values()) {
+      if (shape(g) !== want) continue;
+      for (const m of g) if (numberedText(m)) last = Math.max(last ?? -Infinity, Number(m.text!.trim()));
+    }
+    const next = last === null ? sequence.start : last + sequence.increment;
+    return template.map((m) => (numberedText(m) ? { ...m, text: String(next) } : m));
   }
 
   /** Bring to front / forward / backward / send to back: markups draw in creation order. */
@@ -1943,6 +1968,7 @@ export class MarkupTools implements ViewerOverlay {
     const callout = this.newMarkup('callout', cloud.pageIndex, calloutPoints(tip, [tip[0] + 40 / zoom, tip[1] - 40 / zoom], CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom));
     // The callout takes the cloud's colour, so the pair reads as one markup.
     callout.style = { ...callout.style, stroke: cloud.style.stroke };
+    if (cloud.subject) callout.subject = cloud.subject;
     this.store!.add({ ...cloud, groupId });
     this.store!.add({ ...callout, groupId, createdAt: cloud.createdAt + 1, modifiedAt: cloud.createdAt + 1 });
     this.options.onCreated?.(cloud);

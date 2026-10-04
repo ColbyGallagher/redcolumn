@@ -427,7 +427,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
                       key={item.id}
                       className={`tool-item${active ? ' active' : ''}`}
                       disabled={!enabled}
-                      title={`${item.label}${item.subject && item.subject !== item.label ? ` — ${item.subject}` : ''} (${MARKUP_LABELS[item.type]})${item.markups?.length ? '\nClick, then click the page to place a copy — or drag it onto the page.' : ''}`}
+                      title={`${item.label}${item.subject && item.subject !== item.label ? ` — ${item.subject}` : ''} (${item.tool ? toolLabel(item.tool) : MARKUP_LABELS[item.type]})${item.markups?.length ? '\nClick, then click the page to place a copy — or drag it onto the page.' : ''}`}
                       draggable
                       onDragStart={(e) => {
                         setDragItem({ setId: set.id, itemId: item.id });
@@ -453,7 +453,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
                       {set.view === 'detail' ? (
                         <span className="tool-text">
                           <span className="tool-label">{item.label}</span>
-                          <span className="tool-type">{MARKUP_LABELS[item.type]}</span>
+                          <span className="tool-type">{item.tool ? toolLabel(item.tool) : MARKUP_LABELS[item.type]}</span>
                         </span>
                       ) : (
                         <span className="tool-caption">{item.label}</span>

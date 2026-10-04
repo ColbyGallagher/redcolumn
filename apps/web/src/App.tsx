@@ -4057,7 +4057,7 @@ export function App() {
       const store = activeOpen?.store;
       const k = set?.scaleToPage && item.metersPerPoint && store?.hasScale(pageIndex) ? item.metersPerPoint / store.scaleFor(pageIndex).metersPerPoint : 1;
       const template = k === 1 ? item.markups : item.markups.map((m) => ({ ...m, points: m.points.map(([x, y]) => [x * k, y * k] as [number, number]) }));
-      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), once: !settings.get().toolChestSticky });
+      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), ...(item.sequence ? { sequence: item.sequence } : {}), once: !settings.get().toolChestSticky });
       return;
     }
     if (item.type === 'signature') {
@@ -4067,7 +4067,7 @@ export function App() {
       img.src = item.image;
       return;
     }
-    tools.setTool(item.type, { id: item.id, style: item.style, ...(item.subject ? { subject: item.subject } : {}) });
+    tools.setTool(item.tool ?? item.type, { id: item.id, style: item.style, ...(item.subject ? { subject: item.subject } : {}) });
   };
 
   /** Takeoff totals as text lines for the summary. */
@@ -4365,7 +4365,7 @@ export function App() {
     setActivePane(pane);
     if (item.markups?.length) {
       const page = c.viewer.pageAtClient(e.clientX, e.clientY) ?? c.viewer.currentPageIndex;
-      c.tools.placeTemplate(item.markups, page, c.viewer.clientToPage(e.clientX, e.clientY, page));
+      c.tools.placeTemplate(item.markups, page, c.viewer.clientToPage(e.clientX, e.clientY, page), false, item.sequence);
     } else {
       useToolItem(item, 'style');
     }

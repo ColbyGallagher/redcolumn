@@ -60,3 +60,29 @@ ${item('Plain', 'Bluebeam.PDF.Annotations.AnnotationSquare', '<</Subtype/Square/
 test('files that are not tool sets are refused', async () => {
   await assert.rejects(parseBtx('<html></html>'), /not a \.btx tool set/);
 });
+
+test('Revu 2017+ tool sets: compressed title, generated names, Cloud+, callouts and numbered groups', async () => {
+  const child = (type: string, dict: string, x: number, y: number) => `<Child><Type>${type}</Type><Raw>${hexZ(dict)}</Raw><X>${x}</X><Y>${y}</Y><Index>1</Index></Child>`;
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<BluebeamRevuToolSet Version="1"><Title>${hexZ('Architect Review').toLowerCase()}</Title>
+<ToolChestItem Version="2"><Name>QRGOYETREOFCJYJO</Name><Type>Bluebeam.PDF.Annotations.AnnotationPolygon</Type><Raw>${hexZ('<</IT/PolygonCloud/ITEx/PolyText/Subj(Architect)/Subtype/Polygon/C[1 0 0]/BE<</S/C/I 2>>>>')}</Raw>${child('Bluebeam.PDF.Annotations.AnnotationFreeText', '<</IT/FreeTextCallout/Subj(Cloud+)/Subtype/FreeText/C[]>>', -100, 5)}<Mode>properties</Mode></ToolChestItem>
+${item('VFFZOEUQBEIQILSU', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DA(1 0 0 rg /Helv 12 Tf)/IT/FreeTextCallout/DS(font: Helvetica 12pt; text-align:left; color:#FF0000)/Subj(Architect)/Subtype/FreeText/C[]/BS<</W 0>>>>')}
+${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS(font: Helvetica 12pt; color:#FF0000)/Subj(Architect)/Subtype/FreeText/C[]/BS<</W 0>>>>')}
+<ToolChestItem Version="1"><Name>INHFCFBPUYYOUOFL</Name><Type>Bluebeam.PDF.Annotations.AnnotationCircle</Type><Raw>${hexZ('<</IC[1 0 0]/RD[1 1 1 1]/Subj(Architect)/Subtype/Circle/Rect[0 0 38 38]/C[1 0 0]/BS<</W 2>>>>')}</Raw>${child('Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS(font: Helvetica 12pt; text-align:center; text-valign:middle; color:#000000)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 36 34]/C[]/BS<</W 0>>>>', 0, -1)}<Mode>drawing</Mode><Sequence><Enabled>True</Enabled><Style>Number</Style><Start>1</Start><Increment>1</Increment></Sequence></ToolChestItem>
+</BluebeamRevuToolSet>`;
+  const set = await parseBtx(xml);
+  assert.equal(set.title, 'Architect Review');
+  const [cloudPlus, callout, text, bubble] = set.items;
+  assert.deepEqual([cloudPlus!.name, cloudPlus!.type, cloudPlus!.tool, cloudPlus!.subject], ['Cloud+', 'cloud', 'cloudPlus', 'Architect']);
+  assert.equal(cloudPlus!.template, undefined);
+  assert.deepEqual([callout!.name, callout!.type, callout!.style.textColor, callout!.style.stroke], ['Callout', 'callout', '#ff0000', '#ff0000']);
+  assert.deepEqual([text!.name, text!.type, text!.style.noBox], ['Text Box', 'text', true]);
+  assert.equal(bubble!.type, 'ellipse');
+  assert.deepEqual(bubble!.sequence, { start: 1, increment: 1 });
+  const [circle, number] = bubble!.template!;
+  // The circle is inset by its /RD; the number is centred in it (1 pt lower, as Revu has it).
+  assert.deepEqual(circle!.points, [[1, 1], [37, 37]]);
+  assert.deepEqual(number!.points, [[1, 3], [37, 37]]);
+  assert.deepEqual([number!.type, number!.text, number!.style.textAlign, number!.style.verticalAlign, number!.style.noBox], ['text', '1', 'center', 'middle', true]);
+  assert.ok(circle!.groupId && circle!.groupId === number!.groupId);
+});

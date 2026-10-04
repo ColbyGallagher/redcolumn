@@ -14,7 +14,17 @@ function fromRevu(set: RevuToolSet): { set: ToolSet; skipped: number } {
       name: set.title,
       collapsed: false,
       view: 'icon',
-      items: usable.map((i) => ({ id: i.id, type: i.type!, style: i.style, label: i.name, ...(i.subject && i.subject !== i.name ? { subject: i.subject } : {}) })),
+      items: usable.map((i) => ({
+        id: i.id,
+        type: i.type!,
+        style: i.style,
+        label: i.name,
+        ...(i.subject && i.subject !== i.name ? { subject: i.subject } : {}),
+        ...(i.tool ? { tool: i.tool } : {}),
+        // Grouped tools (a circle and its number) place copies, as tools saved from the page do.
+        ...(i.template ? { markups: i.template.map((m) => (i.subject ? { ...m, subject: i.subject } : m)) } : {}),
+        ...(i.sequence ? { sequence: i.sequence } : {}),
+      })),
     },
     skipped: set.items.length - usable.length,
   };

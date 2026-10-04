@@ -25,6 +25,10 @@ export interface ToolChestItem {
   markups?: Markup[];
   /** The page scale (metres per point) it was saved at, for tool sets that scale to the page. */
   metersPerPoint?: number;
+  /** Drawn with the Cloud+ tool (a cloud, then a callout): `type` is its cloud. */
+  tool?: 'cloudPlus';
+  /** Each placed copy's number goes on from the last one in the document (a numbered circle). */
+  sequence?: { start: number; increment: number };
 }
 
 export interface ToolSet {
