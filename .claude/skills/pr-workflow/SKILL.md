@@ -26,7 +26,7 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 ## Role: reviewer
 
-1. Start from a fresh session. Do not reuse the author's context.
+1. Start from a fresh session. Do not reuse the author's context. Run the review on Opus 5.5 (the author runs on Sonnet 5.5): a stronger, different model catches more and shares fewer blind spots with the author.
 2. Run the `code-review` skill with `--comment` on the PR at `high` effort.
 3. Label every comment with a severity prefix:
    - `BLOCKER:` correctness, security, data loss, broken build. Must be fixed.
