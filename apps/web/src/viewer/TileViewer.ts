@@ -207,6 +207,8 @@ export class TileViewer {
 
   private tiles = new Map<string, ImageBitmap>();
   private inFlight = new Set<string>();
+  /** Tiles that failed to render: not retried until the tile cache is cleared. */
+  private failed = new Set<string>();
   private queue: TileJob[] = [];
   private previews = new Map<number, ImageBitmap>();
   private previewsLoading = new Set<number>();
@@ -813,6 +815,7 @@ export class TileViewer {
     for (const bmp of this.tiles.values()) bmp.close();
     this.tiles.clear();
     this.queue = [];
+    this.failed.clear();
     this.generation++;
     for (const bmp of this.previews.values()) bmp.close();
     this.previews.clear();
@@ -967,7 +970,7 @@ export class TileViewer {
             this.tiles.delete(key);
             this.tiles.set(key, bmp);
             ctx.drawImage(bmp, dx / s, dy / s, w / s + bleed, h / s + bleed);
-          } else if (!this.inFlight.has(key)) {
+          } else if (!this.inFlight.has(key) && !this.failed.has(key)) {
             const [wx, wy] = applyAffine(m, [(dx + w / 2) / s, (dy + h / 2) / s]);
             const dist = Math.hypot(this.panX + wx * this.zoom - cw / 2, this.panY + wy * this.zoom - ch / 2);
             wanted.push({ key, pageIndex: p.pageIndex, scale: s, x: dx, y: dy, w, h, dist });
@@ -1023,6 +1026,9 @@ export class TileViewer {
     }
     if (this.rulerUnits) this.drawRulers(dpr, cw, ch);
 
+    // Tiles still to come: say so, as a blank page reads as broken.
+    if (wanted.length + this.inFlight.size > 0) this.drawLoading(dpr, cw, ch);
+
     wanted.sort((a, b) => a.dist - b.dist);
     this.queue = wanted;
     this.pump();
@@ -1033,6 +1039,36 @@ export class TileViewer {
       if (!this.quietView) for (const l of this.viewListeners) l();
     }
     this.quietView = false;
+  }
+
+  /** A small "Loading" pill at the bottom of the view while page content is still being drawn. */
+  private drawLoading(dpr: number, cw: number, ch: number) {
+    const { ctx } = this;
+    const label = 'Loading page…';
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '12px system-ui, sans-serif';
+    const w = ctx.measureText(label).width + 28;
+    const h = 24;
+    const x = (cw - w) / 2;
+    const y = ch - h - 16;
+    ctx.fillStyle = 'rgba(20, 22, 26, 0.85)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, h / 2);
+    ctx.fill();
+    // A spinner arc, turning with the clock; the view redraws on each tile, and the app keeps
+    // animating while tiles are pending.
+    const a = (performance.now() / 250) % (Math.PI * 2);
+    ctx.strokeStyle = '#4ea1ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + 14, y + h / 2, 5, a, a + Math.PI * 1.4);
+    ctx.stroke();
+    ctx.fillStyle = '#e6e8eb';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + 24, y + h / 2 + 0.5);
+    ctx.restore();
+    this.invalidate();
   }
 
   /**
@@ -1262,12 +1298,18 @@ export class TileViewer {
           if (gen !== this.generation) return bitmap.close();
           this.tiles.set(job.key, bitmap);
           this.evict();
+          // Out of flight before the redraw, so the loading pill goes once the last tile lands.
+          this.inFlight.delete(job.key);
           this.invalidate();
         })
-        .catch((err) => console.error('Tile render failed', err))
+        .catch((err) => {
+          if (gen === this.generation) this.failed.add(job.key);
+          console.error('Tile render failed', err);
+        })
         .finally(() => {
           this.inFlight.delete(job.key);
           this.pump();
+          this.invalidate();
         });
     }
   }

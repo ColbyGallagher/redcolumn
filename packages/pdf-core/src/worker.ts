@@ -23,7 +23,13 @@ const PAGE_CACHE_SIZE = 6;
 
 interface OpenDoc {
   handle: number;
-  dataPtr: number;
+  /** The file, kept in JS memory (outside the 2 GB wasm heap) and read by PDFium on demand. */
+  bytes: ArrayBuffer;
+  password: string;
+  /** Frees what `FPDF_LoadCustomDocument` needs for as long as the document is open. */
+  release: () => void;
+  /** Which wasm instance `handle` belongs to; a document from an aborted one is reopened. */
+  epoch: number;
   /** pageIndex -> page handle; Map insertion order doubles as LRU order. */
   pages: Map<number, number>;
   /** Pages in use while others are loaded (annotations whose links point at other pages): never closed to make room. */
@@ -47,6 +53,9 @@ const PDFACTION_LAUNCH = 4;
 const SHX_AUTHOR = 'AutoCAD SHX Text';
 
 let libPromise: Promise<WrappedPdfiumModule> | null = null;
+let current: WrappedPdfiumModule | null = null;
+/** Bumped each time the wasm instance is replaced after an abort. */
+let epoch = 0;
 const docs = new Map<number, OpenDoc>();
 let nextDocId = 1;
 
@@ -55,14 +64,40 @@ function lib(): Promise<WrappedPdfiumModule> {
     const wasmBinary = await (await fetch(wasmUrl)).arrayBuffer();
     const m = await init({ wasmBinary });
     m.PDFiumExt_Init();
+    current = m;
     return m;
   })();
   return libPromise;
 }
 
+/**
+ * An aborted wasm instance (out of memory, a trap) is unusable for good: the next call starts a
+ * fresh one, and documents are reopened in it from their bytes when next used.
+ */
+function isAbort(err: unknown): boolean {
+  return /Aborted\(|RuntimeError|memory access out of bounds|unreachable/.test(err instanceof Error ? `${err.name} ${err.message}` : String(err));
+}
+
+function resetLib() {
+  libPromise = null;
+  current = null;
+  epoch++;
+}
+
 function getDoc(docId: number): OpenDoc {
   const doc = docs.get(docId);
   if (!doc) throw new Error(`Unknown document ${docId}`);
+  if (doc.epoch !== epoch && current) {
+    // The old instance is gone with everything in it, so nothing is closed or freed there.
+    const fresh = openHandle(current, doc.bytes, doc.password);
+    doc.handle = fresh.handle;
+    doc.release = fresh.release;
+    doc.form = fresh.form;
+    doc.formInfo = fresh.formInfo;
+    doc.epoch = epoch;
+    doc.pages = new Map();
+    doc.pinned = new Set();
+  }
   return doc;
 }
 
@@ -92,16 +127,46 @@ function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): numbe
   return page;
 }
 
+/**
+ * Opens a document that PDFium reads from `bytes` block by block. Copying a large file into the
+ * wasm heap (capped at 2 GB) leaves too little room to render; a 500 MB drawing set aborts it.
+ */
+function openHandle(m: WrappedPdfiumModule, bytes: ArrayBuffer, password: string) {
+  const { malloc, free } = m.pdfium.wasmExports;
+  const view = new Uint8Array(bytes);
+  // int GetBlock(void* param, unsigned long position, unsigned char* buf, unsigned long size)
+  const getBlock = m.pdfium.addFunction((_param: number, position: number, buf: number, size: number) => {
+    position >>>= 0;
+    size >>>= 0;
+    if (position + size > view.length) return 0;
+    m.pdfium.HEAPU8.set(view.subarray(position, position + size), buf);
+    return 1;
+  }, 'iiiii');
+  // FPDF_FILEACCESS: file length, block callback, caller parameter.
+  const access = malloc(12);
+  m.pdfium.HEAPU32.set([bytes.byteLength, getBlock, 0], access >> 2);
+  const release = () => {
+    m.pdfium.removeFunction(getBlock);
+    free(access);
+  };
+  const handle = m.FPDF_LoadCustomDocument(access, password);
+  if (!handle) {
+    const error = m.FPDF_GetLastError();
+    release();
+    // FPDF_ERR_PASSWORD
+    if (error === 4) throw new Error(NEEDS_PASSWORD);
+    throw new Error(`PDFium failed to open document (error ${error})`);
+  }
+  // Form fields are only drawn through a form-fill environment (FPDF_FFLDraw).
+  const formInfo = m.PDFiumExt_OpenFormFillInfo();
+  const form = formInfo ? m.PDFiumExt_InitFormFillEnvironment(handle, formInfo) : 0;
+  return { handle, release, form, formInfo };
+}
+
 async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number; pages: PageSize[] }> {
   const m = await lib();
   const { malloc, free } = m.pdfium.wasmExports;
-  const dataPtr = malloc(bytes.byteLength);
-  m.pdfium.HEAPU8.set(new Uint8Array(bytes), dataPtr);
-  const handle = m.FPDF_LoadMemDocument(dataPtr, bytes.byteLength, password);
-  if (!handle) {
-    free(dataPtr);
-    throw new Error(`PDFium failed to open document (error ${m.FPDF_GetLastError()})`);
-  }
+  const { handle, release, form, formInfo } = openHandle(m, bytes, password);
 
   const count = m.FPDF_GetPageCount(handle);
   const sizePtr = malloc(8);
@@ -114,11 +179,8 @@ async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number;
   }
   free(sizePtr);
 
-  // Form fields are only drawn through a form-fill environment (FPDF_FFLDraw).
-  const formInfo = m.PDFiumExt_OpenFormFillInfo();
-  const form = formInfo ? m.PDFiumExt_InitFormFillEnvironment(handle, formInfo) : 0;
   const docId = nextDocId++;
-  docs.set(docId, { handle, dataPtr, pages: new Map(), pinned: new Set(), hidden: new Map(), form, formInfo });
+  docs.set(docId, { handle, bytes, password, release, epoch, pages: new Map(), pinned: new Set(), hidden: new Map(), form, formInfo });
   return { docId, pages };
 }
 
@@ -321,7 +383,13 @@ async function extractPages(bytes: ArrayBuffer, pages: number[]): Promise<ArrayB
 
 async function close(docId: number): Promise<void> {
   const m = await lib();
-  const doc = getDoc(docId);
+  const doc = docs.get(docId);
+  if (!doc) return;
+  if (doc.epoch !== epoch) {
+    // Belonged to an aborted instance: nothing of it is left to close.
+    docs.delete(docId);
+    return;
+  }
   for (const page of doc.pages.values()) {
     if (doc.form) m.FORM_OnBeforeClosePage(page, doc.form);
     m.FPDF_ClosePage(page);
@@ -329,7 +397,7 @@ async function close(docId: number): Promise<void> {
   if (doc.form) m.PDFiumExt_ExitFormFillEnvironment(doc.form);
   if (doc.formInfo) m.PDFiumExt_CloseFormFillInfo(doc.formInfo);
   m.FPDF_CloseDocument(doc.handle);
-  m.pdfium.wasmExports.free(doc.dataPtr);
+  doc.release();
   docs.delete(docId);
 }
 
@@ -1547,6 +1615,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       }
     }
   } catch (err) {
+    if (isAbort(err)) resetLib();
     reply({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) });
   }
 };
