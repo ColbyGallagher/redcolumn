@@ -4,10 +4,31 @@ import type { SheetInfo } from '@nb/sheets';
 import type { Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
 
-/** Thumbnail width in CSS px. */
-const THUMB_W = 150;
-/** Rendered thumbnails kept in memory (~150x106 px each). */
+/** Thumbnail width in CSS px. The slider moves between these; 150 is the default. */
+const THUMB_MIN = 64;
+const THUMB_MAX = 360;
+const THUMB_DEFAULT = 150;
+const THUMB_SIZE_KEY = 'nb.thumbSize';
+/** How many default-size thumbnails to keep. Larger sizes keep fewer so memory stays similar. */
 const MAX_THUMBS = 400;
+/** Rendered thumbnail width, in device pixels. */
+const MAX_BITMAP = 800;
+
+function clampThumbWidth(width: number): number {
+  return Math.min(THUMB_MAX, Math.max(THUMB_MIN, Math.round(width)));
+}
+
+function storedThumbWidth(): number {
+  try {
+    const raw = localStorage.getItem(THUMB_SIZE_KEY);
+    if (raw == null || raw === '') return THUMB_DEFAULT;
+    const n = Number(raw);
+    if (Number.isFinite(n)) return clampThumbWidth(n);
+  } catch {
+    // Private mode: use the default for this visit.
+  }
+  return THUMB_DEFAULT;
+}
 
 /**
  * Renders thumbnails one at a time, only for items that are on screen, most recent request
@@ -15,24 +36,28 @@ const MAX_THUMBS = 400;
  */
 class ThumbnailQueue {
   private cache = new Map<string, ImageBitmap>();
-  private wanted = new Map<string, { doc: PdfDocument; page: number; done: (b: ImageBitmap) => void }>();
+  private wanted = new Map<string, { doc: PdfDocument; page: number; width: number; done: (b: ImageBitmap) => void }>();
   private busy = false;
 
-  get(doc: PdfDocument, page: number): ImageBitmap | undefined {
-    return this.cache.get(`${doc.id}:${page}`);
+  private key(doc: PdfDocument, page: number, width: number) {
+    return `${doc.id}:${page}:${width}`;
   }
 
-  request(doc: PdfDocument, page: number, done: (b: ImageBitmap) => void) {
-    const key = `${doc.id}:${page}`;
+  get(doc: PdfDocument, page: number, width: number): ImageBitmap | undefined {
+    return this.cache.get(this.key(doc, page, width));
+  }
+
+  request(doc: PdfDocument, page: number, width: number, done: (b: ImageBitmap) => void) {
+    const key = this.key(doc, page, width);
     const hit = this.cache.get(key);
     if (hit) return done(hit);
     this.wanted.delete(key);
-    this.wanted.set(key, { doc, page, done });
+    this.wanted.set(key, { doc, page, width, done });
     void this.pump();
   }
 
-  cancel(doc: PdfDocument, page: number) {
-    this.wanted.delete(`${doc.id}:${page}`);
+  cancel(doc: PdfDocument, page: number, width: number) {
+    this.wanted.delete(this.key(doc, page, width));
   }
 
   private async pump() {
@@ -46,14 +71,22 @@ class ThumbnailQueue {
         const size = job.doc.pages[job.page];
         if (!size) continue;
         const dpr = window.devicePixelRatio || 1;
-        const scale = (THUMB_W * dpr) / size.width;
+        const targetW = Math.min(Math.ceil(job.width * dpr), MAX_BITMAP);
+        const scale = targetW / size.width;
         try {
           const { bitmap } = await job.doc.renderTile(job.page, scale, 0, 0, Math.ceil(size.width * scale), Math.ceil(size.height * scale));
+          const prev = this.cache.get(key);
+          if (prev) {
+            prev.close();
+            this.cache.delete(key);
+          }
           this.cache.set(key, bitmap);
-          while (this.cache.size > MAX_THUMBS) {
-            const [oldKey, old] = this.cache.entries().next().value!;
-            old.close();
-            this.cache.delete(oldKey);
+          const cap = Math.min(MAX_THUMBS, Math.max(24, Math.round(MAX_THUMBS * (THUMB_DEFAULT / job.width) ** 2)));
+          while (this.cache.size > cap) {
+            const oldest = this.cache.entries().next().value;
+            if (!oldest || oldest[0] === key) break;
+            oldest[1].close();
+            this.cache.delete(oldest[0]);
           }
           job.done(bitmap);
         } catch (err) {
@@ -71,6 +104,10 @@ const queue = new ThumbnailQueue();
 interface ThumbProps {
   doc: PdfDocument;
   page: number;
+  /** Width drawn on screen. Can change ahead of `renderW` while the slider is moving. */
+  thumbW: number;
+  /** Width the bitmap is rendered at, after the slider settles. */
+  renderW: number;
   label: string;
   scale?: string;
   active: boolean;
@@ -82,36 +119,39 @@ interface ThumbProps {
   onDrop: (e: React.DragEvent) => void;
 }
 
-function Thumbnail({ doc, page, label, scale, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop }: ThumbProps) {
+function Thumbnail({ doc, page, thumbW, renderW, label, scale, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = doc.pages[page]!;
-  const height = Math.round((THUMB_W * size.height) / size.width);
+  const height = Math.round((thumbW * size.height) / size.width);
 
   useEffect(() => {
     const canvas = canvasRef.current!;
+    let cancelled = false;
     const draw = (b: ImageBitmap) => {
+      if (cancelled) return;
       canvas.width = b.width;
       canvas.height = b.height;
       canvas.getContext('2d')!.drawImage(b, 0, 0);
     };
-    const cached = queue.get(doc, page);
+    const cached = queue.get(doc, page, renderW);
     if (cached) {
       draw(cached);
       return;
     }
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry?.isIntersecting) queue.request(doc, page, draw);
-        else queue.cancel(doc, page);
+        if (entry?.isIntersecting) queue.request(doc, page, renderW, draw);
+        else queue.cancel(doc, page, renderW);
       },
       { rootMargin: '200px' },
     );
     observer.observe(canvas);
     return () => {
+      cancelled = true;
       observer.disconnect();
-      queue.cancel(doc, page);
+      queue.cancel(doc, page, renderW);
     };
-  }, [doc, page]);
+  }, [doc, page, renderW]);
 
   useEffect(() => {
     if (active) canvasRef.current?.parentElement?.scrollIntoView({ block: 'nearest' });
@@ -127,7 +167,7 @@ function Thumbnail({ doc, page, label, scale, active, selected, dropBefore, onCl
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      <canvas ref={canvasRef} style={{ width: THUMB_W, height }} />
+      <canvas ref={canvasRef} style={{ width: thumbW, height }} />
       <span>{label}</span>
       {scale && <span className="thumb-scale">{scale}</span>}
     </button>
@@ -153,12 +193,26 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
   const [selected, setSelected] = useState<number[]>([]);
   const [anchor, setAnchor] = useState(0);
   const [dropAt, setDropAt] = useState<number | null>(null);
+  const [thumbW, setThumbW] = useState(storedThumbWidth);
+  /** Bitmap width. Follows the slider after a short pause so dragging does not re-render every pixel. */
+  const [renderW, setRenderW] = useState(thumbW);
   /** Pages being dragged, captured at drag start (selection state may not have updated yet). */
   const dragging = useRef<number[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Selection refers to page numbers of the current document; reset when it changes.
   useEffect(() => setSelected([]), [doc]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(THUMB_SIZE_KEY, String(thumbW));
+    } catch {
+      // Not persisted; applies for this visit.
+    }
+    if (thumbW === renderW) return;
+    const timeout = window.setTimeout(() => setRenderW(thumbW), 150);
+    return () => window.clearTimeout(timeout);
+  }, [thumbW, renderW]);
 
   if (!doc) return <p className="empty">No document open.</p>;
   const count = doc.pages.length;
@@ -254,6 +308,20 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
         </label>
       </div>
       <p className="empty">{selected.length > 1 ? `${selected.length} pages selected · ` : ''}Drag to reorder. Ctrl/Shift+click to select several.</p>
+      <label className="thumb-zoom">
+        <span aria-hidden="true">−</span>
+        <input
+          type="range"
+          min={THUMB_MIN}
+          max={THUMB_MAX}
+          step={1}
+          value={thumbW}
+          aria-label="Thumbnail size"
+          title="Thumbnail size"
+          onChange={(e) => setThumbW(clampThumbWidth(Number(e.target.value)))}
+        />
+        <span aria-hidden="true">+</span>
+      </label>
       <div
         className="thumbs"
         onDragLeave={() => setDropAt(null)}
@@ -270,6 +338,8 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
             key={`${doc.id}:${i}`}
             doc={doc}
             page={i}
+            thumbW={thumbW}
+            renderW={renderW}
             label={sheets[i]?.number ? `${sheets[i]!.number} · ${i + 1}` : String(i + 1)}
             scale={scales[i]?.label}
             active={i === currentPage}
