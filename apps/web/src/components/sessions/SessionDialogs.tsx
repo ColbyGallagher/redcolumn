@@ -427,6 +427,13 @@ export function SessionSettingsDialog({
   );
 }
 
+/** How far ending a session has got: `done` of `total` steps, and what is happening now. */
+export interface EndProgress {
+  done: number;
+  total: number;
+  label: string;
+}
+
 /** What to save before a session is ended, and where. */
 export interface EndSessionChoice {
   /** This computer (a folder the host picks), a new folder in their OneDrive, or a redcolumn Project. */
@@ -455,6 +462,7 @@ export function EndSessionDialog({
   projects,
   oneDriveAvailable,
   busy,
+  progress,
   error,
   onEnd,
   onClose,
@@ -469,6 +477,8 @@ export function EndSessionDialog({
   projects: { id: string; name: string }[];
   oneDriveAvailable: boolean;
   busy: boolean;
+  /** Where ending has got, while `busy`. */
+  progress?: EndProgress | null;
   /** Why the last try stopped (nothing was removed). */
   error?: string | null;
   onEnd: (choice: EndSessionChoice) => void;
@@ -590,7 +600,14 @@ export function EndSessionDialog({
           </label>
         </div>
 
-        {busy && <p className="hint">Saving… The session is removed only once everything is saved.</p>}
+        {busy && (
+          <div className="upload-progress" role="status" aria-live="polite">
+            <b>{progress ? `Step ${Math.min(progress.done + 1, progress.total)} of ${progress.total}` : 'Starting…'}</b>
+            {progress && <span className="hint-text">{progress.label}</span>}
+            <progress max={progress?.total ?? 1} value={progress?.done ?? 0} aria-label="Progress ending the session" />
+            <span className="hint-text">Large files can take a while. The session is removed only once everything is saved, so keep this window open.</span>
+          </div>
+        )}
         {error && !busy && (
           <p className="session-error" role="alert">
             {error} The session was not ended.

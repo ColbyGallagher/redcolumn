@@ -108,7 +108,7 @@ import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
 import { knownProjects, libraryCopyOf, linkOf, setLink } from './studio/projects/local';
 import type { Project } from './studio/projects/Project';
 import type { ProjectFile } from './studio/projects/model';
-import { EndSessionDialog, type DocumentSource, type EndSessionChoice, type StartRequest } from './components/sessions/SessionDialogs';
+import { EndSessionDialog, type DocumentSource, type EndProgress, type EndSessionChoice, type StartRequest } from './components/sessions/SessionDialogs';
 import { InviteDialog } from './components/sessions/InviteDialog';
 import { forgetSession as forgetRoundtrip, rememberSource, sourceOf } from './studio/roundtrip';
 import {
@@ -659,6 +659,7 @@ export function App() {
   /** The revision of each session document open in a tab, to reload it when the host updates it. */
   const loadedVersions = useRef(new Map<string, number>());
   const [endFor, setEndFor] = useState<{ sessionId: string; authors: string[] } | null>(null);
+  const [endProgress, setEndProgress] = useState<EndProgress | null>(null);
   // Email invitations to a session.
   const [inviteSession, setInviteSession] = useState<string | null>(null);
   // Bookmarks › Action…: the bookmark whose action is being set.
@@ -3331,11 +3332,16 @@ export function App() {
    * its files for everyone. Asks for the folder or sign-in first, while the click still counts.
    */
   const endSession = useCallback(
-    async (sessionId: string, choice: EndSessionChoice) => {
+    async (sessionId: string, choice: EndSessionChoice, onProgress: (p: EndProgress) => void = () => {}) => {
       const session = sessionById(sessionId);
       if (!session?.end) return;
       const meta = session.meta;
       const saving = choice.pdfs || choice.markupsCsv || choice.recordCsv || choice.reportPdf;
+      // Each file is made, then saved; then documents go back to the library; then the session is removed.
+      const made = (choice.pdfs ? meta.documents.length : 0) + (choice.markupsCsv && meta.documents.length ? 1 : 0) + (choice.recordCsv ? 1 : 0) + (choice.reportPdf ? 1 : 0);
+      const total = made * 2 + meta.documents.filter((d) => choice.sendBack.includes(d.id)).length + 1;
+      let done = 0;
+      const step = (label: string) => onProgress({ done: done++, total, label });
       const safe = (n: string) => n.replace(/["*:<>?/\\|\u0000-\u001f]/g, '_').trim() || 'file';
       const stamp = new Date().toISOString().slice(0, 10);
 
@@ -3359,6 +3365,7 @@ export function App() {
       if (choice.pdfs && meta.documents.length) {
         const { exportWithAnnotations } = await import('@nb/markup/export');
         for (const d of meta.documents) {
+          step(`Preparing ${d.name}`);
           const bytes = await session.fetchDocument(d.id);
           const out = await withSessionMarkups(session, d.id, (store) =>
             exportWithAnnotations(
@@ -3370,11 +3377,14 @@ export function App() {
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
         }
       }
+      if (choice.markupsCsv && meta.documents.length) step('Preparing the markups CSV');
       if (choice.markupsCsv && meta.documents.length) files.push({ name: safe(`${meta.name} markups.csv`), blob: new Blob(['﻿' + (await sessionMarkupsCsv(session))], { type: 'text/csv' }) });
       if (choice.recordCsv) {
+        step('Preparing the session record');
         const snap = session.getSnapshot();
         files.push({ name: safe(`${meta.name} session record.csv`), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
       }
+      if (choice.reportPdf) step('Preparing the session report');
       if (choice.reportPdf) files.push({ name: safe(`${meta.name} session report.pdf`), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
 
       let where = '';
@@ -3382,19 +3392,26 @@ export function App() {
         if (choice.destination === 'local') {
           if (dir) {
             for (const f of files) {
+              step(`Saving ${f.name}`);
               const w = await (await dir.getFileHandle(f.name, { create: true })).createWritable();
               await w.write(f.blob);
               await w.close();
             }
             where = 'the folder you chose';
           } else {
-            for (const f of files) download(f.name, f.blob);
+            for (const f of files) {
+              step(`Saving ${f.name}`);
+              download(f.name, f.blob);
+            }
             where = 'your Downloads';
           }
         } else if (choice.destination === 'onedrive') {
           const folder = `${meta.name} (ended ${stamp})`;
           const folderId = await oneDriveApi.createFolder(folder);
-          for (const f of files) await oneDriveApi.createFile(folderId, f.name, f.blob.type, f.blob, {});
+          for (const f of files) {
+            step(`Uploading ${f.name} to OneDrive`);
+            await oneDriveApi.createFile(folderId, f.name, f.blob.type, f.blob, {});
+          }
           where = `OneDrive, Apps/redcolumn/${folder}`;
         } else {
           if (!project) throw new Error('Choose a Project to save to.');
@@ -3402,7 +3419,10 @@ export function App() {
           let folder = `${safe(meta.name)} (ended ${stamp})`;
           for (let n = 2; taken.has(folder.toLowerCase()); n++) folder = `${safe(meta.name)} (ended ${stamp}) ${n}`;
           const { id } = await project.addFolder(folder, null);
-          for (const f of files) await project.addFile(f.name, id, await f.blob.arrayBuffer());
+          for (const f of files) {
+            step(`Uploading ${f.name} to the Project`);
+            await project.addFile(f.name, id, await f.blob.arrayBuffer());
+          }
           where = `the Project “${project.getSnapshot().manifest.name}”, folder ${folder}`;
         }
       }
@@ -3412,6 +3432,7 @@ export function App() {
       for (const d of meta.documents) {
         const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
         if (!back) continue;
+        step(`Sending ${d.name} back to your library`);
         const bytes = await session.fetchDocument(d.id);
         const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
         const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
@@ -3432,6 +3453,7 @@ export function App() {
       if (sentBack.length) void refreshLibrary();
 
       // Everything is saved: only now does the session go.
+      step('Removing the session and its files');
       await session.end();
       closeStudioDocs(sessionId);
       forgetRoundtrip(sessionId);
@@ -6670,12 +6692,14 @@ export function App() {
                 return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
               })}
               busy={studioBusy}
+              progress={endProgress}
               error={studioError}
               onClose={() => setEndFor(null)}
               onEnd={(choice) => {
                 const id = endFor.sessionId;
                 // Runs straight from the click, so the folder picker and sign-in can open.
-                void runStudio(() => endSession(id, choice)).then((ok) => ok && setEndFor(null));
+                setEndProgress(null);
+                void runStudio(() => endSession(id, choice, setEndProgress)).then((ok) => ok && setEndFor(null));
               }}
             />
           );
