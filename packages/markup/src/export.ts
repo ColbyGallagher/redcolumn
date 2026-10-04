@@ -750,6 +750,11 @@ export interface ExportOptions {
   bookmarks?: readonly Bookmark[];
   /** The PDF's own annotations that were imported (by page, /Annots index): replaced, not duplicated. */
   imported?: Record<number, number[]>;
+  /**
+   * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
+   * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
+   */
+  embedFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
 }
 
 /**
@@ -806,12 +811,12 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const scaleFor = options.scaleFor ?? (() => DEFAULT_SCALE);
   const scaleOf = (m: Markup) => scaleOfMarkup(m, scaleFor(m.pageIndex), options.viewports ?? []);
   const doc = await PDFDocument.load(original, { updateMetadata: false });
-  // Embed only the standard fonts some markup's text or label uses.
+  // Embed only the fonts some markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
   for (const m of markups) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : [];
-    for (const name of names) if (!fonts.has(name)) fonts.set(name, await doc.embedFont(name));
+    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));
   }
   const images = new Map<string, PDFImage>();
   for (const m of markups) {

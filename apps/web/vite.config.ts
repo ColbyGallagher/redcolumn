@@ -132,6 +132,12 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: { cacheName: 'nb-ocr', cacheableResponse: { statuses: [200] } },
           },
+          {
+            // PDF/A's embedded fonts (about 4 MB in all) load when an archive copy first needs them.
+            urlPattern: ({ url }) => /\/fonts\/[^/]+\.ttf$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: { cacheName: 'nb-fonts', cacheableResponse: { statuses: [200] } },
+          },
         ],
         // PDFs shared from other apps (the manifest's share_target) are posted to the service worker.
         importScripts: ['sw-share.js'],

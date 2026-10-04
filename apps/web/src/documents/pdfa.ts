@@ -1,17 +1,27 @@
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, PDFString, type PDFObject } from 'pdf-lib';
 
+export interface PdfAResult {
+  bytes: Uint8Array;
+  /** What was changed or removed to meet PDF/A-2b, to tell the user. */
+  changes: string[];
+  /** What still breaks PDF/A-2b; when there is any, the file is not marked as PDF/A. */
+  blocking: string[];
+}
+
 /**
  * Archive as PDF/A-2b: the document with what the standard asks for added (an sRGB output intent,
  * XMP metadata identifying it as PDF/A-2b and matching the document information, a file ID) and
- * what it forbids removed (JavaScript, launch actions, hidden or non-printing annotations, the
- * NeedAppearances flag). Problems it cannot fix here — fonts that are not embedded, embedded files —
- * are listed so the file can be checked with a validator before archiving.
+ * what it forbids removed or fixed (JavaScript, launch actions, attached files, the NeedAppearances
+ * flag; annotations set to print, hidden ones left out). Problems it cannot fix here (fonts the
+ * drawing does not embed, annotations without an appearance) are listed as blocking, and then the
+ * file is not marked as PDF/A: it would not pass a validator.
  */
-export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: string): Promise<{ bytes: Uint8Array; issues: string[] }> {
+export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: string): Promise<PdfAResult> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   if (doc.isEncrypted) throw new Error('Remove the password first (Document › Security): PDF/A files cannot be encrypted.');
   const ctx = doc.context;
-  const issues: string[] = [];
+  const changes: string[] = [];
+  const blocking: string[] = [];
   const now = new Date();
 
   // Document information, and the same in XMP.
@@ -19,18 +29,6 @@ export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: stri
   doc.setProducer('redcolumn');
   doc.setModificationDate(now);
   if (!doc.getCreationDate()) doc.setCreationDate(now);
-  const xmp = xmpPacket({
-    title: doc.getTitle() ?? title,
-    author: doc.getAuthor(),
-    subject: doc.getSubject(),
-    keywords: doc.getKeywords(),
-    creator: doc.getCreator(),
-    producer: 'redcolumn',
-    created: doc.getCreationDate() ?? now,
-    modified: now,
-  });
-  const metadata = ctx.stream(new TextEncoder().encode(xmp), { Type: 'Metadata', Subtype: 'XML' });
-  doc.catalog.set(PDFName.of('Metadata'), ctx.register(metadata));
 
   // The output intent: colours are sRGB.
   const icc = ctx.stream(srgbProfile(), { N: 3 });
@@ -66,8 +64,12 @@ export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: stri
     acro.delete(PDFName.of('XFA'));
   }
 
-  // Annotations: printed, visible, with appearances; no scripts.
-  let fixedAnnots = 0;
+  // Annotations: printed, visible, with appearances; no scripts. Hidden ones are left out: the
+  // archive shows what the reader saw rather than revealing them.
+  let printed = 0;
+  let hidden = 0;
+  let media = 0;
+  let attachments = 0;
   let noAppearance = 0;
   for (const page of doc.getPages()) {
     page.node.delete(PDFName.of('AA'));
@@ -76,17 +78,31 @@ export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: stri
       const a = annots!.lookupMaybe(i, PDFDict);
       if (!a) continue;
       const subtype = a.get(PDFName.of('Subtype'))?.toString();
-      if (subtype === '/Movie' || subtype === '/Sound' || subtype === '/Screen' || subtype === '/3D' || subtype === '/FileAttachment') {
+      if (subtype === '/FileAttachment') {
         annots!.remove(i);
-        fixedAnnots++;
+        attachments++;
         continue;
       }
-      const f = a.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
-      // Print on; Invisible, Hidden, ToggleNoView and NoView off.
-      const next = (f | 4) & ~(1 | 2 | 32 | 256);
-      if (next !== f) {
-        a.set(PDFName.of('F'), PDFNumber.of(next));
-        fixedAnnots++;
+      if (subtype === '/Movie' || subtype === '/Sound' || subtype === '/Screen' || subtype === '/3D') {
+        annots!.remove(i);
+        media++;
+        continue;
+      }
+      // Pop-ups need no flags: they open from their markup.
+      if (subtype !== '/Popup') {
+        const f = a.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
+        // Hidden or NoView: not shown, so not archived.
+        if (f & (2 | 32)) {
+          annots!.remove(i);
+          hidden++;
+          continue;
+        }
+        // Print on; Invisible and ToggleNoView off.
+        const next = (f | 4) & ~(1 | 256);
+        if (next !== f) {
+          a.set(PDFName.of('F'), PDFNumber.of(next));
+          if (!(f & 4)) printed++;
+        }
       }
       if (badAction(a.get(PDFName.of('A')))) {
         a.delete(PDFName.of('A'));
@@ -96,29 +112,70 @@ export async function archiveAsPdfA(bytes: ArrayBuffer | Uint8Array, title: stri
       if (subtype !== '/Popup' && subtype !== '/Link' && !a.has(PDFName.of('AP')) && (a.lookupMaybe(PDFName.of('Rect'), PDFArray)?.asArray() ?? []).some((n) => n instanceof PDFNumber && n.asNumber() !== 0)) noAppearance++;
     }
   }
-  if (noAppearance) issues.push(`${noAppearance} annotation${noAppearance === 1 ? ' has' : 's have'} no appearance stream.`);
+  if (noAppearance) blocking.push(`${noAppearance} annotation${noAppearance === 1 ? ' has' : 's have'} no appearance, so readers could draw ${noAppearance === 1 ? 'it' : 'them'} differently.`);
   if (names?.has(PDFName.of('EmbeddedFiles'))) {
     names.delete(PDFName.of('EmbeddedFiles'));
-    issues.push('Embedded files were removed (PDF/A-2b allows only PDF/A attachments).');
+    attachments++;
   }
 
-  // Fonts must be embedded: those that are not are listed.
+  // Fonts must be embedded, except those only used for invisible text (OCR's text layer).
+  const ocrOnly = invisibleTextFonts(doc);
   const unembedded = new Set<string>();
-  for (const [, obj] of ctx.enumerateIndirectObjects()) {
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
     if (!(obj instanceof PDFDict) || obj.get(PDFName.of('Type')) !== PDFName.of('Font')) continue;
     const sub = obj.get(PDFName.of('Subtype'))?.toString();
-    if (sub === '/Type3' || sub === '/Type0') continue;
+    if (sub === '/Type3' || sub === '/Type0' || ocrOnly.has(ref)) continue;
     const fd = obj.lookupMaybe(PDFName.of('FontDescriptor'), PDFDict);
     const embedded = fd && (fd.has(PDFName.of('FontFile')) || fd.has(PDFName.of('FontFile2')) || fd.has(PDFName.of('FontFile3')));
     if (!embedded) unembedded.add(obj.get(PDFName.of('BaseFont'))?.toString().slice(1) ?? 'unnamed');
   }
-  if (unembedded.size) issues.push(`Fonts not embedded: ${[...unembedded].sort().join(', ')}. Flatten markups with text, or re-create the PDF with fonts embedded, for a valid PDF/A.`);
-  if (scripts) issues.unshift(`Removed ${scripts} script or launch action${scripts === 1 ? '' : 's'}.`);
-  if (fixedAnnots) issues.unshift(`Set ${fixedAnnots} annotation${fixedAnnots === 1 ? '' : 's'} to print (or removed media ones).`);
+  if (unembedded.size)
+    blocking.push(`The drawing uses fonts it does not embed: ${[...unembedded].sort().join(', ')}. Re-create the PDF from its source (e.g. plot it again from CAD) with fonts embedded.`);
+  if (scripts) changes.push(`Removed ${scripts} script or launch action${scripts === 1 ? '' : 's'}.`);
+  if (hidden) changes.push(`Left out ${hidden} hidden annotation${hidden === 1 ? '' : 's'}.`);
+  if (printed) changes.push(`Set ${printed} annotation${printed === 1 ? '' : 's'} that only showed on screen to print as well.`);
+  if (attachments) changes.push(`Removed ${attachments} attached file${attachments === 1 ? '' : 's'} (PDF/A-2b does not allow them).`);
+  if (media) changes.push(`Removed ${media} sound, video or 3D annotation${media === 1 ? '' : 's'}.`);
+
+  // XMP metadata matching the document information; it names the file PDF/A only when it is.
+  const xmp = xmpPacket({
+    pdfa: !blocking.length,
+    title: doc.getTitle() ?? title,
+    author: doc.getAuthor(),
+    subject: doc.getSubject(),
+    keywords: doc.getKeywords(),
+    creator: doc.getCreator(),
+    producer: 'redcolumn',
+    created: doc.getCreationDate() ?? now,
+    modified: now,
+  });
+  const metadata = ctx.stream(new TextEncoder().encode(xmp), { Type: 'Metadata', Subtype: 'XML' });
+  doc.catalog.set(PDFName.of('Metadata'), ctx.register(metadata));
 
   // PDF/A-2 allows object streams and cross-reference streams; the header says 1.7.
   const out = await doc.save({ useObjectStreams: true });
-  return { bytes: withHeader(out), issues };
+  return { bytes: withHeader(out), changes, blocking };
+}
+
+/**
+ * Fonts used only under the OCR text layer's resource names (NBOCR…, see ocr.ts), which draw
+ * nothing (render mode 3), so PDF/A does not need them embedded.
+ */
+function invisibleTextFonts(doc: PDFDocument): Set<PDFRef> {
+  const ocr = new Set<PDFRef>();
+  const other = new Set<PDFRef>();
+  const scan = (resources: PDFDict | undefined) => {
+    const fonts = resources?.lookupMaybe(PDFName.of('Font'), PDFDict);
+    if (!fonts) return;
+    for (const [name, value] of fonts.entries()) if (value instanceof PDFRef) (name.decodeText().startsWith('NBOCR') ? ocr : other).add(value);
+  };
+  for (const page of doc.getPages()) scan(page.node.Resources());
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    const dict = obj instanceof PDFDict ? obj : obj instanceof PDFStream ? obj.dict : undefined;
+    if (dict && dict.get(PDFName.of('Type')) !== PDFName.of('Page')) scan(dict.lookupMaybe(PDFName.of('Resources'), PDFDict));
+  }
+  for (const ref of other) ocr.delete(ref);
+  return ocr;
 }
 
 /** The file with a %PDF-1.7 header and the binary comment line PDF/A asks for. */
@@ -136,14 +193,12 @@ function withHeader(bytes: Uint8Array): Uint8Array {
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 const x = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function xmpPacket(i: { title: string; author?: string; subject?: string; keywords?: string; creator?: string; producer: string; created: Date; modified: Date }): string {
+function xmpPacket(i: { pdfa: boolean; title: string; author?: string; subject?: string; keywords?: string; creator?: string; producer: string; created: Date; modified: Date }): string {
   return `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
 <x:xmpmeta xmlns:x="adobe:ns:meta/">
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
 <rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">
-<pdfaid:part>2</pdfaid:part>
-<pdfaid:conformance>B</pdfaid:conformance>
-<dc:format>application/pdf</dc:format>
+${i.pdfa ? '<pdfaid:part>2</pdfaid:part>\n<pdfaid:conformance>B</pdfaid:conformance>\n' : ''}<dc:format>application/pdf</dc:format>
 <dc:title><rdf:Alt><rdf:li xml:lang="x-default">${x(i.title)}</rdf:li></rdf:Alt></dc:title>
 ${i.author ? `<dc:creator><rdf:Seq><rdf:li>${x(i.author)}</rdf:li></rdf:Seq></dc:creator>\n` : ''}${i.subject ? `<dc:description><rdf:Alt><rdf:li xml:lang="x-default">${x(i.subject)}</rdf:li></rdf:Alt></dc:description>\n` : ''}${i.keywords ? `<pdf:Keywords>${x(i.keywords)}</pdf:Keywords>\n` : ''}<pdf:Producer>${x(i.producer)}</pdf:Producer>
 ${i.creator ? `<xmp:CreatorTool>${x(i.creator)}</xmp:CreatorTool>\n` : ''}<xmp:CreateDate>${iso(i.created)}</xmp:CreateDate>

@@ -39,6 +39,7 @@ import { PublishDialog, type PublishRequest } from './components/PublishDialog';
 import { CameraDialog } from './components/CameraDialog';
 import { FolderBrowser } from './components/FolderBrowser';
 import { ApplyRedactionsDialog, contrastOn, type RedactOptions } from './components/ApplyRedactionsDialog';
+import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
 import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
@@ -416,10 +417,14 @@ async function recompressJpeg(jpeg: Uint8Array, quality: number): Promise<Uint8A
 }
 
 /** The document with its markups written as PDF annotations. */
-async function annotatedBytes(cur: OpenFile, options: { links?: boolean; markups?: readonly Markup[] } = {}): Promise<Uint8Array> {
+async function annotatedBytes(
+  cur: OpenFile,
+  options: { links?: boolean; markups?: readonly Markup[]; embedFont?: ExportOptions['embedFont'] } = {},
+): Promise<Uint8Array> {
   // pdf-lib is only needed here; load it on demand (the service worker still precaches it).
   const { exportWithAnnotations } = await import('@nb/markup/export');
   return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
+    ...(options.embedFont ? { embedFont: options.embedFont } : {}),
     scaleFor: (i) => cur.store.scaleFor(i),
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),
@@ -5094,13 +5099,22 @@ export function App() {
         const cur = activeOpen;
         if (!cur) return;
         const { archiveAsPdfA } = await import('./documents/pdfa');
+        const { embedFontFile } = await import('./documents/archiveFonts');
         const base = cur.file.name.replace(/\.pdf$/i, '');
-        const { bytes, issues } = await archiveAsPdfA(await annotatedBytes(cur), base);
-        download(`${base} (PDF-A).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-        const blocking = issues.filter((i) => /not embedded|no appearance/.test(i));
-        const msg = `Saved ${base} (PDF-A).pdf as PDF/A-2b.${issues.length ? ` ${issues.join(' ')}` : ''}`;
-        if (blocking.length) setError(`${msg} Check it with a PDF/A validator before archiving.`);
-        else setNotice(msg);
+        // Markup text carries its fonts (PDF/A does not allow the standard ones unembedded), and
+        // hidden markups are left out: the archive shows what is shown.
+        const markups = cur.store.all().filter((m) => !m.hidden);
+        const { bytes, changes, blocking } = await archiveAsPdfA(await annotatedBytes(cur, { markups, embedFont: embedFontFile }), base);
+        const done = changes.length ? ` ${changes.join(' ')}` : '';
+        if (!blocking.length) {
+          download(`${base} (PDF-A).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+          setNotice(`Saved ${base} (PDF-A).pdf as PDF/A-2b.${done}`);
+          return;
+        }
+        // It would not pass a validator, so it is not marked PDF/A; saving it is the user's choice.
+        if (!confirm(`${cur.file.name} cannot be made a valid PDF/A:\n\n${blocking.join('\n\n')}\n\nSave an archive copy anyway? It will not be marked as PDF/A.`)) return;
+        download(`${base} (archive).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+        setError(`Saved ${base} (archive).pdf, not marked as PDF/A: ${blocking.join(' ')}${done}`);
       })().catch((err) => setError(`PDF/A failed: ${err instanceof Error ? err.message : String(err)}`)),
     install: () => setInstallOpen(true),
     help: (what) => {

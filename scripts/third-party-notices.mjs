@@ -46,6 +46,18 @@ for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])
 NOTES['@pdf-lib/standard-fonts'] =
   'Contains font metrics for the 14 standard PDF fonts derived from Adobe Core14 AFM files, Copyright Adobe Systems Incorporated, which may be copied and distributed for any purpose provided the copyright notice is kept.';
 
+/** Files shipped with the app that do not come from npm, with their licence in scripts/notices/. */
+const BUNDLED = [
+  {
+    name: 'Liberation Fonts',
+    version: '2.1.5',
+    licence: 'OFL-1.1',
+    homepage: 'https://github.com/liberationfonts/liberation-fonts',
+    note: 'Liberation Sans, Serif and Mono (public/fonts), embedded in PDF/A exports in place of Helvetica, Times and Courier.',
+    file: 'liberation-fonts.txt',
+  },
+];
+
 const out = [
   '# Third-party notices',
   '',
@@ -56,6 +68,7 @@ const out = [
   '| Package | Version | Licence |',
   '|---|---|---|',
   ...packages.map((p) => `| ${p.name} | ${p.versions.join(', ')} | ${p.licence} |`),
+  ...BUNDLED.map((b) => `| ${b.name} | ${b.version} | ${b.licence} |`),
   '',
 ];
 for (const p of packages) {
@@ -65,6 +78,10 @@ for (const p of packages) {
   if (!files.length) out.push(`No licence file is included in the package; it declares ${p.licence}${p.author ? `, by ${p.author}` : ''}.`, '');
   if (p.name === '@embedpdf/pdfium') files.push(...licenceFiles(join(root, 'scripts/notices/pdfium'), /./).map((f) => ({ ...f, name: PDFIUM_PARTS[f.name] ?? f.name })));
   for (const f of files) out.push(`<details><summary>${f.name}</summary>`, '', '```text', f.text, '```', '', '</details>', '');
+}
+for (const b of BUNDLED) {
+  const text = readFileSync(join(root, 'scripts/notices', b.file), 'utf8').trim();
+  out.push(`## ${b.name} ${b.version}`, '', `Licence: ${b.licence} · ${b.homepage}`, '', b.note, '', '<details><summary>LICENSE</summary>', '', '```text', text, '```', '', '</details>', '');
 }
 writeFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), out.join('\n'));
 console.log(`THIRD_PARTY_NOTICES.md: ${packages.length} packages`);
