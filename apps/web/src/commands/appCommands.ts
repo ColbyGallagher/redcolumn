@@ -110,6 +110,7 @@ export interface CommandActions {
   overlay: () => void;
   deletePages: () => void;
   labelRegions: () => void;
+  scaleRegions: () => void;
   thumbnails: () => void;
   setTool: (tool: Tool) => void;
   manageColumns: () => void;
@@ -301,6 +302,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.compare', 'Document', 'Compare Documents…', a.compare, s.libraryCount > 1),
     cmd('document.overlay', 'Document', 'Overlay Pages…', a.overlay, s.libraryCount > 1),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
+    cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
 
     ...tools,

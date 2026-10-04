@@ -1,5 +1,5 @@
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
-import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps } from './DriveApi';
 import { requireOnline } from '../../offline/network';
 
 /**
@@ -181,6 +181,17 @@ export function parseOneDriveInvite(text: string): string | null {
   if (param && /^u![\w-]{8,}$/.test(param)) return param;
   if (/(^|\.)(1drv\.ms|onedrive\.live\.com|sharepoint\.com)$/i.test(url.hostname)) return shareIdFromUrl(t);
   return null;
+}
+
+interface GraphPermission {
+  id: string;
+  roles?: string[];
+  grantedToV2?: { user?: { displayName?: string; email?: string } };
+  grantedToIdentitiesV2?: { user?: { displayName?: string; email?: string } }[];
+  grantedTo?: { user?: { displayName?: string; email?: string } };
+  invitation?: { email?: string };
+  link?: { type?: string; scope?: string };
+  inheritedFrom?: unknown;
 }
 
 interface GraphItem {
@@ -516,17 +527,60 @@ export class OneDrive implements DriveApi {
     return shareId;
   }
 
-  async shareWithUser(fileId: string, email: string, message: string): Promise<void> {
+  async shareWithUser(fileId: string, email: string, message: string, role: 'reader' | 'writer' = 'writer'): Promise<void> {
     const { driveId, itemId } = await this.resolve(fileId);
     await this.fetch(
       `/drives/${driveId}/items/${itemId}/invite`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ recipients: [{ email }], message, requireSignIn: true, sendInvitation: true, roles: ['write'] }),
+        body: JSON.stringify({ recipients: [{ email }], message, requireSignIn: true, sendInvitation: true, roles: [role === 'reader' ? 'read' : 'write'] }),
       },
       `invite ${email}`,
     );
+  }
+
+  /** Who the folder is shared with. Only people who can manage its sharing may ask. */
+  async listPermissions(folderId: string): Promise<DrivePermission[]> {
+    const { driveId, itemId } = await this.resolve(folderId);
+    const res = await this.fetch(`/drives/${driveId}/items/${itemId}/permissions`, {}, 'see who the folder is shared with');
+    const { value } = (await res.json()) as { value: GraphPermission[] };
+    return value.map((p) => {
+      const person = p.grantedToV2?.user ?? p.grantedToIdentitiesV2?.[0]?.user ?? p.grantedTo?.user;
+      const roles = p.roles ?? [];
+      const role = roles.includes('owner') ? 'owner' : roles.includes('write') ? 'writer' : 'reader';
+      if (p.link) {
+        const scope = p.link.scope === 'anonymous' ? 'Anyone with the link' : p.link.scope === 'organization' ? 'Your organization, with the link' : 'People with the link';
+        return { id: p.id, kind: 'link' as const, name: scope, role: p.link.type === 'edit' ? 'writer' : role, inherited: !!p.inheritedFrom };
+      }
+      const email = person?.email ?? p.invitation?.email;
+      return { id: p.id, kind: role === 'owner' ? ('owner' as const) : ('user' as const), name: person?.displayName ?? email ?? 'Someone', ...(email ? { email } : {}), role, inherited: !!p.inheritedFrom };
+    });
+  }
+
+  async setPermissionRole(folderId: string, permissionId: string, role: 'reader' | 'writer'): Promise<void> {
+    const { driveId, itemId } = await this.resolve(folderId);
+    await this.fetch(
+      `/drives/${driveId}/items/${itemId}/permissions/${permissionId}`,
+      { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roles: [role === 'reader' ? 'read' : 'write'] }) },
+      'change who can edit the folder',
+    );
+  }
+
+  async removePermission(folderId: string, permissionId: string): Promise<void> {
+    const { driveId, itemId } = await this.resolve(folderId);
+    await this.fetch(`/drives/${driveId}/items/${itemId}/permissions/${permissionId}`, { method: 'DELETE' }, 'stop sharing the folder');
+  }
+
+  /** Deletes a file. One already gone counts as deleted. */
+  async remove(fileId: string): Promise<void> {
+    try {
+      await this.serial(fileId, () => this.fetch(this.itemPath(fileId), { method: 'DELETE' }, 'delete a file'));
+    } catch (err) {
+      if (!(err instanceof Error) || !/could not find/.test(err.message)) throw err;
+    }
+    this.json.delete(fileId);
+    this.drives.delete(fileId);
   }
 
   /** The host owns the session folder, so the manifest sits in their own drive. */

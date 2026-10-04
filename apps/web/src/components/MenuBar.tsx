@@ -31,7 +31,8 @@ export type LeftTab =
   | 'search'
   | 'forms'
   | 'sets'
-  | 'sessions';
+  | 'sessions'
+  | 'projects';
 export type BottomTab = 'markups' | 'links';
 
 export const LEFT_TITLES: Record<LeftTab, string> = {
@@ -49,6 +50,7 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   forms: 'Forms',
   sets: 'Sets',
   sessions: 'Sessions',
+  projects: 'Projects',
 };
 
 export interface RecentFile {
@@ -366,6 +368,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="document.labelRegions" label="From Page Region…" />
               <Cmd id="document.thumbnails" label="Edit in Thumbnails…" />
             </Submenu>
+            <Cmd id="document.scaleRegions" label="Bulk Apply Page Scale…" />
             <Cmd id="document.headerFooter" />
             <Cmd id="document.security" />
             <Sep />

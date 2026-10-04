@@ -1,6 +1,6 @@
 # Privacy policy
 
-_Last updated: 3 October 2026_
+_Last updated: 4 October 2026_
 
 redcolumn is a free, open-source PDF markup and takeoff app that runs in your web browser. This
 policy explains what happens to your documents and information when you use it. It applies to the
@@ -13,8 +13,8 @@ someone else runs their own copy, their policy applies to it.
   entirely in your browser. The redcolumn project never receives your documents or markups.
 - **There is no redcolumn server, no account and no tracking.** The app has no analytics,
   advertising, cookies of its own or error reporting.
-- **Live Sessions use your own Google Drive or OneDrive.** When you share documents with others,
-  they go to Google or Microsoft under your account, not to us.
+- **Live Sessions and Projects use your own Google Drive or OneDrive.** When you share documents
+  with others, they go to Google or Microsoft under your account, not to us.
 
 ## What stays on your device
 
@@ -22,7 +22,8 @@ The app keeps these in your browser's storage, on your device only:
 
 - documents you open or save to the library, with their markups, measurements and revisions;
 - your settings, profiles, tool sets, signatures and stamps;
-- a list of Live Sessions you have started or joined;
+- a list of Live Sessions and Projects you have started or joined, which library files came from
+  a Project, and check-ins and notes waiting to be sent;
 - the app itself and its OCR language data, so it works offline.
 
 Clearing your browser's site data for redcolumn deletes all of it. Nobody else can see it,
@@ -63,6 +64,29 @@ sign in to Google or Microsoft.
 
 Google and Microsoft handle these files under their own terms and privacy policies.
 
+## Projects (OneDrive)
+
+Projects are shared folders of PDFs for a team. They are optional and only start when you sign in
+to Microsoft.
+
+- **Where the files go:** a Project is a folder in the owner's OneDrive, under `Apps/redcolumn`.
+  It holds the PDFs, every revision of each, who checked each in and when, and the Project
+  Record. People who check a file in write to that folder with their own account. Your browser
+  talks to Microsoft directly; nothing passes through us.
+- **Sign-in and access:** the same Microsoft sign-in and permissions as Live Sessions (see
+  above). The owner can see, and change, who the folder is shared with through the app; that list
+  comes from OneDrive.
+- **What other people on the Project see:** your name or email on the files you add and check
+  in, your check-outs, your notes and your activity in the Project Record, and your comments on
+  revisions.
+- **Deleting:** deleting a file or folder in the app only hides it from the Project. Its files
+  stay in the OneDrive folder until the owner deletes them there. Removing the whole Project means
+  deleting its folder in OneDrive.
+- **Link sharing:** a new Project is shared by link so people can join from an invite link. The
+  owner can turn the link off or make it view-only in the Projects panel.
+
+Microsoft handles these files under its own terms and privacy policy.
+
 ## Optional features that contact other services
 
 These only run when you use them:
@@ -71,8 +95,8 @@ These only run when you use them:
   been revoked, your browser contacts the certificate service named in your settings or in the
   certificate (for example DigiCert). It sends a fingerprint of the signature or certificate, not
   the document.
-- **Email invitations** to a Live Session are sent by Google Drive or OneDrive when the host shares
-  the session folder.
+- **Email invitations** to a Live Session or Project are sent by Google Drive or OneDrive when the
+  host shares the folder.
 - **Help → Send Log Files** saves a file of recent app messages to your device. Nothing is sent
   unless you choose to send that file to someone.
 

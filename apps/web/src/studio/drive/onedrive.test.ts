@@ -18,6 +18,12 @@ interface Item {
  */
 class FakeGraph {
   items = new Map<string, Item>();
+  permissions: Record<string, unknown>[] & { id?: string; roles?: string[] }[] = [
+    { id: 'o', roles: ['owner'], grantedToV2: { user: { displayName: 'Hana', email: 'hana@x.com' } } },
+    { id: 'u', roles: ['write'], grantedToV2: { user: { displayName: 'Sam', email: 'sam@x.com' } } },
+    { id: 'i', roles: ['read'], invitation: { email: 'lee@x.com' } },
+    { id: 'l', roles: ['read'], link: { type: 'edit', scope: 'anonymous' } },
+  ];
   calls: { method: string; path: string; search: URLSearchParams; body?: Uint8Array }[] = [];
   private n = 0;
 
@@ -66,6 +72,15 @@ class FakeGraph {
       item ??= this.add(parent, name);
       this.put(item, body!);
       return this.json(item);
+    }
+    m = /^\/drives\/d1\/items\/([^/:]+)\/permissions(?:\/(.+))?$/.exec(path);
+    if (m) {
+      if (method === 'GET') return Response.json({ value: this.permissions });
+      const at = this.permissions.findIndex((p) => p.id === m![2]);
+      if (at < 0) return Response.json({ error: { message: 'not found' } }, { status: 404 });
+      if (method === 'DELETE') this.permissions.splice(at, 1);
+      else this.permissions[at]!.roles = (JSON.parse(String(init.body)) as { roles: string[] }).roles;
+      return new Response(null, { status: 204 });
     }
     m = /^\/drives\/d1\/items\/([^/:]+)\/content$/.exec(path);
     if (m) {
@@ -145,4 +160,23 @@ test('JSON files keep the properties stored inside them, and are not written unr
   const elsewhere = new OneDrive(token);
   await assert.rejects(elsewhere.updateContent(file.id, json({ name: 'oops' })), /not read/);
   assert.deepEqual(JSON.parse(text(graph.items.get(file.id))), { name: 'Level 2', _nb: { nbRole: 'manifest' } }, 'its role is not lost');
+});
+
+test('who the folder is shared with is listed, changed and removed', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('Tower (redcolumn project)');
+  const people = await od.listPermissions(folder);
+  assert.deepEqual(
+    people.map((p) => [p.kind, p.name, p.email ?? null, p.role]),
+    [
+      ['owner', 'Hana', 'hana@x.com', 'owner'],
+      ['user', 'Sam', 'sam@x.com', 'writer'],
+      ['user', 'lee@x.com', 'lee@x.com', 'reader'],
+      ['link', 'Anyone with the link', null, 'writer'],
+    ],
+  );
+  await od.setPermissionRole(folder, 'u', 'reader');
+  assert.deepEqual(graph.permissions.find((p) => p.id === 'u')!.roles, ['read']);
+  await od.removePermission(folder, 'i');
+  assert.deepEqual((await od.listPermissions(folder)).map((p) => p.name), ['Hana', 'Sam', 'Anyone with the link']);
 });

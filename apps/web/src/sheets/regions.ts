@@ -1,4 +1,5 @@
 import type { Word } from '@nb/sheets';
+import { parseScaleText, type Scale } from '@nb/measure';
 
 export interface Region {
   x: number;
@@ -67,4 +68,13 @@ export function parsePageRange(text: string, count: number): number[] {
     for (let p = Math.max(1, from); p <= Math.min(count, to); p++) out.add(p - 1);
   }
   return [...out].sort((a, b) => a - b);
+}
+
+/** The drawing scale written in a box: the first box whose text reads as a scale. */
+export function scaleFromRegions(words: readonly Word[], regions: readonly Region[]): Scale | null {
+  for (const r of regions) {
+    const scale = parseScaleText(textInRegion(words, r));
+    if (scale) return scale;
+  }
+  return null;
 }

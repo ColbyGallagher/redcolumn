@@ -15,7 +15,9 @@ const CURRENT = '__current__';
 /** Page scale picker: presets, the current (e.g. calibrated) scale, and apply-to-all. */
 export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll, showAllPages = true }: Props) {
   const groups = SCALE_GROUPS[useSettings().unitSystem];
-  const isPreset = !!scale && SCALE_PRESETS.some((p) => p.label === scale.label);
+  // A preset from the other measurement system (e.g. 1:500 read from a title block while working in
+  // imperial) has no option in the list, so it is shown like a custom scale.
+  const isPreset = !!scale && SCALE_PRESETS.some((p) => p.label === scale.label && groups.includes(p.group));
   return (
     <label className="field scale" title="Drawing scale for this page">
       Scale

@@ -2,7 +2,7 @@
 
 Open-source PDF markup and takeoff for construction drawings, in the browser. Mark up and measure
 drawings, run takeoffs, compare revisions, manage drawing sets, and review together in live
-sessions over Google Drive or OneDrive. It installs as an app and works offline. Your documents
+sessions over Google Drive or OneDrive and shared Projects in OneDrive. It installs as an app and works offline. Your documents
 stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](PRIVACY.md)).
 
 ## Features
@@ -16,7 +16,8 @@ stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](
 - **Documents:** page tools, headers and footers, OCR, forms, redaction, digital signatures,
   encryption and PDF/A.
 - **Working together:** Live Sessions in the host's Google Drive or OneDrive, with access levels,
-  chat, markup alerts and session reports.
+  chat, markup alerts and session reports; and Projects, shared OneDrive folders of PDFs with check
+  out and check in, revisions and a Project Record.
 - **Compatibility:** reads and writes standard PDF annotations and XFDF, and imports Bluebeam®
   Revu® tool sets (`.btx`).
 
@@ -48,7 +49,7 @@ is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 ## Privacy
 
 redcolumn has no server, account, analytics or tracking. See [PRIVACY.md](PRIVACY.md) for what the
-optional features (Live Sessions and signature checks) send and to whom.
+optional features (Live Sessions, Projects and signature checks) send and to whom.
 
 ## Licence
 
