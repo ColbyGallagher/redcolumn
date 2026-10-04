@@ -233,13 +233,19 @@ export class OneDrive implements DriveApi {
   private myDrive: Promise<string> | null = null;
   /** Session folders created but not yet shared, by name. */
   private unshared = new Map<string, string>();
+  private token: () => Promise<string>;
+
+  /** `token` stands in for Microsoft sign-in in tests. */
+  constructor(token: () => Promise<string> = silentToken) {
+    this.token = token;
+  }
 
   folderUrl(folderId: string): string {
     return urlFromShareId(folderId) ?? 'https://onedrive.live.com/';
   }
 
   private async fetch(url: string, init: RequestInit, what: string): Promise<Response> {
-    const token = await silentToken();
+    const token = await this.token();
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${token}`);
     let res: Response;
@@ -403,13 +409,18 @@ export class OneDrive implements DriveApi {
     return item.id;
   }
 
-  /** Uploads bytes as a file in a folder (or over an existing file) and returns the item. */
-  private async upload(target: string, body: Blob, what: string): Promise<GraphItem> {
+  /**
+   * Uploads bytes as a new file in a folder (`create`) or over an existing file, and returns the
+   * item. A new file never replaces another of the same name: OneDrive gives it a free name instead.
+   */
+  private async upload(target: string, body: Blob, what: string, create = false): Promise<GraphItem> {
     if (body.size <= SIMPLE_UPLOAD_MAX) {
-      return (await (await this.fetch(`${target}/content`, { method: 'PUT', body }, what)).json()) as GraphItem;
+      const url = `${target}/content${create ? '?@microsoft.graph.conflictBehavior=rename' : ''}`;
+      return (await (await this.fetch(url, { method: 'PUT', body }, what)).json()) as GraphItem;
     }
+    const conflictBehavior = create ? 'rename' : 'replace';
     const session = (await (
-      await this.fetch(`${target}/createUploadSession`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'replace' } }) }, what)
+      await this.fetch(`${target}/createUploadSession`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': conflictBehavior } }) }, what)
     ).json()) as { uploadUrl: string };
     let item: GraphItem | null = null;
     for (let start = 0; start < body.size; start += CHUNK) {
@@ -433,13 +444,15 @@ export class OneDrive implements DriveApi {
     return { blob: new Blob([JSON.stringify({ ...parsed, [PROPS_KEY]: props })], { type: 'application/json' }), parsed };
   }
 
-  async createFile(folderId: string, name: string, _mimeType: string, body: Blob, properties: DriveProps): Promise<DriveFile> {
+  async createFile(folderId: string, name: string, mimeType: string, body: Blob, properties: DriveProps): Promise<DriveFile> {
     const { driveId, itemId } = await this.resolve(folderId);
-    const safe = name.replace(/["*:<>?/\\|]/g, '_');
+    let safe = name.replace(/["*:<>?/\\|]/g, '_');
+    // Documents are recognised by their extension, as Graph keeps no properties on them.
+    if (mimeType === 'application/pdf' && !/\.pdf$/i.test(safe)) safe += '.pdf';
     const what = `upload ${name}`;
     let parsed: Record<string, unknown> | null = null;
     if (isJson(safe)) ({ blob: body, parsed } = await this.withProps(body, properties));
-    const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(safe)}:`, body, what);
+    const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(safe)}:`, body, what, true);
     this.drives.set(item.id, item.parentReference?.driveId ?? driveId);
     if (parsed) this.json.set(item.id, { version: item.eTag ?? '', body: parsed, props: properties });
     return this.toFile(item, parsed ? properties : this.propsFor(item, null));
@@ -458,11 +471,15 @@ export class OneDrive implements DriveApi {
     return item.eTag ?? '';
   }
 
+  /** Replaces a file's content: JSON keeps the properties stored inside it; anything else goes up as is. */
   updateContent(fileId: string, body: Blob): Promise<string> {
     return this.serial(fileId, async () => {
-      const props = this.json.get(fileId)?.props ?? {};
+      if (body.type !== 'application/json') return (await this.upload(this.itemPath(fileId), body, 'save your changes')).eTag ?? '';
+      const cur = this.json.get(fileId);
+      // Written unread, the file would lose its properties, and with them its role in the session.
+      if (!cur) throw new Error('OneDrive has not read that file yet.');
       const parsed = JSON.parse(await body.text()) as Record<string, unknown>;
-      return this.writeJson(fileId, parsed, props, 'save your changes');
+      return this.writeJson(fileId, parsed, cur.props, 'save your changes');
     });
   }
 
