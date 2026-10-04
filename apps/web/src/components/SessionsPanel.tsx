@@ -118,6 +118,18 @@ export function SessionsPanel(props: Props) {
       )}
       {dialog === 'settings' && focused && (
         <SessionSettingsDialog
+          documents={focused.snapshot.meta.documents}
+          onAddFiles={(files) => props.onAddFiles(focused.session.id, files)}
+          onUpdateDocument={(docId, file) => props.onUpdateDocument(focused.session.id, docId, file)}
+          onRemoveDocument={(docId) => props.onRun(() => focused.session.removeDocument(docId))}
+          onEnd={
+            focused.session.end
+              ? () => {
+                  setDialog(null);
+                  props.onEnd(focused.session.id);
+                }
+              : undefined
+          }
           name={focused.snapshot.meta.name}
           host={focused.snapshot.meta.host}
           policy={policyOf(focused.snapshot.meta)}
@@ -404,6 +416,11 @@ function InSession({
           <b title={meta.name}>{meta.name}</b>
           <span className={`access-badge ${isHost ? 'host' : access}`}>{isHost ? 'Host' : ACCESS_SHORT[access]}</span>
         </div>
+        {isHost && !finished && !ended && (
+          <button className="btn small manage-button" onClick={onSettings} title="Rename, add or remove documents, set who can do what, or end the session">
+            Manage session…
+          </button>
+        )}
         {snapshot.email && <p className="session-identity">you are {snapshot.email}</p>}
         {!finished && meta.expiresAt ? <p className="session-identity">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
         {(isHost || allows(meta, 'invite')) && (

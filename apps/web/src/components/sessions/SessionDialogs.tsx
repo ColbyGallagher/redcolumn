@@ -61,7 +61,7 @@ export const sessionEndIsValid = (ends: string) => !ends || (fromLocalInput(ends
 /** Drops unnamed groups before a policy is saved. */
 export const tidyPolicy = (p: AccessPolicy): AccessPolicy => ({ ...p, groups: p.groups.filter((g) => g.name.trim()).map((g) => ({ ...g, name: g.name.trim() })) });
 
-function Dialog({ title, className, onClose, children }: { title: string; className?: string; onClose: () => void; children: ReactNode }) {
+export function Dialog({ title, className, onClose, children }: { title: string; className?: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -361,8 +361,13 @@ export function JoinSessionDialog({
   );
 }
 
-/** The host's session settings: name and who may do what. */
+/** The host's session window: name, documents, who may do what, and ending it. */
 export function SessionSettingsDialog({
+  documents,
+  onAddFiles,
+  onUpdateDocument,
+  onRemoveDocument,
+  onEnd,
   name,
   host,
   policy,
@@ -374,6 +379,13 @@ export function SessionSettingsDialog({
   onSave,
   onClose,
 }: {
+  /** The session's documents, which the host can add to, update and remove here. */
+  documents: { id: string; name: string; addedBy: string; size: number }[];
+  onAddFiles: (files: File[]) => void;
+  onUpdateDocument: (docId: string, file: File) => void;
+  onRemoveDocument: (docId: string) => void;
+  /** Closes this window and starts ending the session. Omitted where the session cannot be ended. */
+  onEnd?: () => void;
   name: string;
   host: string;
   policy: AccessPolicy;
@@ -391,8 +403,9 @@ export function SessionSettingsDialog({
   const [saveCopy, setSaveCopy] = useState(initialSaveCopy);
   const [invite, setInvite] = useState(initialInvite);
   const [ends, setEnds] = useState(toLocalInput(expiresAt));
+  const addRef = useRef<HTMLInputElement>(null);
   return (
-    <Dialog title="Session Permissions" className="wide" onClose={onClose}>
+    <Dialog title="Manage Session" className="wide" onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
@@ -406,6 +419,56 @@ export function SessionSettingsDialog({
             Session name
             <input value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
           </label>
+          <fieldset>
+            <legend>Documents ({documents.length})</legend>
+            {documents.length === 0 && <p className="hint">No documents yet.</p>}
+            <ul className="plain-list manage-list">
+              {documents.map((d) => (
+                <li key={d.id}>
+                  <span className="name" title={`Added by ${d.addedBy} · ${(d.size / 1e6).toFixed(1)} MB`}>
+                    {d.name}
+                  </span>
+                  <label className="btn small flat" title="Replace with a new revision: pick the new PDF; markups stay on their pages">
+                    Update…
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      hidden
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        e.target.value = '';
+                        if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(d.id, f);
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="btn small flat danger"
+                    onClick={() => {
+                      if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRemoveDocument(d.id);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button type="button" className="btn small" disabled={busy} onClick={() => addRef.current?.click()}>
+              Add PDFs…
+            </button>
+            <input
+              ref={addRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = '';
+                if (files.length) onAddFiles(files);
+              }}
+            />
+          </fieldset>
           <label className="check">
             <input type="checkbox" checked={docs} onChange={(e) => setDocs(e.target.checked)} />
             Attendees who can comment may also add documents
@@ -414,12 +477,17 @@ export function SessionSettingsDialog({
           <AccessEditor policy={draft} onChange={setDraft} host={host} />
         </div>
         <div className="actions">
+          {onEnd && (
+            <button type="button" className="btn danger" disabled={busy} onClick={onEnd} title="Save the documents, markups and record, then remove the session and its files for everyone">
+              End session…
+            </button>
+          )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={busy}>
-            Save
+            Save settings
           </button>
         </div>
       </form>

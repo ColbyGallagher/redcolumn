@@ -7,6 +7,7 @@ import type { Project } from '../studio/projects/Project';
 import { copyState, describeQueued, isUnreachable, noteText, projectQueue } from '../studio/projects/queue';
 import { closeProject, createProject, openProject, openProjects, projectById, projectView, projectsVersion, setProjectView, subscribeProjects } from '../studio/projects/store';
 import { askText } from './AskText';
+import { Dialog } from './sessions/SessionDialogs';
 import { offlineReason, useOnline } from '../offline/network';
 
 interface Props {
@@ -217,6 +218,7 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
   const fileInput = useRef<HTMLInputElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [showRecord, setShowRecord] = useState(false);
+  const [managing, setManaging] = useState(false);
   const upload = useSyncExternalStore(subscribeUploads, () => uploads.get(project.id) ?? null);
   /** The file being opened from a click, while it loads. */
   const [opening, setOpening] = useState<string | null>(null);
@@ -260,6 +262,18 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
         {snap.manifest.name}
         <span className="status">{project.level === 'owner' ? 'Owner' : project.level === 'viewer' ? 'View only' : 'Editor'}</span>
       </h3>
+      <button className="btn small manage-button" onClick={() => setManaging(true)} title="Rename the Project, manage every folder and file, and who has access">
+        Manage project…
+      </button>
+      {managing && (
+        <ManageProject
+          project={project}
+          online={online}
+          upload={upload}
+          onClose={() => setManaging(false)}
+          onAddFiles={(folderId, picked) => void uploading((p) => onAddFiles(project, folderId, picked, p))}
+        />
+      )}
       {error && (
         <p className="session-error" role="alert">
           {error}
@@ -480,6 +494,231 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
       {project.level === 'owner' ? <Members project={project} online={online} /> : <p className="hint-text">The owner, {snap.manifest.owner}, manages who has access.</p>}
       {folderPath(snap.folders, current) && <p className="hint-text">Folder: {folderPath(snap.folders, current)}</p>}
     </div>
+  );
+}
+
+/** The Project window: its name, every folder and file in one list to change, and who has access. */
+function ManageProject({ project, online, upload, onClose, onAddFiles }: { project: Project; online: boolean; upload: UploadProgress | null; onClose: () => void; onAddFiles: (folderId: string | null, files: File[]) => void }) {
+  const { busy, error, run } = useRun();
+  const addRef = useRef<HTMLInputElement>(null);
+  const addTo = useRef<string | null>(null);
+  const snap = project.getSnapshot();
+  const url = urlFromShareId(project.id);
+  const owner = project.level === 'owner';
+  const can = project.canWrite && online;
+  const working = busy || !!upload;
+  const net = (what: string) => (online ? undefined : offlineReason(what));
+
+  type Row = { kind: 'folder'; depth: number; folder: ProjectFolder } | { kind: 'file'; depth: number; file: ProjectFile };
+  const rows: Row[] = [];
+  const walk = (parent: string | null, depth: number) => {
+    for (const folder of snap.folders.filter((f) => f.parentId === parent).sort((a, b) => a.name.localeCompare(b.name))) {
+      rows.push({ kind: 'folder', depth, folder });
+      walk(folder.id, depth + 1);
+    }
+    for (const file of snap.files.filter((f) => f.folderId === parent).sort((a, b) => a.name.localeCompare(b.name))) rows.push({ kind: 'file', depth, file });
+  };
+  walk(null, 0);
+
+  const newFolder = (parent: string | null) =>
+    run(async () => {
+      const name = await askText('New folder', '', { label: 'Folder name', confirm: 'Create' });
+      if (name?.trim()) await project.addFolder(name, parent);
+    });
+  const pickFiles = (folderId: string | null) => {
+    addTo.current = folderId;
+    addRef.current?.click();
+  };
+
+  return (
+    <Dialog title="Manage Project" className="wide" onClose={onClose}>
+      <div className="dialog-body">
+        <div className="dialog-pane manage-project">
+          <div className="row">
+            <b>{snap.manifest.name}</b>
+            {owner && (
+              <button
+                className="btn small flat"
+                disabled={working || !online}
+                title={net('Renaming') ?? 'Rename the Project'}
+                onClick={() =>
+                  void run(async () => {
+                    const name = await askText('Rename Project', snap.manifest.name, { label: 'Name', confirm: 'Rename' });
+                    if (name?.trim()) await project.rename(name);
+                  })
+                }
+              >
+                Rename…
+              </button>
+            )}
+          </div>
+
+          <fieldset>
+            <legend>Folders and files</legend>
+            <div className="row">
+              <button className="btn small" disabled={working || !can} title={net('Adding a folder')} onClick={() => void newFolder(null)}>
+                + Folder
+              </button>
+              <button className="btn small" disabled={working || !can} title={net('Adding files')} onClick={() => pickFiles(null)}>
+                Add PDFs…
+              </button>
+            </div>
+            {rows.length === 0 && <p className="hint">Nothing here yet.</p>}
+            <ul className="plain-list manage-list">
+              {rows.map((r) => {
+                if (r.kind === 'folder') {
+                  const f = r.folder;
+                  const exclude = [f.id, ...descendantFolders(snap.folders, f.id).map((x) => x.id)];
+                  return (
+                    <li key={`d${f.id}`} style={{ paddingLeft: r.depth * 16 }}>
+                      <span className="name">
+                        <span aria-hidden="true">📁</span> <b>{f.name}</b>
+                      </span>
+                      <button className="btn small flat" disabled={working || !can} onClick={() => void newFolder(f.id)} title="Make a folder inside this one">
+                        + Folder
+                      </button>
+                      <button className="btn small flat" disabled={working || !can} onClick={() => pickFiles(f.id)} title="Add PDFs to this folder">
+                        Add PDFs…
+                      </button>
+                      <button
+                        className="btn small flat"
+                        disabled={working || !can}
+                        onClick={() =>
+                          void run(async () => {
+                            const name = await askText('Rename folder', f.name, { label: 'Name', confirm: 'Rename' });
+                            if (name?.trim()) await project.renameFolder(f.id, name);
+                          })
+                        }
+                      >
+                        Rename…
+                      </button>
+                      <select
+                        value=""
+                        aria-label={`Move ${f.name} to`}
+                        disabled={working || !can}
+                        onChange={(e) => {
+                          const to = e.target.value;
+                          if (to) void run(() => project.moveFolder(f.id, to === TOP ? null : to));
+                        }}
+                      >
+                        <option value="">Move to…</option>
+                        <MoveOptions folders={snap.folders} exclude={exclude} />
+                      </select>
+                      <button
+                        className="btn small flat danger"
+                        disabled={working || !can}
+                        onClick={() => {
+                          const { folders: nf, files: nfiles } = project.contentsOf(f.id);
+                          const inside = nf || nfiles ? ` It holds ${nfiles} file${nfiles === 1 ? '' : 's'} and ${nf} folder${nf === 1 ? '' : 's'}, which go with it.` : '';
+                          if (window.confirm(`Delete the folder ${f.name}?${inside} Their revisions stay in the OneDrive folder.`)) void run(() => project.deleteFolder(f.id));
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </li>
+                  );
+                }
+                const f = r.file;
+                const last = f.revisions[f.revisions.length - 1]!;
+                const theirs = !!f.checkout && !project.heldByMe(f);
+                return (
+                  <li key={`f${f.id}`} style={{ paddingLeft: r.depth * 16 }}>
+                    <span className="name" title={`Rev ${last.n} · ${size(last.size)} · ${last.by}, ${when(last.at)}`}>
+                      {f.name} <span className="status">Rev {last.n}</span>
+                      {f.checkout && <span className="status checked-out">{project.heldByMe(f) ? 'Out: you' : `Out: ${f.checkout.by}`}</span>}
+                    </span>
+                    <button
+                      className="btn small flat"
+                      disabled={working || !can || theirs}
+                      title={theirs ? `${f.checkout!.by} has it checked out` : undefined}
+                      onClick={() =>
+                        void run(async () => {
+                          const name = await askText('Rename file', f.name, { label: 'Name', confirm: 'Rename' });
+                          if (name?.trim()) await project.renameFile(f.id, name);
+                        })
+                      }
+                    >
+                      Rename…
+                    </button>
+                    <select
+                      value=""
+                      aria-label={`Move ${f.name} to`}
+                      disabled={working || !can || theirs}
+                      onChange={(e) => {
+                        const to = e.target.value;
+                        if (to) void run(() => project.moveFile(f.id, to === TOP ? null : to));
+                      }}
+                    >
+                      <option value="">Move to…</option>
+                      {f.folderId !== null && <option value={TOP}>Top of the Project</option>}
+                      <MoveOptions folders={snap.folders} exclude={f.folderId ? [f.folderId] : []} top={false} />
+                    </select>
+                    <button
+                      className="btn small flat danger"
+                      disabled={working || !can || !!f.checkout}
+                      title={f.checkout ? 'Undo the check-out first' : undefined}
+                      onClick={() => {
+                        if (window.confirm(`Delete ${f.name}? Its ${f.revisions.length} revision${f.revisions.length === 1 ? '' : 's'} stay in the OneDrive folder.`)) void run(() => project.deleteFile(f.id));
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <input
+              ref={addRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              hidden
+              onChange={(e) => {
+                const picked = [...(e.target.files ?? [])];
+                e.target.value = '';
+                if (picked.length) onAddFiles(addTo.current, picked);
+              }}
+            />
+            {upload && (
+              <div className="upload-progress" role="status" aria-live="polite">
+                <b>
+                  Uploading {Math.min(upload.done + 1, upload.total)} of {upload.total}
+                </b>
+                <span className="hint-text">{upload.name}</span>
+                <progress max={upload.total} value={upload.done} aria-label="Upload progress" />
+                <span className="hint-text">You can keep working while this uploads. Just don&apos;t close the app.</span>
+              </div>
+            )}
+          </fieldset>
+
+          <fieldset>
+            <legend>Sharing</legend>
+            <div className="row">
+              <button className="btn small" onClick={() => void navigator.clipboard.writeText(projectInviteLink(project.id))} title="Copy a link that opens the app and this Project">
+                Copy invite link
+              </button>
+              {url && (
+                <a className="btn small" href={url} target="_blank" rel="noreferrer" title="Open the Project folder in OneDrive">
+                  Open in OneDrive
+                </a>
+              )}
+            </div>
+            {owner ? <Members project={project} online={online} /> : <p className="hint-text">The owner, {snap.manifest.owner}, manages who has access.</p>}
+          </fieldset>
+          {error && (
+            <p className="session-error" role="alert">
+              {error}
+            </p>
+          )}
+        </div>
+        <div className="actions">
+          <span className="spacer" />
+          <button type="button" className="btn primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

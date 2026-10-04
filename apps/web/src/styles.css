@@ -3038,3 +3038,23 @@ body,
   color: var(--muted);
   font-size: 10px;
 }
+
+.manage-button {
+  margin: 4px 0 8px;
+}
+.manage-list {
+  list-style: none;
+  padding: 0;
+}
+.manage-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 0;
+}
+.manage-list .name {
+  flex: 1 1 160px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

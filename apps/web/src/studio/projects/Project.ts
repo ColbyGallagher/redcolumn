@@ -620,6 +620,17 @@ export class Project {
     await this.note('members', `invited ${who} (${LEVEL_LABELS[level].toLowerCase()})`);
   }
 
+  /** Renames the Project (its OneDrive folder keeps its name). Owner only. */
+  async rename(name: string): Promise<void> {
+    if (!this.isOwner) throw new ProjectError('Only the owner can rename the Project.');
+    const clean = name.trim().slice(0, 120);
+    if (!clean) throw new ProjectError('Give the Project a name.');
+    const before = this.snap.manifest.name;
+    if (clean === before) return;
+    await this.writeManifest({ ...this.snap.manifest, name: clean });
+    await this.note('project', `renamed the Project from ${before} to ${clean}`);
+  }
+
   /** Who the OneDrive folder is shared with. Only the owner can see this. */
   async members(): Promise<DrivePermission[]> {
     if (!this.isOwner) throw new ProjectError('Only the owner can see who the Project is shared with.');
