@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { DrivePermission } from '../studio/drive/DriveApi';
 import { microsoftUser, subscribeMicrosoftUser, urlFromShareId } from '../studio/drive/onedrive';
-import { forgetProject, knownProjects, libraryCopyOf, linkOf, projectInviteLink } from '../studio/projects/local';
+import { forgetProject, knownProjects, restoreProject, libraryCopyOf, linkOf, projectInviteLink } from '../studio/projects/local';
 import { descendantFolders, folderPath, type ProjectFile, type ProjectFolder } from '../studio/projects/model';
 import type { Project } from '../studio/projects/Project';
 import { copyState, describeQueued, isUnreachable, noteText, projectQueue } from '../studio/projects/queue';
@@ -75,11 +75,13 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite }: Props) 
   const online = useOnline();
   const open = openProjects();
   const known = knownProjects();
+  const [filter, setFilter] = useState<'active' | 'all'>('active');
+  const [refresh, setRefresh] = useState(0);
   const rows = useMemo(
-    () => known.map((k) => ({ ...k, open: open.some((p) => p.id === k.id) })),
+    () => known.map((k) => ({ ...k, open: open.some((p) => p.id === k.id) })).filter((r) => filter === 'all' || r.open || !r.removed),
     // The known list lives in localStorage; the version changes whenever it does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [projectsVersion(), known.length],
+    [projectsVersion(), known.length, filter, refresh],
   );
   const blocked = busy || !online || !oneDriveAvailable;
   const why = !oneDriveAvailable ? 'This build is not set up for OneDrive.' : !online ? offlineReason('Projects') : undefined;
@@ -127,8 +129,17 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite }: Props) 
       <h3>
         My Projects
         <span className="experimental-badge" title="Projects is experimental and may change">Experimental</span>
+        <span className="record-filter" role="tablist">
+          {(['active', 'all'] as const).map((f) => (
+            <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
+              {f === 'active' ? 'Active' : 'All'}
+            </button>
+          ))}
+        </span>
       </h3>
-      {rows.length === 0 ? (
+      {rows.length === 0 && known.length > 0 ? (
+        <p className="empty">No active Projects. Show All to see removed ones.</p>
+      ) : rows.length === 0 ? (
         <p className="empty">Projects are shared folders of PDFs in OneDrive, with everyone on the Project able to open them from here. Make one, or open one from the link its owner sent.</p>
       ) : (
         <ul className="session-list">
@@ -140,7 +151,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite }: Props) 
                 <button className="session-row" disabled={blocked} onClick={() => void run(() => openProject(r.id, me, true))} title="Open this Project">
                   <span className="line1">
                     <b>{snap?.manifest.name ?? r.name}</b>
-                    <span className="status">{r.open ? 'Open' : 'OneDrive'}</span>
+                    <span className={`status${r.removed && !r.open ? ' removed' : ''}`}>{r.open ? 'Open' : r.removed ? 'Removed' : 'OneDrive'}</span>
                   </span>
                   {snap && (
                     <span className="line2">
@@ -148,9 +159,36 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite }: Props) 
                     </span>
                   )}
                 </button>
-                <button className="btn small flat" title="Remove from this list (the Project is not deleted)" aria-label="Remove from list" onClick={() => (r.open ? closeProject(r.id) : (forgetProject(r.id), setProjectView(null)))}>
-                  ×
-                </button>
+                {r.removed && !r.open ? (
+                  <button
+                    className="btn small flat"
+                    title="Restore to the Active list"
+                    aria-label="Restore"
+                    onClick={() => {
+                      restoreProject(r.id);
+                      setRefresh((n) => n + 1);
+                    }}
+                  >
+                    ↺
+                  </button>
+                ) : (
+                  <button
+                    className="btn small flat"
+                    title="Remove from the Active list (the Project is not deleted; restore it from All)"
+                    aria-label="Remove from list"
+                    onClick={() => {
+                      if (!confirm(`Remove ${snap?.manifest.name ?? r.name} from your Projects? The Project is not deleted, and you can restore it from All.`)) return;
+                      if (r.open) closeProject(r.id);
+                      else {
+                        forgetProject(r.id);
+                        setProjectView(null);
+                      }
+                      setRefresh((n) => n + 1);
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
               </li>
             );
           })}

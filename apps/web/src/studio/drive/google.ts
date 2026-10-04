@@ -452,6 +452,15 @@ export class GoogleDrive implements DriveApi {
     );
   }
 
+  /** Moves a folder (and so everything in it) to the trash, where Google Drive keeps it for 30 days. */
+  async removeFolder(folderId: string): Promise<void> {
+    await this.authed(
+      `${API}/files/${folderId}?supportsAllDrives=true&fields=id`,
+      { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) },
+      'remove the session folder',
+    );
+  }
+
   async ownedByMe(fileId: string): Promise<boolean> {
     try {
       const res = await this.authed(`${API}/files/${fileId}?fields=ownedByMe&supportsAllDrives=true`, {}, 'check the session host');

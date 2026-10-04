@@ -37,6 +37,8 @@ export interface SessionMeta {
   createdAt: number;
   status: 'active' | 'finished';
   endedAt: number | null;
+  /** The host ended the session: its folder and files are being removed. */
+  ended?: boolean;
   permissions: Permissions;
   documents: SessionDocument[];
   attendees: Attendee[];

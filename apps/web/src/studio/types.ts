@@ -37,6 +37,8 @@ export interface StudioSnapshot {
   folderUrl?: string;
   /** The host has taken this attendee's access away; the session no longer syncs. */
   denied?: boolean;
+  /** The session folder is gone (the host ended the session); it no longer syncs. */
+  removed?: boolean;
 }
 
 /** What the attendee of a snapshot may do. */
@@ -75,6 +77,11 @@ export interface CollabSession {
   /** Sends a Markup Alert: everyone is shown the markup and can jump to it. */
   sendAlert(docId: string, markupId: string, page: number, text: string): void;
   update(patch: SessionUpdate): Promise<void>;
+  /**
+   * Host: ends the session for good. It finishes (everyone's documents become read-only), then
+   * its folder and every file in it go to the drive's trash. Save anything wanted first.
+   */
+  end?(): Promise<void>;
   /** Invites people by email (Google Drive sessions). */
   invite?(emails: string[]): Promise<void>;
   /** Signs in again after it lapsed (Google Drive sessions); must run from a click. */

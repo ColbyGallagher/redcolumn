@@ -51,6 +51,8 @@ export interface DriveApi {
   writeAppFile?(name: string, text: string): Promise<void>;
   /** Deletes a file (Projects release their check-out locks this way). */
   remove?(fileId: string): Promise<void>;
+  /** Removes a folder and everything in it, to the drive's trash or recycle bin (Ending a session). */
+  removeFolder?(folderId: string): Promise<void>;
   /** Who a folder is shared with, as the drive reports it (for those allowed to see). */
   listPermissions?(folderId: string): Promise<DrivePermission[]>;
   /** Changes what one of those people (or the link) may do. */

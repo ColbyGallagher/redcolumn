@@ -68,6 +68,12 @@ export function forgetRecentSession(id: string) {
   forgetCurrentSession(id);
 }
 
+/** Takes a session off the list for good (it was ended, so there is nothing to rejoin). */
+export function dropRecentSession(id: string) {
+  writeLocal(RECENT_KEY, recentSessions().filter((r) => r.id !== id));
+  forgetCurrentSession(id);
+}
+
 /** Puts a removed session back in the Sessions list. */
 export function restoreRecentSession(id: string) {
   writeLocal(RECENT_KEY, recentSessions().map((r) => (r.id === id ? { ...r, removed: undefined } : r)));

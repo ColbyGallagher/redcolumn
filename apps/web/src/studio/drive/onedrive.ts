@@ -625,6 +625,13 @@ export class OneDrive implements DriveApi {
     this.drives.delete(fileId);
   }
 
+  /** Deletes a folder and everything in it; OneDrive keeps it in the recycle bin for a while. */
+  async removeFolder(folderId: string): Promise<void> {
+    const { driveId, itemId } = await this.resolve(folderId);
+    await this.fetch(`/drives/${driveId}/items/${itemId}`, { method: 'DELETE' }, 'remove the session folder');
+    this.folders.delete(folderId);
+  }
+
   /** The host owns the session folder, so the manifest sits in their own drive. */
   async ownedByMe(fileId: string): Promise<boolean> {
     const mine = await this.myDriveId();

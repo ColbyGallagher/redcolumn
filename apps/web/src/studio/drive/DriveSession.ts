@@ -1,7 +1,7 @@
 import * as Y from 'yjs';
 import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
 import { accessFor, canAddMarkups, isExpired, sameName, SESSION_ROOM, type AccessPolicy, type Attendee, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from '../protocol';
-import { forgetCurrentSession, inviteLink, readLocal, rememberSession, writeLocal } from '../local';
+import { dropRecentSession, forgetCurrentSession, inviteLink, readLocal, rememberSession, writeLocal } from '../local';
 import { appendRecord, describeChanges, recordId, watchMarkups } from '../record';
 import { attendeeColor, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
@@ -56,6 +56,8 @@ interface Manifest {
   createdAt: number;
   status: 'active' | 'finished';
   endedAt: number | null;
+  /** The host ended the session; its folder goes next. */
+  ended?: boolean;
   permissions: Permissions;
   /** Who may view or markup (advisory: each app respects it; Drive sharing is what enforces). */
   access?: AccessPolicy;
@@ -338,7 +340,7 @@ export class DriveSession implements CollabSession {
   }
 
   private get writable(): boolean {
-    return !!this.seatId && !this.snap.viewOnly;
+    return !!this.seatId && !this.snap.viewOnly && !this.snap.removed;
   }
 
   get canMarkup(): boolean {
@@ -428,6 +430,8 @@ export class DriveSession implements CollabSession {
     try {
       const files = prefetched ?? (await this.api.list(this.folderId));
       const mf = files.find((f) => f.id === this.manifestId);
+      // The manifest is never deleted while the session lasts: without it, the host ended it.
+      if (!mf && this.synced) return this.folderGone();
       if (mf && mf.version !== this.manifestVersion) {
         this.manifest = JSON.parse(new TextDecoder().decode(await this.api.download(mf.id))) as Manifest;
         this.manifestVersion = mf.version;
@@ -455,12 +459,22 @@ export class DriveSession implements CollabSession {
       }
     } catch (err) {
       if (this.destroyed) return;
+      if (this.synced && err instanceof Error && /could not find/.test(err.message)) return this.folderGone();
       if (!(err instanceof TypeError)) console.warn('Drive session:', err);
       if (err instanceof DriveAuthError) this.set({ needsAuth: true });
       this.set({ status: 'offline' });
     } finally {
       this.markLoaded();
     }
+  }
+
+  /** The session folder was removed (ended by the host): stop syncing and say so. */
+  private folderGone() {
+    this.set({ removed: true, status: 'offline', presence: [] });
+    for (const a of this.attached.values()) this.applyRights(a.store);
+    forgetCurrentSession(this.folderId);
+    for (const t of this.timers) clearTimeout(t);
+    this.timers.clear();
   }
 
   /** Merges one changed file: a room file, or a seat from before room files. Our own writes are skipped. */
@@ -530,7 +544,7 @@ export class DriveSession implements CollabSession {
       if (a) a.lastSeen = Math.max(a.lastSeen, seen);
       else attendees.push({ name: f.properties.nbName, ...(f.properties.nbEmail ? { email: f.properties.nbEmail } : {}), firstJoined: Date.parse(f.createdTime) || seen, lastSeen: seen });
     }
-    return { id: this.folderId, name: m.name, host: m.host, createdAt: m.createdAt, status: m.status, endedAt: m.endedAt, permissions: m.permissions, access: m.access, documents, attendees, invited: m.invited ?? [], expiresAt: m.expiresAt ?? null };
+    return { id: this.folderId, name: m.name, host: m.host, createdAt: m.createdAt, status: m.status, endedAt: m.endedAt, ...(m.ended ? { ended: true } : {}), permissions: m.permissions, access: m.access, documents, attendees, invited: m.invited ?? [], expiresAt: m.expiresAt ?? null };
   }
 
   private buildPresence(files: DriveFile[]): Presence[] {
@@ -788,6 +802,21 @@ export class DriveSession implements CollabSession {
     if (next.status) this.note('session', patch.expiresAt === undefined && isExpired(this.meta) ? 'the session reached its end date and finished' : 'finished the session');
     await this.flush();
     await this.writeManifest(next);
+  }
+
+  async end() {
+    if (!this.snap.isHost) throw new Error('Only the host can end the session.');
+    if (!this.api.removeFolder) throw new Error('This drive cannot remove the session folder.');
+    // Finishing first means attendees still open see it read-only, with this line, before the files go.
+    this.note('session', 'ended the session and removed its files');
+    if (this.meta.status !== 'finished') await this.update({ status: 'finished' });
+    else await this.flush();
+    // Attendees who read this before the folder goes are told why; the rest find it gone.
+    await this.writeManifest({ ended: true });
+    await this.api.removeFolder(this.folderId);
+    forgetCurrentSession(this.folderId);
+    dropRecentSession(this.folderId);
+    this.destroy();
   }
 
   async invite(emails: string[]) {

@@ -42,8 +42,8 @@ function MoreOptions({ ends, setEnds, saveCopy, setSaveCopy, invite, setInvite }
         <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
         Attendees may invite others
       </label>
-      <label className="row" title="The session finishes by itself then: everyone's documents become read-only">
-        Ends
+      <label className="row" title="The session closes by itself then: everyone's documents become read-only. Its files stay until the host ends it.">
+        Closes
         <input type="datetime-local" value={ends} onChange={(e) => setEnds(e.target.value)} />
         {ends && (
           <button type="button" className="btn small flat" onClick={() => setEnds('')}>
@@ -361,7 +361,7 @@ export function JoinSessionDialog({
   );
 }
 
-/** The host's session settings: name, who may do what, and finishing the session. */
+/** The host's session settings: name and who may do what. */
 export function SessionSettingsDialog({
   name,
   host,
@@ -372,7 +372,6 @@ export function SessionSettingsDialog({
   expiresAt,
   busy,
   onSave,
-  onFinish,
   onClose,
 }: {
   name: string;
@@ -384,7 +383,6 @@ export function SessionSettingsDialog({
   expiresAt: number | null;
   busy: boolean;
   onSave: (patch: { name: string; access: AccessPolicy; addDocuments: boolean; saveCopy: boolean; invite: boolean; expiresAt: number | null }) => void;
-  onFinish: () => void;
   onClose: () => void;
 }) {
   const [draftName, setDraftName] = useState(name);
@@ -416,15 +414,6 @@ export function SessionSettingsDialog({
           <AccessEditor policy={draft} onChange={setDraft} host={host} />
         </div>
         <div className="actions">
-          <button
-            type="button"
-            className="btn danger"
-            onClick={() => {
-              if (confirm(`Finish “${name}”? Everyone's documents become read-only. This cannot be undone.`)) onFinish();
-            }}
-          >
-            Finish session
-          </button>
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
             Cancel
@@ -438,40 +427,86 @@ export function SessionSettingsDialog({
   );
 }
 
+/** What to save before a session is ended, and where. */
+export interface EndSessionChoice {
+  /** This computer (a folder the host picks), a new folder in their OneDrive, or a redcolumn Project. */
+  destination: 'local' | 'onedrive' | 'project';
+  projectId: string | null;
+  /** Each document as a PDF with the markups of `authors`. */
+  pdfs: boolean;
+  authors: string[];
+  /** Every markup in the session as one CSV. */
+  markupsCsv: boolean;
+  recordCsv: boolean;
+  reportPdf: boolean;
+  /** Session Roundtrip: documents to send back to the library with the markups of `authors`. */
+  sendBack: string[];
+}
+
 /**
- * Finish Session: ends the session for everyone (documents become read-only) and saves each
- * document to the host's library with the markups of the attendees chosen.
+ * End Session: saves what the host chooses, then removes the session folder and every file in it
+ * for everyone. Typing the session name is required, so it cannot happen by a stray click.
  */
-export function FinishSessionDialog({
+export function EndSessionDialog({
   name,
+  backend,
+  documents,
   authors,
+  projects,
+  oneDriveAvailable,
   busy,
-  onFinish,
+  error,
+  onEnd,
   onClose,
   sendBack = [],
 }: {
   name: string;
+  backend: Backend;
+  documents: number;
   /** Everyone who made markups in the session. */
   authors: string[];
+  /** Projects the files can go into. */
+  projects: { id: string; name: string }[];
+  oneDriveAvailable: boolean;
   busy: boolean;
-  onFinish: (choice: { save: boolean; authors: string[]; sendBack: string[] }) => void;
+  /** Why the last try stopped (nothing was removed). */
+  error?: string | null;
+  onEnd: (choice: EndSessionChoice) => void;
   onClose: () => void;
   /** Session Roundtrip: documents that came from the library, and where they would go back. */
   sendBack?: { docId: string; name: string; target: string }[];
 }) {
-  const [save, setSave] = useState(!sendBack.length);
+  const [pdfs, setPdfs] = useState(documents > 0);
   const [chosen, setChosen] = useState<string[]>(authors);
+  const [markupsCsv, setMarkupsCsv] = useState(documents > 0);
+  const [recordCsv, setRecordCsv] = useState(true);
+  const [reportPdf, setReportPdf] = useState(false);
+  const [destination, setDestination] = useState<EndSessionChoice['destination']>('local');
+  const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
+  const [typed, setTyped] = useState('');
   const [back, setBack] = useState<string[]>(sendBack.map((d) => d.docId));
+  const drive = backend === 'onedrive' ? 'OneDrive' : 'Google Drive';
+  const saving = pdfs || markupsCsv || recordCsv || reportPdf;
+  const confirmed = typed.trim().toLowerCase() === name.trim().toLowerCase();
+  const ready = confirmed && !busy && (!saving || destination !== 'project' || !!projectId);
   return (
-    <Dialog title={`Finish “${name}”`} onClose={onClose}>
+    <Dialog title={`End “${name}”`} className="wide" onClose={onClose}>
       <form
-        className="dialog-body"
+        className="dialog-body end-session"
         onSubmit={(e) => {
           e.preventDefault();
-          onFinish({ save, authors: chosen, sendBack: back });
+          if (!ready) return;
+          onEnd({ destination, projectId: destination === 'project' ? projectId : null, pdfs, authors: chosen, markupsCsv, recordCsv, reportPdf, sendBack: back });
         }}
       >
-        <p>Everyone’s documents become read-only. Attendees can still open the session to review it and make a report. This cannot be undone.</p>
+        <div className="end-warning" role="alert">
+          <b>Ending removes this session’s files for everyone.</b>
+          <p>
+            The session folder in {drive} goes to the {backend === 'onedrive' ? 'recycle bin' : 'trash'}, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
+            session straight away and it leaves your Sessions list. Save what you need below first.
+          </p>
+        </div>
+
         {sendBack.length > 0 && (
           <fieldset>
             <legend>Send back (Session Roundtrip)</legend>
@@ -484,31 +519,90 @@ export function FinishSessionDialog({
             <span className="hint">With the markups of the people chosen below.</span>
           </fieldset>
         )}
-        <label className="check">
-          <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
-          Save each document to my library with the markups of:
-        </label>
-        {save && (
-          <div className="finish-authors">
-            {authors.length ? (
-              authors.map((a) => (
-                <label key={a} className="check">
-                  <input type="checkbox" checked={chosen.includes(a)} onChange={(e) => setChosen((c) => (e.target.checked ? [...c, a] : c.filter((x) => x !== a)))} />
-                  {a}
-                </label>
-              ))
-            ) : (
-              <span className="hint">Nobody has made markups yet.</span>
+
+        <fieldset>
+          <legend>Save before ending</legend>
+          <label className="check">
+            <input type="checkbox" checked={pdfs} disabled={!documents} onChange={(e) => setPdfs(e.target.checked)} />
+            Documents as PDFs ({documents}), with the markups of:
+          </label>
+          {(pdfs || back.length > 0) && (
+            <div className="finish-authors">
+              {authors.length ? (
+                authors.map((a) => (
+                  <label key={a} className="check">
+                    <input type="checkbox" checked={chosen.includes(a)} onChange={(e) => setChosen((c) => (e.target.checked ? [...c, a] : c.filter((x) => x !== a)))} />
+                    {a}
+                  </label>
+                ))
+              ) : (
+                <span className="hint">Nobody has made markups yet.</span>
+              )}
+            </div>
+          )}
+          <label className="check">
+            <input type="checkbox" checked={markupsCsv} disabled={!documents} onChange={(e) => setMarkupsCsv(e.target.checked)} />
+            Markups as CSV (every markup, one row each)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={recordCsv} onChange={(e) => setRecordCsv(e.target.checked)} />
+            Session record as CSV (chat, joins, every change)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={reportPdf} onChange={(e) => setReportPdf(e.target.checked)} />
+            Session report as PDF (documents, attendees, markups and the record)
+          </label>
+        </fieldset>
+
+        <fieldset disabled={!saving}>
+          <legend>Save to</legend>
+          <label className="check">
+            <input type="radio" name="end-dest" checked={destination === 'local'} onChange={() => setDestination('local')} />
+            This computer (you choose a folder)
+          </label>
+          <label className="check" title={oneDriveAvailable ? undefined : 'This build is not set up for OneDrive.'}>
+            <input type="radio" name="end-dest" checked={destination === 'onedrive'} disabled={!oneDriveAvailable} onChange={() => setDestination('onedrive')} />
+            OneDrive (a new folder in Apps/redcolumn)
+          </label>
+          <label className="check" title={projects.length ? undefined : 'You have no Projects. Make one in the Projects panel first.'}>
+            <input type="radio" name="end-dest" checked={destination === 'project'} disabled={!projects.length} onChange={() => setDestination('project')} />
+            A redcolumn Project
+            {destination === 'project' && (
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
             )}
-          </div>
+          </label>
+          <span className="hint">If anything fails to save, the session is not ended and nothing is removed.</span>
+        </fieldset>
+
+        <div className="end-confirm">
+          {!saving && <p className="end-nothing">Nothing will be saved. Everything in the session will be removed.</p>}
+          <label className="stack">
+            <span>
+              To confirm, type the session name: <b>{name}</b>
+            </span>
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={name} aria-label="Type the session name to confirm" autoComplete="off" spellCheck={false} />
+          </label>
+        </div>
+
+        {busy && <p className="hint">Saving… The session is removed only once everything is saved.</p>}
+        {error && !busy && (
+          <p className="session-error" role="alert">
+            {error} The session was not ended.
+          </p>
         )}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn danger" disabled={busy}>
-            Finish session
+          <button type="submit" className="btn danger" disabled={!ready} title={confirmed ? undefined : 'Type the session name above first'}>
+            {saving ? 'Save, then end session and remove files' : 'End session and remove files'}
           </button>
         </div>
       </form>

@@ -105,10 +105,10 @@ import { SessionsPanel } from './components/SessionsPanel';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
 import { idFromText, onProjectOpened, openProject, openProjects, projectAuthor, projectById } from './studio/projects/store';
 import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
-import { libraryCopyOf, linkOf, setLink } from './studio/projects/local';
+import { knownProjects, libraryCopyOf, linkOf, setLink } from './studio/projects/local';
 import type { Project } from './studio/projects/Project';
 import type { ProjectFile } from './studio/projects/model';
-import { FinishSessionDialog, type DocumentSource, type StartRequest } from './components/sessions/SessionDialogs';
+import { EndSessionDialog, type DocumentSource, type EndSessionChoice, type StartRequest } from './components/sessions/SessionDialogs';
 import { InviteDialog } from './components/sessions/InviteDialog';
 import { forgetSession as forgetRoundtrip, rememberSource, sourceOf } from './studio/roundtrip';
 import {
@@ -506,7 +506,8 @@ function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
   const snap = doc ? snaps.find((s) => s.meta.id === doc.sessionId) : undefined;
   if (!doc || !snap) return 'Read-only: join its Live Session to markup this document.';
   if (snap.denied) return 'Read-only: the host has removed your access to this session.';
-  if (snap.meta.status === 'finished') return 'Read-only: this Live Session has finished.';
+  if (snap.removed || snap.meta.ended) return 'Read-only: the host ended this Live Session and removed its files.';
+  if (snap.meta.status === 'finished') return 'Read-only: this Live Session has closed.';
   if (snap.viewOnly) return 'Read-only: the session folder is shared with you view-only.';
   if (myAccess(snap) === 'view') return 'Read-only: you have view access in this session.';
   return 'Read-only: the session host has locked markups.';
@@ -657,7 +658,7 @@ export function App() {
   const [batchOpen, setBatchOpen] = useState<BatchKind | null>(null);
   /** The revision of each session document open in a tab, to reload it when the host updates it. */
   const loadedVersions = useRef(new Map<string, number>());
-  const [finishFor, setFinishFor] = useState<{ sessionId: string; authors: string[] } | null>(null);
+  const [endFor, setEndFor] = useState<{ sessionId: string; authors: string[] } | null>(null);
   // Email invitations to a session.
   const [inviteSession, setInviteSession] = useState<string | null>(null);
   // Bookmarks › Action…: the bookmark whose action is being set.
@@ -3276,10 +3277,8 @@ export function App() {
   }, []);
 
   /** Session Report as a PDF: documents, attendees, every markup, the Record. */
-  const sessionReport = useCallback(
-    async (sessionId: string) => {
-      const session = sessionById(sessionId);
-      if (!session) return;
+  const sessionReportBytes = useCallback(
+    async (session: CollabSession) => {
       const snap = session.getSnapshot();
       const { sessionReportPdf } = await import('./studio/report');
       const docs = [];
@@ -3292,65 +3291,156 @@ export function App() {
           pageLabel: (i: number) => sheets[i]?.number || `Page ${i + 1}`,
         });
       }
-      const bytes = await sessionReportPdf(snap.meta, snap.record, docs);
-      download(`${snap.meta.name} session report.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+      return sessionReportPdf(snap.meta, snap.record, docs);
     },
     [withSessionMarkups],
   );
 
-  /** Finish: saves each document to the library with the chosen attendees' markups, then ends the session. */
-  const finishSession = useCallback(
-    async (sessionId: string, choice: { save: boolean; authors: string[]; sendBack: string[] }) => {
+  const sessionReport = useCallback(
+    async (sessionId: string) => {
       const session = sessionById(sessionId);
       if (!session) return;
+      const bytes = await sessionReportBytes(session);
+      download(`${session.meta.name} session report.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+    },
+    [sessionReportBytes],
+  );
+
+  /** Every markup in a session as one CSV: a Document column, then the Markups list's main columns. */
+  const sessionMarkupsCsv = useCallback(
+    async (session: CollabSession) => {
+      const keep = new Set(['subject', 'page', 'sheet', 'measurement', 'author', 'date', 'status', 'comment', 'type']);
+      let columns: ListColumn[] | null = null;
+      const rows: ListRowData[] = [];
+      for (const d of session.meta.documents) {
+        await withSessionMarkups(session, d.id, (store) => {
+          const set = store.columnSet();
+          columns ??= listColumns(set.columns).filter((c) => keep.has(c.key) || c.key.startsWith('custom:'));
+          const ctx: CellContext = { scaleOf: (m) => store.scaleOf(m), sheets: store.allSheets(), spaces: store.all().filter((m) => m.type === 'space'), statuses: set.statuses, columns: set.columns };
+          for (const r of buildRows(store.all(), ctx, {}, null)) rows.push({ ...r, cells: { document: { text: d.name, num: null }, ...r.cells } });
+        });
+      }
+      return rowsToCsv(rows, [{ key: 'document', label: 'Document', defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))]);
+    },
+    [withSessionMarkups],
+  );
+
+  /**
+   * End: saves the chosen files (documents with markups, markups CSV, record, report) to this
+   * computer, OneDrive or a Project, and only once all of them are saved removes the session and
+   * its files for everyone. Asks for the folder or sign-in first, while the click still counts.
+   */
+  const endSession = useCallback(
+    async (sessionId: string, choice: EndSessionChoice) => {
+      const session = sessionById(sessionId);
+      if (!session?.end) return;
       const meta = session.meta;
-      const sentBack: string[] = [];
-      const problems: string[] = [];
-      if (choice.save || choice.sendBack.length) {
-        const { exportWithAnnotations } = await import('@nb/markup/export');
-        for (const d of meta.documents) {
-          const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
-          if (!choice.save && !back) continue;
-          const bytes = await session.fetchDocument(d.id);
-          const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
-          const out = await withSessionMarkups(session, d.id, (store) =>
-            exportWithAnnotations(bytes.slice(0), chosen, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), links: store.allLinks(), imported: store.importedAnnotations(), places: store.places() }),
-          );
-          if (choice.save) await saveFile(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`, out.slice().buffer);
+      const saving = choice.pdfs || choice.markupsCsv || choice.recordCsv || choice.reportPdf;
+      const safe = (n: string) => n.replace(/["*:<>?/\\|\u0000-\u001f]/g, '_').trim() || 'file';
+      const stamp = new Date().toISOString().slice(0, 10);
+
+      // Where the files go, settled before the (slow) exports so pickers and sign-in still open.
+      type Dir = { getFileHandle: (name: string, o: { create: boolean }) => Promise<{ createWritable: () => Promise<{ write: (b: Blob) => Promise<void>; close: () => Promise<void> }> }> };
+      let dir: Dir | null = null;
+      let project: Project | null = null;
+      if (saving && choice.destination === 'local') {
+        const pick = (window as unknown as { showDirectoryPicker?: (o: { id?: string; mode: 'readwrite' }) => Promise<Dir> }).showDirectoryPicker;
+        if (pick) {
           try {
-            if (back) {
-              // The library document gets the session's markups (and its newer revision, if the host updated it).
-              const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
-              const held = tab ? null : await acquireDocument(back.fileId);
-              const target: OpenFile = tab ?? held!.open;
-              try {
-                if ((d.version ?? 1) > 1) await commitDocument(target, bytes.slice(0), () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before the Session “${meta.name}”`);
-                target.store.checkpoint?.();
-                target.store.batch(() => {
-                  target.store.remove(target.store.all().map((m) => m.id));
-                  for (const m of chosen) target.store.add(m);
-                });
-              } finally {
-                held?.release();
-              }
-              sentBack.push(back.name);
-            }
-          } catch (err) {
-            problems.push(`${d.name}: ${err instanceof Error ? err.message : String(err)}`);
+            dir = await pick({ id: 'end-session', mode: 'readwrite' });
+          } catch {
+            throw new Error('No folder was chosen, so the session was not ended.');
           }
         }
-        void refreshLibrary();
+      } else if (saving && choice.destination === 'onedrive') await authorizeMicrosoft();
+      else if (saving && choice.destination === 'project' && choice.projectId) project = projectById(choice.projectId) ?? (await openProject(choice.projectId, authorRef.current, true, false));
+
+      const files: { name: string; blob: Blob }[] = [];
+      if (choice.pdfs && meta.documents.length) {
+        const { exportWithAnnotations } = await import('@nb/markup/export');
+        for (const d of meta.documents) {
+          const bytes = await session.fetchDocument(d.id);
+          const out = await withSessionMarkups(session, d.id, (store) =>
+            exportWithAnnotations(
+              bytes.slice(0),
+              store.all().filter((m) => choice.authors.includes(m.author)),
+              { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), links: store.allLinks(), imported: store.importedAnnotations(), places: store.places() },
+            ),
+          );
+          files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
+        }
       }
-      await session.update({ status: 'finished' });
+      if (choice.markupsCsv && meta.documents.length) files.push({ name: safe(`${meta.name} markups.csv`), blob: new Blob(['﻿' + (await sessionMarkupsCsv(session))], { type: 'text/csv' }) });
+      if (choice.recordCsv) {
+        const snap = session.getSnapshot();
+        files.push({ name: safe(`${meta.name} session record.csv`), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
+      }
+      if (choice.reportPdf) files.push({ name: safe(`${meta.name} session report.pdf`), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
+
+      let where = '';
+      if (files.length) {
+        if (choice.destination === 'local') {
+          if (dir) {
+            for (const f of files) {
+              const w = await (await dir.getFileHandle(f.name, { create: true })).createWritable();
+              await w.write(f.blob);
+              await w.close();
+            }
+            where = 'the folder you chose';
+          } else {
+            for (const f of files) download(f.name, f.blob);
+            where = 'your Downloads';
+          }
+        } else if (choice.destination === 'onedrive') {
+          const folder = `${meta.name} (ended ${stamp})`;
+          const folderId = await oneDriveApi.createFolder(folder);
+          for (const f of files) await oneDriveApi.createFile(folderId, f.name, f.blob.type, f.blob, {});
+          where = `OneDrive, Apps/redcolumn/${folder}`;
+        } else {
+          if (!project) throw new Error('Choose a Project to save to.');
+          const taken = new Set(project.getSnapshot().folders.filter((f) => f.parentId === null).map((f) => f.name.toLowerCase()));
+          let folder = `${safe(meta.name)} (ended ${stamp})`;
+          for (let n = 2; taken.has(folder.toLowerCase()); n++) folder = `${safe(meta.name)} (ended ${stamp}) ${n}`;
+          const { id } = await project.addFolder(folder, null);
+          for (const f of files) await project.addFile(f.name, id, await f.blob.arrayBuffer());
+          where = `the Project “${project.getSnapshot().manifest.name}”, folder ${folder}`;
+        }
+      }
+
+      // Session Roundtrip: library documents take the session's markups (and its newer revision, if the host updated it).
+      const sentBack: string[] = [];
+      for (const d of meta.documents) {
+        const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
+        if (!back) continue;
+        const bytes = await session.fetchDocument(d.id);
+        const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
+        const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
+        const held = tab ? null : await acquireDocument(back.fileId);
+        const target: OpenFile = tab ?? held!.open;
+        try {
+          if ((d.version ?? 1) > 1) await commitDocument(target, bytes.slice(0), () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before the Session “${meta.name}”`);
+          target.store.checkpoint?.();
+          target.store.batch(() => {
+            target.store.remove(target.store.all().map((m) => m.id));
+            for (const m of chosen) target.store.add(m);
+          });
+        } finally {
+          held?.release();
+        }
+        sentBack.push(back.name);
+      }
+      if (sentBack.length) void refreshLibrary();
+
+      // Everything is saved: only now does the session go.
+      await session.end();
+      closeStudioDocs(sessionId);
       forgetRoundtrip(sessionId);
-      const parts = [
-        choice.save ? `${meta.documents.length} document${meta.documents.length === 1 ? '' : 's'} saved to your library with the markups of ${choice.authors.length ? choice.authors.join(', ') : 'nobody'}` : '',
-        sentBack.length ? `sent back: ${sentBack.join(', ')}` : '',
-        problems.length ? `not sent back: ${problems.join('; ')}` : '',
-      ].filter(Boolean);
-      if (parts.length) setNotice(`Finished. ${parts.join('. ')}.`);
+      sessionsRef.current = sessionsRef.current.filter((s) => s.id !== sessionId);
+      setSessions(sessionsRef.current);
+      setFocusedSession((f) => (f === sessionId ? null : f));
+      setNotice(`Ended “${meta.name}” and removed its files.${files.length ? ` Saved ${files.length} file${files.length === 1 ? '' : 's'} to ${where}.` : ''}${sentBack.length ? ` Sent back: ${sentBack.join(', ')}.` : ''}`);
     },
-    [withSessionMarkups, refreshLibrary, acquireDocument, commitDocument],
+    [withSessionMarkups, sessionMarkupsCsv, sessionReportBytes, closeStudioDocs, acquireDocument, commitDocument, refreshLibrary],
   );
 
   // Session documents the host updated to a new revision reload in their tabs (markups stay).
@@ -5984,13 +6074,14 @@ export function App() {
                     await session.updateDocument(docId, await unlockBytes(await file.arrayBuffer(), file.name));
                   })
                 }
-                onFinish={(id) => {
+                onEnd={(id) => {
                   const session = sessionById(id);
                   if (!session) return;
                   void (async () => {
                     const authors = new Set<string>();
                     for (const d of session.meta.documents) await withSessionMarkups(session, d.id, (store) => store.all().forEach((m) => m.author && authors.add(m.author)));
-                    setFinishFor({ sessionId: id, authors: [...authors].sort() });
+                    setStudioError(null);
+                    setEndFor({ sessionId: id, authors: [...authors].sort() });
                   })().catch((err) => setStudioError(err instanceof Error ? err.message : String(err)));
                 }}
               />
@@ -6560,23 +6651,35 @@ export function App() {
             />
           );
         })()}
-      {finishFor && (
-        <FinishSessionDialog
-          name={sessionById(finishFor.sessionId)?.meta.name ?? ''}
-          authors={finishFor.authors}
-          sendBack={(sessionById(finishFor.sessionId)?.meta.documents ?? []).flatMap((d) => {
-            const src = sourceOf(finishFor.sessionId, d.id);
-            return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
-          })}
-          busy={studioBusy}
-          onClose={() => setFinishFor(null)}
-          onFinish={(choice) => {
-            const id = finishFor.sessionId;
-            setFinishFor(null);
-            void runStudio(() => finishSession(id, choice));
-          }}
-        />
-      )}
+      {endFor &&
+        (() => {
+          const session = sessionById(endFor.sessionId);
+          if (!session) return null;
+          return (
+            <EndSessionDialog
+              name={session.meta.name}
+              backend={session.backend}
+              documents={session.meta.documents.length}
+              authors={endFor.authors}
+              projects={knownProjects()
+                .filter((p) => !p.removed)
+                .map((p) => ({ id: p.id, name: projectById(p.id)?.getSnapshot().manifest.name ?? p.name }))}
+              oneDriveAvailable={oneDriveConfigured}
+              sendBack={session.meta.documents.flatMap((d) => {
+                const src = sourceOf(endFor.sessionId, d.id);
+                return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
+              })}
+              busy={studioBusy}
+              error={studioError}
+              onClose={() => setEndFor(null)}
+              onEnd={(choice) => {
+                const id = endFor.sessionId;
+                // Runs straight from the click, so the folder picker and sign-in can open.
+                void runStudio(() => endSession(id, choice)).then((ok) => ok && setEndFor(null));
+              }}
+            />
+          );
+        })()}
       {markupAlert &&
         (() => {
           const session = sessionById(markupAlert.sessionId);

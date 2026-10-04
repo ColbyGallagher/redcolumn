@@ -9,6 +9,8 @@ export interface KnownProject {
   /** The share ID the Project is opened by. */
   id: string;
   name: string;
+  /** Removed from the list: hidden under Active, shown under All with a Restore button. */
+  removed?: boolean;
 }
 
 /** Projects this browser has made or opened, most recent first. */
@@ -18,11 +20,14 @@ export function rememberProject(p: KnownProject) {
   writeLocal(KNOWN, [p, ...knownProjects().filter((x) => x.id !== p.id)].slice(0, 40));
 }
 
+/** Removes a Project from the Projects list: it moves to All, tagged Removed, until restored. */
 export function forgetProject(id: string) {
-  writeLocal(KNOWN, knownProjects().filter((x) => x.id !== id));
-  const links = projectLinks();
-  const kept = Object.fromEntries(Object.entries(links).filter(([, l]) => l.projectId !== id));
-  writeLocal(LINKS, kept);
+  writeLocal(KNOWN, knownProjects().map((x) => (x.id === id ? { ...x, removed: true } : x)));
+}
+
+/** Puts a removed Project back in the Projects list. */
+export function restoreProject(id: string) {
+  writeLocal(KNOWN, knownProjects().map((x) => (x.id === id ? { ...x, removed: undefined } : x)));
 }
 
 const SEATS = 'nb.projects.seats';

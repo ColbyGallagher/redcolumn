@@ -96,6 +96,11 @@ class FakeDrive implements DriveApi {
     this.auth();
     return this.store.files.get(fileId)?.owner === this.user;
   }
+
+  async removeFolder(folderId: string): Promise<void> {
+    this.own(folderId);
+    for (const [id, f] of this.store.files) if (id === folderId || f.parent === folderId) this.store.files.delete(id);
+  }
 }
 
 /** Just the parts of a MarkupStore a session uses. */
@@ -181,6 +186,38 @@ test('the host can lock markups and finish; attendees become read-only', async (
   assert.equal(sam.meta.status, 'finished');
   assert.equal(hana.canMarkup, false);
   assert.ok(sam.getSnapshot().record.some((e) => e.text === 'finished the session'));
+});
+
+test('only the host can end a session; ending finishes it, then removes its folder and files', async () => {
+  const { drive, hana, sam } = await twoAttendees();
+  await hana.addDocument('A-101.pdf', PDF);
+  await sam.poll();
+  await assert.rejects(sam.end(), /host/);
+  assert.ok([...drive.files.values()].some((f) => f.parent === hana.id), 'nothing removed by the attempt');
+
+  // Seen just before the folder goes: the session finished, with a line saying why.
+  const removeFolder = FakeDrive.prototype.removeFolder;
+  let before: { status: string; ended: boolean; told: boolean } | null = null;
+  FakeDrive.prototype.removeFolder = async function (this: FakeDrive, id: string) {
+    await sam.poll();
+    before = { status: sam.meta.status, ended: !!sam.meta.ended, told: sam.getSnapshot().record.some((e) => e.text === 'ended the session and removed its files') };
+    return removeFolder.call(this, id);
+  };
+  try {
+    await hana.end();
+  } finally {
+    FakeDrive.prototype.removeFolder = removeFolder;
+  }
+  assert.deepEqual(before, { status: 'finished', ended: true, told: true });
+  assert.equal(drive.files.has(hana.id), false, 'the folder is gone');
+  assert.equal([...drive.files.values()].filter((f) => f.parent === hana.id).length, 0, 'and every file in it');
+
+  // An attendee who missed the last read finds the folder gone and stops writing.
+  const kai = await DriveSession.join(new FakeDrive(drive, 'kai'), hana.id, 'Kai', { ...opts, interactive: true }).catch(() => null);
+  assert.equal(kai, null, 'nobody can join an ended session');
+  await sam.poll();
+  assert.equal(sam.getSnapshot().removed, true);
+  assert.equal(sam.canMarkup, false);
 });
 
 test('removed documents disappear for everyone', async () => {

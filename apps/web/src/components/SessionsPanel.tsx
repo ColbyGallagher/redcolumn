@@ -57,8 +57,8 @@ interface Props {
   onInviteEmail?: (sessionId: string) => void;
   /** Host: replace a document with a new revision (markups stay). */
   onUpdateDocument: (sessionId: string, docId: string, file: File) => void;
-  /** Host: finish the session (choosing whose markups to save). */
-  onFinish: (sessionId: string) => void;
+  /** Host: end the session (save what is wanted, then remove its files). */
+  onEnd: (sessionId: string) => void;
 }
 
 type Dialog = 'start' | 'join' | 'settings' | null;
@@ -127,10 +127,6 @@ export function SessionsPanel(props: Props) {
           expiresAt={focused.snapshot.meta.expiresAt ?? null}
           busy={props.busy}
           onClose={() => setDialog(null)}
-          onFinish={() => {
-            setDialog(null);
-            props.onFinish(focused.session.id);
-          }}
           onSave={({ name, access, addDocuments, saveCopy, invite, expiresAt }) => {
             setDialog(null);
             const { meta } = focused.snapshot;
@@ -178,7 +174,7 @@ function SessionList({
     .map((r) => {
       const j = joined.find((x) => x.session.id === r.id);
       const meta = j?.snapshot.meta ?? null;
-      const status = j ? (j.snapshot.meta.status === 'finished' ? 'Finished' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
+      const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
       const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
       return { ref: r, joined: j, meta, status, usable: true, access };
     })
@@ -234,7 +230,7 @@ function SessionList({
       </h3>
       {rows.length === 0 ? (
         <p className="empty">
-          {recent.length ? 'No active sessions. Show All to see finished and removed ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
+          {recent.length ? 'No active sessions. Show All to see closed and removed ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
         </p>
       ) : (
         <ul className="session-list">
@@ -280,6 +276,7 @@ function SessionList({
                     title="Remove from the Active list (restore it from All)"
                     aria-label="Remove"
                     onClick={() => {
+                      if (!confirm(`Remove ${meta?.name ?? ref.name} from your Sessions? The session is not deleted, and you can restore it from All.`)) return;
                       forgetRecentSession(ref.id);
                       setRefresh((n) => n + 1);
                     }}
@@ -313,6 +310,7 @@ function InSession({
   localDocName,
   onFocus,
   onLeave,
+  onEnd,
   onAddCurrent,
   onAddFiles,
   onOpenDocument,
@@ -327,6 +325,8 @@ function InSession({
   const { meta, isHost, status, record, presence, backend, needsAuth, viewOnly, denied } = snapshot;
   const [emails, setEmails] = useState('');
   const finished = meta.status === 'finished';
+  // Ended: the host removed the session's files (seen just before, or found gone).
+  const ended = !!meta.ended || !!snapshot.removed;
   const [copied, setCopied] = useState<string | null>(null);
   const [open, setOpen] = useState({ docs: true, people: true, record: true });
   const fileRef = useRef<HTMLInputElement>(null);
@@ -405,7 +405,7 @@ function InSession({
           <span className={`access-badge ${isHost ? 'host' : access}`}>{isHost ? 'Host' : ACCESS_SHORT[access]}</span>
         </div>
         {snapshot.email && <p className="session-identity">you are {snapshot.email}</p>}
-        {!finished && meta.expiresAt ? <p className="session-identity">Ends {new Date(meta.expiresAt).toLocaleString()}</p> : null}
+        {!finished && meta.expiresAt ? <p className="session-identity">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
         {(isHost || allows(meta, 'invite')) && (
         <div className="session-id">
           <a className="drive-link" href={snapshot.folderUrl} target="_blank" rel="noreferrer" title={`Open the session folder in ${backend === 'onedrive' ? 'OneDrive' : 'Google Drive'}`}>
@@ -432,8 +432,9 @@ function InSession({
         )}
         {viewOnly && <p className="session-offline">View only: the session folder is shared with you read-only. Ask the host to invite you as an editor.</p>}
         {!isHost && access === 'view' && !finished && !denied && <p className="session-offline">You can view documents and chat. The host has not given you comment access.</p>}
-        {finished && <p className="session-finished">Finished {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
-        {status === 'offline' && !finished && !denied && <p className="session-offline">Offline. Keep working: markups sync when the connection returns.</p>}
+        {finished && !ended && <p className="session-finished">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
+        {ended && <p className="session-error">The host ended this session and removed its files. Documents you have open stay read-only until you close them.</p>}
+        {status === 'offline' && !finished && !denied && !ended && <p className="session-offline">Offline. Keep working: markups sync when the connection returns.</p>}
       </div>
 
       <section className="session-section">
@@ -598,6 +599,13 @@ function InSession({
           Leave session
         </button>
       </div>
+      {isHost && session.end && !ended && (
+        <div className="session-actions end">
+          <button className="btn small danger" disabled={busy || !online} onClick={() => onEnd(session.id)} title={online ? 'Save the documents, markups and record, then remove the session and its files for everyone' : offlineReason('Ending a session')}>
+            End session…
+          </button>
+        </div>
+      )}
     </div>
   );
 }
