@@ -41,10 +41,30 @@ export interface DriveApi {
    * folder by from then on (OneDrive: the link's share ID), which becomes the session's ID.
    */
   shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<string | void>;
-  /** Shares with one person as an editor, emailing them `message`. */
-  shareWithUser(fileId: string, email: string, message: string): Promise<void>;
+  /** Shares with one person (an editor unless `role` says reader), emailing them `message`. */
+  shareWithUser(fileId: string, email: string, message: string, role?: 'reader' | 'writer'): Promise<void>;
   /** Whether this user owns the file (the host owns the session's manifest). */
   ownedByMe(fileId: string): Promise<boolean>;
+  /** Deletes a file (Projects release their check-out locks this way). */
+  remove?(fileId: string): Promise<void>;
+  /** Who a folder is shared with, as the drive reports it (for those allowed to see). */
+  listPermissions?(folderId: string): Promise<DrivePermission[]>;
+  /** Changes what one of those people (or the link) may do. */
+  setPermissionRole?(folderId: string, permissionId: string, role: 'reader' | 'writer'): Promise<void>;
+  /** Stops sharing with one of those people (or the link). */
+  removePermission?(folderId: string, permissionId: string): Promise<void>;
+}
+
+/** One way a folder is shared. */
+export interface DrivePermission {
+  id: string;
+  kind: 'owner' | 'user' | 'link';
+  /** The person's name, or what the link is. */
+  name: string;
+  email?: string;
+  role: 'owner' | 'reader' | 'writer';
+  /** Passed down from a folder above, so it cannot be changed here. */
+  inherited: boolean;
 }
 
 /** Sign-in lapsed (or was never given); retry after `reconnect`. */

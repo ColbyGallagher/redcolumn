@@ -72,6 +72,7 @@ interface ThumbProps {
   doc: PdfDocument;
   page: number;
   label: string;
+  scale?: string;
   active: boolean;
   selected: boolean;
   dropBefore: boolean;
@@ -81,7 +82,7 @@ interface ThumbProps {
   onDrop: (e: React.DragEvent) => void;
 }
 
-function Thumbnail({ doc, page, label, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop }: ThumbProps) {
+function Thumbnail({ doc, page, label, scale, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = doc.pages[page]!;
   const height = Math.round((THUMB_W * size.height) / size.width);
@@ -128,6 +129,7 @@ function Thumbnail({ doc, page, label, active, selected, dropBefore, onClick, on
     >
       <canvas ref={canvasRef} style={{ width: THUMB_W, height }} />
       <span>{label}</span>
+      {scale && <span className="thumb-scale">{scale}</span>}
     </button>
   );
 }
@@ -269,6 +271,7 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
             doc={doc}
             page={i}
             label={sheets[i]?.number ? `${sheets[i]!.number} · ${i + 1}` : String(i + 1)}
+            scale={scales[i]?.label}
             active={i === currentPage}
             selected={selected.includes(i)}
             dropBefore={dropAt === i}

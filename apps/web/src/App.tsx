@@ -87,6 +87,7 @@ import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog'
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
 import type { PageText, SheetInfo } from '@nb/sheets';
 import type { IncomingPage } from './documents/slipSheet';
@@ -99,6 +100,12 @@ import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
+import { ProjectsPanel } from './components/ProjectsPanel';
+import { idFromText, openProject, projectById } from './studio/projects/store';
+import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
+import { libraryCopyOf, linkOf, setLink } from './studio/projects/local';
+import type { Project } from './studio/projects/Project';
+import type { ProjectFile } from './studio/projects/model';
 import { FinishSessionDialog, type DocumentSource, type StartRequest } from './components/sessions/SessionDialogs';
 import { InviteDialog } from './components/sessions/InviteDialog';
 import { forgetSession as forgetRoundtrip, rememberSource, sourceOf } from './studio/roundtrip';
@@ -687,7 +694,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[] } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const [searchFocus, setSearchFocus] = useState(0);
@@ -720,6 +727,8 @@ export function App() {
   const [focusedSession, setFocusedSession] = useState<string | null>(null);
   /** A Google Drive invite from the URL; joining opens Google's popups, so it waits for a click. */
   const [studioInvite, setStudioInvite] = useState<SessionRef | null>(null);
+  /** A Project from a `?project=` link, waiting for a click to open (it signs in). */
+  const [projectInvite, setProjectInvite] = useState<string | null>(null);
   const [studioBusy, setStudioBusy] = useState(false);
   const [studioError, setStudioError] = useState<string | null>(null);
   /** Markups to carry into session documents on their first open (the uploader's own markups). */
@@ -973,7 +982,7 @@ export function App() {
       activateTab(pane, packed);
       if (pane === 'a') {
         // Stay on Sessions or Sets when opening from them (or joining from an invite link).
-        setLeftTab((tab) => (tab === 'sessions' || tab === 'sets' ? tab : 'pages'));
+        setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' || tab === 'sets' ? tab : 'pages'));
         // On narrow screens the panel covers the drawing, so it opens only when asked.
         if (!narrowScreen()) setLeftOpen(true);
       }
@@ -2949,7 +2958,7 @@ export function App() {
           setActivePane('a');
         } else {
           showInPane('a', null);
-          setLeftTab((tab) => (tab === 'sessions' ? tab : 'files'));
+          setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' ? tab : 'files'));
           setLeftOpen(true);
         }
       }
@@ -3380,6 +3389,135 @@ export function App() {
     [ctl, ctlB, activateTab, openSessionDocument],
   );
 
+  // --- Projects (shared folders of PDFs in OneDrive) ---------------------------------------------
+
+  /** Opens a Project file: its library copy (brought up to the latest revision), or an older revision on its own. */
+  const openProjectFile = useCallback(
+    async (project: Project, file: ProjectFile, rev?: number) => {
+      const latest = file.revisions[file.revisions.length - 1]?.n ?? 0;
+      if (rev && rev !== latest) {
+        const { bytes } = await project.download(file.id, rev);
+        await openCreated(`${file.name.replace(/\.pdf$/i, '')} (revision ${rev}).pdf`, bytes);
+        return;
+      }
+      const copyId = libraryCopyOf(project.id, file.id);
+      const stored = copyId ? (await listFiles()).find((f) => f.id === copyId) : undefined;
+      if (stored && copyId) {
+        const link = linkOf(copyId)!;
+        if (link.rev < latest) {
+          const got = await project.download(file.id).catch((err) => {
+            // Offline: the copy on this device opens as it is.
+            if (!(err instanceof TypeError)) throw err;
+            setNotice(`Offline: opened your copy of ${file.name} (revision ${link.rev}); the Project has revision ${latest}.`);
+            return null;
+          });
+          if (!got) return void (await openFromLibrary(stored));
+          const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === copyId);
+          const held = tab ? null : await acquireDocument(copyId);
+          const target: OpenFile = tab ?? held!.open;
+          try {
+            // Markups that came from the file are read again from the new revision.
+            await commitDocument(target, got.bytes, () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before Project revision ${got.revision.n}`);
+          } finally {
+            held?.release();
+          }
+          setLink(copyId, { ...link, rev: got.revision.n });
+          setNotice(`${file.name}: updated to revision ${got.revision.n} from the Project.`);
+        }
+        await openFromLibrary((await listFiles()).find((f) => f.id === copyId)!);
+        return;
+      }
+      const { bytes, revision } = await project.download(file.id);
+      const saved = await saveFile(file.name, bytes.slice(0));
+      setLink(saved.id, { projectId: project.id, fileId: file.id, rev: revision.n, name: file.name });
+      await openFromLibrary(saved);
+      void refreshLibrary();
+    },
+    [openCreated, openFromLibrary, acquireDocument, commitDocument, refreshLibrary],
+  );
+
+  const addToProject = useCallback(async (project: Project, folderId: string | null, sources: { name: string; bytes: ArrayBuffer; libraryId?: string }[]) => {
+    for (const s of sources) {
+      const file = await project.addFile(s.name, folderId, s.bytes);
+      if (s.libraryId) setLink(s.libraryId, { projectId: project.id, fileId: file.id, rev: 1, name: s.name });
+    }
+    setNotice(`Added ${sources.map((s) => s.name).join(', ')} to the Project.`);
+  }, []);
+
+  /**
+   * Checks the library copy in, its markups written into the PDF as annotations. With OneDrive out
+   * of reach the check-in is queued (the copy is read when it is sent) and goes when it is back.
+   */
+  const checkInProjectFile = useCallback(
+    async (project: Project, file: ProjectFile, comment: string) => {
+      const copyId = libraryCopyOf(project.id, file.id);
+      if (!copyId) throw new Error('Open the file from the Project first, then make your changes.');
+      const link = linkOf(copyId)!;
+      const queue = () => {
+        projectQueue().add({ kind: 'checkin', projectId: project.id, fileId: file.id, fileName: file.name, by: authorRef.current, libraryId: copyId, baseRev: link.rev, comment, keep: false });
+        setNotice(`${file.name} will be checked in when OneDrive can be reached.`);
+      };
+      if (!navigator.onLine) return queue();
+      const held = await acquireDocument(copyId);
+      let bytes: Uint8Array;
+      try {
+        bytes = await annotatedBytes(held.open);
+      } finally {
+        held.release();
+      }
+      try {
+        const rev = await project.checkIn(file.id, bytes.slice().buffer, comment);
+        setLink(copyId, { ...link, rev: rev.n });
+        setNotice(`Checked in ${file.name} as revision ${rev.n}.`);
+      } catch (err) {
+        if (!isUnreachable(err)) throw err;
+        queue();
+      }
+    },
+    [acquireDocument],
+  );
+
+  /** Sends check-ins and notes made offline, in order (src/studio/projects/queue.ts). */
+  const sendQueuedProjectChanges = useCallback(async () => {
+    const queue = projectQueue();
+    if (!queue.all().length || !navigator.onLine) return;
+    const r = await queue.send(async (c) => {
+      const project = projectById(c.projectId) ?? (await openProject(c.projectId, authorRef.current, false));
+      await project.poll();
+      if (c.kind === 'note') return void (await project.note('file', noteText(c), { fileId: c.fileId }));
+      const file = project.getSnapshot().files.find((f) => f.id === c.fileId);
+      if (!file) throw new Error('It is no longer in the Project.');
+      if (!project.heldByMe(file)) throw new Error(file.checkout ? `${file.checkout.by} has it checked out.` : 'It is no longer checked out to you. Check it out again, then retry.');
+      const latest = file.revisions[file.revisions.length - 1]!.n;
+      if (latest > c.baseRev) throw new Error(`Someone checked in revision ${latest} after your copy (revision ${c.baseRev}).`);
+      const held = await acquireDocument(c.libraryId);
+      let bytes: Uint8Array;
+      try {
+        bytes = await annotatedBytes(held.open);
+      } finally {
+        held.release();
+      }
+      const rev = await project.checkIn(file.id, bytes.slice().buffer, c.comment);
+      const link = linkOf(c.libraryId);
+      if (link) setLink(c.libraryId, { ...link, rev: rev.n });
+    });
+    if (r.sent.length) setNotice(`Sent ${r.sent.length} Project change${r.sent.length === 1 ? '' : 's'} made offline.`);
+    if (r.failed.length) setError(`Not sent: ${r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ')}. Retry or discard them in the Projects panel.`);
+  }, [acquireDocument]);
+  const sendQueuedRef = useRef(sendQueuedProjectChanges);
+  sendQueuedRef.current = sendQueuedProjectChanges;
+  useEffect(() => {
+    const send = () => void sendQueuedRef.current().catch(() => {});
+    window.addEventListener('online', send);
+    // Also on a timer: the network can come back without an 'online' event.
+    const timer = setInterval(send, 30_000);
+    send();
+    return () => {
+      window.removeEventListener('online', send);
+      clearInterval(timer);
+    };
+  }, []);
+
   // Rejoin the sessions this browser was in, or offer to join one from an invite link:
   // `?gdrive=<folder id>` (Google Drive) or `?onedrive=<share id>` (OneDrive), which wait for a click
   // to sign in. Links to redcolumn server sessions (`?studio=`) are dropped.
@@ -3390,6 +3528,16 @@ export function App() {
     const onedrive = parseOneDriveInvite(params.get('onedrive') ?? '');
     const driveInvite = gdrive ?? onedrive;
     const inviteBackend = gdrive ? 'drive' : 'onedrive';
+    const projectLink = idFromText(params.get('project') ?? '');
+    if (params.has('project')) {
+      params.delete('project');
+      window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`);
+      if (projectLink) {
+        setProjectInvite(projectLink);
+        setLeftTab('projects');
+        setLeftOpen(true);
+      }
+    }
     if (params.has('studio') || driveInvite) {
       params.delete('studio');
       params.delete('gdrive');
@@ -3424,6 +3572,7 @@ export function App() {
     if (!ctl) return;
     const offs = [
       addBusyCheck('jobs', () => (runningJobs().length ? `${runningJobs()[0]!.label.toLowerCase()} is running` : null)),
+      addBusyCheck('projects', () => (projectQueue().busy ? 'Project changes are being sent' : null)),
       addBusyCheck('drawing', () => (ctl.tools.inProgress || ctlBRef.current?.tools.inProgress ? 'a markup is being drawn' : null)),
     ];
     return () => offs.forEach((o) => o());
@@ -4446,6 +4595,7 @@ export function App() {
       },
       SEP,
       { label: 'Page Labels from Region…', disabled: ro, onClick: () => startLabelRegions(pane) },
+      { label: 'Bulk Apply Page Scale…', disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
       { label: 'Thumbnails', onClick: () => showLeft('pages') },
       { label: 'Properties', onClick: () => showLeft('properties') },
     ];
@@ -4699,11 +4849,11 @@ export function App() {
   ];
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a') => {
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label') => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     setActivePane(pane);
-    setLabelMode((m) => (m?.pane === pane ? m : { pane, regions: [] }));
+    setLabelMode((m) => (m?.pane === pane && m.kind === kind ? m : { pane, regions: [], kind }));
     c.tools.setTool('labelRegion');
     setLabelTexts(null);
     void loadPageTexts(() => readFile(o.file.hash), o.store, setIndexProgress)
@@ -5047,6 +5197,7 @@ export function App() {
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
+    scaleRegions: () => startLabelRegions(undefined, 'scale'),
     thumbnails: () => showLeft('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
@@ -5680,6 +5831,26 @@ export function App() {
               />
             ) : leftTab === 'flags' ? (
               <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flag') : null} />
+            ) : leftTab === 'projects' ? (
+              <ProjectsPanel
+                me={author}
+                oneDriveAvailable={oneDriveConfigured}
+                invite={projectInvite}
+                onDismissInvite={() => setProjectInvite(null)}
+                localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
+                onOpenFile={openProjectFile}
+                onAddFiles={async (project, folderId, files) =>
+                  addToProject(project, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))))
+                }
+                onCheckIn={checkInProjectFile}
+                onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+                onAddCurrent={async (project, folderId) => {
+                  const cur = activeOpen;
+                  if (!cur) return;
+                  const bytes = await annotatedBytes(cur);
+                  await addToProject(project, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }]);
+                }}
+              />
             ) : leftTab === 'sessions' ? (
               <SessionsPanel
                 joined={sessions.map((session, i) => ({ session, snapshot: snapshots[i]! }))}
@@ -5913,7 +6084,33 @@ export function App() {
               </>
             )}
           </div>
-          {labelMode && labelPaneParts?.o && (
+          {labelMode?.kind === 'scale' && labelPaneParts?.o && (
+            <ScaleRegionsPanel
+              key={labelPaneParts.o.file.id}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              pageCount={labelPaneParts.o.doc.pages.length}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              texts={labelTexts}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={(regions) => setLabelMode({ ...labelMode, regions })}
+              onClose={() => setLabelMode(null)}
+              onApply={(scales) => {
+                const store = labelPaneParts.o!.store;
+                let done = 0;
+                for (const { page, scale } of scales) {
+                  if (!scale) continue;
+                  store.setScale([page], scale);
+                  done++;
+                }
+                const missed = scales.length - done;
+                setNotice(`Set the scale on ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no readable scale in the boxes and were left as they were` : ''}.`);
+                setLabelMode(null);
+              }}
+            />
+          )}
+          {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
               key={labelPaneParts.o.file.id}
               regions={labelMode.regions}
@@ -6889,6 +7086,15 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode }[] = [
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M5 2.5h8.5v10M3.5 4h8.5v10H3.5z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'projects',
+    title: 'Projects',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2 4.5h4l1.2 1.5H14v6.5H2z" />
       </svg>
     ),
   },

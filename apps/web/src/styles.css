@@ -2304,6 +2304,9 @@ body,
 
 .session-dialog .hint,
 .session-dialog .check .hint {
+  position: static;
+  display: block;
+  pointer-events: auto;
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 11px;
@@ -2612,6 +2615,8 @@ body,
 }
 
 .label-regions .hint {
+  position: static;
+  display: block;
   margin: 6px 0 8px;
   color: var(--muted);
   font-size: 11px;
@@ -2779,4 +2784,9 @@ body,
 .viewer-vscroll:hover .viewer-vscroll-thumb,
 .viewer-vscroll.dragging .viewer-vscroll-thumb {
   background: rgba(255, 255, 255, 0.55);
+}
+
+.thumb .thumb-scale {
+  color: var(--muted);
+  font-size: 10px;
 }
