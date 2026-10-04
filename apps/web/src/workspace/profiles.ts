@@ -61,6 +61,8 @@ export interface MarkupListSettings {
   advanced: AdvancedFilter | null;
   /** Column the list is grouped by, or null. */
   groupBy: string | null;
+  /** Comments wrap to show all their text (rows grow to fit); off, every row is one line high. */
+  wrapComments: boolean;
 }
 
 export interface WorkspaceState {
@@ -106,7 +108,7 @@ export function defaultWorkspace(): WorkspaceState {
     hiddenPanels: [],
     panelOrder: [],
     showToolbar: true,
-    list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null },
+    list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true },
     columnTemplate: null,
     shortcuts: {},
     stamps: [],

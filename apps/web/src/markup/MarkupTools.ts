@@ -619,7 +619,7 @@ export class MarkupTools implements ViewerOverlay {
   /** The markup under a screen position (for context menus), or undefined. */
   markupAtClient(clientX: number, clientY: number): Markup | undefined {
     if (!this.store) return undefined;
-    const page = this.viewer.pageAtClient(clientX, clientY) ?? this.viewer.currentPageIndex;
+    const page = this.viewer.pageNearClient(clientX, clientY);
     this.page = page;
     return this.hitAt(toPoint(this.viewer.clientToPage(clientX, clientY, page)));
   }

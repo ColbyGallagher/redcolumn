@@ -2690,6 +2690,40 @@ body,
   opacity: 0.7;
 }
 
+/*
+ * Wrapped comments (the default): a hidden copy of the text sits under the textarea in one grid
+ * cell, so the cell, and its row, grow to show the whole comment, and follow column resizes.
+ */
+.markups .comment-wrap {
+  display: grid;
+}
+
+.markups .comment-wrap::after {
+  content: attr(data-text);
+  visibility: hidden;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  font: inherit;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.markups .comment-wrap > textarea,
+.markups .comment-wrap::after {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.markups .comment-wrap > textarea,
+.markups .comment-wrap > textarea:focus {
+  position: static;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .markups td {
   vertical-align: top;
 }

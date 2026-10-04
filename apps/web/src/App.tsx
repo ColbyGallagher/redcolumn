@@ -3702,7 +3702,7 @@ export function App() {
     window.addEventListener('paste', onPaste);
     const bindDbl = (canvas: HTMLCanvasElement, viewer: TileViewer, tools: MarkupTools, pane: Pane) => {
       const onDblClick = (e: MouseEvent) => {
-        const page = viewer.pageAtClient(e.clientX, e.clientY) ?? viewer.currentPageIndex;
+        const page = viewer.pageNearClient(e.clientX, e.clientY);
         tools.doubleClick(viewer.clientToPage(e.clientX, e.clientY, page), page);
       };
       // Right-drag pans; only a right-click that stayed put opens the menu.
@@ -3876,7 +3876,7 @@ export function App() {
     void imageToDataUrl(file).then(({ image, aspect }) => {
       const viewer = c.viewer;
       const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
-      const page = at ? (viewer.pageAtClient(at.x, at.y) ?? viewer.currentPageIndex) : viewer.currentPageIndex;
+      const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
       const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
       const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
       const size = o.doc.pages[page];
@@ -4386,7 +4386,7 @@ export function App() {
     if (!item || !c || !o || o.store.readOnly) return true;
     setActivePane(pane);
     if (item.markups?.length) {
-      const page = c.viewer.pageAtClient(e.clientX, e.clientY) ?? c.viewer.currentPageIndex;
+      const page = c.viewer.pageNearClient(e.clientX, e.clientY);
       c.tools.placeTemplate(item.markups, page, c.viewer.clientToPage(e.clientX, e.clientY, page), false, item.sequence);
     } else {
       useToolItem(item, 'style');
@@ -4683,7 +4683,7 @@ export function App() {
     if (!c) return;
     setActivePane(pane);
     activePaneRef.current = pane;
-    const page = c.viewer.pageAtClient(e.clientX, e.clientY) ?? c.viewer.currentPageIndex;
+    const page = c.viewer.pageNearClient(e.clientX, e.clientY);
     const pt = c.viewer.clientToPage(e.clientX, e.clientY, page);
     const hit = o ? c.tools.markupAt(pt, page) : undefined;
     if (!hit) {
@@ -5075,7 +5075,7 @@ export function App() {
       // At the cursor when it is over the page, else nudged from where the markups were copied.
       const at = lastPointer.current;
       const over = at && at.viewer === v;
-      const page = over ? (v.pageAtClient(at.x, at.y) ?? v.currentPageIndex) : v.currentPageIndex;
+      const page = over ? v.pageNearClient(at.x, at.y) : v.currentPageIndex;
       activeTools.paste(clipboard.current, page, over ? v.clientToPage(at.x, at.y, page) : null);
     },
     pasteInPlace: () => v && activeTools?.paste(clipboard.current, v.currentPageIndex, 'inPlace'),

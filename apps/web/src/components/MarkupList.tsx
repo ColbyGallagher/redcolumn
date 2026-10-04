@@ -51,19 +51,26 @@ const ROW_GUESS = 30;
 type Line = { kind: 'group'; label: string; count: number } | { kind: 'markup'; row: ListRowData } | { kind: 'reply'; m: Markup; reply: NonNullable<Markup['replies']>[number] };
 
 /**
- * A comment cell, one line high like every row. While editing it grows with its text over the
- * rows below. Enter adds a line; Ctrl+Enter or leaving the cell saves.
+ * A comment cell. Wrapped, it shows the whole comment and the row grows to fit; unwrapped it is one
+ * line high like every row, and grows with its text over the rows below while being edited. Enter
+ * adds a line; Ctrl+Enter or leaving the cell saves.
  */
-function CommentCell({ value, disabled, onSave }: { value: string; disabled: boolean; onSave: (text: string) => void }) {
+function CommentCell({ value, disabled, wrap, onSave }: { value: string; disabled: boolean; wrap: boolean; onSave: (text: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fit = () => {
     const el = ref.current;
-    if (!el || document.activeElement !== el) return;
+    if (!el) return;
+    // Wrapped, a hidden copy of the text behind the textarea sizes the cell (see the CSS).
+    if (wrap) {
+      el.parentElement!.dataset.text = `${el.value} `;
+      return;
+    }
+    if (document.activeElement !== el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + 2}px`;
   };
-  useLayoutEffect(fit, [value]);
-  return (
+  useLayoutEffect(fit, [value, wrap]);
+  const textarea = (
     <textarea
       ref={ref}
       className="cell-comment"
@@ -75,19 +82,30 @@ function CommentCell({ value, disabled, onSave }: { value: string; disabled: boo
       onFocus={fit}
       onInput={fit}
       onBlur={(e) => {
-        e.target.style.height = '';
+        if (!wrap) e.target.style.height = '';
         if (e.target.value !== value) onSave(e.target.value);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur();
         else if (e.key === 'Escape') {
           e.currentTarget.value = value;
+          fit();
           e.currentTarget.blur();
         }
       }}
     />
   );
+  return wrap ? (
+    <div className="comment-wrap" data-text={`${value} `}>
+      {textarea}
+    </div>
+  ) : (
+    textarea
+  );
 }
+
+/** A list line's React key, also used to keep its measured height. */
+const lineKey = (l: Line) => (l.kind === 'group' ? `group:${l.label}` : l.kind === 'reply' ? `${l.m.id}:${l.reply.id}` : l.row.markup.id);
 
 const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWorkspace((s) => ({ ...s, list: fn(s.list) }));
 
@@ -162,23 +180,62 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     return out;
   }, [groups, groupBy, folded]);
 
-  // Every row is one fixed height (see the list's CSS), measured from the first markup row, so a
-  // long list can render just the rows in view with spacers standing in for the rest.
+  // Unwrapped, every row is one fixed height (see the list's CSS), measured from the first markup
+  // row. Wrapped, rows grow with their comments: each rendered row's height is measured and kept,
+  // and rows not yet seen count as one line. Either way a long list renders just the rows in view,
+  // with spacers standing in for the rest.
+  const wrap = settings.wrapComments !== false && visible.some((c) => c.key === 'comment');
   const scroller = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState(0);
   const h = rowH || ROW_GUESS;
+  /** Measured heights of wrapped rows, by line key. */
+  const heights = useRef(new Map<string, number>());
+  const [measured, setMeasured] = useState(0);
   useLayoutEffect(() => {
-    if (rowH) return;
-    const tr = body.current?.querySelector<HTMLElement>('tr[data-id]');
-    if (tr?.offsetHeight) setRowH(tr.offsetHeight);
+    const rendered = [...(body.current?.querySelectorAll<HTMLElement>('tr[data-key]') ?? [])];
+    if (!rowH) {
+      // One line high: the shortest markup row (a wrapped first row may be several lines).
+      const one = Math.min(...rendered.filter((tr) => tr.dataset.id && tr.offsetHeight).map((tr) => tr.offsetHeight));
+      if (Number.isFinite(one)) setRowH(one);
+    }
+    if (!wrap) return;
+    let changed = false;
+    for (const tr of rendered) {
+      const k = tr.dataset.key!;
+      if (tr.offsetHeight && heights.current.get(k) !== tr.offsetHeight) {
+        heights.current.set(k, tr.offsetHeight);
+        changed = true;
+      }
+    }
+    if (changed) setMeasured((n) => n + 1);
   });
+  const keys = useMemo(() => lines.map(lineKey), [lines]);
+  /** Top of each line (and the bottom of the last), from the top of the body. */
+  const offsets = useMemo(() => {
+    const out = new Array<number>(keys.length + 1);
+    out[0] = 0;
+    for (let i = 0; i < keys.length; i++) out[i + 1] = out[i]! + (wrap ? (heights.current.get(keys[i]!) ?? h) : h);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keys, wrap, h, measured]);
+  /** The line at a distance from the top of the body. */
+  const lineAt = (y: number) => {
+    let lo = 0;
+    let hi = keys.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (offsets[mid + 1]! <= y) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   const headHeight = () => body.current?.parentElement?.querySelector('thead')?.offsetHeight ?? 0;
   const [view, setView] = useState({ first: 0, count: 40 });
   const track = useRef(() => {});
   track.current = () => {
     const el = scroller.current;
     if (!el) return;
-    const first = Math.floor(el.scrollTop / h / WINDOW_STEP) * WINDOW_STEP;
+    const first = Math.floor(lineAt(el.scrollTop) / WINDOW_STEP) * WINDOW_STEP;
     const count = Math.ceil(el.clientHeight / h);
     setView((v) => (v.first === first && v.count === count ? v : { first, count }));
   };
@@ -194,7 +251,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const windowed = lines.length > WINDOW_FROM;
   useEffect(() => {
     if (windowed) track.current();
-  }, [windowed, rowH]);
+  }, [windowed, rowH, offsets]);
   const start = windowed ? Math.min(lines.length, Math.max(0, view.first - OVERSCAN)) : 0;
   const end = windowed ? Math.min(lines.length, view.first + view.count + WINDOW_STEP + OVERSCAN) : lines.length;
 
@@ -207,10 +264,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     const index = lines.findIndex((l) => l.kind === 'markup' && selected.has(l.row.markup.id));
     if (index < 0) return;
     // Rows sit below the sticky header, which covers the top of the scrolled area.
-    const top = index * h;
+    const top = offsets[index]!;
+    const bottom = offsets[index + 1]!;
     const room = el.clientHeight - headHeight();
     if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + h > el.scrollTop + room) el.scrollTop = top + h - room;
+    else if (bottom > el.scrollTop + room) el.scrollTop = Math.min(top, bottom - room);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey]);
 
@@ -271,6 +329,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
         { label: 'Columns', items: columnsMenu() },
         { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
+        { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
         { sep: true },
         { label: 'Manage Custom Columns…', onClick: onManageColumns },
       ],
@@ -348,6 +407,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           key={`${m.comment ?? ''}|${m.text ?? ''}`}
           value={(isTextType(m.type) ? m.text : m.comment) ?? ''}
           disabled={isTextType(m.type) || fixed}
+          wrap={wrap}
           onSave={(comment) => store?.update(m.id, { comment })}
         />
       );
@@ -564,7 +624,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <p className="empty">Markups and measurements you draw appear here.</p>
       ) : (
         <div className="markups-scroll" ref={scroller} onScroll={windowed ? () => track.current() : undefined}>
-          <table style={{ width: visible.reduce((s, c) => s + c.width, 0), ...(rowH ? { '--list-row-h': `${rowH}px` } : {}) }}>
+          <table className={wrap ? 'wrapped' : undefined} style={{ width: visible.reduce((s, c) => s + c.width, 0), ...(rowH && !wrap ? { '--list-row-h': `${rowH}px` } : {}) }}>
             <colgroup>
               {visible.map((c) => (
                 <col key={c.key} data-key={c.key} style={{ width: c.width }} />
@@ -636,7 +696,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             </thead>
             <tbody ref={body}>
               {start > 0 && (
-                <tr className="spacer" style={{ height: start * h }}>
+                <tr className="spacer" style={{ height: offsets[start] }}>
                   <td colSpan={visible.length} />
                 </tr>
               )}
@@ -644,7 +704,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                 if (line.kind === 'group') {
                   const { label } = line;
                   return (
-                    <tr key={`group:${label}`} className="group-row" onClick={() => toggleFold(label)}>
+                    <tr key={`group:${label}`} data-key={`group:${label}`} className="group-row" onClick={() => toggleFold(label)}>
                       <td colSpan={visible.length}>
                         <span className="fold">{folded.has(label) ? '▸' : '▾'}</span> {label} <span className="count">{line.count}</span>
                       </td>
@@ -655,7 +715,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                   const { m, reply: r } = line;
                   // Replies sit under their markup, indented.
                   return (
-                    <tr key={`${m.id}:${r.id}`} className={`reply-row${selected.has(m.id) ? ' selected' : ''}`} onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}>
+                    <tr key={`${m.id}:${r.id}`} data-key={`${m.id}:${r.id}`} className={`reply-row${selected.has(m.id) ? ' selected' : ''}`} onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}>
                       <td colSpan={visible.length}>
                         <span className="reply-arrow">↳</span>
                         <b>{r.author}</b> <span className="reply-date">{new Date(r.createdAt).toLocaleString()}</span> {r.text}
@@ -681,6 +741,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                   <tr
                     key={m.id}
                     data-id={m.id}
+                    data-key={m.id}
                     className={`${selected.has(m.id) ? 'selected' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
                     title={m.hidden ? 'Hidden on the page (right-click › Show)' : undefined}
                     onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}
@@ -703,7 +764,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                 );
               })}
               {end < lines.length && (
-                <tr className="spacer" style={{ height: (lines.length - end) * h }}>
+                <tr className="spacer" style={{ height: offsets[lines.length]! - offsets[end]! }}>
                   <td colSpan={visible.length} />
                 </tr>
               )}

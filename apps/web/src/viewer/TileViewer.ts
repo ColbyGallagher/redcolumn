@@ -413,6 +413,30 @@ export class TileViewer {
     return this.pageAtWorld(this.clientToWorld(clientX, clientY));
   }
 
+  /**
+   * The page under a client point, or else the nearest one: markups may hang past a page's edge,
+   * so a point beside a page still belongs to it.
+   */
+  pageNearClient(clientX: number, clientY: number): number {
+    const pt = this.clientToWorld(clientX, clientY);
+    const under = this.pageAtWorld(pt);
+    if (under !== null || !this.doc) return under ?? this.pageIndex;
+    let best = this.pageIndex;
+    let bestDist = Infinity;
+    for (const p of this.placements) {
+      const size = this.doc.pages[p.pageIndex];
+      if (!size) continue;
+      const [x, y] = applyAffine(p.fromWorld, pt);
+      // Distance in world units, so pages shown at different scales compare fairly.
+      const d = Math.hypot(Math.max(0, -x, x - size.width), Math.max(0, -y, y - size.height)) * p.scale;
+      if (d < bestDist) {
+        bestDist = d;
+        best = p.pageIndex;
+      }
+    }
+    return best;
+  }
+
   setDocument(doc: PdfDocument) {
     this.doc = doc;
     this.stitchLayout = null;
@@ -872,7 +896,7 @@ export class TileViewer {
     }
 
     const wanted: TileJob[] = [];
-    /** Pages drawn this frame, for the overlay pass. */
+    /** Pages near enough the view that their markups may show, for the overlay pass. */
     const drawn: Placed[] = [];
     const screenToWorld = (sx: number, sy: number): PagePoint => [(sx - this.panX) / this.zoom, (sy - this.panY) / this.zoom];
     const viewCorners = [screenToWorld(0, 0), screenToWorld(cw, 0), screenToWorld(cw, ch), screenToWorld(0, ch)];
@@ -886,7 +910,15 @@ export class TileViewer {
       const y0 = Math.max(0, Math.min(...vis.map((v) => v[1])));
       const x1 = Math.min(size.width, Math.max(...vis.map((v) => v[0])));
       const y1 = Math.min(size.height, Math.max(...vis.map((v) => v[1])));
-      if (x1 <= x0 || y1 <= y0) continue;
+      if (x1 <= x0 || y1 <= y0) {
+        // Markups can sit past the page edge (as Revu allows), so a page just off screen may still
+        // have some in view: allow half a page of slack around it.
+        const mx = size.width / 2;
+        const my = size.height / 2;
+        const near = vis.some((v) => v[0] > -mx) && vis.some((v) => v[0] < size.width + mx) && vis.some((v) => v[1] > -my) && vis.some((v) => v[1] < size.height + my);
+        if (near) drawn.push(p);
+        continue;
+      }
 
       const m = p.toWorld;
       const poly = clipPolygon(size.width, size.height, p.clips);
@@ -947,21 +979,16 @@ export class TileViewer {
       drawn.push(p);
     }
 
-    // Markups draw after every sheet's content, unclipped in a stitched view, so a measurement or
-    // cloud spanning a match line shows on both sheets.
+    // Markups draw after every sheet's content, unclipped: a comment can hang past the page edge
+    // (as Revu draws it), and in a stitched view a measurement or cloud spanning a match line shows
+    // on both sheets.
     for (const p of drawn) {
       const m = p.toWorld;
-      const size = this.doc.pages[p.pageIndex]!;
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.translate(this.panX, this.panY);
       ctx.scale(this.zoom, this.zoom);
       ctx.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
-      if (this.mode !== 'stitch') {
-        ctx.beginPath();
-        ctx.rect(0, 0, size.width, size.height);
-        ctx.clip();
-      }
       this.overlay?.draw(ctx, p.pageIndex, this.zoom * p.scale);
       ctx.restore();
     }
@@ -1284,7 +1311,7 @@ export class TileViewer {
 
   /** Page for an overlay event: the gesture's page, the overlay's active page, or the one under the pointer. */
   private eventPage(e: { clientX: number; clientY: number }): number {
-    return this.gesturePage ?? this.overlay?.activePage() ?? this.pageAtClient(e.clientX, e.clientY) ?? this.pageIndex;
+    return this.gesturePage ?? this.overlay?.activePage() ?? this.pageNearClient(e.clientX, e.clientY);
   }
 
   private onWheel = (e: WheelEvent) => {
