@@ -322,6 +322,19 @@ function outlineBookmarks(items: readonly OutlineItem[]): Bookmark[] {
   return items.map((o) => ({ id: crypto.randomUUID(), title: o.title, pageIndex: o.pageIndex ?? 0, rect: o.rect, children: outlineBookmarks(o.children) }));
 }
 
+/**
+ * Zooms in on a markup so it fills about half the view. Small ones (a count, a note) get a
+ * minimum area, so the drawing around them still shows rather than zooming all the way in.
+ */
+function zoomToMarkup(viewer: TileViewer, m: Markup) {
+  const b = boundsOf(m.points);
+  const size = viewer.pageSize(m.pageIndex);
+  const min = Math.max(48, 0.04 * Math.max(size?.width ?? 0, size?.height ?? 0));
+  const w = Math.max(b.w, min);
+  const h = Math.max(b.h, min);
+  viewer.zoomToRect({ x: b.x + b.w / 2 - w / 2, y: b.y + b.h / 2 - h / 2, w, h }, 2, m.pageIndex);
+}
+
 /** The page area a viewer shows (the whole page when it all fits). */
 function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): ViewTarget {
   const pageIndex = viewer.getView().pageIndex;
@@ -3744,6 +3757,8 @@ export function App() {
       const tools = useB ? ctlB.tools : ctl?.tools;
       if (!viewer || !tools) return;
       if (viewer.currentPageIndex !== m.pageIndex) viewer.goToPage(m.pageIndex);
+      // Adding to a selection keeps the view; picking one markup focuses on it.
+      if (!additive) zoomToMarkup(viewer, m);
       tools.setTool('select');
       if (additive) {
         const next = new Set(tools.getState().selected);
@@ -5882,8 +5897,6 @@ export function App() {
                 onShowSpaces={(showSpaces) => settings.set({ showSpaces })}
                 onSelect={(m) => {
                   selectFromList(m);
-                  v?.goToPage(m.pageIndex);
-                  v?.zoomToRect(boundsOf(m.points), 1.3, m.pageIndex);
                 }}
                 onAdd={() => activeTools?.setTool('space')}
                 onRename={(id, name) => {
