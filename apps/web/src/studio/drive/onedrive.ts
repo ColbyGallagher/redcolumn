@@ -197,6 +197,12 @@ interface GraphItem {
 }
 
 /** What a file's role is, for files whose properties cannot be stored inside them. */
+/** A name OneDrive accepts: no reserved characters, no edge dots or spaces, and a sane length. */
+function folderName(name: string): string {
+  const safe = name.replace(/["*:<>?/\\|\u0000-\u001f]/g, '_').replace(/^\s+|[\s.]+$/g, '').slice(0, 200).replace(/[\s.]+$/, '');
+  return safe || 'redcolumn session';
+}
+
 function isJson(name: string) {
   return /\.(json|nbseat)$/i.test(name);
 }
@@ -396,9 +402,11 @@ export class OneDrive implements DriveApi {
   async createFolder(name: string): Promise<string> {
     const pending = this.unshared.get(name);
     if (pending) return pending;
+    // Reading the app folder first makes OneDrive create it; POSTing to its path alone can 400 ("invalidRequest") on personal accounts.
+    const root = (await (await this.fetch('/me/drive/special/approot?$select=id,parentReference', {}, 'open the app folder')).json()) as GraphItem;
     const res = await this.fetch(
-      '/me/drive/special/approot/children',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, folder: {}, '@microsoft.graph.conflictBehavior': 'rename' }) },
+      `/drives/${root.parentReference?.driveId ?? ''}/items/${root.id}/children`,
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: folderName(name), folder: {}, '@microsoft.graph.conflictBehavior': 'rename' }) },
       'create the session folder',
     );
     const item = (await res.json()) as GraphItem;
