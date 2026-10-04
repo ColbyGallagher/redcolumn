@@ -37,6 +37,7 @@ import {
   shapeBounds,
   translated,
   moved,
+  circleBox,
   polarPoint,
   segmentPolar,
   type Geometry,
@@ -232,10 +233,21 @@ export interface SketchState {
 
 /** Drag-drawn shapes Draw to Size sizes by width and height after a click. */
 const SKETCH_BOX_TYPES: readonly MarkupType[] = ['rect', 'ellipse', 'cloud'];
+/** Draw to Scale: the Ellipse tool is set to draw circles from their centre. */
+const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get().sketchEllipse !== 'ellipse';
 /** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
 const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
 const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
+
+/** Draw to Scale: a box type's first click, the markup it will become, and the pointer since. */
+interface SketchAnchor {
+  type: MarkupType;
+  pageIndex: number;
+  at: Point;
+  markup: Markup;
+  hover?: Point;
+}
 
 /** Markups Smart Fill can make from a region. */
 export const FILL_TYPES = ['area', 'perimeter', 'volume', 'polygon', 'space', 'polylength'] as const;
@@ -407,8 +419,8 @@ export class MarkupTools implements ViewerOverlay {
     else this.viewer.invalidate();
   }
 
-  /** Box types: the corner a click placed, waiting for a typed width and height. */
-  private sketchAnchor: { type: MarkupType; pageIndex: number; at: Point; markup: Markup; hover?: Point } | null = null;
+  /** Box types: the corner (a circle's centre) a click placed, waiting for its size. */
+  private sketchAnchor: SketchAnchor | null = null;
 
   private sketchState(): SketchState | null {
     if (!settings.get().sketchToScale) return null;
@@ -454,16 +466,31 @@ export class MarkupTools implements ViewerOverlay {
     const h = a.hover;
     const sx = h && h[0] < a.at[0] ? -1 : 1;
     const sy = h && h[1] < a.at[1] ? -1 : 1;
-    this.placeSketchBox([a.at[0] + sx * width, a.at[1] + sy * height]);
+    this.placeSketchBox([a.at, [a.at[0] + sx * width, a.at[1] + sy * height]]);
   }
 
-  /** Draw to Scale: finishes the anchored box at its opposite corner. */
-  private placeSketchBox(corner: Point) {
+  /** Draw to Scale: draws the anchored circle `radius` points about its centre. */
+  sketchCircle(radius: number) {
+    const a = this.sketchAnchor;
+    if (!a || !(radius > 0)) return;
+    this.placeSketchBox(circleBox(a.at, radius));
+  }
+
+  /**
+   * Draw to Scale: the anchored box's points with the pointer (or a click) at `to`: the opposite
+   * corner, or for a circle a point on it.
+   */
+  private sketchBoxPoints(a: SketchAnchor, to: Point): Point[] {
+    return sketchesCircle(a.type) ? circleBox(a.at, Math.hypot(to[0] - a.at[0], to[1] - a.at[1])) : [a.at, to];
+  }
+
+  /** Draw to Scale: finishes the anchored box with its two corners. */
+  private placeSketchBox(points: Point[]) {
     const a = this.sketchAnchor;
     if (!a || !this.store) return;
     this.sketchAnchor = null;
     const now = Date.now();
-    const m: Markup = { ...a.markup, points: [a.at, corner], createdAt: now, modifiedAt: now };
+    const m: Markup = { ...a.markup, points, createdAt: now, modifiedAt: now };
     this.store.checkpoint();
     this.store.add(m);
     this.options.onCreated?.(m);
@@ -1162,10 +1189,25 @@ export class MarkupTools implements ViewerOverlay {
     const anchor = this.sketchAnchor;
     if (!g && anchor?.pageIndex === pageIndex && anchor.hover) {
       const [a, b] = [anchor.at, anchor.hover];
-      drawMarkup(ctx, { ...anchor.markup, points: [a, b] }, zoom, store.scaleOf(anchor.markup));
+      drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
       const scale = store.scaleAt(pageIndex, a);
       const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
-      if (Math.hypot(b[0] - a[0], b[1] - a[1]) * zoom >= 2) drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+      const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (r * zoom >= 2) {
+        if (sketchesCircle(anchor.type)) {
+          // The radius, from the centre out to the pointer.
+          ctx.save();
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1 / zoom;
+          ctx.setLineDash([4 / zoom, 3 / zoom]);
+          ctx.beginPath();
+          ctx.moveTo(a[0], a[1]);
+          ctx.lineTo(b[0], b[1]);
+          ctx.stroke();
+          ctx.restore();
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+      }
     }
     if (this.snapHit && this.snapPage === pageIndex) drawSnapIndicator(ctx, this.snapHit, zoom);
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
@@ -1323,9 +1365,10 @@ export class MarkupTools implements ViewerOverlay {
     // Draw to Scale: a click after the first corner places the opposite one.
     const anchor = this.sketchAnchor;
     if (anchor && tool === anchor.type && anchor.pageIndex === pageIndex && e.button === 0) {
-      const corner = this.resolve(pt, e, anchor.at);
+      const to = this.resolve(pt, e, anchor.at);
       const zoom = this.viewer.zoomFor(pageIndex);
-      if (Math.abs(corner[0] - anchor.at[0]) * zoom >= this.dragPx && Math.abs(corner[1] - anchor.at[1]) * zoom >= this.dragPx) this.placeSketchBox(corner);
+      const [dx, dy] = [Math.abs(to[0] - anchor.at[0]) * zoom, Math.abs(to[1] - anchor.at[1]) * zoom];
+      if (sketchesCircle(anchor.type) ? Math.hypot(dx, dy) >= this.dragPx : dx >= this.dragPx && dy >= this.dragPx) this.placeSketchBox(this.sketchBoxPoints(anchor, to));
       return true;
     }
 

@@ -222,6 +222,14 @@ export function withSegment(points: readonly Point[], i: number, length: number,
   return out;
 }
 
+/** The box of a circle: its corners `radius` either side of `centre`. */
+export function circleBox(centre: Point, radius: number): Point[] {
+  return [
+    [centre[0] - radius, centre[1] - radius],
+    [centre[0] + radius, centre[1] + radius],
+  ];
+}
+
 /**
  * A two-point box `width` by `height`, growing away from its first corner (which stays where it
  * is on the page, even when the box is rotated).

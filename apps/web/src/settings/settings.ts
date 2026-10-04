@@ -60,8 +60,13 @@ export interface Settings {
   crosshair: boolean;
   /** Draw Spaces on the page (Spaces panel). Hidden Spaces still group markups. */
   showSpaces: boolean;
-  /** Draw to Size: type exact lengths, angles and sizes while drawing. */
+  /** Draw to Scale: type exact lengths, angles and sizes while drawing. */
   sketchToScale: boolean;
+  /**
+   * Draw to Scale, Ellipse tool: corner to corner by width and height, or a circle from its centre
+   * by radius or diameter.
+   */
+  sketchEllipse: 'ellipse' | 'radius' | 'diameter';
   /** Page colours on screen: as printed, Dark Mode (inverted) or the Dimmer. */
   pageFilter: 'none' | 'dark' | 'dim';
   /** Disable Line Weights: PDF lines drawn as hairlines. */
@@ -112,6 +117,7 @@ export const DEFAULT_SETTINGS: Settings = {
   crosshair: false,
   showSpaces: true,
   sketchToScale: false,
+  sketchEllipse: 'ellipse',
   pageFilter: 'none',
   thinLines: false,
   reuseTool: true,

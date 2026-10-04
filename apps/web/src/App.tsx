@@ -6217,6 +6217,7 @@ export function App() {
                     scale={open.store.scaleAt(toolsStateA.sketch.pageIndex, toolsStateA.sketch.from)}
                     onSegment={(len, angle) => ctl.tools.sketchSegment(len, angle)}
                     onBox={(w, h) => ctl.tools.sketchBox(w, h)}
+                    onCircle={(r) => ctl.tools.sketchCircle(r)}
                     onCancel={() => (toolsStateA.sketch?.mode === 'box' ? ctl.tools.cancelSketch() : ctl.tools.cancel())}
                     onFinish={() => ctl.tools.finish()}
                   />

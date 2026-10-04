@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
-import { boundsOf, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupStore, type Point } from '@nb/markup';
+import { boundsOf, circleBox, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupStore, type Point } from '@nb/markup';
 import { formatLength, METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
 
 interface Props {
@@ -11,12 +11,13 @@ interface Props {
 }
 
 /** Markup types whose geometry Draw to Scale edits in the toolbar. */
-export const GEOMETRY_TYPES = new Set(['line', 'arrow', 'rect', 'polyline']);
+export const GEOMETRY_TYPES = new Set(['line', 'arrow', 'rect', 'ellipse', 'polyline']);
 
 /**
  * Draw to Scale: a selected shape's sizes in real units at its scale. Lines take a length and
- * angle (the start stays put), rectangles a width and height (the first corner stays put), and
- * polylines a length and angle per segment (the points after it move along).
+ * angle (the start stays put), rectangles and ellipses a width and height (the first corner
+ * stays put), circles a radius or diameter (the centre stays put), and polylines a length and
+ * angle per segment (the points after it move along).
  */
 export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
   const setPoints = (points: Point[]) => {
@@ -32,6 +33,7 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
       </>
     );
   }
+  if (m.type === 'ellipse') return <EllipseGeometry markup={m} scale={scale} readOnly={readOnly} onChange={setPoints} />;
   if (m.type === 'polyline') return <PolylineGeometry markup={m} scale={scale} readOnly={readOnly} onChange={setPoints} />;
   const start = m.points[0]!;
   const { length, angle } = segmentPolar(start, m.points[1]!);
@@ -40,6 +42,46 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
     <>
       <LengthField label="Length" title="Length at the page's scale; the line's start stays put" points={length} scale={scale} readOnly={readOnly} onChange={(l) => setEnd(l, angle)} />
       <AngleField angle={angle} readOnly={readOnly} onChange={(a) => setEnd(length, a)} />
+    </>
+  );
+}
+
+/** An ellipse by width and height, or (as a circle) by radius or diameter. */
+function EllipseGeometry({ markup: m, scale, readOnly, onChange }: { markup: Markup; scale: Scale; readOnly: boolean; onChange: (points: Point[]) => void }) {
+  const b = boundsOf(m.points.slice(0, 2));
+  const round = Math.abs(b.w - b.h) <= 1e-6 * Math.max(b.w, b.h, 1);
+  const [as, setAs] = useState<'ellipse' | 'circle'>(round ? 'circle' : 'ellipse');
+  const centre: Point = [b.x + b.w / 2, b.y + b.h / 2];
+  const circle = as === 'circle' && round;
+  return (
+    <>
+      <label className="field" title="Ellipse: width and height. Circle: radius or diameter, about its centre.">
+        <select
+          value={circle ? 'circle' : 'ellipse'}
+          disabled={readOnly}
+          aria-label="Shape"
+          onChange={(e) => {
+            const next = e.target.value as 'ellipse' | 'circle';
+            setAs(next);
+            // Making it a circle keeps its centre and takes its width as the diameter.
+            if (next === 'circle' && !round) onChange(circleBox(centre, b.w / 2));
+          }}
+        >
+          <option value="ellipse">Ellipse</option>
+          <option value="circle">Circle</option>
+        </select>
+      </label>
+      {circle ? (
+        <>
+          <LengthField label="Radius" title="Radius at the page's scale; the centre stays put" points={b.w / 2} scale={scale} readOnly={readOnly} onChange={(r) => onChange(circleBox(centre, r))} />
+          <LengthField label="Diameter" title="Diameter at the page's scale; the centre stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(d) => onChange(circleBox(centre, d / 2))} />
+        </>
+      ) : (
+        <>
+          <LengthField label="Width" title="Width at the page's scale; the first corner stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => onChange(resizedBox(m, w, b.h))} />
+          <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} scale={scale} readOnly={readOnly} onChange={(h) => onChange(resizedBox(m, b.w, h))} />
+        </>
+      )}
     </>
   );
 }
