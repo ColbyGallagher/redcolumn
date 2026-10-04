@@ -37,6 +37,9 @@ import {
   shapeBounds,
   translated,
   moved,
+  circleBox,
+  polarPoint,
+  segmentPolar,
   type Geometry,
   type Alignment,
   type Axis,
@@ -56,7 +59,7 @@ import {
   rotationCentre,
   type Attachment,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, pathLength, type Snap, type SnapIndex } from '@nb/measure';
+import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 
@@ -230,8 +233,21 @@ export interface SketchState {
 
 /** Drag-drawn shapes Draw to Size sizes by width and height after a click. */
 const SKETCH_BOX_TYPES: readonly MarkupType[] = ['rect', 'ellipse', 'cloud'];
+/** Draw to Scale: the Ellipse tool is set to draw circles from their centre. */
+const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get().sketchEllipse !== 'ellipse';
+/** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
+const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
 const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
+
+/** Draw to Scale: a box type's first click, the markup it will become, and the pointer since. */
+interface SketchAnchor {
+  type: MarkupType;
+  pageIndex: number;
+  at: Point;
+  markup: Markup;
+  hover?: Point;
+}
 
 /** Markups Smart Fill can make from a region. */
 export const FILL_TYPES = ['area', 'perimeter', 'volume', 'polygon', 'space', 'polylength'] as const;
@@ -316,6 +332,8 @@ function snapTarget(type: MarkupType): boolean {
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'cutout') return { min: 3, closes: true };
+  // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
+  if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
 }
 
@@ -401,8 +419,8 @@ export class MarkupTools implements ViewerOverlay {
     else this.viewer.invalidate();
   }
 
-  /** Box types: the corner a click placed, waiting for a typed width and height. */
-  private sketchAnchor: { type: MarkupType; pageIndex: number; at: Point } | null = null;
+  /** Box types: the corner (a circle's centre) a click placed, waiting for its size. */
+  private sketchAnchor: SketchAnchor | null = null;
 
   private sketchState(): SketchState | null {
     if (!settings.get().sketchToScale) return null;
@@ -428,14 +446,9 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind !== 'multi' || !g.markup.points.length || !(length > 0)) return;
     const from = g.markup.points.at(-1)!;
-    let dir: [number, number];
-    if (angle !== null) dir = [Math.cos((angle * Math.PI) / 180), -Math.sin((angle * Math.PI) / 180)];
-    else {
-      const h = g.hover;
-      const d = h ? Math.hypot(h[0] - from[0], h[1] - from[1]) : 0;
-      dir = h && d > 1e-6 ? [(h[0] - from[0]) / d, (h[1] - from[1]) / d] : [1, 0];
-    }
-    const p: Point = [from[0] + dir[0] * length, from[1] + dir[1] * length];
+    const h = g.hover;
+    const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
+    const p = polarPoint(from, length, angle ?? toward);
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -443,12 +456,41 @@ export class MarkupTools implements ViewerOverlay {
     this.refreshSketch();
   }
 
-  /** Draw to Size: draws the anchored box type `width` by `height` points (right and down). */
+  /**
+   * Draw to Scale: draws the anchored box type `width` by `height` points, toward the pointer
+   * (right and down when it has not moved).
+   */
   sketchBox(width: number, height: number) {
     const a = this.sketchAnchor;
-    if (!a || !this.store || !(width > 0) || !(height > 0)) return;
+    if (!a || !(width > 0) || !(height > 0)) return;
+    const h = a.hover;
+    const sx = h && h[0] < a.at[0] ? -1 : 1;
+    const sy = h && h[1] < a.at[1] ? -1 : 1;
+    this.placeSketchBox([a.at, [a.at[0] + sx * width, a.at[1] + sy * height]]);
+  }
+
+  /** Draw to Scale: draws the anchored circle `radius` points about its centre. */
+  sketchCircle(radius: number) {
+    const a = this.sketchAnchor;
+    if (!a || !(radius > 0)) return;
+    this.placeSketchBox(circleBox(a.at, radius));
+  }
+
+  /**
+   * Draw to Scale: the anchored box's points with the pointer (or a click) at `to`: the opposite
+   * corner, or for a circle a point on it.
+   */
+  private sketchBoxPoints(a: SketchAnchor, to: Point): Point[] {
+    return sketchesCircle(a.type) ? circleBox(a.at, Math.hypot(to[0] - a.at[0], to[1] - a.at[1])) : [a.at, to];
+  }
+
+  /** Draw to Scale: finishes the anchored box with its two corners. */
+  private placeSketchBox(points: Point[]) {
+    const a = this.sketchAnchor;
+    if (!a || !this.store) return;
     this.sketchAnchor = null;
-    const m = this.newMarkup(a.type, a.pageIndex, [a.at, [a.at[0] + width, a.at[1] + height]]);
+    const now = Date.now();
+    const m: Markup = { ...a.markup, points, createdAt: now, modifiedAt: now };
     this.store.checkpoint();
     this.store.add(m);
     this.options.onCreated?.(m);
@@ -1135,6 +1177,37 @@ export class MarkupTools implements ViewerOverlay {
       const { markup, hover } = g;
       const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
+      // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
+      const from = markup.points.at(-1);
+      if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
+        const { length, angle } = segmentPolar(from, hover);
+        const scale = store.scaleAt(pageIndex, from);
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+      }
+    }
+    // Draw to Scale: the box from its first corner to the pointer, with its width and height.
+    const anchor = this.sketchAnchor;
+    if (!g && anchor?.pageIndex === pageIndex && anchor.hover) {
+      const [a, b] = [anchor.at, anchor.hover];
+      drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
+      const scale = store.scaleAt(pageIndex, a);
+      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (r * zoom >= 2) {
+        if (sketchesCircle(anchor.type)) {
+          // The radius, from the centre out to the pointer.
+          ctx.save();
+          ctx.strokeStyle = '#2563eb';
+          ctx.lineWidth = 1 / zoom;
+          ctx.setLineDash([4 / zoom, 3 / zoom]);
+          ctx.beginPath();
+          ctx.moveTo(a[0], a[1]);
+          ctx.lineTo(b[0], b[1]);
+          ctx.stroke();
+          ctx.restore();
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+      }
     }
     if (this.snapHit && this.snapPage === pageIndex) drawSnapIndicator(ctx, this.snapHit, zoom);
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
@@ -1286,6 +1359,16 @@ export class MarkupTools implements ViewerOverlay {
       if (e.button !== 0) return false;
       this.ghost = null;
       this.placeTemplate(template, pageIndex, pt, !this.state.preset?.once);
+      return true;
+    }
+
+    // Draw to Scale: a click after the first corner places the opposite one.
+    const anchor = this.sketchAnchor;
+    if (anchor && tool === anchor.type && anchor.pageIndex === pageIndex && e.button === 0) {
+      const to = this.resolve(pt, e, anchor.at);
+      const zoom = this.viewer.zoomFor(pageIndex);
+      const [dx, dy] = [Math.abs(to[0] - anchor.at[0]) * zoom, Math.abs(to[1] - anchor.at[1]) * zoom];
+      if (sketchesCircle(anchor.type) ? Math.hypot(dx, dy) >= this.dragPx : dx >= this.dragPx && dy >= this.dragPx) this.placeSketchBox(this.sketchBoxPoints(anchor, to));
       return true;
     }
 
@@ -1671,7 +1754,9 @@ export class MarkupTools implements ViewerOverlay {
     // Preview the snap target before the first click, and rubber-band between clicks.
     const g = this.gesture;
     const mods = lastModifiers;
+    const anchor = this.sketchAnchor;
     if (g?.kind === 'multi') g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!);
+    else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
     else if (tool === 'calibrate' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
@@ -1933,7 +2018,7 @@ export class MarkupTools implements ViewerOverlay {
     } else if (tiny) {
       // Draw to Size: a click puts down the corner; the size is typed.
       if (settings.get().sketchToScale && SKETCH_BOX_TYPES.includes(m.type)) {
-        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a };
+        this.sketchAnchor = { type: m.type, pageIndex: m.pageIndex, at: a, markup: m };
         this.refreshSketch();
       }
       return;
@@ -2237,6 +2322,25 @@ function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Poin
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
+}
+
+/** Draw to Scale: the size of what is being drawn, in a tag beside the pointer at `to`. */
+function drawSketchReadout(ctx: CanvasRenderingContext2D, text: string, to: Point, zoom: number) {
+  const px = 1 / zoom;
+  ctx.save();
+  ctx.font = `${12 * px}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 12 * px;
+  const h = 20 * px;
+  const x = to[0] + 14 * px;
+  const y = to[1] + 18 * px;
+  ctx.fillStyle = 'rgba(17, 24, 39, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect(x, y - h / 2, w, h, 4 * px);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, x + 6 * px, y);
   ctx.restore();
 }
 

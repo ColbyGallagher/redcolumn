@@ -2325,6 +2325,7 @@
 .sketch-bar .sketch-title,
 .sketch-bar .unit {
   color: var(--muted);
+  white-space: nowrap;
 }
 
 /* Symbol Search results, floating over the top right of the view */

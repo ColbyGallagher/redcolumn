@@ -1,3 +1,4 @@
+import { bindHandle } from '../storage/diskHandles.ts';
 import type { LaunchAction } from './manifest.ts';
 
 /**
@@ -47,7 +48,9 @@ export function consumeLaunchFiles(onFiles: (files: File[]) => void) {
     const files: File[] = [];
     for (const handle of params.files ?? []) {
       try {
-        files.push(await handle.getFile());
+        const file = await handle.getFile();
+        bindHandle(file, handle);
+        files.push(file);
       } catch {
         // A file that went away before we read it.
       }

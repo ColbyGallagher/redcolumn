@@ -191,6 +191,16 @@ body,
   font: inherit;
 }
 
+.field .geometry-length {
+  width: 84px;
+  padding: 0 6px;
+}
+
+.field .geometry-angle {
+  width: 56px;
+  padding: 0 6px;
+}
+
 .author {
   margin-left: 12px;
 }

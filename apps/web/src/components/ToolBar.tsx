@@ -1,7 +1,9 @@
 import { Fragment } from 'react';
-import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type MarkupStyle, type MarkupType } from '@nb/markup';
+import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType } from '@nb/markup';
+import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
+import { ShapeGeometry } from './ShapeGeometry';
 import { shortcutLabel } from '../commands/shortcuts';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -130,6 +132,8 @@ interface Props {
   /** Style of the selected text markup, which the text controls show instead of the tool's defaults. */
   textMarkupStyle?: MarkupStyle;
   cloudBubble: { value: number | undefined } | null;
+  /** Draw to Scale: the selected shape whose sizes the toolbar edits. */
+  geometry: { markup: Markup; scale: Scale; store: MarkupStore; readOnly: boolean } | null;
   enabled: boolean;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
@@ -144,7 +148,7 @@ function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, enabled, visibleTools, onUndo, onRedo }: Props) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, onUndo, onRedo }: Props) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
   const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
@@ -174,6 +178,12 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
         </label>
       )}
       <span className="sep" />
+      {geometry && (
+        <>
+          <ShapeGeometry key={geometry.markup.id} {...geometry} />
+          <span className="sep" />
+        </>
+      )}
       {style && styleType && (
         <>
           <label className="field" title="Color">

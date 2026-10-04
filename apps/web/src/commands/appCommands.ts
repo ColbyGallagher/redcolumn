@@ -34,6 +34,7 @@ export interface CommandActions {
   markupsXfdf: (dir: 'export' | 'import') => void;
   importMarkupsFromPdf: () => void;
   save: () => void;
+  saveAs: () => void;
   exportCsv: () => void;
   exportSummary: () => void;
   print: () => void;
@@ -195,7 +196,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.close', 'File', 'Close', a.close, doc),
     cmd('file.closeAll', 'File', 'Close All', a.closeAll, doc),
     cmd('file.save', 'File', 'Save', a.save, doc && s.canSaveCopy),
-    cmd('file.saveAs', 'File', 'Save As…', a.save, doc && s.canSaveCopy),
+    cmd('file.saveAs', 'File', 'Save As…', a.saveAs, doc && s.canSaveCopy),
     cmd('file.saveAll', 'File', 'Save All', a.saveAll, doc && s.canSaveCopy),
     cmd('file.revert', 'File', 'Revert', a.revert, s.editable && s.canUndo),
     cmd('file.publish', 'File', 'Publish…', () => a.publish('pdf'), doc && s.canSaveCopy),
@@ -311,7 +312,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.eraserMedium', 'Tools', 'Eraser Size: Medium', () => a.setSettings({ eraserSize: 'medium' }), true, s.settings.eraserSize === 'medium'),
     cmd('tools.eraserLarge', 'Tools', 'Eraser Size: Large', () => a.setSettings({ eraserSize: 'large' }), true, s.settings.eraserSize === 'large'),
     cmd('tools.eraserWhole', 'Tools', 'Annotation Eraser (Whole Markups)', () => a.setSettings({ eraserWhole: !s.settings.eraserWhole }), true, s.settings.eraserWhole),
-    cmd('tools.sketchToScale', 'Tools', 'Draw to Size', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
+    cmd('tools.sketchToScale', 'Tools', 'Draw to Scale', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
     cmd('tools.stamps', 'Tools', 'Manage Stamps…', a.manageStamps, doc),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),
