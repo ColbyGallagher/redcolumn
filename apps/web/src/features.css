@@ -3116,60 +3116,6 @@ tr.hidden-markup td {
   font-size: 11px;
 }
 
-.folder-browser {
-  border-top: 1px solid var(--border);
-  padding: 6px 8px;
-}
-
-.folder-head,
-.folder-path {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-}
-
-.folder-title {
-  flex: 1;
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.folder-path select {
-  margin-left: auto;
-}
-
-.folder-list {
-  max-height: 40vh;
-  margin: 4px 0 0;
-  padding: 0;
-  overflow: auto;
-  list-style: none;
-}
-
-.folder-entry {
-  display: flex;
-  gap: 6px;
-  width: 100%;
-  padding: 3px 4px;
-  border: 0;
-  background: none;
-  color: var(--text);
-  text-align: left;
-  cursor: pointer;
-}
-
-.folder-entry:hover:not(:disabled) {
-  background: #33373d;
-}
-
-.folder-entry:disabled {
-  color: var(--muted);
-  cursor: default;
-}
-
 .layers .panel-subhead {
   margin: 12px 10px 4px;
   color: var(--muted);

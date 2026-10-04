@@ -38,7 +38,6 @@ import { SpellCheckDialog } from './components/SpellCheckDialog';
 import { WhatsNewDialog } from './components/WhatsNewDialog';
 import { PublishDialog, type PublishRequest } from './components/PublishDialog';
 import { CameraDialog } from './components/CameraDialog';
-import { FolderBrowser } from './components/FolderBrowser';
 import { ApplyRedactionsDialog, contrastOn, type RedactOptions } from './components/ApplyRedactionsDialog';
 import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
@@ -124,7 +123,7 @@ import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { canPromptInstall, promptInstall } from './offline/install';
-import { handleOf,pickFilesToOpen, recallHandle, rememberHandle, saveAsWithPicker, writeToHandle } from './storage/diskHandles';
+import { droppedPdfs, handleOf, pickFilesToOpen, recallHandle, rememberHandle, saveAsWithPicker, writeToHandle } from './storage/diskHandles';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -6260,9 +6259,6 @@ export function App() {
                 onRemove={(f) => void removeFile(f).then(refreshLibrary)}
               />
             )}
-            {leftTab === 'files' && (
-              <FolderBrowser onOpen={(file) => void openNewFile([file])} />
-            )}
             <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" onPointerDown={onLeftResize} />
           </aside>
         )}
@@ -6290,8 +6286,9 @@ export function App() {
                   if (dropTool(e, 'a')) return;
                   e.preventDefault();
                   setDragOver(false);
-                  const files = [...e.dataTransfer.files].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-                  if (files.length) void openNewFile(files, 'a');
+                  void droppedPdfs(e.dataTransfer).then((files) => {
+                    if (files.length) void openNewFile(files, 'a');
+                  });
                 }}
               >
                 <canvas ref={canvasRef} />
@@ -6360,8 +6357,9 @@ export function App() {
                       if (dropTool(e, 'b')) return;
                       e.preventDefault();
                       setDragOver(false);
-                      const files = [...e.dataTransfer.files].filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
-                      if (files.length) void openNewFile(files, 'b');
+                      void droppedPdfs(e.dataTransfer).then((files) => {
+                        if (files.length) void openNewFile(files, 'b');
+                      });
                     }}
                   >
                     <canvas ref={canvasBRef} />

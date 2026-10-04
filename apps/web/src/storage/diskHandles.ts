@@ -122,3 +122,30 @@ export async function saveAsWithPicker(name: string, mime: string, data: Blob | 
     return 'unsupported';
   }
 }
+
+/**
+ * The PDFs in a drop, each linked to its file on disk where the browser allows (so Save can write
+ * back to it). The handles must be requested before the drop event ends, hence no awaiting first.
+ */
+export async function droppedPdfs(dt: DataTransfer): Promise<File[]> {
+  const isPdf = (f: { name: string; type: string }) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  const asked = [...dt.items]
+    .filter((i) => i.kind === 'file')
+    .map((i) => (i as DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> }).getAsFileSystemHandle?.() ?? null);
+  const fallback = [...dt.files];
+  if (!asked.length || asked.every((p) => !p)) return fallback.filter(isPdf);
+  const files: File[] = [];
+  for (const p of asked) {
+    try {
+      const h = await p;
+      if (h?.kind !== 'file') continue;
+      const file = await (h as FileSystemFileHandle).getFile();
+      if (!isPdf(file)) continue;
+      bindHandle(file, h as FileSystemFileHandle);
+      files.push(file);
+    } catch {
+      // Not readable through a handle: the plain files below still open.
+    }
+  }
+  return files.length ? files : fallback.filter(isPdf);
+}
