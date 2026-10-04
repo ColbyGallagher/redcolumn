@@ -101,7 +101,7 @@ import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
-import { idFromText, openProject, projectById } from './studio/projects/store';
+import { idFromText, onProjectOpened, openProject, projectById } from './studio/projects/store';
 import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
 import { libraryCopyOf, linkOf, setLink } from './studio/projects/local';
 import type { Project } from './studio/projects/Project';
@@ -116,7 +116,7 @@ import {
 } from './components/SidePanels';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, importPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -430,6 +430,16 @@ async function annotatedBytes(cur: OpenFile, options: { links?: boolean; markups
     // Until the file's own outline has been read in, leave it as it is.
     ...(cur.store.outlineImported() ? { bookmarks: cur.store.bookmarks() } : {}),
   });
+}
+
+/**
+ * The PDF a Project check-in uploads: the library copy's file as it is. Its markups are not written
+ * in, as they are shared live already (as in a Live Session) and would otherwise come back twice.
+ */
+async function projectCopyBytes(libraryId: string): Promise<ArrayBuffer> {
+  const file = (await listFiles()).find((f) => f.id === libraryId);
+  if (!file) throw new Error('Your copy is no longer in the library.');
+  return readFile(file.hash);
 }
 
 type Pane = 'a' | 'b';
@@ -968,10 +978,16 @@ export function App() {
         }
       } else if (sessionDoc) {
         store.setReadOnly(true);
+      } else {
+        // A Project file's markups are shared live with everyone who has it open.
+        const link = linkOf(file.id);
+        const project = link ? projectById(link.projectId) : null;
+        if (link && project) await project.attachMarkups(link.fileId, store).catch((err: unknown) => console.warn('Project markups:', err));
       }
       // Documents without their own custom columns start with the profile's.
       const template = profiles.active().state.columnTemplate;
-      if (template && !sessionDoc && !store.readOnly && !store.hasColumnSet()) store.setColumnSet(template);
+      // Not shared documents: one person's profile would become everyone's.
+      if (template && !sessionDoc && !linkOf(file.id) && !store.readOnly && !store.hasColumnSet()) store.setColumnSet(template);
       await hideImported(doc, store);
       const packed = { file, doc, store };
       // The new tab goes just after the one in front.
@@ -1024,7 +1040,11 @@ export function App() {
         // Sheets first: importing the PDF's links needs sheet numbers to resolve links to files.
         if (Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, setIndexProgress, signal);
         if (!cur.store.annotationsImported()) {
-          await importPdfAnnotations(fresh, cur.store, setIndexProgress, signal);
+          // A Project file whose markups are already shared takes them from there, not from its PDF.
+          const link = linkOf(cur.file.id);
+          const project = link ? projectById(link.projectId) : null;
+          const shared = link && project ? await project.hasSharedMarkups(link.fileId).catch(() => false) : false;
+          await importPdfAnnotations(fresh, cur.store, setIndexProgress, signal, shared ? fromOtherTools : undefined);
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
@@ -3416,8 +3436,10 @@ export function App() {
           const held = tab ? null : await acquireDocument(copyId);
           const target: OpenFile = tab ?? held!.open;
           try {
-            // Markups that came from the file are read again from the new revision.
-            await commitDocument(target, got.bytes, () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before Project revision ${got.revision.n}`);
+            // The new revision's own annotations: ones this app wrote are already shared live (hidden
+            // here, so they are not drawn twice); other tools' markups are brought in.
+            const found = await readPdfAnnotations(got.bytes.slice(0), target.store);
+            await commitDocument(target, got.bytes, () => target.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported), `Before Project revision ${got.revision.n}`);
           } finally {
             held?.release();
           }
@@ -3446,7 +3468,7 @@ export function App() {
   }, []);
 
   /**
-   * Checks the library copy in, its markups written into the PDF as annotations. With OneDrive out
+   * Checks the library copy in as a new revision of the PDF. With OneDrive out
    * of reach the check-in is queued (the copy is read when it is sent) and goes when it is back.
    */
   const checkInProjectFile = useCallback(
@@ -3459,15 +3481,8 @@ export function App() {
         setNotice(`${file.name} will be checked in when OneDrive can be reached.`);
       };
       if (!navigator.onLine) return queue();
-      const held = await acquireDocument(copyId);
-      let bytes: Uint8Array;
       try {
-        bytes = await annotatedBytes(held.open);
-      } finally {
-        held.release();
-      }
-      try {
-        const rev = await project.checkIn(file.id, bytes.slice().buffer, comment);
+        const rev = await project.checkIn(file.id, await projectCopyBytes(copyId), comment);
         setLink(copyId, { ...link, rev: rev.n });
         setNotice(`Checked in ${file.name} as revision ${rev.n}.`);
       } catch (err) {
@@ -3475,7 +3490,19 @@ export function App() {
         queue();
       }
     },
-    [acquireDocument],
+    [],
+  );
+
+  // Tabs reopened before their Project was (on page load, or offline) share markups once it opens.
+  useEffect(
+    () =>
+      onProjectOpened((project) => {
+        for (const tab of [...tabsARef.current, ...tabsBRef.current]) {
+          const link = linkOf(tab.file.id);
+          if (link?.projectId === project.id) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
+        }
+      }),
+    [],
   );
 
   /** Sends check-ins and notes made offline, in order (src/studio/projects/queue.ts). */
@@ -3491,20 +3518,13 @@ export function App() {
       if (!project.heldByMe(file)) throw new Error(file.checkout ? `${file.checkout.by} has it checked out.` : 'It is no longer checked out to you. Check it out again, then retry.');
       const latest = file.revisions[file.revisions.length - 1]!.n;
       if (latest > c.baseRev) throw new Error(`Someone checked in revision ${latest} after your copy (revision ${c.baseRev}).`);
-      const held = await acquireDocument(c.libraryId);
-      let bytes: Uint8Array;
-      try {
-        bytes = await annotatedBytes(held.open);
-      } finally {
-        held.release();
-      }
-      const rev = await project.checkIn(file.id, bytes.slice().buffer, c.comment);
+      const rev = await project.checkIn(file.id, await projectCopyBytes(c.libraryId), c.comment);
       const link = linkOf(c.libraryId);
       if (link) setLink(c.libraryId, { ...link, rev: rev.n });
     });
     if (r.sent.length) setNotice(`Sent ${r.sent.length} Project change${r.sent.length === 1 ? '' : 's'} made offline.`);
     if (r.failed.length) setError(`Not sent: ${r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ')}. Retry or discard them in the Projects panel.`);
-  }, [acquireDocument]);
+  }, []);
   const sendQueuedRef = useRef(sendQueuedProjectChanges);
   sendQueuedRef.current = sendQueuedProjectChanges;
   useEffect(() => {

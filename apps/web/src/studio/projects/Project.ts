@@ -1,4 +1,7 @@
+import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission } from '../drive/DriveApi';
+import { claimSeat, RoomFiles } from '../drive/rooms';
+import { rememberedProjectSeat, rememberProjectSeat } from './local';
 import {
   MANIFEST_NAME,
   ROLE,
@@ -56,6 +59,8 @@ export interface ProjectSnapshot {
 export interface ProjectOptions {
   /** Signs in (a click) before the drive is used. */
   authorize: () => Promise<void>;
+  /** How often open files' markups are read while visible; 0 disables the timers (tests). */
+  markupPollMs?: number;
 }
 
 const dec = new TextDecoder();
@@ -98,6 +103,12 @@ export class Project {
   private bodies = new Map<string, { version: string; body: unknown }>();
   private shardId: string | null = null;
   private myEntries: ProjectRecordEntry[] = [];
+  /** Each file's markups, shared live as in a Live Session (made when a file is first opened). */
+  private markupRooms: Promise<RoomFiles> | null = null;
+  private releaseSeat: (() => void) | null = null;
+  private linked = new WeakMap<MarkupStore, () => void>();
+  /** Our own markups only: what an editor (not the owner) may change. */
+  private ownRule: EditRule;
 
   private constructor(api: ProjectDrive, me: Person, folderId: string, isOwner: boolean, snap: ProjectSnapshot, opts: ProjectOptions) {
     this.api = api;
@@ -106,6 +117,91 @@ export class Project {
     this.isOwner = isOwner;
     this.snap = snap;
     this.opts = opts;
+    this.ownRule = ownMarkupsOnly(me.name);
+  }
+
+  /**
+   * The folder's markup rooms, with this browser's seat: remembered per Project, or a fresh one
+   * when another tab of this browser holds it (two tabs writing one seat would overwrite each other).
+   */
+  private rooms(): Promise<RoomFiles> {
+    this.markupRooms ??= (async () => {
+      let seat = rememberedProjectSeat(this.folderId);
+      let release = seat ? await claimSeat(this.folderId, seat) : null;
+      if (!seat || !release) {
+        const fresh = !seat;
+        seat = `m${newId()}`;
+        release = await claimSeat(this.folderId, seat);
+        if (fresh) rememberProjectSeat(this.folderId, seat);
+      }
+      this.releaseSeat = release;
+      return new RoomFiles(this.api, this.folderId, seat, {
+        pollMs: this.opts.markupPollMs,
+        onStatus: (status) => {
+          if (status === 'viewOnly' && !this.isOwner) this.set({ level: 'viewer' });
+        },
+      });
+    })();
+    return this.markupRooms;
+  }
+
+  /**
+   * Links an open file's markup store to the file's shared markups: everyone with it open sees
+   * edits within seconds, with no check-out (as in a Live Session). The owner may change anyone's
+   * markups; editors their own; viewers none. Returns a function that unlinks it.
+   */
+  async attachMarkups(fileId: string, store: MarkupStore): Promise<() => void> {
+    const known = this.linked.get(store);
+    if (known) return known;
+    const rooms = await this.rooms();
+    const detach = await rooms.attach(fileId, store);
+    const apply = () => {
+      store.setReadOnly(!this.canWrite);
+      store.setEditRule(this.snap.level === 'owner' ? null : this.ownRule);
+    };
+    apply();
+    const off = this.subscribe(apply);
+    const unlink = () => {
+      off();
+      detach();
+      this.linked.delete(store);
+      store.doc.off('destroy', unlink);
+    };
+    store.doc.on('destroy', unlink);
+    this.linked.set(store, unlink);
+    return unlink;
+  }
+
+  /** Whether anyone has shared markups for this file yet (they then come from there, not the PDF). */
+  async hasSharedMarkups(fileId: string): Promise<boolean> {
+    const rooms = await this.rooms();
+    await rooms.ready();
+    return rooms.hasState(fileId);
+  }
+
+  /** Saves markups not yet written (tests, and before leaving). */
+  async flushMarkups(): Promise<void> {
+    if (this.markupRooms) await (await this.markupRooms).flush();
+  }
+
+  /** Reads others' markups now (tests; otherwise polled while a file is open). */
+  async pollMarkups(): Promise<void> {
+    if (this.markupRooms) await (await this.markupRooms).poll();
+  }
+
+  /** Stops syncing markups and lets another tab take this browser's seat. */
+  close() {
+    const rooms = this.markupRooms;
+    this.markupRooms = null;
+    void rooms
+      ?.then(async (r) => {
+        r.destroy();
+        await r.flush();
+      })
+      .finally(() => {
+        this.releaseSeat?.();
+        this.releaseSeat = null;
+      });
   }
 
   /** The ID others open the Project by (a share ID on OneDrive). */

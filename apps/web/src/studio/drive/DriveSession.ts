@@ -5,6 +5,7 @@ import { forgetCurrentSession, inviteLink, readLocal, rememberSession, writeLoca
 import { appendRecord, describeChanges, recordId, watchMarkups } from '../record';
 import { attendeeColor, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { claimSeat, inPool } from './rooms';
 
 /**
  * A Live Session kept in a Google Drive or OneDrive folder, with no server of ours in between:
@@ -132,45 +133,6 @@ const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'appl
 const binary = (bytes: Uint8Array) => new Blob([bytes as Uint8Array<ArrayBuffer>], { type: BINARY });
 
 const roomFileName = (seatId: string, room: string, kind: typeof SNAPSHOT | typeof DELTA) => `${seatId}.${room}.${kind}`;
-
-/** Runs `fn` over `items`, `limit` at a time; rejects with the first error once all have settled. */
-async function inPool<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
-  let next = 0;
-  let failure: { err: unknown } | null = null;
-  const worker = async () => {
-    while (next < items.length) {
-      const item = items[next++]!;
-      try {
-        await fn(item);
-      } catch (err) {
-        failure ??= { err };
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  if (failure) throw (failure as { err: unknown }).err;
-}
-
-/**
- * Claims a seat for this tab until `release` is called, or null when another tab of this browser
- * has it: two tabs writing one seat's files would overwrite each other's edits.
- */
-function claimSeat(folderId: string, seatId: string): Promise<(() => void) | null> {
-  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
-  if (!locks) return Promise.resolve(() => {});
-  return new Promise((resolve) => {
-    locks
-      .request(`nb-seat:${folderId}:${seatId}`, { ifAvailable: true }, (lock) => {
-        if (!lock) {
-          resolve(null);
-          return;
-        }
-        return new Promise<void>((release) => resolve(release));
-      })
-      // Locks refused (a sandboxed frame): go on unguarded rather than never joining.
-      .catch(() => resolve(() => {}));
-  });
-}
 
 export interface DriveSessionOptions {
   /** Signs the user in (Google's popup); only succeeds from a click. */

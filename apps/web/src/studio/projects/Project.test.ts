@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import * as Y from 'yjs';
+import type { EditRule, MarkupStore } from '@nb/markup';
 import { test } from 'node:test';
 import { DriveAuthError, DriveForbiddenError, type DriveFile, type DrivePermission, type DriveProps } from '../drive/DriveApi';
 import { CheckedOutError, Project, ProjectError, type ProjectDrive } from './Project';
@@ -104,7 +106,7 @@ class FakeDrive implements ProjectDrive {
   }
 }
 
-const opts = { authorize: async () => {} };
+const opts = { authorize: async () => {}, markupPollMs: 0 };
 const pdf = (text: string) => new TextEncoder().encode(`%PDF-1.7 ${text}`).buffer as ArrayBuffer;
 const text = (b: ArrayBuffer) => new TextDecoder().decode(b);
 const hana = { name: 'Hana', email: 'hana@x.com' };
@@ -338,4 +340,84 @@ test('the owner sees who has access, changes their level and removes them; other
     'changed lee@x.com to can edit',
     'removed kim@x.com',
   ]);
+});
+
+/** Just the parts of a MarkupStore that sharing markups uses. */
+function fakeStore() {
+  const doc = new Y.Doc();
+  let readOnly = false;
+  let rule: EditRule | null = null;
+  return {
+    store: { doc, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
+    readOnly: () => readOnly,
+    mayEdit: (author: string) => !rule || rule({ author }),
+    markups: doc.getMap<{ id: string; type: string; status: string }>('markups'),
+  };
+}
+
+test('markups on a Project file are shared live, with no check-out', async () => {
+  const { owner, member } = await twoPeople();
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  assert.equal(await owner.hasSharedMarkups(f.id), false);
+  const a = fakeStore();
+  const b = fakeStore();
+  await owner.attachMarkups(f.id, a.store);
+  await member.attachMarkups(f.id, b.store);
+
+  a.markups.set('m1', { id: 'm1', type: 'cloud', status: 'none' });
+  await owner.flushMarkups();
+  await member.pollMarkups();
+  assert.equal(b.markups.get('m1')?.type, 'cloud', 'Sam sees the cloud Hana drew');
+  assert.equal(owner.getSnapshot().files[0]!.checkout, null, 'nobody checked it out');
+
+  b.markups.set('m1', { ...b.markups.get('m1')!, status: 'accepted' });
+  b.markups.set('m2', { id: 'm2', type: 'arrow', status: 'none' });
+  await member.flushMarkups();
+  await owner.pollMarkups();
+  assert.equal(a.markups.get('m1')?.status, 'accepted', 'Hana sees Sam accept it');
+  assert.equal(a.markups.get('m2')?.type, 'arrow');
+  assert.equal(await member.hasSharedMarkups(f.id), true);
+
+  // As in a Live Session: the owner may change anyone's markups, editors their own.
+  assert.equal(a.mayEdit('Sam'), true);
+  assert.equal(b.mayEdit('Hana'), false);
+  assert.equal(b.mayEdit('Sam'), true);
+});
+
+test('shared markups are there for someone who opens the file later, and survive a reopen', async () => {
+  const { drive, owner, member } = await twoPeople();
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  const a = fakeStore();
+  await owner.attachMarkups(f.id, a.store);
+  for (let i = 0; i < 5; i++) a.markups.set(`m${i}`, { id: `m${i}`, type: 'cloud', status: 'none' });
+  await owner.flushMarkups();
+  a.markups.delete('m0');
+  await owner.flushMarkups();
+  owner.close();
+
+  const b = fakeStore();
+  await member.attachMarkups(f.id, b.store);
+  assert.deepEqual([...b.markups.keys()].sort(), ['m1', 'm2', 'm3', 'm4']);
+
+  const again = await Project.open(new FakeDrive(drive, 'hana'), owner.id, hana, opts);
+  const c = fakeStore();
+  await again.attachMarkups(f.id, c.store);
+  assert.deepEqual([...c.markups.keys()].sort(), ['m1', 'm2', 'm3', 'm4'], 'a deleted markup stays deleted');
+});
+
+test('someone who can only view the folder gets read-only markups once OneDrive refuses a save', async () => {
+  const { drive, owner } = await twoPeople();
+  const f = await owner.addFile('A.pdf', null, pdf('one'));
+  drive.viewers.add('vic');
+  const viewer = await Project.open(new FakeDrive(drive, 'vic'), owner.id, { name: 'Vic', email: null }, opts);
+  const v = fakeStore();
+  await viewer.attachMarkups(f.id, v.store);
+  v.markups.set('x', { id: 'x', type: 'cloud', status: 'none' });
+  await viewer.flushMarkups();
+  assert.equal(viewer.level, 'viewer');
+  assert.equal(v.readOnly(), true);
+  await owner.pollMarkups();
+  const a = fakeStore();
+  await owner.attachMarkups(f.id, a.store);
+  assert.equal(a.markups.has('x'), false, 'nothing of the viewer’s reached the folder');
 });

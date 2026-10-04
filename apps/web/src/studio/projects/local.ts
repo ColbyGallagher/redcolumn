@@ -25,6 +25,15 @@ export function forgetProject(id: string) {
   writeLocal(LINKS, kept);
 }
 
+const SEATS = 'nb.projects.seats';
+
+/** This browser's seat for a Project's live markups (its own markup files in the folder), if it has one. */
+export const rememberedProjectSeat = (projectId: string): string | null => readLocal<Record<string, string>>(SEATS, {})[projectId] ?? null;
+
+export function rememberProjectSeat(projectId: string, seatId: string) {
+  writeLocal(SEATS, { ...readLocal<Record<string, string>>(SEATS, {}), [projectId]: seatId });
+}
+
 /** A library file opened from a Project: which file and revision it is. */
 export interface ProjectLink {
   projectId: string;

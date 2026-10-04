@@ -113,8 +113,20 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
  * One-time import of the PDF's own markups and links into the document's store. `bytes` must
  * return a fresh buffer.
  */
-export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
-  const { engine, doc } = await openBackgroundDoc(await bytes());
+export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
+  const found = await readPdfAnnotations(await bytes(), store, onProgress, signal);
+  store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported);
+}
+
+/**
+ * Markups another PDF tool made, as opposed to ones this app wrote into the PDF (which come back
+ * with their own IDs). A Project file's markups are shared live, so only these come from its PDF.
+ */
+export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
+
+/** A PDF's own markups and links, and which of its annotations they stand for (to hide those). */
+export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
+  const { engine, doc } = await openBackgroundDoc(bytes);
   const sheets = store.allSheets();
   const lookup = new SheetLookup(doc.pages.map((_, i) => sheets[i]?.number ?? null));
   try {
@@ -129,7 +141,7 @@ export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, st
       if (result.imported.length) imported[i] = result.imported;
       onProgress({ phase: 'annotations', done: i + 1, total: doc.pages.length });
     }
-    store.importAnnotations(markups, links, imported);
+    return { markups, links, imported };
   } finally {
     engine.terminate();
   }

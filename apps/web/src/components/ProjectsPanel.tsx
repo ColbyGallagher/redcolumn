@@ -451,6 +451,7 @@ function FileActions({
         {state.kind === 'none' && 'Not on this device yet.'}
         {state.kind === 'current' && `Your copy is revision ${state.rev}, the latest.`}
         {state.kind === 'stale' && `Your copy is revision ${state.rev}; the Project has revision ${state.latest}.`}
+        {' '}Markups are shared live with everyone who has it open.
         {file.checkout?.note ? ` Checked out for: ${file.checkout.note}` : ''}
       </p>
       <div className="row">
@@ -466,7 +467,7 @@ function FileActions({
           <button
             className="btn small"
             disabled={busy || !online || !canWrite}
-            title={net('Checking out') ?? 'Only you can check in changes until you check it in or undo'}
+            title={net('Checking out') ?? 'Reserve the PDF to replace it with a new revision. Markups need no check-out: they are shared live.'}
             onClick={() =>
               void run(async () => {
                 await project.checkOut(file.id);
@@ -483,7 +484,7 @@ function FileActions({
             <button
               className="btn small primary"
               disabled={busy || !copy || queuedCheckIn}
-              title={queuedCheckIn ? 'Already waiting to be sent' : copy ? (online ? 'Upload your copy, with its markups, as a new revision' : 'Queue your copy to be checked in when OneDrive can be reached') : 'Open it first, then make your changes'}
+              title={queuedCheckIn ? 'Already waiting to be sent' : copy ? (online ? 'Upload your copy of the PDF as a new revision (markups are shared live, so they need no check-in)' : 'Queue your copy to be checked in when OneDrive can be reached') : 'Open it first, then make your changes'}
               onClick={() =>
                 void run(async () => {
                   const comment = await askText(`Check In ${file.name}`, '', { label: 'Comment', confirm: online ? 'Check In' : 'Queue Check In' });

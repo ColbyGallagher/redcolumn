@@ -37,6 +37,15 @@ function track(project: Project) {
   open.set(project.id, { project, off });
   rememberProject({ id: project.id, name: project.getSnapshot().manifest.name });
   changed();
+  for (const l of openedListeners) l(project);
+}
+
+const openedListeners = new Set<(project: Project) => void>();
+
+/** Calls `listener` with each Project as it opens here (without polling, unlike `subscribeProjects`). */
+export function onProjectOpened(listener: (project: Project) => void): () => void {
+  openedListeners.add(listener);
+  return () => openedListeners.delete(listener);
 }
 
 /** Which Project and folder the panel shows, kept so switching panels does not lose the place. */
@@ -117,6 +126,7 @@ export async function openProject(idOrLink: string, me: string, interactive: boo
 /** Stops showing a Project here (the Project itself is untouched). */
 export function closeProject(id: string) {
   open.get(id)?.off();
+  open.get(id)?.project.close();
   open.delete(id);
   forgetProject(id);
   if (view.projectId === id) view = { projectId: null, folderId: null };
