@@ -66,6 +66,8 @@ test('filling sets values, calculates totals and formats them', async () => {
   assert.deepEqual(calcOrder, ['Total']);
   assert.equal(v.Paid!.value, 'Yes');
   assert.equal(v.Colour!.value, 'Blue');
+  // The returned form is the one the new file reads back as.
+  assert.deepEqual(filled.model, { fields, calcOrder });
   // The appearance shows the formatted value.
   const doc = await PDFDocument.load(filled.bytes);
   const total = doc.getForm().getTextField('Total');

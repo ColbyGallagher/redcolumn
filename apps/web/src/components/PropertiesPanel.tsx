@@ -114,7 +114,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
               const v = e.target.value.trim();
               if (v !== (m.subject ?? '')) {
                 store?.checkpoint();
-                for (const id of ids) store?.update(id, { subject: v || undefined });
+                store?.batch(() => ids.forEach((id) => store.update(id, { subject: v || undefined })));
               }
             }}
           />
@@ -125,7 +125,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             disabled={statusReadOnly}
             onChange={(e) => {
               store?.checkpoint();
-              for (const id of ids) store?.update(id, { status: e.target.value });
+              store?.batch(() => ids.forEach((id) => store.update(id, { status: e.target.value })));
             }}
           >
             {cellContext.statuses.map((s) => (

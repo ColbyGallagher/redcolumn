@@ -106,3 +106,35 @@ test('filling in a signed form appends, so the signature stays valid', async () 
   const doc = await PDFDocument.load(bytes);
   assert.equal(doc.getForm().getTextField('Comments').getText(), 'Looks good');
 });
+
+test('headers, a text layer, properties, crops and flattening append to a signed file', async () => {
+  const { addHeaderFooter } = await import('./headerFooter.ts');
+  const { addTextLayer } = await import('./ocr.ts');
+  const { setDocumentInfo } = await import('./docInfo.ts');
+  const { cropPages } = await import('./pageTools.ts');
+  const { flattenAnnotations } = await import('./process.ts');
+  const unlocked = unlockId(await idPromise, 'pw');
+  const signed = await signPdf(await sample(), unlocked, { area: { pageIndex: 0, rect: { x: 40, y: 40, w: 180, h: 50 } } });
+  const spec = { text: { footerCenter: 'Page <<page>>' }, fontSize: 9, color: '#000000', font: 'Helvetica', margin: { top: 20, bottom: 20, left: 20, right: 20 }, bates: { start: 1, digits: 6, prefix: '', suffix: '' }, startPage: 1 } as const;
+  const edits: [string, () => Promise<Uint8Array>][] = [
+    ['header and footer', () => addHeaderFooter(signed, [0, 1], spec, () => ({ label: '', file: 'f.pdf', date: 'today' }))],
+    ['text layer', () => addTextLayer(signed, new Map([[1, [{ text: 'Hello', x0: 50, y0: 50, x1: 90, y1: 60 }]]]))],
+    ['properties', async () => new Uint8Array(await setDocumentInfo(signed.slice().buffer, { title: 'Later', author: '', subject: '', keywords: '' }))],
+    ['crop', async () => (await cropPages(signed, new Map([[1, { x: 10, y: 10, w: 300, h: 200 }]]))).bytes],
+    ['flatten', async () => (await flattenAnnotations(signed, null)).bytes],
+  ];
+  for (const [what, edit] of edits) {
+    const bytes = await edit();
+    assert.deepEqual(bytes.subarray(0, signed.length), signed, `${what}: the signed bytes are kept`);
+    const [check] = await checkSignatures(bytes);
+    assert.equal(check!.intact, true, `${what}: the signature is intact`);
+  }
+});
+
+test('an unsigned file is written again rather than appended to', async () => {
+  const { setDocumentInfo } = await import('./docInfo.ts');
+  const original = await sample();
+  const bytes = new Uint8Array(await setDocumentInfo(original.slice().buffer, { title: 'New', author: '', subject: '', keywords: '' }));
+  assert.notDeepEqual(bytes.subarray(0, original.length), original);
+  assert.equal((await PDFDocument.load(bytes)).getTitle(), 'New');
+});

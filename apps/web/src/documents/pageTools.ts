@@ -1,5 +1,6 @@
 import { PDFDocument, type PDFPage } from 'pdf-lib';
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
+import { openForEdit } from './incremental';
 
 /** A rectangle in page space: points, origin at the top-left of the displayed (rotated) page. */
 export interface PageRect {
@@ -29,22 +30,22 @@ export function displayedSize(page: PDFPage): { width: number; height: number } 
  */
 export async function replacePages(target: ArrayBuffer | Uint8Array, source: ArrayBuffer | Uint8Array, targetPages: readonly number[], sourcePages: readonly number[]): Promise<Uint8Array> {
   if (targetPages.length !== sourcePages.length) throw new Error('Replace needs as many new pages as pages being replaced');
-  const doc = await PDFDocument.load(target, { updateMetadata: false });
+  const { doc, save } = await openForEdit(target);
   const src = await PDFDocument.load(source, { ignoreEncryption: true });
   const copies = await doc.copyPages(src, [...sourcePages]);
   targetPages.forEach((at, i) => {
     doc.removePage(at);
     doc.insertPage(at, copies[i]!);
   });
-  return doc.save();
+  return save();
 }
 
 /** Pages `sourcePages` of `source` added after the document's last page. */
 export async function appendPages(target: ArrayBuffer | Uint8Array, source: ArrayBuffer | Uint8Array, sourcePages: readonly number[]): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(target, { updateMetadata: false });
+  const { doc, save } = await openForEdit(target);
   const src = await PDFDocument.load(source, { ignoreEncryption: true });
   for (const page of await doc.copyPages(src, [...sourcePages])) doc.addPage(page);
-  return doc.save();
+  return save();
 }
 
 /**
@@ -52,7 +53,7 @@ export async function appendPages(target: ArrayBuffer | Uint8Array, source: Arra
  * moved, so markups can follow.
  */
 export async function cropPages(bytes: ArrayBuffer | Uint8Array, crops: ReadonlyMap<number, PageRect>): Promise<{ bytes: Uint8Array; transforms: Map<number, PageTransform> }> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   const pages = doc.getPages();
   const transforms = new Map<number, PageTransform>();
   for (const [i, r] of crops) {
@@ -67,7 +68,7 @@ export async function cropPages(bytes: ArrayBuffer | Uint8Array, crops: Readonly
     // The displayed page now starts at the crop's top-left corner.
     transforms.set(i, { scale: 1, dx: -r.x, dy: -r.y });
   }
-  return { bytes: await doc.save(), transforms };
+  return { bytes: await save(), transforms };
 }
 
 /**
@@ -85,7 +86,7 @@ export function marginRect(size: { width: number; height: number }, m: { top: nu
  * content moved.
  */
 export async function resizePages(bytes: ArrayBuffer | Uint8Array, pages: readonly number[], size: { width: number; height: number }, fit: boolean): Promise<{ bytes: Uint8Array; transforms: Map<number, PageTransform> }> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   const all = doc.getPages();
   const transforms = new Map<number, PageTransform>();
   for (const i of [...pages].sort((a, b) => a - b)) {
@@ -108,7 +109,7 @@ export async function resizePages(bytes: ArrayBuffer | Uint8Array, pages: readon
     // Centred, so in the displayed page the content is scaled about the new page's centre.
     transforms.set(i, { scale, dx: (size.width - shown.width * scale) / 2, dy: (size.height - shown.height * scale) / 2 });
   }
-  return { bytes: await doc.save(), transforms };
+  return { bytes: await save(), transforms };
 }
 
 /** New PDFs made of the given page lists (Split Document, one file per page). */

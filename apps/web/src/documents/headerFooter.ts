@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, type PDFFont } from 'pdf-lib';
 import { addTagged, keepContentAsIs, pageHasTagged, removeTagged } from './taggedContent';
+import { openForEdit } from './incremental';
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
 
 /** Marks the content streams this app adds, so they can be found and removed again. */
@@ -93,7 +94,7 @@ export async function hasHeaderFooter(bytes: ArrayBuffer | Uint8Array): Promise<
  * displayed page, so rotated pages get them upright at the top and bottom as seen.
  */
 export async function addHeaderFooter(bytes: ArrayBuffer | Uint8Array, pages: readonly number[], spec: HeaderFooterSpec, values: (pageIndex: number) => Omit<TokenValues, 'index' | 'count'>): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   removeFromDoc(doc, pages);
   const font = await doc.embedFont(FONTS[spec.font]);
   const [r, g, b] = hex(spec.color);
@@ -128,12 +129,12 @@ export async function addHeaderFooter(bytes: ArrayBuffer | Uint8Array, pages: re
     ops.push('ET Q EMC');
     addTagged(doc, page, TAG, ops.join('\n'));
   });
-  return doc.save();
+  return save();
 }
 
 /** Removes this app's headers and footers from every page. */
 export async function removeHeaderFooter(bytes: ArrayBuffer | Uint8Array): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   removeFromDoc(doc);
-  return doc.save();
+  return save();
 }

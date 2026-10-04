@@ -1,16 +1,9 @@
 /** Affine maps between two pages' spaces (points, y down), for aligning revisions. */
 
+import { apply as applyAffine, type Affine } from '@nb/stitch';
 import type { Box } from './diff';
 
-/** [a b c d e f]: x' = a·x + c·y + e, y' = b·x + d·y + f. */
-export type Affine = [number, number, number, number, number, number];
-
-export const applyAffine = (m: Affine, [x, y]: readonly [number, number]): [number, number] => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-
-export function invertAffine(m: Affine): Affine {
-  const det = m[0] * m[3] - m[1] * m[2];
-  return [m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[3] * m[4]) / det, (m[1] * m[4] - m[0] * m[5]) / det];
-}
+export { apply as applyAffine, invert as invertAffine, IDENTITY, type Affine } from '@nb/stitch';
 
 /** The affine map taking three points to three others (3-point alignment). */
 export function affineFromPoints(from: readonly [number, number][], to: readonly [number, number][]): Affine | null {

@@ -655,8 +655,11 @@ export class MarkupTools implements ViewerOverlay {
   /** Writes new points for markups as one undo step. */
   private movePoints(moves: Map<string, Geometry>) {
     if (!this.store || this.store.readOnly || !moves.size) return;
-    this.store.checkpoint();
-    for (const [id, geometry] of moves) this.store.update(id, geometry);
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const [id, geometry] of moves) store.update(id, geometry);
+    });
   }
 
   /** Lines the selected markups up on an edge or centre line of their combined bounds. */
@@ -679,8 +682,11 @@ export class MarkupTools implements ViewerOverlay {
     const ms = this.editable();
     if (!this.store || this.store.readOnly || ms.length < 2) return;
     const groupId = crypto.randomUUID();
-    this.store.checkpoint();
-    for (const m of ms) this.store.update(m.id, { groupId });
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of ms) store.update(m.id, { groupId });
+    });
   }
 
   /** Splits the selected groups back into separate markups. */
@@ -688,15 +694,21 @@ export class MarkupTools implements ViewerOverlay {
     if (!this.store || this.store.readOnly) return;
     const grouped = this.editable().filter((m) => m.groupId);
     if (!grouped.length) return;
-    this.store.checkpoint();
-    for (const m of grouped) this.store.update(m.id, { groupId: undefined });
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of grouped) store.update(m.id, { groupId: undefined });
+    });
   }
 
   /** Locks or unlocks the selected markups. */
   setLocked(locked: boolean) {
     if (!this.store || this.store.readOnly) return;
-    this.store.checkpoint();
-    for (const id of this.state.selected) if (this.store.get(id)) this.store.update(id, { locked: locked || undefined });
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const id of this.state.selected) if (store.get(id)) store.update(id, { locked: locked || undefined });
+    });
   }
 
   /** Copies the selected markups onto every other page at the same position. */
@@ -704,17 +716,20 @@ export class MarkupTools implements ViewerOverlay {
     const ms = this.editable();
     if (!this.store || this.store.readOnly || !ms.length) return;
     const now = Date.now();
-    this.store.checkpoint();
+    const store = this.store;
+    store.checkpoint();
     let n = 0;
-    for (let page = 0; page < pageCount; page++) {
-      const groups = new Map<string, string>();
-      for (const m of ms) {
-        if (m.pageIndex === page) continue;
-        const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
-        this.store.add({ ...structuredClone(m), id: crypto.randomUUID(), pageIndex: page, groupId, status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
-        n++;
+    store.batch(() => {
+      for (let page = 0; page < pageCount; page++) {
+        const groups = new Map<string, string>();
+        for (const m of ms) {
+          if (m.pageIndex === page) continue;
+          const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
+          store.add({ ...structuredClone(m), id: crypto.randomUUID(), pageIndex: page, groupId, status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
+          n++;
+        }
       }
-    }
+    });
   }
 
   /**
@@ -730,16 +745,19 @@ export class MarkupTools implements ViewerOverlay {
     const bounds = { x: x0, y: y0, w: Math.max(...all.map((b) => b.x + b.w)) - x0, h: Math.max(...all.map((b) => b.y + b.h)) - y0 };
     const now = Date.now();
     const ids: string[] = [];
-    this.store.checkpoint();
-    for (const [dx, dy] of multiplyOffsets(bounds, rows, columns, gapX, gapY)) {
-      const groups = new Map<string, string>();
-      for (const m of ms) {
-        const id = crypto.randomUUID();
-        ids.push(id);
-        const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
-        this.store.add({ ...structuredClone(m), id, groupId, ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const [dx, dy] of multiplyOffsets(bounds, rows, columns, gapX, gapY)) {
+        const groups = new Map<string, string>();
+        for (const m of ms) {
+          const id = crypto.randomUUID();
+          ids.push(id);
+          const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
+          store.add({ ...structuredClone(m), id, groupId, ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
+        }
       }
-    }
+    });
     this.select([...this.state.selected, ...ids]);
   }
 
@@ -753,12 +771,15 @@ export class MarkupTools implements ViewerOverlay {
       this.setState({ styles });
       saveToolStyles(styles);
     }
-    if (!this.store) return;
-    this.store.checkpoint();
-    for (const id of this.state.selected) {
-      const m = this.store.get(id);
-      if (m && m.type === type && !this.frozen(m)) this.store.update(id, { style: { ...m.style, ...patch } });
-    }
+    const store = this.store;
+    if (!store) return;
+    store.checkpoint();
+    store.batch(() => {
+      for (const id of this.state.selected) {
+        const m = store.get(id);
+        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch } });
+      }
+    });
   }
 
   /** Changes the default style for new markups of `type`, without touching existing markups. */
@@ -769,11 +790,14 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Applies a style change to specific markups (of any type). Rapid changes merge into one undo step. */
   applyStyle(ids: Iterable<string>, patch: Partial<MarkupStyle>) {
-    if (!this.store) return;
-    for (const id of ids) {
-      const m = this.store.get(id);
-      if (m && !this.frozen(m)) this.store.update(id, { style: mergeStyle(m.style, patch) });
-    }
+    const store = this.store;
+    if (!store) return;
+    store.batch(() => {
+      for (const id of ids) {
+        const m = store.get(id);
+        if (m && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, patch) });
+      }
+    });
   }
 
   /** Topmost markup at a point on a page (for right-click menus). */
@@ -892,16 +916,18 @@ export class MarkupTools implements ViewerOverlay {
     if (where === 'forward' || where === 'backward') {
       const moves = restack(this.store.forPage(chosen[0]!.pageIndex), new Set(chosen.map((m) => m.id)), where);
       if (!moves.size) return;
-      this.store.checkpoint();
-      for (const [id, createdAt] of moves) this.store.update(id, { createdAt });
+      const store = this.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, createdAt] of moves) store.update(id, { createdAt });
+      });
       return;
     }
     const page = this.store.forPage(chosen[0]!.pageIndex).map((m) => m.createdAt);
     const edge = where === 'front' ? Math.max(...page) + 1 : Math.min(...page) - chosen.length;
-    this.store.checkpoint();
-    chosen
-      .sort((a, b) => a.createdAt - b.createdAt)
-      .forEach((m, i) => this.store!.update(m.id, { createdAt: edge + i }));
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => chosen.sort((a, b) => a.createdAt - b.createdAt).forEach((m, i) => store.update(m.id, { createdAt: edge + i })));
   }
 
   /** Gives a callout another leader, on the side of its text box away from the existing ones. */
@@ -1559,10 +1585,13 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'draw') this.commitDraft(g.markup);
     else if (g.kind === 'move') {
       if (g.dx || g.dy) {
-        for (const id of this.state.selected) {
-          const m = this.store.get(id);
-          if (m && !this.frozen(m)) this.store.update(id, moved(m, g.dx, g.dy));
-        }
+        const store = this.store;
+        store.batch(() => {
+          for (const id of this.state.selected) {
+            const m = store.get(id);
+            if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
+          }
+        });
       }
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
@@ -1948,14 +1977,17 @@ export class MarkupTools implements ViewerOverlay {
       this.viewer.invalidate();
       return;
     }
-    for (const m of this.pageMarkups(pageIndex)) {
-      if (TYPE_INFO[m.type].draw !== 'freehand' || this.frozen(m)) continue;
-      const pieces = eraseStroke(m.points, at, r + m.style.width / 2);
-      if (!pieces) continue;
-      this.store.remove([m.id]);
-      // Each surviving piece is its own stroke, keeping the original's place in the stacking order.
-      pieces.forEach((points, i) => this.store!.add({ ...m, id: i === 0 ? m.id : crypto.randomUUID(), points, createdAt: m.createdAt + i * 1e-3 }));
-    }
+    const store = this.store;
+    store.batch(() => {
+      for (const m of this.pageMarkups(pageIndex)) {
+        if (TYPE_INFO[m.type].draw !== 'freehand' || this.frozen(m)) continue;
+        const pieces = eraseStroke(m.points, at, r + m.style.width / 2);
+        if (!pieces) continue;
+        store.remove([m.id]);
+        // Each surviving piece is its own stroke, keeping the original's place in the stacking order.
+        pieces.forEach((points, i) => store.add({ ...m, id: i === 0 ? m.id : crypto.randomUUID(), points, createdAt: m.createdAt + i * 1e-3 }));
+      }
+    });
     this.viewer.invalidate();
   }
 

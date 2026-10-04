@@ -1,4 +1,4 @@
-import { PDFDocument, PDFRef, PDFStream, type PDFObject } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFName, PDFNumber, PDFRef, PDFStream, type LoadOptions, type PDFObject, type SaveOptions } from 'pdf-lib';
 
 /**
  * Incremental updates: changes are appended to the end of a PDF instead of rewriting it, so the
@@ -6,9 +6,30 @@ import { PDFDocument, PDFRef, PDFStream, type PDFObject } from 'pdf-lib';
  * cover the file's bytes, and a rewrite would break every earlier signature.
  */
 
-/** Each indirect object's serialization before changes (streams by identity, which is cheaper). */
+/** Whether the PDF is signed (AcroForm /SigFlags SignaturesExist): rewriting it would break the signatures. */
+export function isSigned(doc: PDFDocument): boolean {
+  const acro = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
+  const flags = acro?.lookup(PDFName.of('SigFlags'));
+  return flags instanceof PDFNumber && (flags.asNumber() & 1) === 1;
+}
+
+/**
+ * Loads a PDF for editing. `save` appends the changes as an incremental update when the PDF is
+ * signed, so its signatures stay valid, and rewrites it otherwise.
+ */
+export async function openForEdit(bytes: ArrayBuffer | Uint8Array, load: LoadOptions = {}): Promise<{ doc: PDFDocument; signed: boolean; save: (options?: SaveOptions) => Promise<Uint8Array> }> {
+  const original = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const doc = await PDFDocument.load(original, { updateMetadata: false, ...load });
+  const snap = isSigned(doc) ? snapshot(doc, original) : null;
+  return { doc, signed: !!snap, save: (options) => (snap ? saveIncremental(original, doc, snap) : doc.save(options)) };
+}
+
+/**
+ * Each indirect object's serialization before changes. Streams are kept by identity plus their
+ * dictionary's serialization (cheaper than their contents), so a dictionary edited in place counts.
+ */
 export interface Snapshot {
-  objects: Map<string, string | PDFObject>;
+  objects: Map<string, string | { stream: PDFStream; dict: string }>;
 }
 
 function serialize(obj: PDFObject): string {
@@ -36,8 +57,8 @@ function highestObjectNumber(bytes: Uint8Array): number {
 /** Takes the snapshot right after loading `doc` from `original`; new objects then get unused numbers. */
 export function snapshot(doc: PDFDocument, original: Uint8Array): Snapshot {
   doc.context.largestObjectNumber = Math.max(doc.context.largestObjectNumber, highestObjectNumber(original));
-  const objects = new Map<string, string | PDFObject>();
-  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) objects.set(key(ref), obj instanceof PDFStream ? obj : serialize(obj));
+  const objects: Snapshot['objects'] = new Map();
+  for (const [ref, obj] of doc.context.enumerateIndirectObjects()) objects.set(key(ref), obj instanceof PDFStream ? { stream: obj, dict: serialize(obj.dict) } : serialize(obj));
   return { objects };
 }
 
@@ -47,7 +68,7 @@ function changedObjects(doc: PDFDocument, before: Snapshot): [PDFRef, PDFObject]
   for (const [ref, obj] of doc.context.enumerateIndirectObjects()) {
     const was = before.objects.get(key(ref));
     if (was === undefined) out.push([ref, obj]);
-    else if (obj instanceof PDFStream ? was !== obj : typeof was !== 'string' || was !== serialize(obj)) out.push([ref, obj]);
+    else if (obj instanceof PDFStream ? typeof was === 'string' || was.stream !== obj || was.dict !== serialize(obj.dict) : typeof was !== 'string' || was !== serialize(obj)) out.push([ref, obj]);
   }
   return out.sort((a, b) => a[0].objectNumber - b[0].objectNumber);
 }

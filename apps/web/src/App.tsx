@@ -4,6 +4,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocum
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
+import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
@@ -70,7 +71,7 @@ import { drawingSets } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
-import { isAbort, runJob, type JobContext } from './jobs/jobs';
+import { isAbort, runJob, startJob, useJobRunning, type JobContext } from './jobs/jobs';
 import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from './components/VisualSearchPanel';
 import { MARKUP_TOOLS, MEASURE_TOOLS, ToolBar, toolShortcut } from './components/ToolBar';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
@@ -183,11 +184,13 @@ function openAttachment(m: Markup) {
 /** Turns markups by `degrees` (or to it, with `absolute`), locked ones excepted, as one undo step. */
 function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number, absolute = false) {
   store.checkpoint();
-  for (const m of ms) {
-    if (m.locked || !store.mayEdit(m)) continue;
-    const next = ((((absolute ? 0 : (m.rotation ?? 0)) + degrees) % 360) + 360) % 360;
-    store.update(m.id, { rotation: next || undefined });
-  }
+  store.batch(() => {
+    for (const m of ms) {
+      if (m.locked || !store.mayEdit(m)) continue;
+      const next = ((((absolute ? 0 : (m.rotation ?? 0)) + degrees) % 360) + 360) % 360;
+      store.update(m.id, { rotation: next || undefined });
+    }
+  });
 }
 
 /** Text written to the system clipboard when markups are copied, so pasting knows they are ours. */
@@ -516,6 +519,20 @@ function isTyping(target: EventTarget | null) {
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
+const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', stitch: 'Stitching sheets' };
+
+/** Jobs that rewrite a document's pages; while one runs, page operations are turned off. */
+const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
+
+/**
+ * Whether to go on with `what`, which writes the file again rather than appending to it: always
+ * for an unsigned file; for a signed one only if the user accepts that its signatures break.
+ */
+async function rewriteSigned(doc: PdfDocument, what: string): Promise<boolean> {
+  const { signatures } = await doc.info();
+  return !signatures || confirm(`This file is digitally signed. ${what} writes the file again, so its ${signatures === 1 ? 'signature' : `${signatures} signatures`} will no longer be valid. Continue?`);
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasBRef = useRef<HTMLCanvasElement>(null);
@@ -583,7 +600,7 @@ export function App() {
   const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState<{ rows: ListRowData[]; columns: ListColumn[] } | null>(null);
-  const [exportBusy, setExportBusy] = useState(false);
+  const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
@@ -611,7 +628,7 @@ export function App() {
   /** Markup layers switched off, by document id ('' is markups on no layer). */
   const [hiddenMarkupLayers, setHiddenMarkupLayers] = useState<Record<string, string[]>>({});
   const [publishFor, setPublishFor] = useState<'pdf' | 'images' | null>(null);
-  const [publishing, setPublishing] = useState(false);
+  const publishing = useJobRunning('publish');
   // A newer version of the app is ready (the service worker found one). It loads by itself once
   // nothing is in progress (src/offline/updates.ts); until then the notice says what it waits for.
   const updateWaitingFor = useRef('');
@@ -703,7 +720,7 @@ export function App() {
   const [formFieldEdit, setFormFieldEdit] = useState<{ pane: Pane; name: string; widget: number } | null>(null);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [newFieldType, setNewFieldType] = useState<NewFieldType>('text');
-  const [formBusy, setFormBusy] = useState(false);
+  const formBusy = useJobRunning('form');
   /** A Space was just drawn: ask for its name. */
   const nameSpaceRef = useRef<(o: OpenFile | null, id: string) => void>(() => {});
   nameSpaceRef.current = (o, id) => {
@@ -728,9 +745,9 @@ export function App() {
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const [searchFocus, setSearchFocus] = useState(0);
-  const [busyPages, setBusyPages] = useState(false);
+  const busyPages = useJobRunning('pages');
   const searchHits = useRef<SearchHit[]>([]);
-  const [indexProgress, setIndexProgress] = useState<IndexProgress | null>(null);
+  const indexing = useJobRunning('index');
   const indexAbort = useRef<AbortController | null>(null);
   const openFileRef = useRef<HTMLInputElement>(null);
   const insertFileRef = useRef<HTMLInputElement>(null);
@@ -759,7 +776,7 @@ export function App() {
   const [studioInvite, setStudioInvite] = useState<SessionRef | null>(null);
   /** A Project from a `?project=` link, waiting for a click to open (it signs in). */
   const [projectInvite, setProjectInvite] = useState<string | null>(null);
-  const [studioBusy, setStudioBusy] = useState(false);
+  const studioBusy = useJobRunning('studio');
   const [studioError, setStudioError] = useState<string | null>(null);
   /** Markups to carry into session documents on their first open (the uploader's own markups). */
   const studioSeeds = useRef(new Map<string, Uint8Array>());
@@ -808,28 +825,28 @@ export function App() {
     [],
   );
 
-  useEffect(() => {
-    const engine = new PdfEngine();
-    const viewer = new TileViewer(canvasRef.current!, setStats);
-    const tools = new MarkupTools(viewer, {
+  /** A pane's markup tools. Every callback goes through refs or stable setters, so the effects creating them need no dependencies. */
+  const createTools = (pane: Pane, viewer: TileViewer) => {
+    const front = () => (pane === 'b' ? openBRef : openRef).current;
+    return new MarkupTools(viewer, {
       author: () => authorRef.current,
       onEditText: setEditingText,
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
-      defaultFields: () => defaultFieldsFor(openRef.current?.store),
+      defaultFields: () => defaultFieldsFor(front()?.store),
       onCreated: recordRecent,
-      onRegion: (pageIndex, rect) => regionRef.current(rect),
-      onEditComment: (id) => setCommentEdit({ pane: 'a', id }),
-      onEditHyperlink: (id) => setHyperlinkEdit({ pane: 'a', id }),
-      onSpaceDrawn: (id) => nameSpaceRef.current(openRef.current, id),
+      onRegion: (_pageIndex, rect) => regionRef.current(rect),
+      onEditComment: (id) => setCommentEdit({ pane, id }),
+      onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
+      onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
-      onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane: 'a', pageIndex, rect }),
+      onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
-      onFormField: (w) => formFieldRef.current('a', w),
-      onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current('a', pageIndex, rect),
+      onFormField: (w) => formFieldRef.current(pane, w),
+      onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current(pane, pageIndex, rect),
       onTextSelected: (text) => {
         void navigator.clipboard?.writeText(text).then(
           () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
@@ -839,16 +856,22 @@ export function App() {
       onFollowHyperlink: (m) => followHyperlinkRef.current(m),
       requestImage: pickImage,
       defaultStamp: lastStamp,
-      stampValues: (pageIndex) => stampValuesFor(openRef.current, pageIndex),
+      stampValues: (pageIndex) => stampValuesFor(front(), pageIndex),
       requestAttachment: pickAttachment,
       onOpenAttachment: openAttachment,
-      onEditLabel: (id) => editLabelRef.current('a', id),
-      onSnapshot: (pageIndex, rect) => snapshotRef.current('a', pageIndex, rect),
+      onEditLabel: (id) => editLabelRef.current(pane, id),
+      onSnapshot: (pageIndex, rect) => snapshotRef.current(pane, pageIndex, rect),
       onCutContent: (pageIndex, rect) => {
         // The copy is made before the content is erased.
-        void snapshotRef.current('a', pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
+        void snapshotRef.current(pane, pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
       },
     });
+  };
+
+  useEffect(() => {
+    const engine = new PdfEngine();
+    const viewer = new TileViewer(canvasRef.current!, setStats);
+    const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
     // Debugging handle for the browser console in development builds.
@@ -864,35 +887,7 @@ export function App() {
     const canvas = canvasBRef.current;
     if (!canvas) return;
     const viewer = new TileViewer(canvas, setStatsB);
-    const tools = new MarkupTools(viewer, {
-      author: () => authorRef.current,
-      onEditText: setEditingText,
-      onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
-      onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
-      onFollowLink: (link) => followLinkRef.current(link),
-      defaultFields: () => defaultFieldsFor(openBRef.current?.store),
-      onCreated: recordRecent,
-      onRegion: (pageIndex, rect) => regionRef.current(rect),
-      onEditComment: (id) => setCommentEdit({ pane: 'b', id }),
-      onEditHyperlink: (id) => setHyperlinkEdit({ pane: 'b', id }),
-      onSpaceDrawn: (id) => nameSpaceRef.current(openBRef.current, id),
-      onNotice: (text) => setNotice(text),
-      onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane: 'b', pageIndex, rect }),
-      onFormField: (w) => formFieldRef.current('b', w),
-      onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current('b', pageIndex, rect),
-      onFollowHyperlink: (m) => followHyperlinkRef.current(m),
-      requestImage: pickImage,
-      defaultStamp: lastStamp,
-      stampValues: (pageIndex) => stampValuesFor(openBRef.current, pageIndex),
-      requestAttachment: pickAttachment,
-      onOpenAttachment: openAttachment,
-      onEditLabel: (id) => editLabelRef.current('b', id),
-      onSnapshot: (pageIndex, rect) => snapshotRef.current('b', pageIndex, rect),
-      onCutContent: (pageIndex, rect) => {
-        // The copy is made before the content is erased.
-        void snapshotRef.current('b', pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
-      },
-    });
+    const tools = createTools('b', viewer);
     viewer.setOverlay(tools);
     setCtlB({ viewer, tools });
     return () => {
@@ -901,29 +896,31 @@ export function App() {
     };
   }, [split, ctl]);
 
+  const ctlOf = (pane: Pane) => (pane === 'b' ? ctlB : ctl);
+  const openRefOf = (pane: Pane) => (pane === 'b' ? openBRef : openRef);
+  const tabsRefOf = (pane: Pane) => (pane === 'b' ? tabsBRef : tabsARef);
+  const paneParts = (pane: Pane) => ({ c: ctlOf(pane), o: openRefOf(pane).current });
+
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
-    if (pane === 'b') {
-      tabsBRef.current = tabs;
-      setTabsB(tabs);
-    } else {
-      tabsARef.current = tabs;
-      setTabsA(tabs);
-    }
+    (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
+    (pane === 'b' ? setTabsB : setTabsA)(tabs);
+  }, []);
+
+  /** The pane's front document, in its ref and its state. */
+  const setFront = useCallback((pane: Pane, packed: OpenFile | null) => {
+    (pane === 'b' ? openBRef : openRef).current = packed;
+    (pane === 'b' ? setOpenB : setOpen)(packed);
   }, []);
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
     (pane: Pane, packed: OpenFile | null) => {
       const c = pane === 'b' ? ctlB : ctl;
-      const cur = pane === 'b' ? openBRef.current : openRef.current;
+      const cur = openRefOf(pane).current;
       if (cur === packed) return;
       if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
-      if (pane === 'b') {
-        openBRef.current = packed;
-        setOpenB(packed);
-      } else {
-        openRef.current = packed;
-        setOpen(packed);
+      setFront(pane, packed);
+      if (pane === 'a') {
         // Per-document state of the front document.
         indexAbort.current?.abort();
         setEditingText(null);
@@ -1027,24 +1024,24 @@ export function App() {
   );
 
   /**
-   * Runs a background indexing job with progress and cancellation. Bytes are re-read from device
-   * storage for each job because the PDF engine takes ownership of the buffer it is given.
+   * Runs a background indexing job with progress and cancellation (from the jobs bar, or by
+   * another document coming to the front). Jobs read the file from device storage themselves,
+   * when they need it (the PDF engine takes ownership of the buffer it is given).
    */
-  const runIndexJob = useCallback(async (job: (bytes: ArrayBuffer, cur: OpenFile, signal: AbortSignal) => Promise<void>) => {
-    const cur = openRef.current;
+  const runIndexJob = useCallback(async (cur: OpenFile | null, job: (cur: OpenFile, signal: AbortSignal, report: (p: IndexProgress) => void) => Promise<void>) => {
     if (!cur) return;
     indexAbort.current?.abort();
     const abort = new AbortController();
     indexAbort.current = abort;
+    const { signal, progress, end } = startJob(`Reading · ${cur.file.name}`, { kind: 'index' });
+    signal.addEventListener('abort', () => abort.abort());
     try {
-      await job(await readFile(cur.file.hash), cur, abort.signal);
+      await job(cur, abort.signal, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]));
     } catch (err) {
       if (!abort.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      if (indexAbort.current === abort) {
-        indexAbort.current = null;
-        setIndexProgress(null);
-      }
+      end();
+      if (indexAbort.current === abort) indexAbort.current = null;
     }
   }, []);
 
@@ -1054,32 +1051,32 @@ export function App() {
    * in the document) are skipped, so reopening is instant.
    */
   const analyseDocument = useCallback(
-    () =>
-      runIndexJob(async (_bytes, cur, signal) => {
+    (doc: OpenFile | null = openRef.current) =>
+      runIndexJob(doc, async (cur, signal, report) => {
         const fresh = () => readFile(cur.file.hash);
         // Sheets first: importing the PDF's links needs sheet numbers to resolve links to files.
-        if (Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, setIndexProgress, signal);
+        if (Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal);
         if (!cur.store.annotationsImported()) {
           // A Project file whose markups are already shared takes them from there, not from its PDF.
           const link = linkOf(cur.file.id);
           const project = link ? projectById(link.projectId) : null;
           const shared = link && project ? await project.hasSharedMarkups(link.fileId).catch(() => false) : false;
-          await importPdfAnnotations(fresh, cur.store, setIndexProgress, signal, shared ? fromOtherTools : undefined);
+          await importPdfAnnotations(fresh, cur.store, report, signal, shared ? fromOtherTools : undefined);
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
-          await linkFromText(fresh, cur.store, setIndexProgress, signal);
+          await linkFromText(fresh, cur.store, report, signal);
         } else if (!cur.store.linksDetected()) {
-          await linkFromText(fresh, cur.store, setIndexProgress, signal);
+          await linkFromText(fresh, cur.store, report, signal);
         }
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
-        if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, setIndexProgress, signal);
+        if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, report, signal);
       }),
     [runIndexJob, ctl],
   );
 
   const redetectLinks = useCallback(
-    () => runIndexJob((_bytes, cur, signal) => linkFromText(() => readFile(cur.file.hash), cur.store, setIndexProgress, signal)),
+    (doc: OpenFile | null = openRef.current) => runIndexJob(doc, (cur, signal, report) => linkFromText(() => readFile(cur.file.hash), cur.store, report, signal)),
     [runIndexJob],
   );
 
@@ -1171,16 +1168,16 @@ export function App() {
   }, [ctl, ctlB]);
 
   const detectSheetsOffline = useCallback(
-    () =>
-      runIndexJob(async (bytes, cur, signal) => {
-        await indexFromText(bytes, cur.store, setIndexProgress, signal);
-        await stitchFromText(() => readFile(cur.file.hash), cur.store, setIndexProgress, signal);
+    (doc: OpenFile | null = openRef.current) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal);
+        await stitchFromText(() => readFile(cur.file.hash), cur.store, report, signal);
       }),
     [runIndexJob],
   );
 
   const restitch = useCallback(
-    () => runIndexJob((_bytes, cur, signal) => stitchFromText(() => readFile(cur.file.hash), cur.store, setIndexProgress, signal)),
+    (doc: OpenFile | null = openRef.current) => runIndexJob(doc, (cur, signal, report) => stitchFromText(() => readFile(cur.file.hash), cur.store, report, signal)),
     [runIndexJob],
   );
 
@@ -1272,7 +1269,7 @@ export function App() {
     async (sources: CombineSource[], name: string) => {
       if (!ctl) return;
       setCombineOpen(false);
-      setBusyPages(true);
+      const job = startJob(`Combine · ${name}`, PAGES_JOB);
       try {
         const tabs = [...tabsARef.current, ...tabsBRef.current];
         const parts: ArrayBuffer[] = [];
@@ -1294,7 +1291,7 @@ export function App() {
       } catch (err) {
         setError(`Combine failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
-        setBusyPages(false);
+        job.end();
       }
     },
     [ctl, openCreated, unlockBytes],
@@ -1394,71 +1391,84 @@ export function App() {
   }, [tabsA, tabsB, open, openB, activePane]);
 
   useEffect(() => {
-    if (open) void analyseDocument();
+    if (open) void analyseDocument(open);
   }, [open, analyseDocument]);
 
   // Keep an open stitched view in step with re-stitching.
+  const stitchSeen = useRef(new WeakMap<TileViewer, readonly StoredStitchGroup[]>());
   useEffect(() => {
-    if (!ctl?.viewer.isStitched) return;
-    const focus = ctl.viewer.currentPageIndex;
-    const group = stitchA.find((g) => g.placements.some((p) => p.pageIndex === focus));
-    ctl.viewer.setStitch(group?.placements ?? null, focus);
-  }, [ctl, stitchA]);
-
-  useEffect(() => {
-    if (!ctlB?.viewer.isStitched) return;
-    const focus = ctlB.viewer.currentPageIndex;
-    const group = stitchB.find((g) => g.placements.some((p) => p.pageIndex === focus));
-    ctlB.viewer.setStitch(group?.placements ?? null, focus);
-  }, [ctlB, stitchB]);
+    for (const [c, groups] of [
+      [ctl, stitchA],
+      [ctlB, stitchB],
+    ] as const) {
+      if (!c || stitchSeen.current.get(c.viewer) === groups) continue;
+      stitchSeen.current.set(c.viewer, groups);
+      if (!c.viewer.isStitched) continue;
+      const focus = c.viewer.currentPageIndex;
+      const group = groups.find((g) => g.placements.some((p) => p.pageIndex === focus));
+      c.viewer.setStitch(group?.placements ?? null, focus);
+    }
+  }, [ctl, ctlB, stitchA, stitchB]);
 
   /**
    * Applies page operations to the open document: the file is rewritten, everything attached to
    * its pages follows the pages, and the viewer reopens on the same sheet.
    */
   /**
+   * Shows `next` in place of the tab `cur` in a pane (same markups) and closes `cur`'s document.
+   * `keep` restores the view as it was, or says which page to show given the one that was showing.
+   */
+  const reopenInPane = useCallback(
+    async (cur: OpenFile, pane: Pane, next: OpenFile, keep: 'view' | ((was: number) => number)) => {
+      const c = ctlOf(pane);
+      if (!c) {
+        void next.doc.close();
+        return;
+      }
+      await hideImported(next.doc, cur.store);
+      setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
+      setFront(pane, next);
+      const { tools, viewer } = c;
+      tools.setSnapSource(async (pageIndex) => new SnapIndex((await next.doc.geometry(pageIndex)).segments));
+      tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+      const view = viewer.getView();
+      viewer.setDocument(next.doc);
+      if (keep === 'view') viewer.setView(view);
+      else viewer.goToPage(keep(view.pageIndex));
+      void cur.doc.close();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf and tabsRefOf read only these
+    [ctl, ctlB, setTabs, setFront],
+  );
+
+  /**
    * Replaces an open document's file with `edited` and reopens it in place; its markups stay.
-   * `remap` runs once the new file is stored (to move markups with their pages), and `pageFor`
-   * says which page to show given the one that was showing.
+   * `remap` runs once the new file is stored (to move markups with their pages, or to note what is
+   * already known about the new contents), and `pageFor` says which page to show given the one
+   * that was showing. `edited` is transferred to the PDF engine.
    */
   const swapDocument = useCallback(
-    async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: () => void, pageFor: (was: number) => number = (was) => was) => {
-      const tools = intoB ? ctlB?.tools : ctl?.tools;
-      const viewer = intoB ? ctlB?.viewer : ctl?.viewer;
-      if (!ctl || !tools || !viewer) return;
+    async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was) => {
+      const pane: Pane = intoB ? 'b' : 'a';
+      if (!ctl || !ctlOf(pane)) return;
       // Session documents live in the session, not the library: only cached on this device.
       const file = studioDocOf(cur.file.id)
         ? await (async () => {
-            const hash = await cacheFile(edited.slice(0));
+            const hash = await cacheFile(edited);
             rememberStudioHash(cur.file.id, hash);
             return { ...cur.file, hash, size: edited.byteLength };
           })()
-        : await replaceFileContent(cur.file.id, edited.slice(0));
-      remap?.();
+        : await replaceFileContent(cur.file.id, edited);
+      remap?.(file);
       forgetText(cur.file.id);
 
+      // Both writes above have finished with `edited`, so the engine can take it.
       const doc = await ctl.engine.open(edited);
-      await hideImported(doc, cur.store);
-      const previous = cur.doc;
-      const packed = { file, doc, store: cur.store };
-      const pane: Pane = intoB ? 'b' : 'a';
-      setTabs(pane, (intoB ? tabsBRef.current : tabsARef.current).map((t) => (t === cur ? packed : t)));
-      if (intoB) {
-        openBRef.current = packed;
-        setOpenB(packed);
-      } else {
-        openRef.current = packed;
-        setOpen(packed);
-      }
-      tools.setSnapSource(async (pageIndex) => new SnapIndex((await doc.geometry(pageIndex)).segments));
-      tools.setTextSource((pageIndex) => doc.text(pageIndex));
-      const wasOn = viewer.currentPageIndex;
-      viewer.setDocument(doc);
-      viewer.goToPage(pageFor(wasOn));
-      void previous.close();
+      await reopenInPane(cur, pane, { file, doc, store: cur.store }, pageFor);
       void refreshLibrary();
     },
-    [ctl, ctlB, refreshLibrary, setTabs],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf reads only ctl and ctlB
+    [ctl, ctlB, refreshLibrary, reopenInPane],
   );
 
   /**
@@ -1467,32 +1477,15 @@ export function App() {
    */
   const showPdfLayers = useCallback(
     async (cur: OpenFile, hidden: ReadonlySet<string>) => {
-      const intoB = tabsBRef.current.includes(cur);
-      const tools = intoB ? ctlB?.tools : ctl?.tools;
-      const viewer = intoB ? ctlB?.viewer : ctl?.viewer;
-      if (!ctl || !tools || !viewer) return;
+      const pane: Pane = tabsBRef.current.includes(cur) ? 'b' : 'a';
+      if (!ctl || !ctlOf(pane)) return;
       const { withLayersShown } = await import('./documents/layers');
       const bytes = await withLayersShown(await readFile(cur.file.hash), hidden);
       const doc = await ctl.engine.open(bytes.slice().buffer);
-      await hideImported(doc, cur.store);
-      const previous = cur.doc;
-      const packed = { ...cur, doc };
-      setTabs(intoB ? 'b' : 'a', (intoB ? tabsBRef.current : tabsARef.current).map((t) => (t === cur ? packed : t)));
-      if (intoB) {
-        openBRef.current = packed;
-        setOpenB(packed);
-      } else {
-        openRef.current = packed;
-        setOpen(packed);
-      }
-      tools.setSnapSource(async (pageIndex) => new SnapIndex((await doc.geometry(pageIndex)).segments));
-      tools.setTextSource((pageIndex) => doc.text(pageIndex));
-      const view = viewer.getView();
-      viewer.setDocument(doc);
-      viewer.setView(view);
-      void previous.close();
+      await reopenInPane(cur, pane, { ...cur, doc }, 'view');
     },
-    [ctl, ctlB, setTabs],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf reads only ctl and ctlB
+    [ctl, ctlB, reopenInPane],
   );
 
   /**
@@ -1501,12 +1494,11 @@ export function App() {
    * note, the contents before are kept as a revision.
    */
   const commitDocument = useCallback(
-    async (cur: OpenFile, edited: ArrayBuffer, remap?: () => void, revisionNote?: string) => {
+    async (cur: OpenFile, edited: ArrayBuffer, remap?: (file: StoredFile) => void, revisionNote?: string) => {
       if (revisionNote) await keepRevision(cur.file.id, revisionNote);
       if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap);
       if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap);
-      await replaceFileContent(cur.file.id, edited.slice(0));
-      remap?.();
+      remap?.(await replaceFileContent(cur.file.id, edited));
       forgetText(cur.file.id);
     },
     [swapDocument],
@@ -1523,7 +1515,7 @@ export function App() {
         setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
         return;
       }
-      setBusyPages(true);
+      const job = startJob(`Pages · ${cur.file.name}`, PAGES_JOB);
       try {
         const oldSizes = cur.doc.pages.map((p) => ({ width: p.width, height: p.height }));
         // Page counts of inserted documents, needed to work out the new page numbering.
@@ -1542,12 +1534,12 @@ export function App() {
           () => cur.store.remapPages(plan, oldSizes),
           (was) => plan.oldToNew[was] ?? 0,
         );
-        // Inserted pages have no sheet information yet.
-        if (ops.some((op) => op.type === 'insert') && !intoB) void detectSheetsOffline();
+        // Inserted pages have no sheet information yet; the tab now holds the new file.
+        if (ops.some((op) => op.type === 'insert')) void detectSheetsOffline(openRefOf(intoB ? 'b' : 'a').current);
       } catch (err) {
         setError(`Page operation failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
-        setBusyPages(false);
+        job.end();
       }
     },
     [ctl, ctlB, detectSheetsOffline, swapDocument],
@@ -1696,8 +1688,10 @@ export function App() {
             });
             const replace = (x: OpenFile, marks: Markup[], pagesDone: Set<number>) => {
               if (x.store.readOnly) return;
-              x.store.remove(x.store.all().filter((m) => m.subject === 'Compare' && pagesDone.has(m.pageIndex)).map((m) => m.id));
-              for (const m of marks) x.store.add(m);
+              x.store.batch(() => {
+                x.store.remove(x.store.all().filter((m) => m.subject === 'Compare' && pagesDone.has(m.pageIndex)).map((m) => m.id));
+                for (const m of marks) x.store.add(m);
+              });
             };
             replace(
               n,
@@ -1910,6 +1904,7 @@ export function App() {
       if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
+      if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
       const hex = options?.fill ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
@@ -1993,6 +1988,9 @@ export function App() {
   const runProcess = useCallback(
     async (cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
       if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      const rewriting = rewrites[spec.kind];
+      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
       const p = await import('./documents/process');
       switch (spec.kind) {
         case 'flatten': {
@@ -2016,7 +2014,7 @@ export function App() {
         case 'repair': {
           if (!ctl) return null;
           // PDFium reads what it can of a damaged file; saving writes a clean copy.
-          const bytes = await ctl.engine.editPdf(await readFile(cur.file.hash), []);
+          const bytes = await ctl.engine.editPdf(await readFile(cur.file.hash), [], [], { rewrite: true });
           await commitDocument(cur, bytes, undefined, revisionNote);
           return 'Repaired: the file was read and written again as a clean copy.';
         }
@@ -2052,7 +2050,8 @@ export function App() {
         setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
         return;
       }
-      setBusyPages(true);
+      // The Slip Sheet job below shows progress; this one keeps page operations off until the end.
+      const job = startJob('Slip Sheet', { ...PAGES_JOB, shown: false });
       try {
         const report = await runJob(`Slip Sheet · ${cur.file.name}`, async ({ signal, progress }) => {
           const { detectSheets } = await import('@nb/sheets');
@@ -2137,7 +2136,7 @@ export function App() {
         if (isAbort(err)) setNotice('Slip Sheet cancelled; the document was not changed.');
         else setError(`Slip Sheet failed: ${err instanceof Error ? err.message : String(err)}`);
       } finally {
-        setBusyPages(false);
+        job.end();
       }
     },
     [ctl, swapDocument, refreshLibrary],
@@ -2668,22 +2667,29 @@ export function App() {
   /** Form edits run one after another, each on the document's current contents. */
   const formQueue = useRef<Promise<unknown>>(Promise.resolve());
   const editForm = useCallback(
-    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array>, revisionNote?: string): Promise<boolean> => {
+    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
           if (!cur) return false;
           if (studioDocOf(fileId)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-          setFormBusy(true);
-          const bytes = await edit(await readFile(cur.file.hash));
-          await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
-          return true;
+          return runJob(
+            what,
+            async () => {
+              const out = await edit(await readFile(cur.file.hash));
+              const { bytes, model } = out instanceof Uint8Array ? { bytes: out, model: null } : out;
+              // A known form is noted for the new contents before the tab shows them, so it is not read again.
+              const seed = model ? (file: StoredFile) => setFormModels((all) => ({ ...all, [file.hash]: model })) : undefined;
+              await commitDocument(cur, bytes.slice().buffer, seed, revisionNote);
+              return true;
+            },
+            { kind: 'form', cancellable: false, shown: false },
+          );
         })
         .catch((err) => {
           setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
           return false;
-        })
-        .finally(() => setFormBusy(false));
+        });
       formQueue.current = run;
       return run;
     },
@@ -2692,17 +2698,7 @@ export function App() {
 
   const fillFields = useCallback(
     (fileId: string, values: Record<string, string>) =>
-      editForm(fileId, 'Filling in the form', async (bytes) => {
-        const { fillForm, readForm, validateValue } = await import('./documents/forms');
-        // Values the field does not accept are refused, as other PDF readers do.
-        const model = await readForm(bytes);
-        for (const [name, value] of Object.entries(values)) {
-          const f = model.fields.find((x) => x.name === name);
-          const problem = f ? validateValue(f, value) : null;
-          if (problem) throw new Error(`${name}: ${problem}`);
-        }
-        return (await fillForm(bytes, values)).bytes;
-      }),
+      editForm(fileId, 'Filling in the form', async (bytes) => (await import('./documents/forms')).fillForm(bytes, values, { validate: true })),
     [editForm],
   );
 
@@ -2943,7 +2939,7 @@ export function App() {
     const intoB = activePaneRef.current === 'b';
     const cur = intoB ? openBRef.current : openRef.current;
     if (!cur || !ctl) return;
-    setBusyPages(true);
+    const job = startJob(`Extract · ${cur.file.name}`, PAGES_JOB);
     try {
       const out = await ctl.engine.extractPages(await readFile(cur.file.hash), pages);
       const label = pages.length === 1 ? `page ${pages[0]! + 1}` : `${pages.length} pages`;
@@ -2951,7 +2947,7 @@ export function App() {
     } catch (err) {
       setError(`Extract failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setBusyPages(false);
+      job.end();
     }
   }, [ctl]);
 
@@ -3081,16 +3077,13 @@ export function App() {
 
   /** Runs a session action with the panel's busy state; resolves false (and shows why) if it failed. */
   const runStudio = useCallback(async (job: () => Promise<void>): Promise<boolean> => {
-    setStudioBusy(true);
     setStudioError(null);
     try {
-      await job();
+      await runJob('Live Session', job, { kind: 'studio', cancellable: false, shown: false });
       return true;
     } catch (err) {
       setStudioError(err instanceof Error ? err.message : String(err));
       return false;
-    } finally {
-      setStudioBusy(false);
     }
   }, []);
 
@@ -3333,8 +3326,10 @@ export function App() {
               try {
                 if ((d.version ?? 1) > 1) await commitDocument(target, bytes.slice(0), () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before the Session “${meta.name}”`);
                 target.store.checkpoint?.();
-                target.store.remove(target.store.all().map((m) => m.id));
-                for (const m of chosen) target.store.add(m);
+                target.store.batch(() => {
+                  target.store.remove(target.store.all().map((m) => m.id));
+                  for (const m of chosen) target.store.add(m);
+                });
               } finally {
                 held?.release();
               }
@@ -3772,6 +3767,23 @@ export function App() {
     [ctl, ctlB],
   );
 
+  // Stable handlers for the Markups list, so it re-renders only when its data changes.
+  const listRowMenuRef = useRef<(m: Markup, x: number, y: number) => void>(() => {});
+  listRowMenuRef.current = (m, x, y) => {
+    const pane: Pane = paneB ? 'b' : 'a';
+    const tools = paneParts(pane).c?.tools;
+    if (!tools) return;
+    let ids = [...tools.getState().selected];
+    if (!ids.includes(m.id)) {
+      selectFromList(m);
+      ids = [m.id];
+    }
+    setCtxMenu({ x, y, items: markupMenu(pane, ids) });
+  };
+  const onListRowMenu = useCallback((m: Markup, x: number, y: number) => listRowMenuRef.current(m, x, y), []);
+  const onManageColumns = useCallback(() => setColumnsOpen(true), []);
+  const onExportList = useCallback((rows: ListRowData[], columns: ListColumn[]) => setExportOpen({ rows, columns }), []);
+
   // Style controls edit the active tool's style, or the selected markups' type in select mode.
   const selectedTypes = new Set(markups.filter((m) => toolsState.selected.has(m.id)).map((m) => m.type));
   const styleType =
@@ -4106,7 +4118,7 @@ export function App() {
     const cols = req.columnKeys.map((k) => listLayout.find((c) => c.key === k)).filter((c): c is (typeof listLayout)[number] => !!c);
     const rows = req.scope === 'shown' ? shown.rows : buildRows(markups, cellContext, {}, listSort);
     const base = cur.file.name.replace(/\.pdf$/i, '');
-    setExportBusy(true);
+    const job = startJob(`Export markups · ${cur.file.name}`, { kind: 'export', cancellable: false });
     try {
       if (req.format === 'csv') {
         download(`${base} markups.csv`, new Blob(['\uFEFF' + rowsToCsv(rows, cols)], { type: 'text/csv' }));
@@ -4134,7 +4146,7 @@ export function App() {
     } catch (err) {
       setError(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setExportBusy(false);
+      job.end();
     }
   };
 
@@ -4360,11 +4372,6 @@ export function App() {
     setCtxMenu({ x: e.clientX, y: e.clientY, items });
   };
 
-  const paneParts = (pane: Pane) => ({
-    c: pane === 'b' ? ctlB : ctl,
-    o: pane === 'b' ? openBRef.current : openRef.current,
-  });
-
   /**
    * A Tool Library tool dragged onto a page: a saved markup lands as an exact copy under the pointer;
    * a style-only tool is armed to draw with. Returns false when the drag was not a tool.
@@ -4412,7 +4419,7 @@ export function App() {
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
-      for (const m of ms) store.update(m.id, { status: s });
+      store.batch(() => ms.forEach((m) => store.update(m.id, { status: s })));
     };
     const bounds = boundsOf(ms.flatMap((m) => m.points));
     const anyLocked = ms.some((m) => m.locked);
@@ -4531,12 +4538,12 @@ export function App() {
             checked: ms.every((m) => m.layer === name),
             onClick: () => {
               store.checkpoint();
-              for (const m of ms) store.update(m.id, { layer: name });
+              store.batch(() => ms.forEach((m) => store.update(m.id, { layer: name })));
             },
           })),
           { label: 'No Layer', checked: ms.every((m) => !m.layer), onClick: () => {
             store.checkpoint();
-            for (const m of ms) store.update(m.id, { layer: undefined });
+            store.batch(() => ms.forEach((m) => store.update(m.id, { layer: undefined })));
           } },
           SEP,
           {
@@ -4545,7 +4552,7 @@ export function App() {
               void askText('New Markup Layer', '', { label: 'The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => {
                 if (!name) return;
                 store.checkpoint();
-                for (const m of ms) store.update(m.id, { layer: name });
+                store.batch(() => ms.forEach((m) => store.update(m.id, { layer: name })));
               }),
           },
         ],
@@ -4556,7 +4563,7 @@ export function App() {
         onClick: () => {
           const flag = !ms.every((m) => m.flagged);
           store.checkpoint();
-          for (const m of ms) store.update(m.id, { flagged: flag || undefined });
+          store.batch(() => ms.forEach((m) => store.update(m.id, { flagged: flag || undefined })));
         },
       },
       {
@@ -4565,7 +4572,7 @@ export function App() {
         onClick: () => {
           const hide = !ms.every((m) => m.hidden);
           store.checkpoint();
-          for (const m of ms) store.update(m.id, { hidden: hide || undefined });
+          store.batch(() => ms.forEach((m) => store.update(m.id, { hidden: hide || undefined })));
           if (hide) c.tools.select([]);
         },
       },
@@ -4926,12 +4933,13 @@ export function App() {
     setLabelMode((m) => (m?.pane === pane && m.kind === kind ? m : { pane, regions: [], kind }));
     c.tools.setTool('labelRegion');
     setLabelTexts(null);
-    void loadPageTexts(() => readFile(o.file.hash), o.store, setIndexProgress)
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
         if ((pane === 'b' ? openBRef.current : openRef.current) === o) setLabelTexts(texts);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-      .finally(() => setIndexProgress(null));
+      .catch((err) => {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      });
   };
 
   useEffect(() => {
@@ -5112,7 +5120,7 @@ export function App() {
     archivePdfA: () =>
       void (async () => {
         const cur = activeOpen;
-        if (!cur) return;
+        if (!cur || !(await rewriteSigned(cur.doc, 'An archive copy (PDF/A)'))) return;
         const { archiveAsPdfA } = await import('./documents/pdfa');
         const { embedFontFile } = await import('./documents/archiveFonts');
         const base = cur.file.name.replace(/\.pdf$/i, '');
@@ -5157,14 +5165,14 @@ export function App() {
       const store = activeOpen?.store;
       if (!store) return;
       store.checkpoint();
-      for (const id of toolsState.selected) store.update(id, { hidden: true });
+      store.batch(() => toolsState.selected.forEach((id) => store.update(id, { hidden: true })));
       activeTools?.select([]);
     },
     showHidden: () => {
       const store = activeOpen?.store;
       if (!store) return;
       store.checkpoint();
-      for (const m of store.all()) if (m.hidden) store.update(m.id, { hidden: undefined });
+      store.batch(() => store.all().forEach((m) => m.hidden && store.update(m.id, { hidden: undefined })));
     },
     formatPainter: () => activeTools?.setTool('painter'),
     offset: () => activeTools?.setTool('offset'),
@@ -5307,7 +5315,7 @@ export function App() {
       // The template's markups come along (new ids).
       const [from, to] = await Promise.all([MarkupStore.open(choice.id), MarkupStore.open(file.id)]);
       const now = Date.now();
-      for (const m of from.all()) to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now });
+      to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());
       await Promise.all([from.destroy(), to.destroy()]);
       await openStored(file, bytes, activePaneRef.current);
@@ -5408,7 +5416,7 @@ export function App() {
   const runPublish = async (req: PublishRequest) => {
     const cur = activeOpen;
     if (!cur) return;
-    setPublishing(true);
+    const job = startJob(`${req.kind === 'pdf' ? 'Publish' : 'Page images'} · ${cur.file.name}`, { kind: 'publish', cancellable: false });
     const base = cur.file.name.replace(/\.pdf$/i, '');
     try {
       if (req.kind === 'pdf') {
@@ -5451,7 +5459,7 @@ export function App() {
     } catch (err) {
       setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setPublishing(false);
+      job.end();
     }
   };
 
@@ -5717,7 +5725,7 @@ export function App() {
                 currentPage={pageIndex}
                 sheets={sheets}
                 scales={scales}
-                busy={busyPages || !!indexProgress}
+                busy={busyPages || indexing}
                 onGoTo={(i) => v?.goToPage(i)}
                 onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
                 onExtract={(pages) => void extractPages(pages)}
@@ -6112,12 +6120,7 @@ export function App() {
                     {error}
                   </div>
                 )}
-                {import.meta.env.DEV && stats && open && (
-                  <div className="stats">
-                    tile last/avg {stats.lastTileMs.toFixed(0)}/{stats.avgTileMs.toFixed(0)} ms · cached {stats.cachedTiles} · queued{' '}
-                    {stats.queuedTiles}
-                  </div>
-                )}
+                {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
               </main>
               {pageNav('a')}
             </div>
@@ -6249,7 +6252,7 @@ export function App() {
                     sheets={sheets}
                     currentPage={pageIndex}
                     showLinks={toolsState.showLinks}
-                    busy={!!indexProgress}
+                    busy={indexing}
                     onShowLinks={(show) => activeTools?.setShowLinks(show)}
                     onReveal={(l) => navigate(l.pageIndex, l.rect)}
                     onFollow={(l) => navigate(l.targetPage, l.targetRect)}
@@ -6266,19 +6269,9 @@ export function App() {
                     readOnly={!activeOpen || activeReadOnly}
                     selected={toolsState.selected}
                     onSelect={selectFromList}
-                    onRowMenu={(m, x, y) => {
-                      const pane: Pane = paneB ? 'b' : 'a';
-                      const tools = paneParts(pane).c?.tools;
-                      if (!tools) return;
-                      let ids = [...tools.getState().selected];
-                      if (!ids.includes(m.id)) {
-                        selectFromList(m);
-                        ids = [m.id];
-                      }
-                      setCtxMenu({ x, y, items: markupMenu(pane, ids) });
-                    }}
-                    onManageColumns={() => setColumnsOpen(true)}
-                    onExport={(rows, columns) => setExportOpen({ rows, columns })}
+                    onRowMenu={onListRowMenu}
+                    onManageColumns={onManageColumns}
+                    onExport={onExportList}
                     onFiltered={setListKept}
                   />
                 )}
@@ -6488,6 +6481,7 @@ export function App() {
           name={activeOpen.file.name}
           onCancel={() => setSecurityOpen(false)}
           onSave={async (settings) => {
+            if (!(await rewriteSigned(activeOpen.doc, 'A protected copy'))) return;
             const { encryptPdf } = await import('./documents/security');
             // With its markups, as a saved copy always has them.
             const bytes = await encryptPdf(await annotatedBytes(activeOpen), settings);
@@ -6851,7 +6845,7 @@ export function App() {
                   }
                 }
                 o.store.checkpoint();
-                for (const m of made) o.store.add(m);
+                o.store.batch(() => made.forEach((m) => o.store.add(m)));
                 setNotice(`Added ${made.length} markup${made.length === 1 ? '' : 's'} from Symbol Search.`);
                 close();
               }}

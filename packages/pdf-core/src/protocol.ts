@@ -98,6 +98,8 @@ export interface DocumentInfo {
   securityRevision: number;
   /** Permission bits from the encryption dictionary (all set when unencrypted). */
   permissions: number;
+  /** Digital signatures in the file. */
+  signatures: number;
 }
 
 export interface TileRequest {
@@ -177,7 +179,7 @@ export type WorkerRequest =
   | { id: number; type: 'text'; docId: number; pageIndex: number }
   | { id: number; type: 'annotations'; docId: number; pageIndex: number }
   | { id: number; type: 'hideAnnots'; docId: number; pageIndex: number; indices: number[] }
-  | { id: number; type: 'edit'; bytes: ArrayBuffer; ops: PageOp[]; inserts: ArrayBuffer[] }
+  | { id: number; type: 'edit'; bytes: ArrayBuffer; ops: PageOp[]; inserts: ArrayBuffer[]; rewrite?: boolean }
   | { id: number; type: 'extract'; bytes: ArrayBuffer; pages: number[] }
   | { id: number; type: 'unlock'; bytes: ArrayBuffer; password: string }
   | { id: number; type: 'create'; pages: PageSize[] }

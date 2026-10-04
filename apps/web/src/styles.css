@@ -2618,18 +2618,21 @@ body,
   color: #fff;
 }
 
-/* Markup list comments grow with their text. */
+/*
+ * Markup list rows are all one height (the list renders only the rows in view on long lists):
+ * comments show their first line, and grow over the rows below while being edited.
+ */
 
 .markups td.comment {
   min-width: 180px;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .markups textarea {
   display: block;
   width: 100%;
   min-width: 160px;
-  min-height: 24px;
+  height: 24px;
   padding: 3px 4px;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -2639,7 +2642,16 @@ body,
   font: inherit;
   line-height: 1.35;
   resize: none;
-  field-sizing: content;
+}
+
+.markups textarea.cell-comment:focus {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  left: 3px;
+  z-index: 2;
+  width: auto;
+  min-height: 24px;
 }
 
 .markups textarea:disabled {

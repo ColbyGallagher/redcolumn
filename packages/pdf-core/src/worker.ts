@@ -134,12 +134,21 @@ function loadForEdit(m: WrappedPdfiumModule, bytes: ArrayBuffer): { handle: numb
   return { handle, ptr };
 }
 
-/** FPDF_SaveAsCopy flag: write without the document's encryption. */
+/** FPDF_SaveAsCopy flags: append to the original file; write without the document's encryption. */
+const FPDF_INCREMENTAL = 1;
 const FPDF_REMOVE_SECURITY = 3;
 
-function saveDocument(m: WrappedPdfiumModule, handle: number, flags?: number): ArrayBuffer {
+/**
+ * 'auto' appends the changes to a signed file (an incremental update) so its signatures stay
+ * valid, and rewrites anything else; 'rewrite' always writes a new file, for edits whose point is
+ * that removed content is gone from the bytes.
+ */
+type SaveMode = 'auto' | 'rewrite';
+
+function saveDocument(m: WrappedPdfiumModule, handle: number, mode: SaveMode | number = 'auto'): ArrayBuffer {
   const { malloc, free } = m.pdfium.wasmExports;
   const writer = m.PDFiumExt_OpenFileWriter();
+  const flags = typeof mode === 'number' ? mode : mode === 'auto' && m.FPDF_GetSignatureCount(handle) > 0 ? FPDF_INCREMENTAL : undefined;
   try {
     const saved = flags === undefined ? m.PDFiumExt_SaveAsCopy(handle, writer) : m.FPDF_SaveAsCopy(handle, writer, flags);
     if (!saved) throw new Error('Saving the PDF failed');
@@ -166,7 +175,7 @@ function withIndices<T>(m: WrappedPdfiumModule, indices: number[], fn: (ptr: num
   }
 }
 
-async function editPdf(bytes: ArrayBuffer, ops: PageOp[], inserts: ArrayBuffer[]): Promise<ArrayBuffer> {
+async function editPdf(bytes: ArrayBuffer, ops: PageOp[], inserts: ArrayBuffer[], mode: SaveMode): Promise<ArrayBuffer> {
   const m = await lib();
   const doc = loadForEdit(m, bytes);
   const sources = inserts.map((b) => loadForEdit(m, b));
@@ -200,7 +209,7 @@ async function editPdf(bytes: ArrayBuffer, ops: PageOp[], inserts: ArrayBuffer[]
           break;
       }
     }
-    return saveDocument(m, doc.handle);
+    return saveDocument(m, doc.handle, mode);
   } finally {
     for (const d of [doc, ...sources]) {
       m.FPDF_CloseDocument(d.handle);
@@ -267,6 +276,7 @@ async function documentInfo(docId: number): Promise<DocumentInfo> {
     version,
     securityRevision: m.FPDF_GetSecurityHandlerRevision(handle),
     permissions: m.FPDF_GetDocPermissions(handle) >>> 0,
+    signatures: Math.max(0, m.FPDF_GetSignatureCount(handle)),
   };
 }
 
@@ -849,7 +859,7 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
         m.FPDF_ClosePage(page);
       }
     }
-    return { bytes: saveDocument(m, doc.handle), report };
+    return { bytes: saveDocument(m, doc.handle, 'rewrite'), report };
   } finally {
     free(buf);
     m.FPDF_CloseDocument(doc.handle);
@@ -1486,7 +1496,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'edit':
       case 'extract':
       case 'create': {
-        const out = req.type === 'edit' ? await editPdf(req.bytes, req.ops, req.inserts) : req.type === 'extract' ? await extractPages(req.bytes, req.pages) : await createPdf(req.pages);
+        const out = req.type === 'edit' ? await editPdf(req.bytes, req.ops, req.inserts, req.rewrite ? 'rewrite' : 'auto') : req.type === 'extract' ? await extractPages(req.bytes, req.pages) : await createPdf(req.pages);
         reply({ id: req.id, ok: true, type: req.type, bytes: out }, [out]);
         break;
       }

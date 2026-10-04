@@ -21,7 +21,7 @@ export interface OverlayLayer {
   /** Where the page's top-left lands on the overlay page, in points (page space, y down). */
   offset: [number, number];
   /** Instead of the offset: the page's page space to the overlay page's (scaled or 3-point aligned). */
-  transform?: Matrix;
+  transform?: Readonly<Matrix>;
 }
 
 export interface OverlayPageSpec {
@@ -96,7 +96,7 @@ export async function overlayPages(sources: readonly OverlaySource[], pages: rea
       const e = await embed(layer.source, layer.page);
       if (!e) continue;
       // Source user space → source page space → moved → overlay user space.
-      const shift: Matrix = layer.transform ?? [1, 0, 0, 1, layer.offset[0], layer.offset[1]];
+      const shift: Matrix = layer.transform ? [...layer.transform] : [1, 0, 0, 1, layer.offset[0], layer.offset[1]];
       const m = multiply(multiply(invert(e.toUser), shift), flip);
       const [r, g, b] = sources[layer.source]!.color;
       const content = [

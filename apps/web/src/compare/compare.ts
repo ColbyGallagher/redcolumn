@@ -3,7 +3,7 @@ import { diffWords, mergeBoxes, type Box, type Difference } from './diff';
 import type { CompareWorkRequest } from './compare.worker';
 import type { PagePair } from './pairing';
 export { pairPages, type PagePair } from './pairing';
-import { mapBox, type Affine } from './affine';
+import { IDENTITY, mapBox, type Affine } from './affine';
 export * from './affine';
 
 export interface CompareOptions {
@@ -35,7 +35,6 @@ export interface CompareOptions {
   transform?: Affine | null;
 }
 
-const IDENTITY: Affine = [1, 0, 0, 1, 0, 0];
 const isIdentity = (m: Affine) => m.every((v, i) => Math.abs(v - IDENTITY[i]!) < 1e-9);
 
 export const DEFAULT_COMPARE: CompareOptions = { dpi: 100, align: true, maxShift: 72, proximity: 1.5, sensitivity: 6, cluster: 12, graphics: true, text: true, region: null };

@@ -33,6 +33,9 @@ export interface StoredStitchGroup {
 }
 
 const DEFAULT_COLUMN_SET: ColumnSet = { columns: [], statuses: DEFAULT_STATUSES };
+const NO_STITCH: StoredStitchGroup[] = [];
+const NO_BOOKMARKS: Bookmark[] = [];
+const NO_PLACES: Place[] = [];
 
 /** Detected links at or above this confidence are active without review. */
 const LINK_AUTO_CONFIDENCE = 0.75;
@@ -63,7 +66,7 @@ export class MarkupStore {
   /** Small document-level flags (e.g. whether link detection has run). */
   readonly meta: Y.Map<unknown>;
   readonly undoManager: Y.UndoManager;
-  private persistence: IndexeddbPersistence;
+  private persistence: IndexeddbPersistence | null;
   private listeners = new Set<() => void>();
   private snapshot: Markup[] = [];
   private scaleSnapshot: Readonly<Record<number, Scale>> = {};
@@ -80,7 +83,7 @@ export class MarkupStore {
 
   readonly fileHash: string;
 
-  private constructor(fileHash: string) {
+  private constructor(fileHash: string, persist: boolean) {
     this.fileHash = fileHash;
     this.map = this.doc.getMap<Markup>('markups');
     this.scales = this.doc.getMap<Scale>('scales');
@@ -100,31 +103,40 @@ export class MarkupStore {
     };
     this.undoManager.on('stack-item-added', label as never);
     this.undoManager.on('stack-item-updated', label as never);
-    this.persistence = new IndexeddbPersistence(`nb-markups-${fileHash}`, this.doc);
-    this.map.observe(() => this.refresh());
-    this.scales.observe(() => this.refresh());
-    this.sheets.observe(() => this.refresh());
-    this.links.observe(() => this.refresh());
-    this.meta.observe(() => this.refresh());
-    this.outline.observe(() => this.refresh());
-    this.viewports.observe(() => this.refresh());
+    this.persistence = persist ? new IndexeddbPersistence(`nb-markups-${fileHash}`, this.doc) : null;
+    this.doc.on('afterTransaction', (tr: Y.Transaction) => {
+      if (tr.changed.size) this.refresh(tr.changed);
+    });
   }
 
-  private refresh() {
-    this.snapshot = [...this.map.values()];
-    this.scaleSnapshot = Object.fromEntries([...this.scales.entries()].map(([k, v]) => [Number(k), v]));
-    this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
-    this.linkSnapshot = [...this.links.values()];
-    this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? [];
-    this.bookmarkSnapshot = (this.outline.get('bookmarks') as Bookmark[] | undefined) ?? [];
-    this.placeSnapshot = (this.outline.get('places') as Place[] | undefined) ?? [];
-    this.viewportSnapshot = [...this.viewports.values()];
-    const raw = this.meta.get('columns');
-    if (raw !== this.columnRaw) {
-      this.columnRaw = raw;
-      const set = raw as Partial<ColumnSet> | undefined;
-      this.columnSnapshot = set ? { columns: set.columns ?? [], statuses: set.statuses?.length ? set.statuses : DEFAULT_STATUSES } : DEFAULT_COLUMN_SET;
+  /**
+   * Rebuilds the snapshots of the maps in `changed` (all of them when omitted) and notifies
+   * listeners. Snapshots of unchanged maps keep their identity, so React skips what reads them.
+   */
+  private refresh(changed?: ReadonlyMap<Y.AbstractType<any>, unknown>) {
+    const has = (t: Y.AbstractType<any>) => !changed || changed.has(t);
+    if (has(this.map)) this.snapshot = [...this.map.values()];
+    if (has(this.scales)) this.scaleSnapshot = Object.fromEntries([...this.scales.entries()].map(([k, v]) => [Number(k), v]));
+    if (has(this.sheets)) this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
+    if (has(this.links)) this.linkSnapshot = [...this.links.values()];
+    if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()];
+    if (has(this.meta)) {
+      this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
+      const raw = this.meta.get('columns');
+      if (raw !== this.columnRaw) {
+        this.columnRaw = raw;
+        const set = raw as Partial<ColumnSet> | undefined;
+        this.columnSnapshot = set ? { columns: set.columns ?? [], statuses: set.statuses?.length ? set.statuses : DEFAULT_STATUSES } : DEFAULT_COLUMN_SET;
+      }
     }
+    if (has(this.outline)) {
+      this.bookmarkSnapshot = (this.outline.get('bookmarks') as Bookmark[] | undefined) ?? NO_BOOKMARKS;
+      this.placeSnapshot = (this.outline.get('places') as Place[] | undefined) ?? NO_PLACES;
+    }
+    this.notify();
+  }
+
+  private notify() {
     for (const l of this.listeners) l();
   }
 
@@ -139,7 +151,7 @@ export class MarkupStore {
   setReadOnly(readOnly: boolean) {
     if (this.locked === readOnly) return;
     this.locked = readOnly;
-    this.refresh();
+    this.notify();
   }
 
   /**
@@ -149,7 +161,7 @@ export class MarkupStore {
   setEditRule(rule: EditRule | null) {
     if (this.editRule === rule) return;
     this.editRule = rule;
-    this.refresh();
+    this.notify();
   }
 
   /** Whether this person may change the markup itself, not only its status and replies. */
@@ -157,9 +169,10 @@ export class MarkupStore {
     return !this.editRule || this.editRule(m);
   }
 
-  static async open(fileHash: string): Promise<MarkupStore> {
-    const store = new MarkupStore(fileHash);
-    await store.persistence.whenSynced;
+  /** Opens a document's markups; `persist: false` keeps them in memory only (tests). */
+  static async open(fileHash: string, { persist = true }: { persist?: boolean } = {}): Promise<MarkupStore> {
+    const store = new MarkupStore(fileHash, persist);
+    await store.persistence?.whenSynced;
     store.refresh();
     return store;
   }
@@ -585,6 +598,15 @@ export class MarkupStore {
     }, LOCAL);
   }
 
+  /**
+   * Runs several edits as one transaction: listeners hear once, and IndexedDB and a Live Session
+   * receive one update instead of one per markup. Edits inside join it.
+   */
+  batch(fn: () => void) {
+    if (this.locked) return;
+    this.doc.transact(fn, LOCAL);
+  }
+
   /** Ends the current undo step so the next edit is undone separately. */
   checkpoint() {
     this.undoManager.stopCapturing();
@@ -616,7 +638,7 @@ export class MarkupStore {
   async destroy() {
     this.listeners.clear();
     this.undoManager.destroy();
-    await this.persistence.destroy();
+    await this.persistence?.destroy();
     this.doc.destroy();
   }
 }
@@ -634,13 +656,15 @@ function describeChange(
     const added: Markup[] = [];
     const removed: Markup[] = [];
     const updated: Markup[] = [];
+    const kinds = new Set<string>();
     for (const [key, change] of ev.changes.keys) {
       if (change.action === 'add') added.push(markups.get(key)!);
       else if (change.action === 'delete') removed.push(change.oldValue as Markup);
       else {
         const now = markups.get(key)!;
-        const was = change.oldValue as Markup;
+        const was = change.oldValue as Markup | undefined;
         updated.push(now);
+        kinds.add(was ? editKind(was, now) : 'Edit');
         // A single edit says what changed.
         if (ev.changes.keys.size === 1 && was) return `${editKind(was, now)} ${nameOf(now)}`;
       }
@@ -648,7 +672,8 @@ function describeChange(
     const say = (verb: string, list: Markup[]) => (list.length === 1 ? `${verb} ${nameOf(list[0]!)}` : `${verb} ${list.length} markups`);
     if (added.length && !removed.length && !updated.length) return say('Add', added);
     if (removed.length && !added.length && !updated.length) return say('Delete', removed);
-    if (updated.length && !added.length && !removed.length) return say('Edit', updated);
+    // Several markups changed the same way (moved, restyled...) say so.
+    if (updated.length && !added.length && !removed.length) return say(kinds.size === 1 ? [...kinds][0]! : 'Edit', updated);
     if (added.length && removed.length) return `Replace ${removed.length} markup${removed.length === 1 ? '' : 's'}`;
     return 'Edit markups';
   }

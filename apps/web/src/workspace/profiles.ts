@@ -190,6 +190,20 @@ export const profiles = {
     const p = saved.profiles.find((x) => x.id === id)!;
     return JSON.stringify({ format: 'nb-profile', version: 1, name: p.name, state: p.state }, null, 2);
   },
+  /** Every profile, for the cloud backup. */
+  exportAll(): string {
+    return JSON.stringify({ format: 'nb-profiles', version: 1, savedAt: new Date().toISOString(), activeId: saved.activeId, profiles: saved.profiles }, null, 2);
+  },
+  /** Brings in a cloud backup: its profiles replace ones with the same ID and the rest are kept. Returns how many came in. */
+  importAll(text: string): number {
+    const data = JSON.parse(text) as { format?: string; activeId?: string; profiles?: Profile[] };
+    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error('This is not a profile backup.');
+    const incoming = data.profiles.map((p) => ({ id: p.id, name: p.name, state: upgrade(p.state) }));
+    const ids = new Set(incoming.map((p) => p.id));
+    const kept = saved.profiles.filter((p) => !ids.has(p.id));
+    commit({ profiles: [...kept, ...incoming], activeId: incoming.some((p) => p.id === data.activeId) ? data.activeId! : incoming[0]!.id });
+    return incoming.length;
+  },
   importJson(text: string): Profile {
     const data = JSON.parse(text) as { format?: string; name?: string; state?: Partial<WorkspaceState> };
     if (data.format !== 'nb-profile' || !data.state) throw new Error('This is not a profile file.');

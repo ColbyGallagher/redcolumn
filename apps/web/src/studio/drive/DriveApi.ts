@@ -45,6 +45,10 @@ export interface DriveApi {
   shareWithUser(fileId: string, email: string, message: string, role?: 'reader' | 'writer'): Promise<void>;
   /** Whether this user owns the file (the host owns the session's manifest). */
   ownedByMe(fileId: string): Promise<boolean>;
+  /** Reads a file kept in the app's own folder (Apps/redcolumn), or null when it is not there yet. */
+  readAppFile?(name: string): Promise<string | null>;
+  /** Writes a file in the app's own folder, replacing one of the same name. */
+  writeAppFile?(name: string, text: string): Promise<void>;
   /** Deletes a file (Projects release their check-out locks this way). */
   remove?(fileId: string): Promise<void>;
   /** Who a folder is shared with, as the drive reports it (for those allowed to see). */

@@ -379,6 +379,28 @@ export class GoogleDrive implements DriveApi {
     return this.makeFolder(name, await this.appFolderId(), properties);
   }
 
+  /** The file of this name in Apps/redcolumn (drive.file sees only the ones this app made). */
+  private async appFile(name: string): Promise<string | null> {
+    const u = new URL(`${API}/files`);
+    u.searchParams.set('q', `name = '${name}' and '${await this.appFolderId()}' in parents and trashed = false`);
+    u.searchParams.set('fields', 'files(id)');
+    u.searchParams.set('spaces', 'drive');
+    return ((await (await this.authed(u.href, {}, 'find your saved settings')).json()) as { files: { id: string }[] }).files[0]?.id ?? null;
+  }
+
+  async readAppFile(name: string): Promise<string | null> {
+    const id = await this.appFile(name);
+    if (!id) return null;
+    return (await this.authed(`${API}/files/${id}?alt=media&supportsAllDrives=true`, {}, 'read your saved settings')).text();
+  }
+
+  async writeAppFile(name: string, text: string): Promise<void> {
+    const body = new Blob([text], { type: 'application/json' });
+    const id = await this.appFile(name);
+    if (id) await this.updateContent(id, body);
+    else await this.createFile(await this.appFolderId(), name, 'application/json', body, {});
+  }
+
   async createFile(folderId: string, name: string, mimeType: string, body: Blob, properties: DriveProps): Promise<DriveFile> {
     // Resumable upload: one request for the metadata, one for the bytes. Works for any size.
     const start = await this.authed(

@@ -11,16 +11,34 @@ export interface IndexProgress {
 }
 
 /**
- * A second PDF engine for background work (text extraction), so
- * indexing a 500-sheet set never queues behind the viewer's tile renders.
+ * A second PDF engine for background work (text extraction), so indexing a 500-sheet set never
+ * queues behind the viewer's tile renders. One engine is shared by the jobs that run back to back
+ * (each loads PDFium afresh otherwise), and shut down once nothing has used it for a while.
  */
-async function openBackgroundDoc(bytes: ArrayBuffer): Promise<{ engine: PdfEngine; doc: PdfDocument }> {
-  const engine = new PdfEngine();
+const IDLE_MS = 30_000;
+let background: PdfEngine | null = null;
+let users = 0;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Runs `fn` on `bytes` opened in the background engine; the document is closed afterwards. */
+async function withBackgroundDoc<T>(bytes: ArrayBuffer, fn: (doc: PdfDocument) => Promise<T>): Promise<T> {
+  clearTimeout(idleTimer);
+  if (!background?.alive) background = new PdfEngine();
+  const engine = background;
+  users++;
+  let doc: PdfDocument | null = null;
   try {
-    return { engine, doc: await engine.open(bytes) };
-  } catch (err) {
-    engine.terminate();
-    throw err;
+    doc = await engine.open(bytes);
+    return await fn(doc);
+  } finally {
+    if (doc) await doc.close().catch(() => {});
+    if (--users === 0)
+      idleTimer = setTimeout(() => {
+        if (users === 0 && background === engine) {
+          engine.terminate();
+          background = null;
+        }
+      }, IDLE_MS);
   }
 }
 
@@ -44,8 +62,7 @@ export async function loadPageTexts(bytes: () => Promise<ArrayBuffer>, store: Ma
 async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
   const cached = textCache.get(store.fileHash);
   if (cached) return cached;
-  const { engine, doc } = await openBackgroundDoc(bytes);
-  try {
+  return withBackgroundDoc(bytes, async (doc) => {
     const pages: PageText[] = [];
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
@@ -55,9 +72,7 @@ async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p:
     }
     textCache.set(store.fileHash, pages);
     return pages;
-  } finally {
-    engine.terminate();
-  }
+  });
 }
 
 /**
@@ -84,8 +99,7 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
     store.setStitch([]);
     return;
   }
-  const { engine, doc } = await openBackgroundDoc(await bytes());
-  try {
+  await withBackgroundDoc(await bytes(), async (doc) => {
     const stitchPages: StitchPage[] = pages.map((p) => ({ ...p, segments: new Float32Array() }));
     let done = 0;
     for (const i of candidates) {
@@ -104,9 +118,7 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
       edges: g.edges.map((e) => ({ a: e.a, b: e.b, station: e.station, votes: e.alignment.votes, confidence: e.alignment.confidence })),
     }));
     store.setStitch(groups);
-  } finally {
-    engine.terminate();
-  }
+  });
 }
 
 /**
@@ -126,10 +138,9 @@ export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
 
 /** A PDF's own markups and links, and which of its annotations they stand for (to hide those). */
 export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
-  const { engine, doc } = await openBackgroundDoc(bytes);
-  const sheets = store.allSheets();
-  const lookup = new SheetLookup(doc.pages.map((_, i) => sheets[i]?.number ?? null));
-  try {
+  return withBackgroundDoc(bytes, async (doc) => {
+    const sheets = store.allSheets();
+    const lookup = new SheetLookup(doc.pages.map((_, i) => sheets[i]?.number ?? null));
     const markups: Markup[] = [];
     const links: DetectedLink[] = [];
     const imported: Record<number, number[]> = {};
@@ -142,9 +153,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
       onProgress({ phase: 'annotations', done: i + 1, total: doc.pages.length });
     }
     return { markups, links, imported };
-  } finally {
-    engine.terminate();
-  }
+  });
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */

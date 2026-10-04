@@ -9,6 +9,7 @@ export class PdfEngine {
   private worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
   private pending = new Map<number, Pending>();
   private nextId = 1;
+  private failure: Error | null = null;
 
   constructor() {
     this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
@@ -19,9 +20,29 @@ export class PdfEngine {
       if (msg.ok) p.resolve(msg);
       else p.reject(new Error(msg.error));
     };
+    // A worker that crashed (or ran out of memory) never answers: every waiting call fails instead.
+    this.worker.onerror = (e) => {
+      e.preventDefault();
+      this.fail(new Error(`The PDF engine stopped: ${e.message || 'worker error'}`));
+    };
+    this.worker.onmessageerror = () => this.fail(new Error('The PDF engine sent a message that could not be read'));
+  }
+
+  /** False once the worker has failed or been terminated; a dead engine rejects every call. */
+  get alive(): boolean {
+    return !this.failure;
+  }
+
+  private fail(err: Error) {
+    if (this.failure) return;
+    this.failure = err;
+    this.worker.terminate();
+    for (const p of this.pending.values()) p.reject(err);
+    this.pending.clear();
   }
 
   private call(req: WithoutId<WorkerRequest>, transfer: Transferable[] = []): Promise<Success> {
+    if (this.failure) return Promise.reject(this.failure);
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
@@ -38,10 +59,11 @@ export class PdfEngine {
 
   /**
    * Applies page operations to a PDF and returns the new file. `bytes` and `inserts` are
-   * transferred to the worker and unusable afterwards.
+   * transferred to the worker and unusable afterwards. A signed file is appended to, so its
+   * signatures stay valid, unless `rewrite` asks for a clean copy.
    */
-  async editPdf(bytes: ArrayBuffer, ops: PageOp[], inserts: ArrayBuffer[] = []): Promise<ArrayBuffer> {
-    const res = await this.call({ type: 'edit', bytes, ops, inserts }, [bytes, ...inserts]);
+  async editPdf(bytes: ArrayBuffer, ops: PageOp[], inserts: ArrayBuffer[] = [], { rewrite = false } = {}): Promise<ArrayBuffer> {
+    const res = await this.call({ type: 'edit', bytes, ops, inserts, rewrite }, [bytes, ...inserts]);
     if (res.type !== 'edit') throw new Error('Unexpected response');
     return res.bytes;
   }
@@ -159,7 +181,7 @@ export class PdfEngine {
   }
 
   terminate() {
-    this.worker.terminate();
+    this.fail(new Error('The PDF engine was shut down'));
   }
 }
 

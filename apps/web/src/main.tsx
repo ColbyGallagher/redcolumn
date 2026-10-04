@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { installLogCapture } from './help/logs';
 import { captureInstallPrompt } from './offline/install';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
+import { startProfileBackup } from './workspace/profileBackup';
 import { App } from './App';
 import './styles.css';
 import './features.css';
@@ -28,6 +29,8 @@ for (const type of ['pointerup', 'keyup', 'visibilitychange'] as const) window.a
 setInterval(() => gate.poke(), 15_000);
 // Ask the browser not to evict our offline storage under pressure (Preferences › Offline shows it).
 void navigator.storage?.persist?.();
+// Keep profiles copied to Google Drive or OneDrive once the person has turned that on (File › Profiles).
+startProfileBackup();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

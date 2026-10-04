@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { openForEdit } from './incremental';
 
 /** The /Info entries Document Properties lets the user edit. */
 export interface EditableInfo {
@@ -10,7 +10,7 @@ export interface EditableInfo {
 
 /** The file with new title, author, subject and keywords; empty values remove the entry. */
 export async function setDocumentInfo(bytes: ArrayBuffer, info: EditableInfo): Promise<ArrayBuffer> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   doc.setTitle(info.title.trim());
   doc.setAuthor(info.author.trim());
   doc.setSubject(info.subject.trim());
@@ -21,7 +21,7 @@ export async function setDocumentInfo(bytes: ArrayBuffer, info: EditableInfo): P
       .filter(Boolean),
   );
   doc.setModificationDate(new Date());
-  const out = await doc.save();
+  const out = await save();
   return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;
 }
 

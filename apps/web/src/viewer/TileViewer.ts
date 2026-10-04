@@ -1,6 +1,6 @@
 import type { PdfDocument } from '@nb/pdf-core';
 import { settings, steppedZoom } from '../settings/settings';
-import { composeAffine, IDENTITY, rotationAffine, type Affine } from './affine';
+import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
 
@@ -51,6 +51,10 @@ export interface ViewerStats {
   mode: LayoutMode;
   /** View rotation in clockwise quarter turns. */
   rotation: number;
+}
+
+/** Tile cache and render timings, for the development overlay. */
+export interface ViewerDiagnostics {
   cachedTiles: number;
   queuedTiles: number;
   lastTileMs: number;
@@ -124,10 +128,6 @@ interface Placed extends PagePlacement {
 }
 
 
-function applyAffine(m: Affine, [x, y]: readonly [number, number]): [number, number] {
-  return [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
-}
-
 /** A "nice" ruler step (1, 2 or 5 × 10ⁿ) of at least `min`. */
 function niceStep(min: number): number {
   const p = 10 ** Math.floor(Math.log10(min));
@@ -143,15 +143,6 @@ export interface RulerUnits {
 
 /** Ruler thickness in CSS px. */
 const RULER = 18;
-
-function invertAffine(m: Affine): Affine {
-  const det = m[0] * m[3] - m[1] * m[2];
-  const a = m[3] / det;
-  const b = -m[1] / det;
-  const c = -m[2] / det;
-  const d = m[0] / det;
-  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
-}
 
 /** The page rectangle cut down by half-planes (Sutherland–Hodgman), in page space. */
 function clipPolygon(width: number, height: number, clips: readonly HalfPlane[]): [number, number][] {
@@ -262,6 +253,7 @@ export class TileViewer {
   /** Set while a view is applied from elsewhere (synchronised panes), so it is not echoed back. */
   private quietView = false;
   private lastViewKey = '';
+  private lastStatsKey = '';
   // Touch: fingers down, the two-finger gesture, a long press waiting to open the menu, and the
   // pen guard (palm rejection). Fingers left over from a pinch are ignored until all lift.
   private touches = new Map<number, Pt>();
@@ -1267,20 +1259,27 @@ export class TileViewer {
     if (this.tileTimes.length > 50) this.tileTimes.shift();
   }
 
+  /**
+   * Reports the view to the app only when something it shows changed: this runs every frame, and
+   * each report re-renders the app.
+   */
   private emitStats() {
+    const pageCount = this.doc?.pages.length ?? 0;
+    const key = `${this.pageIndex}:${pageCount}:${Math.round(this.zoom * 1000)}:${this.mode}:${this.turns}`;
+    if (key === this.lastStatsKey) return;
+    this.lastStatsKey = key;
+    this.onStats({ pageIndex: this.pageIndex, pageCount, zoom: this.zoom, mode: this.mode, rotation: this.turns });
+  }
+
+  diagnostics(): ViewerDiagnostics {
     const times = this.tileTimes;
-    this.onStats({
-      pageIndex: this.pageIndex,
-      pageCount: this.doc?.pages.length ?? 0,
-      zoom: this.zoom,
-      mode: this.mode,
-      rotation: this.turns,
+    return {
       cachedTiles: this.tiles.size,
       queuedTiles: this.queue.length + this.inFlight.size,
       lastTileMs: times.at(-1) ?? 0,
       avgTileMs: times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0,
       tilesRendered: this.tilesRendered,
-    });
+    };
   }
 
   /** Page for an overlay event: the gesture's page, the overlay's active page, or the one under the pointer. */

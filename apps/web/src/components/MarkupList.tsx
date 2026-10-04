@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, type ColumnSet, type CustomColumn, type Markup, type MarkupStore } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
@@ -39,13 +39,26 @@ interface Props {
 }
 
 const MIN_WIDTH = 40;
+/** Lists longer than this render only the rows in view (plus OVERSCAN either side). */
+const WINDOW_FROM = 300;
+const OVERSCAN = 20;
+/** The window moves in steps of this many rows, so scrolling re-renders the list only now and then. */
+const WINDOW_STEP = 10;
+/** Row height until the first row is measured. */
+const ROW_GUESS = 30;
 
-/** A comment cell that grows with its text. Enter adds a line; Ctrl+Enter or leaving the cell saves. */
+/** A row of the list body: a group header, a markup, or a reply under its markup. */
+type Line = { kind: 'group'; label: string; count: number } | { kind: 'markup'; row: ListRowData } | { kind: 'reply'; m: Markup; reply: NonNullable<Markup['replies']>[number] };
+
+/**
+ * A comment cell, one line high like every row. While editing it grows with its text over the
+ * rows below. Enter adds a line; Ctrl+Enter or leaving the cell saves.
+ */
 function CommentCell({ value, disabled, onSave }: { value: string; disabled: boolean; onSave: (text: string) => void }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const fit = () => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || document.activeElement !== el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + 2}px`;
   };
@@ -59,15 +72,16 @@ function CommentCell({ value, disabled, onSave }: { value: string; disabled: boo
       disabled={disabled}
       placeholder="Add comment"
       onClick={(e) => e.stopPropagation()}
+      onFocus={fit}
       onInput={fit}
       onBlur={(e) => {
+        e.target.style.height = '';
         if (e.target.value !== value) onSave(e.target.value);
       }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) e.currentTarget.blur();
         else if (e.key === 'Escape') {
           e.currentTarget.value = value;
-          fit();
           e.currentTarget.blur();
         }
       }}
@@ -83,7 +97,7 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * header), shown or hidden (right-click a header), and filtered (the filter row); filters can be
  * saved by name and are kept in the profile.
  */
-export function MarkupList(props: Props) {
+export const MarkupList = memo(function MarkupList(props: Props) {
   const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
@@ -107,23 +121,6 @@ export function MarkupList(props: Props) {
       return next;
     });
 
-  // Markups selected on the page are scrolled into view here.
-  const selectedKey = [...selected].join(',');
-  useEffect(() => {
-    if (!selectedKey) return;
-    const rowsEl = [...(body.current?.querySelectorAll<HTMLElement>('tr[data-id]') ?? [])].filter((r) => selected.has(r.dataset.id!));
-    const first = rowsEl[0];
-    if (!first || rowsEl.some((r) => r.contains(document.activeElement))) return;
-    first.scrollIntoView({ block: 'nearest' });
-    // Keep the sticky header from covering it.
-    const scroller = first.closest('.markups-scroll');
-    const head = body.current?.parentElement?.querySelector('thead');
-    if (scroller && head) {
-      const over = head.getBoundingClientRect().bottom - first.getBoundingClientRect().top;
-      if (over > 0) scroller.scrollTop -= over;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedKey]);
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const all = useMemo(() => listColumns(columnSet.columns), [columnSet.columns]);
@@ -151,6 +148,71 @@ export function MarkupList(props: Props) {
     onFiltered?.(filtering ? new Set(rows.map((r) => r.markup.id)) : null);
   }, [rows, filtering, onFiltered]);
   const activeSaved = settings.savedFilters.find((f) => JSON.stringify(f.filters) === JSON.stringify(settings.filters)) ?? null;
+
+  const lines = useMemo(() => {
+    const out: Line[] = [];
+    for (const { label, rows: list } of groups) {
+      if (groupBy) out.push({ kind: 'group', label, count: list.length });
+      if (groupBy && folded.has(label)) continue;
+      for (const row of list) {
+        out.push({ kind: 'markup', row });
+        for (const reply of row.markup.replies ?? []) out.push({ kind: 'reply', m: row.markup, reply });
+      }
+    }
+    return out;
+  }, [groups, groupBy, folded]);
+
+  // Every row is one fixed height (see the list's CSS), measured from the first markup row, so a
+  // long list can render just the rows in view with spacers standing in for the rest.
+  const scroller = useRef<HTMLDivElement>(null);
+  const [rowH, setRowH] = useState(0);
+  const h = rowH || ROW_GUESS;
+  useLayoutEffect(() => {
+    if (rowH) return;
+    const tr = body.current?.querySelector<HTMLElement>('tr[data-id]');
+    if (tr?.offsetHeight) setRowH(tr.offsetHeight);
+  });
+  const headHeight = () => body.current?.parentElement?.querySelector('thead')?.offsetHeight ?? 0;
+  const [view, setView] = useState({ first: 0, count: 40 });
+  const track = useRef(() => {});
+  track.current = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const first = Math.floor(el.scrollTop / h / WINDOW_STEP) * WINDOW_STEP;
+    const count = Math.ceil(el.clientHeight / h);
+    setView((v) => (v.first === first && v.count === count ? v : { first, count }));
+  };
+  const hasList = markups.length > 0;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    track.current();
+    const ro = new ResizeObserver(() => track.current());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasList]);
+  const windowed = lines.length > WINDOW_FROM;
+  useEffect(() => {
+    if (windowed) track.current();
+  }, [windowed, rowH]);
+  const start = windowed ? Math.min(lines.length, Math.max(0, view.first - OVERSCAN)) : 0;
+  const end = windowed ? Math.min(lines.length, view.first + view.count + WINDOW_STEP + OVERSCAN) : lines.length;
+
+  // Markups selected on the page are scrolled into view here (unless a cell of one is being edited).
+  const selectedKey = [...selected].join(',');
+  useEffect(() => {
+    const el = scroller.current;
+    if (!selectedKey || !el) return;
+    if ([...(body.current?.querySelectorAll('tr.selected') ?? [])].some((r) => r.contains(document.activeElement))) return;
+    const index = lines.findIndex((l) => l.kind === 'markup' && selected.has(l.row.markup.id));
+    if (index < 0) return;
+    // Rows sit below the sticky header, which covers the top of the scrolled area.
+    const top = index * h;
+    const room = el.clientHeight - headHeight();
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + h > el.scrollTop + room) el.scrollTop = top + h - room;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
 
   const saveLayout = (next: (ListColumn & ColumnLayout)[]) => editList((l) => ({ ...l, columns: next.map(({ key, width, hidden }) => ({ key, width, hidden })) }));
   const setHidden = (key: string, hidden: boolean) => saveLayout(layout.map((c) => (c.key === key ? { ...c, hidden } : c)));
@@ -231,16 +293,19 @@ export function MarkupList(props: Props) {
   };
 
   // Takeoff totals per measurement kind, summed in SI units so pages at different scales add up.
-  const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
-  for (const r of rows) {
-    const m = r.markup;
-    if (!isMeasureKind(m.type) || m.type === 'angle') continue;
-    const scale = scaleOf(m);
-    const t = totals.get(m.type) ?? { value: 0, scale, n: 0 };
-    t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m));
-    t.n++;
-    totals.set(m.type, t);
-  }
+  const totals = useMemo(() => {
+    const out = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
+    for (const r of rows) {
+      const m = r.markup;
+      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      const scale = scaleOf(m);
+      const t = out.get(m.type) ?? { value: 0, scale, n: 0 };
+      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m));
+      t.n++;
+      out.set(m.type, t);
+    }
+    return out;
+  }, [rows, scaleOf]);
   const sums = visible.filter((c) => c.custom && (c.custom.type === 'number' || c.custom.type === 'formula'));
   const sumOf = (key: string, decimals?: number) => {
     let s = 0;
@@ -498,8 +563,8 @@ export function MarkupList(props: Props) {
       {markups.length === 0 ? (
         <p className="empty">Markups and measurements you draw appear here.</p>
       ) : (
-        <div className="markups-scroll">
-          <table style={{ width: visible.reduce((s, c) => s + c.width, 0) }}>
+        <div className="markups-scroll" ref={scroller} onScroll={windowed ? () => track.current() : undefined}>
+          <table style={{ width: visible.reduce((s, c) => s + c.width, 0), ...(rowH ? { '--list-row-h': `${rowH}px` } : {}) }}>
             <colgroup>
               {visible.map((c) => (
                 <col key={c.key} data-key={c.key} style={{ width: c.width }} />
@@ -570,19 +635,49 @@ export function MarkupList(props: Props) {
               )}
             </thead>
             <tbody ref={body}>
-              {groups.flatMap(({ label, rows: groupRowsList }) => [
-                ...(groupBy
-                  ? [
-                      <tr key={`group:${label}`} className="group-row" onClick={() => toggleFold(label)}>
-                        <td colSpan={visible.length}>
-                          <span className="fold">{folded.has(label) ? '▸' : '▾'}</span> {label} <span className="count">{groupRowsList.length}</span>
-                        </td>
-                      </tr>,
-                    ]
-                  : []),
-                ...(groupBy && folded.has(label) ? [] : groupRowsList.flatMap(({ markup: m, cells }) => {
+              {start > 0 && (
+                <tr className="spacer" style={{ height: start * h }}>
+                  <td colSpan={visible.length} />
+                </tr>
+              )}
+              {lines.slice(start, end).map((line) => {
+                if (line.kind === 'group') {
+                  const { label } = line;
+                  return (
+                    <tr key={`group:${label}`} className="group-row" onClick={() => toggleFold(label)}>
+                      <td colSpan={visible.length}>
+                        <span className="fold">{folded.has(label) ? '▸' : '▾'}</span> {label} <span className="count">{line.count}</span>
+                      </td>
+                    </tr>
+                  );
+                }
+                if (line.kind === 'reply') {
+                  const { m, reply: r } = line;
+                  // Replies sit under their markup, indented.
+                  return (
+                    <tr key={`${m.id}:${r.id}`} className={`reply-row${selected.has(m.id) ? ' selected' : ''}`} onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}>
+                      <td colSpan={visible.length}>
+                        <span className="reply-arrow">↳</span>
+                        <b>{r.author}</b> <span className="reply-date">{new Date(r.createdAt).toLocaleString()}</span> {r.text}
+                        {!readOnly && (
+                          <button
+                            className="chip-x"
+                            title="Delete this reply"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              store?.update(m.id, { replies: (m.replies ?? []).filter((x) => x.id !== r.id) });
+                            }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                }
+                const { markup: m, cells } = line.row;
                 const missing = new Set(missingRequired(m, columnSet.columns).map((c) => c.id));
-                return [
+                return (
                   <tr
                     key={m.id}
                     data-id={m.id}
@@ -604,31 +699,14 @@ export function MarkupList(props: Props) {
                         </td>
                       );
                     })}
-                  </tr>,
-                  // Replies sit under their markup, indented.
-                  ...(m.replies ?? []).map((r) => (
-                    <tr key={`${m.id}:${r.id}`} className={`reply-row${selected.has(m.id) ? ' selected' : ''}`} onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}>
-                      <td colSpan={visible.length}>
-                        <span className="reply-arrow">↳</span>
-                        <b>{r.author}</b> <span className="reply-date">{new Date(r.createdAt).toLocaleString()}</span> {r.text}
-                        {!readOnly && (
-                          <button
-                            className="chip-x"
-                            title="Delete this reply"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              store?.update(m.id, { replies: (m.replies ?? []).filter((x) => x.id !== r.id) });
-                            }}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  )),
-                ];
-              })),
-              ])}
+                  </tr>
+                );
+              })}
+              {end < lines.length && (
+                <tr className="spacer" style={{ height: (lines.length - end) * h }}>
+                  <td colSpan={visible.length} />
+                </tr>
+              )}
               {rows.length === 0 && (
                 <tr className="no-match">
                   <td colSpan={visible.length}>No markups match the filter.</td>
@@ -672,4 +750,4 @@ export function MarkupList(props: Props) {
       )}
     </div>
   );
-}
+});

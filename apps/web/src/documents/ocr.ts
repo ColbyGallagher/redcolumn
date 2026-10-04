@@ -1,6 +1,7 @@
-import { PDFDocument, StandardFonts, type PDFFont } from 'pdf-lib';
+import { StandardFonts, type PDFFont } from 'pdf-lib';
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
 import { addTagged, keepContentAsIs, removeTagged } from './taggedContent';
+import { openForEdit } from './incremental';
 
 /** Marks the invisible text layer OCR adds, so running OCR again replaces it. */
 const TAG = 'NBOcr';
@@ -36,7 +37,7 @@ const n = (v: number) => (Math.round(v * 1000) / 1000).toString();
  * width it has on the page. Replaces a text layer added before.
  */
 export async function addTextLayer(bytes: ArrayBuffer | Uint8Array, words: ReadonlyMap<number, readonly OcrWord[]>): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const pages = doc.getPages();
   removeTagged(doc, TAG, [...words.keys()]);
@@ -62,7 +63,7 @@ export async function addTextLayer(bytes: ArrayBuffer | Uint8Array, words: Reado
     ops.push('ET');
     addTagged(doc, page, TAG, ops.join('\n'));
   }
-  return doc.save();
+  return save();
 }
 
 /** Where the Tesseract files are served (see ocrAssets in vite.config.ts). */

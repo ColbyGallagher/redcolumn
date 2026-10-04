@@ -772,7 +772,26 @@
 }
 
 .markups td.edit {
+  position: relative;
   padding: 1px 3px;
+}
+
+/* A cell being edited lets its editor overlay the rows below. */
+.markups td.edit:focus-within {
+  overflow: visible;
+}
+
+.markups tbody tr {
+  height: var(--list-row-h, auto);
+}
+
+.markups tr.spacer td {
+  padding: 0;
+  border: 0;
+}
+
+.markups tbody tr.spacer:hover {
+  background: none;
 }
 
 .markups td input,
@@ -795,8 +814,12 @@
 }
 
 .markups td textarea.cell-multiline:focus {
-  position: relative;
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  left: 3px;
   z-index: 2;
+  width: auto;
   height: 80px;
   border-color: var(--accent);
 }
@@ -3306,4 +3329,11 @@ tr.hidden-markup td {
   width: 100%;
   text-align: left;
   white-space: nowrap;
+}
+
+.profiles-backup {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }

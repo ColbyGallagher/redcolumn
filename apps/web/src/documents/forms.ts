@@ -22,7 +22,7 @@ import {
   type PDFPage,
 } from 'pdf-lib';
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
-import { saveIncremental, snapshot, type Snapshot } from './incremental';
+import { openForEdit } from './incremental';
 import { calculationScript, displayValue, formatScripts, parseCalculation, parseFormat, recalculate, type Calculation, type FieldFormat } from './formScripts';
 
 /**
@@ -205,17 +205,6 @@ export interface FormModel {
   calcOrder: string[];
 }
 
-/** A signed form is only appended to (an incremental update), so its signatures stay valid. */
-function keepsSignatures(doc: PDFDocument): boolean {
-  const acro = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
-  const flags = acro?.lookup(PDFName.of('SigFlags'));
-  return flags instanceof PDFNumber && (flags.asNumber() & 1) === 1;
-}
-
-async function finish(doc: PDFDocument, original: ArrayBuffer | Uint8Array, snap: Snapshot | null): Promise<Uint8Array> {
-  return snap ? saveIncremental(original instanceof Uint8Array ? original : new Uint8Array(original), doc, snap) : doc.save();
-}
-
 const TYPE_OF = (f: PDFField): FieldType =>
   f instanceof PDFTextField ? 'text' : f instanceof PDFCheckBox ? 'checkbox' : f instanceof PDFRadioGroup ? 'radio' : f instanceof PDFDropdown ? 'dropdown' : f instanceof PDFOptionList ? 'list' : f instanceof PDFSignature ? 'signature' : 'button';
 
@@ -277,7 +266,11 @@ function valueOf(f: PDFField): string {
 }
 
 export async function readForm(bytes: ArrayBuffer | Uint8Array): Promise<FormModel> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  return modelOf(await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }));
+}
+
+/** The form of a loaded document, as it is now (edits included). */
+function modelOf(doc: PDFDocument): FormModel {
   const acro = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
   if (!acro) return { fields: [], calcOrder: [] };
   const form = doc.getForm();
@@ -336,12 +329,22 @@ export async function readForm(bytes: ArrayBuffer | Uint8Array): Promise<FormMod
   return { fields, calcOrder };
 }
 
-/** Sets values (by field name), recalculates calculated fields, and regenerates appearances. */
-export async function fillForm(bytes: ArrayBuffer | Uint8Array, values: Readonly<Record<string, string>>): Promise<{ bytes: Uint8Array; changed: string[] }> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+/**
+ * Sets values (by field name), recalculates calculated fields, and regenerates appearances.
+ * Returns the form as filled in, so it need not be read from the new file again. With `validate`,
+ * values a field does not accept are refused (as other PDF readers do).
+ */
+export async function fillForm(bytes: ArrayBuffer | Uint8Array, values: Readonly<Record<string, string>>, { validate = false } = {}): Promise<{ bytes: Uint8Array; changed: string[]; model: FormModel }> {
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
-  const model = await readForm(bytes);
+  const model = modelOf(doc);
+  if (validate) {
+    for (const [name, value] of Object.entries(values)) {
+      const f = model.fields.find((x) => x.name === name);
+      const problem = f ? validateValue(f, value) : null;
+      if (problem) throw new Error(`${name}: ${problem}`);
+    }
+  }
   const all = new Map(model.fields.map((f) => [f.name, f.value]));
   for (const [k, v] of Object.entries(values)) all.set(k, v);
   const calcs = new Map(model.fields.filter((f) => f.calculation).map((f) => [f.name, f.calculation!]));
@@ -350,7 +353,7 @@ export async function fillForm(bytes: ArrayBuffer | Uint8Array, values: Readonly
   const formats = new Map(model.fields.map((f) => [f.name, f.format]));
   for (const name of changed) setValue(form, name, all.get(name) ?? '');
   await writeAppearances(doc, form, [...changed], formats);
-  return { bytes: await finish(doc, bytes, snap), changed: [...changed] };
+  return { bytes: await save(), changed: [...changed], model: modelOf(doc) };
 }
 
 function setValue(form: PDFForm, name: string, value: string) {
@@ -406,8 +409,7 @@ async function writeAppearances(doc: PDFDocument, form: PDFForm, names: string[]
 
 /** Clears every field (Reset Form) to its default value (/DV) or empty. */
 export async function resetForm(bytes: ArrayBuffer | Uint8Array): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
   const model = await readForm(bytes);
   const values: Record<string, string> = {};
@@ -418,7 +420,7 @@ export async function resetForm(bytes: ArrayBuffer | Uint8Array): Promise<Uint8A
   }
   for (const [name, v] of Object.entries(values)) setValue(form, name, v);
   await writeAppearances(doc, form, Object.keys(values), new Map(model.fields.map((f) => [f.name, f.format])));
-  return finish(doc, bytes, snap);
+  return save();
 }
 
 export interface NewField {
@@ -449,8 +451,7 @@ function userBox(page: PDFPage, r: Rect) {
 
 /** Creates fields with a widget each (a radio field adds a button to an existing group of the same name). */
 export async function createFields(bytes: ArrayBuffer | Uint8Array, specs: readonly NewField[]): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const pages = doc.getPages();
@@ -507,7 +508,7 @@ export async function createFields(bytes: ArrayBuffer | Uint8Array, specs: reado
     }
   }
   form.acroForm.dict.set(PDFName.of('NeedAppearances'), doc.context.obj(false));
-  return finish(doc, bytes, snap);
+  return save();
 }
 
 export interface FieldChanges {
@@ -533,8 +534,7 @@ export interface FieldChanges {
 
 /** Changes a field's properties (and recalculates if its calculation changed). */
 export async function updateField(bytes: ArrayBuffer | Uint8Array, name: string, c: FieldChanges): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
   const f = form.getField(name);
   const dict = f.acroField.dict;
@@ -631,7 +631,7 @@ export async function updateField(bytes: ArrayBuffer | Uint8Array, name: string,
       if (c.action) w.dict.set(PDFName.of('A'), actionDict(doc, c.action));
       else w.dict.delete(PDFName.of('A'));
     }
-  const saved = await finish(doc, bytes, snap);
+  const saved = await save();
   // Values may follow from the new calculation, or look different with the new format or appearance.
   if (c.calculation !== undefined || c.format !== undefined || c.fontSize !== undefined || c.textColor !== undefined || c.borderColor !== undefined || c.backgroundColor !== undefined) return refreshField(saved, c.name ?? name);
   return saved;
@@ -646,8 +646,7 @@ async function refreshField(bytes: Uint8Array, name: string): Promise<Uint8Array
 
 /** Deletes fields and their widgets. */
 export async function removeFields(bytes: ArrayBuffer | Uint8Array, names: readonly string[]): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
   for (const n of names) {
     const f = form.getFieldMaybe(n);
@@ -661,7 +660,7 @@ export async function removeFields(bytes: ArrayBuffer | Uint8Array, names: reado
     }
     form.removeField(f);
   }
-  return finish(doc, bytes, snap);
+  return save();
 }
 
 /**
@@ -669,8 +668,7 @@ export async function removeFields(bytes: ArrayBuffer | Uint8Array, names: reado
  * places after them), and pages tab in that order (/Tabs /S for structure… here the array order).
  */
 export async function setTabOrder(bytes: ArrayBuffer | Uint8Array, names: readonly string[]): Promise<Uint8Array> {
-  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
-  const snap = keepsSignatures(doc) ? snapshot(doc, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) : null;
+  const { doc, save } = await openForEdit(bytes, { ignoreEncryption: true });
   const form = doc.getForm();
   const rank = new Map<PDFRef, number>();
   names.forEach((n, i) => {
@@ -701,7 +699,7 @@ export async function setTabOrder(bytes: ArrayBuffer | Uint8Array, names: readon
     const sorted = list.asArray().map((r, i) => ({ r, i, k: rankOf(r) })).sort((a, b) => a.k - b.k || a.i - b.i);
     sorted.forEach(({ r }, i) => list.set(i, r));
   }
-  return finish(doc, bytes, snap);
+  return save();
 }
 
 // --- Form data in and out -------------------------------------------------------------------

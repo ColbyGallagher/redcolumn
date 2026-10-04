@@ -1,5 +1,6 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, PDFString, type PDFObject, type PDFPage } from 'pdf-lib';
 import { addTagged, keepContentAsIs, removeTagged } from './taggedContent';
+import { openForEdit } from './incremental';
 
 // --- Flatten and Unflatten -------------------------------------------------------------------
 
@@ -39,7 +40,7 @@ function normalAppearance(doc: PDFDocument, annot: PDFDict): PDFRef | null {
  * data is kept in the file so Unflatten can bring them back. Returns how many were flattened.
  */
 export async function flattenAnnotations(bytes: ArrayBuffer | Uint8Array, recovery: string | null): Promise<{ bytes: Uint8Array; count: number }> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   let count = 0;
   let serial = 0;
   for (const page of doc.getPages()) {
@@ -90,7 +91,7 @@ export async function flattenAnnotations(bytes: ArrayBuffer | Uint8Array, recove
     addTagged(doc, page, FLAT_TAG, ops.join('\n'));
   }
   if (recovery !== null) doc.catalog.set(PDFName.of(RECOVERY_KEY), PDFHexString.fromText(recovery));
-  return { bytes: await doc.save(), count };
+  return { bytes: await save(), count };
 }
 
 /** Whether the file was flattened here with its markups kept for recovery. */
@@ -104,7 +105,7 @@ export async function canUnflatten(bytes: ArrayBuffer | Uint8Array): Promise<boo
  * (null when the file has none).
  */
 export async function unflatten(bytes: ArrayBuffer | Uint8Array): Promise<{ bytes: Uint8Array; recovery: string | null }> {
-  const doc = await PDFDocument.load(bytes, { updateMetadata: false });
+  const { doc, save } = await openForEdit(bytes);
   const kept = doc.catalog.lookupMaybe(PDFName.of(RECOVERY_KEY), PDFString, PDFHexString);
   removeTagged(doc, FLAT_TAG);
   for (const page of doc.getPages()) {
@@ -113,7 +114,7 @@ export async function unflatten(bytes: ArrayBuffer | Uint8Array): Promise<{ byte
     for (const key of xo.keys()) if (key.decodeText().startsWith('NBF')) xo.delete(key);
   }
   doc.catalog.delete(PDFName.of(RECOVERY_KEY));
-  return { bytes: await doc.save(), recovery: kept ? kept.decodeText() : null };
+  return { bytes: await save(), recovery: kept ? kept.decodeText() : null };
 }
 
 // --- Reduce File Size --------------------------------------------------------------------------

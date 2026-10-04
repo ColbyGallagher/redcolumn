@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import type { ColumnSet } from '@nb/markup';
 import { listColumns, resolveLayout } from '../columns/listColumns';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { availableBackends, backendLabel, backUpProfiles, hasBackup, restoreProfiles, stopBackingUp, useProfileBackup } from '../workspace/profileBackup';
 import { profiles, updateWorkspace, useProfiles, type WorkspaceState } from '../workspace/profiles';
 import { InlineName } from './InlineName';
 import { LEFT_TITLES, type LeftTab } from './MenuBar';
@@ -26,6 +27,68 @@ interface Props {
   onApplyToDocument: (set: ColumnSet) => void;
   onDownload: (name: string, text: string) => void;
   onClose: () => void;
+}
+
+/** Profiles are kept in this browser; this copies them to Google Drive or OneDrive and brings them back. */
+function CloudBackup({ onMessage }: { onMessage: (m: string) => void }) {
+  const { link, failed } = useProfileBackup();
+  const [busy, setBusy] = useState(false);
+  const backends = availableBackends();
+  const run = (job: () => Promise<string>) => {
+    setBusy(true);
+    job()
+      .then(onMessage)
+      .catch((err) => onMessage(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="profiles-backup">
+      <p className="hint-text">
+        Profiles are saved in this browser only. Clearing the browser’s site data removes them
+        {backends.length ? ', so keep a copy in the cloud or export them.' : '; export them to keep a copy.'}
+      </p>
+      {link && (
+        <p className="hint-text">
+          Backed up to {backendLabel(link.backend)} {new Date(link.at).toLocaleString()}. Changes are copied automatically.
+          {failed && ` The last copy failed: ${failed}`}
+        </p>
+      )}
+      {backends.map((b) => (
+        <div className="profiles-actions" key={b}>
+          <button
+            className="btn small"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                if (!link && (await hasBackup(b)) && !confirm(`${backendLabel(b)} already holds a profile backup. Backing up now replaces it with the profiles in this browser. Restore from it first if you want its profiles.\n\nReplace it?`)) return 'Backup cancelled.';
+                await backUpProfiles(b);
+                return `Backed up to ${backendLabel(b)}.`;
+              })
+            }
+          >
+            Back up to {backendLabel(b)}
+          </button>
+          <button
+            className="btn small"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                const n = await restoreProfiles(b);
+                return n ? `Restored ${n} profile${n === 1 ? '' : 's'} from ${backendLabel(b)}.` : `${backendLabel(b)} has no profile backup yet.`;
+              })
+            }
+          >
+            Restore
+          </button>
+        </div>
+      ))}
+      {link && (
+        <button className="btn small flat" onClick={stopBackingUp}>
+          Stop backing up
+        </button>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -115,6 +178,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                 Export
               </button>
             </div>
+            <CloudBackup onMessage={setMessage} />
           </div>
 
           <div className="profiles-settings">

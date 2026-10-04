@@ -431,6 +431,26 @@ export class OneDrive implements DriveApi {
     return item.id;
   }
 
+  /** The app folder's own item; reading it first makes OneDrive create the folder. */
+  private async appRoot(): Promise<{ driveId: string; itemId: string }> {
+    const root = (await (await this.fetch('/me/drive/special/approot?$select=id,parentReference', {}, 'open the app folder')).json()) as GraphItem;
+    return { driveId: root.parentReference?.driveId ?? '', itemId: root.id };
+  }
+
+  async readAppFile(name: string): Promise<string | null> {
+    const { driveId, itemId } = await this.appRoot();
+    const kids = (await (await this.fetch(`/drives/${driveId}/items/${itemId}/children?$select=id,name&$top=999`, {}, 'find your saved settings')).json()) as { value: { id: string; name: string }[] };
+    const file = kids.value.find((k) => k.name === name);
+    if (!file) return null;
+    return (await this.fetch(`/drives/${driveId}/items/${file.id}/content`, {}, 'read your saved settings')).text();
+  }
+
+  async writeAppFile(name: string, text: string): Promise<void> {
+    const { driveId, itemId } = await this.appRoot();
+    // A PUT to a path replaces a file of that name.
+    await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([text], { type: 'application/json' }), 'save your settings');
+  }
+
   /**
    * Uploads bytes as a new file in a folder (`create`) or over an existing file, and returns the
    * item. A new file never replaces another of the same name: OneDrive gives it a free name instead.
