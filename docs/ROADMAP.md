@@ -7,7 +7,7 @@ two), **M** (about a week), **L** (several weeks).
 
 | Work | Notes | Size |
 |---|---|---|
-| Spreadsheet links for quantities | Export measurement totals as `.xlsx` with named cells, or a CSV that refreshes when markups change | M |
+| Spreadsheet links for quantities, more | Done: Sync to Google Sheets or Excel in OneDrive. Next: a local `.xlsx`/CSV through the File System Access API, named cells and a Totals sheet | M |
 | Account settings | A settings page for the Google and Microsoft sign-ins used by Live Sessions | S |
 | More storage providers | Dropbox and SharePoint, through the same provider interface as `apps/web/src/studio/drive/` | M |
 | Customisable toolbars | Show, hide and arrange toolbar groups per profile | M |

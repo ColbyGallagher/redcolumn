@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
+import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
@@ -17,6 +17,9 @@ import { allows, canAddMarkups, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
+import { SheetSyncDialog } from './components/SheetSyncDialog';
+import { toTable } from './sheetsync/table';
+import { useSheetSync } from './sheetsync/useSheetSync';
 import { askText, AskTextHost } from './components/AskText';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
@@ -633,6 +636,7 @@ export function App() {
   const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState<{ rows: ListRowData[]; columns: ListColumn[] } | null>(null);
+  const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
@@ -1484,7 +1488,6 @@ export function App() {
       else viewer.goToPage(keep(view.pageIndex));
       void cur.doc.close();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf and tabsRefOf read only these
     [ctl, ctlB, setTabs, setFront],
   );
 
@@ -1514,7 +1517,6 @@ export function App() {
       await reopenInPane(cur, pane, { file, doc, store: cur.store }, pageFor);
       void refreshLibrary();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf reads only ctl and ctlB
     [ctl, ctlB, refreshLibrary, reopenInPane],
   );
 
@@ -1531,7 +1533,6 @@ export function App() {
       const doc = await ctl.engine.open(bytes.slice().buffer);
       await reopenInPane(cur, pane, { ...cur, doc }, 'view');
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- ctlOf reads only ctl and ctlB
     [ctl, ctlB, reopenInPane],
   );
 
@@ -3043,7 +3044,6 @@ export function App() {
     } catch (err) {
       setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the pane helpers read only refs and stable setters
   }, [setTabs, setFront, refreshLibrary]);
   const exportPdf = useCallback(() => saveDocument(false), [saveDocument]);
 
@@ -3799,7 +3799,6 @@ export function App() {
       if (!driveInvite && current.length > 1) setFocusedSession(null);
     })();
     // Once, when the viewer is ready.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctl]);
 
   useEffect(() => {
@@ -3847,7 +3846,6 @@ export function App() {
       })();
     }
     // Once, when the viewer is ready.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ctl]);
 
   useEffect(() => {
@@ -4354,6 +4352,18 @@ export function App() {
   const listFilters = Object.fromEntries(Object.entries(ws.list.filters).filter(([k]) => listKeys.has(k)));
   const listSort = ws.list.sort && listKeys.has(ws.list.sort.key) ? ws.list.sort : null;
   const openSummaryExport = () => setExportOpen({ rows: buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), columns: visibleListColumns });
+
+  // Keep a spreadsheet in step with the Markups list, when this document has one connected.
+  const sheetSync = useSheetSync(activeOpen?.file.name ?? null);
+  const syncTable = useMemo(
+    () => (sheetSync.link || syncOpen ? toTable(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns) : null),
+    // The context and layout are rebuilt every render; these are what they depend on.
+    [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
+  );
+  const pushSyncTable = sheetSync.update;
+  useEffect(() => {
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable);
+  }, [syncTable, sheetSync.link, pushSyncTable]);
 
   // Tell the others in the session which document and page this attendee is on.
   useEffect(() => {
@@ -6475,6 +6485,8 @@ export function App() {
                     onRowMenu={onListRowMenu}
                     onManageColumns={onManageColumns}
                     onExport={onExportList}
+                    onSync={() => setSyncOpen(true)}
+                    syncing={!!sheetSync.link}
                     onFiltered={setListKept}
                   />
                 )}
@@ -7242,6 +7254,20 @@ export function App() {
           busy={exportBusy}
           onExport={(req) => void runExport(req)}
           onClose={() => setExportOpen(null)}
+        />
+      )}
+      {syncOpen && activeOpen && syncTable && (
+        <SheetSyncDialog
+          docName={activeOpen.file.name}
+          link={sheetSync.link}
+          status={sheetSync.status}
+          rowCount={Math.max(0, syncTable.length - 1)}
+          googleAvailable={googleSignInConfigured}
+          oneDriveAvailable={oneDriveConfigured}
+          onConnect={(provider, title) => void sheetSync.connect(provider, title, syncTable)}
+          onSyncNow={() => void sheetSync.syncNow()}
+          onStop={sheetSync.disconnect}
+          onClose={() => setSyncOpen(false)}
         />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} onNotice={setNotice} />}

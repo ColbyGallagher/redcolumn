@@ -64,6 +64,15 @@ sign in to Google or Microsoft.
 
 Google and Microsoft handle these files under their own terms and privacy policies.
 
+## Spreadsheet sync (Google Sheets and OneDrive)
+
+If you turn on **Sync** in the Markups list, redcolumn writes that list (the columns, filter and
+sort you see: subjects, comments, authors, dates, measurements) to a Google Sheet or an Excel
+workbook in `Apps/redcolumn` in your OneDrive, under your own account, and rewrites it when markups
+change. Nothing goes to us. The spreadsheet is yours: share or delete it in Google or Microsoft.
+Stopping the sync, or clearing site data, does not delete it. The app keeps the spreadsheet's link
+in your browser's storage so it can carry on after a reload.
+
 ## Projects (OneDrive)
 
 Projects are shared folders of PDFs for a team. They are optional and only start when you sign in

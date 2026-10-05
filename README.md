@@ -18,6 +18,8 @@ stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](
 - **Working together:** Live Sessions in the host's Google Drive or OneDrive, with access levels,
   chat, markup alerts and session reports; and Projects, shared OneDrive folders of PDFs with check
   out and check in, revisions and a Project Record.
+- **Spreadsheets:** export the Markups list as CSV or PDF, or keep it in a Google Sheet or an
+  Excel workbook in OneDrive that updates as markups change.
 - **Compatibility:** reads and writes standard PDF annotations and XFDF, and imports Bluebeam®
   Revu® tool sets (`.btx`).
 
