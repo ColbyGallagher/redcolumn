@@ -2,7 +2,7 @@ import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { HATCH_ANGLES, lineEnds, type LineEnding } from './style';
 
@@ -54,6 +54,15 @@ function baseShape(m: Markup): ShapePart[] {
       return withEnds(m, points);
     case 'arc':
       return withEnds(m, arcPoints(points));
+    case 'ellipticalArc':
+      return withEnds(m, ellipticalArcPoints(m));
+    case 'flagLabel': {
+      // A pennant: the text box with a point on its left.
+      const b = boundsOf(points);
+      const tip = flagTip(b);
+      const path: PathCmd[] = [['M', b.x, b.y + b.h / 2], ['L', b.x + tip, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x + tip, b.y + b.h], ['Z']];
+      return [{ path, stroke: style.width > 0, fill: style.fill }];
+    }
     case 'rect':
     case 'text':
     case 'typewriter':
@@ -79,7 +88,7 @@ function baseShape(m: Markup): ShapePart[] {
     case 'note':
       return notePath(boundsOf(points), style.fill);
     case 'dimension':
-      return withEnds(m, points.slice(0, 2));
+      return offsetLine(m, points[0]!, points[points.length - 1]!);
     case 'attachment':
       return attachmentPath(boundsOf(points), style.fill);
     case 'flag':
@@ -119,28 +128,15 @@ function baseShape(m: Markup): ShapePart[] {
       return [{ path: ellipsePath(boundsOf(points)), stroke: true, fill: style.fill }];
     case 'cloud':
       return [{ path: cloudPath(boundsOf(points), cloudRadius(m), !!style.cloudInside), stroke: true, fill: style.fill }];
+    case 'polygonCloud':
+      return [{ path: points.length > 2 ? cloudPolygonPath(points, cloudRadius(m), !!style.cloudInside) : polyline(points), stroke: true, fill: points.length > 2 ? style.fill : null }];
     case 'pen':
     case 'highlighter':
       return [{ path: polyline(points), stroke: true, fill: null }];
     case 'polylength':
       return withEnds(m, m.bulges?.some(Boolean) ? expandArcs(points, m.bulges) : points);
-    case 'length': {
-      const [a, b] = [points[0]!, points[points.length - 1]!];
-      const offset = style.leader ?? 0;
-      if (!offset) return withEnds(m, [a, b]);
-      // Offset dimension: the dimension line runs parallel to the measured points, joined to them
-      // by extension lines that start a small gap off the object and run just past the line.
-      const [nx, ny] = dimensionNormal(a, b);
-      const sign = Math.sign(offset);
-      const gap = Math.min(markerSize(m) * 0.5, Math.abs(offset) / 2);
-      const over = markerSize(m) * 0.75;
-      const ext = (p: Point): PathCmd[] => [
-        ['M', p[0] + nx * gap * sign, p[1] + ny * gap * sign],
-        ['L', p[0] + nx * (offset + over * sign), p[1] + ny * (offset + over * sign)],
-      ];
-      const shifted: Point[] = [a, b].map((p) => [p[0] + nx * offset, p[1] + ny * offset] as Point);
-      return [...withEnds(m, shifted), { path: [...ext(a), ...ext(b)], stroke: true, fill: null, decoration: true }];
-    }
+    case 'length':
+      return offsetLine(m, points[0]!, points[points.length - 1]!);
     case 'area':
     case 'perimeter':
     case 'volume':
@@ -159,6 +155,19 @@ function baseShape(m: Markup): ShapePart[] {
     case 'radius': {
       const c = circleOf(m);
       if (!c || points.length < 2) return [{ path: polyline(points), stroke: true, fill: null }];
+      if (m.type === 'radius' && points.length >= 3) {
+        // A radius with an end point (Bluebeam's): the arc from its point round, counter-clockwise
+        // as on paper, to the end, and both radii.
+        const start = paperAngle(points[0]!, points[1]!);
+        let end = paperAngle(points[0]!, points[2]!);
+        if (end <= start + 1e-9) end += 360;
+        const steps = Math.max(8, Math.ceil((end - start) / 5));
+        const arc: Point[] = Array.from({ length: steps + 1 }, (_, i) => {
+          const t = ((start + ((end - start) * i) / steps) * Math.PI) / 180;
+          return [c.cx + c.r * Math.cos(t), c.cy - c.r * Math.sin(t)];
+        });
+        return [{ path: polyline(arc), stroke: true, fill: style.fill }, ...withEnds(m, points.slice(0, 2)), { path: polyline([points[0]!, points[2]!]), stroke: true, fill: null }];
+      }
       return [{ path: ellipsePath({ x: c.cx - c.r, y: c.cy - c.r, w: c.r * 2, h: c.r * 2 }), stroke: true, fill: style.fill }, ...withEnds(m, points.slice(0, 2))];
     }
     case 'arcLength':
@@ -204,6 +213,47 @@ const COUNT_SHAPES: Record<Exclude<CountShape, 'circle'>, Point[]> = {
   triangle: [[0, -1], [0.866, 0.5], [-0.866, 0.5]],
   cross: [[-1, -0.7], [-0.7, -1], [0, -0.3], [0.7, -1], [1, -0.7], [0.3, 0], [1, 0.7], [0.7, 1], [0, 0.3], [-0.7, 1], [-1, 0.7], [-0.3, 0]],
 };
+
+/** Direction from `c` to `p` in degrees counter-clockwise from east, as on paper (page y runs down). */
+function paperAngle(c: Point, p: Point): number {
+  return ((((Math.atan2(c[1] - p[1], p[0] - c[0]) * 180) / Math.PI) % 360) + 360) % 360;
+}
+
+/** An elliptical arc's path: its ellipse fills the box of its points, swept from start to end angle. */
+export function ellipticalArcPoints(m: Pick<Markup, 'points' | 'arcAngles'>): Point[] {
+  const b = boundsOf(m.points);
+  const [a1, end] = m.arcAngles ?? [0, 180];
+  let a2 = end;
+  while (a2 <= a1) a2 += 360;
+  const steps = Math.max(8, Math.ceil((a2 - a1) / 4));
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const t = ((a1 + ((a2 - a1) * i) / steps) * Math.PI) / 180;
+    return [cx + (b.w / 2) * Math.cos(t), cy - (b.h / 2) * Math.sin(t)] as Point;
+  });
+}
+
+/**
+ * A line between two points with its line endings, or with a `leader` offset an offset dimension:
+ * the line runs parallel to the measured points, joined to them by extension lines that start a
+ * small gap off the object and run just past the line.
+ */
+function offsetLine(m: Markup, a: Point, b: Point): ShapePart[] {
+  const offset = m.style.leader ?? 0;
+  if (!offset) return withEnds(m, [a, b]);
+  const [nx, ny] = dimensionNormal(a, b);
+  const sign = Math.sign(offset);
+  const marker = m.type === 'length' ? markerSize(m) : Math.max(3, m.style.width * 3);
+  const gap = Math.min(marker * 0.5, Math.abs(offset) / 2);
+  const over = marker * 0.75;
+  const ext = (p: Point): PathCmd[] => [
+    ['M', p[0] + nx * gap * sign, p[1] + ny * gap * sign],
+    ['L', p[0] + nx * (offset + over * sign), p[1] + ny * (offset + over * sign)],
+  ];
+  const shifted: Point[] = [a, b].map((p) => [p[0] + nx * offset, p[1] + ny * offset] as Point);
+  return [...withEnds(m, shifted), { path: [...ext(a), ...ext(b)], stroke: true, fill: null, decoration: true }];
+}
 
 /** Unit normal of segment a→b; a length's positive `leader` offsets its dimension line this way. */
 export function dimensionNormal(a: Point, b: Point): [number, number] {
@@ -486,26 +536,31 @@ function cloudPath(b: { x: number; y: number; w: number; h: number }, radius: nu
     [b.x + b.w, b.y + b.h],
     [b.x, b.y + b.h],
   ];
-  const cx = b.x + b.w / 2;
-  const cy = b.y + b.h / 2;
-  const path: PathCmd[] = [['M', b.x, b.y]];
-  for (let i = 0; i < 4; i++) {
+  return cloudPolygonPath(corners, radius, inside);
+}
+
+/** Arcs along each edge of a closed outline, bulging out of it (or into it with `inside`). */
+function cloudPolygonPath(corners: readonly Point[], radius: number, inside = false): PathCmd[] {
+  // Which side is out follows from the outline's winding (the shoelace sign).
+  let twice = 0;
+  for (let i = 0; i < corners.length; i++) {
     const p = corners[i]!;
-    const q = corners[(i + 1) % 4]!;
+    const q = corners[(i + 1) % corners.length]!;
+    twice += p[0] * q[1] - q[0] * p[1];
+  }
+  const out = (twice >= 0 ? -1 : 1) * (inside ? -1 : 1);
+  const path: PathCmd[] = [['M', corners[0]![0], corners[0]![1]]];
+  for (let i = 0; i < corners.length; i++) {
+    const p = corners[i]!;
+    const q = corners[(i + 1) % corners.length]!;
     const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (len === 0) continue;
     const n = Math.max(1, Math.round(len / (radius * 2)));
     const ux = (q[0] - p[0]) / len;
     const uy = (q[1] - p[1]) / len;
-    // Outward normal: perpendicular to the edge, pointing away from the box center.
-    let nx = -uy;
-    let ny = ux;
-    const mx = (p[0] + q[0]) / 2;
-    const my = (p[1] + q[1]) / 2;
-    if (((mx - cx) * nx + (my - cy) * ny < 0) !== inside) {
-      nx = -nx;
-      ny = -ny;
-    }
+    // Outward normal: perpendicular to the edge, on the outside of the outline.
+    const nx = -uy * out;
+    const ny = ux * out;
     const r = len / n / 2;
     for (let s = 0; s < n; s++) {
       const ax = p[0] + ux * r * 2 * s;

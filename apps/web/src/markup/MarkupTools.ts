@@ -1847,7 +1847,7 @@ export class MarkupTools implements ViewerOverlay {
     // Size decorations for the current zoom so they look consistent on screen when drawn.
     // Sizes the user set explicitly in the tool's defaults are kept as they are.
     if (preset?.stamp) style.stroke = preset.stamp.color;
-    if (type === 'cloud') style.arcRadius ??= CLOUD_ARC_PX / zoom;
+    if (type === 'cloud' || type === 'polygonCloud') style.arcRadius ??= CLOUD_ARC_PX / zoom;
     if (type === 'legend') style.fontSize ??= LABEL_PX / zoom;
     if (type === 'space') style.fontSize ??= (LABEL_PX * 1.4) / zoom;
     if (isMeasureKind(type)) {

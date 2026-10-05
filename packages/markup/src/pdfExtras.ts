@@ -202,7 +202,7 @@ async function deflate(data: Uint8Array): Promise<Uint8Array> {
 }
 
 /** An 8-bit RGBA PNG. */
-async function encodePng(width: number, height: number, rgba: Uint8Array): Promise<Uint8Array> {
+export async function encodePng(width: number, height: number, rgba: Uint8Array): Promise<Uint8Array> {
   const raw = new Uint8Array(height * (width * 4 + 1));
   for (let y = 0; y < height; y++) raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
   const chunk = (type: string, data: Uint8Array) => {

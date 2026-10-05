@@ -128,6 +128,12 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
 export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
   const found = await readPdfAnnotations(await bytes(), store, onProgress, signal);
   store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported, found.extras);
+  // The PDF's own page labels name pages nothing else has (plain page numbers say nothing).
+  const sheets = store.allSheets();
+  const labelled = found.labels.flatMap((label, i): [number, SheetInfo][] =>
+    label && label !== String(i + 1) && !sheets[i]?.number ? [[i, { number: label, title: sheets[i]?.title ?? null, discipline: sheets[i]?.discipline ?? null, scaleText: sheets[i]?.scaleText ?? null, revision: sheets[i]?.revision ?? null, source: 'pdf', confidence: 1 }]] : [],
+  );
+  if (labelled.length) store.setDetectedSheets(labelled);
 }
 
 /**
@@ -142,8 +148,9 @@ export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
  */
 export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
   // Read before the engine takes the buffer; without it markups still import from PDFium's view.
-  const { readPdfExtras } = await import('@nb/markup/pdfExtras');
+  const { encodePng, readPdfExtras } = await import('@nb/markup/pdfExtras');
   const raw = await readPdfExtras(bytes).catch(() => null);
+  if (raw) raw.appearances = new Map();
   return withBackgroundDoc(bytes, async (doc) => {
     const sheets = store.allSheets();
     const lookup = new SheetLookup(doc.pages.map((_, i) => sheets[i]?.number ?? null));
@@ -152,9 +159,17 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     const imported: Record<number, number[]> = {};
     const extras: ImportedExtras = { scales: {}, viewports: [], spaces: {} };
     const states = new Set<string>();
+    const labels = await doc.pageLabels().catch(() => doc.pages.map(() => null));
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
-      const result = importAnnotations(i, await doc.annotations(i), (name) => lookup.find(name), raw);
+      const annotations = await doc.annotations(i);
+      // Other tools' stamps come in as pictures of their own appearance.
+      for (const a of annotations) {
+        if (!raw || a.subtype !== 'Stamp' || a.appData || a.flags & (1 | 2 | 32)) continue;
+        const image = await doc.annotationImage(i, a.index, 3).catch(() => null);
+        if (image) raw.appearances!.set(`${i}:${a.index}`, `data:image/png;base64,${toBase64(await encodePng(image.width, image.height, image.rgba))}`);
+      }
+      const result = importAnnotations(i, annotations, (name) => lookup.find(name), raw);
       markups.push(...result.markups);
       links.push(...result.links);
       if (result.imported.length) imported[i] = result.imported;
@@ -168,8 +183,14 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     if (raw?.columns.length) extras.columns = importColumns(raw.columns);
     const known = new Set(DEFAULT_STATUSES.map((s) => s.id));
     extras.statuses = [...states].filter((s) => !known.has(statusIdOf(s))).map((name) => ({ id: statusIdOf(name), name, color: '#9aa1a9' }));
-    return { markups, links, imported, extras };
+    return { markups, links, imported, extras, labels };
   });
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */

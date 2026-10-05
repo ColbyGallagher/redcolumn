@@ -2,7 +2,7 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexStr
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
-import { AREA_LABELS, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, VOLUME_LABELS, volumeUnitOf, type Scale } from '@nb/measure';
+import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
 import { arcPoints } from './arc';
 import { calloutLanding } from './callout';
@@ -18,7 +18,7 @@ import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
 import type { CustomColumn, MarkupStatusDef } from './columns';
-import { unchangedSinceImport } from './digest';
+import { markupDigest, unchangedSinceImport } from './digest';
 import { toPdfDict } from './pdfValue';
 
 /**
@@ -173,9 +173,9 @@ function measureDict(scale: Scale): LiteralObject {
     R: PDFString.of(scale.label),
     X: [format(scale.unit, unitsPerPoint)],
     D: [format(scale.unit, 1)],
-    A: [format(AREA_LABELS[areaUnitOf(scale)], (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
-    V: [format(VOLUME_LABELS[volumeUnitOf(scale)], (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
-    T: [{ Type: 'NumberFormat', U: PDFHexString.fromText('°'), C: 1, D: 100 }],
+    A: [format(areaLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
+    V: [format(volumeLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
+    T: [{ Type: 'NumberFormat', U: PDFHexString.fromText('°'), C: 1, D: 10 ** (scale.anglePrecision ?? 1) }],
   };
 }
 
@@ -372,6 +372,27 @@ const PDF_LINE_ENDINGS: Record<LineEnding, string> = {
   slash: 'Slash',
 };
 
+/** Bluebeam's cloud intensity (0–2) for a cloud's arc size: about 3 pt per step. */
+function cloudEffect(m: Markup): LiteralObject {
+  return { S: 'C', I: Math.max(0, Math.min(2, Math.round((m.style.arcRadius ?? 6) / 3))) };
+}
+
+/**
+ * A dimension line's /LL leader length: the offset of the line from its points, positive on the
+ * left of the direction in user space (ours is positive the other way in page space, y down).
+ */
+function leaderLength(m: Markup, matrix: Matrix): LiteralObject {
+  const offset = m.style.leader;
+  if (!offset || m.points.length < 2) return {};
+  const [a, b] = [m.points[0]!, m.points[m.points.length - 1]!];
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  // Our offset point in page space, then which side of the user-space line it lands on.
+  const p: Point = [(a[0] + b[0]) / 2 - ((b[1] - a[1]) / d) * offset, (a[1] + b[1]) / 2 + ((b[0] - a[0]) / d) * offset];
+  const [ua, ub, up] = [a, b, p].map((q) => apply(matrix, q)) as [Point, Point, Point];
+  const side = Math.sign((ub[0] - ua[0]) * (up[1] - ua[1]) - (ub[1] - ua[1]) * (up[0] - ua[0]));
+  return { LL: side * Math.abs(offset) };
+}
+
 /** A markup's bounds with its measurement label and dimension text, which its appearance draws too. */
 function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number; h: number } {
   let { x, y, w, h } = markupBounds(m);
@@ -490,7 +511,29 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         [box.x + box.w, box.y + box.h],
         [box.x, box.y + box.h],
       ].map((p) => apply(matrix, p as Point));
-      specific = { Subtype: 'Polygon', Vertices: flat(verts), BE: { S: 'C', I: 1 }, IT: 'PolygonCloud' };
+      specific = { Subtype: 'Polygon', Vertices: flat(verts), BE: cloudEffect(m), IT: 'PolygonCloud' };
+      break;
+    }
+    case 'polygonCloud':
+      specific = { Subtype: 'Polygon', Vertices: flat(user), BE: cloudEffect(m), IT: 'PolygonCloud' };
+      break;
+    case 'ellipticalArc': {
+      // Bluebeam's arc: a Circle annotation's ellipse, between two angles (counter-clockwise from
+      // east in user space, so turned with the page).
+      const box = boundsOf(m.points);
+      const c = apply(matrix, [box.x + box.w / 2, box.y + box.h / 2]);
+      const corner = apply(matrix, [box.x + box.w, box.y + box.h]);
+      // The ellipse's half axes in user space (a turned page swaps them).
+      const ux = Math.abs(corner[0] - c[0]) || 1;
+      const uy = Math.abs(corner[1] - c[1]) || 1;
+      const [a1, a2] = m.arcAngles ?? [0, 180];
+      const at = (deg: number): Point => {
+        const t = (deg * Math.PI) / 180;
+        return apply(matrix, [box.x + box.w / 2 + (box.w / 2) * Math.cos(t), box.y + box.h / 2 - (box.h / 2) * Math.sin(t)]);
+      };
+      // Angles on the ellipse (its parameter), as Bluebeam reads them.
+      const angle = (p: Point) => ((((Math.atan2((p[1] - c[1]) / uy, (p[0] - c[0]) / ux) * 180) / Math.PI) % 360) + 360) % 360;
+      specific = { Subtype: 'Circle', IT: 'CircleArc', RD: rd, Angle1: angle(at(a1)), Angle2: angle(at(a2)), LE: le };
       break;
     }
     case 'pen':
@@ -510,10 +553,11 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       break;
     }
     case 'length':
-      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Measure: measureDict(ctx.scale) };
+      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Measure: measureDict(ctx.scale), ...leaderLength(m, matrix) };
       break;
     case 'dimension':
-      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, Cap: true, ...(filledEnd ? { IC: color } : {}) };
+      // Bluebeam's unscaled dimension is a line dimension without a /Measure.
+      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Cap: true, ...(filledEnd ? { IC: color } : {}), ...leaderLength(m, matrix) };
       break;
     case 'replaceText': {
       const quads = markupLines(m.points).flatMap((r) =>
@@ -593,6 +637,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       specific = { Subtype: 'Stamp', Name: 'Signature' };
       break;
     case 'text':
+    case 'flagLabel':
     case 'typewriter': {
       const [r, g, bl] = rgb(textColor(m.style));
       const font = DA_FONT_NAMES[m.style.fontFamily ?? 'sans'];
@@ -607,6 +652,13 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
       };
+      if (m.type === 'flagLabel') {
+        // Its box reaches the flag's point; the text sits right of it (RD's left inset).
+        const box = contentBox(m);
+        const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
+        specific.RD = [Math.min(corners[0]![0], corners[1]![0]) - rect[0], rd[1]!, rd[2]!, rd[3]!];
+        specific.C = fill ?? [];
+      }
       delete base.IC;
       break;
     }
@@ -859,56 +911,20 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
     };
   }
   if (m.type === 'radius' && subtype === 'Polygon' && intent === 'PolygonRadius' && m.points.length >= 2) {
-    const [c, p] = m.points.map((q) => apply(matrix, q)) as [Point, Point];
-    return { Subtype: 'Polygon', Vertices: [p[0], p[1], c[0], c[1], p[0], p[1]] };
-  }
-  if (m.type === 'arc' && subtype === 'Circle' && intent === 'CircleArc' && m.points.length >= 3) {
-    const [a, mid, b] = m.points.map((q) => apply(matrix, q)) as [Point, Point, Point];
-    const circle = circleThroughPoints(a, mid, b);
-    if (!circle) return null;
-    const deg = (p: Point) => ((((Math.atan2(p[1] - circle.cy, p[0] - circle.cx) * 180) / Math.PI) % 360) + 360) % 360;
-    let a1 = deg(a);
-    let a2 = deg(b);
-    // Counter-clockwise from Angle1 to Angle2 must pass the middle point.
-    const ccw = (from: number, to: number, x: number) => (x - from + 360) % 360 <= (to - from + 360) % 360;
-    if (!ccw(a1, a2, deg(mid))) [a1, a2] = [a2, a1];
-    const w = m.style.width / 2;
-    return {
-      Subtype: 'Circle',
-      Rect: [circle.cx - circle.r - w, circle.cy - circle.r - w, circle.cx + circle.r + w, circle.cy + circle.r + w],
-      RD: [w, w, w, w],
-      Angle1: a1,
-      Angle2: a2,
-    };
+    const [c, p, end] = m.points.map((q) => apply(matrix, q)) as [Point, Point, Point | undefined];
+    const e = end ?? p;
+    return { Subtype: 'Polygon', Vertices: [p[0], p[1], c[0], c[1], e[0], e[1]] };
   }
   if ((m.type === 'area' || m.type === 'volume' || m.type === 'polylength' || m.type === 'perimeter') && orig.has(PDFName.of('Curves')) && m.bulges?.some(Boolean)) {
     // Bluebeam draws curved edges from its /Curves handles: the vertices stay the corners.
     return { Vertices: m.points.flatMap((p) => apply(matrix, p)), Curves: bezierHandles(m.points, m.bulges, m.type !== 'polylength', matrix) };
   }
-  if (m.type === 'polyline' && subtype === 'Circle' && intent === 'CircleArc') {
-    // An elliptical arc imported as a traced polyline: moved only, it goes back as the arc, moved.
-    const rect = numbers(orig, 'Rect');
-    const rd = numbers(orig, 'RD');
-    if (rect.length < 4 || m.points.length < 2) return null;
-    const [l, t, r, bt] = rd.length === 4 ? rd : [0, 0, 0, 0];
-    const cx = (rect[0]! + l! + rect[2]! - r!) / 2;
-    const cy = (rect[1]! + bt! + rect[3]! - t!) / 2;
-    const rx = (rect[2]! - r! - rect[0]! - l!) / 2;
-    const ry = (rect[3]! - t! - rect[1]! - bt!) / 2;
-    const a1 = orig.lookupMaybe(PDFName.of('Angle1'), PDFNumber)?.asNumber() ?? 0;
-    let a2 = orig.lookupMaybe(PDFName.of('Angle2'), PDFNumber)?.asNumber() ?? 360;
-    if (a2 <= a1) a2 += 360;
-    const steps = m.points.length - 1;
-    const user = m.points.map((p) => apply(matrix, p));
-    const dx = user[0]![0] - (cx + rx * Math.cos((a1 * Math.PI) / 180));
-    const dy = user[0]![1] - (cy + ry * Math.sin((a1 * Math.PI) / 180));
-    const moved = user.every(([x, y], i) => {
-      const a = ((a1 + ((a2 - a1) * i) / steps) * Math.PI) / 180;
-      return Math.abs(x - dx - (cx + rx * Math.cos(a))) < 0.05 && Math.abs(y - dy - (cy + ry * Math.sin(a))) < 0.05;
-    });
-    return moved ? { Subtype: 'Circle', Rect: [rect[0]! + dx, rect[1]! + dy, rect[2]! + dx, rect[3]! + dy] } : null;
-  }
   if (m.type === 'image' && subtype === 'Square' && orig.has(PDFName.of('Image'))) return { Subtype: 'Square' };
+  if (m.type === 'image' && subtype === 'Stamp' && m.pdfAnnot?.image && m.image && markupDigest({ image: m.image } as Markup) === m.pdfAnnot.image) {
+    // Another tool's stamp, moved or resized only: its own (vector) appearance, fitted to the new box.
+    const name = orig.get(PDFName.of('Name'));
+    return { Subtype: 'Stamp', [KEEP_APPEARANCE]: true, ...(name ? { Name: name as never } : {}) };
+  }
   if ((m.type === 'note' || m.type === 'flag') && subtype === 'Text') {
     const name = nameValue(orig, 'Name');
     return name ? { Name: name } : null;
@@ -952,6 +968,9 @@ function bezierHandles(pts: readonly Point[], bulges: readonly number[] | null |
   return out;
 }
 
+/** A native form's flag: keep the original annotation's appearance stream rather than ours. */
+const KEEP_APPEARANCE = '__keepAppearance';
+
 function circleThroughPoints(a: Point, b: Point, c: Point): { cx: number; cy: number; r: number } | null {
   const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
   if (Math.abs(d) < 1e-9) return null;
@@ -966,9 +985,10 @@ function circleThroughPoints(a: Point, b: Point, c: Point): { cx: number; cy: nu
  * have no equivalent for (another tool's measurement data, custom column values, reply links).
  */
 function mergeAnnotation(doc: PDFDocument, orig: PDFDict, ours: PDFDict, native: LiteralObject | null): PDFDict {
+  const keepAppearance = !!native?.[KEEP_APPEARANCE];
   if (native) {
     const changesKind = !!native.Subtype && native.Subtype !== nameValue(ours, 'Subtype');
-    for (const [k, v] of Object.entries(native)) ours.set(PDFName.of(k), doc.context.obj(v as LiteralObject));
+    for (const [k, v] of Object.entries(native)) if (k !== KEEP_APPEARANCE) ours.set(PDFName.of(k), doc.context.obj(v as LiteralObject));
     // Our ink circles or polyline mean nothing on the other tool's own form of the markup.
     if (changesKind) for (const k of ['InkList', 'Vertices', 'L', 'LE']) if (!(k in native)) ours.delete(PDFName.of(k));
   }
@@ -991,18 +1011,23 @@ function mergeAnnotation(doc: PDFDocument, orig: PDFDict, ours: PDFDict, native:
   const rect = out.lookupMaybe(PDFName.of('Rect'), PDFArray);
   const normal = out.lookupMaybe(PDFName.of('AP'), PDFDict)?.lookupMaybe(PDFName.of('N'), PDFStream);
   if (native?.Rect && rect && normal) normal.dict.set(PDFName.of('BBox'), rect);
+  if (keepAppearance && orig.has(PDFName.of('AP'))) out.set(PDFName.of('AP'), orig.get(PDFName.of('AP'))!);
   // Rich text the original had says what /Contents now says, in the original's default style.
-  if (orig.has(PDFName.of('RC')) && !out.has(PDFName.of('RC'))) {
-    const text = out.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '';
-    const ds = out.lookupMaybe(PDFName.of('DS'), PDFString, PDFHexString)?.decodeText();
-    const body = text.split(/\r\n?|\n/).map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />')).join('');
-    out.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
-  }
+  if (orig.has(PDFName.of('RC')) && !out.has(PDFName.of('RC'))) refreshRichText(out, true);
   return out;
 }
 
+/** An annotation's /RC rewritten from its /Contents, in its /DS style (only where it has rich text, unless `always`). */
+function refreshRichText(d: PDFDict, always = false) {
+  if (!always && !d.has(PDFName.of('RC'))) return;
+  const text = d.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '';
+  const ds = d.lookupMaybe(PDFName.of('DS'), PDFString, PDFHexString)?.decodeText();
+  const body = text.split(/\r\n?|\n/).map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />')).join('');
+  d.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
+}
+
 /** A review-state annotation as Bluebeam and Acrobat write one: the markup's status, changed. */
-function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string): PDFDict {
+function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model: 'Review' | 'Marked' = 'Review'): PDFDict {
   const now = Date.now();
   return doc.context.obj({
     Type: 'Annot',
@@ -1011,9 +1036,9 @@ function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string): 
     F: 2 | 4 | 8 | 16, // Hidden, Print, NoZoom, NoRotate: listed with the markup, never drawn
     Name: 'Note',
     IRT: parent,
-    StateModel: pdfText('Review'),
+    StateModel: pdfText(model),
     State: pdfText(state),
-    Subj: pdfText(`Set to ${state}`),
+    Subj: pdfText(model === 'Marked' ? (state === 'Marked' ? 'Checked' : 'Unchecked') : `Set to ${state}`),
     T: pdfText(m.author),
     NM: pdfText(`${m.id}-state-${now}`),
     M: pdfDate(now),
@@ -1355,7 +1380,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       if (!parts.has(i)) parts.set(i, []);
       parts.get(i)!.push(m);
     }
-    const owned = new Set([...parts.values()].flat().flatMap((m) => m.pdfAnnot?.owned ?? []));
+    // Annotations saved with another's markup: popups, replies, states, and a count's other items.
+    const owned = new Set([...parts.values()].flat().flatMap((m) => [...(m.pdfAnnot?.owned ?? []), ...(m.pdfAnnot?.members?.slice(1) ?? [])]));
     const remove = new Set<number>();
     const added: PDFRef[] = [];
     if (annots) {
@@ -1377,10 +1403,13 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
           continue;
         }
         const main = ms[0]!;
-        const ours = build(main);
+        // A count imported from one annotation per item writes each item over its own annotation.
+        const items = main.type === 'count' && main.pdfAnnot!.members ? main.points.map((p) => ({ ...main, points: [p] })) : null;
+        const first = items?.[0] ?? main;
+        const ours = build(first);
         // Ink strokes split into several markups go back as one annotation.
         if (ms.length > 1 && (main.type === 'pen' || main.type === 'highlighter')) ours.set(PDFName.of('InkList'), doc.context.obj(ms.map((m) => m.points.flatMap((p) => apply(ctx.matrix, p)))));
-        const merged = mergeAnnotation(doc, orig, ours, nativeForm(orig, main, ctx.matrix));
+        const merged = mergeAnnotation(doc, orig, ours, nativeForm(orig, first, ctx.matrix));
         if (columns?.moved && !merged.has(PDFName.of('BSIColumnData'))) realignColumnData(doc, merged, columns);
         // Written over the same object, so anything pointing at it (popups, replies, groups) still does.
         let parentRef: PDFRef;
@@ -1411,6 +1440,35 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         }
         for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
         if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses))));
+        if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
+        if (items) {
+          const members = main.pdfAnnot!.members!;
+          const names: PDFObject[] = [];
+          items.forEach((item, k) => {
+            const at = members[k];
+            const entryK = k === 0 ? entry : at !== undefined && at < annots.size() ? annots.get(at) : null;
+            const origK = entryK ? doc.context.lookup(entryK) : null;
+            const own = origK instanceof PDFDict ? origK : orig;
+            const dict = k === 0 ? merged : mergeAnnotation(doc, own, build(item), nativeForm(own, item, ctx.matrix));
+            // Every item says the count's total.
+            dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+            dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+            refreshRichText(dict);
+            if (k > 0 && !(origK instanceof PDFDict)) {
+              // A new item: the first item's form, in its group.
+              dict.set(PDFName.of('NM'), pdfText(`${main.id}-${k}`));
+              dict.set(PDFName.of('IRT'), parentRef);
+              dict.set(PDFName.of('RT'), PDFName.of('Group'));
+              dict.delete(PDFName.of('GroupNesting'));
+              added.push(doc.context.register(dict));
+            } else if (k > 0 && entryK instanceof PDFRef) doc.context.assign(entryK, dict);
+            names.push(PDFHexString.fromText(`/${dict.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? ''}`));
+          });
+          // Items deleted here go; the group lists those left.
+          for (const at of members.slice(items.length)) remove.add(at);
+          const nesting = merged.lookupMaybe(PDFName.of('GroupNesting'), PDFArray);
+          if (nesting) merged.set(PDFName.of('GroupNesting'), doc.context.obj([nesting.get(0), ...names]));
+        }
         // Further strokes than the annotation had are new annotations.
         if (!(main.type === 'pen' || main.type === 'highlighter')) for (const extra of ms.slice(1)) added.push(doc.context.register(build(extra)));
       }
@@ -1438,6 +1496,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       page.node.addAnnot(ref);
       for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
       if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses))));
+      if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
   }
   if (options.links) addLinks(doc, pages, options.links);

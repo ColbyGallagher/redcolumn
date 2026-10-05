@@ -10,10 +10,10 @@ import { MEASURE_TOOLS } from './ToolBar';
  * Attachment, Hyperlink, Eraser, Redaction and Snapshot. Select and Lasso are not markups.
  */
 const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
-  { label: 'Lines & Shapes', tools: ['line', 'arrow', 'dimension', 'polyline', 'arc', 'rect', 'ellipse', 'polygon', 'cloud', 'cloudPlus'] },
+  { label: 'Lines & Shapes', tools: ['line', 'arrow', 'dimension', 'polyline', 'arc', 'ellipticalArc', 'rect', 'ellipse', 'polygon', 'cloud', 'polygonCloud', 'cloudPlus'] },
   { label: 'Freehand', tools: ['pen', 'highlighter'] },
   { label: 'Text Markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
-  { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'note'] },
+  { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'flagLabel', 'note'] },
   { label: 'Other', tools: ['image', 'flag', 'legend', 'space'] },
 ];
 

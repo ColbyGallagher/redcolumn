@@ -1,4 +1,4 @@
-import type { DocumentInfo, OutlineItem, RedactReport, RedactRequest, TextObjectInfo, PageOp, PageSize, PdfAnnotation, TextWord, TileRequest, WorkerRequest, WorkerResponse } from './protocol';
+import type { AnnotImage, DocumentInfo, OutlineItem, RedactReport, RedactRequest, TextObjectInfo, PageOp, PageSize, PdfAnnotation, TextWord, TileRequest, WorkerRequest, WorkerResponse } from './protocol';
 
 type Success = Extract<WorkerResponse, { ok: true }>;
 type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void };
@@ -171,6 +171,20 @@ export class PdfEngine {
   }
 
   /** @internal */
+  async pageLabels(docId: number): Promise<(string | null)[]> {
+    const res = await this.call({ type: 'pageLabels', docId });
+    if (res.type !== 'pageLabels') throw new Error('Unexpected response');
+    return res.labels;
+  }
+
+  /** @internal */
+  async annotImage(docId: number, pageIndex: number, index: number, scale: number): Promise<AnnotImage | null> {
+    const res = await this.call({ type: 'annotImage', docId, pageIndex, index, scale });
+    if (res.type !== 'annotImage') throw new Error('Unexpected response');
+    return res.image;
+  }
+
+  /** @internal */
   async hideAnnotations(docId: number, pageIndex: number, indices: number[]): Promise<void> {
     await this.call({ type: 'hideAnnots', docId, pageIndex, indices });
   }
@@ -231,6 +245,16 @@ export class PdfDocument {
   /** The text object under a page-space point, for Edit Text. */
   textObjectAt(pageIndex: number, x: number, y: number) {
     return this.engine.textObjectAt(this.id, pageIndex, x, y);
+  }
+
+  /** Each page's label from the PDF's /PageLabels, or null where it has none. */
+  pageLabels() {
+    return this.engine.pageLabels(this.id);
+  }
+
+  /** One annotation's own appearance as pixels, at `scale` pixels per point. */
+  annotationImage(pageIndex: number, index: number, scale = 3) {
+    return this.engine.annotImage(this.id, pageIndex, index, scale);
   }
 
   /** The PDF's bookmarks (outline) as a tree. */

@@ -350,7 +350,9 @@ export function toolType(revuType: string, d: PdfDict): MarkupType | null {
   const t = revuType.toLowerCase();
   const sub = nm(d.Subtype);
   const it = nm(d.IT);
-  if (/stamp|image|sketch|symbol|snapshot|3d|file|sound|link|hyperlink|redact|volume|dynamicfill|flag/.test(t) || sub === 'Stamp') return null;
+  // Bluebeam's Flag is a pennant-shaped text box.
+  if (/flag/.test(t)) return sub === 'FreeText' || /freetext/.test(t) ? 'flagLabel' : null;
+  if (/stamp|image|sketch|symbol|snapshot|3d|file|sound|link|hyperlink|redact|volume|dynamicfill/.test(t) || sub === 'Stamp') return null;
   if (/count/.test(t) || /Count/i.test(it)) return 'count';
   if (/angle/.test(t) || /Angle/i.test(it)) return 'angle';
   if (/polylength/.test(t)) return 'polylength';

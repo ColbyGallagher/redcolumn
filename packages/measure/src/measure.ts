@@ -1,4 +1,4 @@
-import { AREA_LABELS, areaUnitOf, formatArea, formatLength, formatVolume, METERS_PER_UNIT, VOLUME_LABELS, volumeUnitOf, type Scale } from './scale.ts';
+import { areaLabelOf, areaUnitOf, formatArea, formatLength, formatVolume, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from './scale.ts';
 
 export type Pt = readonly [number, number];
 
@@ -333,7 +333,7 @@ export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): s
     case 'count':
       return `${value} ea`;
     case 'angle':
-      return `${value.toFixed(1)}°`;
+      return `${value.toFixed(scale.anglePrecision ?? 1)}°`;
   }
 }
 
@@ -349,9 +349,9 @@ export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale
     case 'length':
       return { value: value / per, unit: scale.unit };
     case 'area':
-      return { value: value / (perArea * perArea), unit: AREA_LABELS[areaUnitOf(scale)] };
+      return { value: value / (perArea * perArea), unit: areaLabelOf(scale) };
     case 'volume':
-      return { value: value / (perVolume * perVolume * perVolume), unit: VOLUME_LABELS[volumeUnitOf(scale)] };
+      return { value: value / (perVolume * perVolume * perVolume), unit: volumeLabelOf(scale) };
     case 'count':
       return { value, unit: 'ea' };
     case 'angle':

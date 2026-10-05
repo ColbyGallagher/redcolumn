@@ -1,6 +1,6 @@
 import type { DetectedLink } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import {
   arr,
   cleanText,
@@ -110,6 +110,8 @@ export function importAnnotations(
   const links: DetectedLink[] = [];
   const imported: number[] = [];
   const now = Date.now();
+  /** Count markups by the group their items' annotations share. */
+  const counts = new Map<string, Markup>();
   const page = extras?.pages[pageIndex] ?? null;
   const toPage = page ? userToPage(page.matrix) : null;
 
@@ -204,8 +206,12 @@ export function importAnnotations(
       const replies = [...(m.replies ?? []), ...t.replies.filter((x) => !have.has(x.id))].sort((x, y) => x.createdAt - y.createdAt);
       if (replies.length) m.replies = replies;
       // The latest review state is the status (Bluebeam's Marked model is a separate check).
-      const review = t.states.filter((s) => s.model === 'Review').sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
+      const latest = (model: string) => t.states.filter((s) => s.model === model).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
+      const review = latest('Review');
       if (review) m.status = statusIdOf(review.state);
+      // Bluebeam's checkmark: the Marked model, Marked or Unmarked.
+      const marked = latest('Marked');
+      if (marked) m.checked = marked.state === 'Marked';
     }
     if (r) {
       const fields = extras ? importColumnData(r.BSIColumnData, extras.columns) : undefined;
@@ -231,6 +237,8 @@ export function importAnnotations(
       ...(part !== null ? { part } : {}),
       ...(t?.owned.length ? { owned: [...t.owned].sort((x, y) => x - y) } : {}),
       status: m.status,
+      ...(m.checked !== undefined ? { checked: m.checked } : {}),
+      ...(m.image && !ours && a.subtype === 'Stamp' ? { image: markupDigest({ image: m.image } as Markup) } : {}),
     };
     return m;
   };
@@ -301,7 +309,7 @@ export function importAnnotations(
       continue;
     }
 
-    const found = r && toPage ? fromRaw(a, r, toPage, extras!) : toMarkups(a);
+    const found = r && toPage ? fromRaw(a, r, toPage, extras!, pageIndex) : toMarkups(a);
     if (!found.length) continue;
     found.forEach((f, k) => {
       const style: MarkupStyle = {
@@ -330,8 +338,8 @@ export function importAnnotations(
         if (f.type === 'area') style.fillOpacity = 0.2;
       }
       if (style.width === 0 && f.type === 'text' && !style.fill) style.noBox = true;
-      const contents = cleanText(a.contents);
-      const textual = f.type === 'text' || f.type === 'typewriter' || f.type === 'callout' || f.type === 'dimension';
+      const contents = cleanText((r && str(r.Contents)) ?? a.contents);
+      const textual = isTextType(f.type) || f.type === 'dimension';
       // A measurement's /Contents is its value as the other tool showed it, not a comment.
       const comment = !textual && !f.measure && contents ? contents : null;
       const m: Markup = {
@@ -348,13 +356,32 @@ export function importAnnotations(
         createdAt: now,
         modifiedAt: now,
       };
-      markups.push(finish(m, a, r, found.length > 1 ? k : null, false));
+      const done = finish(m, a, r, found.length > 1 ? k : null, false);
+      // Bluebeam writes a count as one annotation per item, grouped: they become one count markup.
+      const group = done.type === 'count' && done.points.length === 1 ? done.groupId : undefined;
+      const into = group ? counts.get(group) : undefined;
+      if (into?.pdfAnnot) {
+        into.points.push(done.points[0]!);
+        into.pdfAnnot.members!.push(a.index);
+        if (done.pdfAnnot?.owned) into.pdfAnnot.owned = [...(into.pdfAnnot.owned ?? []), ...done.pdfAnnot.owned];
+        if (done.replies) into.replies = [...(into.replies ?? []), ...done.replies];
+        return;
+      }
+      if (group && done.pdfAnnot) {
+        done.pdfAnnot.members = [a.index];
+        counts.set(group, done);
+      }
+      markups.push(done);
     });
     imported.push(a.index);
   }
 
   // Popups, replies and states of annotations left as they are (stamps, form fields) stay too.
-  const represented = new Set(markups.flatMap((m) => (m.pdfAnnot ? [m.pdfAnnot.index] : [])));
+  const represented = new Set(markups.flatMap((m) => (m.pdfAnnot ? [m.pdfAnnot.index, ...(m.pdfAnnot.members ?? [])] : [])));
+  // A group left with one markup (a count's items, merged) is no group.
+  const groupSizes = new Map<string, number>();
+  for (const m of markups) if (m.groupId) groupSizes.set(m.groupId, (groupSizes.get(m.groupId) ?? 0) + 1);
+  for (const m of markups) if (m.groupId && groupSizes.get(m.groupId) === 1) delete m.groupId;
   for (let k = imported.length - 1; k >= 0; k--) {
     const o = owner.get(imported[k]!);
     if (o !== undefined && !represented.has(o)) imported.splice(k, 1);
@@ -386,7 +413,17 @@ export function importAnnotations(
     delete s.volumeUnit;
     if (areaUnit && areaUnit !== s.unit) s.areaUnit = areaUnit;
     if (volumeUnit && volumeUnit !== (s.areaUnit ?? s.unit)) s.volumeUnit = volumeUnit;
-    if (areaUnit || volumeUnit) vp.scale = s;
+    if (s.areaLabel && s.areaLabel.unit !== (s.areaUnit ?? s.unit)) delete s.areaLabel;
+    if (s.volumeLabel && s.volumeLabel.unit !== (s.volumeUnit ?? s.areaUnit ?? s.unit)) delete s.volumeLabel;
+    // The measurements' own wording for those units, and their angle precision.
+    for (const r of page.annots) {
+      const own = scaleFromMeasure(dict(r?.Measure));
+      if (!own) continue;
+      if (own.areaLabel?.unit === (s.areaUnit ?? s.unit)) s.areaLabel ??= own.areaLabel;
+      if (own.volumeLabel?.unit === (s.volumeUnit ?? s.areaUnit ?? s.unit)) s.volumeLabel ??= own.volumeLabel;
+      if (own.anglePrecision !== undefined) s.anglePrecision ??= own.anglePrecision;
+    }
+    vp.scale = s;
   }
   return {
     markups,
@@ -487,7 +524,7 @@ function dashOf(d: number[], width: number): LineDash | undefined {
  * Markup shapes from an annotation's raw dictionary: every geometric and stylistic detail other
  * tools (Bluebeam Revu in particular) record, in page space.
  */
-function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y: number) => Point, extras: PdfExtras): Found[] {
+function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y: number) => Point, extras: PdfExtras, pageIndex: number): Found[] {
   const intent = nameOf(r.IT) ?? a.intent;
   const rect = nums(r.Rect);
   const rd = nums(r.RD);
@@ -589,6 +626,16 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         }
       }
       if (intent === 'FreeTextTypeWriter') return [{ type: 'typewriter', points: box, filled: false, style: { ...style, width: 0, fill: null } }];
+      if (r.Flag !== undefined || str(r.Subj) === 'Flag') {
+        // Bluebeam's flag: its point fills /RD's wide left inset; the box keeps the other margins.
+        const margin = rd.length === 4 ? rd[1]! : 0;
+        const full = rect.length === 4 ? [toPage(rect[0]! + margin, rect[1]! + margin), toPage(rect[2]! - margin, rect[3]! - margin)] : box;
+        const flag: Point[] = [
+          [Math.min(full[0]![0], full[1]![0]), Math.min(full[0]![1], full[1]![1])],
+          [Math.max(full[0]![0], full[1]![0]), Math.max(full[0]![1], full[1]![1])],
+        ];
+        return [{ type: 'flagLabel', points: flag, filled: true, style }];
+      }
       return [{ type: 'text', points: box, filled: !!color, style }];
     }
     case 'Ink': {
@@ -601,11 +648,23 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       const l = pagePoints(nums(r.L), toPage);
       if (l.length < 2) return [];
       const points = l.slice(0, 2);
-      if (intent === 'LineDimension' && measured) {
+      // /LL offsets the dimension line to the left of its direction in user space; ours is a signed
+      // offset along the page-space normal, so map a point on the offset line across.
+      const leader = (() => {
         const ll = num(r.LL);
-        return [{ type: 'length', points, filled: false, measure: true, style: { ...base, ...caps, ...labelStyle, ...(ll ? { leader: -ll } : {}) } }];
-      }
-      if (intent === 'LineDimension') return [{ type: 'dimension', points, filled: false, style: { ...base, ...caps, ...labelStyle } }];
+        const u = nums(r.L);
+        if (!ll || u.length < 4) return {};
+        const [x0, y0, x1, y1] = u as [number, number, number, number];
+        const d = Math.hypot(x1 - x0, y1 - y0) || 1;
+        const off = toPage((x0 + x1) / 2 - ((y1 - y0) / d) * ll, (y0 + y1) / 2 + ((x1 - x0) / d) * ll);
+        const [a, b] = points as [Point, Point];
+        const pd = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+        const n: Point = [-(b[1] - a[1]) / pd, (b[0] - a[0]) / pd];
+        const side = Math.sign((off[0] - (a[0] + b[0]) / 2) * n[0] + (off[1] - (a[1] + b[1]) / 2) * n[1]);
+        return { leader: side * Math.abs(ll) };
+      })();
+      if (intent === 'LineDimension' && measured) return [{ type: 'length', points, filled: false, measure: true, style: { ...base, ...caps, ...labelStyle, ...leader } }];
+      if (intent === 'LineDimension') return [{ type: 'dimension', points, filled: false, style: { ...base, ...caps, ...labelStyle, ...leader } }];
       return [{ type: intent === 'LineArrow' ? 'arrow' : 'line', points, filled: false, style: { ...base, ...caps } }];
     }
     case 'Square': {
@@ -618,17 +677,22 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       const cx = (p[0] + q[0]) / 2;
       const cy = (p[1] + q[1]) / 2;
       if (intent === 'CircleArc') {
-        // Angles are counter-clockwise from east in user space (y up); page space is y down.
-        let a1 = num(r.Angle1) ?? 0;
-        let a2 = num(r.Angle2) ?? 360;
-        if (a2 <= a1) a2 += 360;
-        const rx = (q[0] - p[0]) / 2;
-        const ry = (q[1] - p[1]) / 2;
-        const at = (deg: number): Point => [cx + rx * Math.cos((deg * Math.PI) / 180), cy - ry * Math.sin((deg * Math.PI) / 180)];
-        if (Math.abs(rx - ry) <= 0.02 * Math.max(rx, ry)) return [{ type: 'arc', points: [at(a1), at((a1 + a2) / 2), at(a2)], filled: false, style: { ...base, ...caps } }];
-        // Arcs here are circular: an elliptical one keeps its shape as a traced polyline.
-        const steps = Math.max(8, Math.ceil((a2 - a1) / 5));
-        return [{ type: 'polyline', points: Array.from({ length: steps + 1 }, (_, i) => at(a1 + ((a2 - a1) * i) / steps)), filled: false, style: { ...base, ...caps } }];
+        // Bluebeam's arc: part of the ellipse in Rect less /RD, from /Angle1 to /Angle2 (in user
+        // space). Each angle's point on the ellipse gives the same angle on the page's ellipse.
+        const box = rect.length === 4 ? rect : null;
+        const [l, t, rr, bt] = rd.length === 4 ? rd : [0, 0, 0, 0];
+        const angles = ([num(r.Angle1) ?? 0, num(r.Angle2) ?? 360] as const).map((deg) => {
+          if (!box) return deg;
+          const ucx = (box[0]! + l! + box[2]! - rr!) / 2;
+          const ucy = (box[1]! + bt! + box[3]! - t!) / 2;
+          const urx = (box[2]! - rr! - box[0]! - l!) / 2;
+          const ury = (box[3]! - t! - box[1]! - bt!) / 2;
+          const u = toPage(ucx + urx * Math.cos((deg * Math.PI) / 180), ucy + ury * Math.sin((deg * Math.PI) / 180));
+          const prx = (q[0] - p[0]) / 2 || 1;
+          const pry = (q[1] - p[1]) / 2 || 1;
+          return ((((Math.atan2(-(u[1] - cy) / pry, (u[0] - cx) / prx) * 180) / Math.PI) % 360) + 360) % 360;
+        }) as [number, number];
+        return [{ type: 'ellipticalArc', points: [p, q], filled: false, style: { ...base, ...caps }, extra: { arcAngles: angles } }];
       }
       if (intent === 'CircleDimension') {
         const radius = (q[0] - p[0] + q[1] - p[1]) / 4;
@@ -648,15 +712,16 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       }
       if (intent === 'PolygonRadius' && verts.length >= 2) {
         // Bluebeam: [a point on the circle, the centre, the arc's other end].
-        return [{ type: 'radius', points: [verts[1]!, verts[0]!], filled: false, measure: true, style: { ...base, ...labelStyle } }];
+        return [{ type: 'radius', points: [verts[1]!, verts[0]!, ...(verts[2] ? [verts[2]] : [])], filled: false, measure: true, style: { ...base, ...labelStyle } }];
       }
       if (verts.length < 3) return [];
       const b = bounds(verts);
       const boxed = verts.length === 4 && verts.every(([x, y]) => (Math.abs(x - b[0]![0]) < 0.5 || Math.abs(x - b[1]![0]) < 0.5) && (Math.abs(y - b[0]![1]) < 0.5 || Math.abs(y - b[1]![1]) < 0.5));
-      // Clouds here are rectangles; any other cloudy outline keeps its corners as a polygon.
-      if ((a.cloudy || dict(r.BE) || intent === 'PolygonCloud') && boxed) {
+      // A rectangular cloud is our box cloud; any other outline is a polygon cloud.
+      if (a.cloudy || dict(r.BE) || intent === 'PolygonCloud') {
         const intensity = num(dict(r.BE)?.I) ?? 1;
-        return [{ type: 'cloud', points: b, filled: true, style: { ...base, ...fill, arcRadius: Math.max(3, intensity * 3) } }];
+        const style = { ...base, ...fill, arcRadius: Math.max(3, intensity * 3) };
+        return [boxed ? { type: 'cloud', points: b, filled: true, style } : { type: 'polygonCloud', points: verts, filled: true, style }];
       }
       const curves = nums(r.Curves);
       const cutouts = arr(r.Cutouts).map((h, i) => ({ points: pagePoints(nums(h), toPage), curves: nums(arr(r.CutoutsCurves)[i]) })).filter((h) => h.points.length > 2);
@@ -680,6 +745,13 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         return [{ type: 'polylength', points: verts, filled: false, measure: true, style: { ...base, ...caps, ...labelStyle }, ...(b ? { extra: { bulges: b } } : {}) }];
       }
       return [{ type: 'polyline', points: verts, filled: false, style: { ...base, ...caps } }];
+    }
+    case 'Stamp': {
+      // Another tool's stamp (Bluebeam's Approved, a snapshot): its own appearance, as a picture.
+      const image = extras.appearances?.get(`${pageIndex}:${a.index}`);
+      if (!image) return [];
+      const [p, q] = innerBox();
+      return [{ type: 'image', points: [p!, q!], filled: false, style: { stroke: color ?? '#000000', fill: null, width: 0, opacity: a.opacity }, extra: { image } }];
     }
     case 'Text': {
       const [p, q] = innerBox();

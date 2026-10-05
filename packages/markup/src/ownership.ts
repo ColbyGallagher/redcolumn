@@ -9,7 +9,7 @@ import type { Markup } from './model';
 export type EditRule = (m: Pick<Markup, 'author'>) => boolean;
 
 /** The fields anyone who can markup may change on someone else's markup. */
-export const OPEN_FIELDS = ['status', 'replies'] as const;
+export const OPEN_FIELDS = ['status', 'replies', 'checked'] as const;
 
 /** A rule letting `me` edit only markups authored by `me` (names compared without regard to case or edge spaces). */
 export function ownMarkupsOnly(me: string): EditRule {

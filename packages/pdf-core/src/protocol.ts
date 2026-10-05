@@ -134,6 +134,13 @@ export interface OutlineItem {
   children: OutlineItem[];
 }
 
+/** An annotation's appearance drawn to pixels: RGBA, row by row. */
+export interface AnnotImage {
+  width: number;
+  height: number;
+  rgba: Uint8Array;
+}
+
 /** A rectangle in page space: points, top-left origin, y down, rotation applied. */
 export interface PageRegion {
   x: number;
@@ -191,6 +198,8 @@ export type WorkerRequest =
   | { id: number; type: 'create'; pages: PageSize[] }
   | { id: number; type: 'info'; docId: number }
   | { id: number; type: 'outline'; docId: number }
+  | { id: number; type: 'pageLabels'; docId: number }
+  | { id: number; type: 'annotImage'; docId: number; pageIndex: number; index: number; scale: number }
   | ({ id: number; type: 'redact'; bytes: ArrayBuffer } & RedactRequest)
   | { id: number; type: 'textObjectAt'; docId: number; pageIndex: number; x: number; y: number }
   | { id: number; type: 'replaceText'; bytes: ArrayBuffer; pageIndex: number; index: number; text: string }
@@ -208,6 +217,8 @@ export type WorkerResponse =
   | { id: number; ok: true; type: 'unlock'; bytes: ArrayBuffer | null }
   | { id: number; ok: true; type: 'info'; info: DocumentInfo }
   | { id: number; ok: true; type: 'outline'; outline: OutlineItem[] }
+  | { id: number; ok: true; type: 'pageLabels'; labels: (string | null)[] }
+  | { id: number; ok: true; type: 'annotImage'; image: AnnotImage | null }
   | { id: number; ok: true; type: 'redact'; bytes: ArrayBuffer; report: RedactReport }
   | { id: number; ok: true; type: 'textObjectAt'; object: TextObjectInfo | null }
   | { id: number; ok: true; type: 'replaceText'; bytes: ArrayBuffer; keptFont: boolean }

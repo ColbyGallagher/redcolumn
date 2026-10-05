@@ -59,6 +59,8 @@ export interface PdfExtras {
   columns: PdfDictValue[];
   /** Image XObjects used by image markups, as PNG or JPEG data URLs, by object number. */
   images: ReadonlyMap<number, string>;
+  /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
+  appearances?: Map<string, string>;
 }
 
 // ---- Reading values -------------------------------------------------------------------------
@@ -256,13 +258,20 @@ export function scaleFromMeasure(measure: PdfDictValue | null): Scale | null {
   const r = (str(measure.R) ?? '').trim();
   // "1 mm = 20 mm" is a plain ratio: show it the usual way.
   const ratio = /^1\s*([a-z]+)\s*=\s*([\d.]+)\s*\1$/i.exec(r);
-  const areaUnit = powerUnitOf(str(dict(arr(measure.A)[0])?.U));
-  const volumeUnit = powerUnitOf(str(dict(arr(measure.V)[0])?.U));
+  const areaName = str(dict(arr(measure.A)[0])?.U)?.trim() ?? '';
+  const volumeName = str(dict(arr(measure.V)[0])?.U)?.trim() ?? '';
+  const areaUnit = powerUnitOf(areaName);
+  const volumeUnit = powerUnitOf(volumeName);
+  const angleD = num(dict(arr(measure.T)[0])?.D);
   return {
     metersPerPoint: c * METERS_PER_UNIT[unit],
     unit,
     ...(areaUnit && areaUnit !== unit ? { areaUnit } : {}),
     ...(volumeUnit && volumeUnit !== (areaUnit ?? unit) ? { volumeUnit } : {}),
+    // Bluebeam's own wording for the units ("sq m", "cu m"), kept with the unit it names.
+    ...(areaUnit && areaName ? { areaLabel: { unit: areaUnit, label: areaName } } : {}),
+    ...(volumeUnit && volumeName ? { volumeLabel: { unit: volumeUnit, label: volumeName } } : {}),
+    ...(angleD ? { anglePrecision: Math.max(0, Math.min(4, Math.round(Math.log10(angleD)))) } : {}),
     feetInches,
     precision,
     label: ratio ? `1:${Number(ratio[2])}` : r || 'Calibrated',

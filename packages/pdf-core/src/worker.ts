@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
-import { APP_DATA_KEY, NEEDS_PASSWORD, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
+import { APP_DATA_KEY, NEEDS_PASSWORD, type AnnotImage, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -1304,6 +1304,81 @@ function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageI
   return { pageIndex, rect, ...(zoom ? { zoom } : {}) };
 }
 
+/** Each page's label from the document's /PageLabels (null where it has none). */
+async function pageLabels(docId: number): Promise<(string | null)[]> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const { malloc, free } = m.pdfium.wasmExports;
+  const count = m.FPDF_GetPageCount(doc.handle);
+  const out: (string | null)[] = [];
+  for (let i = 0; i < count; i++) {
+    const n = m.FPDF_GetPageLabel(doc.handle, i, 0, 0);
+    if (n <= 2) {
+      out.push(null);
+      continue;
+    }
+    const buf = malloc(n);
+    try {
+      m.FPDF_GetPageLabel(doc.handle, i, buf, n);
+      out.push(m.pdfium.UTF16ToString(buf) || null);
+    } finally {
+      free(buf);
+    }
+  }
+  return out;
+}
+
+/**
+ * One annotation's appearance drawn on its own (transparent around it) at `scale` pixels per
+ * point, e.g. to show another tool's stamp as a picture. Null when it has nothing to draw.
+ */
+async function annotImage(docId: number, pageIndex: number, index: number, scale: number): Promise<AnnotImage | null> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const page = getPage(m, doc, pageIndex);
+  const annot = m.FPDFPage_GetAnnot(page, index);
+  if (!annot) return null;
+  const { malloc, free } = m.pdfium.wasmExports;
+  const tmp = malloc(24);
+  try {
+    const rect = annotRect(m, annot, tmp, userToPageMatrix(m, page));
+    if (!rect || rect.w <= 0 || rect.h <= 0) return null;
+    // Large stamps are drawn smaller rather than as huge pictures.
+    const s = Math.min(scale, 2048 / Math.max(rect.w, rect.h));
+    const width = Math.max(1, Math.ceil(rect.w * s));
+    const height = Math.max(1, Math.ceil(rect.h * s));
+    const bitmap = m.FPDFBitmap_Create(width, height, 1);
+    try {
+      m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0);
+      // The matrix maps page space (top-left, y down) to the bitmap.
+      m.pdfium.HEAPF32.set([s, 0, 0, s, -rect.x * s, -rect.y * s], tmp >> 2);
+      if (!m.EPDF_RenderAnnotBitmap(bitmap, page, annot, 0, tmp, 0)) return null;
+      const stride = m.FPDFBitmap_GetStride(bitmap);
+      const src = m.FPDFBitmap_GetBuffer(bitmap);
+      const rgba = new Uint8Array(width * height * 4);
+      let any = false;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = src + y * stride + x * 4;
+          const o = (y * width + x) * 4;
+          // BGRA → RGBA
+          rgba[o] = m.pdfium.HEAPU8[i + 2]!;
+          rgba[o + 1] = m.pdfium.HEAPU8[i + 1]!;
+          rgba[o + 2] = m.pdfium.HEAPU8[i]!;
+          rgba[o + 3] = m.pdfium.HEAPU8[i + 3]!;
+          if (rgba[o + 3]) any = true;
+        }
+      }
+      return any ? { width, height, rgba } : null;
+    } finally {
+      m.FPDFBitmap_Destroy(bitmap);
+    }
+  } finally {
+    free(tmp);
+    m.FPDFPage_CloseAnnot(annot);
+  }
+}
+
 /** The document outline (bookmarks), as a tree. */
 async function readOutline(docId: number): Promise<OutlineItem[]> {
   const m = await lib();
@@ -1599,6 +1674,14 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'outline':
         reply({ id: req.id, ok: true, type: 'outline', outline: await readOutline(req.docId) });
         break;
+      case 'pageLabels':
+        reply({ id: req.id, ok: true, type: 'pageLabels', labels: await pageLabels(req.docId) });
+        break;
+      case 'annotImage': {
+        const image = await annotImage(req.docId, req.pageIndex, req.index, req.scale);
+        reply({ id: req.id, ok: true, type: 'annotImage', image }, image ? [image.rgba.buffer] : []);
+        break;
+      }
       case 'textObjectAt':
         reply({ id: req.id, ok: true, type: 'textObjectAt', object: await textObjectAt(req.docId, req.pageIndex, req.x, req.y) });
         break;

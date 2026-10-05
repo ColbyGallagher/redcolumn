@@ -56,6 +56,20 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   ellipse: { label: 'Ellipse', style: line(), draw: 'drag', closed: true, handles: 'ends', solid: false, measure: false, caps: SHAPE },
   polygon: { label: 'Polygon', style: line(), draw: 'click', click: { min: 3, closes: true }, closed: true, handles: 'vertices', solid: false, measure: false, caps: SHAPE },
   cloud: { label: 'Cloud', style: line(), draw: 'drag', closed: true, handles: 'ends', solid: false, measure: false, caps: { ...SHAPE, arcRadius: 'Arc size' } },
+  // A cloud along any outline, drawn point by point (Bluebeam's own cloud).
+  polygonCloud: {
+    label: 'Polygon Cloud',
+    style: line(),
+    draw: 'click',
+    click: { min: 3, closes: true },
+    closed: true,
+    handles: 'vertices',
+    solid: false,
+    measure: false,
+    caps: { ...SHAPE, arcRadius: 'Arc size' },
+  },
+  // Part of an ellipse, from `arcAngles[0]` to `arcAngles[1]`: drag out the ellipse's box.
+  ellipticalArc: { label: 'Elliptical Arc', style: line(), draw: 'drag', closed: false, handles: 'ends', solid: false, ends: ['none', 'none'], measure: false, caps: OPEN },
   pen: { label: 'Pen', style: line({ stroke: '#2563eb' }), draw: 'freehand', closed: false, handles: 'none', solid: false, measure: false, caps: caps({ dash: true }) },
   highlighter: { label: 'Highlight', style: { stroke: '#facc15', fill: null, width: 12, opacity: 0.4 }, draw: 'freehand', closed: false, handles: 'none', solid: false, measure: false, multiply: true, caps: NONE },
   // Text markups follow the PDF's own text: drag across words to mark them.
@@ -155,12 +169,24 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     solid: false,
     ends: ['filledArrow', 'filledArrow'],
     measure: false,
-    caps: caps({ dash: true, lineEnds: true, font: true }),
+    caps: caps({ dash: true, lineEnds: true, font: true, leader: true }),
   },
   // A file embedded in the PDF, shown as a paperclip icon.
   attachment: { label: 'File Attachment', style: { stroke: '#1d4ed8', fill: '#dbeafe', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },
   // A flag on the page to come back to (Flags panel).
   flag: { label: 'Flag', style: { stroke: '#991b1b', fill: '#ef4444', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },
+  // A pennant-shaped label with text in it, pointing left (Bluebeam's Flag).
+  flagLabel: {
+    label: 'Flag Label',
+    style: { stroke: '#7f1d1d', fill: '#7f1d1d', width: 0, opacity: 1, fillOpacity: 0.6, fontSize: 8, textColor: '#ffffff', verticalAlign: 'middle' },
+    draw: 'drag',
+    closed: false,
+    handles: 'ends',
+    solid: true,
+    content: 'text',
+    measure: false,
+    caps: caps({ fill: true, dash: true, font: true, textLayout: true }),
+  },
   // Struck-out PDF text with the replacement (its text) marked by a caret.
   replaceText: { label: 'Replace Text', style: { stroke: '#2563eb', fill: null, width: 1, opacity: 1 }, draw: 'text', closed: false, handles: 'none', solid: true, measure: false, caps: NONE },
   // A clickable area; its action (link) is chosen after drawing it.

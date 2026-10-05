@@ -25,6 +25,12 @@ export interface Scale {
   areaUnit?: LengthUnit;
   /** Unit whose cube volumes are shown in; `areaUnit`, else `unit`, when unset. */
   volumeUnit?: LengthUnit;
+  /** Wording for areas in a unit (e.g. Bluebeam's "sq m"), used while areas are in that unit. */
+  areaLabel?: { unit: LengthUnit; label: string };
+  /** Wording for volumes in a unit (e.g. "cu m"), used while volumes are in that unit. */
+  volumeLabel?: { unit: LengthUnit; label: string };
+  /** Decimal places for angles (one when unset). */
+  anglePrecision?: number;
   /**
    * Imperial lengths with inch fractions: feet as feet-inches (12'-6 1/2"), inches as fractional
    * inches (6 1/2"). Only applies when unit is ft or in.
@@ -187,11 +193,22 @@ export const areaUnitOf = (scale: Scale): LengthUnit => scale.areaUnit ?? scale.
 /** The unit a scale shows volumes in. */
 export const volumeUnitOf = (scale: Scale): LengthUnit => scale.volumeUnit ?? scale.areaUnit ?? scale.unit;
 
+/** How a scale names its area unit. */
+export const areaLabelOf = (scale: Scale): string => {
+  const unit = areaUnitOf(scale);
+  return scale.areaLabel?.unit === unit ? scale.areaLabel.label : AREA_LABELS[unit];
+};
+/** How a scale names its volume unit. */
+export const volumeLabelOf = (scale: Scale): string => {
+  const unit = volumeUnitOf(scale);
+  return scale.volumeLabel?.unit === unit ? scale.volumeLabel.label : VOLUME_LABELS[unit];
+};
+
 export function formatVolume(cubicMeters: number, scale: Scale): string {
   const unit = volumeUnitOf(scale);
   const per = METERS_PER_UNIT[unit];
   const value = cubicMeters / (per * per * per);
-  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${VOLUME_LABELS[unit]}`;
+  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${volumeLabelOf(scale)}`;
 }
 
 export function formatArea(squareMeters: number, scale: Scale): string {
@@ -200,7 +217,7 @@ export function formatArea(squareMeters: number, scale: Scale): string {
   const value = squareMeters / (per * per);
   // Areas are reported in decimal units even when lengths use feet-inches.
   const precision = scale.feetInches ? 2 : scale.precision;
-  return `${trimNumber(value, precision)} ${AREA_LABELS[unit]}`;
+  return `${trimNumber(value, precision)} ${areaLabelOf(scale)}`;
 }
 
 /**
