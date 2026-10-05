@@ -135,6 +135,17 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             ))}
           </select>
         </Row>
+        <Row label="Checked" title="A review mark, separate from the status (Bluebeam's checkmark)">
+          <input
+            type="checkbox"
+            checked={!!m.checked}
+            disabled={statusReadOnly}
+            onChange={(e) => {
+              store?.checkpoint();
+              store?.batch(() => ids.forEach((id) => store.update(id, { checked: e.target.checked || undefined })));
+            }}
+          />
+        </Row>
         <Row label="Comment">
           <input
             key={`${m.id}:${m.comment ?? ''}`}
@@ -146,6 +157,31 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           />
         </Row>
       </Section>
+      {chosen.length === 1 && m.type === 'ellipticalArc' && (
+        <Section title="Arc">
+          {(['Start', 'End'] as const).map((label, k) => {
+            const angles = m.arcAngles ?? [0, 180];
+            return (
+              <Row key={label} label={`${label} angle`} title="Degrees counter-clockwise from east, as on paper">
+                <NumberField
+                  value={angles[k]}
+                  min={-360}
+                  max={720}
+                  step={1}
+                  unit="°"
+                  onChange={(v) => {
+                    if (v === undefined || readOnly || m.locked) return;
+                    const next: [number, number] = [...angles];
+                    next[k] = v;
+                    store?.checkpoint();
+                    store?.update(m.id, { arcAngles: next });
+                  }}
+                />
+              </Row>
+            );
+          })}
+        </Section>
+      )}
       {chosen.length === 1 && isMeasureKind(m.type) && QUANTITY[m.type] !== 'count' && QUANTITY[m.type] !== 'angle' && (
         <MeasurementSection m={m} scale={scale} store={store} tools={tools} readOnly={readOnly} />
       )}
@@ -573,7 +609,7 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
             Add cutout
           </button>
           {holes > 0 && (
-            <button className="btn" disabled={readOnly || m.locked} onClick={() => update({ holes: undefined })}>
+            <button className="btn" disabled={readOnly || m.locked} onClick={() => update({ holes: undefined, holeBulges: undefined })}>
               Remove {holes} cutout{holes > 1 ? 's' : ''}
             </button>
           )}

@@ -62,9 +62,14 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
   if (angle > Math.PI / 2) angle -= Math.PI;
   else if (angle < -Math.PI / 2) angle += Math.PI;
   const size = m.style.fontSize ?? 10;
+  // On the dimension line, moved off its points by any leader offset.
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  const lead = m.style.leader ?? 0;
+  const mx = (a[0] + b[0]) / 2 - ((b[1] - a[1]) / d) * lead;
+  const my = (a[1] + b[1]) / 2 + ((b[0] - a[0]) / d) * lead;
   // Above the line: the left-hand normal of the reading direction.
   const off = size * 0.35 + m.style.width;
-  return { text: m.text, at: [(a[0] + b[0]) / 2 + Math.sin(angle) * off, (a[1] + b[1]) / 2 - Math.cos(angle) * off], angle, size };
+  return { text: m.text, at: [mx + Math.sin(angle) * off, my - Math.cos(angle) * off], angle, size };
 }
 
 /**

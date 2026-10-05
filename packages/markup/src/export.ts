@@ -1,8 +1,8 @@
-import { PDFArray, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
+import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
-import { AREA_LABELS, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, type Scale } from '@nb/measure';
+import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
 import { arcPoints } from './arc';
 import { calloutLanding } from './callout';
@@ -16,6 +16,10 @@ import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type F
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
+import { importViewports } from './bluebeam';
+import type { CustomColumn, MarkupStatusDef } from './columns';
+import { markupDigest, unchangedSinceImport } from './digest';
+import { toPdfDict } from './pdfValue';
 
 /**
  * Key under which each exported annotation carries its markup's full data, so re-opening the file
@@ -72,6 +76,32 @@ function pathOps(path: PathCmd[]): string {
 function pdfText(s: string) {
   // PDFHexString.fromText writes UTF-16BE, which every viewer decodes for text strings.
   return PDFHexString.fromText(s);
+}
+
+/** The markup data written into its annotation: without its link to an imported annotation, and attachment bytes (kept once, in the file). */
+function appData(m: Markup): Omit<Markup, 'pdfAnnot'> {
+  const { pdfAnnot: _link, ...rest } = m;
+  return rest.attachment ? { ...rest, attachment: { ...rest.attachment, data: '' } } : rest;
+}
+
+const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
+function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
+  const s = m.style;
+  const family = { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[s.fontFamily ?? 'sans'];
+  const ds = [
+    `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
+    `text-align:${s.textAlign ?? 'left'}`,
+    ...(s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
+    `color:${textColor(s).toUpperCase()}`,
+    ...(s.bold ? ['font-weight:bold'] : []),
+    ...(s.italic ? ['font-style:italic'] : []),
+    ...(s.underline ? ['text-decoration:underline'] : []),
+  ].join('; ');
+  const paragraphs = (m.text ?? '').split('\n').map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />'));
+  const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
+  return { DS: pdfText(ds), RC: pdfText(rc) };
 }
 
 function pdfDate(ms: number) {
@@ -143,7 +173,9 @@ function measureDict(scale: Scale): LiteralObject {
     R: PDFString.of(scale.label),
     X: [format(scale.unit, unitsPerPoint)],
     D: [format(scale.unit, 1)],
-    A: [format(AREA_LABELS[scale.unit], 1)],
+    A: [format(areaLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
+    V: [format(volumeLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
+    T: [{ Type: 'NumberFormat', U: PDFHexString.fromText('°'), C: 1, D: 10 ** (scale.anglePrecision ?? 1) }],
   };
 }
 
@@ -340,9 +372,56 @@ const PDF_LINE_ENDINGS: Record<LineEnding, string> = {
   slash: 'Slash',
 };
 
+/** Bluebeam's cloud intensity (0–2) for a cloud's arc size: about 3 pt per step. */
+function cloudEffect(m: Markup): LiteralObject {
+  return { S: 'C', I: Math.max(0, Math.min(2, Math.round((m.style.arcRadius ?? 6) / 3))) };
+}
+
+/**
+ * A dimension line's /LL leader length: the offset of the line from its points, positive on the
+ * left of the direction in user space (ours is positive the other way in page space, y down).
+ */
+function leaderLength(m: Markup, matrix: Matrix): LiteralObject {
+  const offset = m.style.leader;
+  if (!offset || m.points.length < 2) return {};
+  const [a, b] = [m.points[0]!, m.points[m.points.length - 1]!];
+  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  // Our offset point in page space, then which side of the user-space line it lands on.
+  const p: Point = [(a[0] + b[0]) / 2 - ((b[1] - a[1]) / d) * offset, (a[1] + b[1]) / 2 + ((b[0] - a[0]) / d) * offset];
+  const [ua, ub, up] = [a, b, p].map((q) => apply(matrix, q)) as [Point, Point, Point];
+  const side = Math.sign((ub[0] - ua[0]) * (up[1] - ua[1]) - (ub[1] - ua[1]) * (up[0] - ua[0]));
+  return { LL: side * Math.abs(offset) };
+}
+
+/** A markup's bounds with its measurement label and dimension text, which its appearance draws too. */
+function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number; h: number } {
+  let { x, y, w, h } = markupBounds(m);
+  let x1 = x + w;
+  let y1 = y + h;
+  const take = (cx: number, cy: number, rx: number, ry: number) => {
+    x = Math.min(x, cx - rx);
+    y = Math.min(y, cy - ry);
+    x1 = Math.max(x1, cx + rx);
+    y1 = Math.max(y1, cy + ry);
+  };
+  const label = measurementLabel(m, ctx.scale);
+  const labelFont = ctx.fonts.get(standardFont(m.style, true));
+  if (label && labelFont) {
+    const { size } = labelStyle(m);
+    take(label.at[0], label.at[1], (labelFont.widthOfTextAtSize(safeText(labelFont, label.text), size) + size * 0.6) / 2, size * 0.7);
+  }
+  const dim = dimensionText(m);
+  const dimFont = ctx.fonts.get(standardFont(m.style, false));
+  if (dim && dimFont) {
+    const r = dimFont.widthOfTextAtSize(safeText(dimFont, dim.text), dim.size) / 2 + dim.size;
+    take(dim.at[0], dim.at[1], r, r);
+  }
+  return { x, y, w: x1 - x, h: y1 - y };
+}
+
 function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const { doc, matrix } = ctx;
-  const b = markupBounds(m);
+  const b = boundsWithText(ctx, m);
   const corners = [apply(matrix, [b.x, b.y]), apply(matrix, [b.x + b.w, b.y + b.h])];
   const rect: [number, number, number, number] = [
     Math.min(corners[0]![0], corners[1]![0]),
@@ -376,7 +455,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     CreationDate: pdfDate(m.createdAt),
     AP: { N: appearance(ctx, m, rect) },
     // An attachment's bytes live once, in its embedded file, not in the data copy too.
-    [APP_DATA_KEY]: pdfText(JSON.stringify(m.attachment ? { ...m, attachment: { ...m.attachment, data: '' } } : m)),
+    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(m))),
   };
   const label = measurementLabel(m, ctx.scale);
   const signed = m.signature ? `Signed by ${m.signature.signer} on ${new Date(m.signature.signedAt).toLocaleString()}${m.signature.reason ? ` (${m.signature.reason})` : ''}` : null;
@@ -432,12 +511,34 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         [box.x + box.w, box.y + box.h],
         [box.x, box.y + box.h],
       ].map((p) => apply(matrix, p as Point));
-      specific = { Subtype: 'Polygon', Vertices: flat(verts), BE: { S: 'C', I: 1 }, IT: 'PolygonCloud' };
+      specific = { Subtype: 'Polygon', Vertices: flat(verts), BE: cloudEffect(m), IT: 'PolygonCloud' };
+      break;
+    }
+    case 'polygonCloud':
+      specific = { Subtype: 'Polygon', Vertices: flat(user), BE: cloudEffect(m), IT: 'PolygonCloud' };
+      break;
+    case 'ellipticalArc': {
+      // Bluebeam's arc: a Circle annotation's ellipse, between two angles (counter-clockwise from
+      // east in user space, so turned with the page).
+      const box = boundsOf(m.points);
+      const c = apply(matrix, [box.x + box.w / 2, box.y + box.h / 2]);
+      const corner = apply(matrix, [box.x + box.w, box.y + box.h]);
+      // The ellipse's half axes in user space (a turned page swaps them).
+      const ux = Math.abs(corner[0] - c[0]) || 1;
+      const uy = Math.abs(corner[1] - c[1]) || 1;
+      const [a1, a2] = m.arcAngles ?? [0, 180];
+      const at = (deg: number): Point => {
+        const t = (deg * Math.PI) / 180;
+        return apply(matrix, [box.x + box.w / 2 + (box.w / 2) * Math.cos(t), box.y + box.h / 2 - (box.h / 2) * Math.sin(t)]);
+      };
+      // Angles on the ellipse (its parameter), as Bluebeam reads them.
+      const angle = (p: Point) => ((((Math.atan2((p[1] - c[1]) / uy, (p[0] - c[0]) / ux) * 180) / Math.PI) % 360) + 360) % 360;
+      specific = { Subtype: 'Circle', IT: 'CircleArc', RD: rd, Angle1: angle(at(a1)), Angle2: angle(at(a2)), LE: le };
       break;
     }
     case 'pen':
     case 'highlighter':
-      specific = { Subtype: 'Ink', InkList: [flat(user)] };
+      specific = { Subtype: 'Ink', InkList: [flat(user)], ...(m.type === 'highlighter' ? { BM: 'Multiply' } : {}) };
       break;
     case 'textHighlight':
     case 'underline':
@@ -452,10 +553,11 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       break;
     }
     case 'length':
-      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Measure: measureDict(ctx.scale) };
+      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Measure: measureDict(ctx.scale), ...leaderLength(m, matrix) };
       break;
     case 'dimension':
-      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, Cap: true, ...(filledEnd ? { IC: color } : {}) };
+      // Bluebeam's unscaled dimension is a line dimension without a /Measure.
+      specific = { Subtype: 'Line', L: flat(user.slice(0, 2)), LE: le, IT: 'LineDimension', Cap: true, ...(filledEnd ? { IC: color } : {}), ...leaderLength(m, matrix) };
       break;
     case 'replaceText': {
       const quads = markupLines(m.points).flatMap((r) =>
@@ -484,14 +586,28 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       specific = {
         Subtype: 'PolyLine',
         Vertices: flat(curved(false)),
-        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', Measure: measureDict(ctx.scale), LE: le } : {}),
+        Measure: measureDict(ctx.scale),
+        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', LE: le } : { IT: 'PolyLineAngle' }),
       };
       break;
     case 'area':
     case 'perimeter':
-    case 'volume':
-      specific = { Subtype: 'Polygon', Vertices: flat(curved(true)), IT: 'PolygonDimension', Measure: measureDict(ctx.scale) };
+    case 'volume': {
+      const holes = (m.holes ?? []).filter((h) => h.length > 2);
+      specific = {
+        Subtype: 'Polygon',
+        Vertices: flat(curved(true)),
+        IT: m.type === 'volume' ? 'PolygonVolume' : 'PolygonDimension',
+        Measure: measureDict(ctx.scale),
+        // Cutouts as Bluebeam records them, so it measures them too.
+        ...(holes.length ? { Cutouts: holes.map((h) => flat(h.map((p) => apply(matrix, p)))) } : {}),
+        // Curved cutout edges as Bluebeam's Bézier handles.
+        ...(holes.length && m.holeBulges?.some((b) => b?.some(Boolean))
+          ? { CutoutsCurves: holes.map((h) => { const b = m.holeBulges?.[(m.holes ?? []).indexOf(h)]; return b && b.length === h.length ? bezierHandles(h, b, true, matrix) : []; }) }
+          : {}),
+      };
       break;
+    }
     case 'redaction':
       // A standard redaction mark: other tools can apply it too. IC is the colour it leaves.
       specific = { Subtype: 'Redact', QuadPoints: [rect[0], rect[3], rect[2], rect[3], rect[0], rect[1], rect[2], rect[1]], IC: fill ?? [0, 0, 0] };
@@ -503,7 +619,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     case 'diameter':
     case 'radius':
       // Other tools see the circle; ours come back as the measurement from NBData.
-      specific = { Subtype: 'Circle', RD: rd, Measure: measureDict(ctx.scale) };
+      specific = { Subtype: 'Circle', RD: rd, Measure: measureDict(ctx.scale), ...(m.type === 'diameter' ? { IT: 'CircleDimension' } : {}) };
       break;
     case 'arcLength':
       specific = { Subtype: 'PolyLine', Vertices: flat(arcPoints(m.points).map((p) => apply(matrix, p))), IT: 'PolyLineDimension', Measure: measureDict(ctx.scale), LE: le };
@@ -521,6 +637,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       specific = { Subtype: 'Stamp', Name: 'Signature' };
       break;
     case 'text':
+    case 'flagLabel':
     case 'typewriter': {
       const [r, g, bl] = rgb(textColor(m.style));
       const font = DA_FONT_NAMES[m.style.fontFamily ?? 'sans'];
@@ -529,8 +646,20 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         RD: rd,
         DA: PDFString.of(`/${font} ${m.style.fontSize ?? 12} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
+        ...richText(m),
+        // A FreeText's /C is its background, not its border.
+        C: fill && !m.style.noBox && m.type === 'text' ? fill : [],
+        ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
       };
+      if (m.type === 'flagLabel') {
+        // Its box reaches the flag's point; the text sits right of it (RD's left inset).
+        const box = contentBox(m);
+        const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
+        specific.RD = [Math.min(corners[0]![0], corners[1]![0]) - rect[0], rd[1]!, rd[2]!, rd[3]!];
+        specific.C = fill ?? [];
+      }
+      delete base.IC;
       break;
     }
     case 'stamp':
@@ -577,7 +706,10 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         LE: PDF_LINE_ENDINGS[startCap],
         DA: PDFString.of(`/${font} ${m.style.fontSize ?? 12} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
+        ...richText(m),
+        C: fill && !m.style.noBox ? fill : [],
       };
+      delete base.IC;
       break;
     }
   }
@@ -617,14 +749,14 @@ function userRect(matrix: Matrix, r: { x: number; y: number; w: number; h: numbe
 }
 
 /** An explicit destination: an area (FitR), a top-left point (XYZ), or the whole page (Fit). */
-function destArray(pages: PDFPage[], pageIndex: number, rect: { x: number; y: number; w: number; h: number } | null): PDFObject[] | null {
+function destArray(pages: PDFPage[], pageIndex: number, rect: { x: number; y: number; w: number; h: number } | null, zoom?: number | null): PDFObject[] | null {
   const page = pages[pageIndex];
   if (!page) return null;
   const m = pageMatrix(page);
   if (rect && rect.w > 0 && rect.h > 0) return [page.ref, PDFName.of('FitR'), ...userRect(m, rect).map((n) => PDFNumber.of(n))];
   if (rect) {
     const [x, y] = apply(m, [rect.x, rect.y]);
-    return [page.ref, PDFName.of('XYZ'), PDFNumber.of(x), PDFNumber.of(y), PDFNull];
+    return [page.ref, PDFName.of('XYZ'), PDFNumber.of(x), PDFNumber.of(y), zoom ? PDFNumber.of(zoom) : PDFNull];
   }
   return [page.ref, PDFName.of('Fit')];
 }
@@ -682,7 +814,7 @@ function writeOutline(doc: PDFDocument, pages: PDFPage[], bookmarks: readonly Bo
       else if (a?.kind === 'file') dict.A = doc.context.obj({ S: 'GoToR', F: PDFString.of(a.name), D: [a.pageIndex, 'Fit'], NewWindow: false });
       else if (a?.kind === 'place' && placeNames.get(a.placeId)) dict.Dest = PDFName.of(placeNames.get(a.placeId)!);
       else {
-        const dest = destArray(pages, b.pageIndex, b.rect);
+        const dest = destArray(pages, b.pageIndex, b.rect, b.zoom);
         if (dest) dict.Dest = doc.context.obj(dest);
       }
       if (i > 0) dict.Prev = refs[i - 1]!;
@@ -725,11 +857,359 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
   }
 }
 
-/** Removes annotations by /Annots index (they were imported and are rewritten from the store). */
-function stripAnnotations(page: PDFPage, indices: readonly number[]) {
-  const annots = page.node.Annots();
-  if (!annots) return;
-  for (const i of [...indices].sort((a, b) => b - a)) if (i < annots.size()) annots.remove(i);
+/** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
+const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
+/** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
+const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', APP_DATA_KEY]);
+/** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
+const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
+/** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
+const OUR_FLAGS = 1 | 2 | 4 | 32 | 128;
+
+const nameValue = (d: PDFDict, key: string) => d.lookupMaybe(PDFName.of(key), PDFName)?.decodeText() ?? null;
+const numbers = (d: PDFDict, key: string): number[] =>
+  d
+    .lookupMaybe(PDFName.of(key), PDFArray)
+    ?.asArray()
+    .flatMap((x) => {
+      const v = d.context.lookup(x);
+      return v instanceof PDFNumber ? [v.asNumber()] : [];
+    }) ?? [];
+
+/**
+ * Where an edited markup that came from another tool keeps that tool's form of annotation, the
+ * values that rebuild it from the markup (a Bluebeam count keeps its marker shape, an arc its
+ * /Angle1-/Angle2 circle, a radius its three points). Null when ours is used as is.
+ */
+function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | null {
+  const subtype = nameValue(orig, 'Subtype');
+  const intent = nameValue(orig, 'IT');
+  if (m.type === 'count' && subtype === 'Polygon' && intent === 'PolygonCount' && m.points.length === 1) {
+    const v = numbers(orig, 'Vertices');
+    if (v.length < 2) return null;
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (let i = 0; i + 1 < v.length; i += 2) {
+      x0 = Math.min(x0, v[i]!);
+      x1 = Math.max(x1, v[i]!);
+      y0 = Math.min(y0, v[i + 1]!);
+      y1 = Math.max(y1, v[i + 1]!);
+    }
+    const [cx, cy] = apply(matrix, m.points[0]!);
+    const dx = cx - (x0 + x1) / 2;
+    const dy = cy - (y0 + y1) / 2;
+    const rect = numbers(orig, 'Rect');
+    const contents = orig.get(PDFName.of('Contents'));
+    return {
+      Subtype: 'Polygon',
+      // Bluebeam's count shows the group's total, not this item's.
+      ...(contents ? { Contents: contents as never } : {}),
+      Vertices: v.map((n, i) => n + (i % 2 ? dy : dx)),
+      ...(rect.length === 4 ? { Rect: [rect[0]! + dx, rect[1]! + dy, rect[2]! + dx, rect[3]! + dy] } : {}),
+    };
+  }
+  if (m.type === 'radius' && subtype === 'Polygon' && intent === 'PolygonRadius' && m.points.length >= 2) {
+    const [c, p, end] = m.points.map((q) => apply(matrix, q)) as [Point, Point, Point | undefined];
+    const e = end ?? p;
+    return { Subtype: 'Polygon', Vertices: [p[0], p[1], c[0], c[1], e[0], e[1]] };
+  }
+  if ((m.type === 'area' || m.type === 'volume' || m.type === 'polylength' || m.type === 'perimeter') && orig.has(PDFName.of('Curves')) && m.bulges?.some(Boolean)) {
+    // Bluebeam draws curved edges from its /Curves handles: the vertices stay the corners.
+    return { Vertices: m.points.flatMap((p) => apply(matrix, p)), Curves: bezierHandles(m.points, m.bulges, m.type !== 'polylength', matrix) };
+  }
+  if (m.type === 'image' && subtype === 'Square' && orig.has(PDFName.of('Image'))) return { Subtype: 'Square' };
+  if (m.type === 'image' && subtype === 'Stamp' && m.pdfAnnot?.image && m.image && markupDigest({ image: m.image } as Markup) === m.pdfAnnot.image) {
+    // Another tool's stamp, moved or resized only: its own (vector) appearance, fitted to the new box.
+    const name = orig.get(PDFName.of('Name'));
+    return { Subtype: 'Stamp', [KEEP_APPEARANCE]: true, ...(name ? { Name: name as never } : {}) };
+  }
+  if ((m.type === 'note' || m.type === 'flag') && subtype === 'Text') {
+    const name = nameValue(orig, 'Name');
+    return name ? { Name: name } : null;
+  }
+  return null;
+}
+
+/**
+ * Bluebeam's /Curves for a path with arc segments: per vertex on a curve, its index and two Bézier
+ * handles (before it, after it), each arc drawn as one cubic.
+ */
+function bezierHandles(pts: readonly Point[], bulges: readonly number[] | null | undefined, closed: boolean, matrix: Matrix): number[] {
+  const before = pts.map((p) => p);
+  const after = pts.map((p) => p);
+  const n = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const b = bulges?.[i] ?? 0;
+    if (!b) continue;
+    const p = pts[i]!;
+    const q = pts[(i + 1) % pts.length]!;
+    const arc = expandArcs([p, q], [b]);
+    if (arc.length < 3) continue;
+    const chord = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    const theta = 4 * Math.atan(Math.abs(b));
+    const radius = chord / (2 * Math.sin(theta / 2));
+    const h = (4 / 3) * Math.tan(theta / 4) * radius;
+    const unit = (a: readonly number[], c: readonly number[]): Point => {
+      const d = Math.hypot(c[0]! - a[0]!, c[1]! - a[1]!) || 1;
+      return [(c[0]! - a[0]!) / d, (c[1]! - a[1]!) / d];
+    };
+    const t0 = unit(arc[0]!, arc[1]!);
+    const t1 = unit(arc[arc.length - 2]!, arc[arc.length - 1]!);
+    after[i] = [p[0] + t0[0] * h, p[1] + t0[1] * h];
+    before[(i + 1) % pts.length] = [q[0] - t1[0] * h, q[1] - t1[1] * h];
+  }
+  const out: number[] = [];
+  pts.forEach((p, k) => {
+    if (before[k] === p && after[k] === p) return;
+    out.push(k, ...apply(matrix, before[k]!), ...apply(matrix, after[k]!));
+  });
+  return out;
+}
+
+/** A native form's flag: keep the original annotation's appearance stream rather than ours. */
+const KEEP_APPEARANCE = '__keepAppearance';
+
+function circleThroughPoints(a: Point, b: Point, c: Point): { cx: number; cy: number; r: number } | null {
+  const d = 2 * (a[0] * (b[1] - c[1]) + b[0] * (c[1] - a[1]) + c[0] * (a[1] - b[1]));
+  if (Math.abs(d) < 1e-9) return null;
+  const sq = (p: Point) => p[0] * p[0] + p[1] * p[1];
+  const cx = (sq(a) * (b[1] - c[1]) + sq(b) * (c[1] - a[1]) + sq(c) * (a[1] - b[1])) / d;
+  const cy = (sq(a) * (c[0] - b[0]) + sq(b) * (a[0] - c[0]) + sq(c) * (b[0] - a[0])) / d;
+  return { cx, cy, r: Math.hypot(a[0] - cx, a[1] - cy) };
+}
+
+/**
+ * An edited markup written over its original annotation: ours, plus every key of the original we
+ * have no equivalent for (another tool's measurement data, custom column values, reply links).
+ */
+function mergeAnnotation(doc: PDFDocument, orig: PDFDict, ours: PDFDict, native: LiteralObject | null): PDFDict {
+  const keepAppearance = !!native?.[KEEP_APPEARANCE];
+  if (native) {
+    const changesKind = !!native.Subtype && native.Subtype !== nameValue(ours, 'Subtype');
+    for (const [k, v] of Object.entries(native)) if (k !== KEEP_APPEARANCE) ours.set(PDFName.of(k), doc.context.obj(v as LiteralObject));
+    // Our ink circles or polyline mean nothing on the other tool's own form of the markup.
+    if (changesKind) for (const k of ['InkList', 'Vertices', 'L', 'LE']) if (!(k in native)) ours.delete(PDFName.of(k));
+  }
+  const same = nameValue(orig, 'Subtype') === nameValue(ours, 'Subtype');
+  const out = doc.context.obj({});
+  for (const [k, v] of orig.entries()) {
+    const key = k.decodeText();
+    if (STALE.has(key) || (!same && !KEEP_ALWAYS.has(key))) continue;
+    out.set(k, v);
+  }
+  for (const [k, v] of ours.entries()) {
+    const key = k.decodeText();
+    if (PREFER_ORIGINAL.has(key) && out.has(k) && (key !== 'IT' || same)) continue;
+    out.set(k, v);
+  }
+  const f = (d: PDFDict) => d.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
+  out.set(PDFName.of('F'), PDFNumber.of((f(orig) & ~OUR_FLAGS) | f(ours)));
+  // Viewers fit the appearance's BBox to /Rect; ours is drawn in absolute coordinates, so a Rect
+  // the other tool's form moved needs the same box, or the drawing is stretched.
+  const rect = out.lookupMaybe(PDFName.of('Rect'), PDFArray);
+  const normal = out.lookupMaybe(PDFName.of('AP'), PDFDict)?.lookupMaybe(PDFName.of('N'), PDFStream);
+  if (native?.Rect && rect && normal) normal.dict.set(PDFName.of('BBox'), rect);
+  if (keepAppearance && orig.has(PDFName.of('AP'))) out.set(PDFName.of('AP'), orig.get(PDFName.of('AP'))!);
+  // Rich text the original had says what /Contents now says, in the original's default style.
+  if (orig.has(PDFName.of('RC')) && !out.has(PDFName.of('RC'))) refreshRichText(out, true);
+  return out;
+}
+
+/** An annotation's /RC rewritten from its /Contents, in its /DS style (only where it has rich text, unless `always`). */
+function refreshRichText(d: PDFDict, always = false) {
+  if (!always && !d.has(PDFName.of('RC'))) return;
+  const text = d.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '';
+  const ds = d.lookupMaybe(PDFName.of('DS'), PDFString, PDFHexString)?.decodeText();
+  const body = text.split(/\r\n?|\n/).map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />')).join('');
+  d.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
+}
+
+/** A review-state annotation as Bluebeam and Acrobat write one: the markup's status, changed. */
+function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model: 'Review' | 'Marked' = 'Review'): PDFDict {
+  const now = Date.now();
+  return doc.context.obj({
+    Type: 'Annot',
+    Subtype: 'Text',
+    Rect: [0, 0, 0, 0],
+    F: 2 | 4 | 8 | 16, // Hidden, Print, NoZoom, NoRotate: listed with the markup, never drawn
+    Name: 'Note',
+    IRT: parent,
+    StateModel: pdfText(model),
+    State: pdfText(state),
+    Subj: pdfText(model === 'Marked' ? (state === 'Marked' ? 'Checked' : 'Unchecked') : `Set to ${state}`),
+    T: pdfText(m.author),
+    NM: pdfText(`${m.id}-state-${now}`),
+    M: pdfDate(now),
+    CreationDate: pdfDate(now),
+  });
+}
+
+/** A status id's name for a review state: its definition's, else the id capitalised. */
+function stateName(id: string, statuses: readonly MarkupStatusDef[]): string {
+  return statuses.find((s) => s.id === id)?.name || (id === 'none' ? 'None' : id.charAt(0).toUpperCase() + id.slice(1));
+}
+
+// ---- Bluebeam custom columns --------------------------------------------------------------------
+
+const BB_COLUMN_TYPES: Record<CustomColumn['type'], string> = {
+  text: 'Text',
+  multiline: 'Text',
+  choice: 'Choice',
+  number: 'Number',
+  date: 'Date',
+  checkmark: 'Checkmark',
+  formula: 'Formula',
+};
+
+interface ColumnLayout {
+  /** The columns in the order their values are stored. */
+  columns: CustomColumn[];
+  /** For each column, its position in the file's original list (-1 for a new one). */
+  from: number[];
+  /** Stored values changed position (a column was removed or reordered): every annotation's values are realigned. */
+  moved: boolean;
+}
+
+/**
+ * Writes the document's custom columns as Bluebeam's /BSIAnnotColumns (columns the file had keep
+ * their own settings, and their place) and says where each column's values sit. Null when there are
+ * none to write.
+ */
+function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: boolean): ColumnLayout | null {
+  const existing = doc.catalog.lookupMaybe(PDFName.of('BSIAnnotColumns'), PDFArray);
+  if (!columns.length || (!existing && !used)) return null;
+  const original = (existing?.asArray() ?? []).map((x) => doc.context.lookup(x)).map((d) => (d instanceof PDFDict ? d : null));
+  const nameOfColumn = (d: PDFDict | null) => d?.lookupMaybe(PDFName.of('Name'), PDFString, PDFHexString)?.decodeText().trim() ?? '';
+  const at = (c: CustomColumn) => original.findIndex((d) => nameOfColumn(d) === c.name.trim());
+  const ordered = [...columns.filter((c) => at(c) >= 0).sort((a, b) => at(a) - at(b)), ...columns.filter((c) => at(c) < 0)];
+  const from = ordered.map(at);
+  const moved = from.some((f, i) => f >= 0 && f !== i) || original.length > from.filter((f) => f >= 0).length;
+  const display = new Map(columns.map((c, i) => [c.id, i]));
+  const entries = ordered.map((c, i) => {
+    const d = from[i]! >= 0 ? (original[from[i]!]!.clone(doc.context) as PDFDict) : doc.context.obj({});
+    const type = BB_COLUMN_TYPES[c.type];
+    if (nameValue(d, 'Subtype') !== type) d.set(PDFName.of('Subtype'), PDFName.of(type));
+    if (d.lookupMaybe(PDFName.of('DisplayOrder'), PDFNumber)?.asNumber() !== (display.get(c.id) ?? i)) d.set(PDFName.of('DisplayOrder'), PDFNumber.of(display.get(c.id) ?? i));
+    // Text values are only replaced when they differ, so an unchanged column stays byte for byte.
+    const setText = (key: string, value: string) => {
+      if (d.lookupMaybe(PDFName.of(key), PDFString, PDFHexString)?.decodeText() !== value) d.set(PDFName.of(key), pdfText(value));
+    };
+    setText('Name', c.name);
+    if (c.type === 'multiline' && d.lookupMaybe(PDFName.of('Multiline'), PDFBool)?.asBoolean() !== true) d.set(PDFName.of('Multiline'), PDFBool.True);
+    if (c.defaultValue !== undefined) setText('DefaultValue', c.type === 'checkmark' ? (c.defaultValue === 'true' ? 'True' : 'False') : c.defaultValue);
+    if (c.type === 'number' || c.type === 'formula') {
+      if (!d.has(PDFName.of('Format'))) d.set(PDFName.of('Format'), PDFName.of('Normal'));
+      if (c.decimals !== undefined && d.lookupMaybe(PDFName.of('Precision'), PDFNumber)?.asNumber() !== c.decimals) d.set(PDFName.of('Precision'), PDFNumber.of(c.decimals));
+    }
+    if (c.type === 'formula' && c.formula) setText('Expression', c.formula);
+    if (c.type === 'date' && !d.has(PDFName.of('Format'))) d.set(PDFName.of('Format'), pdfText('MM/dd/yyyy'));
+    if (c.type === 'choice') d.set(PDFName.of('Items'), doc.context.obj((c.options ?? []).map((o) => pdfText(o))));
+    return d;
+  });
+  const unchanged =
+    existing &&
+    !moved &&
+    entries.length === original.length &&
+    entries.every((d, i) => original[i] && d.toString() === original[i]!.toString());
+  if (!unchanged) doc.catalog.set(PDFName.of('BSIAnnotColumns'), doc.context.obj(entries));
+  return { columns: ordered, from, moved };
+}
+
+/** A markup's custom column values as Bluebeam's /BSIColumnData. */
+function columnData(doc: PDFDocument, m: Markup, layout: ColumnLayout): PDFArray {
+  const values = layout.columns.map((c) => {
+    const v = m.fields?.[c.id] ?? '';
+    // Bluebeam works calculations out itself.
+    if (c.type === 'formula') return '';
+    if (c.type === 'checkmark') return v === 'true' ? 'True' : v === 'false' ? 'False' : '';
+    if (c.type === 'date') {
+      const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+      return d ? `D:${d[1]}${d[2]}${d[3]}000000` : v;
+    }
+    return v;
+  });
+  return doc.context.obj(values.map((v) => pdfText(v)));
+}
+
+/** An untouched annotation's column values moved to where the columns now sit. */
+function realignColumnData(doc: PDFDocument, annot: PDFDict, layout: ColumnLayout) {
+  const old = annot.lookupMaybe(PDFName.of('BSIColumnData'), PDFArray);
+  if (!old) return;
+  const values = old.asArray();
+  annot.set(PDFName.of('BSIColumnData'), doc.context.obj(layout.from.map((f) => (f >= 0 && values[f] ? values[f]! : pdfText('')))));
+}
+
+// ---- Bluebeam Spaces and viewports ----------------------------------------------------------------
+
+/** Writes the page's Bluebeam Spaces back: unchanged ones as they were, edited ones updated, deleted ones gone. */
+function writeSpaces(doc: PDFDocument, page: PDFPage, matrix: Matrix, spaces: readonly Markup[], imported: readonly number[]) {
+  const list = page.node.lookupMaybe(PDFName.of('BSISpaces'), PDFArray);
+  if (!list) return;
+  const byIndex = new Map(spaces.map((m) => [m.pdfAnnot!.index, m]));
+  const keep: PDFObject[] = [];
+  list.asArray().forEach((entry, i) => {
+    if (!imported.includes(i)) {
+      keep.push(entry);
+      return;
+    }
+    const m = byIndex.get(i);
+    if (!m) return;
+    if (unchangedSinceImport(m)) {
+      keep.push(entry);
+      return;
+    }
+    const orig = doc.context.lookup(entry);
+    const d = orig instanceof PDFDict ? (orig.clone(doc.context) as PDFDict) : doc.context.obj({ Type: 'Space' });
+    d.set(PDFName.of('Title'), pdfText(m.subject || 'Space'));
+    d.set(PDFName.of('Path'), doc.context.obj(m.points.map((p) => apply(matrix, p))));
+    d.set(PDFName.of('C'), doc.context.obj(rgb(m.style.fill ?? m.style.stroke)));
+    d.set(PDFName.of('CA'), PDFNumber.of(m.style.fillOpacity ?? 0.1));
+    keep.push(entry instanceof PDFRef ? (doc.context.assign(entry, d), entry) : d);
+  });
+  if (keep.length) page.node.set(PDFName.of('BSISpaces'), doc.context.obj(keep));
+  else page.node.delete(PDFName.of('BSISpaces'));
+}
+
+const sameScale = (a: Scale | null, b: Scale | null) =>
+  a === b || (!!a && !!b && a.unit === b.unit && a.feetInches === b.feetInches && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-6);
+
+/**
+ * Writes the page's scale and viewports as Bluebeam's /VP when they differ from what the file
+ * already says, so Bluebeam measures at the same scale.
+ */
+function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scale: Scale | null, viewports: readonly Viewport[]) {
+  const matrix = pageMatrix(page);
+  const existing = page.node.lookupMaybe(PDFName.of('VP'), PDFArray);
+  const crop = page.getCropBox();
+  const turned = page.getRotation().angle % 180 !== 0;
+  if (existing) {
+    const current = importViewports(pageIndex, {
+      matrix,
+      width: turned ? crop.height : crop.width,
+      height: turned ? crop.width : crop.height,
+      annots: [],
+      objectNumbers: [],
+      viewports: existing.asArray().flatMap((v) => {
+        const d = toPdfDict(doc.context, v);
+        return d ? [d] : [];
+      }),
+      spaces: [],
+    });
+    const near = (x: number, y: number) => Math.abs(x - y) < 0.5;
+    const same =
+      sameScale(current.scale, scale) &&
+      current.viewports.length === viewports.length &&
+      viewports.every((v) => current.viewports.some((c) => sameScale(c.scale, v.scale) && near(c.rect.x, v.rect.x) && near(c.rect.y, v.rect.y) && near(c.rect.w, v.rect.w) && near(c.rect.h, v.rect.h)));
+    if (same) return;
+  } else if (!scale && !viewports.length) return;
+  const entries = [
+    ...(scale ? [{ Type: 'Viewport', BBox: [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height], Measure: measureDict(scale) }] : []),
+    ...viewports.map((v) => ({ Type: 'Viewport', BBox: userRect(matrix, v.rect), Name: pdfText(v.name), Measure: measureDict(v.scale) })),
+  ];
+  if (entries.length) page.node.set(PDFName.of('VP'), doc.context.obj(entries));
+  else page.node.delete(PDFName.of('VP'));
 }
 
 export interface ExportOptions {
@@ -750,6 +1230,17 @@ export interface ExportOptions {
   bookmarks?: readonly Bookmark[];
   /** The PDF's own annotations that were imported (by page, /Annots index): replaced, not duplicated. */
   imported?: Record<number, number[]>;
+  /** The PDF's own Bluebeam Spaces that were imported (by page, /BSISpaces index). */
+  importedSpaces?: Record<number, number[]>;
+  /**
+   * Pages' own scales (only those set), written as Bluebeam's /VP with `viewports` where they differ
+   * from the file's, so other tools measure at the same scale.
+   */
+  pageScales?: Readonly<Record<number, Scale>>;
+  /** The document's custom columns, written as Bluebeam's columns and each markup's values. */
+  columns?: readonly CustomColumn[];
+  /** The document's statuses, for the names of review states. */
+  statuses?: readonly MarkupStatusDef[];
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -811,45 +1302,201 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const scaleFor = options.scaleFor ?? (() => DEFAULT_SCALE);
   const scaleOf = (m: Markup) => scaleOfMarkup(m, scaleFor(m.pageIndex), options.viewports ?? []);
   const doc = await PDFDocument.load(original, { updateMetadata: false });
-  // Embed only the fonts some markup's text or label uses.
+  const pages = doc.getPages();
+  const statuses = options.statuses ?? [];
+
+  // Imported markups stand for annotations already in the file (or Bluebeam Spaces): unchanged ones
+  // leave them exactly as they are, changed ones are written over them in place.
+  const importedSet = (p: number) => new Set(options.imported?.[p] ?? []);
+  const linkedTo = (m: Markup): 'annot' | 'space' | null => {
+    const l = m.pdfAnnot;
+    if (!l || (l.id ?? m.id) !== m.id) return null;
+    if (l.space) return options.importedSpaces?.[m.pageIndex]?.includes(l.index) ? 'space' : null;
+    return importedSet(m.pageIndex).has(l.index) ? 'annot' : null;
+  };
+  // Only one markup may stand for each annotation part (a copy keeps the link but is a new markup).
+  const claimed = new Set<string>();
+  const link = new Map<Markup, 'annot' | 'space'>();
+  for (const m of [...markups].sort((a, b) => a.createdAt - b.createdAt)) {
+    const kind = linkedTo(m);
+    const key = kind && `${kind}:${m.pageIndex}:${m.pdfAnnot!.index}:${m.pdfAnnot!.part ?? 0}`;
+    if (!kind || claimed.has(key!)) continue;
+    claimed.add(key!);
+    link.set(m, kind);
+  }
+  const changed = (m: Markup) => !link.has(m) || !unchangedSinceImport(m);
+  // What gets an annotation written from it: new and changed markups, never Bluebeam Spaces.
+  const written = markups.filter((m) => link.get(m) !== 'space' && changed(m));
+
+  // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
-  for (const m of markups) {
+  for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : [];
     for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));
   }
   const images = new Map<string, PDFImage>();
-  for (const m of markups) {
+  for (const m of written) {
     if (!isImageType(m.type) || !m.image || images.has(m.image)) continue;
     const img = await embedDataUrl(doc, m.image);
     if (img) images.set(m.image, img);
   }
-  const pages = doc.getPages();
-  for (const [pageIndex, indices] of Object.entries(options.imported ?? {})) {
-    const page = pages[Number(pageIndex)];
-    if (page) stripAnnotations(page, indices);
-  }
   const placeNames = addPlaces(doc, pages, options.places ?? []);
   if (options.bookmarks) writeOutline(doc, pages, options.bookmarks, placeNames);
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
+  const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
+  if (options.pageScales || options.viewports?.length) {
+    pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i)));
+  }
+  const layerRefs = addMarkupLayers(doc, written);
+
   const byPage = new Map<number, Markup[]>();
   for (const m of markups) {
     if (!byPage.has(m.pageIndex)) byPage.set(m.pageIndex, []);
     byPage.get(m.pageIndex)!.push(m);
   }
-  const layerRefs = addMarkupLayers(doc, markups);
-  for (const [pageIndex, list] of byPage) {
+  const pageIndexes = new Set([...byPage.keys(), ...Object.keys(options.imported ?? {}).map(Number), ...Object.keys(options.importedSpaces ?? {}).map(Number)]);
+  for (const pageIndex of [...pageIndexes].sort((a, b) => a - b)) {
     const page = pages[pageIndex];
     if (!page) continue;
+    const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
     const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
-    for (const m of list.sort((a, b) => a.createdAt - b.createdAt)) {
+    const build = (m: Markup) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.
       const oc = m.layer ? layerRefs.get(m.layer) : undefined;
       if (oc) dict.set(PDFName.of('OC'), oc);
+      if (columns && (m.fields || dict.has(PDFName.of('BSIColumnData')))) dict.set(PDFName.of('BSIColumnData'), columnData(doc, m, columns));
+      return dict;
+    };
+
+    // The page's imported annotations, by /Annots index, with the markups standing for them.
+    const annots = page.node.Annots();
+    const imported = importedSet(pageIndex);
+    const parts = new Map<number, Markup[]>();
+    for (const m of list) {
+      if (link.get(m) !== 'annot') continue;
+      const i = m.pdfAnnot!.index;
+      if (!parts.has(i)) parts.set(i, []);
+      parts.get(i)!.push(m);
+    }
+    // Annotations saved with another's markup: popups, replies, states, and a count's other items.
+    const owned = new Set([...parts.values()].flat().flatMap((m) => [...(m.pdfAnnot?.owned ?? []), ...(m.pdfAnnot?.members?.slice(1) ?? [])]));
+    const remove = new Set<number>();
+    const added: PDFRef[] = [];
+    if (annots) {
+      for (const index of imported) {
+        if (index >= annots.size()) continue;
+        const entry = annots.get(index);
+        const orig = doc.context.lookup(entry);
+        const ms = (parts.get(index) ?? []).sort((a, b) => (a.pdfAnnot!.part ?? 0) - (b.pdfAnnot!.part ?? 0));
+        if (!ms.length) {
+          // Its markup was deleted (a popup, reply or state goes with the markup it belongs to).
+          if (!owned.has(index)) remove.add(index);
+          continue;
+        }
+        if (!(orig instanceof PDFDict)) continue;
+        const inkPaths = orig.lookupMaybe(PDFName.of('InkList'), PDFArray)?.size();
+        const allParts = ms[0]!.pdfAnnot!.part === undefined || ms.length === inkPaths;
+        if (allParts && ms.every((m) => !changed(m))) {
+          if (columns?.moved) realignColumnData(doc, orig, columns);
+          continue;
+        }
+        const main = ms[0]!;
+        // A count imported from one annotation per item writes each item over its own annotation.
+        const items = main.type === 'count' && main.pdfAnnot!.members ? main.points.map((p) => ({ ...main, points: [p] })) : null;
+        const first = items?.[0] ?? main;
+        const ours = build(first);
+        // Ink strokes split into several markups go back as one annotation.
+        if (ms.length > 1 && (main.type === 'pen' || main.type === 'highlighter')) ours.set(PDFName.of('InkList'), doc.context.obj(ms.map((m) => m.points.flatMap((p) => apply(ctx.matrix, p)))));
+        const merged = mergeAnnotation(doc, orig, ours, nativeForm(orig, first, ctx.matrix));
+        if (columns?.moved && !merged.has(PDFName.of('BSIColumnData'))) realignColumnData(doc, merged, columns);
+        // Written over the same object, so anything pointing at it (popups, replies, groups) still does.
+        let parentRef: PDFRef;
+        if (entry instanceof PDFRef) {
+          doc.context.assign(entry, merged);
+          parentRef = entry;
+        } else {
+          parentRef = doc.context.register(merged);
+          annots.set(index, parentRef);
+        }
+
+        // Replies and review states: those still here stay, removed ones go, new ones are added.
+        const replies = new Map((main.replies ?? []).map((r) => [r.id, r]));
+        for (const i of main.pdfAnnot!.owned ?? []) {
+          const o = doc.context.lookup(annots.get(i));
+          if (!(o instanceof PDFDict) || nameValue(o, 'Subtype') !== 'Text' || o.has(PDFName.of('StateModel'))) continue;
+          const id = o.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? `pdf-${pageIndex}-${i}`;
+          const reply = replies.get(id);
+          if (!reply) {
+            remove.add(i);
+            continue;
+          }
+          if ((o.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '') !== reply.text) {
+            o.set(PDFName.of('Contents'), pdfText(reply.text));
+            o.delete(PDFName.of('RC'));
+          }
+          replies.delete(id);
+        }
+        for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
+        if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses))));
+        if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
+        if (items) {
+          const members = main.pdfAnnot!.members!;
+          const names: PDFObject[] = [];
+          items.forEach((item, k) => {
+            const at = members[k];
+            const entryK = k === 0 ? entry : at !== undefined && at < annots.size() ? annots.get(at) : null;
+            const origK = entryK ? doc.context.lookup(entryK) : null;
+            const own = origK instanceof PDFDict ? origK : orig;
+            const dict = k === 0 ? merged : mergeAnnotation(doc, own, build(item), nativeForm(own, item, ctx.matrix));
+            // Every item says the count's total.
+            dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+            dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+            refreshRichText(dict);
+            if (k > 0 && !(origK instanceof PDFDict)) {
+              // A new item: the first item's form, in its group.
+              dict.set(PDFName.of('NM'), pdfText(`${main.id}-${k}`));
+              dict.set(PDFName.of('IRT'), parentRef);
+              dict.set(PDFName.of('RT'), PDFName.of('Group'));
+              dict.delete(PDFName.of('GroupNesting'));
+              added.push(doc.context.register(dict));
+            } else if (k > 0 && entryK instanceof PDFRef) doc.context.assign(entryK, dict);
+            names.push(PDFHexString.fromText(`/${dict.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? ''}`));
+          });
+          // Items deleted here go; the group lists those left.
+          for (const at of members.slice(items.length)) remove.add(at);
+          const nesting = merged.lookupMaybe(PDFName.of('GroupNesting'), PDFArray);
+          if (nesting) merged.set(PDFName.of('GroupNesting'), doc.context.obj([nesting.get(0), ...names]));
+        }
+        // Further strokes than the annotation had are new annotations.
+        if (!(main.type === 'pen' || main.type === 'highlighter')) for (const extra of ms.slice(1)) added.push(doc.context.register(build(extra)));
+      }
+      // Annotations that were not imported keep their column values where the columns now are.
+      if (columns?.moved) {
+        annots.asArray().forEach((entry, i) => {
+          if (imported.has(i)) return;
+          const d = doc.context.lookup(entry);
+          if (d instanceof PDFDict) realignColumnData(doc, d, columns);
+        });
+      }
+      for (const i of [...remove].sort((a, b) => b - a)) annots.remove(i);
+    }
+    for (const ref of added) page.node.addAnnot(ref);
+
+    // Bluebeam Spaces stay in /BSISpaces.
+    const importedSpaces = options.importedSpaces?.[pageIndex];
+    if (importedSpaces?.length) writeSpaces(doc, page, ctx.matrix, list.filter((m) => link.get(m) === 'space'), importedSpaces);
+
+    // New markups, and imported ones whose annotation is gone, are added.
+    for (const m of list) {
+      if (link.has(m)) continue;
+      const dict = build(m);
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
       for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
+      if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses))));
+      if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
   }
   if (options.links) addLinks(doc, pages, options.links);

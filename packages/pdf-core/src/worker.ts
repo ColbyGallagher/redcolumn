@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
-import { APP_DATA_KEY, NEEDS_PASSWORD, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
+import { APP_DATA_KEY, NEEDS_PASSWORD, type AnnotImage, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -617,12 +617,34 @@ function annotFile(m: WrappedPdfiumModule, annot: number): { name: string; data:
   }
 }
 
+/**
+ * An annotation's /C (type 0) or /IC (type 1) colour. PDFium's own getter gives up once an
+ * appearance stream exists (and it generates one for most markups on load), so EmbedPDF's reader
+ * of the dictionary entry comes first.
+ */
 function annotColor(m: WrappedPdfiumModule, annot: number, type: 0 | 1, ptr: number): string | null {
-  if (!m.FPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8, ptr + 12)) return null;
   const u = m.pdfium.HEAPU32;
   const i = ptr >> 2;
-  return '#' + [u[i]!, u[i + 1]!, u[i + 2]!].map((v) => v.toString(16).padStart(2, '0')).join('');
+  const hex = () => '#' + [u[i]!, u[i + 1]!, u[i + 2]!].map((v) => Math.min(255, v).toString(16).padStart(2, '0')).join('');
+  if (m.EPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8)) return hex();
+  if (!m.FPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8, ptr + 12)) return null;
+  return hex();
 }
+
+/** Constant opacity (/CA), 0..1. */
+function annotOpacity(m: WrappedPdfiumModule, annot: number, ptr: number): number {
+  if (m.EPDFAnnot_GetOpacity(annot, ptr)) return m.pdfium.HEAPU32[ptr >> 2]! / 255;
+  return m.FPDFAnnot_GetNumberValue(annot, 'CA', ptr) ? m.pdfium.HEAPF32[ptr >> 2]! : 1;
+}
+
+/** Line width from the border style (/BS /W), else the older /Border array, else 1. */
+function annotBorderWidth(m: WrappedPdfiumModule, annot: number, ptr: number): number {
+  if (m.EPDFAnnot_GetBorderStyle(annot, ptr)) return m.pdfium.HEAPF32[ptr >> 2]!;
+  return m.FPDFAnnot_GetBorder(annot, ptr, ptr + 4, ptr + 8) ? m.pdfium.HEAPF32[(ptr >> 2) + 2]! : 1;
+}
+
+/** EmbedPDF's blend mode code for Multiply. */
+const BLEND_MULTIPLY = 1;
 
 /** Annotation rect in page space. */
 function annotRect(m: WrappedPdfiumModule, annot: number, ptr: number, t: Matrix) {
@@ -1251,11 +1273,12 @@ function blankImagePixels(m: WrappedPdfiumModule, obj: number, regions: Box[], f
 }
 
 /** Page and place a destination points at, in page space. */
-function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageIndex: number | null; rect: OutlineItem['rect'] } {
+function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageIndex: number | null; rect: OutlineItem['rect']; zoom?: number } {
   const { malloc, free } = m.pdfium.wasmExports;
   const pageIndex = m.FPDFDest_GetDestPageIndex(doc.handle, dest);
   if (pageIndex < 0) return { pageIndex: null, rect: null };
   let rect: OutlineItem['rect'] = null;
+  let zoom: number | undefined;
   const buf = malloc(48);
   try {
     const f = m.pdfium.HEAPF32;
@@ -1268,16 +1291,92 @@ function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageI
     } else if (m.FPDFDest_GetLocationInPage(dest, buf, buf + 4, buf + 8, buf + 12, buf + 16, buf + 20)) {
       // XYZ: a top-left point (either coordinate may be unset).
       const h = m.pdfium.HEAP32;
-      const hasX = h[buf >> 2]!, hasY = h[(buf + 4) >> 2]!;
+      const hasX = h[buf >> 2]!, hasY = h[(buf + 4) >> 2]!, hasZoom = h[(buf + 8) >> 2]!;
       if (hasX || hasY) {
         const [x, y] = applyMatrix(t, hasX ? f[(buf + 12) >> 2]! : 0, hasY ? f[(buf + 16) >> 2]! : 0);
         rect = { x: hasX ? x : 0, y: hasY ? y : 0, w: 0, h: 0 };
       }
+      if (hasZoom && f[(buf + 20) >> 2]! > 0) zoom = f[(buf + 20) >> 2]!;
     }
   } finally {
     free(buf);
   }
-  return { pageIndex, rect };
+  return { pageIndex, rect, ...(zoom ? { zoom } : {}) };
+}
+
+/** Each page's label from the document's /PageLabels (null where it has none). */
+async function pageLabels(docId: number): Promise<(string | null)[]> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const { malloc, free } = m.pdfium.wasmExports;
+  const count = m.FPDF_GetPageCount(doc.handle);
+  const out: (string | null)[] = [];
+  for (let i = 0; i < count; i++) {
+    const n = m.FPDF_GetPageLabel(doc.handle, i, 0, 0);
+    if (n <= 2) {
+      out.push(null);
+      continue;
+    }
+    const buf = malloc(n);
+    try {
+      m.FPDF_GetPageLabel(doc.handle, i, buf, n);
+      out.push(m.pdfium.UTF16ToString(buf) || null);
+    } finally {
+      free(buf);
+    }
+  }
+  return out;
+}
+
+/**
+ * One annotation's appearance drawn on its own (transparent around it) at `scale` pixels per
+ * point, e.g. to show another tool's stamp as a picture. Null when it has nothing to draw.
+ */
+async function annotImage(docId: number, pageIndex: number, index: number, scale: number): Promise<AnnotImage | null> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const page = getPage(m, doc, pageIndex);
+  const annot = m.FPDFPage_GetAnnot(page, index);
+  if (!annot) return null;
+  const { malloc, free } = m.pdfium.wasmExports;
+  const tmp = malloc(24);
+  try {
+    const rect = annotRect(m, annot, tmp, userToPageMatrix(m, page));
+    if (!rect || rect.w <= 0 || rect.h <= 0) return null;
+    // Large stamps are drawn smaller rather than as huge pictures.
+    const s = Math.min(scale, 2048 / Math.max(rect.w, rect.h));
+    const width = Math.max(1, Math.ceil(rect.w * s));
+    const height = Math.max(1, Math.ceil(rect.h * s));
+    const bitmap = m.FPDFBitmap_Create(width, height, 1);
+    try {
+      m.FPDFBitmap_FillRect(bitmap, 0, 0, width, height, 0);
+      // The matrix maps page space (top-left, y down) to the bitmap.
+      m.pdfium.HEAPF32.set([s, 0, 0, s, -rect.x * s, -rect.y * s], tmp >> 2);
+      if (!m.EPDF_RenderAnnotBitmap(bitmap, page, annot, 0, tmp, 0)) return null;
+      const stride = m.FPDFBitmap_GetStride(bitmap);
+      const src = m.FPDFBitmap_GetBuffer(bitmap);
+      const rgba = new Uint8Array(width * height * 4);
+      let any = false;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = src + y * stride + x * 4;
+          const o = (y * width + x) * 4;
+          // BGRA → RGBA
+          rgba[o] = m.pdfium.HEAPU8[i + 2]!;
+          rgba[o + 1] = m.pdfium.HEAPU8[i + 1]!;
+          rgba[o + 2] = m.pdfium.HEAPU8[i]!;
+          rgba[o + 3] = m.pdfium.HEAPU8[i + 3]!;
+          if (rgba[o + 3]) any = true;
+        }
+      }
+      return any ? { width, height, rgba } : null;
+    } finally {
+      m.FPDFBitmap_Destroy(bitmap);
+    }
+  } finally {
+    free(tmp);
+    m.FPDFPage_CloseAnnot(annot);
+  }
 }
 
 /** The document outline (bookmarks), as a tree. */
@@ -1329,9 +1428,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
         const subtype = ANNOT_SUBTYPES[m.FPDFAnnot_GetSubtype(annot)] ?? 'Unknown';
         const rect = annotRect(m, annot, tmp, t);
         if (!rect) continue;
-        const f = m.pdfium.HEAPF32;
-        const opacity = m.FPDFAnnot_GetNumberValue(annot, 'CA', tmp) ? f[tmp >> 2]! : 1;
-        const borderWidth = m.FPDFAnnot_GetBorder(annot, tmp, tmp + 4, tmp + 8) ? f[(tmp >> 2) + 2]! : 1;
+        const opacity = annotOpacity(m, annot, tmp);
+        const borderWidth = annotBorderWidth(m, annot, tmp);
         let line: PdfAnnotation['line'] = null;
         if (subtype === 'Line' && m.FPDFAnnot_GetLine(annot, tmp, tmp + 8)) {
           const g = m.pdfium.HEAPF32;
@@ -1373,6 +1471,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
           name: annotString(m, annot, 'NM'),
           intent: annotString(m, annot, 'IT'),
           cloudy: m.FPDFAnnot_HasKey(annot, 'BE'),
+          multiply: m.EPDFAnnot_GetBlendMode(annot) === BLEND_MULTIPLY,
+          objectNumber: m.EPDFAnnot_GetObjectNumber(annot),
           da: annotString(m, annot, 'DA'),
           appData: annotString(m, annot, APP_DATA_KEY),
           flags: m.FPDFAnnot_GetFlags(annot),
@@ -1574,6 +1674,14 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       case 'outline':
         reply({ id: req.id, ok: true, type: 'outline', outline: await readOutline(req.docId) });
         break;
+      case 'pageLabels':
+        reply({ id: req.id, ok: true, type: 'pageLabels', labels: await pageLabels(req.docId) });
+        break;
+      case 'annotImage': {
+        const image = await annotImage(req.docId, req.pageIndex, req.index, req.scale);
+        reply({ id: req.id, ok: true, type: 'annotImage', image }, image ? [image.rgba.buffer] : []);
+        break;
+      }
       case 'textObjectAt':
         reply({ id: req.id, ok: true, type: 'textObjectAt', object: await textObjectAt(req.docId, req.pageIndex, req.x, req.y) });
         break;

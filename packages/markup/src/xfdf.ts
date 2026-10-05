@@ -305,7 +305,7 @@ export function markupsFromXfdf(xml: string, invertFor: (pageIndex: number) => M
       ...(quads.length ? { quads } : {}),
       link: null,
     };
-    for (const m of importAnnotations(pageIndex, [annotation]).markups) {
+    for (const { pdfAnnot: _none, ...m } of importAnnotations(pageIndex, [annotation]).markups) {
       out.push({ ...m, id: a.attrs.name || m.id, createdAt: date(a.attrs.creationdate ?? a.attrs.date), modifiedAt: date(a.attrs.date), ...(a.attrs.subject ? { subject: a.attrs.subject } : {}) });
     }
   });

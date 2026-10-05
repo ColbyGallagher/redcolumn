@@ -2,7 +2,7 @@ import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
-import { DEFAULT_STATUSES, type ColumnSet } from './columns';
+import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mapGeometry, type Markup, type Point } from './model';
 import { openPatch, type EditRule } from './ownership';
 import { rotatePagePoint, type PagePlan } from './pages';
@@ -33,6 +33,19 @@ export interface StoredStitchGroup {
 }
 
 const DEFAULT_COLUMN_SET: ColumnSet = { columns: [], statuses: DEFAULT_STATUSES };
+
+/** What else a PDF's own markups bring with them besides the markups (see `importAnnotations`). */
+export interface ImportedExtras {
+  /** Page scales the PDF records (pages that already have one keep it). */
+  scales?: Record<number, Scale>;
+  viewports?: Viewport[];
+  /** Custom columns, added to the document's own (matched by name). */
+  columns?: CustomColumn[];
+  /** Statuses its review states use, added where the document lacks them. */
+  statuses?: MarkupStatusDef[];
+  /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
+  spaces?: Record<number, number[]>;
+}
 const NO_STITCH: StoredStitchGroup[] = [];
 const NO_BOOKMARKS: Bookmark[] = [];
 const NO_PLACES: Place[] = [];
@@ -361,16 +374,33 @@ export class MarkupStore {
     return (this.meta.get('importedAnnotations') as Record<number, number[]> | undefined) ?? {};
   }
 
+  /** The PDF's own Bluebeam Spaces now represented here, by page and /BSISpaces index. */
+  importedSpaces(): Record<number, number[]> {
+    return (this.meta.get('importedSpaces') as Record<number, number[]> | undefined) ?? {};
+  }
+
   /**
-   * One-time import of the PDF's own markups and links. Runs once per document: afterwards the
-   * imported markups are edited here like any others.
+   * One-time import of the PDF's own markups and links (and the scales, viewports, columns and
+   * statuses they come with). Runs once per document: afterwards the imported markups are edited
+   * here like any others.
    */
-  importAnnotations(markups: readonly Markup[], links: readonly DetectedLink[], imported: Record<number, number[]>) {
+  importAnnotations(markups: readonly Markup[], links: readonly DetectedLink[], imported: Record<number, number[]>, extras: ImportedExtras = {}) {
     if (this.locked) return;
     this.doc.transact(() => {
       for (const m of markups) if (!this.map.has(m.id)) this.map.set(m.id, m);
       for (const l of links) if (!this.links.has(l.id)) this.links.set(l.id, { ...l, status: 'accepted' });
+      for (const [page, scale] of Object.entries(extras.scales ?? {})) if (!this.scales.has(page)) this.scales.set(page, scale);
+      for (const v of extras.viewports ?? []) if (!this.viewports.has(v.id)) this.viewports.set(v.id, v);
+      if (extras.columns?.length || extras.statuses?.length) {
+        const set = this.columnSet();
+        const names = new Set(set.columns.map((c) => c.name.trim().toLowerCase()));
+        const ids = new Set(set.statuses.map((x) => x.id));
+        const columns = [...set.columns, ...(extras.columns ?? []).filter((c) => !names.has(c.name.trim().toLowerCase()))];
+        const statuses = [...set.statuses, ...(extras.statuses ?? []).filter((x) => !ids.has(x.id))];
+        if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) this.meta.set('columns', { columns, statuses });
+      }
       this.meta.set('importedAnnotations', imported);
+      if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       this.meta.set('annotationsImported', true);
     }, DETECTION);
   }
@@ -428,6 +458,12 @@ export class MarkupStore {
         if (n !== null) imported[n] = v;
       }
       this.meta.set('importedAnnotations', imported);
+      const spaces: Record<number, number[]> = {};
+      for (const [k, v] of Object.entries(this.importedSpaces())) {
+        const n = to(Number(k));
+        if (n !== null) spaces[n] = v;
+      }
+      this.meta.set('importedSpaces', spaces);
       this.meta.delete('stitch');
       for (const [id, v] of [...this.viewports.entries()]) {
         const n = to(v.pageIndex);
@@ -496,8 +532,15 @@ export class MarkupStore {
   forgetImported(pages: Iterable<number>) {
     if (this.locked) return;
     const imported = { ...this.importedAnnotations() };
-    for (const p of pages) delete imported[p];
-    this.doc.transact(() => this.meta.set('importedAnnotations', imported), DETECTION);
+    const spaces = { ...this.importedSpaces() };
+    for (const p of pages) {
+      delete imported[p];
+      delete spaces[p];
+    }
+    this.doc.transact(() => {
+      this.meta.set('importedAnnotations', imported);
+      this.meta.set('importedSpaces', spaces);
+    }, DETECTION);
   }
 
   /**
@@ -511,6 +554,7 @@ export class MarkupStore {
       this.map.clear();
       for (const m of markups) this.map.set(m.id, m);
       this.meta.set('importedAnnotations', {});
+      this.meta.set('importedSpaces', {});
     }, DETECTION);
     this.undoManager.clear();
   }

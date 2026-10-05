@@ -33,7 +33,10 @@ test('a file attachment is embedded once and comes back with its bytes', async (
   const appData = annot.lookup(PDFName.of('NBData'), PDFString, PDFHexString).decodeText();
   assert.ok(!appData.includes(data), 'the bytes are not duplicated in the markup data');
   const { markups } = importAnnotations(0, [annotation({ subtype: 'FileAttachment', appData, file: { name: 'notes.txt', data: new Uint8Array(Buffer.from('hello attachment')) } })]);
-  assert.deepEqual(markups[0], m);
+  // It comes back as it was, linked to the annotation it was read from.
+  const { pdfAnnot, ...back } = markups[0]!;
+  assert.deepEqual(back, m);
+  assert.equal(pdfAnnot?.index, 0);
 });
 
 test('hidden and rotated markups export with the Hidden flag and a turned appearance', async () => {

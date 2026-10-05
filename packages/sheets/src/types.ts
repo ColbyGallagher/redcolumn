@@ -17,7 +17,8 @@ export interface PageText {
 }
 
 /** Where a sheet's identity came from; later sources win (manual > ai > text). */
-export type SheetSource = 'text' | 'ai' | 'manual';
+/** Where sheet info came from: the page's text, the PDF's own page labels, AI, or a person. */
+export type SheetSource = 'text' | 'pdf' | 'ai' | 'manual';
 
 export interface SheetInfo {
   /** Sheet number as printed, e.g. `C-101` or `A2.01`. */
@@ -34,4 +35,4 @@ export interface SheetInfo {
   confidence: number;
 }
 
-export const SOURCE_RANK: Record<SheetSource, number> = { text: 0, ai: 1, manual: 2 };
+export const SOURCE_RANK: Record<SheetSource, number> = { text: 0, pdf: 1, ai: 2, manual: 3 };

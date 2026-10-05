@@ -404,6 +404,10 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         </span>
       );
     }
+    if (col.key === 'checked') {
+      // Like the status, a review mark anyone who can markup may set.
+      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title="Checkmark" onChange={(e) => store?.update(m.id, { checked: e.target.checked || undefined })} />;
+    }
     if (col.key === 'comment') {
       return (
         <CommentCell

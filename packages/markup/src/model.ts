@@ -17,6 +17,8 @@ export type MarkupType =
   | 'ellipse'
   | 'polygon'
   | 'cloud'
+  | 'polygonCloud'
+  | 'ellipticalArc'
   | 'pen'
   | 'highlighter'
   | 'textHighlight'
@@ -37,6 +39,7 @@ export type MarkupType =
   | 'dimension'
   | 'attachment'
   | 'flag'
+  | 'flagLabel'
   | 'replaceText'
   | MeasureKind;
 
@@ -46,7 +49,7 @@ export const MARKUP_TYPES = Object.keys(TYPE_INFO) as MarkupType[];
 export { isMeasureKind };
 
 /** Markups whose content is typed text laid out in their box. */
-export function isTextType(type: string): type is 'text' | 'callout' | 'typewriter' {
+export function isTextType(type: string): type is 'text' | 'callout' | 'typewriter' | 'flagLabel' {
   return TYPE_INFO[type as MarkupType]?.content === 'text';
 }
 
@@ -59,6 +62,9 @@ export function isImageType(type: string): type is 'image' | 'signature' {
 export const CLICK_SHAPES: Partial<Record<MarkupType, { min: number; fixed?: number; closes?: boolean }>> = Object.fromEntries(
   MARKUP_TYPES.flatMap((t) => (TYPE_INFO[t].click ? [[t, TYPE_INFO[t].click]] : [])),
 );
+
+/** Count markers (Bluebeam's count styles). */
+export type CountShape = 'circle' | 'check' | 'square' | 'diamond' | 'triangle' | 'cross';
 
 export interface MarkupStyle {
   /** CSS hex color, e.g. `#ff0000`. */
@@ -78,6 +84,8 @@ export interface MarkupStyle {
   arcRadius?: number;
   /** Clouds: arcs bulge inward rather than outward. */
   cloudInside?: boolean;
+  /** Counts: the marker drawn at each item (circle when unset). */
+  countShape?: CountShape;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
   fillOpacity?: number;
   /** Line style; solid when unset. */
@@ -159,8 +167,17 @@ export interface Markup {
   replies?: Reply[];
   /** Stamps: the wording (dynamic fields already filled in when placed) and frame. */
   stamp?: StampContent;
+  /**
+   * Elliptical arcs: where the arc starts and ends on the ellipse in `points`' box, in degrees
+   * counter-clockwise from east as on paper, drawn counter-clockwise from start to end.
+   */
+  arcAngles?: [start: number, end: number];
+  /** Ticked off (Bluebeam's checkmark, a review mark separate from the status). */
+  checked?: boolean;
   /** Area, volume and perimeter measurements: cutouts, each a polygon inside the outline. */
   holes?: Point[][];
+  /** Cutouts' curved edges: per cutout, its bulges (as `bulges`), or null where it is all straight. */
+  holeBulges?: (number[] | null)[];
   /** Measurements: depth or height in meters (volume for areas, wall area for lengths). */
   depth?: number;
   /** Measurements: slope of the measured surface or run. */
@@ -192,10 +209,43 @@ export interface Markup {
   rotation?: number;
   /** File Attachment markups: the embedded file. */
   attachment?: Attachment;
+  /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
+  pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
   author: string;
   createdAt: number;
   modifiedAt: number;
+}
+
+/**
+ * Links an imported markup to the PDF annotation it came from. On save an unchanged markup leaves
+ * that annotation exactly as it was (every key other tools wrote survives); a changed one is
+ * written over it in place, keeping the keys it has no equivalent for.
+ */
+export interface PdfAnnotLink {
+  /** Position in its page's /Annots (or in /BSISpaces for a Space). */
+  index: number;
+  /** `markupDigest` of the markup as imported; empty until import finishes. */
+  digest: string;
+  /** Id of the markup it was imported as: copies made later (other ids) are new markups. */
+  id?: string;
+  /** Several markups from one annotation (an ink with several strokes): which one this is. */
+  part?: number;
+  /** Annotations that belong to it (its popup, replies and review states), by /Annots index. */
+  owned?: number[];
+  /** Status as imported: a different one now is saved as a new review state. */
+  status?: string;
+  /** Checkmark as imported: a different one now is saved as a new Marked state. */
+  checked?: boolean;
+  /**
+   * A count imported from one annotation per item (Bluebeam): the /Annots index of each point's
+   * annotation, in point order; `index` is the first.
+   */
+  members?: number[];
+  /** Fingerprint of the picture imported from another tool's stamp: while unchanged its own appearance is kept. */
+  image?: string;
+  /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
+  space?: boolean;
 }
 
 /** Look of a new markup of each type. */
@@ -213,7 +263,16 @@ export interface Rect {
 
 /** The box a markup's text or picture sits in: a callout's box, else the bounds of its points. */
 export function contentBox(m: Pick<Markup, 'type' | 'points'>): Rect {
-  return boundsOf(m.type === 'callout' && m.points.length >= 4 ? m.points.slice(2, 4) : m.points);
+  const b = boundsOf(m.type === 'callout' && m.points.length >= 4 ? m.points.slice(2, 4) : m.points);
+  if (m.type !== 'flagLabel') return b;
+  // A flag label's text sits right of its pointed end.
+  const tip = flagTip(b);
+  return { x: b.x + tip, y: b.y, w: Math.max(0, b.w - tip), h: b.h };
+}
+
+/** How far a flag label's point reaches in from its left side. */
+export function flagTip(b: Rect): number {
+  return Math.min(b.h / 2, b.w / 3);
 }
 
 /** Axis-aligned bounds of a set of points. */
@@ -250,8 +309,8 @@ export function mapGeometry(m: Geometry, f: (p: Point) => Point): Geometry {
 }
 
 /** What a markup's measurement depends on besides its points. */
-export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges'>): MeasureProps {
-  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}) };
+export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges'>): MeasureProps {
+  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
 }
 
 /** Bounds including stroke width and decorations (arrowheads, cloud bulges). */
@@ -265,7 +324,7 @@ export function markupBounds(m: Markup): Rect {
 }
 
 /** Types that can be turned to any angle (Rotate): box-shaped markups. */
-export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp']);
+export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp', 'flagLabel']);
 
 /** The point a markup turns about: the centre of its box. */
 export function rotationCentre(m: Pick<Markup, 'type' | 'points'>): Point {
@@ -302,9 +361,9 @@ function unrotatedBounds(m: Markup): Rect {
   const pad =
     m.style.width / 2 +
     (ends[0] !== 'none' || ends[1] !== 'none' ? capSize(m) : 0) +
-    (m.type === 'cloud' ? cloudRadius(m) : 0) +
+    (m.type === 'cloud' || m.type === 'polygonCloud' ? cloudRadius(m) : 0) +
     (isMeasureKind(m.type) ? markerSize(m) * (m.type === 'angle' ? 3 : 1) : 0) +
-    (m.type === 'length' ? Math.abs(m.style.leader ?? 0) : 0);
+    (m.type === 'length' || m.type === 'dimension' ? Math.abs(m.style.leader ?? 0) : 0);
   return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
 }
 

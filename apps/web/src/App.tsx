@@ -357,7 +357,7 @@ function pageLabelFor(o: OpenFile | null, pageIndex: number): string {
 
 /** The PDF's outline as bookmarks (entries without a destination here go to the first page). */
 function outlineBookmarks(items: readonly OutlineItem[]): Bookmark[] {
-  return items.map((o) => ({ id: crypto.randomUUID(), title: o.title, pageIndex: o.pageIndex ?? 0, rect: o.rect, children: outlineBookmarks(o.children) }));
+  return items.map((o) => ({ id: crypto.randomUUID(), title: o.title, pageIndex: o.pageIndex ?? 0, rect: o.rect, ...(o.zoom ? { zoom: o.zoom } : {}), children: outlineBookmarks(o.children) }));
 }
 
 /**
@@ -480,6 +480,10 @@ async function annotatedBytes(
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),
     imported: cur.store.importedAnnotations(),
+    importedSpaces: cur.store.importedSpaces(),
+    pageScales: cur.store.allScales(),
+    columns: cur.store.columnSet().columns,
+    statuses: cur.store.columnSet().statuses,
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -3453,7 +3457,17 @@ export function App() {
             exportWithAnnotations(
               bytes.slice(0),
               store.all().filter((m) => choice.authors.includes(m.author)),
-              { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), links: store.allLinks(), imported: store.importedAnnotations(), places: store.places() },
+              {
+                scaleFor: (i) => store.scaleFor(i),
+                viewports: store.allViewports(),
+                links: store.allLinks(),
+                imported: store.importedAnnotations(),
+                importedSpaces: store.importedSpaces(),
+                pageScales: store.allScales(),
+                columns: store.columnSet().columns,
+                statuses: store.columnSet().statuses,
+                places: store.places(),
+              },
             ),
           );
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
@@ -3648,7 +3662,7 @@ export function App() {
             // The new revision's own annotations: ones this app wrote are already shared live (hidden
             // here, so they are not drawn twice); other tools' markups are brought in.
             const found = await readPdfAnnotations(got.bytes.slice(0), target.store);
-            await commitDocument(target, got.bytes, () => target.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported), `Before Project revision ${got.revision.n}`);
+            await commitDocument(target, got.bytes, () => target.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), `Before Project revision ${got.revision.n}`);
           } finally {
             held?.release();
           }
@@ -5614,7 +5628,9 @@ export function App() {
     const store = cur.store;
     store.checkpoint();
     let updated = 0;
-    for (const m of found) {
+    for (const found1 of found) {
+      // Markups from another file stand for none of this file's annotations.
+      const { pdfAnnot: _other, ...m } = found1;
       if (store.get(m.id)) {
         store.update(m.id, m);
         updated++;
