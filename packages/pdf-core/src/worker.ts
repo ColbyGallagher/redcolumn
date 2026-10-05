@@ -617,12 +617,34 @@ function annotFile(m: WrappedPdfiumModule, annot: number): { name: string; data:
   }
 }
 
+/**
+ * An annotation's /C (type 0) or /IC (type 1) colour. PDFium's own getter gives up once an
+ * appearance stream exists (and it generates one for most markups on load), so EmbedPDF's reader
+ * of the dictionary entry comes first.
+ */
 function annotColor(m: WrappedPdfiumModule, annot: number, type: 0 | 1, ptr: number): string | null {
-  if (!m.FPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8, ptr + 12)) return null;
   const u = m.pdfium.HEAPU32;
   const i = ptr >> 2;
-  return '#' + [u[i]!, u[i + 1]!, u[i + 2]!].map((v) => v.toString(16).padStart(2, '0')).join('');
+  const hex = () => '#' + [u[i]!, u[i + 1]!, u[i + 2]!].map((v) => Math.min(255, v).toString(16).padStart(2, '0')).join('');
+  if (m.EPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8)) return hex();
+  if (!m.FPDFAnnot_GetColor(annot, type, ptr, ptr + 4, ptr + 8, ptr + 12)) return null;
+  return hex();
 }
+
+/** Constant opacity (/CA), 0..1. */
+function annotOpacity(m: WrappedPdfiumModule, annot: number, ptr: number): number {
+  if (m.EPDFAnnot_GetOpacity(annot, ptr)) return m.pdfium.HEAPU32[ptr >> 2]! / 255;
+  return m.FPDFAnnot_GetNumberValue(annot, 'CA', ptr) ? m.pdfium.HEAPF32[ptr >> 2]! : 1;
+}
+
+/** Line width from the border style (/BS /W), else the older /Border array, else 1. */
+function annotBorderWidth(m: WrappedPdfiumModule, annot: number, ptr: number): number {
+  if (m.EPDFAnnot_GetBorderStyle(annot, ptr)) return m.pdfium.HEAPF32[ptr >> 2]!;
+  return m.FPDFAnnot_GetBorder(annot, ptr, ptr + 4, ptr + 8) ? m.pdfium.HEAPF32[(ptr >> 2) + 2]! : 1;
+}
+
+/** EmbedPDF's blend mode code for Multiply. */
+const BLEND_MULTIPLY = 1;
 
 /** Annotation rect in page space. */
 function annotRect(m: WrappedPdfiumModule, annot: number, ptr: number, t: Matrix) {
@@ -1251,11 +1273,12 @@ function blankImagePixels(m: WrappedPdfiumModule, obj: number, regions: Box[], f
 }
 
 /** Page and place a destination points at, in page space. */
-function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageIndex: number | null; rect: OutlineItem['rect'] } {
+function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageIndex: number | null; rect: OutlineItem['rect']; zoom?: number } {
   const { malloc, free } = m.pdfium.wasmExports;
   const pageIndex = m.FPDFDest_GetDestPageIndex(doc.handle, dest);
   if (pageIndex < 0) return { pageIndex: null, rect: null };
   let rect: OutlineItem['rect'] = null;
+  let zoom: number | undefined;
   const buf = malloc(48);
   try {
     const f = m.pdfium.HEAPF32;
@@ -1268,16 +1291,17 @@ function destTarget(m: WrappedPdfiumModule, doc: OpenDoc, dest: number): { pageI
     } else if (m.FPDFDest_GetLocationInPage(dest, buf, buf + 4, buf + 8, buf + 12, buf + 16, buf + 20)) {
       // XYZ: a top-left point (either coordinate may be unset).
       const h = m.pdfium.HEAP32;
-      const hasX = h[buf >> 2]!, hasY = h[(buf + 4) >> 2]!;
+      const hasX = h[buf >> 2]!, hasY = h[(buf + 4) >> 2]!, hasZoom = h[(buf + 8) >> 2]!;
       if (hasX || hasY) {
         const [x, y] = applyMatrix(t, hasX ? f[(buf + 12) >> 2]! : 0, hasY ? f[(buf + 16) >> 2]! : 0);
         rect = { x: hasX ? x : 0, y: hasY ? y : 0, w: 0, h: 0 };
       }
+      if (hasZoom && f[(buf + 20) >> 2]! > 0) zoom = f[(buf + 20) >> 2]!;
     }
   } finally {
     free(buf);
   }
-  return { pageIndex, rect };
+  return { pageIndex, rect, ...(zoom ? { zoom } : {}) };
 }
 
 /** The document outline (bookmarks), as a tree. */
@@ -1329,9 +1353,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
         const subtype = ANNOT_SUBTYPES[m.FPDFAnnot_GetSubtype(annot)] ?? 'Unknown';
         const rect = annotRect(m, annot, tmp, t);
         if (!rect) continue;
-        const f = m.pdfium.HEAPF32;
-        const opacity = m.FPDFAnnot_GetNumberValue(annot, 'CA', tmp) ? f[tmp >> 2]! : 1;
-        const borderWidth = m.FPDFAnnot_GetBorder(annot, tmp, tmp + 4, tmp + 8) ? f[(tmp >> 2) + 2]! : 1;
+        const opacity = annotOpacity(m, annot, tmp);
+        const borderWidth = annotBorderWidth(m, annot, tmp);
         let line: PdfAnnotation['line'] = null;
         if (subtype === 'Line' && m.FPDFAnnot_GetLine(annot, tmp, tmp + 8)) {
           const g = m.pdfium.HEAPF32;
@@ -1373,6 +1396,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
           name: annotString(m, annot, 'NM'),
           intent: annotString(m, annot, 'IT'),
           cloudy: m.FPDFAnnot_HasKey(annot, 'BE'),
+          multiply: m.EPDFAnnot_GetBlendMode(annot) === BLEND_MULTIPLY,
+          objectNumber: m.EPDFAnnot_GetObjectNumber(annot),
           da: annotString(m, annot, 'DA'),
           appData: annotString(m, annot, APP_DATA_KEY),
           flags: m.FPDFAnnot_GetFlags(annot),

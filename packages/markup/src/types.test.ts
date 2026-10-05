@@ -59,5 +59,5 @@ test('every markup type exports to a PDF annotation and comes back exactly, repl
   assert.equal(found.length, markups.length + 1);
   const { markups: back } = importAnnotations(0, found);
   assert.deepEqual(back.map((m) => m.type), MARKUP_TYPES);
-  assert.deepEqual(back, markups);
+  assert.deepEqual(back.map(({ pdfAnnot: _link, ...m }) => m), markups);
 });

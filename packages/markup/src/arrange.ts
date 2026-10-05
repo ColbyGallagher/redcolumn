@@ -73,7 +73,7 @@ export function flip(markups: readonly Markup[], axis: Axis): Map<string, Geomet
     out.set(
       m.id,
       // A mirror image turns curved segments the other way.
-      { ...mapGeometry(m, ([x, y]) => (axis === 'horizontal' ? [2 * cx - x, y] : [x, 2 * cy - y])), ...(m.bulges ? { bulges: m.bulges.map((b) => -b) } : {}) },
+      { ...mapGeometry(m, ([x, y]) => (axis === 'horizontal' ? [2 * cx - x, y] : [x, 2 * cy - y])), ...(m.bulges ? { bulges: m.bulges.map((b) => -b) } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges.map((h) => h?.map((b) => -b) ?? null) } : {}) },
     );
   }
   return out;

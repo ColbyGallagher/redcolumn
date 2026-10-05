@@ -60,6 +60,9 @@ export const CLICK_SHAPES: Partial<Record<MarkupType, { min: number; fixed?: num
   MARKUP_TYPES.flatMap((t) => (TYPE_INFO[t].click ? [[t, TYPE_INFO[t].click]] : [])),
 );
 
+/** Count markers (Bluebeam's count styles). */
+export type CountShape = 'circle' | 'check' | 'square' | 'diamond' | 'triangle' | 'cross';
+
 export interface MarkupStyle {
   /** CSS hex color, e.g. `#ff0000`. */
   stroke: string;
@@ -78,6 +81,8 @@ export interface MarkupStyle {
   arcRadius?: number;
   /** Clouds: arcs bulge inward rather than outward. */
   cloudInside?: boolean;
+  /** Counts: the marker drawn at each item (circle when unset). */
+  countShape?: CountShape;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
   fillOpacity?: number;
   /** Line style; solid when unset. */
@@ -161,6 +166,8 @@ export interface Markup {
   stamp?: StampContent;
   /** Area, volume and perimeter measurements: cutouts, each a polygon inside the outline. */
   holes?: Point[][];
+  /** Cutouts' curved edges: per cutout, its bulges (as `bulges`), or null where it is all straight. */
+  holeBulges?: (number[] | null)[];
   /** Measurements: depth or height in meters (volume for areas, wall area for lengths). */
   depth?: number;
   /** Measurements: slope of the measured surface or run. */
@@ -192,10 +199,34 @@ export interface Markup {
   rotation?: number;
   /** File Attachment markups: the embedded file. */
   attachment?: Attachment;
+  /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
+  pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
   author: string;
   createdAt: number;
   modifiedAt: number;
+}
+
+/**
+ * Links an imported markup to the PDF annotation it came from. On save an unchanged markup leaves
+ * that annotation exactly as it was (every key other tools wrote survives); a changed one is
+ * written over it in place, keeping the keys it has no equivalent for.
+ */
+export interface PdfAnnotLink {
+  /** Position in its page's /Annots (or in /BSISpaces for a Space). */
+  index: number;
+  /** `markupDigest` of the markup as imported; empty until import finishes. */
+  digest: string;
+  /** Id of the markup it was imported as: copies made later (other ids) are new markups. */
+  id?: string;
+  /** Several markups from one annotation (an ink with several strokes): which one this is. */
+  part?: number;
+  /** Annotations that belong to it (its popup, replies and review states), by /Annots index. */
+  owned?: number[];
+  /** Status as imported: a different one now is saved as a new review state. */
+  status?: string;
+  /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
+  space?: boolean;
 }
 
 /** Look of a new markup of each type. */
@@ -250,8 +281,8 @@ export function mapGeometry(m: Geometry, f: (p: Point) => Point): Geometry {
 }
 
 /** What a markup's measurement depends on besides its points. */
-export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges'>): MeasureProps {
-  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}) };
+export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges'>): MeasureProps {
+  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
 }
 
 /** Bounds including stroke width and decorations (arrowheads, cloud bulges). */

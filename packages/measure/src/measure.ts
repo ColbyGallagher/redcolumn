@@ -1,4 +1,4 @@
-import { AREA_LABELS, formatArea, formatLength, formatVolume, METERS_PER_UNIT, VOLUME_LABELS, type Scale } from './scale.ts';
+import { AREA_LABELS, areaUnitOf, formatArea, formatLength, formatVolume, METERS_PER_UNIT, VOLUME_LABELS, volumeUnitOf, type Scale } from './scale.ts';
 
 export type Pt = readonly [number, number];
 
@@ -39,6 +39,8 @@ export interface MeasureProps {
   slope?: Slope;
   /** Curved segments: per segment (from point i to i + 1, the last closing a shape), its bulge; 0 or missing is straight. */
   bulges?: readonly number[];
+  /** Cutouts' curved segments: per cutout, its bulges as for `bulges` (ignored unless one per edge). */
+  holeBulges?: readonly (readonly number[] | null | undefined)[];
 }
 
 // --- Arc segments ---------------------------------------------------------------------------------
@@ -258,8 +260,12 @@ export function angleAt(a: Pt, b: Pt, c: Pt): number {
 }
 
 /** Plan area of a polygon less its cutouts, in square points. */
-function netArea(points: readonly Pt[], holes: MeasureProps['holes'], bulges?: readonly number[]): number {
-  return Math.max(0, polygonAreaArcs(points, bulges) - (holes ?? []).reduce((sum, h) => sum + (h.length > 2 ? polygonArea(h) : 0), 0));
+function netArea(points: readonly Pt[], holes: MeasureProps['holes'], bulges?: readonly number[], holeBulges?: MeasureProps['holeBulges']): number {
+  const hole = (h: readonly Pt[], i: number) => {
+    const b = holeBulges?.[i];
+    return b && b.length === h.length ? polygonAreaArcs(h, b) : polygonArea(h);
+  };
+  return Math.max(0, polygonAreaArcs(points, bulges) - (holes ?? []).reduce((sum, h, i) => sum + (h.length > 2 ? hole(h, i) : 0), 0));
 }
 
 /**
@@ -280,9 +286,9 @@ export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPer
     case 'perimeter':
       return pathLengthArcs(points, props.bulges, true) * metersPerPoint * k;
     case 'area':
-      return netArea(points, props.holes, props.bulges) * metersPerPoint * metersPerPoint * k;
+      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * k;
     case 'volume':
-      return netArea(points, props.holes, props.bulges) * metersPerPoint * metersPerPoint * (props.depth ?? 0);
+      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * (props.depth ?? 0);
     case 'count':
       return points.length;
     case 'angle':
@@ -308,7 +314,7 @@ export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersP
   if (kind === 'area' || kind === 'volume') {
     const out: MeasureDetails = {
       length: pathLengthArcs(points, props.bulges, true) * metersPerPoint,
-      area: measureValue('area', points, metersPerPoint, kind === 'volume' ? { holes: props.holes, bulges: props.bulges } : props),
+      area: measureValue('area', points, metersPerPoint, kind === 'volume' ? { holes: props.holes, bulges: props.bulges, holeBulges: props.holeBulges } : props),
     };
     if (props.depth) out.volume = measureValue('volume', points, metersPerPoint, props);
     return out;
@@ -337,13 +343,15 @@ export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): s
  */
 export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale): { value: number; unit: string } {
   const per = METERS_PER_UNIT[scale.unit];
+  const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
+  const perVolume = METERS_PER_UNIT[volumeUnitOf(scale)];
   switch (QUANTITY[kind]) {
     case 'length':
       return { value: value / per, unit: scale.unit };
     case 'area':
-      return { value: value / (per * per), unit: AREA_LABELS[scale.unit] };
+      return { value: value / (perArea * perArea), unit: AREA_LABELS[areaUnitOf(scale)] };
     case 'volume':
-      return { value: value / (per * per * per), unit: VOLUME_LABELS[scale.unit] };
+      return { value: value / (perVolume * perVolume * perVolume), unit: VOLUME_LABELS[volumeUnitOf(scale)] };
     case 'count':
       return { value, unit: 'ea' };
     case 'angle':

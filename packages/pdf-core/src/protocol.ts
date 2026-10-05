@@ -44,6 +44,10 @@ export interface PdfAnnotation {
   intent: string;
   /** Has a cloudy border effect (/BE). */
   cloudy: boolean;
+  /** Blend mode (/BM) is Multiply: a highlighter. */
+  multiply?: boolean;
+  /** Indirect object number of the annotation dictionary (0 when it is a direct object). */
+  objectNumber?: number;
   /** /DA default appearance string (FreeText font and colour). */
   da: string;
   /** Lossless markup data this app writes into annotations it exports (JSON), if present. */
@@ -125,6 +129,8 @@ export interface OutlineItem {
   pageIndex: number | null;
   /** Where on the target page, in page space: an area (FitR) or a point (XYZ, w = h = 0). */
   rect: { x: number; y: number; w: number; h: number } | null;
+  /** XYZ destinations: the zoom they set (null or absent keeps the reader's zoom). */
+  zoom?: number | null;
   children: OutlineItem[];
 }
 

@@ -23,6 +23,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./export": "./src/export.ts",
+    "./pdfExtras": "./src/pdfExtras.ts",
     "./xfdf": "./src/xfdf.ts",
     "./summary": "./src/summary.ts"
   }

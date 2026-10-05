@@ -19,8 +19,12 @@ const METERS_PER_PAPER_POINT = 0.0254 / 72;
 /** Drawing scale for a page: how much real-world length one PDF point represents. */
 export interface Scale {
   metersPerPoint: number;
-  /** Display unit for lengths; areas use its square. */
+  /** Display unit for lengths; areas use its square unless `areaUnit` is set. */
   unit: LengthUnit;
+  /** Unit whose square areas are shown in (e.g. m² beside lengths in mm); `unit` when unset. */
+  areaUnit?: LengthUnit;
+  /** Unit whose cube volumes are shown in; `areaUnit`, else `unit`, when unset. */
+  volumeUnit?: LengthUnit;
   /**
    * Imperial lengths with inch fractions: feet as feet-inches (12'-6 1/2"), inches as fractional
    * inches (6 1/2"). Only applies when unit is ft or in.
@@ -178,18 +182,25 @@ export const VOLUME_LABELS: Record<LengthUnit, string> = {
   km: 'km³',
 };
 
+/** The unit a scale shows areas in. */
+export const areaUnitOf = (scale: Scale): LengthUnit => scale.areaUnit ?? scale.unit;
+/** The unit a scale shows volumes in. */
+export const volumeUnitOf = (scale: Scale): LengthUnit => scale.volumeUnit ?? scale.areaUnit ?? scale.unit;
+
 export function formatVolume(cubicMeters: number, scale: Scale): string {
-  const per = METERS_PER_UNIT[scale.unit];
+  const unit = volumeUnitOf(scale);
+  const per = METERS_PER_UNIT[unit];
   const value = cubicMeters / (per * per * per);
-  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${VOLUME_LABELS[scale.unit]}`;
+  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${VOLUME_LABELS[unit]}`;
 }
 
 export function formatArea(squareMeters: number, scale: Scale): string {
-  const per = METERS_PER_UNIT[scale.unit];
+  const unit = areaUnitOf(scale);
+  const per = METERS_PER_UNIT[unit];
   const value = squareMeters / (per * per);
   // Areas are reported in decimal units even when lengths use feet-inches.
   const precision = scale.feetInches ? 2 : scale.precision;
-  return `${trimNumber(value, precision)} ${AREA_LABELS[scale.unit]}`;
+  return `${trimNumber(value, precision)} ${AREA_LABELS[unit]}`;
 }
 
 /**

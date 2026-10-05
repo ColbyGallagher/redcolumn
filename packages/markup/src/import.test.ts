@@ -71,7 +71,10 @@ test("this app's exported markups come back exactly", () => {
     modifiedAt: 2,
   };
   const { markups } = importAnnotations(3, [annot({ subtype: 'Line', appData: JSON.stringify(original) })]);
-  assert.deepEqual(markups, [{ ...original, pageIndex: 3 }]);
+  const { pdfAnnot, ...back } = markups[0]!;
+  assert.deepEqual([back], [{ ...original, pageIndex: 3 }]);
+  // Linked to its annotation, so an unchanged markup leaves it untouched on save.
+  assert.deepEqual(pdfAnnot && { index: pdfAnnot.index, id: pdfAnnot.id, status: pdfAnnot.status }, { index: 0, id: 'abc', status: 'accepted' });
 });
 
 test('links with page destinations become accepted-quality links', () => {

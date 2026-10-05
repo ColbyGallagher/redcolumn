@@ -2,7 +2,7 @@ import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type Markup, type Point } from './model';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { HATCH_ANGLES, lineEnds, type LineEnding } from './style';
 
@@ -147,7 +147,11 @@ function baseShape(m: Markup): ShapePart[] {
     case 'space': {
       const edge = m.type !== 'space' && m.bulges?.some(Boolean) && points.length > 2 ? expandArcs(points, m.bulges, true) : points;
       const outline: PathCmd[] = edge.length > 2 ? [...polyline(edge), ['Z']] : polyline(edge);
-      const holes = (m.holes ?? []).filter((h) => h.length > 2);
+      // Cutouts, with any curved edges traced along their arcs.
+      const holes = (m.holes ?? []).map((h, i) => {
+        const b = m.holeBulges?.[i];
+        return b && b.length === h.length && b.some(Boolean) ? expandArcs(h, b, true) : h;
+      }).filter((h) => h.length > 2);
       if (!holes.length) return [{ path: outline, stroke: true, fill: style.fill }];
       return [{ path: [...outline, ...holes.flatMap((h): PathCmd[] => [...polyline(h), ['Z']])], stroke: true, fill: style.fill, evenOdd: true }];
     }
@@ -161,7 +165,14 @@ function baseShape(m: Markup): ShapePart[] {
       return withEnds(m, arcPoints(points));
     case 'count': {
       const r = markerSize(m);
-      return points.map(([x, y]) => ({ path: ellipsePath({ x: x - r, y: y - r, w: r * 2, h: r * 2 }), stroke: true, fill: style.fill }));
+      const shape = style.countShape ?? 'circle';
+      return points.map(([x, y]) => {
+        if (shape === 'circle') return { path: ellipsePath({ x: x - r, y: y - r, w: r * 2, h: r * 2 }), stroke: true, fill: style.fill };
+        const outline: Point[] = COUNT_SHAPES[shape].map(([u, v]) => [x + u * r, y + v * r]);
+        // A check or cross is a solid glyph: filled with the fill colour, else the line colour.
+        const solid = shape === 'check' || shape === 'cross';
+        return { path: [...polyline(outline), ['Z']] as PathCmd[], stroke: !solid || style.width > 0, fill: solid ? (style.fill ?? style.stroke) : style.fill };
+      });
     }
     case 'angle': {
       if (points.length < 3) return [{ path: polyline(points), stroke: true, fill: null }];
@@ -184,6 +195,15 @@ function baseShape(m: Markup): ShapePart[] {
     }
   }
 }
+
+/** Count marker outlines around (0, 0) with radius 1, page space (y down). The check is Bluebeam's. */
+const COUNT_SHAPES: Record<Exclude<CountShape, 'circle'>, Point[]> = {
+  check: [[-1, 0.02], [-0.774, -0.206], [-0.272, 0.297], [0.773, -0.748], [1, -0.523], [-0.271, 0.749]],
+  square: [[-1, -1], [1, -1], [1, 1], [-1, 1]],
+  diamond: [[0, -1], [1, 0], [0, 1], [-1, 0]],
+  triangle: [[0, -1], [0.866, 0.5], [-0.866, 0.5]],
+  cross: [[-1, -0.7], [-0.7, -1], [0, -0.3], [0.7, -1], [1, -0.7], [0.3, 0], [1, 0.7], [0.7, 1], [0, 0.3], [-0.7, 1], [-1, 0.7], [-0.3, 0]],
+};
 
 /** Unit normal of segment a→b; a length's positive `leader` offsets its dimension line this way. */
 export function dimensionNormal(a: Point, b: Point): [number, number] {

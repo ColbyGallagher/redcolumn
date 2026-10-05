@@ -1,5 +1,5 @@
 import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
-import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, type Scale } from '@nb/measure';
+import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
 
@@ -123,6 +123,8 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale) : null;
   const details = isMeasureKind(m.type) ? measureDetails(m.type, m.points, scale.metersPerPoint, props) : {};
   const per = METERS_PER_UNIT[scale.unit];
+  const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
+  const perVolume = METERS_PER_UNIT[volumeUnitOf(scale)];
   // Secondary quantities: text as shown, numbers in the page's display units for sorting and formulas.
   const q = (v: number | undefined, fmt: (v: number, s: Scale) => string, div: number) => (v === undefined ? cell('') : cell(fmt(v, scale), v / div));
   const out: Record<string, Cell> = {
@@ -132,9 +134,9 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     space: cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : ''),
     measurement: cell(value !== null && isMeasureKind(m.type) ? formatMeasure(m.type, value, scale) : '', qty ? qty.value : null),
     length: q(details.length, formatLength, per),
-    area: q(details.area, formatArea, per * per),
-    volume: q(details.volume, formatVolume, per * per * per),
-    wallArea: q(details.wallArea, formatArea, per * per),
+    area: q(details.area, formatArea, perArea * perArea),
+    volume: q(details.volume, formatVolume, perVolume * perVolume * perVolume),
+    wallArea: q(details.wallArea, formatArea, perArea * perArea),
     depth: q(m.depth, formatLength, per),
     slope: cell(m.slope?.value ? formatSlope(m.slope) : ''),
     author: cell(m.author),

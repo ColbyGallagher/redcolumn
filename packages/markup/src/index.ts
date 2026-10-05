@@ -2,7 +2,7 @@ export * from './model';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
 export * from './columns';
-export { MarkupStore, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
+export { MarkupStore, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { hitTest, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';
 export { arcPoints, circleThrough } from './arc';
@@ -36,5 +36,7 @@ export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox 
 export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, shapeBounds, type Alignment, type Axis } from './arrange';
 export { dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
+export { markupDigest, unchangedSinceImport } from './digest';
+export { importColumns, statusIdOf, type PdfExtras } from './bluebeam';
 export { planPageOps, rotatePagePoint, type PageOperation, type PagePlan } from './pages';
 export { parseBtx, parsePdfObject, pdfColor, toolStyle, toolType, type ToolChestItem, type ToolSet } from './toolchest';

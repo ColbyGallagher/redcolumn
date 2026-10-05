@@ -1,5 +1,5 @@
 import { PdfEngine, type PdfDocument } from '@nb/pdf-core';
-import { importAnnotations, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, importAnnotations, importColumns, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
@@ -127,7 +127,7 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
  */
 export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
   const found = await readPdfAnnotations(await bytes(), store, onProgress, signal);
-  store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported);
+  store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported, found.extras);
 }
 
 /**
@@ -136,23 +136,39 @@ export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, st
  */
 export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
 
-/** A PDF's own markups and links, and which of its annotations they stand for (to hide those). */
+/**
+ * A PDF's own markups and links, which of its annotations they stand for (to hide those), and the
+ * scales, viewports, custom columns, statuses and Spaces other tools (Bluebeam Revu) record with them.
+ */
 export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
+  // Read before the engine takes the buffer; without it markups still import from PDFium's view.
+  const { readPdfExtras } = await import('@nb/markup/pdfExtras');
+  const raw = await readPdfExtras(bytes).catch(() => null);
   return withBackgroundDoc(bytes, async (doc) => {
     const sheets = store.allSheets();
     const lookup = new SheetLookup(doc.pages.map((_, i) => sheets[i]?.number ?? null));
     const markups: Markup[] = [];
     const links: DetectedLink[] = [];
     const imported: Record<number, number[]> = {};
+    const extras: ImportedExtras = { scales: {}, viewports: [], spaces: {} };
+    const states = new Set<string>();
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
-      const result = importAnnotations(i, await doc.annotations(i), (name) => lookup.find(name));
+      const result = importAnnotations(i, await doc.annotations(i), (name) => lookup.find(name), raw);
       markups.push(...result.markups);
       links.push(...result.links);
       if (result.imported.length) imported[i] = result.imported;
+      if (result.scale) extras.scales![i] = result.scale;
+      extras.viewports!.push(...(result.viewports ?? []));
+      for (const s of result.statuses ?? []) states.add(s);
+      const spaces = result.markups.flatMap((m) => (m.pdfAnnot?.space ? [m.pdfAnnot.index] : []));
+      if (spaces.length) extras.spaces![i] = spaces;
       onProgress({ phase: 'annotations', done: i + 1, total: doc.pages.length });
     }
-    return { markups, links, imported };
+    if (raw?.columns.length) extras.columns = importColumns(raw.columns);
+    const known = new Set(DEFAULT_STATUSES.map((s) => s.id));
+    extras.statuses = [...states].filter((s) => !known.has(statusIdOf(s))).map((name) => ({ id: statusIdOf(name), name, color: '#9aa1a9' }));
+    return { markups, links, imported, extras };
   });
 }
 

@@ -18,6 +18,8 @@ export interface Bookmark {
   pageIndex: number;
   /** An area to zoom to, or a top-left point (w = h = 0); null shows the whole page. */
   rect: Rect | null;
+  /** A point destination's zoom (as the PDF's outline had it); unset keeps the reader's zoom. */
+  zoom?: number;
   children: Bookmark[];
   /** Instead of its page: a web page, another document, or a Place. */
   action?: Exclude<LinkAction, { kind: 'page' }>;
