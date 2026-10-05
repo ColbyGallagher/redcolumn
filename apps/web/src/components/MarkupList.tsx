@@ -34,6 +34,10 @@ interface Props {
   onRowMenu: (m: Markup, x: number, y: number) => void;
   onManageColumns: () => void;
   onExport: (rows: ListRowData[], columns: ListColumn[]) => void;
+  /** Opens the dialog that keeps this list in a Google Sheet or an Excel workbook. */
+  onSync?: () => void;
+  /** Whether it is already syncing, shown on the button. */
+  syncing?: boolean;
   /** The markups the filter keeps (null when not filtering), so the page can dim or hide the rest. */
   onFiltered?: (kept: ReadonlySet<string> | null) => void;
 }
@@ -116,7 +120,7 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport, onSync, syncing } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
@@ -619,6 +623,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <button className="btn small" disabled={!markups.length} onClick={() => onExport(rows, visible)} title="Export as CSV or a PDF summary">
           Export…
         </button>
+        {onSync && (
+          <button className="btn small" disabled={!markups.length && !syncing} onClick={onSync} title="Keep this list in a Google Sheet or an Excel workbook, updated as markups change">
+            {syncing ? 'Syncing ✓' : 'Sync…'}
+          </button>
+        )}
       </div>
       {markups.length === 0 ? (
         <p className="empty">Markups and measurements you draw appear here.</p>

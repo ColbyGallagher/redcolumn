@@ -112,6 +112,27 @@ differences:
 4. Put the **Application (client) ID** in `VITE_MICROSOFT_CLIENT_ID` (`apps/web/.env.local`
    locally, an Actions variable for GitHub Pages).
 
+## Markups to a spreadsheet (Google Sheets or Excel in OneDrive)
+
+In the Markups list, **Sync…** keeps the list (its visible columns, filter and sort) in a
+spreadsheet and rewrites it about a second and a half after each change. Measurements go in as
+numbers, so the sheet can total them. Each document has its own link, remembered by file name in
+this browser.
+
+- **Google Sheets:** creates a spreadsheet in the person's Drive and writes it through the Sheets
+  API, so everyone with it open sees cells change as they land. It uses the same `drive.file`
+  scope as sessions (the app reaches only spreadsheets it created), so no new consent screen
+  entry is needed. In the Cloud project, enable the **Google Sheets API** (APIs & Services →
+  Library) and add it to the API key's restrictions.
+- **Excel in OneDrive:** writes an `.xlsx` to `Apps/redcolumn`, replacing the same file each
+  time, with the app-folder permission sessions already use. Excel for the web reloads a workbook
+  that changed; the desktop app picks it up when the file syncs. It is a file replace, not a
+  cell-by-cell edit, so changes you make in that sheet are overwritten by the next update.
+- A token that has expired (Google's last an hour) is renewed with a click on **Reconnect**: the
+  browser will not open a sign-in popup on its own. Sync runs only while the document is open.
+
+Code: `apps/web/src/sheetsync/`.
+
 ## Projects (OneDrive)
 
 A Project is a shared folder of PDFs that everyone on it can open from the Projects panel, with

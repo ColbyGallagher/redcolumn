@@ -249,3 +249,20 @@ export function parseScaleText(text: string): Scale | null {
   }
   return null;
 }
+
+/**
+ * Reads a scale a user typed into a field. Takes everything `parseScaleText` does, and is lenient
+ * about the marks: `1/4 = 1'`, `1/4 in = 1 ft`, `1/8"=1'-0"`, `1:75`. A bare `a = b` is read as
+ * inches on paper to feet in reality. Returns null when the text is not a scale.
+ */
+export function parseTypedScale(text: string): Scale | null {
+  const direct = parseScaleText(text);
+  if (direct) return direct;
+  const t = text
+    .trim()
+    .replace(/\b(?:inches|inch|in)\b\.?/gi, '"')
+    .replace(/\b(?:feet|foot|ft)\b\.?/gi, "'");
+  const bare = /^(\d+(?:\.\d+)?(?:[\s-]+\d+\/\d+)?|\d+\/\d+)\s*"?\s*=\s*(\d+(?:\.\d+)?)\s*'?(?:\s*-?\s*(\d+(?:\.\d+)?)\s*"?)?$/.exec(t);
+  if (!bare) return parseScaleText(t);
+  return parseScaleText(`${bare[1]}" = ${bare[2]}'${bare[3] ? `-${bare[3]}"` : ''}`);
+}

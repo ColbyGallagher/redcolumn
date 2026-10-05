@@ -214,6 +214,7 @@ interface GraphItem {
   folder?: unknown;
   createdBy?: { user?: { displayName?: string; email?: string } };
   parentReference?: { driveId?: string };
+  webUrl?: string;
   '@microsoft.graph.downloadUrl'?: string;
 }
 
@@ -456,6 +457,17 @@ export class OneDrive implements DriveApi {
     const { driveId, itemId } = await this.appRoot();
     // A PUT to a path replaces a file of that name.
     await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([text], { type: 'application/json' }), 'save your settings');
+  }
+
+  /**
+   * Saves a file in the app's own folder (Apps/redcolumn), replacing one of the same name, and
+   * returns where it opens in the browser. Replacing keeps the file's link, so a copy open in Excel
+   * for the web picks the change up.
+   */
+  async writeAppBinary(name: string, body: Blob, mimeType: string): Promise<{ id: string; url: string }> {
+    const { driveId, itemId } = await this.appRoot();
+    const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([body], { type: mimeType }), 'save the spreadsheet');
+    return { id: item.id, url: item.webUrl ?? 'https://onedrive.live.com/' };
   }
 
   /**

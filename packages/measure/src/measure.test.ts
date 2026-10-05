@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calibratedScale, formatArea, formatFeetInches, formatLength, parseLength, parseScaleText, SCALE_PRESETS } from './scale.ts';
+import { calibratedScale, formatArea, formatFeetInches, formatLength, parseLength, parseScaleText, parseTypedScale, SCALE_PRESETS } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, bulgeThrough, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
@@ -194,4 +194,15 @@ test('a bulge from a point on the arc; the arc drawn through it', () => {
   ];
   const dense = expandArcs(square, [0.4, 0, -0.3, 0], true);
   assert.ok(Math.abs(polygonArea(dense) - polygonAreaArcs(square, [0.4, 0, -0.3, 0])) < 0.01);
+});
+
+test('parseTypedScale accepts loosely typed scales', () => {
+  assert.equal(parseTypedScale(`1/4 = 1'`), preset('1/4" = 1\'-0"'));
+  assert.equal(parseTypedScale('1/4 in = 1 ft'), preset('1/4" = 1\'-0"'));
+  assert.equal(parseTypedScale(`1/8"=1'-0"`), preset('1/8" = 1\'-0"'));
+  assert.equal(parseTypedScale('1" = 20'), preset('1" = 20\''));
+  assert.equal(parseTypedScale('1:100'), preset('1:100'));
+  assert.equal(parseTypedScale('1:75')?.label, '1:75');
+  assert.equal(parseTypedScale('NTS'), null);
+  assert.equal(parseTypedScale('hello'), null);
 });
