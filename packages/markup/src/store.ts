@@ -395,7 +395,10 @@ export class MarkupStore {
         const set = this.columnSet();
         const names = new Set(set.columns.map((c) => c.name.trim().toLowerCase()));
         const ids = new Set(set.statuses.map((x) => x.id));
-        const columns = [...set.columns, ...(extras.columns ?? []).filter((c) => !names.has(c.name.trim().toLowerCase()))];
+        const columns = [...set.columns, ...(extras.columns ?? []).filter((c) => {
+          const key = c.name.trim().toLowerCase();
+          return !names.has(key) && !!names.add(key);
+        })];
         const statuses = [...set.statuses, ...(extras.statuses ?? []).filter((x) => !ids.has(x.id))];
         if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) this.meta.set('columns', { columns, statuses });
       }

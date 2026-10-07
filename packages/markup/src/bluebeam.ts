@@ -371,7 +371,12 @@ export function importColumns(raw: readonly PdfDictValue[]): CustomColumn[] {
     if (type === 'choice') col.options = arr(c.Items ?? c.Options ?? c.Choices).flatMap((o) => (typeof o === 'string' ? [o] : arr(o).filter((x): x is string => typeof x === 'string').slice(-1)));
     return [{ col, order: num(c.DisplayOrder) ?? i }];
   });
-  return cols.sort((a, b) => a.order - b.order).map((c) => c.col);
+  // A PDF can list the same column more than once; they share an id, so keep the first.
+  const seen = new Set<string>();
+  return cols
+    .sort((a, b) => a.order - b.order)
+    .map((c) => c.col)
+    .filter((c) => !seen.has(c.id) && !!seen.add(c.id));
 }
 
 /** A markup's column values from its /BSIColumnData (stored in /BSIAnnotColumns order). */
