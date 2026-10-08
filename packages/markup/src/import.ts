@@ -68,8 +68,8 @@ export interface ImportResult {
   scale?: Scale | null;
   /** Regions of the page with their own scale (Bluebeam viewports). */
   viewports?: Viewport[];
-  /** Review state names seen (e.g. "Accepted"), for the document's statuses. */
-  statuses?: string[];
+  /** Status names seen (e.g. "Accepted"), with the state model each was set in, for the document's statuses. */
+  statuses?: { name: string; model: string }[];
 }
 
 /** Annotation flags: Invisible, Hidden, NoView. Such annotations are never shown. */
@@ -136,7 +136,7 @@ export function importAnnotations(
   };
   const groups = new Map<number, string>();
   const owner = new Map<number, number>();
-  const statuses = new Set<string>();
+  const statuses = new Map<string, string>();
   if (page) {
     const parentOf = (i: number): number | null => {
       const r = page.annots[i];
@@ -191,7 +191,7 @@ export function importAnnotations(
       const state = str(r.State);
       if (model && state) {
         t.states.push({ state, model, at, order: a.index });
-        if (model === 'Review') statuses.add(state);
+        if (model !== 'Marked' && !statuses.has(state)) statuses.set(state, model);
       } else {
         t.replies.push({ id: str(r.NM) || `pdf-${pageIndex}-${a.index}`, author: str(r.T) ?? a.author, text: cleanText(str(r.Contents) ?? a.contents), createdAt: parsePdfDate(str(r.CreationDate)) ?? at });
       }
@@ -205,12 +205,13 @@ export function importAnnotations(
       const have = new Set((m.replies ?? []).map((x) => x.id));
       const replies = [...(m.replies ?? []), ...t.replies.filter((x) => !have.has(x.id))].sort((x, y) => x.createdAt - y.createdAt);
       if (replies.length) m.replies = replies;
-      // The latest review state is the status (Bluebeam's Marked model is a separate check).
-      const latest = (model: string) => t.states.filter((s) => s.model === model).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
-      const review = latest('Review');
+      // The latest state is the status, whether Review or a custom status set's (Bluebeam's
+      // Marked model is a separate check).
+      const latest = (match: (model: string) => boolean) => t.states.filter((s) => match(s.model)).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
+      const review = latest((model) => model !== 'Marked');
       if (review) m.status = statusIdOf(review.state);
       // Bluebeam's checkmark: the Marked model, Marked or Unmarked.
-      const marked = latest('Marked');
+      const marked = latest((model) => model === 'Marked');
       if (marked) m.checked = marked.state === 'Marked';
     }
     if (r) {
@@ -431,7 +432,7 @@ export function importAnnotations(
     imported,
     ...(vp?.scale ? { scale: vp.scale } : {}),
     ...(vp?.viewports.length ? { viewports: vp.viewports } : {}),
-    ...(statuses.size ? { statuses: [...statuses] } : {}),
+    ...(statuses.size ? { statuses: [...statuses].map(([name, model]) => ({ name, model })) } : {}),
   };
 }
 

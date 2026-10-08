@@ -63,7 +63,8 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   }
 
   const columns = arr(value(doc.catalog.get(PDFName.of('BSIAnnotColumns')), 'BSIAnnotColumns', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
-  return { pages, ocgNames, columns, images };
+  const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
+  return { pages, ocgNames, columns, statusDefs, images };
 }
 
 /** An image XObject as a PNG (or, for JPEG data, JPEG) data URL; null if it cannot be decoded here. */

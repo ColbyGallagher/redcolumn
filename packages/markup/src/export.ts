@@ -1027,7 +1027,7 @@ function refreshRichText(d: PDFDict, always = false) {
 }
 
 /** A review-state annotation as Bluebeam and Acrobat write one: the markup's status, changed. */
-function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model: 'Review' | 'Marked' = 'Review'): PDFDict {
+function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model = 'Review'): PDFDict {
   const now = Date.now();
   return doc.context.obj({
     Type: 'Annot',
@@ -1051,6 +1051,11 @@ function stateName(id: string, statuses: readonly MarkupStatusDef[]): string {
   return statuses.find((s) => s.id === id)?.name || (id === 'none' ? 'None' : id.charAt(0).toUpperCase() + id.slice(1));
 }
 
+/** The state model a status is set in: its custom status set's, else Review. */
+function stateModel(id: string, statuses: readonly MarkupStatusDef[]): string {
+  return statuses.find((s) => s.id === id)?.model || 'Review';
+}
+
 // ---- Bluebeam custom columns --------------------------------------------------------------------
 
 const BB_COLUMN_TYPES: Record<CustomColumn['type'], string> = {
@@ -1064,8 +1069,11 @@ const BB_COLUMN_TYPES: Record<CustomColumn['type'], string> = {
 };
 
 interface ColumnLayout {
-  /** The columns in the order their values are stored. */
-  columns: CustomColumn[];
+  /**
+   * The columns in the order their values are stored. Null is a column deleted in Bluebeam: it
+   * stays in the file, hidden, keeping its place and the values stored for it.
+   */
+  columns: (CustomColumn | null)[];
   /** For each column, its position in the file's original list (-1 for a new one). */
   from: number[];
   /** Stored values changed position (a column was removed or reordered): every annotation's values are realigned. */
@@ -1082,13 +1090,23 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
   if (!columns.length || (!existing && !used)) return null;
   const original = (existing?.asArray() ?? []).map((x) => doc.context.lookup(x)).map((d) => (d instanceof PDFDict ? d : null));
   const nameOfColumn = (d: PDFDict | null) => d?.lookupMaybe(PDFName.of('Name'), PDFString, PDFHexString)?.decodeText().trim() ?? '';
-  const at = (c: CustomColumn) => original.findIndex((d) => nameOfColumn(d) === c.name.trim());
-  const ordered = [...columns.filter((c) => at(c) >= 0).sort((a, b) => at(a) - at(b)), ...columns.filter((c) => at(c) < 0)];
-  const from = ordered.map(at);
+  const deleted = (d: PDFDict | null) => d?.lookupMaybe(PDFName.of('Deleted'), PDFBool)?.asBoolean() === true;
+  // A deleted column can share its name with a live one ("Priority" removed, then added again).
+  const at = (c: CustomColumn) => original.findIndex((d) => !deleted(d) && nameOfColumn(d) === c.name.trim());
+  // Columns the file had, in the file's order (deleted ones kept as they are), then new ones.
+  const slots: { c: CustomColumn | null; from: number }[] = [];
+  original.forEach((d, i) => {
+    if (deleted(d)) slots.push({ c: null, from: i });
+    else for (const c of columns) if (at(c) === i) slots.push({ c, from: i });
+  });
+  for (const c of columns) if (at(c) < 0) slots.push({ c, from: -1 });
+  const ordered = slots.map((s) => s.c);
+  const from = slots.map((s) => s.from);
   const moved = from.some((f, i) => f >= 0 && f !== i) || original.length > from.filter((f) => f >= 0).length;
   const display = new Map(columns.map((c, i) => [c.id, i]));
   const entries = ordered.map((c, i) => {
     const d = from[i]! >= 0 ? (original[from[i]!]!.clone(doc.context) as PDFDict) : doc.context.obj({});
+    if (!c) return d;
     const type = BB_COLUMN_TYPES[c.type];
     if (nameValue(d, 'Subtype') !== type) d.set(PDFName.of('Subtype'), PDFName.of(type));
     if (d.lookupMaybe(PDFName.of('DisplayOrder'), PDFNumber)?.asNumber() !== (display.get(c.id) ?? i)) d.set(PDFName.of('DisplayOrder'), PDFNumber.of(display.get(c.id) ?? i));
@@ -1105,7 +1123,11 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
     }
     if (c.type === 'formula' && c.formula) setText('Expression', c.formula);
     if (c.type === 'date' && !d.has(PDFName.of('Format'))) d.set(PDFName.of('Format'), pdfText('MM/dd/yyyy'));
-    if (c.type === 'choice') d.set(PDFName.of('Items'), doc.context.obj((c.options ?? []).map((o) => pdfText(o))));
+    if (c.type === 'choice') {
+      const items = d.lookupMaybe(PDFName.of('Items'), PDFArray)?.asArray().map((x) => (doc.context.lookup(x) as PDFString | PDFHexString | undefined)?.decodeText?.() ?? null);
+      const options = c.options ?? [];
+      if (!items || items.length !== options.length || items.some((x, i) => x !== options[i])) d.set(PDFName.of('Items'), doc.context.obj(options.map((o) => pdfText(o))));
+    }
     return d;
   });
   const unchanged =
@@ -1117,9 +1139,17 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
   return { columns: ordered, from, moved };
 }
 
-/** A markup's custom column values as Bluebeam's /BSIColumnData. */
-function columnData(doc: PDFDocument, m: Markup, layout: ColumnLayout): PDFArray {
-  const values = layout.columns.map((c) => {
+/**
+ * A markup's custom column values as Bluebeam's /BSIColumnData. Deleted columns keep the values
+ * `old` (the annotation's own /BSIColumnData) had for them.
+ */
+function columnData(doc: PDFDocument, m: Markup, layout: ColumnLayout, old?: PDFArray): PDFArray {
+  const values = layout.columns.map((c, i) => {
+    if (!c) {
+      const f = layout.from[i]!;
+      const v = f >= 0 && old && f < old.size() ? old.lookup(f) : undefined;
+      return v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '';
+    }
     const v = m.fields?.[c.id] ?? '';
     // Bluebeam works calculations out itself.
     if (c.type === 'formula') return '';
@@ -1361,12 +1391,12 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
     const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
-    const build = (m: Markup) => {
+    const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.
       const oc = m.layer ? layerRefs.get(m.layer) : undefined;
       if (oc) dict.set(PDFName.of('OC'), oc);
-      if (columns && (m.fields || dict.has(PDFName.of('BSIColumnData')))) dict.set(PDFName.of('BSIColumnData'), columnData(doc, m, columns));
+      if (columns && (m.fields || dict.has(PDFName.of('BSIColumnData')))) dict.set(PDFName.of('BSIColumnData'), columnData(doc, m, columns, orig?.lookupMaybe(PDFName.of('BSIColumnData'), PDFArray)));
       return dict;
     };
 
@@ -1406,7 +1436,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         // A count imported from one annotation per item writes each item over its own annotation.
         const items = main.type === 'count' && main.pdfAnnot!.members ? main.points.map((p) => ({ ...main, points: [p] })) : null;
         const first = items?.[0] ?? main;
-        const ours = build(first);
+        const ours = build(first, orig);
         // Ink strokes split into several markups go back as one annotation.
         if (ms.length > 1 && (main.type === 'pen' || main.type === 'highlighter')) ours.set(PDFName.of('InkList'), doc.context.obj(ms.map((m) => m.points.flatMap((p) => apply(ctx.matrix, p)))));
         const merged = mergeAnnotation(doc, orig, ours, nativeForm(orig, first, ctx.matrix));
@@ -1439,7 +1469,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
           replies.delete(id);
         }
         for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
-        if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses))));
+        if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses), stateModel(main.status, statuses))));
         if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
         if (items) {
           const members = main.pdfAnnot!.members!;
@@ -1495,7 +1525,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
       for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
-      if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses))));
+      if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses), stateModel(m.status, statuses))));
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
   }
