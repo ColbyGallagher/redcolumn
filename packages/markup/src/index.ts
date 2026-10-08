@@ -38,6 +38,6 @@ export { dimensionText, drawMarkup, drawSelection, type LegendSource, handlePosi
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';
-export { importColumns, importStatuses, statusIdOf, type PdfExtras } from './bluebeam';
+export { bluebeamColumnId, importColumns, importStatuses, statusIdOf, type PdfExtras } from './bluebeam';
 export { planPageOps, rotatePagePoint, type PageOperation, type PagePlan } from './pages';
 export { parseBtx, parsePdfObject, pdfColor, toolStyle, toolType, type ToolChestItem, type ToolSet } from './toolchest';

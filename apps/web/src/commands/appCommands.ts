@@ -33,6 +33,9 @@ export interface CommandActions {
   share: () => void;
   markupsXfdf: (dir: 'export' | 'import') => void;
   importMarkupsFromPdf: () => void;
+  /** Bluebeam's markup file (.bax): every markup out, or a reviewer's markups in. */
+  exportBax: () => void;
+  importBax: () => void;
   save: () => void;
   saveAs: () => void;
   exportCsv: () => void;
@@ -208,6 +211,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.exportImages', 'File', 'Page Images…', () => a.publish('images'), doc && s.canSaveCopy),
     cmd('file.exportXfdf', 'File', 'Markups as XFDF…', () => a.markupsXfdf('export'), doc && s.canSaveCopy),
     cmd('file.importXfdf', 'File', 'Import Markups from XFDF…', () => a.markupsXfdf('import'), s.editable),
+    cmd('file.exportBax', 'File', 'Markups as Bluebeam BAX…', a.exportBax, doc),
+    cmd('file.importBax', 'File', 'Import Markups from Bluebeam BAX…', a.importBax, s.editable),
     cmd('file.importPdfMarkups', 'File', 'Import Markups from PDF…', a.importMarkupsFromPdf, s.editable),
     cmd('file.exportCsv', 'File', 'Export Markups CSV', a.exportCsv, doc && s.canSaveCopy),
     cmd('file.exportSummary', 'File', 'Markup Summary…', a.exportSummary, doc && s.canSaveCopy),

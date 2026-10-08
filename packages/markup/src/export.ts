@@ -587,7 +587,8 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         Subtype: 'PolyLine',
         Vertices: flat(curved(false)),
         Measure: measureDict(ctx.scale),
-        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', LE: le } : { IT: 'PolyLineAngle' }),
+        // Revu tells a polylength from a perimeter by its rise and drop.
+        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', LE: le, RiseDrop: 0 } : { IT: 'PolyLineAngle' }),
       };
       break;
     case 'area':

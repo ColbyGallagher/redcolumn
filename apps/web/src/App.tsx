@@ -1,7 +1,7 @@
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
-import { autoSizedPoints, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -5444,6 +5444,8 @@ export function App() {
     share: () => void shareDocument(),
     markupsXfdf: (dir) => void markupsXfdf(dir),
     importMarkupsFromPdf: () => void importMarkupsFromPdf(),
+    exportBax: () => void exportMarkupsBax(),
+    importBax: () => void importMarkupsBax(),
     save: () => void saveDocument(false),
     saveAs: () => void saveDocument(true),
     exportCsv: () => downloadCsv(rowsToCsv(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns)),
@@ -5796,6 +5798,110 @@ export function App() {
       addImported(cur, found, file.name);
     } catch (err) {
       setError(`Importing markups failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Page labels as Bluebeam knows the pages: their sheet numbers (page labels), else none. */
+  const baxLabels = (cur: OpenFile) => cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null);
+
+  /** File › Export › Markups as Bluebeam BAX: every markup, for Revu's Markups › Import Markups. */
+  const exportMarkupsBax = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    try {
+      const { exportBax } = await import('@nb/markup/bax');
+      // The markups as saving writes them; links stay out, as Revu leaves them out of BAX.
+      const xml = await exportBax(await annotatedBytes(cur, { links: false }), { pageLabels: baxLabels(cur) });
+      download(`${cur.file.name.replace(/\.pdf$/i, '')}.bax`, new Blob([xml], { type: 'application/xml' }));
+      setNotice('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.');
+    } catch (err) {
+      setError(`Exporting markups failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /**
+   * File › Import › Markups from Bluebeam BAX (from Revu's Markups › Export Markups). Markups the
+   * document already has, those of the PDF itself or imported before, are updated in place, so a
+   * reviewer's file brings in their statuses, replies and column values; the rest are added.
+   */
+  const importMarkupsBax = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.bax,application/xml,text/xml');
+    if (!file) return;
+    try {
+      const { parseBax, injectBax, baxColumnTag } = await import('@nb/markup/bax');
+      const bax = await parseBax(await file.text());
+      // The file's markups are added to a copy of the PDF and read by the PDF import, like its own.
+      const inj = await injectBax(await readFile(cur.file.hash), bax, baxLabels(cur));
+      const store = cur.store;
+      const found = await readPdfAnnotations(inj.bytes.slice().buffer, store);
+      const mine = found.markups.filter((m) => m.pdfAnnot && inj.added[m.pageIndex]?.includes(m.pdfAnnot.index));
+      if (!mine.length) {
+        setNotice(`${file.name} has no markups for this document${inj.offPage ? ` (${inj.offPage} are on pages it does not have)` : ''}.`);
+        return;
+      }
+      // Column values by name, onto this document's columns (missing ones added as text columns).
+      const set = store.columnSet();
+      const columns = [...set.columns];
+      const fieldsOf = (custom: Record<string, string> | undefined) => {
+        const fields: Record<string, string> = {};
+        for (const [tag, value] of Object.entries(custom ?? {})) {
+          let col = columns.find((c) => baxColumnTag(c.name) === tag);
+          if (!col) columns.push((col = { id: bluebeamColumnId(tag.replace(/_/g, ' ')), name: tag.replace(/_/g, ' '), type: 'text' }));
+          // Calculations are worked out here from their formula.
+          if (col.type === 'formula') continue;
+          const date = /^D:(\d{4})(\d{2})(\d{2})/.exec(value);
+          fields[col.id] = col.type === 'checkmark' ? String(value.toLowerCase() === 'true') : col.type === 'date' && date ? `${date[1]}-${date[2]}-${date[3]}` : value;
+        }
+        return Object.keys(fields).length ? fields : undefined;
+      };
+      const statusIds = new Set(set.statuses.map((x) => x.id));
+      const statuses = [...set.statuses, ...(found.extras.statuses ?? []).filter((x) => !statusIds.has(x.id))];
+      // Groups keep together, under ids of their own (another import must not join them).
+      const groupIds = new Map<string, string>();
+      let added = 0;
+      let updated = 0;
+      let same = 0;
+      store.checkpoint();
+      store.batch(() => {
+        for (const m of mine) {
+          const index = m.pdfAnnot!.index;
+          const nm = inj.nms[m.pageIndex]?.[index];
+          const fields = fieldsOf(inj.custom[m.pageIndex]?.[index]);
+          const { pdfAnnot: _link, seq: _seq, ...rest } = m;
+          const content: Markup = {
+            ...rest,
+            ...(fields ? { fields: { ...m.fields, ...fields } } : {}),
+            ...(m.groupId ? { groupId: groupIds.get(m.groupId) ?? groupIds.set(m.groupId, `bax-group-${nm ?? crypto.randomUUID()}`).get(m.groupId)! } : {}),
+          };
+          // One of the PDF's own markups, or one imported or made here before: updated in place.
+          const own = inj.same[m.pageIndex]?.[index];
+          const existing =
+            (own !== undefined ? store.all().find((x) => x.pageIndex === m.pageIndex && x.pdfAnnot?.index === own && !x.pdfAnnot.space) : undefined) ??
+            store.get(m.id) ??
+            (nm ? store.get(`bax-${nm}`) : undefined);
+          if (existing) {
+            const { id: _id, createdAt: _created, ...patch } = content;
+            const next = { ...patch, groupId: existing.groupId };
+            // A markup the file has as it is here stays untouched (so saving leaves its annotation as it was).
+            if (markupDigest({ ...existing, ...next }) === markupDigest(existing)) same++;
+            else {
+              store.update(existing.id, next);
+              updated++;
+            }
+          } else {
+            // New here: its status history is written into the file when it is saved.
+            store.add({ ...content, id: m.id.startsWith('pdf-') ? `bax-${nm ?? crypto.randomUUID()}` : m.id, statusHistory: m.statusHistory?.map(({ nm: _nm, ...c }) => c) });
+            added++;
+          }
+        }
+      });
+      if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) store.setColumnSet({ columns, statuses });
+      const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} already up to date`].filter(Boolean).join(', ');
+      setNotice(`Imported ${file.name}: ${parts}${inj.offPage ? `; ${inj.offPage} on pages this document does not have were left out` : ''}.`);
+    } catch (err) {
+      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
