@@ -6,6 +6,11 @@ import type { RecordEntry } from '../protocol';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { DriveSession } from './DriveSession';
 
+// Node 24+ has Web Locks, shared by every test in this file. Fake Drives reuse file ids from test to
+// test, so seat locks left by one test's sessions would block the same seat in the next. Tests that
+// need locks install their own (see `withLocks`).
+Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true, writable: true });
+
 /** One shared in-memory "Drive", seen by each user through their own `FakeDrive`. */
 class FakeStore {
   files = new Map<string, DriveFile & { parent: string; owner: string; body: Uint8Array }>();
