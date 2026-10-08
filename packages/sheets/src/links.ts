@@ -1,3 +1,4 @@
+import { isDrawingNumberShape } from './detect.ts';
 import type { PageText, Word } from './types.ts';
 
 export interface Rect {
@@ -136,6 +137,19 @@ function detailFrame(title: Word): Rect {
   return { x: title.x0 - s * 4, y: title.y0 - s * 20, w: s * 40, h: s * 24 };
 }
 
+/** Words that introduce a reference to another drawing: `SEE SHEET 12`, `DRG No. 680`. */
+const REFERENCE_WORD = /^(SEE|REFER|SHEET|SHEETS|SHT|DRG|DRGS|DWG|DWGS|DRAWING|DRAWINGS|NO|NOS|NUMBER)\.?$/;
+
+/** Whether the word just before `w` on its line introduces a drawing reference. */
+function introducedAsReference(page: PageText, w: Word): boolean {
+  let prev: Word | null = null;
+  for (const o of page.words) {
+    if (o === w || Math.abs(o.y1 - w.y1) > w.size * 0.4 || o.x1 > w.x0 + w.size * 0.2 || w.x0 - o.x1 > w.size * 3) continue;
+    if (!prev || o.x1 > prev.x1) prev = o;
+  }
+  return !!prev && REFERENCE_WORD.test(cleanWord(prev.text));
+}
+
 function stableId(pageIndex: number, label: string, r: Rect): string {
   return `${pageIndex}:${label}:${Math.round(r.x / 4)}:${Math.round(r.y / 4)}`;
 }
@@ -145,11 +159,14 @@ function stableId(pageIndex: number, label: string, r: Rect): string {
  * - detail/section bubbles: an identifier stacked above a sheet number (`3` over `C-501`);
  * - slash references: `3/C-501`;
  * - plain sheet references: `SEE SHEET C-102`, match lines, the cover-sheet index.
- * Only sheet numbers that exist in the set are linked, which keeps false positives rare.
+ * Only sheet numbers that exist in the set are linked, which keeps false positives rare. Sheets
+ * numbered with bare numbers or short codes (`680`, `1B`, page labels) are only linked where the
+ * text says it means a drawing (`SEE SHEET 680`): elsewhere those are addresses, stages, quantities.
  */
 export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | null)[]): DetectedLink[] {
   const lookup = new SheetLookup(sheetNumbers);
   const links: DetectedLink[] = [];
+  const weak = sheetNumbers.map((n) => !!n && !isDrawingNumberShape(n));
 
   pages.forEach((page, pageIndex) => {
     const own = sheetNumbers[pageIndex]?.toUpperCase() ?? null;
@@ -174,7 +191,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
     // 1. Stacked bubbles.
     for (const bottom of page.words) {
       const target = lookup.find(bottom.text, true);
-      if (target === null) continue;
+      if (target === null || weak[target]) continue;
       const cx = (bottom.x0 + bottom.x1) / 2;
       const top = page.words.find(
         (w) =>
@@ -214,6 +231,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       // in notes) is not a link anywhere useful.
       const target = lookup.find(text);
       if (target === null || target === pageIndex) continue;
+      if (weak[target] && !introducedAsReference(page, w)) continue;
       used.add(w);
       add(text, wordRect(w, w.size * 0.3), 'sheet', null, target, 0.8);
     }
