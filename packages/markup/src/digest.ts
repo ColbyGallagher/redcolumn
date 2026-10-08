@@ -1,7 +1,10 @@
 import type { Markup } from './model';
 
-/** Fields that do not change what a saved annotation looks like or says. */
-const IGNORED = new Set(['pdfAnnot', 'pageIndex', 'createdAt', 'modifiedAt']);
+/**
+ * Fields that do not change what a saved annotation looks like or says. The markup ID is ours: an
+ * imported markup given one is not changed.
+ */
+const IGNORED = new Set(['pdfAnnot', 'pageIndex', 'createdAt', 'modifiedAt', 'seq']);
 
 function stable(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;

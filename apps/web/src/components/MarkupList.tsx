@@ -769,7 +769,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                       const edit = editor(m, c, isMissing);
                       return (
                         <td key={c.key} className={`${c.align === 'right' ? 'num' : ''}${isMissing ? ' missing' : ''}${edit ? ' edit' : ''}`} title={cell?.error ?? (edit ? undefined : cell?.text)}>
-                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : cell?.text)}
+                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : c.key === 'capture' && m.capture ? <img className="capture-thumb" src={m.capture} alt="Capture" /> : cell?.text)}
                         </td>
                       );
                     })}

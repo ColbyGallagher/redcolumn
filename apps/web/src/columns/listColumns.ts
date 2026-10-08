@@ -23,6 +23,7 @@ export interface ListColumn {
 
 /** Built-in columns, in their default order. */
 export const BUILT_IN_COLUMNS: ListColumn[] = [
+  { key: 'seq', label: 'ID', align: 'right', defaultWidth: 48 },
   { key: 'subject', label: 'Subject', defaultWidth: 130 },
   { key: 'page', label: 'Page', align: 'right', defaultWidth: 56 },
   { key: 'sheet', label: 'Page Label', defaultWidth: 90 },
@@ -41,10 +42,11 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'comment', label: 'Comments', defaultWidth: 220 },
   { key: 'type', label: 'Type', defaultWidth: 90 },
   { key: 'color', label: 'Colour', defaultWidth: 70 },
+  { key: 'capture', label: 'Capture', defaultWidth: 70 },
 ];
 
 /** Shown until the user changes the layout. */
-const DEFAULT_VISIBLE = new Set(['subject', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
+const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
 
 export const customKey = (id: string) => `custom:${id}`;
 
@@ -85,7 +87,10 @@ export function resolveLayout(layout: readonly ColumnLayout[], columns: readonly
   const fresh = !layout.length;
   for (const c of columns) {
     if (seen.has(c.key)) continue;
-    out.push({ ...c, width: c.defaultWidth, hidden: fresh ? !DEFAULT_VISIBLE.has(c.key) && !c.custom : false });
+    const col = { ...c, width: c.defaultWidth, hidden: fresh ? !DEFAULT_VISIBLE.has(c.key) && !c.custom : false };
+    // The markup ID leads the list, also in layouts saved before it existed.
+    if (c.key === 'seq') out.unshift(col);
+    else out.push(col);
   }
   return out;
 }
@@ -129,6 +134,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   // Secondary quantities: text as shown, numbers in the page's display units for sorting and formulas.
   const q = (v: number | undefined, fmt: (v: number, s: Scale) => string, div: number) => (v === undefined ? cell('') : cell(fmt(v, scale), v / div));
   const out: Record<string, Cell> = {
+    seq: cell(m.seq ? String(m.seq) : '', m.seq ?? null),
     subject: cell(m.subject || MARKUP_LABELS[m.type] || 'Markup'),
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),
     sheet: cell(ctx.sheets[m.pageIndex]?.number ?? ''),
@@ -147,6 +153,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     comment: cell((isTextType(m.type) ? m.text : m.comment) ?? ''),
     type: cell(MARKUP_LABELS[m.type] ?? m.type),
     color: cell(m.style.stroke),
+    capture: cell(m.capture ? 'Yes' : ''),
   };
   const formulas: CustomColumn[] = [];
   for (const c of ctx.columns) {

@@ -61,6 +61,10 @@ export interface CommandActions {
   group: () => void;
   ungroup: () => void;
   lock: (locked: boolean) => void;
+  /** Fits the selected text boxes to their text. */
+  autoSize: () => void;
+  /** Opens the selected markup's action (what clicking it does). */
+  editAction: () => void;
   find: () => void;
   fit: () => void;
   fitWidth: () => void;
@@ -230,6 +234,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.group', 'Edit', 'Group', a.group, s.selectionCount > 1 && s.editable),
     cmd('edit.ungroup', 'Edit', 'Ungroup', a.ungroup, s.selectionGrouped && s.editable),
     cmd('edit.lock', 'Edit', s.selectionLocked ? 'Unlock' : 'Lock', () => a.lock(!s.selectionLocked), sel && s.editable, s.selectionLocked),
+    cmd('edit.autoSize', 'Edit', 'Auto-size Text Box', a.autoSize, sel && s.editable),
+    cmd('edit.editAction', 'Edit', 'Edit Action…', a.editAction, s.selectionCount === 1 && s.editable),
     cmd('edit.find', 'Edit', 'Find Text', a.find, doc),
     cmd('edit.checkSpelling', 'Edit', 'Check Spelling…', a.checkSpelling, doc),
 

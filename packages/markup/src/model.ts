@@ -84,6 +84,8 @@ export interface MarkupStyle {
   arcRadius?: number;
   /** Clouds: arcs bulge inward rather than outward. */
   cloudInside?: boolean;
+  /** Rectangles, polygons and polylines: corners rounded to this radius in points (Round All Corners). */
+  cornerRadius?: number;
   /** Counts: the marker drawn at each item (circle when unset). */
   countShape?: CountShape;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
@@ -148,6 +150,11 @@ export interface SignatureInfo {
 
 export interface Markup {
   id: string;
+  /**
+   * The markup's ID as people quote it ("see markup 42"): numbered 1, 2, 3... in the order markups
+   * were made in the document, never reused. See `MarkupStore.add`.
+   */
+  seq?: number;
   type: MarkupType;
   pageIndex: number;
   /**
@@ -205,6 +212,13 @@ export interface Markup {
   flagged?: boolean;
   /** Hidden markups are not drawn or printed; they stay in the markups list. */
   hidden?: boolean;
+  /** Left out of every legend's list (Legend › Show in Legends unticked). */
+  legendHidden?: boolean;
+  /**
+   * Capture: a picture of the markup and the drawing around it, taken when asked (a JPEG data URL),
+   * shown in the markups list's Capture column and in reports.
+   */
+  capture?: string;
   /** Clockwise rotation in degrees about the centre of the markup's box (box-shaped types). */
   rotation?: number;
   /** File Attachment markups: the embedded file. */
