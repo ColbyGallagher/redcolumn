@@ -66,6 +66,9 @@ const NUMBERING = Symbol('numbering');
  * concurrent edits to the same markup resolve last-writer-wins, edits to different markups merge.
  */
 export class MarkupStore {
+  /** Who is making changes here (Preferences › name): recorded with each status change. */
+  static author = '';
+
   readonly doc = new Y.Doc();
   readonly map: Y.Map<Markup>;
   /** Drawing scale per page, keyed by page index. */
@@ -723,6 +726,8 @@ export class MarkupStore {
         const seq = this.lastSeq() + 1;
         clean.seq = seq;
         this.meta.set('seq', seq);
+        // A copy starts without the status it was copied from, so without its history too.
+        if (clean.status === 'none') delete clean.statusHistory;
       }
       this.map.set(markup.id, clean as unknown as Markup);
     }, LOCAL);
@@ -738,6 +743,12 @@ export class MarkupStore {
       const open = openPatch(patch);
       if (!open) return;
       patch = open;
+    }
+    // A new status goes into the markup's status history: who set it, and when.
+    if (patch.status !== undefined && patch.status !== current.status && !('statusHistory' in patch)) {
+      const def = this.columnSet().statuses.find((s) => s.id === patch.status);
+      const state = def?.name ?? (patch.status === 'none' ? 'None' : patch.status);
+      patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: MarkupStore.author, at: Date.now() }] };
     }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];

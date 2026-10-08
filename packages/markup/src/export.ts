@@ -10,7 +10,7 @@ import { markupLines } from './textSelect';
 import { legendLayout, legendRows } from './legend';
 import { stampLayout } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, type Markup, type MarkupStyle, type Point, type Reply } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
 import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
@@ -1026,9 +1026,13 @@ function refreshRichText(d: PDFDict, always = false) {
   d.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
 }
 
-/** A review-state annotation as Bluebeam and Acrobat write one: the markup's status, changed. */
-function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model = 'Review'): PDFDict {
-  const now = Date.now();
+/**
+ * A review-state annotation as Bluebeam and Acrobat write one: a status set on the markup, by
+ * `change.author` at `change.at` (the markup's author, now, without one).
+ */
+function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model = 'Review', change?: StatusChange, n = 0): PDFDict {
+  const at = change?.at ?? Date.now();
+  const author = change ? change.author : m.author;
   return doc.context.obj({
     Type: 'Annot',
     Subtype: 'Text',
@@ -1039,11 +1043,26 @@ function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, m
     StateModel: pdfText(model),
     State: pdfText(state),
     Subj: pdfText(model === 'Marked' ? (state === 'Marked' ? 'Checked' : 'Unchecked') : `Set to ${state}`),
-    T: pdfText(m.author),
-    NM: pdfText(`${m.id}-state-${now}`),
-    M: pdfDate(now),
-    CreationDate: pdfDate(now),
+    // As Bluebeam words it in the status history.
+    ...(model === 'Marked' ? {} : { Contents: pdfText(author ? `${state} set by ${author}` : state) }),
+    T: pdfText(author),
+    NM: pdfText(`${m.id}-state-${at}${n ? `-${n}` : ''}`),
+    M: pdfDate(at),
+    CreationDate: pdfDate(at),
   });
+}
+
+/**
+ * The status changes to write for a markup: those of its history not yet in the file (all of them
+ * for a markup new to the file). A status set before histories were kept is one change, by the
+ * markup's author, when it differs from the status in the file.
+ */
+function statesToWrite(m: Markup, inFile: boolean, statuses: readonly MarkupStatusDef[]): { state: string; model: string; change?: StatusChange }[] {
+  const history = (m.statusHistory ?? []).filter((c) => !inFile || !c.nm);
+  if (history.length) return history.map((c) => ({ state: c.state, model: c.model, change: c }));
+  const was = inFile ? (m.pdfAnnot?.status ?? 'none') : 'none';
+  if (m.status === was || (!inFile && m.status === 'none')) return [];
+  return [{ state: stateName(m.status, statuses), model: stateModel(m.status, statuses) }];
 }
 
 /** A status id's name for a review state: its definition's, else the id capitalised. */
@@ -1469,7 +1488,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
           replies.delete(id);
         }
         for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
-        if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses), stateModel(main.status, statuses))));
+        statesToWrite(main, true, statuses).forEach((s, n) => added.push(doc.context.register(stateDict(doc, parentRef, main, s.state, s.model, s.change, n))));
         if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
         if (items) {
           const members = main.pdfAnnot!.members!;
@@ -1525,7 +1544,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
       for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
-      if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses), stateModel(m.status, statuses))));
+      statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
   }

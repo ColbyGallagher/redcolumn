@@ -37,7 +37,7 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'slope', label: 'Slope', align: 'right', defaultWidth: 70 },
   { key: 'author', label: 'Author', defaultWidth: 100 },
   { key: 'date', label: 'Date', defaultWidth: 140 },
-  { key: 'status', label: 'Status', defaultWidth: 110 },
+  { key: 'status', label: 'Status', defaultWidth: 220 },
   { key: 'checked', label: 'Checkmark', defaultWidth: 50 },
   { key: 'comment', label: 'Comments', defaultWidth: 220 },
   { key: 'type', label: 'Type', defaultWidth: 90 },

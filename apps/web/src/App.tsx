@@ -761,6 +761,9 @@ export function App() {
   const pasteImageRef = useRef<(file: Blob) => void>(() => {});
   /** The markups the Markups list's filter keeps (null: not filtering). */
   const [listKept, setListKept] = useState<ReadonlySet<string> | null>(null);
+  /** The Markups list's Hide All: no markup is drawn on the page (they stay in the list and the file). */
+  const [allMarkupsHidden, setAllMarkupsHidden] = useState(false);
+  const toggleAllMarkupsHidden = useCallback(() => setAllMarkupsHidden((h) => !h), []);
   const formDrawnRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
   /** Each document's form, by the hash of its contents (re-read after every change). */
   const [formModels, setFormModels] = useState<Record<string, FormModel>>({});
@@ -814,6 +817,8 @@ export function App() {
   const [author, setAuthor] = useState(loadAuthor);
   const authorRef = useRef(author);
   authorRef.current = author;
+  // Recorded with every status change, in each document's status history.
+  MarkupStore.author = author;
   const activePaneRef = useRef(activePane);
   activePaneRef.current = activePane;
   /** Every Live Session this browser is in; documents from several can be open at once. */
@@ -4159,9 +4164,10 @@ export function App() {
     const active = paneB ? ctlB?.tools : ctl?.tools;
     for (const tools of [ctl?.tools, ctlB?.tools]) {
       if (!tools) continue;
-      tools.setFilterView(tools === active && listKept ? (m) => !listKept.has(m.id) : null, prefs.filteredMarkups);
+      if (allMarkupsHidden) tools.setFilterView(() => true, 'hide');
+      else tools.setFilterView(tools === active && listKept ? (m) => !listKept.has(m.id) : null, prefs.filteredMarkups);
     }
-  }, [listKept, prefs.filteredMarkups, paneB, ctl, ctlB]);
+  }, [listKept, prefs.filteredMarkups, paneB, ctl, ctlB, allMarkupsHidden]);
 
   // Page layout, page colours and line weights, in both panes.
   useEffect(() => {
@@ -6678,6 +6684,8 @@ export function App() {
                     onSync={() => setSyncOpen(true)}
                     syncing={!!sheetSync.link}
                     onFiltered={setListKept}
+                    allHidden={allMarkupsHidden}
+                    onToggleAllHidden={toggleAllMarkupsHidden}
                   />
                 )}
               </div>
@@ -7467,6 +7475,8 @@ export function App() {
           onSaveTemplate={(set) => updateWorkspace((w) => ({ ...w, columnTemplate: structuredClone(set) }))}
           onExportXml={(xml) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} columns.xml`, new Blob([xml], { type: 'application/xml' }))}
           onClose={() => setColumnsOpen(false)}
+          list={ws.list}
+          onListChange={(fn) => updateWorkspace((w) => ({ ...w, list: fn(w.list) }))}
         />
       )}
       {exportOpen && activeOpen && (

@@ -85,7 +85,7 @@ function isMarkup(value: unknown): value is Markup {
 interface Thread {
   owned: number[];
   replies: Reply[];
-  states: { state: string; model: string; at: number; order: number }[];
+  states: { state: string; model: string; at: number; order: number; author: string; nm: string | null }[];
 }
 
 /**
@@ -190,7 +190,7 @@ export function importAnnotations(
       const model = str(r.StateModel);
       const state = str(r.State);
       if (model && state) {
-        t.states.push({ state, model, at, order: a.index });
+        t.states.push({ state, model, at, order: a.index, author: str(r.T) ?? a.author, nm: str(r.NM) });
         if (model !== 'Marked' && !statuses.has(state)) statuses.set(state, model);
       } else {
         t.replies.push({ id: str(r.NM) || `pdf-${pageIndex}-${a.index}`, author: str(r.T) ?? a.author, text: cleanText(str(r.Contents) ?? a.contents), createdAt: parsePdfDate(str(r.CreationDate)) ?? at });
@@ -210,6 +210,12 @@ export function importAnnotations(
       const latest = (match: (model: string) => boolean) => t.states.filter((s) => match(s.model)).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
       const review = latest((model) => model !== 'Marked');
       if (review) m.status = statusIdOf(review.state);
+      // The whole history, as Bluebeam lists it: who set which status, when.
+      const history = t.states
+        .filter((s) => s.model !== 'Marked')
+        .sort((x, y) => x.at - y.at || x.order - y.order)
+        .map((s) => ({ state: s.state, model: s.model, author: s.author, at: s.at, ...(s.nm ? { nm: s.nm } : {}) }));
+      if (history.length) m.statusHistory = history;
       // Bluebeam's checkmark: the Marked model, Marked or Unmarked.
       const marked = latest((model) => model === 'Marked');
       if (marked) m.checked = marked.state === 'Marked';

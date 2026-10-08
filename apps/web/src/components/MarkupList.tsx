@@ -17,8 +17,10 @@ import {
 import { updateWorkspace, useWorkspace, type MarkupListSettings } from '../workspace/profiles';
 import { askText } from './AskText';
 import { settings as settingsStore, useSettings } from '../settings/settings';
-import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { FilterBuilderDialog } from './FilterBuilderDialog';
+import { MENU_ICONS } from './menuIcons';
+import { markupTypeIcon } from './ToolBar';
 
 interface Props {
   markups: Markup[];
@@ -40,6 +42,30 @@ interface Props {
   syncing?: boolean;
   /** The markups the filter keeps (null when not filtering), so the page can dim or hide the rest. */
   onFiltered?: (kept: ReadonlySet<string> | null) => void;
+  /** Whether every markup is hidden on the page (the list's Hide All button), and its toggle. */
+  allHidden?: boolean;
+  onToggleAllHidden?: () => void;
+}
+
+/** When a status was set, as Bluebeam words it: "28/01/2026 at 2:30:06 PM". */
+const whenSet = (at: number) => `${new Date(at).toLocaleDateString()} at ${new Date(at).toLocaleTimeString()}`;
+
+/** Everything a markup says, for the list's search box: its cells, text, replies and status history. */
+function searchText(row: ListRowData): string {
+  const m = row.markup;
+  return [
+    ...Object.values(row.cells).map((c) => c.text),
+    m.subject,
+    MARKUP_LABELS[m.type],
+    m.text,
+    m.comment,
+    ...(m.replies ?? []).flatMap((r) => [r.author, r.text]),
+    ...(m.statusHistory ?? []).flatMap((c) => [c.state, c.author]),
+    ...Object.values(m.fields ?? {}),
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
 }
 
 const MIN_WIDTH = 40;
@@ -120,14 +146,16 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport, onSync, syncing } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport, onSync, syncing, allHidden, onToggleAllHidden } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
   // Spaces are regions markups belong to, listed on the Spaces panel rather than here.
   const markups = useMemo(() => allMarkups.filter((m) => m.type !== 'space'), [allMarkups]);
   const spaces = useMemo(() => allMarkups.filter((m) => m.type === 'space'), [allMarkups]);
-  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: () => MenuEntry[] } | null>(null);
+  /** The search box: markups whose content contains this text. */
+  const [query, setQuery] = useState('');
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<{ key: string; after: boolean } | null>(null);
   const resizing = useRef(false);
@@ -159,12 +187,14 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   }, [settings.filters, all]);
   const sort = settings.sort && all.some((c) => c.key === settings.sort!.key) ? settings.sort : null;
   const advanced = settings.advanced;
-  const rows = useMemo(() => buildRows(markups, ctx, filters, sort, advanced), [markups, ctx, filters, sort, advanced]);
+  const filteredRows = useMemo(() => buildRows(markups, ctx, filters, sort, advanced), [markups, ctx, filters, sort, advanced]);
+  const q = query.trim().toLowerCase();
+  const rows = useMemo(() => (q ? filteredRows.filter((r) => searchText(r).includes(q)) : filteredRows), [filteredRows, q]);
   const groupBy = settings.groupBy && all.some((c) => c.key === settings.groupBy) ? settings.groupBy : null;
   const groups = useMemo(() => (groupBy ? groupRows(rows, groupBy) : [{ label: '', rows }]), [rows, groupBy]);
   const missingCount = useMemo(() => markups.filter((m) => missingRequired(m, columnSet.columns).length).length, [markups, columnSet.columns]);
   const advancedOn = !!advanced?.rules.length;
-  const filtering = Object.keys(filters).length > 0 || advancedOn;
+  const filtering = Object.keys(filters).length > 0 || advancedOn || !!q;
   const onFiltered = props.onFiltered;
   useEffect(() => {
     onFiltered?.(filtering ? new Set(rows.map((r) => r.markup.id)) : null);
@@ -188,7 +218,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   // row. Wrapped, rows grow with their comments: each rendered row's height is measured and kept,
   // and rows not yet seen count as one line. Either way a long list renders just the rows in view,
   // with spacers standing in for the rest.
-  const wrap = settings.wrapComments !== false && visible.some((c) => c.key === 'comment');
+  const statusLines = settings.statusHistory !== 'latest' || settings.statusDetails !== false;
+  const wrap = (settings.wrapComments !== false && visible.some((c) => c.key === 'comment')) || (statusLines && visible.some((c) => c.key === 'status'));
   const scroller = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState(0);
   const h = rowH || ROW_GUESS;
@@ -320,24 +351,33 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       onClick: () => setHidden(c.key, !c.hidden),
     }));
 
+  /** The Status column's options: all changes or the latest, with or without who and when. */
+  const statusMenu = (): MenuEntry[] => [
+    { label: 'Show Status History', checked: settings.statusHistory !== 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'all' })) },
+    { label: 'Show Latest Status Only', checked: settings.statusHistory === 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'latest' })) },
+    { sep: true },
+    { label: 'Show Who Changed It and When', checked: settings.statusDetails !== false, keepOpen: true, onClick: () => editList((l) => ({ ...l, statusDetails: l.statusDetails === false })) },
+  ];
+
+  const headerItems = (col: ListColumn): MenuEntry[] => [
+    { label: 'Sort Ascending', checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
+    { label: 'Sort Descending', checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
+    { label: 'Clear Sort', disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
+    { sep: true },
+    { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
+    { label: 'Columns', items: columnsMenu() },
+    { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
+    { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
+    ...(col.key === 'status' ? [{ sep: true } as MenuEntry, ...statusMenu()] : []),
+    { sep: true },
+    { label: 'Manage Custom Columns…', onClick: onManageColumns },
+  ];
+  // An open menu is rebuilt from this render's state, so its ticks follow clicks while it stays open.
+  const menus = useRef({ headerItems, columnsMenu, statusMenu });
+  menus.current = { headerItems, columnsMenu, statusMenu };
   const headerMenu = (e: ReactMouseEvent, col: ListColumn) => {
     e.preventDefault();
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        { label: 'Sort Ascending', checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
-        { label: 'Sort Descending', checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
-        { label: 'Clear Sort', disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
-        { sep: true },
-        { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
-        { label: 'Columns', items: columnsMenu() },
-        { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
-        { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
-        { sep: true },
-        { label: 'Manage Custom Columns…', onClick: onManageColumns },
-      ],
-    });
+    setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.headerItems(col) });
   };
 
   const saveFilter = async () => {
@@ -401,6 +441,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             ))}
             {!def && m.status !== 'none' && <option value={m.status}>{m.status}</option>}
           </select>
+          {statusLines && <StatusHistory markup={m} all={settings.statusHistory !== 'latest'} details={settings.statusDetails !== false} />}
         </span>
       );
     }
@@ -423,7 +464,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     if (col.key === 'subject') {
       return (
         <span className="subject-cell">
-          <span className="swatch" style={{ background: m.style.stroke }} />
+          {settings.typeIcons !== false ? (
+            <span className="type-icon" style={{ color: m.style.stroke }} title={MARKUP_LABELS[m.type]} aria-hidden="true">
+              {markupTypeIcon(m.type)}
+            </span>
+          ) : (
+            <span className="swatch" style={{ background: m.style.stroke }} />
+          )}
           <input
             key={m.subject ?? ''}
             className="bare"
@@ -543,6 +590,23 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <span className="markups-title">
           Markups <span className="count">{filtering ? `${rows.length} of ${markups.length}` : markups.length}</span>
         </span>
+        <input
+          type="search"
+          className="markups-search"
+          placeholder="Search markups"
+          aria-label="Search markups"
+          title="Finds markups by any of their content: subject, comments, text, replies, statuses, authors and column values"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setQuery('');
+          }}
+        />
+        {onToggleAllHidden && (
+          <button className={`btn small flat hide-all${allHidden ? ' active' : ''}`} onClick={onToggleAllHidden} title={allHidden ? 'Show the markups on the page again' : 'Hide every markup on the page (they stay in this list)'}>
+            {MENU_ICONS.hide} {allHidden ? 'Show All' : 'Hide All'}
+          </button>
+        )}
         {missingCount > 0 && (
           <button
             className="badge-warn"
@@ -618,8 +682,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           </select>
         </label>
         <span className="sep" />
-        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: [...columnsMenu(), { sep: true }, { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title="Show or hide columns">
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => [...menus.current.columnsMenu(), { sep: true }, { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title="Show or hide columns">
           Columns ▾
+        </button>
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.statusMenu() })} title="Show every status change or only the latest, and who made it when">
+          Status ▾
         </button>
         <button className="btn small flat" onClick={onManageColumns} title="Add custom columns and statuses">
           Manage Columns…
@@ -783,7 +850,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
               )}
               {rows.length === 0 && (
                 <tr className="no-match">
-                  <td colSpan={visible.length}>No markups match the filter.</td>
+                  <td colSpan={visible.length}>{q && filteredRows.length ? `No markups contain “${query.trim()}”.` : 'No markups match the filter.'}</td>
                 </tr>
               )}
             </tbody>
@@ -810,7 +877,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           ))}
         </div>
       )}
-      {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+      {menu && <ContextMenu menu={{ x: menu.x, y: menu.y, items: menu.items() }} onClose={closeMenu} />}
       {builderOpen && (
         <FilterBuilderDialog
           columns={all}
@@ -825,3 +892,29 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     </div>
   );
 });
+
+/**
+ * Under a markup's status, its history as Bluebeam shows it: every change ("Completed set by Julie
+ * Smit on 28/01/2026 at 2:30:06 PM") or the latest only, with or without who and when.
+ */
+function StatusHistory({ markup: m, all, details }: { markup: Markup; all: boolean; details: boolean }) {
+  const history = m.statusHistory ?? [];
+  const shown = all ? history : history.slice(-1);
+  if (!shown.length || (!all && !details)) return null;
+  return (
+    <span className="status-history">
+      {shown.map((c, i) => (
+        <span key={`${c.at}:${i}`} className="status-change">
+          {details ? (
+            <>
+              {all || shown.length > 1 ? <b>{c.state}</b> : null}
+              {all || shown.length > 1 ? ' ' : ''}set by {c.author || 'unknown'} on {whenSet(c.at)}
+            </>
+          ) : (
+            c.state
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}

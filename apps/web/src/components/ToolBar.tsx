@@ -307,3 +307,11 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
     </div>
   );
 }
+
+/** Icons for markup types not drawn with a tool of their own name. */
+const TYPE_ONLY_ICONS: Partial<Record<string, string>> = { signature: '✍', flagLabel: '◁▭', count: '#' };
+
+/** The icon of a markup's type (the tool that draws it), as the toolbar shows it. */
+export function markupTypeIcon(type: string): string {
+  return [...MARKUP_TOOLS, ...MEASURE_TOOLS].find((t) => t.tool === type)?.icon ?? TYPE_ONLY_ICONS[type] ?? '◆';
+}

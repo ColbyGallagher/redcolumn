@@ -226,6 +226,8 @@ export interface Markup {
   /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
   pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
+  /** Every status change, oldest first (who set which status, when). Saved as Bluebeam's state annotations. */
+  statusHistory?: StatusChange[];
   author: string;
   createdAt: number;
   modifiedAt: number;
@@ -260,6 +262,21 @@ export interface PdfAnnotLink {
   image?: string;
   /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
   space?: boolean;
+}
+
+/**
+ * One status change, as Bluebeam keeps them: which state was set, in which status set, by whom and
+ * when. A markup's history is every change, oldest first; its `status` is the latest.
+ */
+export interface StatusChange {
+  /** The state's name as set ("Accepted", "1.2 TfNSW - Closed - Do Not Action"). */
+  state: string;
+  /** The state model: `Review`, or a custom status set's id (see `MarkupStatusDef.model`). */
+  model: string;
+  author: string;
+  at: number;
+  /** /NM of the state annotation that records it in the PDF; unset until it is written there. */
+  nm?: string;
 }
 
 /** Look of a new markup of each type. */

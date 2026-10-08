@@ -5,6 +5,7 @@ import { importColumns, importStatuses, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { readPdfExtras } from './pdfExtras.ts';
+import { MarkupStore } from './store.ts';
 import type { Markup } from './model.ts';
 
 const text = (s: string) => PDFHexString.fromText(s);
@@ -315,4 +316,36 @@ test('saving keeps deleted Bluebeam columns and their values, and writes custom 
   assert.deepEqual(dicts[0]!.lookup(PDFName.of('BSIColumnData'), PDFArray).asArray().map((v) => (v as PDFHexString | PDFString).decodeText()), ['pkg', 'old', 'High', 'TFNSW']);
   const added = dicts.find((d) => str(d, 'StateModel') && !['S1', 'S2', 'S3'].includes(str(d, 'NM')!))!;
   assert.deepEqual([str(added, 'StateModel'), str(added, 'State')], ['BSI_SET', '1.0 Open']);
+});
+
+test("a markup's whole status history imports with who set each status and when", async () => {
+  const { result } = await bluebeamStatusSet();
+  const m = result.markups[0]!;
+  assert.deepEqual(
+    m.statusHistory?.map((c) => [c.state, c.model, c.nm, new Date(c.at).toISOString().slice(0, 10)]),
+    [
+      ['1.0 Open', 'BSI_SET', 'S1', '2025-12-23'],
+      ['Completed', 'Review', 'S2', '2026-01-28'],
+      ['1.2 Closed', 'BSI_SET', 'S3', '2026-02-19'],
+    ],
+  );
+});
+
+test('status changes made here are saved as state annotations with who and when; earlier ones stay as they were', async () => {
+  const { bytes, result, columns, statuses } = await bluebeamStatusSet();
+  const store = await MarkupStore.open('history', { persist: false });
+  store.importAnnotations(result.markups, [], { 0: [0, 1, 2, 3] }, { statuses });
+  MarkupStore.author = 'Julie Smit';
+  store.update(result.markups[0]!.id, { status: '1.0 open' });
+  MarkupStore.author = '';
+  const m = store.get(result.markups[0]!.id)!;
+  assert.deepEqual(m.statusHistory?.slice(-1).map((c) => [c.state, c.model, c.author, c.nm]), [['1.0 Open', 'BSI_SET', 'Julie Smit', undefined]]);
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [m], { imported: { 0: [0, 1, 2, 3] }, columns, statuses }));
+  const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
+  const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
+  const states = dicts.filter((d) => str(d, 'StateModel'));
+  // The three states the file had, then the new one, by Julie Smit.
+  assert.deepEqual(states.map((d) => [str(d, 'State'), str(d, 'T') ?? '']), [['1.0 Open', ''], ['Completed', ''], ['1.2 Closed', ''], ['1.0 Open', 'Julie Smit']]);
+  assert.equal(str(states[3]!, 'Contents'), '1.0 Open set by Julie Smit');
+  await store.destroy();
 });
