@@ -193,7 +193,17 @@ export function importAnnotations(
         t.states.push({ state, model, at, order: a.index, author: str(r.T) ?? a.author, nm: str(r.NM) });
         if (model !== 'Marked' && !statuses.has(state)) statuses.set(state, model);
       } else {
-        t.replies.push({ id: str(r.NM) || `pdf-${pageIndex}-${a.index}`, author: str(r.T) ?? a.author, text: cleanText(str(r.Contents) ?? a.contents), createdAt: parsePdfDate(str(r.CreationDate)) ?? at });
+        // A reply to a reply points at that reply; one to the markup points at the markup.
+        const parentRaw = page.annots[parent];
+        const parentIsReply = !!parentRaw && isThreadItem(parent) && !str(parentRaw.StateModel);
+        const replyId = (i: number) => str(page.annots[i]?.NM) || `pdf-${pageIndex}-${i}`;
+        t.replies.push({
+          id: replyId(a.index),
+          author: str(r.T) ?? a.author,
+          text: cleanText(str(r.Contents) ?? a.contents),
+          createdAt: parsePdfDate(str(r.CreationDate)) ?? at,
+          ...(parentIsReply ? { parentId: replyId(parent) } : {}),
+        });
       }
     }
   }

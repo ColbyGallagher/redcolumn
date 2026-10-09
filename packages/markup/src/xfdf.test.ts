@@ -22,6 +22,32 @@ test('markups go to XFDF and come back exactly, replies included', () => {
   assert.deepEqual(back, markups);
 });
 
+test('a reply to a reply comes back under that reply', () => {
+  const markups = [
+    mk({
+      id: 'c1',
+      type: 'cloud',
+      points: [[10, 20], [110, 80]],
+      comment: 'Check',
+      replies: [
+        { id: 'r2', author: 'Cy', text: 'Thanks', createdAt: 6000, parentId: 'r1' },
+        { id: 'r1', author: 'Bo', text: 'Done', createdAt: 5000 },
+      ],
+    }),
+  ];
+  const xml = markupsToXfdf(markups, () => matrix);
+  assert.match(xml, /name="r1"[^>]*inreplyto="c1"/);
+  assert.match(xml, /name="r2"[^>]*inreplyto="r1"/);
+  const [back] = markupsFromXfdf(xml, () => invertMatrix(matrix));
+  assert.deepEqual(
+    back!.replies?.map((r) => [r.id, r.parentId ?? '', r.text]),
+    [
+      ['r1', '', 'Done'],
+      ['r2', 'r1', 'Thanks'],
+    ],
+  );
+});
+
 test("other tools' XFDF annotations become markups in page space", () => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <xfdf xmlns="http://ns.adobe.com/xfdf/" xml:space="preserve"><annots>
@@ -36,6 +62,7 @@ test("other tools' XFDF annotations become markups in page space", () => {
   // User y 200..280 is page y 20..100, less half the border.
   assert.deepEqual(sq!.points, [[11, 21], [109, 99]]);
   assert.equal(sq!.replies?.[0]?.text, 'Agreed');
+  assert.equal(sq!.replies?.[0]?.parentId, undefined);
   assert.equal(sq!.modifiedAt, Date.UTC(2024, 0, 2, 3, 4, 5));
   assert.equal(ln!.type, 'line');
   assert.deepEqual(ln!.points, [[20, 10], [220, 10]]);

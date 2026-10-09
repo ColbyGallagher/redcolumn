@@ -297,6 +297,8 @@ export async function exportBax(bytes: Uint8Array | ArrayBuffer, options: BaxExp
       }
       if (nameOf(e.d, 'RT') === 'Group') slot(parent).children.push(e);
       else if (e.d.has(PDFName.of('StateModel'))) slot(root).statuses.push(e);
+      // A reply to a reply nests under that reply. One to the markup nests under the markup.
+      else if (nameOf(parent.d, 'Subtype') === 'Text' && !parent.d.has(PDFName.of('StateModel')) && nameOf(parent.d, 'RT') !== 'Group') slot(parent).replies.push(e);
       else slot(root).replies.push(e);
     }
 
@@ -586,9 +588,17 @@ export async function injectBax(pdf: Uint8Array | ArrayBuffer, bax: BaxFile, lab
       if (!a) return;
       added.push({ m, ...a });
       for (const c of m.children) walk(c);
-      for (const r of [...m.replies, ...m.statuses]) {
-        const x = add(r, false);
-        if (x) added.push({ m: r, ...x });
+      const addReplies = (list: BaxMarkup[]) => {
+        for (const r of list) {
+          const x = add(r, false);
+          if (x) added.push({ m: r, ...x });
+          addReplies(r.replies);
+        }
+      };
+      addReplies(m.replies);
+      for (const s of m.statuses) {
+        const x = add(s, false);
+        if (x) added.push({ m: s, ...x });
       }
       if (m.popup) {
         const pop = add(m.popup, false);

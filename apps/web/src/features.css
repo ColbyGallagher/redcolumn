@@ -2001,33 +2001,27 @@
   font-weight: 400;
 }
 
-.markups tr.reply-row td {
-  padding: 3px 8px 3px 28px;
-  color: var(--muted);
-  font-size: 12px;
+/* A reply is a normal row, indented under the comment it answers. */
+.markups .thread-lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  vertical-align: middle;
 }
 
-.markups tr.reply-row b {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.markups tr.reply-row .reply-arrow {
-  margin-right: 6px;
-}
-
-.markups tr.reply-row .reply-date {
-  margin-right: 6px;
-  font-size: 11px;
-}
-
-.markups tr.reply-row .chip-x {
-  margin-left: 8px;
-  padding: 0 4px;
+.markups .thread-fold {
+  width: 14px;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--muted);
+  font: inherit;
+  line-height: 1;
   cursor: pointer;
+}
+
+.markups tr.reply-row td {
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .markups-bar .group-by {
