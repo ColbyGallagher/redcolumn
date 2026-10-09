@@ -14,7 +14,7 @@ The magnifier is a round lens that shows the area under the pointer two and a ha
 
 Full screen hides everything except the drawing, to give it the whole screen.
 
-1. Choose {{View > Full Screen}} (or press [[Ctrl+Shift+L]]).
+1. Choose {{View > Full Screen}} (or press [[F11]]).
 2. Press [[Esc]] to leave full screen.
 
 ## The View menu

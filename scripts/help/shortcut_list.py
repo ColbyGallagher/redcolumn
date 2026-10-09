@@ -16,27 +16,34 @@ OUT = os.path.join(ROOT, 'apps/web/public/help/pages/shortcut-list.md')
 TOOL_LABELS = {
     'select': 'Select', 'lasso': 'Lasso', 'line': 'Line', 'arrow': 'Arrow', 'polyline': 'Polyline', 'arc': 'Arc',
     'rect': 'Rectangle', 'ellipse': 'Ellipse', 'polygon': 'Polygon', 'cloud': 'Cloud', 'pen': 'Pen',
-    'highlighter': 'Highlight', 'eraser': 'Eraser', 'underline': 'Underline', 'strikeout': 'Strikethrough',
-    'text': 'Text Box', 'callout': 'Callout', 'typewriter': 'Typewriter', 'image': 'Image', 'calibrate': 'Calibrate',
+    'highlighter': 'Highlight', 'textHighlight': 'Text Highlight', 'eraser': 'Eraser', 'underline': 'Underline', 'strikeout': 'Strikethrough',
+    'squiggly': 'Squiggly', 'text': 'Text Box', 'callout': 'Callout', 'typewriter': 'Typewriter', 'note': 'Note',
+    'image': 'Image', 'flag': 'Flag', 'stamp': 'Stamp', 'snapshot': 'Snapshot', 'redaction': 'Mark for Redaction',
+    'dimension': 'Dimension', 'cloudPlus': 'Cloud+', 'calibrate': 'Calibrate',
     'length': 'Length', 'polylength': 'Polylength', 'area': 'Area', 'perimeter': 'Perimeter', 'count': 'Count',
-    'angle': 'Angle', 'hyperlink': 'Hyperlink', 'attachment': 'File Attachment', 'pan': 'Pan', 'zoomBox': 'Zoom',
+    'angle': 'Angle', 'diameter': 'Diameter', 'radius': 'Radius', 'volume': 'Volume', 'dynamicFill': 'Dynamic Fill',
+    'hyperlink': 'Hyperlink', 'attachment': 'File Attachment', 'pan': 'Pan', 'zoomBox': 'Zoom',
     'dynamicZoom': 'Dynamic Zoom',
 }
-GROUPS = [('File', 'file.'), ('Edit', 'edit.'), ('View', 'view.'), ('Document', 'document.'), ('Tools', 'tool.'), ('Help', 'help.')]
+GROUPS = [('File', 'file.'), ('Edit', 'edit.'), ('View', 'view.'), ('Document', 'document.'), ('Tools', 'tool'), ('Window', 'window.'), ('Help', 'help.')]
 
 
 def keycap(combo):
     parts = re.split(r'\+(?=.)', combo)
-    return '+'.join(f'[[{"Plus" if p == "Plus" else ("-" if p == "Minus" else p)}]]' for p in parts)
+    # Brackets cannot sit inside [[ ]], which ends at the first ].
+    faces = {'Plus': 'Plus', 'Minus': '-', '[': 'BracketLeft', ']': 'BracketRight'}
+    return '+'.join(f'[[{faces.get(p, p)}]]' for p in parts)
 
 
 def main():
     keys_src = open(KEYS, encoding='utf8').read()
     block = keys_src[keys_src.index('DEFAULT_KEYS'):]
     block = block[: block.index('};')]
-    defaults = re.findall(r"'([\w.]+)':\s*\[([^\]]*)\]", block)
+    # Greedy to the line's last ], so a shortcut of Ctrl+] is not cut off at the bracket.
+    defaults = re.findall(r"'([\w.]+)':\s*\[(.*)\]", block)
     cmd_src = open(COMMANDS, encoding='utf8').read()
     labels = dict(re.findall(r"cmd\('([\w.]+)',\s*'\w+',\s*'((?:[^'\\]|\\.)*)'", cmd_src))
+    labels['edit.lock'] = 'Lock'
     labels.update({f'tool.{k}': v for k, v in TOOL_LABELS.items()})
     labels['help.docs'] = 'Help'
     out = ['# Shortcut reference', '', 'The standard keyboard shortcuts. You can change any of them: see [Keyboard shortcuts](#shortcuts).', '']

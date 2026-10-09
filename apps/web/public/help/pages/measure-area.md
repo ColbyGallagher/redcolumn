@@ -2,7 +2,7 @@
 
 Measures the area inside an outline: floors, ceilings, paving, roofs.
 
-1. Choose {{Tools > Measure > Area}} (or press [[G]]).
+1. Choose {{Tools > Measure > Area}} (or press [[Alt+Shift+A]]).
 
    ![Tools, Measure, Area](img/pick-area.png)
 2. Click each corner of the area, going around it.

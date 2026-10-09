@@ -4,7 +4,7 @@ Rotating pages turns them **in the PDF**, so they stay turned when you save. (To
 
 ## Rotate the page you are on
 
-Choose {{Document > Rotate Pages…}} (or press [[Ctrl+Shift+R]]). The page turns a quarter turn clockwise. Do it again to keep turning.
+Choose {{Document > Rotate Pages…}} (or press [[Ctrl+Shift+R]] or [[Alt+Shift+Plus]]). The page turns a quarter turn clockwise. Press [[Alt+Shift+Minus]] to turn it the other way. Do it again to keep turning.
 
 ## Rotate several pages
 

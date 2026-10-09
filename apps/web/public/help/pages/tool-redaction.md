@@ -6,7 +6,7 @@ Permanently removes private information (names, prices, signatures) from a PDF a
 
 ## Step 1: Mark what to remove
 
-1. Choose {{Tools > Redaction > Mark for Redaction}}.
+1. Choose {{Tools > Redaction > Mark for Redaction}} (or press [[Shift+R]]).
 2. Drag a box over each thing to remove. Marked areas show as a dashed red box.
 
    ![An area marked for redaction](img/draw-redaction.png)
@@ -15,7 +15,7 @@ Nothing is removed yet. You can still move, resize or delete the marks.
 
 ## Step 2: Apply the redactions
 
-1. Choose {{Tools > Redaction > Apply Redactions…}}.
+1. Choose {{Tools > Redaction > Apply Redactions…}} (or press [[Shift+A]]).
 
    ![The Apply Redactions window](img/apply-redactions.png)
 2. Choose the **Overlay colour** for the boxes that cover the removed content.

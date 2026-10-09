@@ -3,7 +3,7 @@
 Calibrating works out the scale from something on the drawing whose real length you know, such as a dimension string or a grid spacing. It is the most reliable way to set a scale.
 
 1. Go to the page and zoom in on a long, known dimension. Longer is more accurate.
-2. Choose {{Tools > Measure > Calibrate}} (or press [[K]]).
+2. Choose {{Tools > Measure > Calibrate}}.
 
    ![Tools, Measure, Calibrate](img/pick-calibrate.png)
 3. Click **exactly** on one end of the known length, then on the other end. [Snapping](#snapping) helps you hit the line ends.

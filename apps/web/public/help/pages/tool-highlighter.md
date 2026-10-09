@@ -4,7 +4,7 @@ Draws a wide, see-through stroke, like a highlighter pen. Use it to colour over 
 
 ## Highlight
 
-1. Click **Highlighter** on the toolbar, or press [[H]].
+1. Click **Highlighter** on the toolbar.
 
    ![The Highlighter button on the toolbar](img/pick-highlighter.png)
 2. Hold the mouse button down and drag over what you want to highlight.

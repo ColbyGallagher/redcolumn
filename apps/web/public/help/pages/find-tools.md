@@ -2,7 +2,7 @@
 
 Can't remember which menu something is in? Search for it.
 
-1. Press [[Ctrl+Shift+P]] (or click {{Help > Find Tools + Commands…}}).
+1. Press [[Ctrl+Shift+K]] (or click {{Help > Find Tools + Commands…}}).
 2. Start typing what you want, for example *cloud*, *rotate* or *scale*.
 
    ![Searching for cloud in Find Tools + Commands](img/command-palette.png)

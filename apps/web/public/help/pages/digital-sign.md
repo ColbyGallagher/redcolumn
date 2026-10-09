@@ -1,7 +1,7 @@
 # Sign with a Digital ID
 
 1. [Make or import a Digital ID](#digital-ids) first.
-2. Choose {{Tools > Sign & Certify > Sign with Digital ID…}}.
+2. Choose {{Tools > Sign & Certify > Sign with Digital ID…}} (or press [[X]]).
 
    ![The Sign window](img/digital-sign.png)
 3. Choose the Digital ID and type its password.

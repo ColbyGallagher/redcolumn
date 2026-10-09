@@ -15,7 +15,7 @@ Shows white pages as dark, with light lines. Easier on the eyes at night.
 
 Makes bright white pages a little darker, without reversing the colours.
 
-Choose {{View > Dimmer}}. Choose it again to turn it off.
+Choose {{View > Dimmer}} (or press [[Ctrl+F5]]). Choose it again to turn it off.
 
 ## Disable Line Weights
 

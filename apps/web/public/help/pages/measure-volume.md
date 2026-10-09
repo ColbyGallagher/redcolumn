@@ -2,7 +2,7 @@
 
 Measures a volume from an area and a depth: concrete slabs, excavation, fill.
 
-1. Choose {{Tools > Measure > Volume}}.
+1. Choose {{Tools > Measure > Volume}} (or press [[Alt+Shift+V]]).
 
    ![Tools, Measure, Volume](img/pick-volume.png)
 2. Click around the outline, and click the first corner to close it (as for [Area](#measure-area)).

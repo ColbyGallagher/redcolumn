@@ -4,7 +4,7 @@ Places a stamp such as **APPROVED**, **REVIEWED** or **FOR CONSTRUCTION**. Stamp
 
 ## Place a stamp
 
-1. Choose {{Tools > Stamp}} and click the stamp you want.
+1. Press [[S]] for the last stamp you used, or choose {{Tools > Stamp}} and click the stamp you want.
 
    ![The Stamp menu](img/menu-stamp.png)
 2. Click on the page to place it at its normal size, **or** drag a box to make it bigger or smaller.

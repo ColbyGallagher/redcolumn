@@ -94,7 +94,8 @@ export interface CommandActions {
   forward: () => void;
   goToPage: (which: 'next' | 'prev' | 'first' | 'last') => void;
   documentProperties: () => void;
-  rotatePages: () => void;
+  /** Quarter turns clockwise (3 is counterclockwise). */
+  rotatePages: (quarterTurns: number) => void;
   insertPages: () => void;
   insertBlank: () => void;
   extractPages: () => void;
@@ -105,6 +106,14 @@ export interface CommandActions {
   repair: () => void;
   applyRedactions: () => void;
   showPanel: (tab: 'forms') => void;
+  /** Opens a side or bottom panel. `markups` and `links` are the bottom panel. */
+  focusPanel: (id: PanelId) => void;
+  togglePanels: () => void;
+  addBookmark: () => void;
+  cycleDocument: (dir: 1 | -1) => void;
+  align: (how: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  flip: (axis: 'horizontal' | 'vertical') => void;
+  arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
   ocr: () => void;
@@ -177,7 +186,29 @@ export interface CommandState {
   showBottom: boolean;
   tool: Tool;
   settings: Settings;
+  /** Tabs in the active pane, for next and previous document. */
+  openTabCount: number;
+  leftTab: string;
+  bottomTab: string;
 }
+
+/** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
+export type PanelId =
+  | 'files'
+  | 'pages'
+  | 'bookmarks'
+  | 'toolchest'
+  | 'properties'
+  | 'layers'
+  | 'measurements'
+  | 'spaces'
+  | 'signatures'
+  | 'search'
+  | 'forms'
+  | 'sets'
+  | 'sessions'
+  | 'markups'
+  | 'links';
 
 /** Every command, in menu order within each category. */
 export function buildCommands(a: CommandActions, s: CommandState): Command[] {
@@ -239,6 +270,18 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.group', 'Edit', 'Group', a.group, s.selectionCount > 1 && s.editable),
     cmd('edit.ungroup', 'Edit', 'Ungroup', a.ungroup, s.selectionGrouped && s.editable),
     cmd('edit.lock', 'Edit', s.selectionLocked ? 'Unlock' : 'Lock', () => a.lock(!s.selectionLocked), sel && s.editable, s.selectionLocked),
+    cmd('edit.alignLeft', 'Edit', 'Align Left', () => a.align('left'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignCenter', 'Edit', 'Align Center', () => a.align('center'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignRight', 'Edit', 'Align Right', () => a.align('right'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignTop', 'Edit', 'Align Top', () => a.align('top'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignMiddle', 'Edit', 'Align Middle', () => a.align('middle'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignBottom', 'Edit', 'Align Bottom', () => a.align('bottom'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.flipHorizontal', 'Edit', 'Flip Horizontal', () => a.flip('horizontal'), sel && s.editable && !s.selectionLocked),
+    cmd('edit.flipVertical', 'Edit', 'Flip Vertical', () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
+    cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
+    cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
+    cmd('edit.sendBackward', 'Edit', 'Send Backward', () => a.arrange('backward'), sel && s.editable),
+    cmd('edit.sendToBack', 'Edit', 'Send to Back', () => a.arrange('back'), sel && s.editable),
     cmd('edit.autoSize', 'Edit', 'Auto-size Text Box', a.autoSize, sel && s.editable),
     cmd('edit.editAction', 'Edit', 'Edit Action…', a.editAction, s.selectionCount === 1 && s.editable),
     cmd('edit.find', 'Edit', 'Find Text', a.find, doc),
@@ -287,9 +330,13 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.prevPage', 'View', 'Previous Page', () => a.goToPage('prev'), doc && s.pageIndex > 0),
     cmd('view.firstPage', 'View', 'First Page', () => a.goToPage('first'), doc && s.pageIndex > 0),
     cmd('view.lastPage', 'View', 'Last Page', () => a.goToPage('last'), doc && s.pageIndex < s.pageCount - 1),
+    cmd('view.nextDocument', 'View', 'Next Document', () => a.cycleDocument(1), s.openTabCount > 1),
+    cmd('view.prevDocument', 'View', 'Previous Document', () => a.cycleDocument(-1), s.openTabCount > 1),
 
     cmd('document.properties', 'Document', 'Document Properties…', a.documentProperties, doc),
-    cmd('document.rotatePages', 'Document', 'Rotate Pages', a.rotatePages, s.pagesEditable),
+    cmd('document.addBookmark', 'Document', 'Add Bookmark', a.addBookmark, s.editable),
+    cmd('document.rotatePages', 'Document', 'Rotate Pages', () => a.rotatePages(1), s.pagesEditable),
+    cmd('document.rotateCounterclockwise', 'Document', 'Rotate Pages Counterclockwise', () => a.rotatePages(3), s.pagesEditable),
     cmd('document.insertPages', 'Document', 'Insert Pages from PDF…', a.insertPages, s.pagesEditable),
     cmd('document.insertBlank', 'Document', 'Insert Blank Pages…', a.insertBlank, s.pagesEditable),
     cmd('document.extractPages', 'Document', 'Extract Pages…', a.extractPages, s.pagesEditable && s.canSaveCopy),
@@ -325,6 +372,11 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.eraserWhole', 'Tools', 'Annotation Eraser (Whole Markups)', () => a.setSettings({ eraserWhole: !s.settings.eraserWhole }), true, s.settings.eraserWhole),
     cmd('tools.sketchToScale', 'Tools', 'Draw to Scale', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
     cmd('tools.stamps', 'Tools', 'Manage Stamps…', a.manageStamps, doc),
+    cmd('tools.nextMeasure', 'Tools', 'Next Measure Tool', () => {
+      const order = MEASURE_TOOLS.map((t) => t.tool);
+      const at = order.indexOf(s.tool);
+      a.setTool(order[(at + 1) % order.length]!);
+    }, doc && s.editable),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),
     cmd('tools.digitalIds', 'Tools', 'Digital IDs…', a.digitalIds),
@@ -341,6 +393,22 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),
+    cmd('window.panels', 'Window', 'Toggle Panels', a.togglePanels),
+    cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, s.showLeft && s.leftTab === 'files'),
+    cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, s.showLeft && s.leftTab === 'pages'),
+    cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, s.showLeft && s.leftTab === 'bookmarks'),
+    cmd('window.toolchest', 'Window', 'Tool Library', () => a.focusPanel('toolchest'), true, s.showLeft && s.leftTab === 'toolchest'),
+    cmd('window.properties', 'Window', 'Properties', () => a.focusPanel('properties'), true, s.showLeft && s.leftTab === 'properties'),
+    cmd('window.layers', 'Window', 'Layers', () => a.focusPanel('layers'), true, s.showLeft && s.leftTab === 'layers'),
+    cmd('window.measurements', 'Window', 'Measurements', () => a.focusPanel('measurements'), true, s.showLeft && s.leftTab === 'measurements'),
+    cmd('window.spaces', 'Window', 'Spaces', () => a.focusPanel('spaces'), true, s.showLeft && s.leftTab === 'spaces'),
+    cmd('window.signatures', 'Window', 'Signatures', () => a.focusPanel('signatures'), true, s.showLeft && s.leftTab === 'signatures'),
+    cmd('window.search', 'Window', 'Search', () => a.focusPanel('search'), true, s.showLeft && s.leftTab === 'search'),
+    cmd('window.forms', 'Window', 'Forms', () => a.focusPanel('forms'), true, s.showLeft && s.leftTab === 'forms'),
+    cmd('window.sets', 'Window', 'Sets', () => a.focusPanel('sets'), true, s.showLeft && s.leftTab === 'sets'),
+    cmd('window.sessions', 'Window', 'Sessions', () => a.focusPanel('sessions'), true, s.showLeft && s.leftTab === 'sessions'),
+    cmd('window.markups', 'Window', 'Markups List', () => a.focusPanel('markups'), true, s.showBottom && s.bottomTab === 'markups'),
+    cmd('window.links', 'Window', 'Hyperlinks', () => a.focusPanel('links'), true, s.showBottom && s.bottomTab === 'links'),
 
     cmd('help.commands', 'Help', 'Find Tools + Commands…', a.commandPalette),
     cmd('help.docs', 'Help', 'Help', () => a.help('docs')),

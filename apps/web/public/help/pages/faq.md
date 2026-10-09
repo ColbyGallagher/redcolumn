@@ -26,7 +26,7 @@ The page's scale is wrong or not set. Check the **Scale** in the navigation bar.
 
 ### A tool I need isn't on the toolbar.
 
-Most tools are only in the {{Tools}} menu at first. Right-click the toolbar to add them. See [Customise the toolbar](#toolbar). Or press [[Ctrl+Shift+P]] and type the tool's name.
+Most tools are only in the {{Tools}} menu at first. Right-click the toolbar to add them. See [Customise the toolbar](#toolbar). Or press [[Ctrl+Shift+K]] and type the tool's name.
 
 ### I can't select text or search a drawing.
 

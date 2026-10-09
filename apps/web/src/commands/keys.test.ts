@@ -18,6 +18,8 @@ test('key presses become combos with modifiers in a fixed order', () => {
   assert.equal(comboOf(ev('z', { meta: true })), 'Ctrl+Z');
   assert.equal(comboOf(ev('F9', { shift: true })), 'Shift+F9');
   assert.equal(comboOf(ev('ArrowLeft', { alt: true })), 'Alt+Left');
+  assert.equal(comboOf(ev('}', { ctrl: true, shift: true, code: 'BracketRight' })), 'Ctrl+Shift+]');
+  assert.equal(comboOf(ev('O', { alt: true, shift: true })), 'Alt+Shift+O');
   assert.equal(comboOf(ev('Shift', { shift: true })), null);
 });
 

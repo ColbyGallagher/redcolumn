@@ -4,7 +4,7 @@ Bookmarks are a clickable table of contents for the PDF. **Places** are named vi
 
 ## Open the panel
 
-Click **Bookmarks** on the panel rail.
+Click **Bookmarks** on the panel rail, or press [[Alt+B]].
 
 ![The Bookmarks panel](img/bookmarks-panel.png)
 
@@ -17,7 +17,7 @@ Click **From labels**. A bookmark is made for each page, named from its [page la
 ## Add a bookmark yourself
 
 1. Go to the page, and zoom to the view you want the bookmark to open.
-2. Click **+ Add**. Type a name and press [[Enter]].
+2. Click **+ Add**, or press [[Ctrl+B]] to add one for the view you are on. Type a name and press [[Enter]].
 
 **+ Child** adds a bookmark under the selected one (for example sheets under *Architectural*).
 

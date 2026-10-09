@@ -15,7 +15,7 @@ Grouped markups are selected and moved together.
 
 A locked markup cannot be moved, resized or deleted by accident.
 
-- Select it and choose {{Edit > Lock}}. Choose {{Edit > Unlock}} to change it again.
+- Select it and choose {{Edit > Lock}} (or press [[Ctrl+Shift+L]]). Choose {{Edit > Unlock}} (or press [[Ctrl+Shift+L]] again) to change it again.
 
 ## Hide
 

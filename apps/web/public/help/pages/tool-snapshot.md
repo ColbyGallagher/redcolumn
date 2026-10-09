@@ -4,7 +4,7 @@ Copies part of the page, with its markups, as a picture. Paste it into an email,
 
 ## Take a snapshot
 
-1. Choose {{Edit > Snapshot}}.
+1. Choose {{Edit > Snapshot}} (or press [[G]]).
 
    ![Edit menu with Snapshot highlighted](img/pick-snapshot.png)
 2. Drag a box around the area to copy.

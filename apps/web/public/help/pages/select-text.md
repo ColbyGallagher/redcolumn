@@ -8,7 +8,7 @@ With the **Select** tool, press on a word in the drawing and drag across the tex
 
 ## The Select Text tool
 
-1. Choose {{Edit > PDF Content > Select Text}} (or press [[Alt+6]]).
+1. Choose {{Edit > PDF Content > Select Text}} (or press [[Shift+T]]).
 
    ![Edit, PDF Content](img/menu-pdf-content.png)
 2. Drag across the text. You can drag over several lines.

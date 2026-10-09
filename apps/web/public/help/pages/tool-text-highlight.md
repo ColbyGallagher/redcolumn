@@ -4,7 +4,7 @@ Highlights words in the PDF, following the lines of text exactly. It only works 
 
 ## Highlight text
 
-1. Choose {{Tools > Markup > Text Markup > Text Highlight}}.
+1. Choose {{Tools > Markup > Text Markup > Text Highlight}} (or press [[H]]).
 
    ![Tools menu with Text Highlight highlighted](img/pick-textHighlight.png)
 2. Point at the first word. The pointer turns into a text cursor (I-beam) over text.

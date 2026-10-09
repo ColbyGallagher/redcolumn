@@ -6,9 +6,9 @@ These mark words in the PDF's own text, the same way as [Text Highlight](#tool-t
 
 | Tool | Looks like | Shortcut | Use it to |
 |---|---|---|---|
-| **Underline** | a straight line under the words | [[Shift+U]] | draw attention to words |
-| **Strikethrough** | a line through the words | [[Shift+D]] | show words to delete |
-| **Squiggly** | a wavy line under the words | | flag words to check |
+| **Underline** | a straight line under the words | [[U]] | draw attention to words |
+| **Strikethrough** | a line through the words | [[D]] | show words to delete |
+| **Squiggly** | a wavy line under the words | [[Shift+U]] | flag words to check |
 
 ## Mark text
 

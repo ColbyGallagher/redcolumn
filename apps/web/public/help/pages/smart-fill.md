@@ -3,7 +3,7 @@
 Click inside a room and redcolumn finds its walls and draws the outline for you. Much faster than clicking every corner.
 
 1. [Set the scale](#scale).
-2. Choose {{Tools > Measure > Smart Fill}}.
+2. Choose {{Tools > Measure > Smart Fill}} (or press [[J]]).
 
    ![Tools, Measure, Smart Fill](img/pick-dynamicFill.png)
 3. On the toolbar, choose what to make in **Fill as**: **Area**, **Perimeter**, **Volume**, **Polygon**, **Space** or **Polylength**.

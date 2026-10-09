@@ -48,7 +48,7 @@ module.exports = async function (h) {
   await h.shot('file-access', { around: ['.library-tools', '.library .recents'], pad: 20 });
 
   // Find tools and commands.
-  await page.keyboard.press('Control+Shift+P');
+  await page.keyboard.press('Control+Shift+K');
   await h.wait(300);
   await page.keyboard.type('cloud');
   await h.wait(300);

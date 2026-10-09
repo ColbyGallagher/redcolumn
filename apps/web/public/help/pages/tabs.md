@@ -11,9 +11,9 @@ Each open PDF gets its own **tab** above the drawing.
 
 ## Switch, move and close tabs
 
-- **Switch:** click a tab.
+- **Switch:** click a tab, or press [[Ctrl+F6]] (or [[Ctrl+Tab]]) for the next one and [[Ctrl+Shift+F6]] for the previous one.
 - **Reorder:** drag a tab left or right.
-- **Close:** click the **×** on the tab, middle-click the tab, or press [[Ctrl+F4]].
+- **Close:** click the **×** on the tab, middle-click the tab, or press [[Ctrl+W]] or [[Ctrl+F4]].
 - **Close all:** press [[Ctrl+Shift+W]].
 
 ## The tab menu

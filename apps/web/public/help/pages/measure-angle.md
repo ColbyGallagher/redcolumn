@@ -2,7 +2,7 @@
 
 Measures the angle between two lines.
 
-1. Choose {{Tools > Measure > Angle}} (or press [[J]]).
+1. Choose {{Tools > Measure > Angle}} (or press [[Alt+Shift+G]]).
 
    ![Tools, Measure, Angle](img/pick-angle.png)
 2. Click a point on the **first** line.

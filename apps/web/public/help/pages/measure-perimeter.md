@@ -2,7 +2,7 @@
 
 Measures the distance around a shape: skirting, fencing, kerbs.
 
-1. Choose {{Tools > Measure > Perimeter}} (or press [[U]]).
+1. Choose {{Tools > Measure > Perimeter}} (or press [[Alt+Shift+P]]).
 
    ![Tools, Measure, Perimeter](img/pick-perimeter.png)
 2. Click each corner, going around the shape.

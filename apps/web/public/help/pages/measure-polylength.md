@@ -2,7 +2,7 @@
 
 Measures the total length along a path with several sections: pipe runs, cable routes, skirting.
 
-1. Choose {{Tools > Measure > Polylength}} (or press [[N]]).
+1. Choose {{Tools > Measure > Polylength}} (or press [[Alt+Shift+Q]]).
 
    ![Tools, Measure, Polylength](img/pick-polylength.png)
 2. Click the start, then each corner along the path.

@@ -4,7 +4,7 @@ A small sticky-note icon on the page. The note's text stays hidden until someone
 
 ## Add a note
 
-1. Choose {{Tools > Markup > Text & Notes > Note}}.
+1. Choose {{Tools > Markup > Text & Notes > Note}} (or press [[N]]).
 
    ![Tools menu with Note highlighted](img/pick-note.png)
 2. Click where the note goes.

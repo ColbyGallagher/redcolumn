@@ -46,7 +46,7 @@
     text = text.replace(/\[\[([^\]]+)\]\]/g, (_, keys) =>
       keys
         .split(/\s*\+\s*(?=.)/)
-        .map((k) => '<kbd>' + esc(k === 'Plus' ? '+' : k) + '</kbd>')
+        .map((k) => '<kbd>' + esc(k === 'Plus' ? '+' : k === 'BracketRight' ? ']' : k === 'BracketLeft' ? '[' : k) + '</kbd>')
         .join('+'),
     );
     // {{File > Save As}} -> menu path

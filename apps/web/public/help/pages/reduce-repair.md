@@ -4,7 +4,7 @@
 
 Makes the PDF smaller, to email it or save space.
 
-1. Choose {{Document > Reduce File Size…}}.
+1. Choose {{Document > Reduce File Size…}} (or press [[Ctrl+Shift+P]]).
 
    ![The Reduce File Size window](img/reduce-size.png)
 2. Leave **Recompress JPEG pictures** ticked to shrink photos too. Lower the quality number (0 to 1) for a smaller file; `0.7` is a good balance.

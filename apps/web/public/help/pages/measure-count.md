@@ -2,7 +2,7 @@
 
 Counts items: light fittings, outlets, doors, trees. Each click adds one.
 
-1. Choose {{Tools > Measure > Count}} (or press [[X]]).
+1. Choose {{Tools > Measure > Count}} (or press [[Alt+Shift+C]]).
 
    ![Tools, Measure, Count](img/pick-count.png)
 2. Click on each item. A dot marks each one and the running total is shown.

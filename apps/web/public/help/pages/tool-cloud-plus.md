@@ -4,7 +4,7 @@ Draws a cloud **and** a callout with your note in one go. This is the quickest w
 
 ## Draw a Cloud+
 
-1. Click **Cloud+** on the toolbar.
+1. Click **Cloud+** on the toolbar, or press [[K]].
 
    ![The Cloud+ button on the toolbar](img/pick-cloudPlus.png)
 2. Drag a cloud around the area, as for a [Cloud](#tool-cloud).
