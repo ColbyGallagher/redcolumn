@@ -25,7 +25,7 @@ import { askText, AskTextHost } from './components/AskText';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
-import { ExportDialog, type ExportRequest } from './components/ExportDialog';
+import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { settings, useSettings } from './settings/settings';
@@ -234,6 +234,24 @@ function download(name: string, blob: Blob) {
   void saveAsWithPicker(name, blob.type, blob).then((r) => {
     if (r === 'unsupported') anchorDownload(name, blob);
   });
+}
+
+/** Writes one summary report into a folder chosen on the Output tab. */
+async function writeSummaryFile(dir: { getFileHandle(name: string, options: { create: boolean }): Promise<{ getFile(): Promise<File>; createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }> }> }, name: string, blob: Blob, overwrite: boolean) {
+  let filename = name;
+  if (!overwrite) {
+    try {
+      await dir.getFileHandle(filename, { create: false });
+      const dot = filename.lastIndexOf('.');
+      filename = `${dot > 0 ? filename.slice(0, dot) : filename} (2)${dot > 0 ? filename.slice(dot) : ''}`;
+    } catch {
+      // Not there yet: create it under the given name.
+    }
+  }
+  const handle = await dir.getFileHandle(filename, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(blob);
+  await writable.close();
 }
 
 function anchorDownload(name: string, blob: Blob) {
@@ -644,7 +662,7 @@ export function App() {
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState<{ rows: ListRowData[]; columns: ListColumn[] } | null>(null);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
@@ -4004,7 +4022,7 @@ export function App() {
   };
   const onListRowMenu = useCallback((m: Markup, x: number, y: number) => listRowMenuRef.current(m, x, y), []);
   const onManageColumns = useCallback(() => setColumnsOpen(true), []);
-  const onExportList = useCallback((rows: ListRowData[], columns: ListColumn[]) => setExportOpen({ rows, columns }), []);
+  const onExportList = useCallback(() => setSummaryOpen(true), []);
 
   // Style controls edit the active tool's style, or the selected markups' type in select mode.
   const selectedTypes = new Set(markups.filter((m) => toolsState.selected.has(m.id)).map((m) => m.type));
@@ -4365,41 +4383,73 @@ export function App() {
     return [...totals].map(([kind, t]) => `Total ${MARKUP_LABELS[kind]} (${t.n}): ${formatMeasure(kind, t.value, t.scale)}`);
   };
 
-  const runExport = async (req: ExportRequest) => {
-    const cur = activeOpen;
-    const shown = exportOpen;
-    if (!cur || !shown) return;
-    const cols = req.columnKeys.map((k) => listLayout.find((c) => c.key === k)).filter((c): c is (typeof listLayout)[number] => !!c);
-    const rows = req.scope === 'shown' ? shown.rows : buildRows(markups, cellContext, {}, listSort);
-    const base = cur.file.name.replace(/\.pdf$/i, '');
-    const job = startJob(`Export markups · ${cur.file.name}`, { kind: 'export', cancellable: false });
+  const runExport = async (req: SummaryExportRequest) => {
+    const job = startJob('Markup summary', { kind: 'export', cancellable: false });
+    const held: { open: OpenFile; release: () => void }[] = [];
     try {
-      if (req.format === 'csv') {
-        download(`${base} markups.csv`, new Blob(['\uFEFF' + rowsToCsv(rows, cols)], { type: 'text/csv' }));
-      } else {
-        const { summaryPdf } = await import('@nb/markup/summary');
-        const out = await summaryPdf(
-          {
-            title: req.title,
-            subtitle: `${cur.file.name} · ${rows.length} markup${rows.length === 1 ? '' : 's'} · exported ${new Date().toLocaleString()} by ${author}`,
-            columns: cols.map((c) => ({ label: c.label, width: c.width, ...(c.align ? { align: c.align } : {}) })),
-            rows: rows.map((r) => ({
-              cells: cols.map((c) => {
-                const v = r.cells[c.key];
-                return v?.error ? `#${v.error}` : (v?.text ?? '');
-              }),
-              color: r.markup.style.stroke,
-            })),
-            totals: takeoffTotals(rows.map((r) => r.markup)),
+      const sources = [];
+      for (const file of req.files) {
+        const h = await acquireDocument(file.id);
+        held.push(h);
+        const cur = h.open;
+        const set = cur.store.columnSet();
+        const all = cur.store.all();
+        const scales = cur.store.allScales();
+        const viewports = cur.store.allViewports();
+        sources.push({
+          id: file.id,
+          fileName: cur.file.name,
+          pageCount: cur.doc.pages.length,
+          currentPage: cur.file.id === activeOpen?.file.id ? pageIndex + 1 : 1,
+          scope: file.scope,
+          markups: all,
+          ctx: {
+            scaleOf: (m: Markup) => scaleOfMarkup(m, scales[m.pageIndex] ?? DEFAULT_SCALE, viewports),
+            sheets: cur.store.allSheets(),
+            spaces: all.filter((m) => m.type === 'space'),
+            statuses: set.statuses,
+            columns: set.columns,
           },
-          req.layout === 'append' ? await annotatedBytes(cur) : undefined,
-        );
-        download(`${base} ${req.layout === 'append' ? '(markups + summary)' : 'markup summary'}.pdf`, new Blob([out as BlobPart], { type: 'application/pdf' }));
+        });
       }
-      setExportOpen(null);
+      const { buildSummary } = await import('./summary/exportSummary');
+      const built = buildSummary(req.config, sources);
+      const blobs: { name: string; blob: Blob }[] = [];
+      for (const file of built) {
+        if (file.pdf) {
+          const { summaryPdf } = await import('@nb/markup/summary');
+          const append = req.config.AppendToCurrentPDF && req.config.ExportFormat === 2 && built.length === 1 && held.length === 1 ? await annotatedBytes(held[0]!.open) : undefined;
+          const out = await summaryPdf(file.pdf, append);
+          blobs.push({ name: file.filename, blob: new Blob([out as BlobPart], { type: 'application/pdf' }) });
+        } else if (file.text != null) {
+          const body = file.mime === 'text/csv' ? `\uFEFF${file.text}` : file.text;
+          blobs.push({ name: file.filename, blob: new Blob([body], { type: file.mime }) });
+        }
+      }
+      if (!blobs.length) throw new Error('Nothing to export.');
+      if (req.config.ExportFormat === 3) {
+        const { printPdfBytes } = await import('./documents/printPdf');
+        printPdfBytes(new Uint8Array(await blobs[0]!.blob.arrayBuffer()));
+      } else if (req.directory) {
+        for (const file of blobs) await writeSummaryFile(req.directory, file.name, file.blob, req.config.ReplaceExistingFiles);
+        if (req.config.OpenDocument) window.open(URL.createObjectURL(blobs[0]!.blob));
+      } else if (blobs.length > 1) {
+        const { zipFiles } = await import('./documents/zip');
+        const parts = await Promise.all(blobs.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) })));
+        download(`${(req.config.Title || 'Markup summary').trim() || 'Markup summary'}.zip`, new Blob([zipFiles(parts) as BlobPart], { type: 'application/zip' }));
+      } else {
+        download(blobs[0]!.name, blobs[0]!.blob);
+        if (req.config.OpenDocument) {
+          const url = URL.createObjectURL(blobs[0]!.blob);
+          window.open(url);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        }
+      }
+      setSummaryOpen(false);
     } catch (err) {
-      setError(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(`Markup summary failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
+      for (const h of held) h.release();
       job.end();
     }
   };
@@ -4408,7 +4458,7 @@ export function App() {
   const listKeys = new Set(listLayout.map((c) => c.key));
   const listFilters = Object.fromEntries(Object.entries(ws.list.filters).filter(([k]) => listKeys.has(k)));
   const listSort = ws.list.sort && listKeys.has(ws.list.sort.key) ? ws.list.sort : null;
-  const openSummaryExport = () => setExportOpen({ rows: buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), columns: visibleListColumns });
+  const openSummaryExport = () => setSummaryOpen(true);
 
   // Keep a spreadsheet in step with the Markups list, when this document has one connected.
   const sheetSync = useSheetSync(activeOpen?.file.name ?? null);
@@ -5671,7 +5721,7 @@ export function App() {
       if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
     },
     compare: () => setCompareOpen('compare'),
-    batch: (kind) => setBatchOpen(kind),
+    batch: (kind) => (kind === 'summary' ? setSummaryOpen(true) : setBatchOpen(kind)),
     security: () => setSecurityOpen(true),
     showPanel: (tab) => showLeft(tab),
     sign: () => {
@@ -7626,16 +7676,22 @@ export function App() {
           onListChange={(fn) => updateWorkspace((w) => ({ ...w, list: fn(w.list) }))}
         />
       )}
-      {exportOpen && activeOpen && (
-        <ExportDialog
-          docName={activeOpen.file.name}
-          shownCount={exportOpen.rows.length}
-          totalCount={markups.length}
-          columns={listLayout}
-          visibleKeys={exportOpen.columns.map((c) => c.key)}
+      {summaryOpen && (
+        <MarkupSummaryDialog
+          docName={activeOpen?.file.name ?? 'Markup summary'}
+          activeFile={activeOpen ? { id: activeOpen.file.id, name: activeOpen.file.name, pageCount: activeOpen.doc.pages.length } : null}
+          currentPage={pageIndex + 1}
+          markups={activeOpen ? markups : []}
+          ctx={cellContext}
+          customColumns={activeOpen ? columnSet.columns : []}
+          openFiles={[...tabsA, ...tabsB].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
+          library={library.map((f) => ({ id: f.id, name: f.name }))}
           busy={exportBusy}
+          initialFilters={listFilters}
+          initialSort={listSort}
           onExport={(req) => void runExport(req)}
-          onClose={() => setExportOpen(null)}
+          onDownload={download}
+          onClose={() => setSummaryOpen(false)}
         />
       )}
       {syncOpen && activeOpen && syncTable && (
