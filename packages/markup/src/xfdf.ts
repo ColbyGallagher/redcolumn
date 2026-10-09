@@ -1,7 +1,7 @@
 import { arcPoints } from './arc';
 import { applyMatrix, type Matrix } from './export';
 import { importAnnotations, type ImportableAnnotation } from './import';
-import { boundsOf, isTextType, markupBounds, type Markup, type Point } from './model';
+import { boundsOf, isTextType, markupBounds, threadReplies, type Markup, type Point } from './model';
 import { markupLines } from './textSelect';
 import { lineEnds, type LineEnding } from './style';
 
@@ -161,8 +161,8 @@ export function markupsToXfdf(markups: readonly Markup[], matrixFor: (pageIndex:
       .join(' ');
     const body = [...children, ...(text ? [`<contents>${esc(text)}</contents>`] : [])];
     out.push(`<${tag} ${attrText}>${body.join('')}</${tag}>`);
-    for (const r of m.replies ?? []) {
-      out.push(`<text page="${m.pageIndex}" rect="${rect.map(fmt).join(',')}" name="${esc(r.id)}" title="${esc(r.author)}" date="${isoDate(r.createdAt)}" inreplyto="${esc(m.id)}" replyType="reply" flags="print,nozoom,norotate"><contents>${esc(r.text)}</contents></text>`);
+    for (const { reply: r } of threadReplies(m.replies ?? [])) {
+      out.push(`<text page="${m.pageIndex}" rect="${rect.map(fmt).join(',')}" name="${esc(r.id)}" title="${esc(r.author)}" date="${isoDate(r.createdAt)}" inreplyto="${esc(r.parentId ?? m.id)}" replyType="reply" flags="print,nozoom,norotate"><contents>${esc(r.text)}</contents></text>`);
     }
   }
   out.push('</annots>', fileName ? `<f href="${esc(fileName)}"/>` : '', '</xfdf>');
@@ -309,9 +309,25 @@ export function markupsFromXfdf(xml: string, invertFor: (pageIndex: number) => M
       out.push({ ...m, id: a.attrs.name || m.id, createdAt: date(a.attrs.creationdate ?? a.attrs.date), modifiedAt: date(a.attrs.date), ...(a.attrs.subject ? { subject: a.attrs.subject } : {}) });
     }
   });
-  for (const r of replies) {
-    const m = out.find((x) => x.id === r.to);
-    if (m) m.replies = [...(m.replies ?? []), { id: r.id, author: r.author, text: r.text, createdAt: r.at }];
+  // A reply to a reply names that reply, which may itself be attached later in the file.
+  const pending = [...replies];
+  for (let guard = pending.length + 1; pending.length && guard--; ) {
+    const later: typeof pending = [];
+    for (const r of pending) {
+      const m = out.find((x) => x.id === r.to);
+      if (m) {
+        m.replies = [...(m.replies ?? []), { id: r.id, author: r.author, text: r.text, createdAt: r.at }];
+        continue;
+      }
+      const parent = out.find((x) => x.replies?.some((p) => p.id === r.to));
+      if (parent) {
+        parent.replies = [...(parent.replies ?? []), { id: r.id, author: r.author, text: r.text, createdAt: r.at, parentId: r.to }];
+        continue;
+      }
+      later.push(r);
+    }
+    if (later.length === pending.length) break;
+    pending.splice(0, pending.length, ...later);
   }
   return out.map((m) => (m.replies?.length ? m : (({ replies: _r, ...rest }) => rest)(m) as Markup));
 }

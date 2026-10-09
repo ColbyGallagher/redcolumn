@@ -13,10 +13,10 @@ It is open by default. If you can't see it, choose {{Window > Bottom Panel}} and
 | To | Do this |
 |---|---|
 | Go to a markup on the drawing | Click its row. The page jumps to it and selects it. |
-| Select several | [[Ctrl]]+click or [[Shift]]+click rows. |
+| Select several | [[Ctrl]]+click to add or remove a row. [[Shift]]+click to select every row from the last one you clicked through this one. Right-click the selection to change them together (status, colours, properties and the rest of the menu). |
 | Add or change a comment | Click in the **Comments** cell and type. |
 | Set a status | Pick it in the **Status** cell. See [Statuses](#list-status). |
-| See replies | Replies show under the comment, with who wrote them. |
+| See replies | Each reply is a row under the comment it answers. Click the arrow on the comment to hide or show its replies. |
 | More actions | Right-click a row (the same menu as on the drawing). |
 
 The bottom of the list shows totals, for example **Area ×2: 1,128.13 sf**.

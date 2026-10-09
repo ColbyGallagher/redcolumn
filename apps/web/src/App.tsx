@@ -29,7 +29,7 @@ import { MarkupSummaryDialog, type SummaryExportRequest } from './components/Exp
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog } from './components/PreferencesDialog';
 import { settings, useSettings } from './settings/settings';
-import { buildRows, listColumns, resolveLayout, rowsToCsv, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { buildRows, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
@@ -802,8 +802,8 @@ export function App() {
       if (name?.trim()) o.store.update(id, { subject: name.trim() });
     });
   };
-  /** The markup a reply is being written to. */
-  const [replyTo, setReplyTo] = useState<{ pane: Pane; id: string } | null>(null);
+  /** The markup a reply is being written to, and the reply it answers when it answers one. */
+  const [replyTo, setReplyTo] = useState<{ pane: Pane; id: string; parentId?: string } | null>(null);
   /** Edit → Multiply is open for this pane's selection. */
   const [multiplyFor, setMultiplyFor] = useState<Pane | null>(null);
   /** Right-click › Change Colours: the markups whose colours are being changed. */
@@ -2452,13 +2452,17 @@ export function App() {
                     columns: [],
                   };
                   const cols = listColumns([]);
-                  const rows = buildRows(all, ctxCells, {}, null);
+                  const rows = withThreads(buildRows(all, ctxCells, {}, null), ctxCells);
                   const text = (r: (typeof rows)[number], key: string) => {
+                    if (key === '__id') return r.reply?.id ?? r.markup.id;
+                    if (key === '__parent') return r.reply?.parentId ?? '';
                     const v = r.cells[key];
-                    return v?.error ? `#${v.error}` : (v?.text ?? '');
+                    let t = v?.error ? `#${v.error}` : (v?.text ?? '');
+                    if (key === 'subject' && r.reply) t = `${'> '.repeat(r.reply.depth)}${t}`;
+                    return t;
                   };
                   if (command.format === 'csv') {
-                    const lines = rowsToCsv(rows, cols).split('\r\n');
+                    const lines = rowsToCsv(rows, cols, true).split('\r\n');
                     const cell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
                     if (!csv.length) csv.push(`File,${lines[0]}`);
                     for (const line of lines.slice(1)) csv.push(`${cell(cur.file.name)},${line}`);
@@ -2466,7 +2470,8 @@ export function App() {
                     const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
                     xml.push(`  <File name="${esc(cur.file.name)}" pages="${cur.doc.pages.length}">`);
                     for (const r of rows) {
-                      xml.push(`    <Markup id="${esc(r.markup.id)}" type="${esc(r.markup.type)}" page="${r.markup.pageIndex + 1}">`);
+                      const parent = r.reply?.parentId ?? '';
+                      xml.push(`    <Markup id="${esc(r.reply?.id ?? r.markup.id)}"${parent ? ` parent="${esc(parent)}"` : ''} type="${esc(r.reply ? 'reply' : r.markup.type)}" page="${r.markup.pageIndex + 1}">`);
                       for (const c of cols) {
                         const v = text(r, c.key);
                         if (v) xml.push(`      <Column name="${esc(c.label)}">${esc(v)}</Column>`);
@@ -2475,8 +2480,12 @@ export function App() {
                     }
                     xml.push('  </File>');
                   } else {
-                    summaryCols = cols.map((c) => ({ key: c.key, label: c.label, width: c.defaultWidth, ...(c.align ? { align: c.align } : {}) }));
-                    for (const r of rows) summaryRows.push({ cells: [cur.file.name, ...cols.map((c) => text(r, c.key))], color: r.markup.style.stroke });
+                    const rel = [
+                      { key: '__id', label: 'ID', width: 140 },
+                      { key: '__parent', label: 'Parent', width: 140 },
+                    ];
+                    summaryCols = [...rel, ...cols.map((c) => ({ key: c.key, label: c.label, width: c.defaultWidth, ...(c.align ? { align: c.align } : {}) }))];
+                    for (const r of rows) summaryRows.push({ cells: [cur.file.name, ...summaryCols.map((c) => text(r, c.key))], color: r.reply ? undefined : r.markup.style.stroke });
                   }
                   message = `${all.length} markup${all.length === 1 ? '' : 's'}`;
                   break;
@@ -2681,7 +2690,7 @@ export function App() {
             for (const r of summaryRows) r.cells = [r.cells[0]!, ...r.cells.slice(1).filter((_, i) => used[i])];
             const out = await summaryPdf({
               title: 'Markup Summary',
-              subtitle: `${spec.fileIds.length} file${spec.fileIds.length === 1 ? '' : 's'} · ${summaryRows.length} markup${summaryRows.length === 1 ? '' : 's'} · ${new Date().toLocaleString()} by ${authorRef.current}`,
+              subtitle: `${spec.fileIds.length} file${spec.fileIds.length === 1 ? '' : 's'} · ${summaryRows.length} row${summaryRows.length === 1 ? '' : 's'} · ${new Date().toLocaleString()} by ${authorRef.current}`,
               columns: [{ label: 'File', width: 160 }, ...summaryCols.map(({ key: _, ...c }) => c)],
               rows: summaryRows,
             });
@@ -3440,10 +3449,10 @@ export function App() {
           const set = store.columnSet();
           columns ??= listColumns(set.columns).filter((c) => keep.has(c.key) || c.key.startsWith('custom:'));
           const ctx: CellContext = { scaleOf: (m) => store.scaleOf(m), sheets: store.allSheets(), spaces: store.all().filter((m) => m.type === 'space'), statuses: set.statuses, columns: set.columns };
-          for (const r of buildRows(store.all(), ctx, {}, null)) rows.push({ ...r, cells: { document: { text: d.name, num: null }, ...r.cells } });
+          for (const r of withThreads(buildRows(store.all(), ctx, {}, null), ctx)) rows.push({ ...r, cells: { document: { text: d.name, num: null }, ...r.cells } });
         });
       }
-      return rowsToCsv(rows, [{ key: 'document', label: 'Document', defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))]);
+      return rowsToCsv(rows, [{ key: 'document', label: 'Document', defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))], true);
     },
     [withSessionMarkups],
   );
@@ -4009,6 +4018,18 @@ export function App() {
     [ctl, ctlB],
   );
 
+  /** The Markups list's selection: Ctrl toggles, Shift extends a range, a plain click focuses one. */
+  const selectRowsFromList = useCallback((ids: readonly string[], focus: Markup, zoom: boolean) => {
+    const useB = activePaneRef.current === 'b' && ctlB;
+    const viewer = useB ? ctlB.viewer : ctl?.viewer;
+    const tools = useB ? ctlB.tools : ctl?.tools;
+    if (!viewer || !tools) return;
+    if (ids.includes(focus.id) && viewer.currentPageIndex !== focus.pageIndex) viewer.goToPage(focus.pageIndex);
+    if (zoom) zoomToMarkup(viewer, focus);
+    tools.setTool('select');
+    tools.select(ids);
+  }, [ctl, ctlB]);
+
   // Stable handlers for the Markups list, so it re-renders only when its data changes.
   const listRowMenuRef = useRef<(m: Markup, x: number, y: number) => void>(() => {});
   listRowMenuRef.current = (m, x, y) => {
@@ -4017,12 +4038,13 @@ export function App() {
     if (!tools) return;
     let ids = [...tools.getState().selected];
     if (!ids.includes(m.id)) {
-      selectFromList(m);
+      selectRowsFromList([m.id], m, true);
       ids = [m.id];
     }
     setCtxMenu({ x, y, items: markupMenu(pane, ids) });
   };
   const onListRowMenu = useCallback((m: Markup, x: number, y: number) => listRowMenuRef.current(m, x, y), []);
+  const onListReply = useCallback((m: Markup, parentId?: string) => setReplyTo({ pane: paneB ? 'b' : 'a', id: m.id, ...(parentId ? { parentId } : {}) }), [paneB]);
   const onManageColumns = useCallback(() => setColumnsOpen(true), []);
   const onExportList = useCallback(() => setSummaryOpen(true), []);
 
@@ -4466,7 +4488,7 @@ export function App() {
   // Keep a spreadsheet in step with the Markups list, when this document has one connected.
   const sheetSync = useSheetSync(activeOpen?.file.name ?? null);
   const syncTable = useMemo(
-    () => (sheetSync.link || syncOpen ? toTable(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns) : null),
+    () => (sheetSync.link || syncOpen ? toTable(withThreads(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced), cellContext), visibleListColumns) : null),
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
@@ -4834,6 +4856,9 @@ export function App() {
     if (!first) return [];
     const ro = store.readOnly;
     const one = ms.length === 1;
+    // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
+    const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
+    const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
     // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
@@ -5010,7 +5035,7 @@ export function App() {
         ],
       },
       SEP,
-      { label: 'Reply', icon: MENU_ICONS.reply, disabled: ro || !one, onClick: () => setReplyTo({ pane, id: first.id }) },
+      { label: 'Reply', icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
       {
         label: 'Set Status',
         disabled: ro,
@@ -5518,7 +5543,7 @@ export function App() {
     importBax: () => void importMarkupsBax(),
     save: () => void saveDocument(false),
     saveAs: () => void saveDocument(true),
-    exportCsv: () => downloadCsv(rowsToCsv(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns)),
+    exportCsv: () => downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), cellContext), visibleListColumns, true)),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => setPrefsOpen(true),
@@ -6873,7 +6898,8 @@ export function App() {
                     columnSet={columnSet}
                     readOnly={!activeOpen || activeReadOnly}
                     selected={toolsState.selected}
-                    onSelect={selectFromList}
+                    onSelect={selectRowsFromList}
+                    onReply={onListReply}
                     onRowMenu={onListRowMenu}
                     onManageColumns={onManageColumns}
                     onExport={onExportList}
@@ -7069,13 +7095,14 @@ export function App() {
           const store = paneParts(replyTo.pane).o?.store;
           const m = store?.get(replyTo.id);
           if (!store || !m) return null;
+          const parent = replyTo.parentId ? m.replies?.find((r) => r.id === replyTo.parentId) : undefined;
           return (
             <CommentDialog
-              title={`Reply to ${m.subject || MARKUP_LABELS[m.type]}`}
+              title={parent ? `Reply to ${parent.author || 'reply'}` : `Reply to ${m.subject || MARKUP_LABELS[m.type]}`}
               initial=""
               onClose={() => setReplyTo(null)}
               onSave={(text) => {
-                if (text.trim()) store.update(m.id, { replies: [...(m.replies ?? []), { id: crypto.randomUUID(), author: authorRef.current, text: text.trim(), createdAt: Date.now() }] });
+                if (text.trim()) store.update(m.id, { replies: [...(m.replies ?? []), { id: crypto.randomUUID(), author: authorRef.current, text: text.trim(), createdAt: Date.now(), ...(replyTo.parentId ? { parentId: replyTo.parentId } : {}) }] });
                 setReplyTo(null);
               }}
             />

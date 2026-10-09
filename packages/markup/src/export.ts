@@ -10,7 +10,7 @@ import { markupLines } from './textSelect';
 import { legendLayout, legendRows } from './legend';
 import { stampLayout } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
 import { hatchDraw, type HatchDraw } from './hatches';
 import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
@@ -793,6 +793,21 @@ function replyDict(doc: PDFDocument, parent: PDFRef, m: Markup, r: Reply): PDFDi
   });
 }
 
+/**
+ * New replies, parents before the replies that answer them, each pointing at the annotation it
+ * answers (a reply, or the markup). Replies already in `known` are left as they are.
+ */
+function placeReplies(doc: PDFDocument, markupRef: PDFRef, m: Markup, known: Map<string, PDFRef>): PDFRef[] {
+  const made: PDFRef[] = [];
+  for (const { reply } of threadReplies((m.replies ?? []).filter((r) => !known.has(r.id)))) {
+    const irt = (reply.parentId && known.get(reply.parentId)) || markupRef;
+    const ref = doc.context.register(replyDict(doc, irt, m, reply));
+    known.set(reply.id, ref);
+    made.push(ref);
+  }
+  return made;
+}
+
 /** Page-space rect → [left, bottom, right, top] in the page's user space. */
 function userRect(matrix: Matrix, r: { x: number; y: number; w: number; h: number }): [number, number, number, number] {
   const a = apply(matrix, [r.x, r.y]);
@@ -1524,8 +1539,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
         // Replies and review states: those still here stay, removed ones go, new ones are added.
         const replies = new Map((main.replies ?? []).map((r) => [r.id, r]));
+        const known = new Map<string, PDFRef>();
         for (const i of main.pdfAnnot!.owned ?? []) {
-          const o = doc.context.lookup(annots.get(i));
+          const entryI = annots.get(i);
+          const o = doc.context.lookup(entryI);
           if (!(o instanceof PDFDict) || nameValue(o, 'Subtype') !== 'Text' || o.has(PDFName.of('StateModel'))) continue;
           const id = o.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? `pdf-${pageIndex}-${i}`;
           const reply = replies.get(id);
@@ -1533,13 +1550,14 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
             remove.add(i);
             continue;
           }
+          if (entryI instanceof PDFRef) known.set(id, entryI);
           if ((o.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '') !== reply.text) {
             o.set(PDFName.of('Contents'), pdfText(reply.text));
             o.delete(PDFName.of('RC'));
           }
           replies.delete(id);
         }
-        for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
+        added.push(...placeReplies(doc, parentRef, main, known));
         statesToWrite(main, true, statuses).forEach((s, n) => added.push(doc.context.register(stateDict(doc, parentRef, main, s.state, s.model, s.change, n))));
         if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
         if (items) {
@@ -1595,7 +1613,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       const dict = build(m);
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
-      for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
+      for (const replyRef of placeReplies(doc, ref, m, new Map())) page.node.addAnnot(replyRef);
       statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }

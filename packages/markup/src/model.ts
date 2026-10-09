@@ -142,6 +142,62 @@ export interface Reply {
   author: string;
   text: string;
   createdAt: number;
+  /**
+   * The reply this answers. Absent when it answers the markup itself. A reply can answer another
+   * reply, the same chain PDF tools store with /IRT.
+   */
+  parentId?: string;
+}
+
+/**
+ * Replies in thread order: each follows the one it answers, siblings oldest first. A reply whose
+ * parent is missing, or a cycle, is shown as a reply to the markup.
+ */
+export function threadReplies(replies: readonly Reply[]): { reply: Reply; depth: number }[] {
+  const ids = new Set(replies.map((r) => r.id));
+  const byParent = new Map<string, Reply[]>();
+  for (const r of replies) {
+    const parent = r.parentId && r.parentId !== r.id && ids.has(r.parentId) ? r.parentId : '';
+    const list = byParent.get(parent) ?? [];
+    list.push(r);
+    byParent.set(parent, list);
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const out: { reply: Reply; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string, depth: number) => {
+    for (const reply of byParent.get(parent) ?? []) {
+      if (seen.has(reply.id)) continue;
+      seen.add(reply.id);
+      out.push({ reply, depth });
+      walk(reply.id, depth + 1);
+    }
+  };
+  walk('', 1);
+  for (const reply of replies) {
+    if (seen.has(reply.id)) continue;
+    seen.add(reply.id);
+    out.push({ reply, depth: 1 });
+    walk(reply.id, 2);
+  }
+  return out;
+}
+
+/** The reply and every reply under it. Undefined when nothing is left, so the field can be cleared. */
+export function withoutReply(replies: readonly Reply[], id: string): Reply[] | undefined {
+  const drop = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const r of replies) {
+      if (r.parentId && drop.has(r.parentId) && !drop.has(r.id)) {
+        drop.add(r.id);
+        grew = true;
+      }
+    }
+  }
+  const left = replies.filter((r) => !drop.has(r.id));
+  return left.length ? left : undefined;
 }
 
 /** Who signed, when, and a digest of the document's markups at that moment (see the Signatures panel). */
@@ -176,7 +232,7 @@ export interface Markup {
   text?: string;
   /** Free-form comment shown in the markup list. */
   comment?: string;
-  /** Replies to the markup, oldest first. */
+  /** Replies to the markup. A reply's `parentId` points at the reply it answers, when it answers one. */
   replies?: Reply[];
   /** Stamps: the wording (dynamic fields already filled in when placed) and frame. */
   stamp?: StampContent;

@@ -12,10 +12,11 @@ export function toTable(rows: readonly ListRowData[], columns: readonly ListColu
   const header = columns.map((c) => c.label);
   const body = rows.map((r) =>
     columns.map((c): TableCell => {
-      if (c.key === 'date') return new Date(r.markup.modifiedAt).toISOString().replace('T', ' ').slice(0, 19);
+      if (c.key === 'date') return new Date(r.reply?.at ?? r.markup.modifiedAt).toISOString().replace('T', ' ').slice(0, 19);
       const v = r.cells[c.key];
       if (!v) return '';
       if (v.error) return `#${v.error}`;
+      if (c.key === 'subject' && r.reply) return `${'> '.repeat(r.reply.depth)}${v.text}`;
       // Page and page numbers read better as plain numbers too; text cells keep their units.
       return v.num !== null && c.key !== 'measurement' ? v.num : v.text;
     }),

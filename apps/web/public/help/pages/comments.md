@@ -19,7 +19,7 @@ You can also type straight into the **Comments** column of the [Markups list](#m
 
    ![Typing a reply](img/reply-dialog.png)
 
-Replies are shown under the markup in the Markups list, with who wrote them and when.
+A reply is its own row in the Markups list, directly under the comment it answers. It uses the same columns: the subject is **Reply**, and the text is in **Comments**. Right-click a reply and choose **Reply** to answer that reply. Each answer sits under the one it answers, so the thread reads from the top down.
 
 ## Set a status
 

@@ -1,4 +1,4 @@
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
+import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, threadReplies, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
@@ -323,11 +323,68 @@ export function matchesAdvanced(cells: Readonly<Record<string, Cell>>, f: Advanc
 export interface ListRowData {
   markup: Markup;
   cells: Record<string, Cell>;
+  /** Set when this row is a reply: which comment it answers, how deep, and when it was written. */
+  reply?: { id: string; parentId: string; depth: number; at: number };
+}
+
+/** A reply as its own list row: the same columns as a markup, with the reply in Comments. */
+export function replyCells(m: Markup, reply: Reply, ctx: CellContext): Record<string, Cell> {
+  const out: Record<string, Cell> = {};
+  for (const c of BUILT_IN_COLUMNS) out[c.key] = cell('');
+  for (const c of ctx.columns) out[customKey(c.id)] = cell('');
+  out.seq = cell(m.seq ? String(m.seq) : '', m.seq ?? null);
+  out.subject = cell('Reply');
+  out.page = cell(String(m.pageIndex + 1), m.pageIndex + 1);
+  out.sheet = cell(ctx.sheets[m.pageIndex]?.number ?? '');
+  out.space = cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : '');
+  out.author = cell(reply.author);
+  out.date = { text: new Date(reply.createdAt).toLocaleString(), num: reply.createdAt };
+  out.comment = cell(reply.text);
+  out.type = cell('Reply');
+  return out;
+}
+
+/** Markup rows with each one's replies after it, in thread order. */
+export function withThreads(rows: readonly ListRowData[], ctx: CellContext): ListRowData[] {
+  const out: ListRowData[] = [];
+  for (const row of rows) {
+    out.push(row);
+    const all = row.markup.replies ?? [];
+    const ids = new Set(all.map((r) => r.id));
+    for (const { reply, depth } of threadReplies(all)) {
+      const parentId = reply.parentId && ids.has(reply.parentId) ? reply.parentId : row.markup.id;
+      out.push({ markup: row.markup, cells: replyCells(row.markup, reply, ctx), reply: { id: reply.id, parentId, depth, at: reply.createdAt } });
+    }
+  }
+  return out;
 }
 
 export interface SortState {
   key: string;
   dir: 'asc' | 'desc';
+}
+
+/**
+ * A Cloud+ is a cloud grouped with the callout that holds its comment. The cloud has nothing of its
+ * own to say, so the list shows the callout (and the replies under it) without an empty row above.
+ */
+export function commentListMarkups(markups: readonly Markup[]): Markup[] {
+  const byGroup = new Map<string, Markup[]>();
+  for (const m of markups) {
+    if (!m.groupId) continue;
+    const list = byGroup.get(m.groupId) ?? [];
+    list.push(m);
+    byGroup.set(m.groupId, list);
+  }
+  const skip = new Set<string>();
+  for (const members of byGroup.values()) {
+    const note = members.some((m) => isTextType(m.type) && !!(m.text?.trim() || m.comment?.trim() || m.replies?.length));
+    if (!note) continue;
+    for (const m of members) {
+      if ((m.type === 'cloud' || m.type === 'polygonCloud') && !(m.text?.trim() || m.comment?.trim() || m.replies?.length)) skip.add(m.id);
+    }
+  }
+  return markups.filter((m) => !skip.has(m.id));
 }
 
 /** Rows filtered and sorted as the list shows them. */
@@ -338,7 +395,7 @@ export function buildRows(
   sort: SortState | null,
   advanced: AdvancedFilter | null = null,
 ): ListRowData[] {
-  const rows = markups.map((m) => ({ markup: m, cells: cellsFor(m, ctx) }));
+  const rows = commentListMarkups(markups).map((m) => ({ markup: m, cells: cellsFor(m, ctx) }));
   const active = Object.entries(filters).filter(([, f]) => f.trim());
   const shown = active.length || advanced?.rules.length ? rows.filter((r) => active.every(([k, f]) => matchesFilter(r.cells[k], f)) && matchesAdvanced(r.cells, advanced)) : rows;
   const base = (a: ListRowData, b: ListRowData) => a.markup.pageIndex - b.markup.pageIndex || a.markup.createdAt - b.markup.createdAt;
@@ -369,18 +426,24 @@ function csvCell(v: string) {
   return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-/** Rows as CSV with the given columns (BOM is added by the caller for Excel). */
-export function rowsToCsv(rows: readonly ListRowData[], columns: readonly ListColumn[]): string {
-  const header = columns.map((c) => csvCell(c.label)).join(',');
-  const lines = rows.map((r) =>
-    columns
-      .map((c) => {
-        const v = r.cells[c.key];
-        // Numbers export unformatted so spreadsheets can total them; measurements keep their units.
-        if (c.key === 'date') return csvCell(new Date(r.markup.modifiedAt).toISOString());
-        return csvCell(v?.error ? `#${v.error}` : (v?.text ?? ''));
-      })
-      .join(','),
-  );
+/** One exported cell. A reply's subject is indented with `>` so the thread reads without the Parent column. */
+function exportedCell(r: ListRowData, key: string): string {
+  if (key === '__id') return r.reply?.id ?? r.markup.id;
+  if (key === '__parent') return r.reply?.parentId ?? '';
+  if (key === 'date') return new Date(r.reply?.at ?? r.markup.modifiedAt).toISOString();
+  const v = r.cells[key];
+  let text = v?.error ? `#${v.error}` : (v?.text ?? '');
+  if (key === 'subject' && r.reply) text = `${'> '.repeat(r.reply.depth)}${text}`;
+  return text;
+}
+
+/**
+ * Rows as CSV with the given columns (BOM is added by the caller for Excel).
+ * `relationship` adds Bluebeam's ID and Parent columns, so a reply row names the comment it answers.
+ */
+export function rowsToCsv(rows: readonly ListRowData[], columns: readonly ListColumn[], relationship = false): string {
+  const keys = [...(relationship ? ['__id', '__parent'] : []), ...columns.map((c) => c.key)];
+  const header = [...(relationship ? ['ID', 'Parent'] : []), ...columns.map((c) => csvCell(c.label))].join(',');
+  const lines = rows.map((r) => keys.map((k) => csvCell(exportedCell(r, k))).join(','));
   return [header, ...lines].join('\r\n');
 }
