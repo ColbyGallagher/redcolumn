@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { DEFAULT_STYLES, drawMarkup, resolveStamp, STAMP_FIELDS, stampAspect, type Markup, type StampDef } from '@nb/markup';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
@@ -6,6 +7,12 @@ interface Props {
   author: string;
   onPlace: (stamp: StampDef) => void;
   onClose: () => void;
+  /** Open straight into the editor for a new stamp. */
+  creating?: boolean;
+}
+
+function blankStamp(): StampDef {
+  return { id: crypto.randomUUID(), name: 'New Stamp', lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' };
 }
 
 /** A stamp drawn as it would be placed now (fields filled in with sample values). */
@@ -43,12 +50,12 @@ export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<Stamp
 }
 
 /** Tools › Stamp › Manage Stamps: the stamp library, with an editor for your own stamps. */
-export function StampsDialog({ author, onPlace, onClose }: Props) {
+export function StampsDialog({ author, onPlace, onClose, creating = false }: Props) {
   const ws = useWorkspace();
   const library = stampLibrary(ws);
   const [pickedId, setPickedId] = useState<string>(ws.lastStampId ?? library[0]!.id);
   const picked = library.find((s) => s.id === pickedId) ?? library[0]!;
-  const [draft, setDraft] = useState<StampDef | null>(null);
+  const [draft, setDraft] = useState<StampDef | null>(() => (creating ? blankStamp() : null));
   const linesRef = useRef<HTMLTextAreaElement>(null);
 
   const save = (def: StampDef) => {
@@ -79,7 +86,7 @@ export function StampsDialog({ author, onPlace, onClose }: Props) {
               ))}
             </ul>
             <div className="actions">
-              <button className="btn" onClick={() => setDraft({ id: crypto.randomUUID(), name: 'New Stamp', lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' })}>
+              <button className="btn" onClick={() => setDraft(blankStamp())}>
                 New…
               </button>
               <button className="btn" onClick={() => setDraft(picked.builtIn ? { ...picked, id: crypto.randomUUID(), name: `${picked.name} (copy)`, builtIn: undefined } : { ...picked })}>
@@ -151,5 +158,172 @@ export function StampsDialog({ author, onPlace, onClose }: Props) {
         )}
       </div>
     </div>
+  );
+}
+
+/** Where the stamp menu sits: under the toolbar button, kept on screen. */
+function menuBox(button: HTMLElement, menu: HTMLElement): { left: number; top: number; maxHeight: number } {
+  const r = button.getBoundingClientRect();
+  const left = Math.max(8, Math.min(r.left, window.innerWidth - menu.offsetWidth - 8));
+  const top = r.bottom + 4;
+  return { left, top, maxHeight: Math.max(160, window.innerHeight - top - 8) };
+}
+
+/**
+ * The toolbar's Stamp button. Clicking it opens every stamp in the library, each drawn as it
+ * will look on the page. Choosing one arms the Stamp tool with it.
+ */
+export function StampMenu({
+  icon,
+  disabled,
+  active,
+  title,
+  author,
+  currentId,
+  onPlace,
+  onNew,
+  onManage,
+}: {
+  icon: string;
+  disabled: boolean;
+  /** The Stamp tool is the one in use. */
+  active: boolean;
+  title: string;
+  author: string;
+  /** Library id of the stamp the tool is armed with. */
+  currentId: string | null;
+  onPlace: (stamp: StampDef) => void;
+  onNew: () => void;
+  onManage: () => void;
+}) {
+  const ws = useWorkspace();
+  const library = stampLibrary(ws);
+  const marked = currentId ?? ws.lastStampId;
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const focused = useRef(false);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current || !menuRef.current) return;
+    const next = menuBox(buttonRef.current, menuRef.current);
+    setPos((p) => (p && p.left === next.left && p.top === next.top && p.maxHeight === next.maxHeight ? p : next));
+  }, [open, library.length]);
+
+  useEffect(() => {
+    if (!open) {
+      setPos(null);
+      focused.current = false;
+      return;
+    }
+    const onPointer = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (buttonRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    const onResize = () => {
+      if (buttonRef.current && menuRef.current) {
+        const next = menuBox(buttonRef.current, menuRef.current);
+        setPos(next);
+      }
+    };
+    document.addEventListener('mousedown', onPointer);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('mousedown', onPointer);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
+
+  useEffect(() => {
+    if (!open || !pos || focused.current) return;
+    focused.current = true;
+    const menu = menuRef.current;
+    const current = menu?.querySelector<HTMLButtonElement>('[aria-checked="true"]');
+    (current ?? menu?.querySelector<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]'))?.focus();
+  }, [open, pos]);
+
+  const choose = (fn: () => void) => {
+    setOpen(false);
+    fn();
+  };
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const items = [...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]')];
+    if (!items.length) return;
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : e.key === 'ArrowDown' ? (i < 0 ? 0 : (i + 1) % items.length) : i <= 0 ? items.length - 1 : i - 1;
+    items[next]?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={`btn tool${active || open ? ' active' : ''}`}
+        data-toolbar-tool="stamp"
+        disabled={disabled}
+        title={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (open || (e.key !== 'ArrowDown' && e.key !== 'ArrowUp')) return;
+          e.preventDefault();
+          setOpen(true);
+        }}
+      >
+        {icon}
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={menuRef}
+            className="stamp-menu"
+            role="menu"
+            aria-label="Stamps"
+            style={pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxHeight } : { visibility: 'hidden' }}
+            onKeyDown={onMenuKey}
+          >
+            <div className="stamp-menu-list">
+              {library.map((s) => (
+                <button key={s.id} type="button" role="menuitemradio" aria-checked={s.id === marked} className={`stamp-menu-item${s.id === marked ? ' current' : ''}`} onClick={() => choose(() => onPlace(s))}>
+                  <span className="stamp-menu-preview" aria-hidden="true">
+                    <StampPreview stamp={s} author={author} width={156} />
+                  </span>
+                  <span className="name">{s.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="menu-sep" role="separator" />
+            <button type="button" role="menuitem" className="menu-item" onClick={() => choose(onNew)}>
+              <span className="check" />
+              <span className="label">New Stamp…</span>
+            </button>
+            <button type="button" role="menuitem" className="menu-item" onClick={() => choose(onManage)}>
+              <span className="check" />
+              <span className="label">Manage Stamps…</span>
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
