@@ -772,6 +772,8 @@ export function App() {
   const lastPointer = useRef<{ x: number; y: number; viewer: TileViewer } | null>(null);
   /** Markups copied or cut, pasted into any open document. */
   const clipboard = useRef<Markup[]>([]);
+  /** Pages cut or copied from the thumbnails, as a PDF of just those pages, for Paste Pages. */
+  const pageClipboard = useRef<ArrayBuffer | null>(null);
   /** How many markups are on the clipboard; state so menus and shortcuts see copies at once. */
   const [clipboardCount, setClipboardCount] = useState(0);
   const [commentEdit, setCommentEdit] = useState<{ pane: Pane; id: string } | null>(null);
@@ -5385,6 +5387,106 @@ export function App() {
     { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
   ];
 
+  /** Copies pages of the active document to the page clipboard (without their markups). */
+  const copyPages = async (pages: number[]) => {
+    const cur = activePaneRef.current === 'b' ? openBRef.current : openRef.current;
+    if (!cur || !ctl) return false;
+    try {
+      pageClipboard.current = await ctl.engine.extractPages(await readFile(cur.file.hash), pages);
+      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste Pages inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
+      return true;
+    } catch (err) {
+      setError(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
+  };
+
+  /** Right-click on a page thumbnail: Bluebeam's page menu, acting on the selected pages. */
+  const thumbMenu = (pages: number[], rename: () => void): MenuEntry[] => {
+    const cmds = commandsRef.current;
+    const run = (id: string, label: string, icon?: ReactNode): MenuEntry => {
+      const c = cmds.get(id);
+      return { label, icon, shortcut: shortcutLabel(id), disabled: !c?.enabled, onClick: c?.run };
+    };
+    const editable = !!cmds.get('document.insertBlank')?.enabled;
+    const count = activeOpen?.doc.pages.length ?? 0;
+    const these = pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]! + 1}`;
+    const hasMarkups = pages.some((p) => (activeOpen?.store.forPage(p).length ?? 0) > 0);
+    const deletePages = (ask: boolean) => {
+      if (ask && !confirm(`Delete ${these}? Markups on ${pages.length > 1 ? 'them' : 'it'} are deleted too.`)) return false;
+      void applyPageOps([{ type: 'delete', pages }]);
+      return true;
+    };
+    const rotate = (quarterTurns: number) => () => void applyPageOps([{ type: 'rotate', pages, quarterTurns }]);
+    return [
+      run('document.pageSetup', 'Page Set-up…', MENU_ICONS.pageSetup),
+      run('window.measurements', 'Set Scale…', MENU_ICONS.scale),
+      SEP,
+      {
+        label: 'Cut Pages',
+        disabled: !editable || pages.length >= count,
+        onClick: () =>
+          void copyPages(pages).then((ok) => {
+            if (ok) deletePages(hasMarkups);
+          }),
+      },
+      { label: 'Copy Pages', disabled: !activeOpen, onClick: () => void copyPages(pages) },
+      run('document.copyPageSnapshot', 'Copy Page to Snapshot'),
+      {
+        label: 'Paste Pages',
+        disabled: !editable || !pageClipboard.current,
+        onClick: () => {
+          const bytes = pageClipboard.current;
+          if (bytes) void applyPageOps([{ type: 'insert', source: 0, at: pages.at(-1)! + 1 }], [bytes.slice(0)]);
+        },
+      },
+      SEP,
+      run('tools.stamps', 'Apply Stamp…', MENU_ICONS.stamp),
+      SEP,
+      run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
+      run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
+      { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
+      run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
+      { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: !editable || pages.length >= count, onClick: () => deletePages(true) },
+      {
+        label: 'Rotate Pages',
+        icon: MENU_ICONS.pageRotate,
+        disabled: !editable,
+        items: [
+          { label: 'Rotate 90° Clockwise', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
+          { label: 'Rotate 90° Counterclockwise', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
+          { label: 'Rotate 180°', onClick: rotate(2) },
+        ],
+      },
+      run('document.numberPages', 'Number Pages…', MENU_ICONS.pageNumber),
+      { label: 'Rename Page Label', disabled: !editable || pages.length > 1, onClick: rename },
+      {
+        label: 'Reset All Page Labels',
+        disabled: !editable,
+        onClick: () => {
+          const store = activeOpen?.store;
+          if (store) for (let i = 0; i < count; i++) store.editSheet(i, { number: null });
+        },
+      },
+      SEP,
+      {
+        label: 'Export Pages',
+        items: [run('file.exportImages', 'Page Images…'), { label: 'PDF…', disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
+      },
+      run('file.share', 'Email Pages…'),
+      run('file.print', 'Print Pages…', MENU_ICONS.print),
+      SEP,
+      run('document.repair', 'Repair PDF'),
+      run('document.flatten', 'Flatten…', MENU_ICONS.flatten),
+      SEP,
+      {
+        label: 'Markup Summary',
+        icon: MENU_ICONS.summary,
+        items: [run('file.exportSummary', 'Markup Summary…'), run('file.exportCsv', 'Export Markups CSV')],
+      },
+    ];
+  };
+
   /** Right-click on a library file (File Access). */
   const libraryMenu = (f: StoredFile): MenuEntry[] => [
     { label: 'Open', onClick: () => void openFromLibrary(f, 'a') },
@@ -5740,6 +5842,13 @@ export function App() {
     },
     insertBlank: () => setBlankPdf('blank'),
     extractPages: () => setPageTool({ kind: 'extract', drawnRect: null }),
+    copyPageSnapshot: () => {
+      const pane = activePaneRef.current;
+      const { o } = paneParts(pane);
+      const page = v?.currentPageIndex ?? pageIndex;
+      const size = o?.doc.pages[page];
+      if (size) void snapshotRef.current(pane, page, { x: 0, y: 0, w: size.width, h: size.height });
+    },
     pageTool: (kind) => setPageTool({ kind, drawnRect: null }),
     headerFooter: (mode) => {
       const cur = activeOpen;
@@ -6391,6 +6500,7 @@ export function App() {
                 onSetLabel={(pages, label) => {
                   for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
                 }}
+                onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
               />
             ) : leftTab === 'forms' ? (
               <FormsPanel
