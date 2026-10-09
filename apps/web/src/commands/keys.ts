@@ -162,6 +162,7 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'document.deletePages': ['Ctrl+Shift+D'],
   'document.insertPages': ['Ctrl+Shift+I'],
   'document.insertBlank': ['Ctrl+Shift+N'],
+  'document.copyPageSnapshot': ['Ctrl+Alt+C'],
   'document.reduceSize': ['Ctrl+Shift+P'],
   // Tools — letters match Revu: H is text highlight, M is length, G is snapshot.
   'tool.select': ['V'],

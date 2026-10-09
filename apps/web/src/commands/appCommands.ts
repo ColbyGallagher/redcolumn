@@ -99,6 +99,8 @@ export interface CommandActions {
   insertPages: () => void;
   insertBlank: () => void;
   extractPages: () => void;
+  /** The current page, with its markups, as a picture on the clipboard. */
+  copyPageSnapshot: () => void;
   pageTool: (kind: 'split' | 'replace' | 'crop' | 'setup') => void;
   headerFooter: (mode: 'headerFooter' | 'number') => void;
   process: (kind: 'flatten' | 'reduce' | 'colour') => void;
@@ -340,6 +342,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.insertPages', 'Document', 'Insert Pages from PDF…', a.insertPages, s.pagesEditable),
     cmd('document.insertBlank', 'Document', 'Insert Blank Pages…', a.insertBlank, s.pagesEditable),
     cmd('document.extractPages', 'Document', 'Extract Pages…', a.extractPages, s.pagesEditable && s.canSaveCopy),
+    cmd('document.copyPageSnapshot', 'Document', 'Copy Page to Snapshot', a.copyPageSnapshot, doc),
     cmd('document.deletePages', 'Document', 'Delete Pages…', a.deletePages, s.pagesEditable && s.pageCount > 1),
     cmd('document.splitDocument', 'Document', 'Split Document…', () => a.pageTool('split'), doc && s.pageCount > 1 && s.canSaveCopy),
     cmd('document.replacePages', 'Document', 'Replace Pages…', () => a.pageTool('replace'), s.pagesEditable),

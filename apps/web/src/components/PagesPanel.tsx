@@ -121,9 +121,12 @@ interface ThumbProps {
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
   onRename: (sheet: string) => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  /** Bumped to open the label editor from outside (the right-click menu's Rename Page Label). */
+  renameTick: number;
 }
 
-function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename }: ThumbProps) {
+function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename, onContextMenu, renameTick }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [editing, setEditing] = useState(false);
   const size = doc.pages[page]!;
@@ -159,6 +162,11 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, 
   }, [doc, page, renderW]);
 
   useEffect(() => {
+    if (renameTick && editable) setEditing(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renameTick]);
+
+  useEffect(() => {
     if (active) canvasRef.current?.parentElement?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
@@ -166,6 +174,7 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, 
     <button
       className={`thumb${active ? ' active' : ''}${selected ? ' selected' : ''}${dropBefore ? ' drop-before' : ''}`}
       onClick={onClick}
+      onContextMenu={editing ? undefined : onContextMenu}
       title={editable ? `${label} — double-click the label to rename` : label}
       draggable={!editing}
       onDragStart={onDragStart}
@@ -222,10 +231,12 @@ interface Props {
   onExtract: (pages: number[]) => void;
   onSetScale: (pages: number[], scale: Scale) => void;
   onSetLabel: (pages: number[], label: string) => void;
+  /** Right-click on a thumbnail: `pages` are the pages it acts on; `rename` opens that page's label editor. */
+  onThumbMenu: (e: React.MouseEvent, pages: number[], rename: () => void) => void;
 }
 
 /** Page thumbnails with selection, reordering by drag, and page operations. */
-export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onPageOps, onExtract, onSetScale, onSetLabel }: Props) {
+export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onPageOps, onExtract, onSetScale, onSetLabel, onThumbMenu }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [anchor, setAnchor] = useState(0);
   const [dropAt, setDropAt] = useState<number | null>(null);
@@ -235,6 +246,7 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
   /** Pages being dragged, captured at drag start (selection state may not have updated yet). */
   const dragging = useRef<number[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [rename, setRename] = useState<{ page: number; tick: number } | null>(null);
 
   // Selection refers to page numbers of the current document; reset when it changes.
   useEffect(() => setSelected([]), [doc]);
@@ -267,6 +279,17 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
       setAnchor(i);
       onGoTo(i);
     }
+  };
+
+  const menu = (i: number, e: React.MouseEvent) => {
+    // Right-click on an unselected page selects it, as a plain click would.
+    const pages = selected.includes(i) ? chosen : [i];
+    if (!selected.includes(i)) {
+      setSelected([i]);
+      setAnchor(i);
+      onGoTo(i);
+    }
+    onThumbMenu(e, pages, () => setRename((r) => ({ page: i, tick: (r?.tick ?? 0) + 1 })));
   };
 
   const moveTo = (before: number) => {
@@ -369,6 +392,8 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
             selected={selected.includes(i)}
             dropBefore={dropAt === i}
             onClick={(e) => click(i, e)}
+            onContextMenu={(e) => menu(i, e)}
+            renameTick={rename?.page === i ? rename.tick : 0}
             onDragStart={(e) => {
               dragging.current = selected.includes(i) ? chosen : [i];
               if (!selected.includes(i)) setSelected([i]);
