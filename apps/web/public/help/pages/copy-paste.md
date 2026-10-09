@@ -25,4 +25,4 @@ Copy in one tab, switch tabs, and paste. Markups keep their size.
 
 Copy a picture or screenshot in another program, click the drawing and press [[Ctrl+V]]. It becomes an [Image](#tool-image).
 
-> **Tip:** Want to be asked before markups are deleted? Turn on **Confirm before deleting markups** in [Preferences](#preferences) › **General**.
+> **Tip:** Want to be asked before markups are deleted? Turn on **Confirm before Deleting Markups** in [Preferences](#preferences) › **Tools** › **Markup**.

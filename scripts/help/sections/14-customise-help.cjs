@@ -6,13 +6,24 @@ module.exports = async function (h) {
 
   await page.keyboard.press('Control+k');
   await h.wait(400);
-  const sections = ['General', 'Interface', 'Navigation & Zoom', 'Display', 'Grid & Snap', 'Markup', 'Tools', 'Offline'];
-  for (const s of sections) {
-    await page.locator('.modal [role=tab]', { hasText: new RegExp(`^${s.replace(/[&]/g, '\\$&')}$`) }).click();
+  // Category on the left, then a tab along the top.
+  const sections = [
+    ['General', 'Options'],
+    ['General', 'Grid & Snap'],
+    ['Interface', 'Markups List'],
+    ['Tools', 'Markup'],
+    ['Sets', 'Categories'],
+    ['Advanced', 'Offline'],
+  ];
+  const exactly = (s) => new RegExp(`^${s.replace(/[&/]/g, '\\$&')}$`);
+  const slug = (s) => s.toLowerCase().replace(/[^a-z]+/g, '-');
+  for (const [category, tab] of sections) {
+    await page.locator('.prefs-nav [role=tab]', { hasText: exactly(category) }).click();
+    await page.locator('.prefs-tabs [role=tab]', { hasText: exactly(tab) }).click();
     await h.wait(250);
-    await h.shot(`prefs-${s.toLowerCase().replace(/[^a-z]+/g, '-')}`, { around: ['.modal'], pad: 20 });
+    await h.shot(`prefs-${slug(category)}-${slug(tab)}`, { around: ['.modal'], pad: 20 });
   }
-  await page.locator('.modal button', { hasText: /^Done$/ }).click().catch(() => {});
+  await page.locator('.modal button', { hasText: /^Cancel$/ }).click().catch(() => {});
   await h.closeModal();
 
   await h.menu('File', 'Profiles');

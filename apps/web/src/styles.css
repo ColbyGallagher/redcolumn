@@ -1323,6 +1323,27 @@ body,
   white-space: nowrap;
 }
 
+/* Preferences › Tab Truncation: cut long names at the start, or in the middle. */
+.doc-tab .name.cut-start {
+  direction: rtl;
+  text-align: left;
+}
+
+.doc-tab .name.cut-middle {
+  display: flex;
+  text-overflow: clip;
+}
+
+.doc-tab .name.cut-middle > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-tab .name.cut-middle > span:last-child {
+  flex: none;
+}
+
 .doc-tab .close {
   flex: none;
   width: 18px;

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useSettings } from '../settings/settings';
 
 /** Edits one markup's comment (right-click → Add Comment). Ctrl+Enter saves, Escape cancels. */
 export function CommentDialog({ title, initial, onSave, onClose }: { title: string; initial: string; onSave: (text: string) => void; onClose: () => void }) {
   const [text, setText] = useState(initial);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const { spellCheck } = useSettings();
   useEffect(() => {
     const el = ref.current;
     el?.focus();
@@ -23,7 +25,7 @@ export function CommentDialog({ title, initial, onSave, onClose }: { title: stri
       >
         <h3>{title}</h3>
         <textarea
-          spellCheck
+          spellCheck={spellCheck}
           ref={ref}
           value={text}
           rows={5}

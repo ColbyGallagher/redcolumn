@@ -88,14 +88,15 @@ export class SnapIndex {
 
   /**
    * Best snap target within `radius` of `p`, or null. `extraPoints` (e.g. vertices of existing
-   * markups) snap as endpoints.
+   * markups) snap as endpoints. `kinds`, when given, limits the drawing geometry snapped to.
    */
-  snap(p: Pt, radius: number, extraPoints: readonly Pt[] = []): Snap | null {
+  snap(p: Pt, radius: number, extraPoints: readonly Pt[] = [], kinds?: ReadonlySet<SnapKind>): Snap | null {
     const [px, py] = p;
     const s = this.segments;
     let best: Snap | null = null;
     let bestScore = Infinity;
-    const consider = (x: number, y: number, kind: SnapKind) => {
+    const consider = (x: number, y: number, kind: SnapKind, extra = false) => {
+      if (kinds && !extra && !kinds.has(kind)) return;
       const d = Math.hypot(x - px, y - py);
       if (d > radius) return;
       // Priority dominates; distance breaks ties within a kind.
@@ -106,7 +107,7 @@ export class SnapIndex {
       }
     };
 
-    for (const [x, y] of extraPoints) consider(x, y, 'endpoint');
+    for (const [x, y] of extraPoints) consider(x, y, 'endpoint', true);
 
     const near: { i: number; d: number }[] = [];
     for (const i of this.candidates(px - radius, py - radius, px + radius, py + radius)) {

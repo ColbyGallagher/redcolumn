@@ -59,7 +59,7 @@ import {
   rotationCentre,
   type Attachment,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex } from '@nb/measure';
+import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex, type SnapKind } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 
@@ -120,7 +120,19 @@ export function toolLabel(tool: Tool): string {
 /** Screen pixels within which a click hits a markup or handle. */
 const HIT_PX = 5;
 /** Screen radius within which the cursor snaps to drawing geometry. */
-const SNAP_PX = 10;
+/** Snap radius in screen pixels (Preferences › Grid & Snap › Sensitivity). */
+const snapPx = () => settings.get().snapSensitivity;
+
+/** The kinds of drawing geometry Snap to Content snaps to. */
+function snapKinds(): Set<SnapKind> {
+  const s = settings.get();
+  const kinds = new Set<SnapKind>();
+  if (s.snapEndpoints) kinds.add('endpoint');
+  if (s.snapIntersections) kinds.add('intersection');
+  if (s.snapMidpoints) kinds.add('midpoint');
+  if (s.snapLines) kinds.add('nearest');
+  return kinds;
+}
 /** On-screen radius of cloud arcs when the cloud is drawn. */
 const CLOUD_ARC_PX = 8;
 /** On-screen size of count markers / dimension ticks, and of measurement labels, at creation. */
@@ -1158,7 +1170,7 @@ export class MarkupTools implements ViewerOverlay {
       const faint = this.filterMode === 'dim' && this.filteredOut?.(m) && !this.state.selected.has(m.id);
       if (faint) {
         ctx.save();
-        ctx.globalAlpha = 0.2;
+        ctx.globalAlpha = settings.get().filteredDim / 100;
       }
       drawMarkup(ctx, shown, zoom, store.scaleOf(shown), legends);
       if (faint) ctx.restore();
@@ -1386,7 +1398,7 @@ export class MarkupTools implements ViewerOverlay {
       if (g?.kind === 'multi') {
         const { markup } = g;
         const first = markup.points[0]!;
-        const closes = !!spec.closes && markup.points.length >= 3 && Math.hypot(p[0] - first[0], p[1] - first[1]) * this.viewer.zoomFor(this.page) <= SNAP_PX;
+        const closes = !!spec.closes && markup.points.length >= 3 && Math.hypot(p[0] - first[0], p[1] - first[1]) * this.viewer.zoomFor(this.page) <= snapPx();
         if (closes) {
           this.finish();
           return true;
@@ -1933,8 +1945,8 @@ export class MarkupTools implements ViewerOverlay {
     // Earlier vertices of the measurement in progress (in its own page's space), so a polygon can
     // close on its start.
     if (g?.kind === 'multi') for (const q of g.markup.points) extra.push(this.viewer.mapPoint(g.markup.pageIndex, pageIndex, q));
-    const radius = SNAP_PX / this.viewer.zoomFor(pageIndex);
-    return index ? index.snap(p, radius, extra) : nearestPoint(p, extra, radius);
+    const radius = snapPx() / this.viewer.zoomFor(pageIndex);
+    return index ? index.snap(p, radius, extra, snapKinds()) : nearestPoint(p, extra, radius);
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */
@@ -2358,7 +2370,7 @@ function drawSnapIndicator(ctx: CanvasRenderingContext2D, snap: Snap, zoom: numb
   const [x, y] = snap.point;
   const s = 6 / zoom;
   ctx.save();
-  ctx.strokeStyle = '#d946ef';
+  ctx.strokeStyle = settings.get().snapColour;
   ctx.lineWidth = 1.5 / zoom;
   ctx.beginPath();
   switch (snap.kind) {

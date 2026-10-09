@@ -16,7 +16,8 @@ const PREVIEW_MAX_PX = 2048;
 /** Previews kept for stitched views, which show many sheets at once. */
 const MAX_PREVIEWS = 12;
 const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 64;
+/** Highest zoom (Preferences › Document › Maximum Zoom), as a scale. */
+const maxZoom = () => settings.get().maxZoom / 100;
 /** Gap between pages in continuous layout, in points. */
 const PAGE_GAP = 24;
 /** Screen space (CSS px) kept above the first page and below the last when scrolled to the end. */
@@ -575,7 +576,7 @@ export class TileViewer {
     if (!this.placementOf(index)) this.showPages(index);
     this.pageIndex = index;
     const scale = this.placementOf(index)?.scale ?? 1;
-    this.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, view.zoom / scale));
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), view.zoom / scale));
     const [wx, wy] = this.pageToWorld(index, view.centre);
     this.panX = this.canvas.clientWidth / 2 - wx * this.zoom;
     this.panY = this.canvas.clientHeight / 2 - wy * this.zoom;
@@ -587,7 +588,7 @@ export class TileViewer {
   private fitWidth() {
     const widest = Math.max(...(this.doc?.pages.map((p) => (this.turns % 2 ? p.height : p.width)) ?? [1]));
     const maxWidth = this.columns === 2 ? widest * 2 + PAGE_GAP : widest;
-    this.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (this.canvas.clientWidth - 48) / maxWidth));
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), (this.canvas.clientWidth - 48) / maxWidth));
   }
 
   /** Continuous layout: bring a page's top edge to the top of the viewport. */
@@ -790,7 +791,7 @@ export class TileViewer {
     const w = Math.max(...xs) - Math.min(...xs);
     const h = Math.max(...ys) - Math.min(...ys);
     const { clientWidth: cw, clientHeight: ch } = this.canvas;
-    this.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(cw / (w * margin), ch / (h * margin))));
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), Math.min(cw / (w * margin), ch / (h * margin))));
     this.panX = cw / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * this.zoom;
     this.panY = ch / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * this.zoom;
     this.invalidate();
@@ -803,7 +804,7 @@ export class TileViewer {
 
   /** Zooms by `factor` keeping the screen point (sx, sy) fixed; defaults to canvas center. */
   zoomBy(factor: number, sx = this.canvas.clientWidth / 2, sy = this.canvas.clientHeight / 2) {
-    const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.zoom * factor));
+    const next = Math.max(MIN_ZOOM, Math.min(maxZoom(), this.zoom * factor));
     const k = next / this.zoom;
     this.panX = sx - (sx - this.panX) * k;
     this.panY = sy - (sy - this.panY) * k;
@@ -1359,9 +1360,11 @@ export class TileViewer {
   private onWheel = (e: WheelEvent) => {
     e.preventDefault();
     const rect = this.canvas.getBoundingClientRect();
-    // Scrolling moves through a continuous column of pages; elsewhere the wheel zooms, as in
-    // CAD markup tools. Ctrl+wheel (and trackpad pinch, which arrives as ctrl+wheel) always zooms.
-    if (this.mode === 'continuous' && !e.ctrlKey) {
+    // By default the wheel scrolls a continuous column of pages and zooms elsewhere, as in CAD
+    // markup tools (Preferences › Navigation). Ctrl+wheel (and trackpad pinch, which arrives as
+    // ctrl+wheel) always zooms.
+    const wheel = settings.get()[this.mode === 'continuous' ? 'continuousWheel' : 'singlePageWheel'];
+    if (wheel === 'scroll' && !e.ctrlKey) {
       const k = e.deltaMode === 1 ? 32 : 1;
       this.panX -= (e.shiftKey ? e.deltaY : e.deltaX) * k;
       this.panY -= (e.shiftKey ? 0 : e.deltaY) * k;
@@ -1424,7 +1427,7 @@ export class TileViewer {
     }
     if (this.dynZoom) {
       // Dragging up zooms in, down zooms out, about the point first pressed.
-      const target = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.dynZoom.zoom * Math.exp((this.dynZoom.y - e.clientY) * 0.01)));
+      const target = Math.max(MIN_ZOOM, Math.min(maxZoom(), this.dynZoom.zoom * Math.exp((this.dynZoom.y - e.clientY) * 0.01)));
       this.zoomBy(target / this.zoom, this.dynZoom.sx, this.dynZoom.sy);
       return;
     }
@@ -1475,7 +1478,7 @@ export class TileViewer {
       if (w < 6 || h < 6) this.zoomBy(e.altKey ? 1 / 1.6 : 1.6, b.x0, b.y0);
       else {
         // The box's centre to the view's centre, its larger side filling the view.
-        const k = Math.min(MAX_ZOOM / this.zoom, Math.min(this.canvas.clientWidth / w, this.canvas.clientHeight / h));
+        const k = Math.min(maxZoom() / this.zoom, Math.min(this.canvas.clientWidth / w, this.canvas.clientHeight / h));
         const cx = (b.x0 + b.x1) / 2;
         const cy = (b.y0 + b.y1) / 2;
         this.panX = this.canvas.clientWidth / 2 - (cx - this.panX) * k;

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isTextType, MARKUP_LABELS, type Markup, type MarkupStore } from '@nb/markup';
 import type { PdfDocument } from '@nb/pdf-core';
+import { useSettings } from '../settings/settings';
 import { addToDictionary, misspellings, speller, type Speller } from '../spelling/spell';
 
 interface Props {
@@ -64,13 +65,14 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
     })();
   }, [withPdf, pdfWords, doc]);
 
+  const upperCase = useSettings().spellUpperCase;
   const issues = useMemo<Issue[]>(() => {
     if (!checker) return [];
     const out: Issue[] = [];
     const sorted = [...markups].sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt);
     for (const m of sorted) {
       for (const { field, text } of markupTexts(m)) {
-        for (const miss of misspellings(checker, text, ignored)) {
+        for (const miss of misspellings(checker, text, ignored, upperCase)) {
           const key = `${m.id}:${field}:${miss.index}:${miss.word}`;
           if (skipped.has(key)) continue;
           const where = field === 'text' ? 'text' : field === 'comment' ? 'comment' : `reply ${field + 1}`;
@@ -80,7 +82,7 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
     }
     if (withPdf && pdfWords) {
       pdfWords.forEach((w, i) => {
-        for (const miss of misspellings(checker, w.text, ignored)) {
+        for (const miss of misspellings(checker, w.text, ignored, upperCase)) {
           const key = `pdf:${i}:${miss.index}`;
           if (skipped.has(key)) continue;
           out.push({ key, word: miss.word, index: miss.index, context: w.text, where: { kind: 'pdf', pageIndex: w.pageIndex, rect: w.rect }, label: `Drawing text, page ${w.pageIndex + 1}` });
@@ -90,7 +92,7 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
     return out;
     // `added` re-runs the check after a word joins the dictionary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checker, markups, ignored, skipped, withPdf, pdfWords, added]);
+  }, [checker, markups, ignored, skipped, withPdf, pdfWords, added, upperCase]);
 
   const issue = issues[0] ?? null;
   const suggestions = useMemo(() => (issue && checker ? checker.suggest(issue.word).slice(0, 8) : []), [issue, checker]);

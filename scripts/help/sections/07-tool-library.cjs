@@ -49,7 +49,8 @@ module.exports = async function (h) {
   // Preferences: clicking a saved tool.
   await page.keyboard.press('Control+k');
   await h.wait(400);
-  await page.locator('.modal [role=tab]', { hasText: 'Tool Library' }).click();
+  await page.locator('.prefs-nav [role=tab]', { hasText: /^Tools$/ }).click();
+  await page.locator('.prefs-tabs [role=tab]', { hasText: 'Tool Library' }).click();
   await h.wait(300);
   await h.shot('prefs-tool-library', { around: ['.modal'], pad: 20 });
   await h.closeModal();

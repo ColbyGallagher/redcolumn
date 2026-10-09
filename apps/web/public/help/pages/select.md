@@ -28,7 +28,7 @@ These are all in the {{Edit}} menu:
 
 ![Select, Select All and Lasso in the Edit menu](img/edit-menu-select.png)
 
-> **Tip:** Want a plain drag (without [[Shift]]) to draw a selection box? Turn on **Drag on the page to select markups** in [Preferences](#preferences) › **Markup**.
+> **Tip:** Want a plain drag (without [[Shift]]) to draw a selection box? Turn on **Drag on the Page to Select Markups** in [Preferences](#preferences) › **Tools** › **Markup**.
 
 ## Select from the list
 

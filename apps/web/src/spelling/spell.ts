@@ -54,15 +54,17 @@ export function removeFromDictionary(word: string) {
 
 /**
  * Words in `text` the checker does not know. Numbers, words with digits (sheet numbers, sizes),
- * single letters and abbreviations with dots are skipped; so are `ignored` words.
+ * single letters and abbreviations with dots are skipped; so are `ignored` words, and words in
+ * capitals unless `upperCase`.
  */
-export function misspellings(s: Speller, text: string, ignored: ReadonlySet<string> = new Set()): Misspelling[] {
+export function misspellings(s: Speller, text: string, ignored: ReadonlySet<string> = new Set(), upperCase = true): Misspelling[] {
   const out: Misspelling[] = [];
   for (const m of text.matchAll(/[\p{L}][\p{L}'’]*[\p{L}]|[\p{L}]/gu)) {
     const raw = m[0].replace(/[’]/g, "'");
     const next = text[m.index! + m[0].length];
     if (raw.length < 2 || next === '.' || /\d/.test(text.slice(Math.max(0, m.index! - 1), m.index! + m[0].length + 1))) continue;
     const word = raw.replace(/'s$/i, '');
+    if (!upperCase && word === word.toUpperCase()) continue;
     if (ignored.has(word.toLowerCase()) || s.correct(word) || s.correct(word.toLowerCase())) continue;
     out.push({ word: m[0], index: m.index! });
   }

@@ -13,6 +13,6 @@ Click **Reuse** in the status bar. It is on when it is highlighted.
 
 ![Reuse and Draw to Scale in the status bar](img/status-reuse.png)
 
-It is also in {{Tools > Reuse}} and [Preferences](#preferences) › **Tools**.
+It is also in {{Tools > Reuse}} and [Preferences](#preferences) › **Tools** › **Markup** (**Reuse Tools**).
 
 > **Tip:** With Reuse on, press [[Esc]] (or [[V]]) when you have finished drawing, to go back to selecting.

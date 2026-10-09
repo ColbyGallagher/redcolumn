@@ -32,7 +32,7 @@ Not sure? Click {{Help > Install App…}}. It shows the steps for your browser.
 - Every PDF you open is kept on your device and works offline.
 - When there is no network, the status bar shows **Offline**.
 - Live Sessions, Projects and cloud storage wait until you are back online.
-- OCR needs a one-time download before it works offline. See [Preferences](#preferences) › **Offline**.
+- OCR needs a one-time download before it works offline. See [Preferences](#preferences) › **Advanced** › **Offline**.
 
 ## Updates
 
