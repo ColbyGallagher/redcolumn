@@ -1632,6 +1632,94 @@ body,
   background: none;
 }
 
+.hatch-swatch {
+  width: 72px;
+  height: 32px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #fff;
+}
+
+.hatch-menu {
+  position: relative;
+}
+
+.hatch-btn {
+  gap: 6px;
+}
+
+.hatch-btn.on {
+  border-color: var(--accent);
+}
+
+.hatch-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 220px;
+  max-height: min(70vh, 480px);
+  overflow: auto;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.hatch-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hatch-choice:hover,
+.hatch-choice.on {
+  background: #3a3f46;
+}
+
+.hatch-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 6px 6px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.hatch-pop-row input[type='number'] {
+  width: 64px;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.hatch-pop-row input[type='color'] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: none;
+}
+
 .prop-control input[type='range'] {
   flex: 1;
   min-width: 0;

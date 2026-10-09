@@ -62,28 +62,8 @@ export function dashPattern(dash: LineDash | undefined, width: number): number[]
   return (DASH_UNITS[dash ?? 'solid'] ?? []).map((u) => u * w);
 }
 
-export type HatchPattern = 'none' | 'horizontal' | 'vertical' | 'diagonal' | 'backDiagonal' | 'cross' | 'diagonalCross';
-
-export const HATCH_PATTERNS: { value: HatchPattern; label: string }[] = [
-  { value: 'none', label: 'None' },
-  { value: 'horizontal', label: 'Horizontal' },
-  { value: 'vertical', label: 'Vertical' },
-  { value: 'diagonal', label: 'Diagonal' },
-  { value: 'backDiagonal', label: 'Back diagonal' },
-  { value: 'cross', label: 'Cross' },
-  { value: 'diagonalCross', label: 'Diagonal cross' },
-];
-
-/** Hatch line angles in degrees (page space, y down). */
-export const HATCH_ANGLES: Record<HatchPattern, number[]> = {
-  none: [],
-  horizontal: [0],
-  vertical: [90],
-  diagonal: [-45],
-  backDiagonal: [45],
-  cross: [0, 90],
-  diagonalCross: [45, -45],
-};
+export { HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
+export type { HatchDraw, HatchPattern, LegacyHatch, StoredHatch } from './hatches';
 
 /** Families map to the PDF standard fonts so exported markups look the same in every viewer. */
 export type FontFamily = 'sans' | 'serif' | 'mono';

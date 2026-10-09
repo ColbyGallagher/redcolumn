@@ -52,7 +52,7 @@ function restyled(type: MarkupType): MarkupStyle {
   const s: MarkupStyle = { ...DEFAULT_STYLES[type], stroke: '#123456', opacity: 0.75 };
   if (TYPE_INFO[type].style.width > 0) s.width = 2.5;
   if (caps.fill) s.fill = '#abcdef';
-  if (caps.hatch) s.hatch = 'diagonalCross';
+  if (caps.hatch) s.hatch = 'brick';
   if (caps.dash) s.dash = 'dashDot';
   if (caps.lineEnds) Object.assign(s, { startCap: 'openArrow', endCap: 'filledDiamond', capScale: 1.5 });
   if (caps.font) Object.assign(s, { fontSize: 14, fontFamily: 'serif', bold: true, italic: true, textColor: '#ff0000' });

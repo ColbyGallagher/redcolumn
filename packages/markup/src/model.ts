@@ -3,7 +3,7 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
-import { lineEnds, type FontFamily, type HatchPattern, type LineDash, type LineEnding, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
@@ -97,8 +97,12 @@ export interface MarkupStyle {
   endCap?: LineEnding;
   /** Line ending size as a multiple of the default size. */
   capScale?: number;
-  /** Hatch pattern drawn inside closed shapes, in the line color. */
-  hatch?: HatchPattern;
+  /** Hatch pattern drawn inside closed shapes. */
+  hatch?: StoredHatch;
+  /** Hatch color. The line color when unset. */
+  hatchColor?: string;
+  /** Hatch scale in percent. 100 is the pattern's authored size (a quarter inch). Unset means 100. */
+  hatchScale?: number;
   /** Text boxes and callouts: draw the text without its box (no outline or fill). */
   noBox?: boolean;
   /** Text boxes and callouts: no outline around the text; its fill (and a callout's leader) still draw. */

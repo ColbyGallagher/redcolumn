@@ -1,8 +1,9 @@
-import { Fragment } from 'react';
-import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
+import { HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
 import { shortcutLabel } from '../commands/shortcuts';
@@ -253,6 +254,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           <label className="field">
             <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
           </label>
+          {styleCapabilities(styleType).hatch && <HatchMenu style={style} disabled={!enabled} onChange={(patch) => tools.setStyle(styleType, patch)} />}
         </>
       )}
       {style && styleType && (styleType === 'length' || styleType === 'polylength') && (
@@ -331,6 +333,84 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       <button className="btn" disabled={!state.selected.size} onClick={() => tools.deleteSelected()} title="Delete (Del)">
         🗑
       </button>
+    </div>
+  );
+}
+
+/** Hatch pattern, color and scale, behind one toolbar button. */
+function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const current = style.hatch;
+  const active = !!resolveHatch(current);
+  const color = style.hatchColor ?? style.stroke;
+  const name = !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? LEGACY_HATCH_LABELS[current] ?? 'Hatch');
+  const choose = (value: 'none' | HatchPattern | StoredHatch) => {
+    if (value === 'none') onChange({ hatch: undefined, hatchColor: undefined, hatchScale: undefined });
+    else onChange({ hatch: value });
+  };
+  return (
+    <div className="hatch-menu" ref={root}>
+      <button type="button" className={`btn hatch-btn${active ? ' on' : ''}`} disabled={disabled} title="Hatch pattern, color and scale" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
+        {name}
+        {active && current && <HatchSwatch pattern={current} color={color} width={36} height={18} />}
+      </button>
+      {open && (
+        <div className="hatch-pop" role="dialog" aria-label="Hatch">
+          {HATCH_PATTERNS.map((h) => {
+            const on = h.value === 'none' ? !current : current === h.value;
+            return (
+              <button key={h.value} type="button" className={`hatch-choice${on ? ' on' : ''}`} aria-pressed={on} onClick={() => choose(h.value)}>
+                {h.value !== 'none' && <HatchSwatch pattern={h.value} color={color} width={48} height={22} />}
+                {h.label}
+              </button>
+            );
+          })}
+          {current && !HATCH_PATTERNS.some((h) => h.value === current) && (
+            <button type="button" className="hatch-choice on" aria-pressed onClick={() => choose(current)}>
+              <HatchSwatch pattern={current} color={color} width={48} height={22} />
+              {LEGACY_HATCH_LABELS[current] ?? current}
+            </button>
+          )}
+          <div className="hatch-pop-row">
+            <span>Color</span>
+            <input type="color" aria-label="Hatch color" disabled={!active} value={color} onChange={(e) => onChange({ hatchColor: e.target.value })} />
+          </div>
+          <div className="hatch-pop-row">
+            <span>Scale</span>
+            <input
+              type="number"
+              aria-label="Hatch scale"
+              disabled={!active}
+              min={50}
+              max={200}
+              step={1}
+              value={style.hatchScale ?? 100}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) onChange({ hatchScale: Math.min(200, Math.max(50, n)) });
+              }}
+            />
+            <span>%</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
