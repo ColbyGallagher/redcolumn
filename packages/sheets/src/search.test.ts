@@ -39,3 +39,8 @@ test('blank queries and limits', () => {
   assert.deepEqual(searchText(pages, '   '), []);
   assert.equal(searchText(pages, 'e', { limit: 2 }).length, 2);
 });
+
+test('case-sensitive matching', () => {
+  assert.equal(searchText(pages, 'noise wall', { caseSensitive: true }).length, 0);
+  assert.equal(searchText(pages, 'Noise wall', { caseSensitive: true }).length, 1);
+});

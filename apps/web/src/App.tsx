@@ -105,7 +105,8 @@ import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
-import { SearchPanel } from './components/SearchPanel';
+import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
+import { librarySource, openSource } from './search/sources';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -1097,8 +1098,8 @@ export function App() {
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
       activateTab(pane, packed);
       if (pane === 'a') {
-        // Stay on Sessions or Sets when opening from them (or joining from an invite link).
-        setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' || tab === 'sets' ? tab : 'pages'));
+        // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
+        setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search' ? tab : 'pages'));
         // On narrow screens the panel covers the drawing, so it opens only when asked.
         if (!narrowScreen()) setLeftOpen(true);
       }
@@ -2324,6 +2325,26 @@ export function App() {
     [library, openFromLibrary, ctl, ctlB],
   );
   openSetSheetRef.current = openSetSheet;
+
+  /** What the Search panel had found, kept while it is closed. */
+  const searchMemory = useRef<SearchMemory | null>(null);
+  const openSearchHitRef = useRef(openSearchHit);
+  openSearchHitRef.current = openSearchHit;
+  /** Shows a match from the Search panel, first bringing its document to the front (opening it if need be). */
+  const openDocSearchHit = async (hit: DocHit, sameDoc: DocHit[], file?: File) => {
+    const front = (activePaneRef.current === 'b' ? openBRef.current : openRef.current)?.file.id;
+    if (front !== hit.docId) {
+      const known = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === hit.docId)?.file ?? library.find((f) => f.id === hit.docId);
+      if (known) await openFromLibrary(known);
+      else if (file) await openNewFile(file, split && activePaneRef.current === 'b' ? 'b' : 'a');
+      else return setError('That file is no longer in the library.');
+      // The document comes to the front of its pane on the next render.
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    }
+    if (hit.pageIndex < 0) return;
+    searchHits.current = sameDoc.filter((h) => h.pageIndex >= 0);
+    openSearchHitRef.current(hit);
+  };
 
   /**
    * The Batch menu: a document command run over library files one at a time (open ones in their
@@ -6330,32 +6351,25 @@ export function App() {
             </h2>
             {leftTab === 'search' ? (
               <SearchPanel
-                key={activeOpen ? `${activeOpen.file.id}:${activeOpen.file.hash}` : 'none'}
+                activeId={activeOpen?.file.id ?? null}
+                activeKey={activeOpen ? `${activeOpen.file.id}:${activeOpen.file.hash}` : null}
+                currentPage={pageIndex}
+                memory={searchMemory}
                 focusToken={searchFocus}
                 sheets={sheets}
-                loadText={async (report) => {
-                  const cur = paneB ? openBRef.current : openRef.current;
-                  if (!cur) return [];
-                  return loadPageTexts(() => readFile(cur.file.hash), cur.store, (p) => report(p.done, p.total));
-                }}
-                extraHits={(query, wholeWord) => {
-                  const cur = activeOpen;
-                  if (!cur) return [];
-                  const esc = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                  const re = new RegExp(wholeWord ? `(?<![\\p{L}\\p{N}])${esc}(?![\\p{L}\\p{N}])` : esc, 'iu');
-                  const hit = (pageIndex: number, rect: { x: number; y: number; w: number; h: number }, label: string, text: string) => {
-                    const m = re.exec(text);
-                    if (!m) return [];
-                    const snippet = `${label}: ${text.replace(/\s+/g, ' ')}`.slice(0, 120);
-                    const at = snippet.toLowerCase().indexOf(m[0].toLowerCase(), label.length + 2);
-                    return [{ pageIndex, rects: [rect], snippet, matchStart: Math.max(0, at), matchEnd: Math.max(0, at) + m[0].length }];
-                  };
-                  const fields = (formModels[cur.file.hash]?.fields ?? []).flatMap((f) => (f.value && f.widgets[0] ? hit(f.widgets[0].pageIndex, f.widgets[0].rect, f.name, f.value) : []));
-                  const marks = cur.store.all().flatMap((m) => {
-                    const text = [m.text, m.comment, ...(m.replies ?? []).map((r) => r.text)].filter(Boolean).join(' · ');
-                    return text ? hit(m.pageIndex, boundsOf(m.points), m.subject || MARKUP_LABELS[m.type], text) : [];
-                  });
-                  return [...fields, ...marks];
+                sources={(scope) => {
+                  const tabs = [...tabsA, ...tabsB];
+                  const fromTab = (o: OpenFile, page?: number) => openSource(o, formModels[o.file.hash], page);
+                  if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
+                  if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
+                  if (scope === 'open') return tabs.map((o) => fromTab(o));
+                  return library
+                    .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
+                    .slice(0, prefs.recentCount)
+                    .map((f) => {
+                      const tab = tabs.find((t) => t.file.id === f.id);
+                      return tab ? fromTab(tab) : librarySource(f);
+                    });
                 }}
                 onRedactAll={
                   activeOpen && !activeReadOnly
@@ -6375,7 +6389,7 @@ export function App() {
                   searchHits.current = hits;
                   activeTools?.setHighlights(hits);
                 }}
-                onOpen={openSearchHit}
+                onOpen={(hit, sameDoc, file) => void openDocSearchHit(hit, sameDoc, file)}
               />
             ) : leftTab === 'pages' ? (
               <PagesPanel
