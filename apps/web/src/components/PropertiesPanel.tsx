@@ -6,17 +6,18 @@ import {
   LINE_DASHES,
   LINE_ENDINGS,
   lineEnds,
+  resolveHatch,
   MARKUP_LABELS,
   measureProps,
   styleCapabilities,
   type FontFamily,
-  type HatchPattern,
   type LineDash,
   type LineEnding,
   type Markup,
   type MarkupStore,
   type MarkupStyle,
   type MarkupType,
+  type StoredHatch,
   type StyleCapabilities,
   type TextAlign,
   type VerticalAlign,
@@ -24,6 +25,7 @@ import {
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
+import { HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 
 interface Props {
   markups: Markup[];
@@ -321,6 +323,8 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const measure = isMeasureKind(type);
+  const hatchOn = !!resolveHatch(style.hatch);
+  const hatchValue = style.hatch ?? 'none';
   return (
     <fieldset className="props-style" disabled={disabled}>
       <Section title="Appearance">
@@ -353,7 +357,7 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
               </label>
               {style.fill && <input type="color" value={style.fill} onChange={(e) => set('fill', e.target.value)} />}
             </Row>
-            {style.fill && (
+            {(style.fill || hatchOn) && (
               <Row label="Fill opacity">
                 <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
               </Row>
@@ -361,15 +365,38 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
           </>
         )}
         {caps.hatch && (
-          <Row label="Hatch">
-            <select value={style.hatch ?? 'none'} onChange={(e) => set('hatch', e.target.value === 'none' ? undefined : (e.target.value as HatchPattern))}>
-              {HATCH_PATTERNS.map((h) => (
-                <option key={h.value} value={h.value}>
-                  {h.label}
-                </option>
-              ))}
-            </select>
-          </Row>
+          <>
+            <Row label="Hatch">
+              <select
+                value={hatchValue}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'none') onChange({ hatch: undefined, hatchColor: undefined, hatchScale: undefined });
+                  else onChange({ hatch: value as StoredHatch });
+                }}
+              >
+                {HATCH_PATTERNS.map((h) => (
+                  <option key={h.value} value={h.value}>
+                    {h.label}
+                  </option>
+                ))}
+                {hatchValue !== 'none' && !HATCH_PATTERNS.some((h) => h.value === hatchValue) && (
+                  <option value={hatchValue}>{LEGACY_HATCH_LABELS[hatchValue] ?? hatchValue}</option>
+                )}
+              </select>
+              {hatchOn && style.hatch && <HatchSwatch pattern={style.hatch} color={style.hatchColor ?? style.stroke} />}
+            </Row>
+            {hatchOn && (
+              <>
+                <Row label="Hatch color">
+                  <input type="color" value={style.hatchColor ?? style.stroke} onChange={(e) => set('hatchColor', e.target.value)} />
+                </Row>
+                <Row label="Scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
+                  <NumberField value={style.hatchScale ?? 100} min={50} max={200} step={1} unit="%" onChange={(v) => set('hatchScale', v ?? 100)} />
+                </Row>
+              </>
+            )}
+          </>
         )}
         {caps.arcRadius === 'Arc size' && (
           <Row label="Arcs">

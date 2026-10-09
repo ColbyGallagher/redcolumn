@@ -12,6 +12,7 @@ import { stampLayout } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
+import { hatchDraw, type HatchDraw } from './hatches';
 import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
@@ -181,6 +182,26 @@ function measureDict(scale: Scale): LiteralObject {
 
 const dashOp = (dash: number[]) => `[${dash.map(fmt).join(' ')}] 0 d`;
 
+/** One uncolored tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. */
+function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
+  const { cellW, cellH, lineWidth } = draw.metrics;
+  const ops = [`0 0 ${fmt(cellW)} ${fmt(cellH)} re W n`, `${fmt(lineWidth)} w`, '0 J 0 j'];
+  if (draw.lines.length) {
+    for (const l of draw.lines) ops.push(`${fmt(l.x1)} ${fmt(l.y1)} m ${fmt(l.x2)} ${fmt(l.y2)} l`);
+    ops.push('S');
+  }
+  for (const d of draw.dots) ops.push(`${fmt(d.x + d.r)} ${fmt(d.y)} m ${fmt(d.x)} ${fmt(d.y)} ${fmt(d.r)} 0 360 arc f`);
+  return doc.context.flateStream(ops.join('\n'), {
+    Type: 'Pattern',
+    PatternType: 1,
+    PaintType: 2,
+    TilingType: 1,
+    BBox: [0, 0, cellW, cellH],
+    XStep: cellW,
+    YStep: cellH,
+  });
+}
+
 function underlineOps(x: number, y: number, w: number, size: number): string {
   return `${fmt(Math.max(size * 0.06, 0.25))} w 0 J [] 0 d ${fmt(x)} ${fmt(y)} m ${fmt(x + w)} ${fmt(y)} l S`;
 }
@@ -203,9 +224,25 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
   ops.push('/GS0 gs', `${fmt(style.width)} w`, '1 J 1 j', `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`);
   if (m.type === 'highlighter') ops.push('0 J');
+  let hatchPattern: PDFRef | null = null;
   for (const part of markupShape(m)) {
-    if (part.clip) {
-      ops.push('q', pathOps(part.clip), part.evenOdd ? 'W* n' : 'W n', `${fmt(style.width / 2)} w [] 0 d`, pathOps(part.path), 'S', 'Q');
+    if (part.hatch && part.clip) {
+      const draw = hatchDraw(part.hatch.id, part.hatch.scale);
+      if (draw) {
+        const [hr, hg, hb] = rgb(part.hatch.color);
+        hatchPattern = doc.context.register(hatchPatternStream(doc, draw));
+        ops.push(
+          'q',
+          pathOps(part.clip),
+          part.evenOdd ? 'W* n' : 'W n',
+          '/GSH gs',
+          '/CsH cs',
+          `${fmt(hr)} ${fmt(hg)} ${fmt(hb)} /P0 scn`,
+          pathOps(part.clip),
+          part.evenOdd ? 'f*' : 'f',
+          'Q',
+        );
+      }
       continue;
     }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
@@ -225,8 +262,13 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
+      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
     },
   };
+  if (hatchPattern) {
+    resources.Pattern = { P0: hatchPattern };
+    resources.ColorSpace = { CsH: ['Pattern', 'DeviceRGB'] };
+  }
 
   const label = measurementLabel(m, ctx.scale);
   if (label) {
