@@ -1,13 +1,15 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, type ColumnSet, type CustomColumn, type Markup, type MarkupStore } from '@nb/markup';
+import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
   buildRows,
+  commentListMarkups,
   formatNumber,
   groupRows,
   listColumns,
   missingRequired,
+  replyCells,
   resolveLayout,
   type CellContext,
   type ColumnLayout,
@@ -17,8 +19,10 @@ import {
 import { updateWorkspace, useWorkspace, type MarkupListSettings } from '../workspace/profiles';
 import { askText } from './AskText';
 import { settings as settingsStore, useSettings } from '../settings/settings';
-import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { FilterBuilderDialog } from './FilterBuilderDialog';
+import { MENU_ICONS } from './menuIcons';
+import { markupTypeIcon } from './ToolBar';
 
 interface Props {
   markups: Markup[];
@@ -29,8 +33,11 @@ interface Props {
   columnSet: ColumnSet;
   readOnly: boolean;
   selected: ReadonlySet<string>;
-  onSelect: (m: Markup, additive: boolean) => void;
-  /** Right-click on a row (the App adds tool library and other actions). */
+  /** Replace the selection with these markups. `zoom` focuses the one that was clicked on its own. */
+  onSelect: (ids: readonly string[], focus: Markup, zoom: boolean) => void;
+  /** Write a reply to this markup, or to one of its replies when `parentReplyId` is set. */
+  onReply: (m: Markup, parentReplyId?: string) => void;
+  /** Right-click on a markup row (the App adds tool library and other actions). */
   onRowMenu: (m: Markup, x: number, y: number) => void;
   onManageColumns: () => void;
   onExport: (rows: ListRowData[], columns: ListColumn[]) => void;
@@ -40,6 +47,30 @@ interface Props {
   syncing?: boolean;
   /** The markups the filter keeps (null when not filtering), so the page can dim or hide the rest. */
   onFiltered?: (kept: ReadonlySet<string> | null) => void;
+  /** Whether every markup is hidden on the page (the list's Hide All button), and its toggle. */
+  allHidden?: boolean;
+  onToggleAllHidden?: () => void;
+}
+
+/** When a status was set, as Bluebeam words it: "28/01/2026 at 2:30:06 PM". */
+const whenSet = (at: number) => `${new Date(at).toLocaleDateString()} at ${new Date(at).toLocaleTimeString()}`;
+
+/** Everything a markup says, for the list's search box: its cells, text, replies and status history. */
+function searchText(row: ListRowData): string {
+  const m = row.markup;
+  return [
+    ...Object.values(row.cells).map((c) => c.text),
+    m.subject,
+    MARKUP_LABELS[m.type],
+    m.text,
+    m.comment,
+    ...(m.replies ?? []).flatMap((r) => [r.author, r.text]),
+    ...(m.statusHistory ?? []).flatMap((c) => [c.state, c.author]),
+    ...Object.values(m.fields ?? {}),
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLowerCase();
 }
 
 const MIN_WIDTH = 40;
@@ -52,7 +83,10 @@ const WINDOW_STEP = 10;
 const ROW_GUESS = 30;
 
 /** A row of the list body: a group header, a markup, or a reply under its markup. */
-type Line = { kind: 'group'; label: string; count: number } | { kind: 'markup'; row: ListRowData } | { kind: 'reply'; m: Markup; reply: NonNullable<Markup['replies']>[number] };
+type Line =
+  | { kind: 'group'; label: string; count: number }
+  | { kind: 'markup'; row: ListRowData }
+  | { kind: 'reply'; m: Markup; reply: Reply; depth: number; children: boolean };
 
 /**
  * A comment cell. Wrapped, it shows the whole comment and the row grows to fit; unwrapped it is one
@@ -120,14 +154,16 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onRowMenu, onManageColumns, onExport, onSync, syncing } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, allHidden, onToggleAllHidden } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
   // Spaces are regions markups belong to, listed on the Spaces panel rather than here.
-  const markups = useMemo(() => allMarkups.filter((m) => m.type !== 'space'), [allMarkups]);
+  const markups = useMemo(() => commentListMarkups(allMarkups.filter((m) => m.type !== 'space')), [allMarkups]);
   const spaces = useMemo(() => allMarkups.filter((m) => m.type === 'space'), [allMarkups]);
-  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: () => MenuEntry[] } | null>(null);
+  /** The search box: markups whose content contains this text. */
+  const [query, setQuery] = useState('');
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<{ key: string; after: boolean } | null>(null);
   const resizing = useRef(false);
@@ -135,6 +171,12 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const [builderOpen, setBuilderOpen] = useState(false);
   /** Groups folded shut, by label. */
   const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  /** Comment threads folded shut: `m:<markup id>` or `r:<reply id>`. */
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  /** The reply row the list is acting on (reply, delete). */
+  const [activeReply, setActiveReply] = useState<{ markupId: string; replyId: string } | null>(null);
+  /** The row a Shift+click extends from. */
+  const anchorId = useRef<string | null>(null);
   const toggleFold = (label: string) =>
     setFolded((f) => {
       const next = new Set(f);
@@ -159,12 +201,14 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   }, [settings.filters, all]);
   const sort = settings.sort && all.some((c) => c.key === settings.sort!.key) ? settings.sort : null;
   const advanced = settings.advanced;
-  const rows = useMemo(() => buildRows(markups, ctx, filters, sort, advanced), [markups, ctx, filters, sort, advanced]);
+  const filteredRows = useMemo(() => buildRows(markups, ctx, filters, sort, advanced), [markups, ctx, filters, sort, advanced]);
+  const q = query.trim().toLowerCase();
+  const rows = useMemo(() => (q ? filteredRows.filter((r) => searchText(r).includes(q)) : filteredRows), [filteredRows, q]);
   const groupBy = settings.groupBy && all.some((c) => c.key === settings.groupBy) ? settings.groupBy : null;
   const groups = useMemo(() => (groupBy ? groupRows(rows, groupBy) : [{ label: '', rows }]), [rows, groupBy]);
   const missingCount = useMemo(() => markups.filter((m) => missingRequired(m, columnSet.columns).length).length, [markups, columnSet.columns]);
   const advancedOn = !!advanced?.rules.length;
-  const filtering = Object.keys(filters).length > 0 || advancedOn;
+  const filtering = Object.keys(filters).length > 0 || advancedOn || !!q;
   const onFiltered = props.onFiltered;
   useEffect(() => {
     onFiltered?.(filtering ? new Set(rows.map((r) => r.markup.id)) : null);
@@ -177,18 +221,28 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       if (groupBy) out.push({ kind: 'group', label, count: list.length });
       if (groupBy && folded.has(label)) continue;
       for (const row of list) {
+        const threaded = threadReplies(row.markup.replies ?? []);
+        const childOf = new Set(threaded.flatMap(({ reply }) => (reply.parentId ? [reply.parentId] : [])));
         out.push({ kind: 'markup', row });
-        for (const reply of row.markup.replies ?? []) out.push({ kind: 'reply', m: row.markup, reply });
+        if (!threaded.length || closed.has(`m:${row.markup.id}`)) continue;
+        let skipBelow = 0;
+        for (const { reply, depth } of threaded) {
+          if (skipBelow && depth > skipBelow) continue;
+          skipBelow = 0;
+          out.push({ kind: 'reply', m: row.markup, reply, depth, children: childOf.has(reply.id) });
+          if (closed.has(`r:${reply.id}`)) skipBelow = depth;
+        }
       }
     }
     return out;
-  }, [groups, groupBy, folded]);
+  }, [groups, groupBy, folded, closed]);
 
   // Unwrapped, every row is one fixed height (see the list's CSS), measured from the first markup
   // row. Wrapped, rows grow with their comments: each rendered row's height is measured and kept,
   // and rows not yet seen count as one line. Either way a long list renders just the rows in view,
   // with spacers standing in for the rest.
-  const wrap = settings.wrapComments !== false && visible.some((c) => c.key === 'comment');
+  const statusLines = settings.statusHistory !== 'latest' || settings.statusDetails !== false;
+  const wrap = (settings.wrapComments !== false && visible.some((c) => c.key === 'comment')) || (statusLines && visible.some((c) => c.key === 'status'));
   const scroller = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState(0);
   const h = rowH || ROW_GUESS;
@@ -259,11 +313,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const start = windowed ? Math.min(lines.length, Math.max(0, view.first - OVERSCAN)) : 0;
   const end = windowed ? Math.min(lines.length, view.first + view.count + WINDOW_STEP + OVERSCAN) : lines.length;
 
-  // Markups selected on the page are scrolled into view here (unless a cell of one is being edited).
+  // A single markup selected on the page is scrolled into view (unless a cell of it is being edited).
   const selectedKey = [...selected].join(',');
   useEffect(() => {
     const el = scroller.current;
-    if (!selectedKey || !el) return;
+    if (selected.size !== 1 || !el) return;
     if ([...(body.current?.querySelectorAll('tr.selected') ?? [])].some((r) => r.contains(document.activeElement))) return;
     const index = lines.findIndex((l) => l.kind === 'markup' && selected.has(l.row.markup.id));
     if (index < 0) return;
@@ -320,24 +374,33 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       onClick: () => setHidden(c.key, !c.hidden),
     }));
 
+  /** The Status column's options: all changes or the latest, with or without who and when. */
+  const statusMenu = (): MenuEntry[] => [
+    { label: 'Show Status History', checked: settings.statusHistory !== 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'all' })) },
+    { label: 'Show Latest Status Only', checked: settings.statusHistory === 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'latest' })) },
+    { sep: true },
+    { label: 'Show Who Changed It and When', checked: settings.statusDetails !== false, keepOpen: true, onClick: () => editList((l) => ({ ...l, statusDetails: l.statusDetails === false })) },
+  ];
+
+  const headerItems = (col: ListColumn): MenuEntry[] => [
+    { label: 'Sort Ascending', checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
+    { label: 'Sort Descending', checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
+    { label: 'Clear Sort', disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
+    { sep: true },
+    { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
+    { label: 'Columns', items: columnsMenu() },
+    { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
+    { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
+    ...(col.key === 'status' ? [{ sep: true } as MenuEntry, ...statusMenu()] : []),
+    { sep: true },
+    { label: 'Manage Custom Columns…', onClick: onManageColumns },
+  ];
+  // An open menu is rebuilt from this render's state, so its ticks follow clicks while it stays open.
+  const menus = useRef({ headerItems, columnsMenu, statusMenu });
+  menus.current = { headerItems, columnsMenu, statusMenu };
   const headerMenu = (e: ReactMouseEvent, col: ListColumn) => {
     e.preventDefault();
-    setMenu({
-      x: e.clientX,
-      y: e.clientY,
-      items: [
-        { label: 'Sort Ascending', checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
-        { label: 'Sort Descending', checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
-        { label: 'Clear Sort', disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
-        { sep: true },
-        { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
-        { label: 'Columns', items: columnsMenu() },
-        { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
-        { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
-        { sep: true },
-        { label: 'Manage Custom Columns…', onClick: onManageColumns },
-      ],
-    });
+    setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.headerItems(col) });
   };
 
   const saveFilter = async () => {
@@ -363,7 +426,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
       const t = out.get(m.type) ?? { value: 0, scale, n: 0 };
-      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m));
+      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
       out.set(m.type, t);
     }
@@ -383,6 +446,86 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     return any ? formatNumber(s, decimals) : '';
   };
 
+  /** Markups a list edit applies to: the whole selection when this row is part of one. */
+  const idsFor = (m: Markup) => {
+    if (!store || !selected.has(m.id) || selected.size < 2) return [m.id];
+    return [...selected].filter((id) => store.get(id));
+  };
+  const patchAll = (m: Markup, patch: Partial<Markup>) => {
+    const ids = idsFor(m);
+    store?.checkpoint();
+    store?.batch(() => ids.forEach((id) => store.update(id, patch)));
+  };
+  const toggleClosed = (key: string) =>
+    setClosed((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  /** Ctrl toggles a row. Shift selects from the anchor through this row. A plain click selects one. */
+  const selectMarkup = (id: string, shift: boolean, toggle: boolean) => {
+    const order = lines.flatMap((l) => (l.kind === 'markup' ? [l.row.markup.id] : []));
+    const focus = markups.find((m) => m.id === id);
+    if (!focus || !order.includes(id)) return;
+    const anchor = anchorId.current && order.includes(anchorId.current) ? anchorId.current : (order.find((x) => selected.has(x)) ?? null);
+    let ids: string[];
+    if (shift && anchor) {
+      const a = order.indexOf(anchor);
+      const b = order.indexOf(id);
+      const range = order.slice(Math.min(a, b), Math.max(a, b) + 1);
+      if (toggle) {
+        const next = new Set(selected);
+        for (const x of range) next.add(x);
+        ids = [...next];
+      } else ids = range;
+    } else if (toggle) {
+      const next = new Set(selected);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      ids = [...next];
+      anchorId.current = id;
+    } else {
+      ids = [id];
+      anchorId.current = id;
+    }
+    onSelect(ids, focus, !shift && !toggle);
+  };
+  const onRowPointer = (id: string, e: ReactMouseEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('input, textarea, select, button, a, label')) return;
+    e.preventDefault();
+    setActiveReply(null);
+    selectMarkup(id, e.shiftKey, e.ctrlKey || e.metaKey);
+  };
+  const replyRef = useRef(activeReply);
+  replyRef.current = activeReply;
+  useEffect(() => {
+    const cur = replyRef.current;
+    if (cur && !selected.has(cur.markupId)) setActiveReply(null);
+    // Only when the canvas selection changes, not when the reply row itself is chosen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
+  useEffect(() => {
+    if (!activeReply || readOnly) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const m = markups.find((x) => x.id === activeReply.markupId);
+      if (!m) return;
+      const replies = m.replies ?? [];
+      const hasKids = replies.some((r) => r.parentId === activeReply.replyId);
+      e.preventDefault();
+      e.stopPropagation();
+      if (prefs.confirmDelete && !confirm(hasKids ? 'Delete this reply and the replies under it?' : 'Delete this reply?')) return;
+      store?.update(m.id, { replies: withoutReply(replies, activeReply.replyId) });
+      setActiveReply(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [activeReply, readOnly, markups, store, prefs.confirmDelete]);
+
   const editor = (m: Markup, col: ListColumn, missing: boolean) => {
     const stop = (e: { stopPropagation(): void }) => e.stopPropagation();
     // Someone else's markup without the right to edit anyone's: only its status can change.
@@ -393,7 +536,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       return (
         <span className="status-cell">
           <span className="status-dot" style={{ background: m.status === 'none' ? 'transparent' : (def?.color ?? '#9aa1a9') }} />
-          <select value={m.status} disabled={readOnly} onClick={stop} onChange={(e) => store?.update(m.id, { status: e.target.value })}>
+          <select value={m.status} disabled={readOnly} onClick={stop} onChange={(e) => patchAll(m, { status: e.target.value })}>
             {columnSet.statuses.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.id === 'none' ? '—' : s.name}
@@ -401,12 +544,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             ))}
             {!def && m.status !== 'none' && <option value={m.status}>{m.status}</option>}
           </select>
+          {statusLines && <StatusHistory markup={m} all={settings.statusHistory !== 'latest'} details={settings.statusDetails !== false} />}
         </span>
       );
     }
     if (col.key === 'checked') {
       // Like the status, a review mark anyone who can markup may set.
-      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title="Checkmark" onChange={(e) => store?.update(m.id, { checked: e.target.checked || undefined })} />;
+      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title="Checkmark" onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
     }
     if (col.key === 'comment') {
       return (
@@ -421,9 +565,22 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       );
     }
     if (col.key === 'subject') {
+      const threadKey = `m:${m.id}`;
+      const hasReplies = (m.replies?.length ?? 0) > 0;
       return (
         <span className="subject-cell">
-          <span className="swatch" style={{ background: m.style.stroke }} />
+          {hasReplies && (
+            <button type="button" className="thread-fold" title={closed.has(threadKey) ? 'Show replies' : 'Hide replies'} onMouseDown={stop} onClick={() => toggleClosed(threadKey)}>
+              {closed.has(threadKey) ? '▸' : '▾'}
+            </button>
+          )}
+          {settings.typeIcons !== false ? (
+            <span className="type-icon" style={{ color: m.style.stroke }} title={MARKUP_LABELS[m.type]} aria-hidden="true">
+              {markupTypeIcon(m.type)}
+            </span>
+          ) : (
+            <span className="swatch" style={{ background: m.style.stroke }} />
+          )}
           <input
             key={m.subject ?? ''}
             className="bare"
@@ -434,7 +591,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             onBlur={(e) => {
               const v = e.target.value.trim();
               const next = v === MARKUP_LABELS[m.type] ? '' : v;
-              if (next !== (m.subject ?? '')) store?.update(m.id, { subject: next || undefined });
+              if (next !== (m.subject ?? '')) patchAll(m, { subject: next || undefined });
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();
@@ -446,7 +603,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     if (!c) return null;
     const raw = m.fields?.[c.id] ?? '';
     const commit = (v: string) => {
-      if (v !== raw) store?.setField([m.id], c.id, v);
+      if (v !== raw) store?.setField(idsFor(m), c.id, v);
     };
     const cls = missing ? 'missing' : '';
     switch (c.type) {
@@ -543,6 +700,23 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <span className="markups-title">
           Markups <span className="count">{filtering ? `${rows.length} of ${markups.length}` : markups.length}</span>
         </span>
+        <input
+          type="search"
+          className="markups-search"
+          placeholder="Search markups"
+          aria-label="Search markups"
+          title="Finds markups by any of their content: subject, comments, text, replies, statuses, authors and column values"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setQuery('');
+          }}
+        />
+        {onToggleAllHidden && (
+          <button className={`btn small flat hide-all${allHidden ? ' active' : ''}`} onClick={onToggleAllHidden} title={allHidden ? 'Show the markups on the page again' : 'Hide every markup on the page (they stay in this list)'}>
+            {MENU_ICONS.hide} {allHidden ? 'Show All' : 'Hide All'}
+          </button>
+        )}
         {missingCount > 0 && (
           <button
             className="badge-warn"
@@ -618,13 +792,16 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           </select>
         </label>
         <span className="sep" />
-        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: [...columnsMenu(), { sep: true }, { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title="Show or hide columns">
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => [...menus.current.columnsMenu(), { sep: true }, { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title="Show or hide columns">
           Columns ▾
+        </button>
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.statusMenu() })} title="Show every status change or only the latest, and who made it when">
+          Status ▾
         </button>
         <button className="btn small flat" onClick={onManageColumns} title="Add custom columns and statuses">
           Manage Columns…
         </button>
-        <button className="btn small" disabled={!markups.length} onClick={() => onExport(rows, visible)} title="Export as CSV or a PDF summary">
+        <button className="btn small" onClick={() => onExport(rows, visible)} title="Markup Summary…">
           Export…
         </button>
         {onSync && (
@@ -714,6 +891,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                 </tr>
               )}
               {lines.slice(start, end).map((line) => {
+                const treeKey = visible.some((c) => c.key === 'subject') ? 'subject' : visible[0]?.key;
                 if (line.kind === 'group') {
                   const { label } = line;
                   return (
@@ -725,26 +903,86 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                   );
                 }
                 if (line.kind === 'reply') {
-                  const { m, reply: r } = line;
-                  // Replies sit under their markup, indented.
+                  const { m, reply: r, depth, children } = line;
+                  const cells = replyCells(m, r, ctx);
+                  const current = activeReply?.markupId === m.id && activeReply.replyId === r.id;
+                  const threadKey = `r:${r.id}`;
+                  const saveText = (text: string) => store?.update(m.id, { replies: (m.replies ?? []).map((x) => (x.id === r.id ? { ...x, text } : x)) });
                   return (
-                    <tr key={`${m.id}:${r.id}`} data-key={`${m.id}:${r.id}`} className={`reply-row${selected.has(m.id) ? ' selected' : ''}`} onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}>
-                      <td colSpan={visible.length}>
-                        <span className="reply-arrow">↳</span>
-                        <b>{r.author}</b> <span className="reply-date">{new Date(r.createdAt).toLocaleString()}</span> {r.text}
-                        {!readOnly && (
-                          <button
-                            className="chip-x"
-                            title="Delete this reply"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              store?.update(m.id, { replies: (m.replies ?? []).filter((x) => x.id !== r.id) });
-                            }}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </td>
+                    <tr
+                      key={`${m.id}:${r.id}`}
+                      data-key={`${m.id}:${r.id}`}
+                      className={`reply-row${current ? ' selected' : ''}`}
+                      title={`Reply by ${r.author}`}
+                      onMouseDown={(e) => {
+                        if (e.button !== 0) return;
+                        if ((e.target as HTMLElement).closest('input, textarea, select, button, a, label')) return;
+                        e.preventDefault();
+                        selectMarkup(m.id, e.shiftKey, e.ctrlKey || e.metaKey);
+                        setActiveReply({ markupId: m.id, replyId: r.id });
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setActiveReply({ markupId: m.id, replyId: r.id });
+                        setMenu({
+                          x: e.clientX,
+                          y: e.clientY,
+                          items: () => [
+                            { label: 'Reply', icon: MENU_ICONS.reply, disabled: readOnly, onClick: () => onReply(m, r.id) },
+                            {
+                              label: 'Delete',
+                              icon: MENU_ICONS.delete,
+                              disabled: readOnly,
+                              onClick: () => {
+                                store?.update(m.id, { replies: withoutReply(m.replies ?? [], r.id) });
+                                setActiveReply(null);
+                              },
+                            },
+                          ],
+                        });
+                      }}
+                    >
+                      {visible.map((c) => {
+                        const cell = cells[c.key];
+                        const lead =
+                          c.key === treeKey ? (
+                            <span className="thread-lead" style={{ width: depth * 14 }}>
+                              {children ? (
+                                <button type="button" className="thread-fold" title={closed.has(threadKey) ? 'Show replies' : 'Hide replies'} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(threadKey)}>
+                                  {closed.has(threadKey) ? '▸' : '▾'}
+                                </button>
+                              ) : null}
+                            </span>
+                          ) : null;
+                        if (c.key === 'comment') {
+                          return (
+                            <td key={c.key} className="edit">
+                              {lead}
+                              <CommentCell key={`${r.id}:${r.text}`} value={r.text} disabled={readOnly} wrap={wrap} onSave={saveText} />
+                            </td>
+                          );
+                        }
+                        if (c.key === 'subject') {
+                          return (
+                            <td key={c.key}>
+                              <span className="subject-cell">
+                                {lead}
+                                <span className="type-icon" title="Reply" aria-hidden="true">
+                                  {MENU_ICONS.reply}
+                                </span>
+                                Reply
+                              </span>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={c.key} className={c.align === 'right' ? 'num' : ''} title={cell?.text}>
+                            {lead}
+                            {c.key === 'color' && cell?.text ? <span className="swatch" style={{ background: cell.text }} /> : cell?.text}
+                          </td>
+                        );
+                      })}
                     </tr>
                   );
                 }
@@ -757,7 +995,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     data-key={m.id}
                     className={`${selected.has(m.id) ? 'selected' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
                     title={m.hidden ? 'Hidden on the page (right-click › Show)' : undefined}
-                    onClick={(e) => onSelect(m, e.ctrlKey || e.metaKey || e.shiftKey)}
+                    onMouseDown={(e) => onRowPointer(m.id, e)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       onRowMenu(m, e.clientX, e.clientY);
@@ -769,7 +1007,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                       const edit = editor(m, c, isMissing);
                       return (
                         <td key={c.key} className={`${c.align === 'right' ? 'num' : ''}${isMissing ? ' missing' : ''}${edit ? ' edit' : ''}`} title={cell?.error ?? (edit ? undefined : cell?.text)}>
-                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : cell?.text)}
+                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : c.key === 'capture' && m.capture ? <img className="capture-thumb" src={m.capture} alt="Capture" /> : cell?.text)}
                         </td>
                       );
                     })}
@@ -783,7 +1021,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
               )}
               {rows.length === 0 && (
                 <tr className="no-match">
-                  <td colSpan={visible.length}>No markups match the filter.</td>
+                  <td colSpan={visible.length}>{q && filteredRows.length ? `No markups contain “${query.trim()}”.` : 'No markups match the filter.'}</td>
                 </tr>
               )}
             </tbody>
@@ -810,7 +1048,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           ))}
         </div>
       )}
-      {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
+      {menu && <ContextMenu menu={{ x: menu.x, y: menu.y, items: menu.items() }} onClose={closeMenu} />}
       {builderOpen && (
         <FilterBuilderDialog
           columns={all}
@@ -825,3 +1063,29 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     </div>
   );
 });
+
+/**
+ * Under a markup's status, its history as Bluebeam shows it: every change ("Completed set by Julie
+ * Smit on 28/01/2026 at 2:30:06 PM") or the latest only, with or without who and when.
+ */
+function StatusHistory({ markup: m, all, details }: { markup: Markup; all: boolean; details: boolean }) {
+  const history = m.statusHistory ?? [];
+  const shown = all ? history : history.slice(-1);
+  if (!shown.length || (!all && !details)) return null;
+  return (
+    <span className="status-history">
+      {shown.map((c, i) => (
+        <span key={`${c.at}:${i}`} className="status-change">
+          {details ? (
+            <>
+              {all || shown.length > 1 ? <b>{c.state}</b> : null}
+              {all || shown.length > 1 ? ' ' : ''}set by {c.author || 'unknown'} on {whenSet(c.at)}
+            </>
+          ) : (
+            c.state
+          )}
+        </span>
+      ))}
+    </span>
+  );
+}

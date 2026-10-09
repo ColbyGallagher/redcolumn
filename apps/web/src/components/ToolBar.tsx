@@ -1,9 +1,11 @@
-import { Fragment } from 'react';
-import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType } from '@nb/markup';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
+import { HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
+import { StampMenu } from './StampsDialog';
 import { shortcutLabel } from '../commands/shortcuts';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -73,7 +75,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   ellipticalArc: 'drag out the ellipse; set its start and end angles in Properties',
   polygonCloud: 'click vertices; click the first point, double-click or Enter to finish',
   typewriter: 'click where to type',
-  stamp: 'click or drag to place the last used stamp (Tools › Stamp for others)',
+  stamp: 'opens the stamps; pick one, then click or drag to place it',
   legend: 'drag a box; it lists the markups on the page with quantities and totals',
   eraser: 'rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)',
   dimension: 'drag a line; type the dimension text',
@@ -142,6 +144,11 @@ interface Props {
   enabled: boolean;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
+  /** Name filled into a stamp preview's {User} field. */
+  author: string;
+  onPlaceStamp: (stamp: StampDef) => void;
+  onNewStamp: () => void;
+  onManageStamps: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -153,7 +160,7 @@ function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, onUndo, onRedo }: Props) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
   const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
@@ -163,11 +170,26 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       {[MARKUP_TOOLS, MEASURE_TOOLS].map((list, i) => (
         <Fragment key={i}>
           {i > 0 && <span className="sep" />}
-          {list.filter(shown).map(({ tool, icon }) => (
-            <button key={tool} className={`btn tool${state.tool === tool && !state.preset ? ' active' : ''}`} data-toolbar-tool={tool} disabled={!enabled} title={toolTitle(tool)} onClick={() => toolsPick(tool)}>
-              {icon}
-            </button>
-          ))}
+          {list.filter(shown).map(({ tool, icon }) =>
+            tool === 'stamp' ? (
+              <StampMenu
+                key={tool}
+                icon={icon}
+                disabled={!enabled}
+                active={state.tool === 'stamp'}
+                title={toolTitle(tool)}
+                author={author}
+                currentId={state.tool === 'stamp' ? (state.preset?.stamp?.id ?? null) : null}
+                onPlace={onPlaceStamp}
+                onNew={onNewStamp}
+                onManage={onManageStamps}
+              />
+            ) : (
+              <button key={tool} className={`btn tool${state.tool === tool && !state.preset ? ' active' : ''}`} data-toolbar-tool={tool} disabled={!enabled} title={toolTitle(tool)} onClick={() => toolsPick(tool)}>
+                {icon}
+              </button>
+            ),
+          )}
         </Fragment>
       ))}
       {state.tool === 'dynamicFill' && (
@@ -232,6 +254,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           <label className="field">
             <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
           </label>
+          {styleCapabilities(styleType).hatch && <HatchMenu style={style} disabled={!enabled} onChange={(patch) => tools.setStyle(styleType, patch)} />}
         </>
       )}
       {style && styleType && (styleType === 'length' || styleType === 'polylength') && (
@@ -267,6 +290,12 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
         <label className="field" title="Draw the box around the text (outline and fill)">
           <input type="checkbox" checked={!textStyle.noBox} onChange={(e) => tools.setStyle(textType, { noBox: e.target.checked ? undefined : true })} />
           Box
+        </label>
+      )}
+      {textStyle && (textType === 'text' || textType === 'callout') && !textStyle.noBox && (
+        <label className="field" title="Draw an outline around the text box (its fill draws either way)">
+          <input type="checkbox" checked={!textStyle.borderless} onChange={(e) => tools.setStyle(textType, { borderless: e.target.checked ? undefined : true })} />
+          Border
         </label>
       )}
       {textStyle && textType && styleCapabilities(textType).font && (
@@ -306,4 +335,90 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       </button>
     </div>
   );
+}
+
+/** Hatch pattern, color and scale, behind one toolbar button. */
+function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
+      if (!root.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const current = style.hatch;
+  const active = !!resolveHatch(current);
+  const color = style.hatchColor ?? style.stroke;
+  const name = !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? LEGACY_HATCH_LABELS[current] ?? 'Hatch');
+  const choose = (value: 'none' | HatchPattern | StoredHatch) => {
+    if (value === 'none') onChange({ hatch: undefined, hatchColor: undefined, hatchScale: undefined });
+    else onChange({ hatch: value });
+  };
+  return (
+    <div className="hatch-menu" ref={root}>
+      <button type="button" className={`btn hatch-btn${active ? ' on' : ''}`} disabled={disabled} title="Hatch pattern, color and scale" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
+        {name}
+        {active && current && <HatchSwatch pattern={current} color={color} width={36} height={18} />}
+      </button>
+      {open && (
+        <div className="hatch-pop" role="dialog" aria-label="Hatch">
+          {HATCH_PATTERNS.map((h) => {
+            const on = h.value === 'none' ? !current : current === h.value;
+            return (
+              <button key={h.value} type="button" className={`hatch-choice${on ? ' on' : ''}`} aria-pressed={on} onClick={() => choose(h.value)}>
+                {h.value !== 'none' && <HatchSwatch pattern={h.value} color={color} width={48} height={22} />}
+                {h.label}
+              </button>
+            );
+          })}
+          {current && !HATCH_PATTERNS.some((h) => h.value === current) && (
+            <button type="button" className="hatch-choice on" aria-pressed onClick={() => choose(current)}>
+              <HatchSwatch pattern={current} color={color} width={48} height={22} />
+              {LEGACY_HATCH_LABELS[current] ?? current}
+            </button>
+          )}
+          <div className="hatch-pop-row">
+            <span>Color</span>
+            <input type="color" aria-label="Hatch color" disabled={!active} value={color} onChange={(e) => onChange({ hatchColor: e.target.value })} />
+          </div>
+          <div className="hatch-pop-row">
+            <span>Scale</span>
+            <input
+              type="number"
+              aria-label="Hatch scale"
+              disabled={!active}
+              min={50}
+              max={200}
+              step={1}
+              value={style.hatchScale ?? 100}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) onChange({ hatchScale: Math.min(200, Math.max(50, n)) });
+              }}
+            />
+            <span>%</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Icons for markup types not drawn with a tool of their own name. */
+const TYPE_ONLY_ICONS: Partial<Record<string, string>> = { signature: '✍', flagLabel: '◁▭', count: '#' };
+
+/** The icon of a markup's type (the tool that draws it), as the toolbar shows it. */
+export function markupTypeIcon(type: string): string {
+  return [...MARKUP_TOOLS, ...MEASURE_TOOLS].find((t) => t.tool === type)?.icon ?? TYPE_ONLY_ICONS[type] ?? '◆';
 }

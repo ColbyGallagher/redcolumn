@@ -268,12 +268,21 @@ function netArea(points: readonly Pt[], holes: MeasureProps['holes'], bulges?: r
   return Math.max(0, polygonAreaArcs(points, bulges) - (holes ?? []).reduce((sum, h, i) => sum + (h.length > 2 ? hole(h, i) : 0), 0));
 }
 
+/** Stretch Y when the page has a separate vertical scale, so lengths and areas follow both axes. */
+function applyY(points: readonly Pt[], props: MeasureProps, x: number, y?: number): { points: readonly Pt[]; props: MeasureProps } {
+  if (y === undefined || !(x > 0) || Math.abs(y / x - 1) < 1e-9) return { points, props };
+  const s = y / x;
+  const map = (p: Pt): Pt => [p[0], p[1] * s];
+  return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
+}
+
 /**
  * Numeric value of a measurement: meters for lengths, square meters for areas, cubic meters for
  * volumes, items for counts, degrees for angles. Slopes apply to lengths and areas; cutouts to
- * areas and volumes.
+ * areas and volumes. `yMetersPerPoint` stretches the page vertically before measuring.
  */
-export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}): number {
+export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
+  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
   const k = slopeFactor(props.slope);
   switch (kind) {
     case 'length':
@@ -305,7 +314,8 @@ export interface MeasureDetails {
   wallArea?: number;
 }
 
-export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}): MeasureDetails {
+export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): MeasureDetails {
+  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
   const q = QUANTITY[kind];
   if (q === 'length') {
     const length = measureValue(kind, points, metersPerPoint, props);
@@ -360,7 +370,7 @@ export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale
 }
 
 export function measureLabel(kind: MeasureKind, points: readonly Pt[], scale: Scale, props: MeasureProps = {}): string {
-  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props), scale);
+  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props, scale.yMetersPerPoint), scale);
 }
 
 /** Where a measurement's label sits, in page space. */

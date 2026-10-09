@@ -5,6 +5,8 @@ import { openForEdit } from './incremental';
 // --- Flatten and Unflatten -------------------------------------------------------------------
 
 const FLAT_TAG = 'NBFlatten';
+/** Markups flattened one selection at a time: kept by Unflatten, which brings back only a whole-document flatten. */
+const KEPT_TAG = 'NBFlattenKept';
 /** Catalog key holding the flattened markups' data, for Unflatten (Allow Markup Recovery). */
 const RECOVERY_KEY = 'NBFlattened';
 /** Annotation flags: Hidden, NoView. */
@@ -34,30 +36,50 @@ function normalAppearance(doc: PDFDocument, annot: PDFDict): PDFRef | null {
   return null;
 }
 
+/** What flattening does with one annotation: draws it into the page, removes it undrawn, or leaves it. */
+export type FlattenChoice = 'flatten' | 'drop' | 'keep';
+
 /**
  * Flatten: every markup annotation's appearance is drawn into its page (in a tagged content layer)
  * and the annotation removed; links and form fields stay interactive. With `recovery`, the markups'
- * data is kept in the file so Unflatten can bring them back. Returns how many were flattened.
+ * data is kept in the file so Unflatten can bring them back. With `choose`, only some annotations
+ * are flattened (or removed undrawn), the rest left as they are; Unflatten does not undo that.
+ * Returns how many were flattened.
  */
-export async function flattenAnnotations(bytes: ArrayBuffer | Uint8Array, recovery: string | null): Promise<{ bytes: Uint8Array; count: number }> {
+export async function flattenAnnotations(
+  bytes: ArrayBuffer | Uint8Array,
+  recovery: string | null,
+  choose?: (pageIndex: number, annot: PDFDict, index: number) => FlattenChoice,
+): Promise<{ bytes: Uint8Array; count: number }> {
   const { doc, save } = await openForEdit(bytes);
   let count = 0;
   let serial = 0;
-  for (const page of doc.getPages()) {
+  for (const [pageIndex, page] of doc.getPages().entries()) {
     const annots = page.node.lookupMaybe(PDFName.of('Annots'), PDFArray);
     if (!annots) continue;
     keepContentAsIs(page);
     const ops: string[] = [];
     const xobjects: [string, PDFRef][] = [];
+    // XObject names not used on the page yet (it may have been flattened before).
+    const existing = page.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    const freshName = () => {
+      let name: string;
+      do name = `${choose ? 'NBK' : 'NBF'}${serial++}`;
+      while (existing?.has(PDFName.of(name)));
+      return name;
+    };
     for (let i = annots.size() - 1; i >= 0; i--) {
       const annot = annots.lookupMaybe(i, PDFDict);
       if (!annot) continue;
       const subtype = annot.get(PDFName.of('Subtype'));
       if (subtype instanceof PDFName && KEEP.has(subtype.decodeText())) continue;
+      const choice = choose ? choose(pageIndex, annot, i) : 'flatten';
+      if (choice === 'keep') continue;
       // Replies and pop-up notes have no appearance on the page; they go with their markup.
       const flags = annot.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
       const ref = normalAppearance(doc, annot);
       annots.remove(i);
+      if (choice === 'drop') continue;
       count++;
       if (!ref || flags & NOT_SHOWN) continue;
       const stream = doc.context.lookup(ref) as PDFStream;
@@ -79,7 +101,7 @@ export async function flattenAnnotations(bytes: ArrayBuffer | Uint8Array, recove
       // The appearance's transformed box is mapped onto the annotation's rectangle (PDF 12.5.5).
       const sx = tx1 > tx0 ? (Math.max(rx0!, rx1!) - Math.min(rx0!, rx1!)) / (tx1 - tx0) : 1;
       const sy = ty1 > ty0 ? (Math.max(ry0!, ry1!) - Math.min(ry0!, ry1!)) / (ty1 - ty0) : 1;
-      const name = `NBF${serial++}`;
+      const name = freshName();
       xobjects.push([name, ref]);
       ops.unshift(`q ${num(sx)} 0 0 ${num(sy)} ${num(Math.min(rx0!, rx1!) - tx0 * sx)} ${num(Math.min(ry0!, ry1!) - ty0 * sy)} cm /${name} Do Q`);
     }
@@ -88,7 +110,7 @@ export async function flattenAnnotations(bytes: ArrayBuffer | Uint8Array, recove
     const xo = resources.lookupMaybe(PDFName.of('XObject'), PDFDict) ?? doc.context.obj({});
     for (const [name, ref] of xobjects) xo.set(PDFName.of(name), ref);
     resources.set(PDFName.of('XObject'), xo);
-    addTagged(doc, page, FLAT_TAG, ops.join('\n'));
+    addTagged(doc, page, choose ? KEPT_TAG : FLAT_TAG, ops.join('\n'));
   }
   if (recovery !== null) doc.catalog.set(PDFName.of(RECOVERY_KEY), PDFHexString.fromText(recovery));
   return { bytes: await save(), count };
@@ -479,4 +501,18 @@ export async function stripMetadata(bytes: ArrayBuffer | Uint8Array): Promise<Ui
     for (const key of ['Title', 'Author', 'Subject', 'Keywords', 'Creator', 'Producer']) dict.delete(PDFName.of(key));
   }
   return doc.save({ useObjectStreams: true });
+}
+
+/**
+ * Flattens some markups: `bytes` has them written as annotations whose /NM is the markup id
+ * (`ids`), which are drawn into their pages; the PDF's own annotations they stood for (`drop`, by
+ * page and /Annots position, with their replies and states) are removed undrawn. Everything else
+ * stays as it was.
+ */
+export function flattenSelection(bytes: ArrayBuffer | Uint8Array, ids: ReadonlySet<string>, drop: Record<number, readonly number[]>) {
+  return flattenAnnotations(bytes, null, (page, annot, index) => {
+    if (drop[page]?.includes(index)) return 'drop';
+    const nm = annot.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText();
+    return nm && ids.has(nm) ? 'flatten' : 'keep';
+  });
 }

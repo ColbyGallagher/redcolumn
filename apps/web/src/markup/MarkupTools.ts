@@ -314,6 +314,8 @@ export interface MarkupToolsOptions {
   defaultStamp?: () => StampDef | null;
   /** File name and page label for a stamp's {File} and {Page} fields. */
   stampValues?: (pageIndex: number) => { file: string; page: string };
+  /** Subject and label the Measurements panel applies to the next measurement. */
+  measureDefaults?: () => { subject?: string; label?: string };
 }
 
 /** Drawing with this type snaps its points to drawing geometry (not freehand, text or pictures). */
@@ -755,6 +757,11 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Copies the selected markups onto every other page at the same position. */
   applyToAllPages(pageCount: number) {
+    this.applyToPages(Array.from({ length: pageCount }, (_, i) => i));
+  }
+
+  /** Copies the selected markups onto `pages` (0-based) at the same position, skipping each one's own page. */
+  applyToPages(pages: readonly number[]) {
     const ms = this.editable();
     if (!this.store || this.store.readOnly || !ms.length) return;
     const now = Date.now();
@@ -762,7 +769,7 @@ export class MarkupTools implements ViewerOverlay {
     store.checkpoint();
     let n = 0;
     store.batch(() => {
-      for (let page = 0; page < pageCount; page++) {
+      for (const page of pages) {
         const groups = new Map<string, string>();
         for (const m of ms) {
           if (m.pageIndex === page) continue;
@@ -1856,6 +1863,7 @@ export class MarkupTools implements ViewerOverlay {
     }
     const now = Date.now();
     const fields = this.options.defaultFields?.();
+    const drawnDefaults = isMeasureKind(type) && !preset?.template ? this.options.measureDefaults?.() : undefined;
     return {
       id: crypto.randomUUID(),
       type,
@@ -1866,7 +1874,8 @@ export class MarkupTools implements ViewerOverlay {
       author: this.options.author(),
       createdAt: now,
       modifiedAt: now,
-      ...(preset?.subject ? { subject: preset.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
+      ...(preset?.subject ? { subject: preset.subject } : drawnDefaults?.subject ? { subject: drawnDefaults.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
+      ...(drawnDefaults?.label ? { text: drawnDefaults.label } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),
       ...(preset?.signature ? { signature: preset.signature } : {}),

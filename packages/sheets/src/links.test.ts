@@ -155,3 +155,17 @@ test('section titles abbreviated to the last segment of long document numbers li
   assert.equal(lookup.find('300082'), null);
   assert.equal(lookup.find('300082', true), 0);
 });
+
+test('bare-number sheets only link where the text names a drawing', () => {
+  const nums = ['C-101', '1B', '680'];
+  const pages = [
+    page([...titleBlock('C-101'), word('Level', 300, 500, 8), word('27,', 330, 500, 8), word('680', 350, 500, 8), word('George', 372, 500, 8), word('Stage', 300, 600, 8), word('1B', 330, 600, 8), word('SEE', 300, 700, 8), word('SHEET', 322, 700, 8), word('680', 352, 700, 8)]),
+    page(titleBlock('1B')),
+    page(titleBlock('680')),
+  ];
+  const links = detectLinks(pages, nums).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.rect.y < 650 ? 'prose' : 'reference']),
+    [['680', 'reference']],
+  );
+});

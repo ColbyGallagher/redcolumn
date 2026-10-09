@@ -109,7 +109,10 @@ interface ThumbProps {
   /** Width the bitmap is rendered at, after the slider settles. */
   renderW: number;
   label: string;
+  /** Printed sheet number, edited by double-clicking the label. */
+  sheet: string;
   scale?: string;
+  editable: boolean;
   active: boolean;
   selected: boolean;
   dropBefore: boolean;
@@ -117,10 +120,12 @@ interface ThumbProps {
   onDragStart: (e: React.DragEvent) => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent) => void;
+  onRename: (sheet: string) => void;
 }
 
-function Thumbnail({ doc, page, thumbW, renderW, label, scale, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop }: ThumbProps) {
+function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [editing, setEditing] = useState(false);
   const size = doc.pages[page]!;
   const height = Math.round((thumbW * size.height) / size.width);
 
@@ -161,14 +166,45 @@ function Thumbnail({ doc, page, thumbW, renderW, label, scale, active, selected,
     <button
       className={`thumb${active ? ' active' : ''}${selected ? ' selected' : ''}${dropBefore ? ' drop-before' : ''}`}
       onClick={onClick}
-      title={label}
-      draggable
+      title={editable ? `${label} — double-click the label to rename` : label}
+      draggable={!editing}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
       <canvas ref={canvasRef} style={{ width: thumbW, height }} />
-      <span>{label}</span>
+      {editing ? (
+        <input
+          className="thumb-label-edit"
+          autoFocus
+          defaultValue={sheet}
+          placeholder="A-101"
+          aria-label="Page label"
+          onFocus={(e) => e.currentTarget.select()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') e.currentTarget.blur();
+            else if (e.key === 'Escape') setEditing(false);
+          }}
+          onKeyUp={(e) => e.preventDefault()}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            setEditing(false);
+            if (v && v !== sheet) onRename(v);
+          }}
+        />
+      ) : (
+        <span
+          onDoubleClick={(e) => {
+            if (!editable) return;
+            e.stopPropagation();
+            setEditing(true);
+          }}
+        >
+          {label}
+        </span>
+      )}
       {scale && <span className="thumb-scale">{scale}</span>}
     </button>
   );
@@ -290,24 +326,8 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
           onPreset={(s) => onSetScale(chosen, s)}
           onApplyAll={() => {}}
         />
-        <label className="field" title="Printed sheet number shown on this thumbnail">
-          Label
-          <input
-            key={chosen.join(',') + (sheets[chosen[0]!]?.number ?? '')}
-            defaultValue={chosen.length === 1 ? (sheets[chosen[0]!]?.number ?? '') : ''}
-            placeholder={chosen.length > 1 ? `${chosen.length} pages` : 'A-101'}
-            disabled={busy}
-            onBlur={(e) => {
-              const v = e.target.value.trim();
-              if (v) onSetLabel(chosen, v);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-            }}
-          />
-        </label>
       </div>
-      <p className="empty">{selected.length > 1 ? `${selected.length} pages selected · ` : ''}Drag to reorder. Ctrl/Shift+click to select several.</p>
+      <p className="empty">{selected.length > 1 ? `${selected.length} pages selected · ` : ''}Drag to reorder. Ctrl/Shift+click to select several. Double-click a label to rename it.</p>
       <label className="thumb-zoom">
         <span aria-hidden="true">−</span>
         <input
@@ -341,7 +361,10 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
             thumbW={thumbW}
             renderW={renderW}
             label={sheets[i]?.number ? `${sheets[i]!.number} · ${i + 1}` : String(i + 1)}
+            sheet={sheets[i]?.number ?? ''}
             scale={scales[i]?.label}
+            editable={!busy}
+            onRename={(v) => onSetLabel([i], v)}
             active={i === currentPage}
             selected={selected.includes(i)}
             dropBefore={dropAt === i}

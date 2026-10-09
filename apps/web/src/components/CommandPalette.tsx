@@ -20,7 +20,7 @@ function score(c: Command, words: string[]): number {
   return total;
 }
 
-/** Help → Find Tools + Commands (Ctrl+Shift+P): type to find any command and run it. */
+/** Help → Find Tools + Commands (Ctrl+Shift+K): type to find any command and run it. */
 export function CommandPalette({ commands, onClose }: Props) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);

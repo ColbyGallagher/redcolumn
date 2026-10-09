@@ -68,8 +68,8 @@ export interface ImportResult {
   scale?: Scale | null;
   /** Regions of the page with their own scale (Bluebeam viewports). */
   viewports?: Viewport[];
-  /** Review state names seen (e.g. "Accepted"), for the document's statuses. */
-  statuses?: string[];
+  /** Status names seen (e.g. "Accepted"), with the state model each was set in, for the document's statuses. */
+  statuses?: { name: string; model: string }[];
 }
 
 /** Annotation flags: Invisible, Hidden, NoView. Such annotations are never shown. */
@@ -85,7 +85,7 @@ function isMarkup(value: unknown): value is Markup {
 interface Thread {
   owned: number[];
   replies: Reply[];
-  states: { state: string; model: string; at: number; order: number }[];
+  states: { state: string; model: string; at: number; order: number; author: string; nm: string | null }[];
 }
 
 /**
@@ -136,7 +136,7 @@ export function importAnnotations(
   };
   const groups = new Map<number, string>();
   const owner = new Map<number, number>();
-  const statuses = new Set<string>();
+  const statuses = new Map<string, string>();
   if (page) {
     const parentOf = (i: number): number | null => {
       const r = page.annots[i];
@@ -190,10 +190,20 @@ export function importAnnotations(
       const model = str(r.StateModel);
       const state = str(r.State);
       if (model && state) {
-        t.states.push({ state, model, at, order: a.index });
-        if (model === 'Review') statuses.add(state);
+        t.states.push({ state, model, at, order: a.index, author: str(r.T) ?? a.author, nm: str(r.NM) });
+        if (model !== 'Marked' && !statuses.has(state)) statuses.set(state, model);
       } else {
-        t.replies.push({ id: str(r.NM) || `pdf-${pageIndex}-${a.index}`, author: str(r.T) ?? a.author, text: cleanText(str(r.Contents) ?? a.contents), createdAt: parsePdfDate(str(r.CreationDate)) ?? at });
+        // A reply to a reply points at that reply; one to the markup points at the markup.
+        const parentRaw = page.annots[parent];
+        const parentIsReply = !!parentRaw && isThreadItem(parent) && !str(parentRaw.StateModel);
+        const replyId = (i: number) => str(page.annots[i]?.NM) || `pdf-${pageIndex}-${i}`;
+        t.replies.push({
+          id: replyId(a.index),
+          author: str(r.T) ?? a.author,
+          text: cleanText(str(r.Contents) ?? a.contents),
+          createdAt: parsePdfDate(str(r.CreationDate)) ?? at,
+          ...(parentIsReply ? { parentId: replyId(parent) } : {}),
+        });
       }
     }
   }
@@ -205,12 +215,19 @@ export function importAnnotations(
       const have = new Set((m.replies ?? []).map((x) => x.id));
       const replies = [...(m.replies ?? []), ...t.replies.filter((x) => !have.has(x.id))].sort((x, y) => x.createdAt - y.createdAt);
       if (replies.length) m.replies = replies;
-      // The latest review state is the status (Bluebeam's Marked model is a separate check).
-      const latest = (model: string) => t.states.filter((s) => s.model === model).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
-      const review = latest('Review');
+      // The latest state is the status, whether Review or a custom status set's (Bluebeam's
+      // Marked model is a separate check).
+      const latest = (match: (model: string) => boolean) => t.states.filter((s) => match(s.model)).sort((x, y) => x.at - y.at || x.order - y.order).at(-1);
+      const review = latest((model) => model !== 'Marked');
       if (review) m.status = statusIdOf(review.state);
+      // The whole history, as Bluebeam lists it: who set which status, when.
+      const history = t.states
+        .filter((s) => s.model !== 'Marked')
+        .sort((x, y) => x.at - y.at || x.order - y.order)
+        .map((s) => ({ state: s.state, model: s.model, author: s.author, at: s.at, ...(s.nm ? { nm: s.nm } : {}) }));
+      if (history.length) m.statusHistory = history;
       // Bluebeam's checkmark: the Marked model, Marked or Unmarked.
-      const marked = latest('Marked');
+      const marked = latest((model) => model === 'Marked');
       if (marked) m.checked = marked.state === 'Marked';
     }
     if (r) {
@@ -431,7 +448,7 @@ export function importAnnotations(
     imported,
     ...(vp?.scale ? { scale: vp.scale } : {}),
     ...(vp?.viewports.length ? { viewports: vp.viewports } : {}),
-    ...(statuses.size ? { statuses: [...statuses] } : {}),
+    ...(statuses.size ? { statuses: [...statuses].map(([name, model]) => ({ name, model })) } : {}),
   };
 }
 
@@ -520,6 +537,13 @@ function dashOf(d: number[], width: number): LineDash | undefined {
   return 'dashed';
 }
 
+/** How far a point is from a box given by two opposite corners (0 inside it). */
+function distanceToBox(p: Point, [a, b]: Point[]): number {
+  const dx = Math.max(Math.min(a![0], b![0]) - p[0], 0, p[0] - Math.max(a![0], b![0]));
+  const dy = Math.max(Math.min(a![1], b![1]) - p[1], 0, p[1] - Math.max(a![1], b![1]));
+  return Math.hypot(dx, dy);
+}
+
 /**
  * Markup shapes from an annotation's raw dictionary: every geometric and stylistic detail other
  * tools (Bluebeam Revu in particular) record, in page space.
@@ -550,9 +574,9 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const caps = le.length >= 2 ? { startCap: le[0]!, endCap: le[1]! } : le[0] && le[0] !== 'none' ? { startCap: le[0] } : {};
   const verts = pagePoints(nums(r.Vertices), toPage);
   // The annotation's own box: Rect less its /RD insets (left, top, right, bottom).
-  const innerBox = (): Point[] => {
+  const innerBox = (insets: number[] = rd): Point[] => {
     if (rect.length < 4) return [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
-    const [l, t, rr, b] = rd.length === 4 ? rd : [width / 2, width / 2, width / 2, width / 2];
+    const [l, t, rr, b] = insets.length === 4 ? insets : [width / 2, width / 2, width / 2, width / 2];
     const p = toPage(rect[0]! + l!, rect[1]! + b!);
     const q = toPage(rect[2]! - rr!, rect[3]! - t!);
     return [
@@ -615,13 +639,21 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;
       if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
-      const box = innerBox();
+      let box = innerBox();
       if (intent === 'FreeTextCallout') {
         const cl = pagePoints(nums(r.CL), toPage);
         if (cl.length >= 2) {
           const ending = lineEndingOf(nameOf(r.LE), true);
-          // A borderless callout still draws its leader (Bluebeam: at one point).
-          const leader = width > 0 ? {} : { width: 1, ...(color ? {} : { noBox: true }) };
+          // Bluebeam writes /RD's second and fourth insets the other way up from the PDF
+          // specification's wording (bottom, then top); its leader ends at the box, so the reading
+          // that puts the box beside the leader's end is the one meant.
+          if (rd.length === 4 && Math.abs(rd[1]! - rd[3]!) > 0.5) {
+            const flipped = innerBox([rd[0]!, rd[3]!, rd[2]!, rd[1]!]);
+            const end = cl[cl.length - 1]!;
+            if (distanceToBox(end, flipped) < distanceToBox(end, box)) box = flipped;
+          }
+          // A callout without a border still draws its leader (Bluebeam: at one point); its box keeps its fill.
+          const leader = width > 0 ? {} : { width: 1, ...(color ? { borderless: true } : { noBox: true }) };
           return [{ type: 'callout', points: [cl[0]!, cl[1]!, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' } }];
         }
       }

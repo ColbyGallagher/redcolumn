@@ -25,6 +25,7 @@
     "./export": "./src/export.ts",
     "./pdfExtras": "./src/pdfExtras.ts",
     "./xfdf": "./src/xfdf.ts",
+    "./bax": "./src/bax.ts",
     "./summary": "./src/summary.ts"
   }
 }

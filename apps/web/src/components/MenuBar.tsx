@@ -246,10 +246,12 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.exportImages" />
               <Cmd id="file.exportCsv" label="Markups CSV" />
               <Cmd id="file.exportXfdf" />
+              <Cmd id="file.exportBax" />
               <Cmd id="file.exportSummary" />
             </Submenu>
             <Submenu label="Import">
               <Cmd id="file.importXfdf" label="Markups from XFDF…" />
+              <Cmd id="file.importBax" label="Markups from Bluebeam BAX…" />
               <Cmd id="file.importPdfMarkups" label="Markups from Another PDF…" />
             </Submenu>
             <Cmd id="file.print" />
@@ -352,8 +354,10 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         return (
           <>
             <Cmd id="document.properties" />
+            <Cmd id="document.addBookmark" />
             <Cmd id="document.pageSetup" />
             <Cmd id="document.rotatePages" label="Rotate Pages…" />
+            <Cmd id="document.rotateCounterclockwise" label="Rotate Counterclockwise" />
             <Submenu label="Insert">
               <Cmd id="document.insertPages" label="Pages from PDF…" />
               <Cmd id="document.insertBlank" label="Blank Pages…" />
@@ -481,6 +485,25 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="window.toolbar" />
             <Cmd id="window.leftPanel" />
             <Cmd id="window.bottomPanel" />
+            <Cmd id="window.panels" />
+            <Sep />
+            <Submenu label="Panels">
+              <Cmd id="window.files" />
+              <Cmd id="window.pages" />
+              <Cmd id="window.bookmarks" />
+              <Cmd id="window.toolchest" />
+              <Cmd id="window.properties" />
+              <Cmd id="window.layers" />
+              <Cmd id="window.measurements" />
+              <Cmd id="window.spaces" />
+              <Cmd id="window.signatures" />
+              <Cmd id="window.search" />
+              <Cmd id="window.forms" />
+              <Cmd id="window.sets" />
+              <Cmd id="window.sessions" />
+              <Cmd id="window.markups" />
+              <Cmd id="window.links" />
+            </Submenu>
           </>
         );
       case 'help':

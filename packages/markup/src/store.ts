@@ -57,6 +57,8 @@ const LINK_AUTO_CONFIDENCE = 0.75;
 const LOCAL = Symbol('local');
 /** Origin for automatic sheet detection: persisted and synced, but not undoable. */
 const DETECTION = Symbol('detection');
+/** Markup IDs handed out to markups that had none, or settled after two people made the same one. */
+const NUMBERING = Symbol('numbering');
 
 /**
  * Markups for one PDF, held in a Yjs document so offline edits persist locally (IndexedDB) and
@@ -64,6 +66,9 @@ const DETECTION = Symbol('detection');
  * concurrent edits to the same markup resolve last-writer-wins, edits to different markups merge.
  */
 export class MarkupStore {
+  /** Who is making changes here (Preferences › name): recorded with each status change. */
+  static author = '';
+
   readonly doc = new Y.Doc();
   readonly map: Y.Map<Markup>;
   /** Drawing scale per page, keyed by page index. */
@@ -121,7 +126,59 @@ export class MarkupStore {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
       if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;
       if (tr.changed.size) this.refresh(tr.changed);
+      // Markups that arrive without an ID (stored before IDs, or from an older version in a Live
+      // Session), or with one someone else handed out at the same time, are numbered once the
+      // change has landed.
+      if (tr.changed.has(this.map as Y.AbstractType<any>) && tr.origin !== NUMBERING && tr.origin !== LOCAL) this.scheduleNumbering();
     });
+  }
+
+  private numberingQueued = false;
+  private destroyed = false;
+
+  private scheduleNumbering() {
+    if (this.numberingQueued) return;
+    this.numberingQueued = true;
+    queueMicrotask(() => {
+      this.numberingQueued = false;
+      if (!this.destroyed) this.numberMarkups();
+    });
+  }
+
+  /** The highest markup ID handed out so far: kept in `meta`, so a deleted markup's ID is never reused. */
+  private lastSeq(): number {
+    let max = (this.meta.get('seq') as number | undefined) ?? 0;
+    for (const m of this.map.values()) if (m.seq && m.seq > max) max = m.seq;
+    return max;
+  }
+
+  /**
+   * Gives markups without an ID the next ones, in the order they were made, and settles IDs handed
+   * out twice: two people in a Live Session or Project adding a markup at the same moment both take
+   * the next number. The markup made first keeps it; later ones move to new numbers after the
+   * highest. Every copy of the document works out the same plan from the same markups, so they
+   * agree; each renumbers only markups it may edit, so a duplicate on someone else's markup waits
+   * for them (or the host) to be online.
+   */
+  numberMarkups() {
+    if (this.locked) return;
+    const order = (a: Markup, b: Markup) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const taken = new Set<number>();
+    const pending: Markup[] = [];
+    for (const m of [...this.map.values()].sort(order)) {
+      if (m.seq && !taken.has(m.seq)) taken.add(m.seq);
+      else pending.push(m);
+    }
+    if (!pending.length) return;
+    let next = (this.meta.get('seq') as number | undefined) ?? 0;
+    for (const n of taken) if (n > next) next = n;
+    const plan = pending.map((m) => [m, ++next] as const);
+    const mine = plan.filter(([m]) => this.mayEdit(m));
+    if (!mine.length) return;
+    this.doc.transact(() => {
+      for (const [m, seq] of mine) this.map.set(m.id, { ...m, seq });
+      if (next > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', next);
+    }, NUMBERING);
   }
 
   private edits = 0;
@@ -387,7 +444,9 @@ export class MarkupStore {
   importAnnotations(markups: readonly Markup[], links: readonly DetectedLink[], imported: Record<number, number[]>, extras: ImportedExtras = {}) {
     if (this.locked) return;
     this.doc.transact(() => {
-      for (const m of markups) if (!this.map.has(m.id)) this.map.set(m.id, m);
+      let seq = this.lastSeq();
+      for (const m of markups) if (!this.map.has(m.id)) this.map.set(m.id, m.seq ? m : { ...m, seq: ++seq });
+      if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
       for (const l of links) if (!this.links.has(l.id)) this.links.set(l.id, { ...l, status: 'accepted' });
       for (const [page, scale] of Object.entries(extras.scales ?? {})) if (!this.scales.has(page)) this.scales.set(page, scale);
       for (const v of extras.viewports ?? []) if (!this.viewports.has(v.id)) this.viewports.set(v.id, v);
@@ -547,6 +606,36 @@ export class MarkupStore {
   }
 
   /**
+   * Some markups were flattened into their pages (`ids`), and the PDF's own annotations at
+   * `removed` (per page, /Annots positions) went with them. The markups are dropped, and those
+   * standing for annotations further down a page's list move up to their annotations' new positions.
+   * Not undoable: the file changed underneath.
+   */
+  removeFlattened(ids: Iterable<string>, removed: Record<number, readonly number[]>) {
+    if (this.locked) return;
+    const gone = (page: number) => new Set(removed[page] ?? []);
+    const shift = (page: number, i: number) => i - (removed[page] ?? []).filter((r) => r < i).length;
+    this.doc.transact(() => {
+      for (const id of ids) this.map.delete(id);
+      for (const m of [...this.map.values()]) {
+        const l = m.pdfAnnot;
+        if (!l || l.space || !removed[m.pageIndex]?.length) continue;
+        const g = gone(m.pageIndex);
+        const keep = (list?: number[]) => list?.filter((i) => !g.has(i)).map((i) => shift(m.pageIndex, i));
+        this.map.set(m.id, { ...m, pdfAnnot: { ...l, index: shift(m.pageIndex, l.index), ...(l.owned ? { owned: keep(l.owned) } : {}), ...(l.members ? { members: keep(l.members) } : {}) } });
+      }
+      const imported: Record<number, number[]> = {};
+      for (const [k, list] of Object.entries(this.importedAnnotations())) {
+        const page = Number(k);
+        const g = gone(page);
+        imported[page] = list.filter((i) => !g.has(i)).map((i) => shift(page, i));
+      }
+      this.meta.set('importedAnnotations', imported);
+    }, DETECTION);
+    this.undoManager.clear();
+  }
+
+  /**
    * Replaces every markup (Flatten burns them into the page; Unflatten brings them back). The PDF's
    * own annotations are no longer represented here, so the imported-annotation record is cleared.
    * Not undoable: the file changed underneath.
@@ -621,11 +710,27 @@ export class MarkupStore {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Adds a new markup, numbered with the document's next markup ID (a copy or a pasted markup is a
+   * new markup with its own). A markup already here (same id) is replaced and keeps its ID.
+   */
   add(markup: Markup) {
     if (this.locked) return;
     const clean: Record<string, unknown> = { ...markup };
     for (const k of Object.keys(clean)) if (clean[k] === undefined) delete clean[k];
-    this.doc.transact(() => this.map.set(markup.id, clean as unknown as Markup), LOCAL);
+    this.doc.transact(() => {
+      const existing = this.map.get(markup.id);
+      if (existing) {
+        if (existing.seq) clean.seq = existing.seq;
+      } else {
+        const seq = this.lastSeq() + 1;
+        clean.seq = seq;
+        this.meta.set('seq', seq);
+        // A copy starts without the status it was copied from, so without its history too.
+        if (clean.status === 'none') delete clean.statusHistory;
+      }
+      this.map.set(markup.id, clean as unknown as Markup);
+    }, LOCAL);
   }
 
   /** Merges `patch` into a markup; a field patched to undefined is removed. */
@@ -638,6 +743,12 @@ export class MarkupStore {
       const open = openPatch(patch);
       if (!open) return;
       patch = open;
+    }
+    // A new status goes into the markup's status history: who set it, and when.
+    if (patch.status !== undefined && patch.status !== current.status && !('statusHistory' in patch)) {
+      const def = this.columnSet().statuses.find((s) => s.id === patch.status);
+      const state = def?.name ?? (patch.status === 'none' ? 'None' : patch.status);
+      patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: MarkupStore.author, at: Date.now() }] };
     }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
@@ -692,6 +803,7 @@ export class MarkupStore {
   }
 
   async destroy() {
+    this.destroyed = true;
     this.listeners.clear();
     this.undoManager.destroy();
     await this.persistence?.destroy();

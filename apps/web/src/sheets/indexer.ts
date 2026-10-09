@@ -1,5 +1,5 @@
 import { PdfEngine, type PdfDocument } from '@nb/pdf-core';
-import { DEFAULT_STATUSES, importAnnotations, importColumns, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, importAnnotations, importColumns, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
@@ -128,10 +128,11 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
 export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
   const found = await readPdfAnnotations(await bytes(), store, onProgress, signal);
   store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported, found.extras);
-  // The PDF's own page labels name pages nothing else has (plain page numbers say nothing).
+  // The PDF's own page labels were set by a person (in Bluebeam, say), so they win over numbers
+  // read from the text; AI and manual numbers still win over them. Plain page numbers say nothing.
   const sheets = store.allSheets();
   const labelled = found.labels.flatMap((label, i): [number, SheetInfo][] =>
-    label && label !== String(i + 1) && !sheets[i]?.number ? [[i, { number: label, title: sheets[i]?.title ?? null, discipline: sheets[i]?.discipline ?? null, scaleText: sheets[i]?.scaleText ?? null, revision: sheets[i]?.revision ?? null, source: 'pdf', confidence: 1 }]] : [],
+    label && label !== String(i + 1) ? [[i, { number: label, title: sheets[i]?.title ?? null, discipline: sheets[i]?.discipline ?? null, scaleText: sheets[i]?.scaleText ?? null, revision: sheets[i]?.revision ?? null, source: 'pdf', confidence: 1 }]] : [],
   );
   if (labelled.length) store.setDetectedSheets(labelled);
 }
@@ -158,7 +159,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     const links: DetectedLink[] = [];
     const imported: Record<number, number[]> = {};
     const extras: ImportedExtras = { scales: {}, viewports: [], spaces: {} };
-    const states = new Set<string>();
+    const states = new Map<string, string>();
     const labels = await doc.pageLabels().catch(() => doc.pages.map(() => null));
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
@@ -175,14 +176,19 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
       if (result.imported.length) imported[i] = result.imported;
       if (result.scale) extras.scales![i] = result.scale;
       extras.viewports!.push(...(result.viewports ?? []));
-      for (const s of result.statuses ?? []) states.add(s);
+      for (const s of result.statuses ?? []) if (!states.has(s.name)) states.set(s.name, s.model);
       const spaces = result.markups.flatMap((m) => (m.pdfAnnot?.space ? [m.pdfAnnot.index] : []));
       if (spaces.length) extras.spaces![i] = spaces;
       onProgress({ phase: 'annotations', done: i + 1, total: doc.pages.length });
     }
     if (raw?.columns.length) extras.columns = importColumns(raw.columns);
-    const known = new Set(DEFAULT_STATUSES.map((s) => s.id));
-    extras.statuses = [...states].filter((s) => !known.has(statusIdOf(s))).map((name) => ({ id: statusIdOf(name), name, color: '#9aa1a9' }));
+    // Custom status sets' states (with their colours), then any other states markups were set to.
+    const sets = importStatuses(raw?.statusDefs ?? []);
+    const known = new Set([...DEFAULT_STATUSES, ...sets].map((s) => s.id));
+    extras.statuses = [
+      ...sets.filter((s) => !DEFAULT_STATUSES.some((d) => d.id === s.id)),
+      ...[...states].filter(([name]) => !known.has(statusIdOf(name))).map(([name, model]) => ({ id: statusIdOf(name), name, color: '#9aa1a9', ...(model !== 'Review' ? { model } : {}) })),
+    ];
     return { markups, links, imported, extras, labels };
   });
 }

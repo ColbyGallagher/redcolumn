@@ -61,3 +61,34 @@ test('every markup type exports to a PDF annotation and comes back exactly, repl
   assert.deepEqual(back.map((m) => m.type), MARKUP_TYPES);
   assert.deepEqual(back.map(({ pdfAnnot: _link, ...m }) => m), markups);
 });
+
+test('a reply to a reply points at that reply in the PDF', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  const markups: Markup[] = [
+    {
+      id: 'm1',
+      type: 'cloud',
+      pageIndex: 0,
+      points: [[10, 10], [80, 80]],
+      style: { ...DEFAULT_STYLES.cloud },
+      status: 'none',
+      author: 'A',
+      createdAt: 1,
+      modifiedAt: 1,
+      replies: [
+        { id: 'r1', author: 'B', text: 'First', createdAt: 2 },
+        { id: 'r2', author: 'C', text: 'Second', createdAt: 3, parentId: 'r1' },
+      ],
+    },
+  ];
+  const blank = await doc.save();
+  const bytes = await exportWithAnnotations(blank.buffer as ArrayBuffer, markups);
+  const out = await PDFDocument.load(bytes);
+  const annots = out.getPage(0).node.Annots()!;
+  const dicts = annots.asArray().map((r) => out.context.lookup(r, PDFDict));
+  const nm = (d: PDFDict) => d.lookup(PDFName.of('NM'), PDFString, PDFHexString).decodeText();
+  const byNm = (n: string) => annots.asArray()[dicts.findIndex((d) => nm(d) === n)];
+  const child = dicts.find((d) => nm(d) === 'r2')!;
+  assert.equal(child.get(PDFName.of('IRT')), byNm('r1'));
+});

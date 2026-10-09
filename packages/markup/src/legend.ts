@@ -22,7 +22,7 @@ function totals(m: Markup): m is Markup & { type: MeasureKind } {
 
 /** Markups a legend lists: not legends themselves, signatures or pictures. */
 function listed(m: Markup): boolean {
-  return m.type !== 'legend' && m.type !== 'signature' && m.type !== 'image' && m.type !== 'space' && m.type !== 'redaction';
+  return !m.legendHidden && m.type !== 'legend' && m.type !== 'signature' && m.type !== 'image' && m.type !== 'space' && m.type !== 'redaction';
 }
 
 /**
@@ -47,7 +47,7 @@ export function legendRows(
     }
     // A count markup holds one point per item counted.
     row.count += m.type === 'count' ? m.points.length : 1;
-    if (totals(m)) row.meters += measureValue(m.type, m.points, scaleOf(m).metersPerPoint, measureProps(m));
+    if (totals(m)) row.meters += measureValue(m.type, m.points, scaleOf(m).metersPerPoint, measureProps(m), scaleOf(m).yMetersPerPoint);
   }
   const scale = scaleFor(legend.pageIndex);
   return [...rows.values()].map(({ meters, ...row }) =>

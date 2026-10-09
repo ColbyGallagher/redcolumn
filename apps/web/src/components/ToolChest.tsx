@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, type Markup, type MarkupType, type Point } from '@nb/markup';
+import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, type Markup, type MarkupType, type Point } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { importToolSets, toolSetFile } from '../toolchest/toolSets';
 import { RECENT_TOOLS_ID, updateWorkspace, useWorkspace, type ToolChestItem, type ToolSet } from '../workspace/profiles';
@@ -150,6 +150,8 @@ export function ToolPreview({ item, size = 40 }: { item: Pick<ToolChestItem, 'ty
       drawMarkup(ctx, m, 4);
     };
     draw();
+    // Pictures load after the first paint; redraw the preview once they are decoded.
+    return onImageLoad(draw);
   }, [item, size]);
   return <canvas ref={ref} className="tool-preview" style={{ width: size, height: size }} aria-hidden="true" />;
 }

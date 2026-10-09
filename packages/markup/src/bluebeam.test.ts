@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
-import { importColumns, scaleFromMeasure } from './bluebeam.ts';
+import { importColumns, importStatuses, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { readPdfExtras } from './pdfExtras.ts';
+import { MarkupStore } from './store.ts';
 import type { Markup } from './model.ts';
 
 const text = (s: string) => PDFHexString.fromText(s);
@@ -241,4 +242,139 @@ test('scales keep Bluebeam\'s unit wording and angle precision', () => {
   assert.equal(s.areaUnit, 'm');
   assert.deepEqual(s.areaLabel, { unit: 'm', label: 'sq m' });
   assert.equal(s.anglePrecision, 2);
+});
+
+/**
+ * Columns and statuses as a project's Bluebeam profile leaves them: columns removed from the file
+ * stay listed as /Deleted (one with the same name as a live column), and a custom status set
+ * (/BSIStatus) whose states sit alongside a Review state on the same markup.
+ */
+async function bluebeamStatusSet() {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const ctx = doc.context;
+  doc.catalog.set(
+    PDFName.of('BSIAnnotColumns'),
+    ctx.obj([
+      { Deleted: true, DisplayOrder: -1, Name: text('Package'), Subtype: 'Text' },
+      { Deleted: true, DisplayOrder: -1, Name: text('Priority'), Subtype: 'Choice', Items: ctx.register(ctx.obj([text('Old')])) },
+      { DisplayOrder: 1, Name: text('Priority'), Subtype: 'Choice', Items: ctx.register(ctx.obj([text('High'), text('Medium')])) },
+      { DisplayOrder: 0, Name: text('Organisation'), Subtype: 'Text' },
+    ]),
+  );
+  doc.catalog.set(
+    PDFName.of('BSIStatus'),
+    ctx.obj([
+      { M: text('BSI_SET'), S: text('1.0 Open'), C: [1, 0, 0] },
+      { M: text('BSI_SET'), S: text('1.2 Closed'), C: [0, 0, 1] },
+    ]),
+  );
+  const cloud = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Square', NM: text('SQ'), C: [1, 0, 0], Rect: [10, 10, 100, 100], BSIColumnData: [text('pkg'), text('old'), text('Medium'), text('TFNSW')] }));
+  const state = (nm: string, model: string, s: string, date: string) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Text', IRT: cloud, StateModel: text(model), State: text(s), NM: text(nm), M: text(date), F: 30, Rect: [0, 0, 0, 0] }));
+  const refs = [cloud, state('S1', 'BSI_SET', '1.0 Open', 'D:20251223142229'), state('S2', 'Review', 'Completed', 'D:20260128141815'), state('S3', 'BSI_SET', '1.2 Closed', 'D:20260219100000')];
+  page.node.set(PDFName.of('Annots'), ctx.obj(refs));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: '#ff0000', interior: null, opacity: 1, borderWidth: 1, contents: '', author: 'Pat', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const annotations = refs.map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: index ? 'Text' : 'Square', flags: index ? 30 : 4 }));
+  return { bytes, extras, result: importAnnotations(0, annotations, () => null, extras), columns: importColumns(extras.columns), statuses: importStatuses(extras.statusDefs ?? []) };
+}
+
+test("Bluebeam's deleted columns are not the file's columns, and custom status sets are statuses", async () => {
+  const { result, columns, statuses } = await bluebeamStatusSet();
+  assert.deepEqual(columns.map((c) => [c.name, c.options]), [['Organisation', undefined], ['Priority', ['High', 'Medium']]]);
+  const m = result.markups[0]!;
+  assert.deepEqual(m.fields, { 'bluebeam:Priority': 'Medium', 'bluebeam:Organisation': 'TFNSW' });
+  // The latest state of any model, here the custom set's, is the status.
+  assert.equal(m.status, '1.2 closed');
+  assert.deepEqual(statuses, [
+    { id: '1.0 open', name: '1.0 Open', color: '#ff0000', model: 'BSI_SET' },
+    { id: '1.2 closed', name: '1.2 Closed', color: '#0000ff', model: 'BSI_SET' },
+  ]);
+  assert.deepEqual(result.statuses, [
+    { name: '1.0 Open', model: 'BSI_SET' },
+    { name: 'Completed', model: 'Review' },
+    { name: '1.2 Closed', model: 'BSI_SET' },
+  ]);
+});
+
+test('saving keeps deleted Bluebeam columns and their values, and writes custom statuses in their own set', async () => {
+  const { bytes, result, columns, statuses } = await bluebeamStatusSet();
+  const options = { imported: { 0: [0, 1, 2, 3] }, columns, statuses };
+  const before = await PDFDocument.load(bytes);
+  const catalog = (d: PDFDocument) => d.catalog.lookup(PDFName.of('BSIAnnotColumns'), PDFArray).toString();
+  // Unchanged: the column list exactly as it was (option lists still by reference).
+  const same = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, result.markups, options));
+  assert.equal(catalog(same), catalog(before));
+
+  const edited = result.markups.map((m) => ({ ...m, status: '1.0 open', fields: { ...m.fields, 'bluebeam:Priority': 'High' } }));
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, edited, options));
+  assert.equal(catalog(out), catalog(before));
+  const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
+  const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
+  // Deleted columns keep their values in their own places.
+  assert.deepEqual(dicts[0]!.lookup(PDFName.of('BSIColumnData'), PDFArray).asArray().map((v) => (v as PDFHexString | PDFString).decodeText()), ['pkg', 'old', 'High', 'TFNSW']);
+  const added = dicts.find((d) => str(d, 'StateModel') && !['S1', 'S2', 'S3'].includes(str(d, 'NM')!))!;
+  assert.deepEqual([str(added, 'StateModel'), str(added, 'State')], ['BSI_SET', '1.0 Open']);
+});
+
+test("a markup's whole status history imports with who set each status and when", async () => {
+  const { result } = await bluebeamStatusSet();
+  const m = result.markups[0]!;
+  assert.deepEqual(
+    m.statusHistory?.map((c) => [c.state, c.model, c.nm, new Date(c.at).toISOString().slice(0, 10)]),
+    [
+      ['1.0 Open', 'BSI_SET', 'S1', '2025-12-23'],
+      ['Completed', 'Review', 'S2', '2026-01-28'],
+      ['1.2 Closed', 'BSI_SET', 'S3', '2026-02-19'],
+    ],
+  );
+});
+
+test('status changes made here are saved as state annotations with who and when; earlier ones stay as they were', async () => {
+  const { bytes, result, columns, statuses } = await bluebeamStatusSet();
+  const store = await MarkupStore.open('history', { persist: false });
+  store.importAnnotations(result.markups, [], { 0: [0, 1, 2, 3] }, { statuses });
+  MarkupStore.author = 'Julie Smit';
+  store.update(result.markups[0]!.id, { status: '1.0 open' });
+  MarkupStore.author = '';
+  const m = store.get(result.markups[0]!.id)!;
+  assert.deepEqual(m.statusHistory?.slice(-1).map((c) => [c.state, c.model, c.author, c.nm]), [['1.0 Open', 'BSI_SET', 'Julie Smit', undefined]]);
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [m], { imported: { 0: [0, 1, 2, 3] }, columns, statuses }));
+  const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
+  const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
+  const states = dicts.filter((d) => str(d, 'StateModel'));
+  // The three states the file had, then the new one, by Julie Smit.
+  assert.deepEqual(states.map((d) => [str(d, 'State'), str(d, 'T') ?? '']), [['1.0 Open', ''], ['Completed', ''], ['1.2 Closed', ''], ['1.0 Open', 'Julie Smit']]);
+  assert.equal(str(states[3]!, 'Contents'), '1.0 Open set by Julie Smit');
+  await store.destroy();
+});
+
+test("Bluebeam callouts: the text box where Revu draws it (/RD's insets read Revu's way up) and no outline when /BS /W is 0", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([2384, 1684]);
+  const ctx = doc.context;
+  // As Revu wrote them: the lease-area callout (no fill) and a Cloud+ callout (filled, no border).
+  const lease = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('LEASE'), Contents: text('Why is this lease area still showing?'), DA: text('0 0 1 rg /Helv 12 Tf'), C: [], BS: { W: 0, S: 'S' }, LE: 'OpenArrow', Rect: [707.7795, 1257.421, 1151.957, 1513.268], RD: [5.5, 188.9471, 312.6776, 5.500057], CL: [1146.457, 1262.921, 859.0795, 1477.068, 839.2795, 1477.068] }));
+  const cloud = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('CLOUDPLUS'), Contents: text('Comment carried from 80% design.'), DA: text('0 0 1 rg /Helv 12 Tf'), C: [0.5019608, 1, 1], FillOpacity: 0.4, BS: { W: 0, S: 'S' }, Rect: [8.677246, 795.1425, 145.6772, 971.5886], RD: [5.5, 122.2855, 5.5, 5.500015], CL: [90.65066, 800.6425, 77.17725, 897.6279, 77.17725, 917.428] }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([lease, cloud]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: 'FreeTextCallout', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const result = importAnnotations(0, [lease, cloud].map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: 'FreeText', contents: '' })), () => null, extras);
+  const [a, b] = result.markups;
+  // In PDF space (y up): Revu draws the text at y 1446–1508 and 917–966, beside where the leaders end.
+  const yUp = (m: Markup) => [1684 - Math.max(m.points[2]![1], m.points[3]![1]), 1684 - Math.min(m.points[2]![1], m.points[3]![1])].map(Math.round);
+  assert.deepEqual(yUp(a!), [1446, 1508]);
+  assert.deepEqual(yUp(b!), [917, 966]);
+  assert.equal(b!.style.borderless, true, 'filled, but no outline');
+  assert.equal(b!.style.fill, '#80ffff');
+  assert.equal(b!.style.width, 1, 'the leader still draws');
+
+  // Saved again, its box's top and bottom insets are equal, so every reader puts it in the same place.
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...b!, pdfAnnot: undefined, id: 'new' }], {}));
+  const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
+  const rd = saved.lookup(PDFName.of('RD'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
+  assert.ok(Math.abs(rd[1]! - rd[3]!) < 1e-6, `RD ${rd}`);
+  assert.equal(saved.lookup(PDFName.of('BS'), PDFDict).lookup(PDFName.of('W'), PDFNumber).asNumber(), 0);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 /** One entry in a right-click menu. `items` makes it a submenu; `sep` a separator line. */
 export type MenuEntry =
@@ -8,6 +8,8 @@ export type MenuEntry =
       shortcut?: string;
       disabled?: boolean;
       checked?: boolean;
+      /** Drawn before the label (a tick replaces it while checked). */
+      icon?: ReactNode;
       danger?: boolean;
       onClick?: () => void;
       items?: MenuEntry[];
@@ -57,7 +59,7 @@ function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => vo
           return (
             <div key={`${i}:${it.label}`} className="ctx-has-sub">
               <button role="menuitem" aria-haspopup="menu" className="menu-item has-sub" disabled={it.disabled || !children.length}>
-                <span className="check">{it.checked ? '✓' : ''}</span>
+                <span className="check">{it.checked ? '✓' : (it.icon ?? '')}</span>
                 <span className="label">{it.label}</span>
                 <span className="sc">▸</span>
               </button>
@@ -76,7 +78,7 @@ function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => vo
               it.onClick?.();
             }}
           >
-            <span className="check">{it.checked ? '✓' : ''}</span>
+            <span className="check">{it.checked ? '✓' : (it.icon ?? '')}</span>
             <span className="label">{it.label}</span>
             {it.shortcut ? <span className="sc">{it.shortcut}</span> : <span />}
           </button>

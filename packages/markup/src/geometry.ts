@@ -4,7 +4,8 @@ import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
-import { HATCH_ANGLES, lineEnds, type LineEnding } from './style';
+import { resolveHatch } from './hatches';
+import { lineEnds, type LineEnding } from './style';
 
 /** Path commands in page space. `C` is a cubic Bézier: two control points, then the end point. */
 export type PathCmd = ['M', number, number] | ['L', number, number] | ['C', number, number, number, number, number, number] | ['Z'];
@@ -19,8 +20,10 @@ export interface ShapePart {
    * than its fill opacity.
    */
   decoration?: boolean;
-  /** Hatch lines: clipped to this path and drawn thinner than the outline. */
+  /** Clip hatch (and any other fill of this part) to this path. */
   clip?: PathCmd[];
+  /** Tile this hatch inside `clip`. The path stays empty so tiles are not expanded into commands. */
+  hatch?: { id: string; scale: number; color: string };
   /** Fill (or clip) with the even-odd rule, so inner rings are holes. */
   evenOdd?: boolean;
 }
@@ -31,10 +34,15 @@ const KAPPA = 0.5522847498;
 /** Vector shapes that draw a markup. Text content is laid out separately (see `layoutText`). */
 export function markupShape(m: Markup): ShapePart[] {
   const parts = baseShape(m);
-  const hatch = m.style.hatch;
-  if (hatch && hatch !== 'none' && parts[0] && isClosed(m)) {
-    const spacing = Math.max(3, m.style.width * 4);
-    parts.push({ path: hatchLines(boundsOf(m.points), HATCH_ANGLES[hatch], spacing), stroke: true, fill: null, decoration: true, clip: parts[0].path, evenOdd: parts[0].evenOdd });
+  if (resolveHatch(m.style.hatch) && parts[0] && isClosed(m)) {
+    parts.push({
+      path: [],
+      stroke: false,
+      fill: null,
+      clip: parts[0].path,
+      evenOdd: parts[0].evenOdd,
+      hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke },
+    });
   }
   return parts;
 }
@@ -69,11 +77,13 @@ function baseShape(m: Markup): ShapePart[] {
     case 'image':
     case 'signature': {
       const b = boundsOf(points);
-      const path: PathCmd[] = [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']];
+      const r = m.type === 'rect' ? Math.min(style.cornerRadius ?? 0, b.w / 2, b.h / 2) : 0;
+      const path: PathCmd[] = r > 0 ? roundedRect(b, r) : [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']];
       const boxless = style.noBox && m.type === 'text';
-      return [{ path, stroke: !boxless && (m.type === 'rect' || style.width > 0), fill: boxless ? null : style.fill }];
+      return [{ path, stroke: !boxless && !(style.borderless && m.type === 'text') && (m.type === 'rect' || style.width > 0), fill: boxless ? null : style.fill }];
     }
     case 'polygon':
+      if (style.cornerRadius && points.length > 2) return [{ path: roundedPolyline(points, style.cornerRadius, true), stroke: true, fill: style.fill }];
       return [{ path: points.length > 2 ? [...polyline(points), ['Z']] : polyline(points), stroke: true, fill: style.fill }];
     case 'callout': {
       if (points.length < 4) return withEnds(m, points.slice(0, 2));
@@ -83,7 +93,7 @@ function baseShape(m: Markup): ShapePart[] {
         return withEnds(m, [tip, land.knee, land.attach]);
       });
       const rect: PathCmd[] = [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
-      return [{ path: rect, stroke: style.width > 0 && !style.noBox, fill: style.noBox ? null : style.fill }, ...leaders];
+      return [{ path: rect, stroke: style.width > 0 && !style.noBox && !style.borderless, fill: style.noBox ? null : style.fill }, ...leaders];
     }
     case 'note':
       return notePath(boundsOf(points), style.fill);
@@ -335,7 +345,8 @@ function withEnds(m: Markup, pts: readonly Point[]): ShapePart[] {
   const trimEnd = end(pts[n - 1]!, pts[n - 2]!, endCap);
   moveToward(shaft[0]!, pts[1]!, trimStart);
   moveToward(shaft[n - 1]!, pts[n - 2]!, trimEnd);
-  return [{ path: polyline(shaft), stroke: true, fill: null }, ...parts];
+  const rounded = m.type === 'polyline' && m.style.cornerRadius && n > 2;
+  return [{ path: rounded ? roundedPolyline(shaft, m.style.cornerRadius!, false) : polyline(shaft), stroke: true, fill: null }, ...parts];
 }
 
 function moveToward(p: Point, target: Point, dist: number) {
@@ -388,23 +399,42 @@ function lineEnding(kind: LineEnding, tip: Point, [ux, uy]: [number, number], si
   }
 }
 
-/** Parallel lines at each angle (degrees), `spacing` apart, covering `b`; the caller clips them to the shape. */
-function hatchLines(b: { x: number; y: number; w: number; h: number }, angles: readonly number[], spacing: number): PathCmd[] {
-  const cx = b.x + b.w / 2;
-  const cy = b.y + b.h / 2;
-  const reach = Math.hypot(b.w, b.h) / 2 + spacing;
-  const count = Math.min(500, Math.ceil(reach / spacing));
+/**
+ * A polyline or polygon with its corners rounded: each corner is cut back by up to `r` along both
+ * edges (no more than half an edge, so neighbouring corners never overlap) and joined by a curve.
+ */
+export function roundedPolyline(points: readonly Point[], r: number, closed: boolean): PathCmd[] {
+  const n = points.length;
+  const corner = (i: number) => {
+    const p = points[i]!;
+    const a = points[(i - 1 + n) % n]!;
+    const b = points[(i + 1) % n]!;
+    const la = Math.hypot(a[0] - p[0], a[1] - p[1]);
+    const lb = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const d = Math.min(r, la / 2, lb / 2);
+    if (!(d > 0)) return null;
+    const into: Point = [p[0] + ((a[0] - p[0]) * d) / la, p[1] + ((a[1] - p[1]) * d) / la];
+    const out: Point = [p[0] + ((b[0] - p[0]) * d) / lb, p[1] + ((b[1] - p[1]) * d) / lb];
+    // A quadratic curve with its control point at the corner, as a cubic.
+    const c1: Point = [into[0] + ((p[0] - into[0]) * 2) / 3, into[1] + ((p[1] - into[1]) * 2) / 3];
+    const c2: Point = [out[0] + ((p[0] - out[0]) * 2) / 3, out[1] + ((p[1] - out[1]) * 2) / 3];
+    return { into, out, c1, c2 };
+  };
   const path: PathCmd[] = [];
-  for (const deg of angles) {
-    const t = (deg * Math.PI) / 180;
-    const dx = Math.cos(t);
-    const dy = Math.sin(t);
-    for (let i = -count; i <= count; i++) {
-      const ox = cx - dy * i * spacing;
-      const oy = cy + dx * i * spacing;
-      path.push(['M', ox - dx * reach, oy - dy * reach], ['L', ox + dx * reach, oy + dy * reach]);
+  const first = closed ? 0 : 1;
+  const last = closed ? n - 1 : n - 2;
+  if (!closed) path.push(['M', points[0]![0], points[0]![1]]);
+  for (let i = first; i <= last; i++) {
+    const c = corner(i);
+    const p = points[i]!;
+    if (!c) {
+      path.push([path.length ? 'L' : 'M', p[0], p[1]]);
+      continue;
     }
+    path.push([path.length ? 'L' : 'M', c.into[0], c.into[1]], ['C', c.c1[0], c.c1[1], c.c2[0], c.c2[1], c.out[0], c.out[1]]);
   }
+  if (closed) path.push(['Z']);
+  else path.push(['L', points[n - 1]![0], points[n - 1]![1]]);
   return path;
 }
 
@@ -636,7 +666,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
   }
   const b = markupBounds(m);
   if (p[0] < b.x - tolerance || p[0] > b.x + b.w + tolerance || p[1] < b.y - tolerance || p[1] > b.y + b.h + tolerance) return false;
-  if (m.type === 'area' || m.type === 'volume' || m.type === 'space' || (m.type === 'polygon' && (m.style.fill || (m.style.hatch && m.style.hatch !== 'none')))) {
+  if (m.type === 'area' || m.type === 'volume' || m.type === 'space' || (m.type === 'polygon' && (m.style.fill || resolveHatch(m.style.hatch)))) {
     if (pointInPolygon(p, outlinePoints(m)) && !(m.holes ?? []).some((h) => h.length > 2 && pointInPolygon(p, h))) return true;
   } else if (m.type === 'count') {
     const r = markerSize(m) + tolerance;
@@ -644,7 +674,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
   } else if (TYPE_INFO[m.type].draw === 'text') {
     // Text markups: anywhere on one of their lines.
     return markupLines(m.points).some((r) => p[0] >= r.x - tolerance && p[0] <= r.x + r.w + tolerance && p[1] >= r.y - tolerance && p[1] <= r.y + r.h + tolerance);
-  } else if (TYPE_INFO[m.type].solid || m.style.fill || (m.style.hatch && m.style.hatch !== 'none')) {
+  } else if (TYPE_INFO[m.type].solid || m.style.fill || resolveHatch(m.style.hatch)) {
     // Text boxes and filled shapes are grabbable anywhere inside.
     const inner = contentBox(m);
     if (p[0] >= inner.x && p[0] <= inner.x + inner.w && p[1] >= inner.y && p[1] <= inner.y + inner.h) return true;

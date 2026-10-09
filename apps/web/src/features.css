@@ -894,11 +894,31 @@
 
 /* --- Columns dialog --- */
 
+/* One size whatever is selected, so it never jumps between columns: big. */
 .modal.columns-dialog {
   display: flex;
   flex-direction: column;
-  width: min(860px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  width: min(1100px, calc(100vw - 32px));
+  height: min(780px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.columns-list .col-section {
+  padding: 8px 8px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.col-row .col-hidden {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.builtin-editor h4 {
+  margin: 0 0 6px;
 }
 
 .columns-head {
@@ -930,9 +950,9 @@
 .columns-body {
   display: grid;
   flex: 1;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 12px;
-  min-height: 380px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1210,7 +1230,9 @@
 }
 
 .statuses-body {
-  min-height: 300px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .status-rows {
@@ -1979,33 +2001,27 @@
   font-weight: 400;
 }
 
-.markups tr.reply-row td {
-  padding: 3px 8px 3px 28px;
-  color: var(--muted);
-  font-size: 12px;
+/* A reply is a normal row, indented under the comment it answers. */
+.markups .thread-lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  vertical-align: middle;
 }
 
-.markups tr.reply-row b {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.markups tr.reply-row .reply-arrow {
-  margin-right: 6px;
-}
-
-.markups tr.reply-row .reply-date {
-  margin-right: 6px;
-  font-size: 11px;
-}
-
-.markups tr.reply-row .chip-x {
-  margin-left: 8px;
-  padding: 0 4px;
+.markups .thread-fold {
+  width: 14px;
+  padding: 0;
   border: 0;
   background: none;
   color: var(--muted);
+  font: inherit;
+  line-height: 1;
   cursor: pointer;
+}
+
+.markups tr.reply-row td {
+  background: rgba(255, 255, 255, 0.015);
 }
 
 .markups-bar .group-by {
@@ -2114,6 +2130,78 @@
   resize: vertical;
 }
 
+/* Toolbar Stamp button: every stamp, drawn, with its name. */
+.stamp-menu {
+  position: fixed;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 300px;
+  max-width: min(440px, calc(100vw - 16px));
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.stamp-menu-list {
+  min-height: 0;
+  overflow: auto;
+}
+
+.stamp-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 6px 16px 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stamp-menu-item:hover,
+.stamp-menu-item:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+.stamp-menu-item.current {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.stamp-menu-item:hover.current,
+.stamp-menu-item:focus-visible.current {
+  box-shadow: none;
+}
+
+.stamp-menu-preview {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 168px;
+  padding: 3px 4px;
+  border-radius: 3px;
+  background: #fff;
+}
+
+.stamp-menu .stamp-preview {
+  display: block;
+  pointer-events: none;
+}
+
+.stamp-menu-item .name {
+  flex: 1;
+  min-width: 7em;
+  line-height: 1.3;
+}
+
 /* Bookmarks panel */
 .bookmarks-panel .panel-toolbar {
   display: flex;
@@ -2216,44 +2304,350 @@
   font-size: 12px;
 }
 
-/* Measurements panel: the page's units and precision */
-.scale-settings {
-  display: grid;
-  gap: 4px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+/* Measurements panel */
+.measure-panel {
+  padding: 0 0 12px;
+  scrollbar-gutter: stable;
 }
 
-.props-panel .unit {
+.ms-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 8px 4px;
+}
+
+.ms-split {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.ms-tool {
+  display: grid;
+  width: 26px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 1px dashed #7858a5;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.ms-tool:hover:not(:disabled),
+.ms-drop:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.ms-tool.on {
+  background: rgba(120, 88, 165, 0.35);
+}
+
+.ms-tool:disabled,
+.ms-drop:disabled,
+.ms-btn:disabled,
+.ms-glyph:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ms-drop {
+  display: grid;
+  width: 12px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #c5c8cc;
+  cursor: pointer;
+}
+
+.ms-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: #6d7178;
+}
+
+.ms-twist {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 8px 2px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ms-twist svg.shut {
+  transform: rotate(-90deg);
+}
+
+.ms-block {
+  display: grid;
+  gap: 6px;
+  padding: 4px 10px 8px;
+}
+
+.ms-line {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.ms-line > input {
+  width: 100%;
+  min-width: 0;
+}
+
+.ms-k {
+  color: var(--text);
+  font-size: 12px;
+  text-align: right;
+}
+
+.ms-v {
+  min-width: 0;
+}
+
+.ms-page {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ms-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ms-line > .ms-btn {
+  justify-self: start;
+}
+
+.ms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid #8e939a;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ms-btn:hover:not(:disabled) {
+  border-color: #fff;
+}
+
+.ms-radios,
+.ms-preset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ms-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ms-check input {
+  accent-color: #d7dbe0;
+}
+
+.ms-eq {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.ms-eq input {
+  width: 52px;
+}
+
+.ms-eq select {
+  width: 58px;
+}
+
+.ms-eq-sign {
   color: var(--muted);
+}
+
+.measure-panel input:not([type='checkbox']):not([type='radio']),
+.measure-panel select {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #8e939a;
+  border-radius: 2px;
+  background: #1c1e22;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.ms-precision {
+  width: auto;
+  min-width: 72px;
+  justify-self: start;
+}
+
+.ms-pop-wrap {
+  position: relative;
+}
+
+.ms-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 6;
+  min-width: 160px;
+  padding: 4px 0;
+  border: 1px solid #8e939a;
+  border-radius: 2px;
+  background: #2a2d31;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+}
+
+.ms-menu.up {
+  top: auto;
+  right: 0;
+  bottom: calc(100% + 2px);
+  left: auto;
+}
+
+.ms-menu button {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ms-menu button:hover:not(:disabled),
+.ms-menu button.on {
+  background: rgba(120, 88, 165, 0.35);
+}
+
+.ms-menu button:disabled {
+  opacity: 0.4;
+}
+
+.ms-apply {
+  right: 0;
+  left: auto;
+  width: 200px;
+  padding: 8px;
+}
+
+.ms-apply input {
+  width: 100%;
+  margin: 6px 0;
+}
+
+.ms-apply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .viewports {
   display: grid;
   gap: 4px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  padding: 4px 10px 8px;
+}
+
+.ms-vp-box {
+  min-height: 108px;
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid #8e939a;
+  border-radius: 2px;
+  background: #23262a;
+}
+
+.ms-vp-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 3px;
+}
+
+.ms-vp-row.on {
+  background: rgba(59, 130, 246, 0.28);
+}
+
+.ms-vp-row input,
+.ms-vp-row select {
+  min-width: 0;
+  width: 100%;
 }
 
 .viewports-head {
   display: flex;
-  gap: 6px;
   align-items: center;
+  gap: 2px;
 }
 
-.viewports-head .prop-label {
+.ms-grow {
   flex: 1;
 }
 
-.viewport-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 4px;
+.ms-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: #e8eaed;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
 }
 
-.viewport-row input,
-.viewport-row select {
-  min-width: 0;
+.ms-glyph.on,
+.ms-glyph:hover:not(:disabled) {
+  color: #fff;
+}
+
+.props-panel .unit {
+  color: var(--muted);
 }
 
 /* Spaces panel */
@@ -3116,35 +3510,209 @@ tr.hidden-markup td {
   font-size: 11px;
 }
 
-.layers .panel-subhead {
-  margin: 12px 10px 4px;
-  color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.layer-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.layer-actions {
+.panel.left > .layers {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+
+.layers-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 0 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.layers-menu-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.layers-menu-btn:hover:not(:disabled) {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.layers-menu-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.layers-menu-btn.title {
   padding: 0 8px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.layer-lock {
-  margin-left: 4px;
-  font-size: 10px;
-}
-
-.layers .count {
-  margin-left: auto;
+.layers-menu-btn .caret {
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+}
+
+.layers-config {
+  flex: 1 1 60px;
+  min-width: 0;
+  max-width: 120px;
+  height: 22px;
+}
+
+.layers-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.layers-grid table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.layers-grid th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  width: 50px;
+  height: 26px;
+  padding: 0 6px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  font-weight: 600;
+  text-align: left;
+}
+
+.layers-grid th.layer-name {
+  width: auto;
+}
+
+.layers-grid th .layer-twisty {
+  vertical-align: -2px;
+}
+
+.layers-grid td {
+  height: 22px;
+  padding: 0;
+  border-right: 1px solid var(--border);
+}
+
+.layers-grid td.layer-flag {
+  text-align: center;
+}
+
+.layers-grid td.layer-flag input {
+  display: block;
+  width: 13px;
+  height: 13px;
+  margin: 0 auto;
+  border: 1px solid var(--muted);
+  border-radius: 2px;
+  background: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+.layers-grid td.layer-flag input:checked {
+  background: no-repeat center / 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5.2' fill='none' stroke='%23e6e8eb' stroke-width='1.5'/%3E%3C/svg%3E");
+}
+
+.layers-grid td.layer-flag input:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.layer-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.layers-grid tbody tr {
+  cursor: default;
+}
+
+.layers-grid tbody tr:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.layers-grid tbody tr.selected {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.layer-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layers-grid tr.off .layer-label {
+  color: var(--muted);
+}
+
+.layer-twisty,
+.layer-twisty-space {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+  padding: 0;
+  border: 1px solid var(--muted);
+  background: none;
+  color: var(--text);
+  font: 11px/1 inherit;
+  cursor: pointer;
+}
+
+.layer-twisty-space {
+  border-color: transparent;
+}
+
+.layer-twisty:disabled {
+  opacity: 0.4;
+}
+
+.layer-eye {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.layer-eye:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.layers-grid tr.off .layer-eye {
+  color: var(--muted);
+}
+
+.layers .empty {
+  padding: 10px;
 }
 
 .redact-preview {
@@ -3283,4 +3851,313 @@ tr.hidden-markup td {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* Markup Summary (Bluebeam's columns / filter / output dialog) */
+
+.modal.markup-summary {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  overflow: hidden;
+}
+
+.markup-summary .ms-title,
+.markup-summary .ms-file-actions,
+.markup-summary .ms-tabs,
+.markup-summary .ms-footer,
+.markup-summary .actions,
+.markup-summary .ms-check,
+.markup-summary .ms-sort,
+.markup-summary .ms-include,
+.markup-summary .ms-field {
+  flex: none;
+}
+
+.markup-summary .ms-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.markup-summary .ms-title h3 {
+  margin: 0;
+}
+
+.markup-summary .ms-files {
+  flex: none;
+  height: 108px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.markup-summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markup-summary th,
+.markup-summary td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.markup-summary th {
+  position: sticky;
+  top: 0;
+  background: #2a2d31;
+  font-weight: 600;
+}
+
+.markup-summary tr.selected td {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.markup-summary .ms-empty {
+  color: var(--muted);
+}
+
+.markup-summary .ms-files select,
+.markup-summary .ms-files input {
+  max-width: 220px;
+}
+
+.markup-summary .ms-file-actions,
+.markup-summary .ms-footer,
+.markup-summary .ms-sort-row,
+.markup-summary .ms-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.markup-summary .ms-file-actions,
+.markup-summary .ms-footer {
+  margin-top: 8px;
+}
+
+.markup-summary .ms-spacer {
+  flex: 1;
+}
+
+.markup-summary .ms-add {
+  position: relative;
+}
+
+.markup-summary .ms-menu,
+.markup-summary .ms-filter-pop,
+.markup-summary .ms-library {
+  position: absolute;
+  z-index: 5;
+  min-width: 220px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.markup-summary .ms-menu {
+  top: calc(100% + 4px);
+  left: 0;
+}
+
+.markup-summary .ms-menu button,
+.markup-summary .ms-library label,
+.markup-summary .ms-filter-pop label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.markup-summary .ms-menu button:hover,
+.markup-summary .ms-library label:hover,
+.markup-summary .ms-filter-pop label:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.markup-summary .ms-tabs {
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.markup-summary .ms-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  overflow: auto;
+}
+
+.markup-summary .ms-grid {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.markup-summary .ms-sample {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markup-summary .ms-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.markup-summary .ms-tick {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.markup-summary .ms-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.markup-summary .ms-check.indent {
+  margin-left: 22px;
+}
+
+.markup-summary .ms-sort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.markup-summary .ms-sort-row span {
+  width: 64px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-sort-row select {
+  min-width: 140px;
+}
+
+.markup-summary .ms-field span {
+  width: 72px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-field input,
+.markup-summary .ms-field select {
+  flex: 1;
+}
+
+.markup-summary .ms-include {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.markup-summary .ms-include legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-output {
+  overflow: auto;
+}
+
+.markup-summary .ms-filter {
+  position: relative;
+}
+
+.markup-summary .ms-filter-btn {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #1f2124;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.markup-summary .ms-filter-pop {
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+}
+
+.markup-summary .ms-message {
+  flex: none;
+  max-height: 2.6em;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.markup-summary .ms-resize {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.markup-summary .ms-resize-e {
+  top: 8px;
+  right: 0;
+  bottom: 16px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.markup-summary .ms-resize-s {
+  right: 16px;
+  bottom: 0;
+  left: 8px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.markup-summary .ms-resize-se {
+  right: 1px;
+  bottom: 1px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 38%, var(--muted) 38% 46%, transparent 46% 58%, var(--muted) 58% 66%, transparent 66% 78%, var(--muted) 78% 86%, transparent 86%);
+}
+
+.markup-summary .ms-footer {
+  margin-top: 10px;
+}
+
+.markup-summary .actions {
+  margin-top: 8px;
 }

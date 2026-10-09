@@ -34,6 +34,10 @@ pnpm test
 pnpm typecheck
 ```
 
+The user help (Help › Help, F1) is in `apps/web/public/help`: Markdown pages in `pages/`, the
+contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample drawings (see the
+header of `scripts/help/shots.cjs`); re-run it after changing the interface.
+
 `apps/web/.env.example` lists the optional settings for Google Drive and OneDrive; setting them up
 is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 

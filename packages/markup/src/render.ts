@@ -5,6 +5,7 @@ import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBou
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { stampLayout } from './stamp';
+import { hatchDraw, paintHatchCell, type HatchDraw } from './hatches';
 import { cssFont, dashPattern, labelStyle, textColor } from './style';
 
 export const TEXT_FONT_FAMILY = 'Helvetica, Arial, sans-serif';
@@ -40,6 +41,105 @@ function tracePath(ctx: CanvasRenderingContext2D, path: PathCmd[]) {
   }
 }
 
+const hatchTiles = new Map<string, CanvasImageSource>();
+
+/** A repeating bitmap of one tile, or null where no canvas can be built (unit tests). */
+function hatchTile(draw: HatchDraw, color: string, zoom: number): CanvasImageSource | null {
+  const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const pxW = Math.max(1, Math.min(512, Math.round(draw.metrics.cellW * z)));
+  const pxH = Math.max(1, Math.min(512, Math.round(draw.metrics.cellH * z)));
+  const key = `${draw.id}|${color}|${pxW}x${pxH}|${draw.metrics.lineWidth.toFixed(3)}`;
+  const cached = hatchTiles.get(key);
+  if (cached) return cached;
+  try {
+    if (typeof document === 'undefined') return null;
+    const canvas = document.createElement('canvas');
+    canvas.width = pxW;
+    canvas.height = pxH;
+    const tile = canvas.getContext('2d');
+    if (!tile) return null;
+    tile.scale(pxW / draw.metrics.cellW, pxH / draw.metrics.cellH);
+    tile.beginPath();
+    tile.rect(0, 0, draw.metrics.cellW, draw.metrics.cellH);
+    tile.clip();
+    paintHatchCell(tile, draw, color);
+    hatchTiles.set(key, canvas);
+    if (hatchTiles.size > 48) {
+      const first = hatchTiles.keys().next().value;
+      if (first) hatchTiles.delete(first);
+    }
+    return canvas;
+  } catch {
+    return null;
+  }
+}
+
+function pathBounds(path: PathCmd[]): { x: number; y: number; w: number; h: number } {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const c of path) {
+    for (let i = 1; i + 1 < c.length; i += 2) {
+      const x = c[i] as number;
+      const y = c[i + 1] as number;
+      x0 = Math.min(x0, x);
+      y0 = Math.min(y0, y);
+      x1 = Math.max(x1, x);
+      y1 = Math.max(y1, y);
+    }
+  }
+  if (!Number.isFinite(x0)) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/** Fills `clip` with a hatch. A bitmap pattern when a canvas exists; otherwise the tiles that cover the clip. */
+function paintHatch(ctx: CanvasRenderingContext2D, clip: PathCmd[], evenOdd: boolean | undefined, hatch: { id: string; scale: number; color: string }, alpha: number, zoom: number) {
+  const draw = hatchDraw(hatch.id, hatch.scale);
+  if (!draw) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.setLineDash([]);
+  tracePath(ctx, clip);
+  ctx.clip(evenOdd ? 'evenodd' : 'nonzero');
+  const tile = hatchTile(draw, hatch.color, zoom);
+  const pattern = tile ? ctx.createPattern(tile, 'repeat') : null;
+  if (pattern) {
+    const source = tile as { width?: number; height?: number };
+    const sx = draw.metrics.cellW / (source.width || draw.metrics.cellW);
+    const sy = draw.metrics.cellH / (source.height || draw.metrics.cellH);
+    try {
+      pattern.setTransform(new DOMMatrix([sx, 0, 0, sy, 0, 0]));
+    } catch {
+      /* Pattern still repeats; a missing matrix leaves it in pixel space. */
+    }
+    ctx.fillStyle = pattern;
+    tracePath(ctx, clip);
+    ctx.fill(evenOdd ? 'evenodd' : 'nonzero');
+  } else {
+    const b = pathBounds(clip);
+    const { cellW, cellH } = draw.metrics;
+    if (cellW > 0 && cellH > 0) {
+      const i0 = Math.floor(b.x / cellW) - 1;
+      const i1 = Math.ceil((b.x + b.w) / cellW) + 1;
+      const j0 = Math.floor(b.y / cellH) - 1;
+      const j1 = Math.ceil((b.y + b.h) / cellH) + 1;
+      const maxTiles = 2000;
+      let tiles = 0;
+      for (let i = i0; i <= i1 && tiles < maxTiles; i++) {
+        for (let j = j0; j <= j1 && tiles < maxTiles; j++) {
+          tiles++;
+          ctx.save();
+          ctx.translate(i * cellW, j * cellH);
+          paintHatchCell(ctx, draw, hatch.color);
+          ctx.restore();
+        }
+      }
+    }
+  }
+  ctx.restore();
+}
+
 /** Text and position of a measurement's value label, or null for other markups or hidden labels. */
 export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { text: string; at: [number, number] } | null {
   if (!isMeasureKind(m.type) || m.points.length === 0 || m.style.showLabel === false) return null;
@@ -48,7 +148,9 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { tex
     const [nx, ny] = dimensionNormal(m.points[0]!, m.points[m.points.length - 1]!);
     at = [at[0] + nx * m.style.leader, at[1] + ny * m.style.leader];
   }
-  return { text: measureLabel(m.type, m.points, scale, measureProps(m)), at };
+  const value = measureLabel(m.type, m.points, scale, measureProps(m));
+  const caption = m.text?.trim();
+  return { text: caption ? `${caption} ${value}` : value, at };
 }
 
 /**
@@ -127,14 +229,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   // Highlighter multiplies so drawing detail stays visible underneath.
   if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
   for (const part of markupShape(m)) {
-    if (part.clip) {
-      ctx.save();
-      tracePath(ctx, part.clip);
-      ctx.clip(part.evenOdd ? 'evenodd' : 'nonzero');
-      ctx.lineWidth = lineWidth / 2;
-      tracePath(ctx, part.path);
-      ctx.stroke();
-      ctx.restore();
+    if (part.hatch && part.clip) {
+      paintHatch(ctx, part.clip, part.evenOdd, part.hatch, style.opacity * (style.fillOpacity ?? 1), zoom);
       continue;
     }
     tracePath(ctx, part.path);

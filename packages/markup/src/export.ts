@@ -10,8 +10,9 @@ import { markupLines } from './textSelect';
 import { legendLayout, legendRows } from './legend';
 import { stampLayout } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, type Markup, type MarkupStyle, type Point, type Reply } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
+import { hatchDraw, type HatchDraw } from './hatches';
 import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
@@ -181,6 +182,26 @@ function measureDict(scale: Scale): LiteralObject {
 
 const dashOp = (dash: number[]) => `[${dash.map(fmt).join(' ')}] 0 d`;
 
+/** One uncolored tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. */
+function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
+  const { cellW, cellH, lineWidth } = draw.metrics;
+  const ops = [`0 0 ${fmt(cellW)} ${fmt(cellH)} re W n`, `${fmt(lineWidth)} w`, '0 J 0 j'];
+  if (draw.lines.length) {
+    for (const l of draw.lines) ops.push(`${fmt(l.x1)} ${fmt(l.y1)} m ${fmt(l.x2)} ${fmt(l.y2)} l`);
+    ops.push('S');
+  }
+  for (const d of draw.dots) ops.push(`${fmt(d.x + d.r)} ${fmt(d.y)} m ${fmt(d.x)} ${fmt(d.y)} ${fmt(d.r)} 0 360 arc f`);
+  return doc.context.flateStream(ops.join('\n'), {
+    Type: 'Pattern',
+    PatternType: 1,
+    PaintType: 2,
+    TilingType: 1,
+    BBox: [0, 0, cellW, cellH],
+    XStep: cellW,
+    YStep: cellH,
+  });
+}
+
 function underlineOps(x: number, y: number, w: number, size: number): string {
   return `${fmt(Math.max(size * 0.06, 0.25))} w 0 J [] 0 d ${fmt(x)} ${fmt(y)} m ${fmt(x + w)} ${fmt(y)} l S`;
 }
@@ -203,9 +224,25 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
   ops.push('/GS0 gs', `${fmt(style.width)} w`, '1 J 1 j', `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`);
   if (m.type === 'highlighter') ops.push('0 J');
+  let hatchPattern: PDFRef | null = null;
   for (const part of markupShape(m)) {
-    if (part.clip) {
-      ops.push('q', pathOps(part.clip), part.evenOdd ? 'W* n' : 'W n', `${fmt(style.width / 2)} w [] 0 d`, pathOps(part.path), 'S', 'Q');
+    if (part.hatch && part.clip) {
+      const draw = hatchDraw(part.hatch.id, part.hatch.scale);
+      if (draw) {
+        const [hr, hg, hb] = rgb(part.hatch.color);
+        hatchPattern = doc.context.register(hatchPatternStream(doc, draw));
+        ops.push(
+          'q',
+          pathOps(part.clip),
+          part.evenOdd ? 'W* n' : 'W n',
+          '/GSH gs',
+          '/CsH cs',
+          `${fmt(hr)} ${fmt(hg)} ${fmt(hb)} /P0 scn`,
+          pathOps(part.clip),
+          part.evenOdd ? 'f*' : 'f',
+          'Q',
+        );
+      }
       continue;
     }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
@@ -225,8 +262,13 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
+      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
     },
   };
+  if (hatchPattern) {
+    resources.Pattern = { P0: hatchPattern };
+    resources.ColorSpace = { CsH: ['Pattern', 'DeviceRGB'] };
+  }
 
   const label = measurementLabel(m, ctx.scale);
   if (label) {
@@ -429,6 +471,15 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     Math.max(corners[0]![0], corners[1]![0]),
     Math.max(corners[0]![1], corners[1]![1]),
   ];
+  if (m.type === 'callout' && m.points.length >= 4) {
+    // A callout's box goes in /RD, whose top and bottom insets Bluebeam reads the other way up from
+    // other readers: equal ones (Rect grown to match) mean the same box to all of them.
+    const box = contentBox(m);
+    const ys = [apply(matrix, [box.x, box.y])[1], apply(matrix, [box.x + box.w, box.y + box.h])[1]];
+    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1]);
+    rect[1] = Math.min(...ys) - inset;
+    rect[3] = Math.max(...ys) + inset;
+  }
   const user = m.points.map((p) => apply(matrix, p));
   const flat = (pts: Point[]) => pts.flatMap(([x, y]) => [x, y]);
   // Arc segments go out as short straight ones (other readers see the shape; ours read NBData).
@@ -436,7 +487,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const color = rgb(m.style.stroke);
   const fill = m.style.fill ? rgb(m.style.fill) : null;
   // A boxless text box has no border for other readers to draw.
-  const borderWidth = m.style.noBox && m.type === 'text' ? 0 : m.style.width;
+  const borderWidth = (m.style.noBox && m.type === 'text') || (m.style.borderless && (m.type === 'text' || m.type === 'callout')) ? 0 : m.style.width;
   const dash = dashPattern(m.style.dash, m.style.width);
   const [startCap, endCap] = lineEnds(m);
   const le = [PDF_LINE_ENDINGS[startCap], PDF_LINE_ENDINGS[endCap]];
@@ -587,7 +638,8 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
         Subtype: 'PolyLine',
         Vertices: flat(curved(false)),
         Measure: measureDict(ctx.scale),
-        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', LE: le } : { IT: 'PolyLineAngle' }),
+        // Revu tells a polylength from a perimeter by its rise and drop.
+        ...(m.type === 'polylength' ? { IT: 'PolyLineDimension', LE: le, RiseDrop: 0 } : { IT: 'PolyLineAngle' }),
       };
       break;
     case 'area':
@@ -739,6 +791,21 @@ function replyDict(doc: PDFDocument, parent: PDFRef, m: Markup, r: Reply): PDFDi
     AP: { N: empty },
     [APP_DATA_KEY]: pdfText(JSON.stringify({ replyTo: m.id })),
   });
+}
+
+/**
+ * New replies, parents before the replies that answer them, each pointing at the annotation it
+ * answers (a reply, or the markup). Replies already in `known` are left as they are.
+ */
+function placeReplies(doc: PDFDocument, markupRef: PDFRef, m: Markup, known: Map<string, PDFRef>): PDFRef[] {
+  const made: PDFRef[] = [];
+  for (const { reply } of threadReplies((m.replies ?? []).filter((r) => !known.has(r.id)))) {
+    const irt = (reply.parentId && known.get(reply.parentId)) || markupRef;
+    const ref = doc.context.register(replyDict(doc, irt, m, reply));
+    known.set(reply.id, ref);
+    made.push(ref);
+  }
+  return made;
 }
 
 /** Page-space rect → [left, bottom, right, top] in the page's user space. */
@@ -1026,9 +1093,13 @@ function refreshRichText(d: PDFDict, always = false) {
   d.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
 }
 
-/** A review-state annotation as Bluebeam and Acrobat write one: the markup's status, changed. */
-function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model: 'Review' | 'Marked' = 'Review'): PDFDict {
-  const now = Date.now();
+/**
+ * A review-state annotation as Bluebeam and Acrobat write one: a status set on the markup, by
+ * `change.author` at `change.at` (the markup's author, now, without one).
+ */
+function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, model = 'Review', change?: StatusChange, n = 0): PDFDict {
+  const at = change?.at ?? Date.now();
+  const author = change ? change.author : m.author;
   return doc.context.obj({
     Type: 'Annot',
     Subtype: 'Text',
@@ -1039,16 +1110,36 @@ function stateDict(doc: PDFDocument, parent: PDFRef, m: Markup, state: string, m
     StateModel: pdfText(model),
     State: pdfText(state),
     Subj: pdfText(model === 'Marked' ? (state === 'Marked' ? 'Checked' : 'Unchecked') : `Set to ${state}`),
-    T: pdfText(m.author),
-    NM: pdfText(`${m.id}-state-${now}`),
-    M: pdfDate(now),
-    CreationDate: pdfDate(now),
+    // As Bluebeam words it in the status history.
+    ...(model === 'Marked' ? {} : { Contents: pdfText(author ? `${state} set by ${author}` : state) }),
+    T: pdfText(author),
+    NM: pdfText(`${m.id}-state-${at}${n ? `-${n}` : ''}`),
+    M: pdfDate(at),
+    CreationDate: pdfDate(at),
   });
+}
+
+/**
+ * The status changes to write for a markup: those of its history not yet in the file (all of them
+ * for a markup new to the file). A status set before histories were kept is one change, by the
+ * markup's author, when it differs from the status in the file.
+ */
+function statesToWrite(m: Markup, inFile: boolean, statuses: readonly MarkupStatusDef[]): { state: string; model: string; change?: StatusChange }[] {
+  const history = (m.statusHistory ?? []).filter((c) => !inFile || !c.nm);
+  if (history.length) return history.map((c) => ({ state: c.state, model: c.model, change: c }));
+  const was = inFile ? (m.pdfAnnot?.status ?? 'none') : 'none';
+  if (m.status === was || (!inFile && m.status === 'none')) return [];
+  return [{ state: stateName(m.status, statuses), model: stateModel(m.status, statuses) }];
 }
 
 /** A status id's name for a review state: its definition's, else the id capitalised. */
 function stateName(id: string, statuses: readonly MarkupStatusDef[]): string {
   return statuses.find((s) => s.id === id)?.name || (id === 'none' ? 'None' : id.charAt(0).toUpperCase() + id.slice(1));
+}
+
+/** The state model a status is set in: its custom status set's, else Review. */
+function stateModel(id: string, statuses: readonly MarkupStatusDef[]): string {
+  return statuses.find((s) => s.id === id)?.model || 'Review';
 }
 
 // ---- Bluebeam custom columns --------------------------------------------------------------------
@@ -1064,8 +1155,11 @@ const BB_COLUMN_TYPES: Record<CustomColumn['type'], string> = {
 };
 
 interface ColumnLayout {
-  /** The columns in the order their values are stored. */
-  columns: CustomColumn[];
+  /**
+   * The columns in the order their values are stored. Null is a column deleted in Bluebeam: it
+   * stays in the file, hidden, keeping its place and the values stored for it.
+   */
+  columns: (CustomColumn | null)[];
   /** For each column, its position in the file's original list (-1 for a new one). */
   from: number[];
   /** Stored values changed position (a column was removed or reordered): every annotation's values are realigned. */
@@ -1082,13 +1176,23 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
   if (!columns.length || (!existing && !used)) return null;
   const original = (existing?.asArray() ?? []).map((x) => doc.context.lookup(x)).map((d) => (d instanceof PDFDict ? d : null));
   const nameOfColumn = (d: PDFDict | null) => d?.lookupMaybe(PDFName.of('Name'), PDFString, PDFHexString)?.decodeText().trim() ?? '';
-  const at = (c: CustomColumn) => original.findIndex((d) => nameOfColumn(d) === c.name.trim());
-  const ordered = [...columns.filter((c) => at(c) >= 0).sort((a, b) => at(a) - at(b)), ...columns.filter((c) => at(c) < 0)];
-  const from = ordered.map(at);
+  const deleted = (d: PDFDict | null) => d?.lookupMaybe(PDFName.of('Deleted'), PDFBool)?.asBoolean() === true;
+  // A deleted column can share its name with a live one ("Priority" removed, then added again).
+  const at = (c: CustomColumn) => original.findIndex((d) => !deleted(d) && nameOfColumn(d) === c.name.trim());
+  // Columns the file had, in the file's order (deleted ones kept as they are), then new ones.
+  const slots: { c: CustomColumn | null; from: number }[] = [];
+  original.forEach((d, i) => {
+    if (deleted(d)) slots.push({ c: null, from: i });
+    else for (const c of columns) if (at(c) === i) slots.push({ c, from: i });
+  });
+  for (const c of columns) if (at(c) < 0) slots.push({ c, from: -1 });
+  const ordered = slots.map((s) => s.c);
+  const from = slots.map((s) => s.from);
   const moved = from.some((f, i) => f >= 0 && f !== i) || original.length > from.filter((f) => f >= 0).length;
   const display = new Map(columns.map((c, i) => [c.id, i]));
   const entries = ordered.map((c, i) => {
     const d = from[i]! >= 0 ? (original[from[i]!]!.clone(doc.context) as PDFDict) : doc.context.obj({});
+    if (!c) return d;
     const type = BB_COLUMN_TYPES[c.type];
     if (nameValue(d, 'Subtype') !== type) d.set(PDFName.of('Subtype'), PDFName.of(type));
     if (d.lookupMaybe(PDFName.of('DisplayOrder'), PDFNumber)?.asNumber() !== (display.get(c.id) ?? i)) d.set(PDFName.of('DisplayOrder'), PDFNumber.of(display.get(c.id) ?? i));
@@ -1105,7 +1209,11 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
     }
     if (c.type === 'formula' && c.formula) setText('Expression', c.formula);
     if (c.type === 'date' && !d.has(PDFName.of('Format'))) d.set(PDFName.of('Format'), pdfText('MM/dd/yyyy'));
-    if (c.type === 'choice') d.set(PDFName.of('Items'), doc.context.obj((c.options ?? []).map((o) => pdfText(o))));
+    if (c.type === 'choice') {
+      const items = d.lookupMaybe(PDFName.of('Items'), PDFArray)?.asArray().map((x) => (doc.context.lookup(x) as PDFString | PDFHexString | undefined)?.decodeText?.() ?? null);
+      const options = c.options ?? [];
+      if (!items || items.length !== options.length || items.some((x, i) => x !== options[i])) d.set(PDFName.of('Items'), doc.context.obj(options.map((o) => pdfText(o))));
+    }
     return d;
   });
   const unchanged =
@@ -1117,9 +1225,17 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
   return { columns: ordered, from, moved };
 }
 
-/** A markup's custom column values as Bluebeam's /BSIColumnData. */
-function columnData(doc: PDFDocument, m: Markup, layout: ColumnLayout): PDFArray {
-  const values = layout.columns.map((c) => {
+/**
+ * A markup's custom column values as Bluebeam's /BSIColumnData. Deleted columns keep the values
+ * `old` (the annotation's own /BSIColumnData) had for them.
+ */
+function columnData(doc: PDFDocument, m: Markup, layout: ColumnLayout, old?: PDFArray): PDFArray {
+  const values = layout.columns.map((c, i) => {
+    if (!c) {
+      const f = layout.from[i]!;
+      const v = f >= 0 && old && f < old.size() ? old.lookup(f) : undefined;
+      return v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '';
+    }
     const v = m.fields?.[c.id] ?? '';
     // Bluebeam works calculations out itself.
     if (c.type === 'formula') return '';
@@ -1172,8 +1288,10 @@ function writeSpaces(doc: PDFDocument, page: PDFPage, matrix: Matrix, spaces: re
   else page.node.delete(PDFName.of('BSISpaces'));
 }
 
+const yOf = (s: Scale) => s.yMetersPerPoint ?? s.metersPerPoint;
 const sameScale = (a: Scale | null, b: Scale | null) =>
-  a === b || (!!a && !!b && a.unit === b.unit && a.feetInches === b.feetInches && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-6);
+  a === b ||
+  (!!a && !!b && a.unit === b.unit && a.feetInches === b.feetInches && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-6 && Math.abs(yOf(a) / yOf(b) - 1) < 1e-6);
 
 /**
  * Writes the page's scale and viewports as Bluebeam's /VP when they differ from what the file
@@ -1361,12 +1479,12 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
     const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
-    const build = (m: Markup) => {
+    const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.
       const oc = m.layer ? layerRefs.get(m.layer) : undefined;
       if (oc) dict.set(PDFName.of('OC'), oc);
-      if (columns && (m.fields || dict.has(PDFName.of('BSIColumnData')))) dict.set(PDFName.of('BSIColumnData'), columnData(doc, m, columns));
+      if (columns && (m.fields || dict.has(PDFName.of('BSIColumnData')))) dict.set(PDFName.of('BSIColumnData'), columnData(doc, m, columns, orig?.lookupMaybe(PDFName.of('BSIColumnData'), PDFArray)));
       return dict;
     };
 
@@ -1406,7 +1524,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         // A count imported from one annotation per item writes each item over its own annotation.
         const items = main.type === 'count' && main.pdfAnnot!.members ? main.points.map((p) => ({ ...main, points: [p] })) : null;
         const first = items?.[0] ?? main;
-        const ours = build(first);
+        const ours = build(first, orig);
         // Ink strokes split into several markups go back as one annotation.
         if (ms.length > 1 && (main.type === 'pen' || main.type === 'highlighter')) ours.set(PDFName.of('InkList'), doc.context.obj(ms.map((m) => m.points.flatMap((p) => apply(ctx.matrix, p)))));
         const merged = mergeAnnotation(doc, orig, ours, nativeForm(orig, first, ctx.matrix));
@@ -1423,8 +1541,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
         // Replies and review states: those still here stay, removed ones go, new ones are added.
         const replies = new Map((main.replies ?? []).map((r) => [r.id, r]));
+        const known = new Map<string, PDFRef>();
         for (const i of main.pdfAnnot!.owned ?? []) {
-          const o = doc.context.lookup(annots.get(i));
+          const entryI = annots.get(i);
+          const o = doc.context.lookup(entryI);
           if (!(o instanceof PDFDict) || nameValue(o, 'Subtype') !== 'Text' || o.has(PDFName.of('StateModel'))) continue;
           const id = o.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() ?? `pdf-${pageIndex}-${i}`;
           const reply = replies.get(id);
@@ -1432,14 +1552,15 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
             remove.add(i);
             continue;
           }
+          if (entryI instanceof PDFRef) known.set(id, entryI);
           if ((o.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '') !== reply.text) {
             o.set(PDFName.of('Contents'), pdfText(reply.text));
             o.delete(PDFName.of('RC'));
           }
           replies.delete(id);
         }
-        for (const r of replies.values()) added.push(doc.context.register(replyDict(doc, parentRef, main, r)));
-        if (main.status !== (main.pdfAnnot!.status ?? 'none')) added.push(doc.context.register(stateDict(doc, parentRef, main, stateName(main.status, statuses))));
+        added.push(...placeReplies(doc, parentRef, main, known));
+        statesToWrite(main, true, statuses).forEach((s, n) => added.push(doc.context.register(stateDict(doc, parentRef, main, s.state, s.model, s.change, n))));
         if (!!main.checked !== !!main.pdfAnnot!.checked) added.push(doc.context.register(stateDict(doc, parentRef, main, main.checked ? 'Marked' : 'Unmarked', 'Marked')));
         if (items) {
           const members = main.pdfAnnot!.members!;
@@ -1494,8 +1615,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       const dict = build(m);
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
-      for (const r of m.replies ?? []) page.node.addAnnot(doc.context.register(replyDict(doc, ref, m, r)));
-      if (m.status && m.status !== 'none') page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, stateName(m.status, statuses))));
+      for (const replyRef of placeReplies(doc, ref, m, new Map())) page.node.addAnnot(replyRef);
+      statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
   }

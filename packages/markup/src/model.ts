@@ -3,7 +3,7 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
-import { lineEnds, type FontFamily, type HatchPattern, type LineDash, type LineEnding, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
@@ -84,6 +84,8 @@ export interface MarkupStyle {
   arcRadius?: number;
   /** Clouds: arcs bulge inward rather than outward. */
   cloudInside?: boolean;
+  /** Rectangles, polygons and polylines: corners rounded to this radius in points (Round All Corners). */
+  cornerRadius?: number;
   /** Counts: the marker drawn at each item (circle when unset). */
   countShape?: CountShape;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
@@ -95,10 +97,16 @@ export interface MarkupStyle {
   endCap?: LineEnding;
   /** Line ending size as a multiple of the default size. */
   capScale?: number;
-  /** Hatch pattern drawn inside closed shapes, in the line color. */
-  hatch?: HatchPattern;
+  /** Hatch pattern drawn inside closed shapes. */
+  hatch?: StoredHatch;
+  /** Hatch color. The line color when unset. */
+  hatchColor?: string;
+  /** Hatch scale in percent. 100 is the pattern's authored size (a quarter inch). Unset means 100. */
+  hatchScale?: number;
   /** Text boxes and callouts: draw the text without its box (no outline or fill). */
   noBox?: boolean;
+  /** Text boxes and callouts: no outline around the text; its fill (and a callout's leader) still draw. */
+  borderless?: boolean;
   /** Font for text boxes and measurement labels. */
   fontFamily?: FontFamily;
   bold?: boolean;
@@ -134,6 +142,62 @@ export interface Reply {
   author: string;
   text: string;
   createdAt: number;
+  /**
+   * The reply this answers. Absent when it answers the markup itself. A reply can answer another
+   * reply, the same chain PDF tools store with /IRT.
+   */
+  parentId?: string;
+}
+
+/**
+ * Replies in thread order: each follows the one it answers, siblings oldest first. A reply whose
+ * parent is missing, or a cycle, is shown as a reply to the markup.
+ */
+export function threadReplies(replies: readonly Reply[]): { reply: Reply; depth: number }[] {
+  const ids = new Set(replies.map((r) => r.id));
+  const byParent = new Map<string, Reply[]>();
+  for (const r of replies) {
+    const parent = r.parentId && r.parentId !== r.id && ids.has(r.parentId) ? r.parentId : '';
+    const list = byParent.get(parent) ?? [];
+    list.push(r);
+    byParent.set(parent, list);
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const out: { reply: Reply; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string, depth: number) => {
+    for (const reply of byParent.get(parent) ?? []) {
+      if (seen.has(reply.id)) continue;
+      seen.add(reply.id);
+      out.push({ reply, depth });
+      walk(reply.id, depth + 1);
+    }
+  };
+  walk('', 1);
+  for (const reply of replies) {
+    if (seen.has(reply.id)) continue;
+    seen.add(reply.id);
+    out.push({ reply, depth: 1 });
+    walk(reply.id, 2);
+  }
+  return out;
+}
+
+/** The reply and every reply under it. Undefined when nothing is left, so the field can be cleared. */
+export function withoutReply(replies: readonly Reply[], id: string): Reply[] | undefined {
+  const drop = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const r of replies) {
+      if (r.parentId && drop.has(r.parentId) && !drop.has(r.id)) {
+        drop.add(r.id);
+        grew = true;
+      }
+    }
+  }
+  const left = replies.filter((r) => !drop.has(r.id));
+  return left.length ? left : undefined;
 }
 
 /** Who signed, when, and a digest of the document's markups at that moment (see the Signatures panel). */
@@ -148,6 +212,11 @@ export interface SignatureInfo {
 
 export interface Markup {
   id: string;
+  /**
+   * The markup's ID as people quote it ("see markup 42"): numbered 1, 2, 3... in the order markups
+   * were made in the document, never reused. See `MarkupStore.add`.
+   */
+  seq?: number;
   type: MarkupType;
   pageIndex: number;
   /**
@@ -163,7 +232,7 @@ export interface Markup {
   text?: string;
   /** Free-form comment shown in the markup list. */
   comment?: string;
-  /** Replies to the markup, oldest first. */
+  /** Replies to the markup. A reply's `parentId` points at the reply it answers, when it answers one. */
   replies?: Reply[];
   /** Stamps: the wording (dynamic fields already filled in when placed) and frame. */
   stamp?: StampContent;
@@ -205,6 +274,13 @@ export interface Markup {
   flagged?: boolean;
   /** Hidden markups are not drawn or printed; they stay in the markups list. */
   hidden?: boolean;
+  /** Left out of every legend's list (Legend › Show in Legends unticked). */
+  legendHidden?: boolean;
+  /**
+   * Capture: a picture of the markup and the drawing around it, taken when asked (a JPEG data URL),
+   * shown in the markups list's Capture column and in reports.
+   */
+  capture?: string;
   /** Clockwise rotation in degrees about the centre of the markup's box (box-shaped types). */
   rotation?: number;
   /** File Attachment markups: the embedded file. */
@@ -212,6 +288,8 @@ export interface Markup {
   /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
   pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
+  /** Every status change, oldest first (who set which status, when). Saved as Bluebeam's state annotations. */
+  statusHistory?: StatusChange[];
   author: string;
   createdAt: number;
   modifiedAt: number;
@@ -246,6 +324,21 @@ export interface PdfAnnotLink {
   image?: string;
   /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
   space?: boolean;
+}
+
+/**
+ * One status change, as Bluebeam keeps them: which state was set, in which status set, by whom and
+ * when. A markup's history is every change, oldest first; its `status` is the latest.
+ */
+export interface StatusChange {
+  /** The state's name as set ("Accepted", "1.2 TfNSW - Closed - Do Not Action"). */
+  state: string;
+  /** The state model: `Review`, or a custom status set's id (see `MarkupStatusDef.model`). */
+  model: string;
+  author: string;
+  at: number;
+  /** /NM of the state annotation that records it in the PDF; unset until it is written there. */
+  nm?: string;
 }
 
 /** Look of a new markup of each type. */

@@ -63,6 +63,12 @@ export interface MarkupListSettings {
   groupBy: string | null;
   /** Comments wrap to show all their text (rows grow to fit); off, every row is one line high. */
   wrapComments: boolean;
+  /** The Status column lists every status change ('all', as Bluebeam does) or only the latest. */
+  statusHistory?: 'all' | 'latest';
+  /** The Status column says who set each status and when. */
+  statusDetails?: boolean;
+  /** An icon for the markup's type (cloud, arrow...) beside its subject. */
+  typeIcons?: boolean;
 }
 
 export interface WorkspaceState {
@@ -108,7 +114,7 @@ export function defaultWorkspace(): WorkspaceState {
     hiddenPanels: [],
     panelOrder: [],
     showToolbar: true,
-    list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true },
+    list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
     columnTemplate: null,
     shortcuts: {},
     stamps: [],

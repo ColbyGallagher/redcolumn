@@ -37,6 +37,11 @@ export interface MarkupStatusDef {
   id: string;
   name: string;
   color: string;
+  /**
+   * Bluebeam's state model the status belongs to: `Review` (the default) or a custom status set's
+   * id, e.g. `BSI_AQLBIEAXFBJXHROS`. Setting the status writes a state in this model.
+   */
+  model?: string;
 }
 
 export const DEFAULT_STATUSES: MarkupStatusDef[] = [
