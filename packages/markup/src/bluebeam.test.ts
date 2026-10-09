@@ -349,3 +349,32 @@ test('status changes made here are saved as state annotations with who and when;
   assert.equal(str(states[3]!, 'Contents'), '1.0 Open set by Julie Smit');
   await store.destroy();
 });
+
+test("Bluebeam callouts: the text box where Revu draws it (/RD's insets read Revu's way up) and no outline when /BS /W is 0", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([2384, 1684]);
+  const ctx = doc.context;
+  // As Revu wrote them: the lease-area callout (no fill) and a Cloud+ callout (filled, no border).
+  const lease = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('LEASE'), Contents: text('Why is this lease area still showing?'), DA: text('0 0 1 rg /Helv 12 Tf'), C: [], BS: { W: 0, S: 'S' }, LE: 'OpenArrow', Rect: [707.7795, 1257.421, 1151.957, 1513.268], RD: [5.5, 188.9471, 312.6776, 5.500057], CL: [1146.457, 1262.921, 859.0795, 1477.068, 839.2795, 1477.068] }));
+  const cloud = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('CLOUDPLUS'), Contents: text('Comment carried from 80% design.'), DA: text('0 0 1 rg /Helv 12 Tf'), C: [0.5019608, 1, 1], FillOpacity: 0.4, BS: { W: 0, S: 'S' }, Rect: [8.677246, 795.1425, 145.6772, 971.5886], RD: [5.5, 122.2855, 5.5, 5.500015], CL: [90.65066, 800.6425, 77.17725, 897.6279, 77.17725, 917.428] }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([lease, cloud]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: 'FreeTextCallout', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const result = importAnnotations(0, [lease, cloud].map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: 'FreeText', contents: '' })), () => null, extras);
+  const [a, b] = result.markups;
+  // In PDF space (y up): Revu draws the text at y 1446–1508 and 917–966, beside where the leaders end.
+  const yUp = (m: Markup) => [1684 - Math.max(m.points[2]![1], m.points[3]![1]), 1684 - Math.min(m.points[2]![1], m.points[3]![1])].map(Math.round);
+  assert.deepEqual(yUp(a!), [1446, 1508]);
+  assert.deepEqual(yUp(b!), [917, 966]);
+  assert.equal(b!.style.borderless, true, 'filled, but no outline');
+  assert.equal(b!.style.fill, '#80ffff');
+  assert.equal(b!.style.width, 1, 'the leader still draws');
+
+  // Saved again, its box's top and bottom insets are equal, so every reader puts it in the same place.
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...b!, pdfAnnot: undefined, id: 'new' }], {}));
+  const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
+  const rd = saved.lookup(PDFName.of('RD'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
+  assert.ok(Math.abs(rd[1]! - rd[3]!) < 1e-6, `RD ${rd}`);
+  assert.equal(saved.lookup(PDFName.of('BS'), PDFDict).lookup(PDFName.of('W'), PDFNumber).asNumber(), 0);
+});

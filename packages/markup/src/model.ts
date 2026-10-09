@@ -101,6 +101,8 @@ export interface MarkupStyle {
   hatch?: HatchPattern;
   /** Text boxes and callouts: draw the text without its box (no outline or fill). */
   noBox?: boolean;
+  /** Text boxes and callouts: no outline around the text; its fill (and a callout's leader) still draw. */
+  borderless?: boolean;
   /** Font for text boxes and measurement labels. */
   fontFamily?: FontFamily;
   bold?: boolean;

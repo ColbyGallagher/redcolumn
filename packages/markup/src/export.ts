@@ -429,6 +429,15 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     Math.max(corners[0]![0], corners[1]![0]),
     Math.max(corners[0]![1], corners[1]![1]),
   ];
+  if (m.type === 'callout' && m.points.length >= 4) {
+    // A callout's box goes in /RD, whose top and bottom insets Bluebeam reads the other way up from
+    // other readers: equal ones (Rect grown to match) mean the same box to all of them.
+    const box = contentBox(m);
+    const ys = [apply(matrix, [box.x, box.y])[1], apply(matrix, [box.x + box.w, box.y + box.h])[1]];
+    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1]);
+    rect[1] = Math.min(...ys) - inset;
+    rect[3] = Math.max(...ys) + inset;
+  }
   const user = m.points.map((p) => apply(matrix, p));
   const flat = (pts: Point[]) => pts.flatMap(([x, y]) => [x, y]);
   // Arc segments go out as short straight ones (other readers see the shape; ours read NBData).
@@ -436,7 +445,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const color = rgb(m.style.stroke);
   const fill = m.style.fill ? rgb(m.style.fill) : null;
   // A boxless text box has no border for other readers to draw.
-  const borderWidth = m.style.noBox && m.type === 'text' ? 0 : m.style.width;
+  const borderWidth = (m.style.noBox && m.type === 'text') || (m.style.borderless && (m.type === 'text' || m.type === 'callout')) ? 0 : m.style.width;
   const dash = dashPattern(m.style.dash, m.style.width);
   const [startCap, endCap] = lineEnds(m);
   const le = [PDF_LINE_ENDINGS[startCap], PDF_LINE_ENDINGS[endCap]];

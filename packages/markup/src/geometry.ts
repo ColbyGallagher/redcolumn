@@ -72,7 +72,7 @@ function baseShape(m: Markup): ShapePart[] {
       const r = m.type === 'rect' ? Math.min(style.cornerRadius ?? 0, b.w / 2, b.h / 2) : 0;
       const path: PathCmd[] = r > 0 ? roundedRect(b, r) : [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']];
       const boxless = style.noBox && m.type === 'text';
-      return [{ path, stroke: !boxless && (m.type === 'rect' || style.width > 0), fill: boxless ? null : style.fill }];
+      return [{ path, stroke: !boxless && !(style.borderless && m.type === 'text') && (m.type === 'rect' || style.width > 0), fill: boxless ? null : style.fill }];
     }
     case 'polygon':
       if (style.cornerRadius && points.length > 2) return [{ path: roundedPolyline(points, style.cornerRadius, true), stroke: true, fill: style.fill }];
@@ -85,7 +85,7 @@ function baseShape(m: Markup): ShapePart[] {
         return withEnds(m, [tip, land.knee, land.attach]);
       });
       const rect: PathCmd[] = [['M', box.x, box.y], ['L', box.x + box.w, box.y], ['L', box.x + box.w, box.y + box.h], ['L', box.x, box.y + box.h], ['Z']];
-      return [{ path: rect, stroke: style.width > 0 && !style.noBox, fill: style.noBox ? null : style.fill }, ...leaders];
+      return [{ path: rect, stroke: style.width > 0 && !style.noBox && !style.borderless, fill: style.noBox ? null : style.fill }, ...leaders];
     }
     case 'note':
       return notePath(boundsOf(points), style.fill);
