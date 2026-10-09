@@ -1,9 +1,10 @@
 import { Fragment } from 'react';
-import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType } from '@nb/markup';
+import { FONT_FAMILIES, lineEnds, LINE_DASHES, MARKUP_LABELS, styleCapabilities, type FontFamily, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { ShapeGeometry } from './ShapeGeometry';
+import { StampMenu } from './StampsDialog';
 import { shortcutLabel } from '../commands/shortcuts';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -73,7 +74,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   ellipticalArc: 'drag out the ellipse; set its start and end angles in Properties',
   polygonCloud: 'click vertices; click the first point, double-click or Enter to finish',
   typewriter: 'click where to type',
-  stamp: 'click or drag to place the last used stamp (Tools › Stamp for others)',
+  stamp: 'opens the stamps; pick one, then click or drag to place it',
   legend: 'drag a box; it lists the markups on the page with quantities and totals',
   eraser: 'rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)',
   dimension: 'drag a line; type the dimension text',
@@ -142,6 +143,11 @@ interface Props {
   enabled: boolean;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
+  /** Name filled into a stamp preview's {User} field. */
+  author: string;
+  onPlaceStamp: (stamp: StampDef) => void;
+  onNewStamp: () => void;
+  onManageStamps: () => void;
   onUndo: () => void;
   onRedo: () => void;
 }
@@ -153,7 +159,7 @@ function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, onUndo, onRedo }: Props) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
   const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
@@ -163,11 +169,26 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       {[MARKUP_TOOLS, MEASURE_TOOLS].map((list, i) => (
         <Fragment key={i}>
           {i > 0 && <span className="sep" />}
-          {list.filter(shown).map(({ tool, icon }) => (
-            <button key={tool} className={`btn tool${state.tool === tool && !state.preset ? ' active' : ''}`} data-toolbar-tool={tool} disabled={!enabled} title={toolTitle(tool)} onClick={() => toolsPick(tool)}>
-              {icon}
-            </button>
-          ))}
+          {list.filter(shown).map(({ tool, icon }) =>
+            tool === 'stamp' ? (
+              <StampMenu
+                key={tool}
+                icon={icon}
+                disabled={!enabled}
+                active={state.tool === 'stamp'}
+                title={toolTitle(tool)}
+                author={author}
+                currentId={state.tool === 'stamp' ? (state.preset?.stamp?.id ?? null) : null}
+                onPlace={onPlaceStamp}
+                onNew={onNewStamp}
+                onManage={onManageStamps}
+              />
+            ) : (
+              <button key={tool} className={`btn tool${state.tool === tool && !state.preset ? ' active' : ''}`} data-toolbar-tool={tool} disabled={!enabled} title={toolTitle(tool)} onClick={() => toolsPick(tool)}>
+                {icon}
+              </button>
+            ),
+          )}
         </Fragment>
       ))}
       {state.tool === 'dynamicFill' && (

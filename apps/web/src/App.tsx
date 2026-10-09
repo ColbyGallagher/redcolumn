@@ -733,6 +733,8 @@ export function App() {
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
+  /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
+  const [stampsCreating, setStampsCreating] = useState(false);
   /** The current commands by id, for the keyboard handler (rebuilt every render). */
   const commandsRef = useRef<ReadonlyMap<string, Command>>(new Map());
   const [prefsOpen, setPrefsOpen] = useState(false);
@@ -5700,7 +5702,10 @@ export function App() {
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleBottom: () => setShowBottom((s) => !s),
     commandPalette: () => setPaletteOpen(true),
-    manageStamps: () => setStampsOpen(true),
+    manageStamps: () => {
+      setStampsCreating(false);
+      setStampsOpen(true);
+    },
   };
   /** File › New PDF from Template: a copy of a template document (its markups too) under a new name. */
   const newFromTemplate = async () => {
@@ -6113,6 +6118,16 @@ export function App() {
           textMarkupStyle={selectedText?.style}
           enabled={!!activeOpen && !activeReadOnly}
           visibleTools={ws.toolbarTools}
+          author={author}
+          onPlaceStamp={placeStamp}
+          onNewStamp={() => {
+            setStampsCreating(true);
+            setStampsOpen(true);
+          }}
+          onManageStamps={() => {
+            setStampsCreating(false);
+            setStampsOpen(true);
+          }}
           onUndo={() => activeOpen?.store.undo()}
           onRedo={() => activeOpen?.store.redo()}
         />
@@ -7544,10 +7559,16 @@ export function App() {
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {stampsOpen && (
         <StampsDialog
+          key={stampsCreating ? 'new' : 'library'}
+          creating={stampsCreating}
           author={author}
-          onClose={() => setStampsOpen(false)}
+          onClose={() => {
+            setStampsOpen(false);
+            setStampsCreating(false);
+          }}
           onPlace={(s) => {
             setStampsOpen(false);
+            setStampsCreating(false);
             placeStamp(s);
           }}
         />
