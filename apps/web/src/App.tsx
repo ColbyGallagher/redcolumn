@@ -121,9 +121,9 @@ import { InviteDialog } from './components/sessions/InviteDialog';
 import { forgetSession as forgetRoundtrip, rememberSource, sourceOf } from './studio/roundtrip';
 import {
   FlagsPanel,
-  LayersPanel,
   MeasurementsPanel,
 } from './components/SidePanels';
+import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
@@ -670,6 +670,8 @@ export function App() {
   const [redactFor, setRedactFor] = useState<{ pane: Pane; count: number } | null>(null);
   /** Each document's PDF layers (by contents hash), and the ones hidden (by document id). */
   const [pdfLayers, setPdfLayers] = useState<Record<string, PdfLayer[]>>({});
+  /** The PDF layers each page draws with, by contents hash. */
+  const [pdfLayerPages, setPdfLayerPages] = useState<Record<string, string[][]>>({});
   const [hiddenPdfLayers, setHiddenPdfLayers] = useState<Record<string, string[]>>({});
   /** Markup layers switched off, by document id ('' is markups on no layer). */
   const [hiddenMarkupLayers, setHiddenMarkupLayers] = useState<Record<string, string[]>>({});
@@ -4187,9 +4189,10 @@ export function App() {
       const { hash, id } = o.file;
       setPdfLayers((all) => ({ ...all, [hash]: [] }));
       void Promise.all([readFile(hash), import('./documents/layers')])
-        .then(([bytes, { readLayers }]) => readLayers(bytes))
-        .then((layers) => {
+        .then(([bytes, { readLayers, layersOnPages }]) => Promise.all([readLayers(bytes), layersOnPages(bytes)]))
+        .then(([layers, pages]) => {
           setPdfLayers((all) => ({ ...all, [hash]: layers }));
+          setPdfLayerPages((all) => ({ ...all, [hash]: pages }));
           setHiddenPdfLayers((all) => (all[id] ? all : { ...all, [id]: layers.filter((l) => !l.on).map((l) => l.id) }));
         })
         .catch(() => {});
@@ -4838,7 +4841,7 @@ export function App() {
         label: 'Layer',
         disabled: ro,
         items: [
-          ...[...new Set(store.all().flatMap((m) => (m.layer ? [m.layer] : [])))].sort().map((name) => ({
+          ...[...new Set([...store.all().flatMap((m) => (m.layer ? [m.layer] : [])), ...(o ? addedMarkupLayers(o.file.hash) : [])])].sort().map((name) => ({
             label: name,
             checked: ms.every((m) => m.layer === name),
             onClick: () => setAll(() => ({ layer: name })),
@@ -6177,8 +6180,8 @@ export function App() {
           ))}
         </nav>
         {leftOpen && (
-          <aside className="panel left" style={{ width: leftWidth }}>
-            <h2>
+          <aside className="panel left" style={{ width: leftTab === 'layers' ? Math.max(leftWidth, 380) : leftWidth }}>
+            <h2 style={leftTab === 'layers' ? { display: 'none' } : undefined}>
               {LEFT_TITLES[leftTab]}
               <button className="drawer-close" aria-label="Close the panel" title="Close" onClick={() => setLeftOpen(false)}>
                 ×
@@ -6344,16 +6347,9 @@ export function App() {
               />
             ) : leftTab === 'layers' ? (
               <LayersPanel
+                docKey={activeOpen?.file.hash ?? null}
                 pdfLayers={activeOpen ? (pdfLayers[activeOpen.file.hash] ?? []) : []}
                 hiddenPdf={new Set(activeOpen ? (hiddenPdfLayers[activeOpen.file.id] ?? []) : [])}
-                onPdfLayer={(id, show) => {
-                  const cur = activeOpen;
-                  if (!cur) return;
-                  const was = hiddenPdfLayers[cur.file.id] ?? [];
-                  const next = show ? was.filter((x) => x !== id) : [...was, id];
-                  setHiddenPdfLayers((all) => ({ ...all, [cur.file.id]: next }));
-                  void showPdfLayers(cur, new Set(next)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
-                }}
                 markupLayers={(() => {
                   const counts = new Map<string, number>();
                   for (const m of markups) counts.set(m.layer ?? '', (counts.get(m.layer ?? '') ?? 0) + 1);
@@ -6362,11 +6358,24 @@ export function App() {
                   return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => (a.name === '' ? 1 : b.name === '' ? -1 : a.name.localeCompare(b.name)));
                 })()}
                 hiddenMarkup={new Set(activeOpen ? (hiddenMarkupLayers[activeOpen.file.id] ?? []) : [])}
-                onMarkupLayer={(name, show) => {
-                  const id = activeOpen?.file.id;
-                  if (!id) return;
-                  setHiddenMarkupLayers((all) => ({ ...all, [id]: show ? (all[id] ?? []).filter((x) => x !== name) : [...(all[id] ?? []), name] }));
+                onHidden={(pdf, markup) => {
+                  const cur = activeOpen;
+                  if (!cur) return;
+                  const id = cur.file.id;
+                  setHiddenMarkupLayers((all) => ({ ...all, [id]: markup }));
+                  const was = hiddenPdfLayers[id] ?? [];
+                  if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
+                  setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
+                  void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
                 }}
+                onPage={
+                  activeOpen && pdfLayerPages[activeOpen.file.hash]
+                    ? {
+                        pdf: new Set(pdfLayerPages[activeOpen.file.hash]![pageIndex] ?? []),
+                        markup: new Set(markups.filter((m) => m.pageIndex === pageIndex).map((m) => m.layer ?? '')),
+                      }
+                    : null
+                }
                 showLinks={toolsState.showLinks}
                 onShowLinks={(show) => activeTools?.setShowLinks(show)}
               />

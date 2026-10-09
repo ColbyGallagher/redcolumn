@@ -80,3 +80,45 @@ export async function withLayersShown(bytes: ArrayBuffer | Uint8Array, hidden: R
   d.delete(PDFName.of('AS'));
   return doc.save({ useObjectStreams: false });
 }
+
+/**
+ * The layers each page draws with, by id: the optional content its resources (and the forms they
+ * draw) refer to, directly or through a membership dictionary.
+ */
+export async function layersOnPages(bytes: ArrayBuffer | Uint8Array): Promise<string[][]> {
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  const ocgs = doc.catalog.lookupMaybe(PDFName.of('OCProperties'), PDFDict)?.lookupMaybe(PDFName.of('OCGs'), PDFArray);
+  const all = new Set((ocgs?.asArray() ?? []).filter((x): x is PDFRef => x instanceof PDFRef).map(key));
+  if (!all.size) return doc.getPages().map(() => []);
+  const ocgsOf = (x: unknown, out: Set<string>) => {
+    if (x instanceof PDFRef && all.has(key(x))) return void out.add(key(x));
+    const dict = x instanceof PDFRef ? doc.context.lookupMaybe(x, PDFDict) : x instanceof PDFDict ? x : undefined;
+    const members = dict?.get(PDFName.of('OCGs'));
+    const list = members instanceof PDFRef ? (doc.context.lookup(members) instanceof PDFArray ? doc.context.lookup(members, PDFArray).asArray() : [members]) : members instanceof PDFArray ? members.asArray() : [];
+    for (const m of list) if (m instanceof PDFRef && all.has(key(m))) out.add(key(m));
+  };
+  const scan = (res: PDFDict | undefined, out: Set<string>, seen: Set<PDFDict>) => {
+    if (!res || seen.has(res)) return;
+    seen.add(res);
+    const props = res.lookupMaybe(PDFName.of('Properties'), PDFDict);
+    for (const [, v] of props?.entries() ?? []) ocgsOf(v, out);
+    const xobjects = res.lookupMaybe(PDFName.of('XObject'), PDFDict);
+    for (const [, v] of xobjects?.entries() ?? []) {
+      const xo = doc.context.lookup(v);
+      const dict = xo && 'dict' in xo ? (xo as { dict: PDFDict }).dict : undefined;
+      if (!dict) continue;
+      ocgsOf(dict.get(PDFName.of('OC')), out);
+      scan(dict.lookupMaybe(PDFName.of('Resources'), PDFDict), out, seen);
+    }
+  };
+  return doc.getPages().map((page) => {
+    const out = new Set<string>();
+    const res = page.node.getInheritableAttribute(PDFName.of('Resources'));
+    scan(res instanceof PDFRef ? doc.context.lookupMaybe(res, PDFDict) : res instanceof PDFDict ? res : undefined, out, new Set());
+    for (const a of page.node.Annots()?.asArray() ?? []) {
+      const annot = doc.context.lookupMaybe(a, PDFDict);
+      ocgsOf(annot?.get(PDFName.of('OC')), out);
+    }
+    return [...out];
+  });
+}
