@@ -616,9 +616,13 @@ export function App() {
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
+  /** Subject and label the Measurements panel gives the next measurement. */
+  const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
+  const measureDefaultsRef = useRef(measureDefaults);
+  measureDefaultsRef.current = measureDefaults;
   const [leftTab, setLeftTab] = useState<LeftTab>('files');
   const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
-  const [leftWidth, setLeftWidth] = useState(250);
+  const [leftWidth, setLeftWidth] = useState(440);
   // The rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const [railLabels, setRailLabels] = useState(() => {
     try {
@@ -888,6 +892,7 @@ export function App() {
       author: () => authorRef.current,
       onEditText: setEditingText,
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
+      measureDefaults: () => measureDefaultsRef.current,
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
       defaultFields: () => defaultFieldsFor(front()?.store),
@@ -4341,7 +4346,7 @@ export function App() {
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
       const t = totals.get(m.type) ?? { value: 0, scale, n: 0 };
-      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m));
+      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
       totals.set(m.type, t);
     }
@@ -5540,7 +5545,7 @@ export function App() {
     install: () => setInstallOpen(true),
     help: (what) => {
       const open = (path: string) => window.open(`${PROJECT_URL}${path}`, '_blank', 'noopener');
-      if (what === 'docs') open('/tree/master/docs');
+      if (what === 'docs') window.open(`${import.meta.env.BASE_URL}help/index.html`, '_blank', 'noopener');
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
@@ -6395,18 +6400,26 @@ export function App() {
                 onSelect={selectFromList}
                 scaleOf={scaleOf}
                 viewports={viewports.filter((x) => x.pageIndex === pageIndex)}
+                allViewports={viewports}
                 onViewports={
                   activeOpen && !activeReadOnly
                     ? {
                         add: () => activeTools?.setTool('viewport'),
-                        calibrate: () => activeTools?.setTool('calibrate'),
                         update: (x) => activeOpen.store.setViewport(x),
                         remove: (id) => activeOpen.store.removeViewport(id),
                       }
                     : null
                 }
                 pageIndex={pageIndex}
+                pageCount={pageCount}
+                pageName={activeOpen ? (pageLabelFor(activeOpen, pageIndex).startsWith('Page ') ? activeOpen.file.name.replace(/\.pdf$/i, '') : pageLabelFor(activeOpen, pageIndex)) : ''}
                 onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], scale) : null}
+                onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
+                tool={toolsState.tool}
+                onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
+                store={activeOpen && !activeReadOnly ? activeOpen.store : null}
+                defaults={measureDefaults}
+                onDefaults={setMeasureDefaults}
               />
             ) : leftTab === 'spaces' ? (
               <SpacesPanel

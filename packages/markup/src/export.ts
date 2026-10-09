@@ -1231,8 +1231,10 @@ function writeSpaces(doc: PDFDocument, page: PDFPage, matrix: Matrix, spaces: re
   else page.node.delete(PDFName.of('BSISpaces'));
 }
 
+const yOf = (s: Scale) => s.yMetersPerPoint ?? s.metersPerPoint;
 const sameScale = (a: Scale | null, b: Scale | null) =>
-  a === b || (!!a && !!b && a.unit === b.unit && a.feetInches === b.feetInches && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-6);
+  a === b ||
+  (!!a && !!b && a.unit === b.unit && a.feetInches === b.feetInches && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-6 && Math.abs(yOf(a) / yOf(b) - 1) < 1e-6);
 
 /**
  * Writes the page's scale and viewports as Bluebeam's /VP when they differ from what the file
