@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { deflateSync } from 'node:zlib';
+import { deflateSync, inflateSync } from 'node:zlib';
 import { test } from 'node:test';
 import { parseBtx as parse, parsePdfObject } from './toolchest.ts';
 import type { MarkupStyle, MarkupType } from './model.ts';
@@ -52,7 +52,8 @@ ${item('Plain', 'Bluebeam.PDF.Annotations.AnnotationSquare', '<</Subtype/Square/
   assert.equal(arrow!.style.endCap, 'openArrow');
   assert.equal(area!.type, 'area');
   assert.equal(area!.style.fillOpacity, 0.3);
-  assert.equal(stamp!.type, null, 'stamps are kept but not drawable yet');
+  assert.equal(stamp!.type, 'stamp');
+  assert.deepEqual(stamp!.template?.[0]?.stamp, { lines: ['Approved'], frame: 'rounded' });
   assert.equal(plain!.type, 'rect');
   assert.equal(plain!.style.stroke, '#000000', 'CMYK black, uncompressed raw');
 });
@@ -85,4 +86,82 @@ ${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS
   assert.deepEqual(number!.points, [[1, 3], [37, 37]]);
   assert.deepEqual([number!.type, number!.text, number!.style.textAlign, number!.style.verticalAlign, number!.style.noBox], ['text', '1', 'center', 'middle', true]);
   assert.ok(circle!.groupId && circle!.groupId === number!.groupId);
+});
+
+const hexBuf = (b: Buffer) => deflateSync(b).toString('hex').toUpperCase();
+
+/** A PDF object with a stream, as Revu stores it inside a resource (then zlib-wrapped by the caller). */
+function withStream(dict: string, bytes: Buffer) {
+  return Buffer.concat([Buffer.from(`<<${dict}/Length ${bytes.length}>>\nstream\n`, 'latin1'), bytes, Buffer.from('\nendstream', 'latin1')]);
+}
+
+const resource = (id: string, body: Buffer) => `<Resources><ID>${hexZ(id)}</ID><Data>${hexBuf(body)}</Data></Resources>`;
+
+/** PNG data URL → raw rows (filter byte + RGBA). */
+function pngRows(dataUrl: string): { width: number; height: number; raw: Buffer } {
+  const buf = Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64');
+  assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
+  const width = buf.readUInt32BE(16);
+  const height = buf.readUInt32BE(20);
+  const idats: Buffer[] = [];
+  let i = 8;
+  while (i + 12 <= buf.length) {
+    const len = buf.readUInt32BE(i);
+    const type = buf.toString('ascii', i + 4, i + 8);
+    if (type === 'IDAT') idats.push(buf.subarray(i + 8, i + 8 + len));
+    i += 12 + len;
+    if (type === 'IEND') break;
+  }
+  return { width, height, raw: inflateSync(Buffer.concat(idats)) };
+}
+
+test('stamps, images, snapshots and file attachments import with their contents', async () => {
+  const red = withStream('/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceRGB/BitsPerComponent 8/SMask/BBObjPtr_MASK/DecodeParms<</Predictor 15/Colors 3/Columns 1>>', Buffer.from([0, 255, 0, 0]));
+  const mask = withStream('/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceGray/BitsPerComponent 8/DecodeParms<</Predictor 15/Colors 1/Columns 1>>', Buffer.from([0, 128]));
+  const green = withStream('/Type/XObject/Subtype/Image/Width 1/Height 1/ColorSpace/DeviceRGB/BitsPerComponent 8', Buffer.from([0, 255, 0]));
+  const shot = withStream('/Subtype/Form/Type/XObject/BBox[0 0 10 10]/Matrix[1 0 0 1 0 0]/Resources<</XObject<</Im/BBObjPtr_IMG>>>>', Buffer.from('q 10 0 0 10 0 0 cm /Im Do Q'));
+  const approved = withStream('/Subtype/Form/Type/XObject/BBox[0 0 80 20]', Buffer.from('0.2 0.2 0.2 rg (APPROVED) Tj'));
+  const spec = Buffer.from('<</Type/Filespec/F(notes.txt)/UF(notes.txt)/EF<</F/BBObjPtr_FILE>>>>');
+  const file = withStream('', Buffer.from('hello'));
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<BluebeamRevuToolSet Version="1"><Title>My Tools</Title>
+<ToolChestItem Version="1"><Name>CopyItem</Name><Type>Bluebeam.PDF.Annotations.AnnotationBRXStamp</Type><Raw>${hexZ('<</Subtype/Stamp/Name/Approved/Subj(Approved)/C[1 0 0]/Rect[0 0 80 20]/AP<</N/BBObjPtr_STAMP>>>>')}</Raw>${resource('STAMP', approved)}</ToolChestItem>
+<ToolChestItem Version="1"><Name>CopyItem</Name><Type>Bluebeam.PDF.Annotations.AnnotationBBImage</Type><Raw>${hexZ('<</Subtype/Square/Subj(Image)/Image/BBObjPtr_PIX/Rect[0 0 40 20]/C[1 0 0]/BS<</W 0>>>>')}</Raw>${resource('PIX', red)}${resource('MASK', mask)}</ToolChestItem>
+<ToolChestItem Version="1"><Name>CopyItem</Name><Type>Bluebeam.PDF.Annotations.AnnotationBRXStamp</Type><Raw>${hexZ('<</Subtype/Stamp/IT/StampSnapshot/Subj(Snapshot)/Rect[0 0 10 10]/C[0 0 1]/AP<</N/BBObjPtr_SHOT>>>>')}</Raw>${resource('SHOT', shot)}${resource('IMG', green)}</ToolChestItem>
+<ToolChestItem Version="1"><Name>CopyItem</Name><Type>Bluebeam.PDF.Annotations.AnnotationFileAttachment</Type><Raw>${hexZ('<</Subtype/FileAttachment/Name/Paperclip/Subj(File Attachment)/Rect[0 0 7 17]/C[0 0 1]/FS/BBObjPtr_SPEC>>')}</Raw>${resource('SPEC', spec)}${resource('FILE', file)}</ToolChestItem>
+${item('Widget', 'Bluebeam.PDF.Annotations.AnnotationSymbol', '<</Subtype/Stamp>>')}
+</BluebeamRevuToolSet>`;
+  const set = await parseBtx(xml);
+  const [stamp, image, snapshot, attachment, symbol] = set.items;
+  assert.equal(symbol!.type, null, 'symbols stay unsupported');
+  assert.deepEqual(
+    [stamp!.type, stamp!.name, stamp!.subject, stamp!.style.stroke, stamp!.style.width, stamp!.template?.[0]?.stamp],
+    ['stamp', 'Approved', 'Approved', '#333333', 0, { lines: ['APPROVED'], frame: 'none' }],
+  );
+  assert.deepEqual(stamp!.template?.[0]?.points, [[0, 0], [80, 20]]);
+
+  assert.equal(image!.type, 'image');
+  assert.equal(image!.name, 'Image');
+  assert.equal(image!.style.stroke, '#ff0000');
+  assert.deepEqual(image!.template?.[0]?.points, [[0, 0], [40, 20]]);
+  const pic = pngRows(image!.template?.[0]?.image ?? '');
+  assert.deepEqual([pic.width, pic.height], [1, 1]);
+  assert.deepEqual([...pic.raw.subarray(1, 5)], [255, 0, 0, 128]);
+
+  assert.equal(snapshot!.type, 'image');
+  assert.equal(snapshot!.name, 'Snapshot');
+  assert.equal(snapshot!.subject, 'Snapshot');
+  const shotPng = pngRows(snapshot!.template?.[0]?.image ?? '');
+  assert.deepEqual([shotPng.width, shotPng.height], [40, 40]);
+  // Centre pixel of the captured picture (the form paints the green image across the box).
+  const mid = 20 * (1 + 40 * 4) + 1 + 20 * 4;
+  assert.deepEqual([...shotPng.raw.subarray(mid, mid + 4)], [0, 255, 0, 255]);
+
+  assert.equal(attachment!.type, 'attachment');
+  assert.equal(attachment!.name, 'File Attachment');
+  assert.equal(attachment!.style.stroke, '#0000ff');
+  assert.deepEqual(attachment!.template?.[0]?.points, [[0, 0], [7, 17]]);
+  const embedded = attachment!.template?.[0]?.attachment;
+  assert.deepEqual(embedded && { name: embedded.name, mime: embedded.mime, size: embedded.size, text: Buffer.from(embedded.data, 'base64').toString() }, { name: 'notes.txt', mime: 'text/plain', size: 5, text: 'hello' });
+  assert.equal(set.items.filter((i) => !i.type).length, 1);
 });
