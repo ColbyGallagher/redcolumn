@@ -853,8 +853,132 @@ body,
   font: inherit;
 }
 
+.search-input {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-input input {
+  padding-right: 24px;
+}
+
+.search-clear {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 24px;
+  height: 26px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.search-clear:hover {
+  color: var(--text);
+}
+
+.search-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 6px;
+}
+
+.search-scope select {
+  width: 100%;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #1f2124;
+  color: var(--text);
+  font: inherit;
+}
+
+.search-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-folder span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-opts {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+}
+
 .search-opt {
   padding: 0 10px 6px;
+}
+
+.search-opt.disabled {
+  opacity: 0.45;
+}
+
+.search-results-head,
+.search-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-results-head {
+  border-top: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.search-group-head {
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 12px;
+}
+
+.search-results-head:hover,
+.search-group-head:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.search-results-head .chev,
+.search-group-head .chev {
+  width: 10px;
+  color: var(--muted);
+}
+
+.search-group-head .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-results-head .count,
+.search-group-head .count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .search ul {

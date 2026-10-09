@@ -14,20 +14,23 @@ export interface SearchHit {
 export interface SearchOptions {
   /** Match whole words only (default false). */
   wholeWord?: boolean;
+  /** Match capitalisation exactly (default false). */
+  caseSensitive?: boolean;
   /** Stop after this many hits (default 1000). */
   limit?: number;
 }
 
 const SNIPPET_CONTEXT = 40;
 
-const normalize = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 /**
- * Case-insensitive search of page text. Words are joined in extraction (reading) order, so a
+ * Search of page text, case-insensitive unless asked. Words are joined in extraction (reading) order, so a
  * phrase matches across word boundaries ("noise wall" matches NOISE + WALL).
  */
 export function searchText(pages: readonly PageText[], query: string, options: SearchOptions = {}): SearchHit[] {
-  const q = normalize(query);
+  const cased = !!options.caseSensitive;
+  const q = cased ? normalize(query) : normalize(query).toLowerCase();
   if (!q) return [];
   const limit = options.limit ?? 1000;
   const hits: SearchHit[] = [];
@@ -41,11 +44,11 @@ export function searchText(pages: readonly PageText[], query: string, options: S
         text += ' ';
         owner.push(-1);
       }
-      const t = w.text.toLowerCase();
+      const t = cased ? w.text : w.text.toLowerCase();
       text += t;
       for (let k = 0; k < t.length; k++) owner.push(i);
     });
-    // Snippets show the original capitalisation (same length as the lower-cased text).
+    // Snippets show the original capitalisation (same length as the searched text).
     const original = page.words.map((w) => w.text).join(' ');
     let from = 0;
     while (hits.length < limit) {

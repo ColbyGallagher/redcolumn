@@ -1,4 +1,4 @@
-import { PdfEngine, type PdfDocument } from '@nb/pdf-core';
+import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
 import { DEFAULT_STATUSES, importAnnotations, importColumns, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
@@ -73,6 +73,38 @@ async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p:
     textCache.set(store.fileHash, pages);
     return pages;
   });
+}
+
+/** What the Search panel reads from a document that is not open: its text, properties and annotation text. */
+export interface SearchableDoc {
+  pages: PageText[];
+  info: DocumentInfo;
+  /** Annotations with text (comments, callouts, ...); form widgets and links are left out. */
+  notes: { pageIndex: number; rect: { x: number; y: number; w: number; h: number }; label: string; text: string }[];
+}
+
+/** Read for searching, by `key` (a file hash, or name + size + date for a file on disk), kept for the session. */
+const searchCache = new Map<string, SearchableDoc>();
+
+/** A document's searchable contents, read in the background engine. `bytes` must return a fresh buffer. */
+export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffer>, onProgress: (done: number, total: number) => void = () => {}, signal?: AbortSignal): Promise<SearchableDoc> {
+  const cached = searchCache.get(key);
+  if (cached) return cached;
+  const read = await withBackgroundDoc(await bytes(), async (doc) => {
+    const known = textCache.get(key);
+    const pages: PageText[] = [];
+    const notes: SearchableDoc['notes'] = [];
+    for (let i = 0; i < doc.pages.length; i++) {
+      signal?.throwIfAborted();
+      const size = doc.pages[i]!;
+      pages.push(known?.[i] ?? { width: size.width, height: size.height, words: await doc.text(i) });
+      for (const a of await doc.annotations(i)) if (a.contents.trim() && a.subtype !== 'Widget' && a.subtype !== 'Link' && a.subtype !== 'Popup') notes.push({ pageIndex: i, rect: a.rect, label: a.subtype, text: a.contents });
+      onProgress(i + 1, doc.pages.length);
+    }
+    return { pages, info: await doc.info(), notes };
+  });
+  searchCache.set(key, read);
+  return read;
 }
 
 /**
