@@ -22,4 +22,4 @@ Hold [[Alt]] while you click.
 
 > **Tip:** Snapping to content needs a PDF made from CAD (vector lines). A scanned drawing has no lines to snap to.
 
-Snapping when a document opens is set in [Preferences](#preferences) › **Grid & Snap**.
+Snapping when a document opens is set in [Preferences](#preferences) › **General** › **Grid & Snap**, along with which points snap (ends, mid-points, intersections, lines), the snap **Sensitivity** and the marker colour.

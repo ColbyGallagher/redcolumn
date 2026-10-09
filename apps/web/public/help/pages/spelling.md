@@ -20,6 +20,6 @@ Checks the spelling of the text in your markups (text boxes, callouts, comments 
 
 Tick **Also check the drawing's own text** to check the words printed on the drawing too (they cannot be changed, but you can note them).
 
-Words you added are listed in [Preferences](#preferences) › **Spelling**, where you can remove them.
+Words you added are listed under **Custom Words** in [Preferences](#preferences) › **General** › **Spelling**, where you can add more or remove them.
 
 > **Tip:** Misspelled words are also underlined in red while you type in a text box.

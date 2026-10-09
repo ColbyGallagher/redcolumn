@@ -15,7 +15,7 @@ The scale controls are at the right of the navigation bar:
 1. Go to the page.
 2. Click the **Scale** list and pick the scale printed on the drawing, for example `1/4" = 1'-0"` or `1:100`.
 
-The list offers imperial (Architectural and Engineering) or metric scales, depending on **Units** in [Preferences](#preferences) › **General**.
+The list offers imperial (Architectural and Engineering) or metric scales, depending on **Measurement System** in [Preferences](#preferences) › **Tools** › **Measure**.
 
 ## Type a scale
 

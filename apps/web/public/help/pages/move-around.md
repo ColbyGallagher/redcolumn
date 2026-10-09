@@ -29,4 +29,4 @@ redcolumn remembers your previous views, like the Back button in a web browser.
 
 This is handy after you follow a link to another sheet.
 
-> **Tip:** Want dragging on an empty part of the page to draw a selection box instead of panning? Turn on **Drag on the page to select markups** in [Preferences](#preferences) › **Markup**. You can still pan with the middle mouse button.
+> **Tip:** Want dragging on an empty part of the page to draw a selection box instead of panning? Turn on **Drag on the Page to Select Markups** in [Preferences](#preferences) › **Tools** › **Markup**. You can still pan with the middle mouse button.

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { contentBox, cssFont, TEXT_LINE_HEIGHT, TEXT_PADDING, textColor, type Markup, type MarkupStore, type Point } from '@nb/markup';
+import { useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
 const MIN_EDIT_FONT_PX = 13;
@@ -31,6 +32,7 @@ function typewriterBox(m: Markup, text: string): [Point, Point] {
 export function TextEditor({ markup, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
+  const { spellCheck } = useSettings();
 
   useEffect(() => {
     ref.current?.focus();
@@ -57,7 +59,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
 
   return (
     <textarea
-      spellCheck
+      spellCheck={spellCheck}
       ref={ref}
       className="text-editor"
       defaultValue={markup.text ?? ''}

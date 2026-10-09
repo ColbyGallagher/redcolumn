@@ -38,6 +38,6 @@ It may be [locked](#group-lock), or the document may be read-only (for example a
 
 ### How do I change the name on my markups?
 
-Type it in **Author** at the bottom of the {{Edit}} menu, or in [Preferences](#preferences) › **General**.
+Type it in **Author** at the bottom of the {{Edit}} menu, or in **User** in [Preferences](#preferences) › **General** › **Options**.
 
 ![The Author box in the Edit menu](img/edit-author.png)

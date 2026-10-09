@@ -12,6 +12,6 @@ A scanned drawing is just a picture: you can't search it, select its words, or u
 
 Progress shows at the bottom of the screen. You can keep working while it runs.
 
-> **Note:** The first time, OCR downloads its reading engine (about 11 MB). To use OCR offline, download it ahead of time in [Preferences](#preferences) › **Offline**.
+> **Note:** The first time, OCR downloads its reading engine (about 11 MB). To use OCR offline, download it ahead of time in [Preferences](#preferences) › **Advanced** › **Offline**.
 
 To OCR many files, use {{Batch > OCR…}}.

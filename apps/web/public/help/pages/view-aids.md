@@ -24,9 +24,9 @@ The rulers show distances on the page. When the page has a [scale](#scale), the 
 ## Change the grid spacing
 
 1. Choose {{File > Preferences…}} (or press [[Ctrl+K]]).
-2. Click **Grid & Snap**.
-3. Change the **Grid spacing** and its unit. The spacing is measured on the paper, whatever the drawing's scale.
-4. Close the window.
+2. Click **General**, then the **Grid & Snap** tab.
+3. Choose the **Units** and change the **Grid Spacing**. The spacing is measured on the paper, whatever the drawing's scale.
+4. Click **OK**.
 
 ## Pointer position
 

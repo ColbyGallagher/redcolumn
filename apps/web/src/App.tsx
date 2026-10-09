@@ -169,7 +169,19 @@ function TabName({ t, saved }: { t: OpenFile; saved: number }) {
     (l) => t.store.subscribe(l),
     () => t.store.editCount,
   );
-  return <span className="name">{t.file.name}{!studioDocOf(t.file.id) && hasUnsavedChanges(t) ? '*' : ''}</span>;
+  const cut = useSettings().tabTruncation;
+  const name = `${t.file.name}${!studioDocOf(t.file.id) && hasUnsavedChanges(t) ? '*' : ''}`;
+  // Long names are cut short at the end, the start or the middle (Preferences › General › Options).
+  if (cut === 'start') return <span className="name cut-start"><bdi>{name}</bdi></span>;
+  if (cut === 'middle' && name.length > 16) {
+    return (
+      <span className="name cut-middle">
+        <span>{name.slice(0, -10)}</span>
+        <span>{name.slice(-10)}</span>
+      </span>
+    );
+  }
+  return <span className="name">{name}</span>;
 }
 
 const AUTHOR_KEY = 'nb.author';
@@ -4009,7 +4021,7 @@ export function App() {
       if (!viewer || !tools) return;
       if (viewer.currentPageIndex !== m.pageIndex) viewer.goToPage(m.pageIndex);
       // Adding to a selection keeps the view; picking one markup focuses on it.
-      if (!additive) zoomToMarkup(viewer, m);
+      if (!additive && settings.get().zoomFitSelected) zoomToMarkup(viewer, m);
       tools.setTool('select');
       if (additive) {
         const next = new Set(tools.getState().selected);
@@ -4030,7 +4042,7 @@ export function App() {
     const tools = useB ? ctlB.tools : ctl?.tools;
     if (!viewer || !tools) return;
     if (ids.includes(focus.id) && viewer.currentPageIndex !== focus.pageIndex) viewer.goToPage(focus.pageIndex);
-    if (zoom) zoomToMarkup(viewer, focus);
+    if (zoom && settings.get().zoomFitSelected) zoomToMarkup(viewer, focus);
     tools.setTool('select');
     tools.select(ids);
   }, [ctl, ctlB]);

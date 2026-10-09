@@ -30,7 +30,7 @@ Choose {{Help > Check for Updates}}. If a new version is ready, it loads when yo
 
 ## 7. Running out of space
 
-Your browser limits how much it stores. In {{File > Preferences…}} › **Offline** you can see how much is used, and click **Keep on This Device** so the browser doesn't clear your documents. Remove files you no longer need from [File Access](#file-access).
+Your browser limits how much it stores. In {{File > Preferences…}} › **Advanced** › **Offline** you can see how much is used, and click **Keep on This Device** so the browser doesn't clear your documents. Remove files you no longer need from [File Access](#file-access).
 
 ## Still stuck?
 

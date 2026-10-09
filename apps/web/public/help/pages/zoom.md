@@ -48,4 +48,4 @@ Click once (without dragging) to zoom in a step. Hold [[Alt]] and click to zoom 
 1. Choose {{View > Navigation Tools > Dynamic Zoom}} (or press [[Shift+Z]]).
 2. Press and hold on the drawing, then drag **up** to zoom in or **down** to zoom out.
 
-> **Tip:** You can change how far each wheel notch or button press zooms in [Preferences](#preferences). There is also a setting to reverse the wheel direction.
+> **Tip:** You can change how far each wheel notch or button press zooms in [Preferences](#preferences) › **General** › **Navigation**, and whether the plain wheel zooms or scrolls in each view. There is also a setting to reverse the wheel direction.

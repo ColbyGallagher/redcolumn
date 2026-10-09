@@ -16,7 +16,7 @@
 
 ## Before you start
 
-Set your name: it is shown on every markup you make. Choose {{Edit}} and type it in **Author**, or set it in [Preferences](#preferences) › **General**.
+Set your name: it is shown on every markup you make. Choose {{Edit}} and type it in **Author**, or set **User** in [Preferences](#preferences) › **General** › **Options**.
 
 ## Taking part
 

@@ -34,8 +34,8 @@ A tool saved from a markup can work two ways:
 | **Place Copy** | Places an exact copy of the saved markup (same shape, size and text) where you click. |
 | **Draw with Style** | Draws a **new** markup of the same type, using the saved look. |
 
-Right-click a tool and choose **Place Copy** or **Draw with Style** to use the other way once. To change the normal way, see [Preferences](#preferences) › **Tool Library**:
+Right-click a tool and choose **Place Copy** or **Draw with Style** to use the other way once. To change the normal way, see [Preferences](#preferences) › **Tools** › **Tool Library**:
 
 ![The Tool Library preferences](img/prefs-tool-library.png)
 
-Tick **Keep the tool active after placing** to place several copies in a row.
+Tick **Keep the Tool Active after Placing** to place several copies in a row.
