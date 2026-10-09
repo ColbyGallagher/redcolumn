@@ -3306,3 +3306,312 @@ tr.hidden-markup td {
   flex-direction: column;
   gap: 6px;
 }
+
+/* Markup Summary (Bluebeam's columns / filter / output dialog) */
+
+.modal.markup-summary {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 16px;
+  overflow: hidden;
+}
+
+.markup-summary .ms-title,
+.markup-summary .ms-file-actions,
+.markup-summary .ms-tabs,
+.markup-summary .ms-footer,
+.markup-summary .actions,
+.markup-summary .ms-check,
+.markup-summary .ms-sort,
+.markup-summary .ms-include,
+.markup-summary .ms-field {
+  flex: none;
+}
+
+.markup-summary .ms-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.markup-summary .ms-title h3 {
+  margin: 0;
+}
+
+.markup-summary .ms-files {
+  flex: none;
+  height: 108px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+}
+
+.markup-summary table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markup-summary th,
+.markup-summary td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.markup-summary th {
+  position: sticky;
+  top: 0;
+  background: #2a2d31;
+  font-weight: 600;
+}
+
+.markup-summary tr.selected td {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.markup-summary .ms-empty {
+  color: var(--muted);
+}
+
+.markup-summary .ms-files select,
+.markup-summary .ms-files input {
+  max-width: 220px;
+}
+
+.markup-summary .ms-file-actions,
+.markup-summary .ms-footer,
+.markup-summary .ms-sort-row,
+.markup-summary .ms-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.markup-summary .ms-file-actions,
+.markup-summary .ms-footer {
+  margin-top: 8px;
+}
+
+.markup-summary .ms-spacer {
+  flex: 1;
+}
+
+.markup-summary .ms-add {
+  position: relative;
+}
+
+.markup-summary .ms-menu,
+.markup-summary .ms-filter-pop,
+.markup-summary .ms-library {
+  position: absolute;
+  z-index: 5;
+  min-width: 220px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.markup-summary .ms-menu {
+  top: calc(100% + 4px);
+  left: 0;
+}
+
+.markup-summary .ms-menu button,
+.markup-summary .ms-library label,
+.markup-summary .ms-filter-pop label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.markup-summary .ms-menu button:hover,
+.markup-summary .ms-library label:hover,
+.markup-summary .ms-filter-pop label:hover {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.markup-summary .ms-tabs {
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.markup-summary .ms-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  overflow: auto;
+}
+
+.markup-summary .ms-grid {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.markup-summary .ms-sample {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.markup-summary .ms-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+
+.markup-summary .ms-tick {
+  color: #4ade80;
+  font-weight: 700;
+}
+
+.markup-summary .ms-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+
+.markup-summary .ms-check.indent {
+  margin-left: 22px;
+}
+
+.markup-summary .ms-sort {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.markup-summary .ms-sort-row span {
+  width: 64px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-sort-row select {
+  min-width: 140px;
+}
+
+.markup-summary .ms-field span {
+  width: 72px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-field input,
+.markup-summary .ms-field select {
+  flex: 1;
+}
+
+.markup-summary .ms-include {
+  margin: 4px 0;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.markup-summary .ms-include legend {
+  padding: 0 4px;
+  color: var(--muted);
+}
+
+.markup-summary .ms-output {
+  overflow: auto;
+}
+
+.markup-summary .ms-filter {
+  position: relative;
+}
+
+.markup-summary .ms-filter-btn {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #1f2124;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.markup-summary .ms-filter-pop {
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+}
+
+.markup-summary .ms-message {
+  flex: none;
+  max-height: 2.6em;
+  margin: 8px 0 0;
+  overflow: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.markup-summary .ms-resize {
+  position: absolute;
+  z-index: 3;
+  touch-action: none;
+}
+
+.markup-summary .ms-resize-e {
+  top: 8px;
+  right: 0;
+  bottom: 16px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.markup-summary .ms-resize-s {
+  right: 16px;
+  bottom: 0;
+  left: 8px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.markup-summary .ms-resize-se {
+  right: 1px;
+  bottom: 1px;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 0 38%, var(--muted) 38% 46%, transparent 46% 58%, var(--muted) 58% 66%, transparent 66% 78%, var(--muted) 78% 86%, transparent 86%);
+}
+
+.markup-summary .ms-footer {
+  margin-top: 10px;
+}
+
+.markup-summary .actions {
+  margin-top: 8px;
+}

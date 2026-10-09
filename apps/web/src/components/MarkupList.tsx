@@ -691,7 +691,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <button className="btn small flat" onClick={onManageColumns} title="Add custom columns and statuses">
           Manage Columns…
         </button>
-        <button className="btn small" disabled={!markups.length} onClick={() => onExport(rows, visible)} title="Export as CSV or a PDF summary">
+        <button className="btn small" onClick={() => onExport(rows, visible)} title="Markup Summary…">
           Export…
         </button>
         {onSync && (
