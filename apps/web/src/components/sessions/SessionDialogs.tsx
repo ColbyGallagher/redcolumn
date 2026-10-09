@@ -3,6 +3,7 @@ import { parseOneDriveInvite } from '../../studio/drive/onedrive';
 import type { AccessPolicy } from '../../studio/protocol';
 import type { Backend } from '../../studio/types';
 import { AccessEditor, emptyPolicy } from './AccessEditor';
+import { studioIdText } from '../studio/chrome';
 
 /** A document to put in a new session: one already open or in the library, or a file from disk. */
 export type DocumentSource = { kind: 'file'; fileId: string; name: string } | { kind: 'upload'; file: File; name: string };
@@ -72,7 +73,12 @@ export function Dialog({ title, className, onClose, children }: { title: string;
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className={`modal session-dialog ${className ?? ''}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
-        <h3>{title}</h3>
+        <div className="bb-dialog-h">
+          <h3>{title}</h3>
+          <button type="button" className="bb-dialog-x" aria-label="Close" onClick={onClose}>
+            ×
+          </button>
+        </div>
         {children}
       </div>
     </div>
@@ -361,8 +367,20 @@ export function JoinSessionDialog({
   );
 }
 
-/** The host's session window: name, documents, who may do what, and ending it. */
+const splitWhen = (t: number | null) => {
+  if (!t) return { date: '', time: '17:00' };
+  const d = new Date(t);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return { date: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`, time: `${p(d.getHours())}:${p(d.getMinutes())}` };
+};
+
+const joinWhen = (date: string, time: string) => (date ? new Date(`${date}T${time || '00:00'}`).getTime() : null);
+
+const spaceLabel = (n: number) => (n >= 1048576 ? `${(n / 1048576).toFixed(2)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`);
+
+/** The host's session window: name, who may attend, and what they may do. */
 export function SessionSettingsDialog({
+  id,
   documents,
   onAddFiles,
   onUpdateDocument,
@@ -370,6 +388,8 @@ export function SessionSettingsDialog({
   onEnd,
   name,
   host,
+  createdAt,
+  attendeeNames,
   policy,
   addDocuments,
   saveCopy: initialSaveCopy,
@@ -379,6 +399,7 @@ export function SessionSettingsDialog({
   onSave,
   onClose,
 }: {
+  id: string;
   /** The session's documents, which the host can add to, update and remove here. */
   documents: { id: string; name: string; addedBy: string; size: number }[];
   onAddFiles: (files: File[]) => void;
@@ -388,106 +409,189 @@ export function SessionSettingsDialog({
   onEnd?: () => void;
   name: string;
   host: string;
+  createdAt: number;
+  attendeeNames: string[];
   policy: AccessPolicy;
   addDocuments: boolean;
   saveCopy: boolean;
   invite: boolean;
   expiresAt: number | null;
   busy: boolean;
-  onSave: (patch: { name: string; access: AccessPolicy; addDocuments: boolean; saveCopy: boolean; invite: boolean; expiresAt: number | null }) => void;
+  /** `close` is false for Apply, which keeps the window open. */
+  onSave: (patch: { name: string; access: AccessPolicy; addDocuments: boolean; saveCopy: boolean; invite: boolean; expiresAt: number | null }, close: boolean) => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState<'general' | 'attendees' | 'permissions'>('general');
   const [draftName, setDraftName] = useState(name);
   const [draft, setDraft] = useState(policy);
   const [docs, setDocs] = useState(addDocuments);
   const [saveCopy, setSaveCopy] = useState(initialSaveCopy);
   const [invite, setInvite] = useState(initialInvite);
-  const [ends, setEnds] = useState(toLocalInput(expiresAt));
+  const initialWhen = splitWhen(expiresAt);
+  const [expiryOn, setExpiryOn] = useState(!!expiresAt);
+  const [expiryDate, setExpiryDate] = useState(initialWhen.date);
+  const [expiryTime, setExpiryTime] = useState(initialWhen.time);
   const addRef = useRef<HTMLInputElement>(null);
+  const users = new Set(attendeeNames.map((n) => n.trim().toLowerCase()).filter(Boolean)).size;
+  const bytes = documents.reduce((sum, d) => sum + d.size, 0);
+  const expiryError = expiryOn && (!expiryDate || (joinWhen(expiryDate, expiryTime) ?? 0) <= Date.now());
+  const commit = (close: boolean) => {
+    if (expiryError) {
+      setTab('general');
+      return;
+    }
+    onSave(
+      {
+        name: draftName.trim() || name,
+        access: tidyPolicy(draft),
+        addDocuments: docs,
+        saveCopy,
+        invite,
+        expiresAt: expiryOn ? joinWhen(expiryDate, expiryTime) : null,
+      },
+      close,
+    );
+  };
   return (
-    <Dialog title="Manage Session" className="wide" onClose={onClose}>
+    <Dialog title="Session Settings" className="wide bb-light" onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!sessionEndIsValid(ends)) return;
-          onSave({ name: draftName.trim() || name, access: tidyPolicy(draft), addDocuments: docs, saveCopy, invite, expiresAt: fromLocalInput(ends) });
+          commit(true);
         }}
       >
-        <div className="dialog-pane">
-          <label className="stack">
-            Session name
-            <input value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
-          </label>
-          <fieldset>
-            <legend>Documents ({documents.length})</legend>
-            {documents.length === 0 && <p className="hint">No documents yet.</p>}
-            <ul className="plain-list manage-list">
-              {documents.map((d) => (
-                <li key={d.id}>
-                  <span className="name" title={`Added by ${d.addedBy} · ${(d.size / 1e6).toFixed(1)} MB`}>
-                    {d.name}
-                  </span>
-                  <label className="btn small flat" title="Replace with a new revision: pick the new PDF; markups stay on their pages">
-                    Update…
-                    <input
-                      type="file"
-                      accept="application/pdf,.pdf"
-                      hidden
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        e.target.value = '';
-                        if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(d.id, f);
-                      }}
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="btn small flat danger"
-                    onClick={() => {
-                      if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRemoveDocument(d.id);
-                    }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ul>
-            <button type="button" className="btn small" disabled={busy} onClick={() => addRef.current?.click()}>
-              Add PDFs…
+        <nav className="dialog-steps" role="tablist">
+          {(
+            [
+              ['general', 'General'],
+              ['attendees', 'Attendees'],
+              ['permissions', 'Permissions'],
+            ] as const
+          ).map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>
+              {label}
             </button>
-            <input
-              ref={addRef}
-              type="file"
-              accept="application/pdf"
-              multiple
-              hidden
-              onChange={(e) => {
-                const files = [...(e.target.files ?? [])];
-                e.target.value = '';
-                if (files.length) onAddFiles(files);
-              }}
-            />
-          </fieldset>
-          <label className="check">
-            <input type="checkbox" checked={docs} onChange={(e) => setDocs(e.target.checked)} />
-            Attendees who can comment may also add documents
-          </label>
-          <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
-          <AccessEditor policy={draft} onChange={setDraft} host={host} />
+          ))}
+        </nav>
+        <div className="dialog-pane">
+          {tab === 'general' && (
+            <>
+              <dl className="bb-set-grid">
+                <dt>Session Name</dt>
+                <dd>
+                  <input aria-label="Session Name" value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
+                </dd>
+                <dt>Session ID</dt>
+                <dd>
+                  <input aria-label="Session ID" value={studioIdText(id)} readOnly />
+                </dd>
+                <dt>Total Users</dt>
+                <dd>{users}</dd>
+                <dt>Total Files</dt>
+                <dd>{documents.length}</dd>
+                <dt>Total Space</dt>
+                <dd>{spaceLabel(bytes)}</dd>
+                <dt>Created On</dt>
+                <dd>{new Date(createdAt).toLocaleString()}</dd>
+                <dt>Expiry</dt>
+                <dd>
+                  <span className="bb-expiry">
+                    <label className="check">
+                      <input type="checkbox" checked={expiryOn} onChange={(e) => setExpiryOn(e.target.checked)} />
+                      Enabled
+                    </label>
+                    <input type="date" aria-label="Expiry date" value={expiryDate} disabled={!expiryOn} onChange={(e) => setExpiryDate(e.target.value)} />
+                    <input type="time" aria-label="Expiry time" value={expiryTime} disabled={!expiryOn} onChange={(e) => setExpiryTime(e.target.value)} />
+                  </span>
+                </dd>
+              </dl>
+              {expiryError && <p className="print-hint">The end date must be in the future.</p>}
+            </>
+          )}
+          {tab === 'attendees' && <AccessEditor policy={draft} onChange={setDraft} host={host} />}
+          {tab === 'permissions' && (
+            <>
+              <label className="check">
+                <input type="checkbox" checked={docs} onChange={(e) => setDocs(e.target.checked)} />
+                Attendees who can comment may also add documents
+              </label>
+              <label className="check" title="Attendees may download, export and print the documents (with markups)">
+                <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} />
+                Attendees may save copies of documents
+              </label>
+              <label className="check" title="Attendees see the invite link">
+                <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
+                Attendees may invite others
+              </label>
+              <fieldset>
+                <legend>Documents ({documents.length})</legend>
+                {documents.length === 0 && <p className="hint">No documents yet.</p>}
+                <ul className="plain-list manage-list">
+                  {documents.map((d) => (
+                    <li key={d.id}>
+                      <span className="name" title={`Added by ${d.addedBy} · ${(d.size / 1e6).toFixed(1)} MB`}>
+                        {d.name}
+                      </span>
+                      <label className="btn small flat" title="Replace with a new revision: pick the new PDF; markups stay on their pages">
+                        Update…
+                        <input
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          hidden
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = '';
+                            if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(d.id, f);
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="btn small flat danger"
+                        onClick={() => {
+                          if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRemoveDocument(d.id);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <button type="button" className="btn small" disabled={busy} onClick={() => addRef.current?.click()}>
+                  Add PDFs…
+                </button>
+                <input
+                  ref={addRef}
+                  type="file"
+                  accept="application/pdf"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])];
+                    e.target.value = '';
+                    if (files.length) onAddFiles(files);
+                  }}
+                />
+              </fieldset>
+              {onEnd && (
+                <button type="button" className="btn danger" disabled={busy} onClick={onEnd} title="Save the documents, markups and record, then remove the session and its files for everyone">
+                  End session…
+                </button>
+              )}
+            </>
+          )}
         </div>
         <div className="actions">
-          {onEnd && (
-            <button type="button" className="btn danger" disabled={busy} onClick={onEnd} title="Save the documents, markups and record, then remove the session and its files for everyone">
-              End session…
-            </button>
-          )}
           <span className="spacer" />
+          <button type="submit" className="btn" disabled={busy}>
+            OK
+          </button>
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={busy}>
-            Save settings
+          <button type="button" className="btn primary" disabled={busy} onClick={() => commit(false)}>
+            Apply
           </button>
         </div>
       </form>
