@@ -4333,7 +4333,22 @@ export function App() {
       img.src = item.image;
       return;
     }
-    tools.setTool(item.tool ?? item.type, { id: item.id, style: item.style, ...(item.subject ? { subject: item.subject } : {}) });
+    // Draw-with-style still places the saved picture, stamp wording or file. Copy mode (above) places
+    // the markup at the size it was saved.
+    const carried = item.markups?.find((m) => m.image || m.stamp || m.attachment);
+    const [p0, p1] = carried?.points ?? [];
+    const aspect = p0 && p1 ? Math.abs(p1[0] - p0[0]) / Math.max(1e-6, Math.abs(p1[1] - p0[1])) : undefined;
+    const stamp = carried?.stamp
+      ? { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame }
+      : undefined;
+    tools.setTool(item.tool ?? item.type, {
+      id: item.id,
+      style: item.style,
+      ...(item.subject ? { subject: item.subject } : {}),
+      ...(carried?.image ? { image: carried.image, ...(aspect ? { aspect } : {}) } : {}),
+      ...(stamp ? { stamp } : {}),
+      ...(carried?.attachment ? { attachment: carried.attachment } : {}),
+    });
   };
 
   /** Takeoff totals as text lines for the summary. */

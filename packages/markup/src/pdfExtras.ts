@@ -82,7 +82,6 @@ async function imageDataUrl(obj: PDFObject | undefined): Promise<string | null> 
     const components = colorComponents(d.lookup(PDFName.of('ColorSpace')));
     if (!components) return null;
     const data = unpredict(decodePDFRawStream(obj).decode(), d.lookup(PDFName.of('DecodeParms')), width, components);
-    if (data.length < width * height * components) return null;
     let alpha: Uint8Array | null = null;
     const smask = d.lookup(PDFName.of('SMask'));
     if (smask instanceof PDFRawStream) {
@@ -90,19 +89,8 @@ async function imageDataUrl(obj: PDFObject | undefined): Promise<string | null> 
       const sh = num(simple(smask.dict.lookup(PDFName.of('Height'))));
       if (sw === width && sh === height) alpha = unpredict(decodePDFRawStream(smask).decode(), smask.dict.lookup(PDFName.of('DecodeParms')), width, 1);
     }
-    const rgba = new Uint8Array(width * height * 4);
-    for (let i = 0; i < width * height; i++) {
-      const s = i * components;
-      let r: number, g: number, b: number;
-      if (components === 1) r = g = b = data[s]!;
-      else if (components === 3) [r, g, b] = [data[s]!, data[s + 1]!, data[s + 2]!];
-      else {
-        const k = 1 - data[s + 3]! / 255;
-        [r, g, b] = [0, 1, 2].map((j) => Math.round((255 - data[s + j]!) * k)) as [number, number, number];
-      }
-      rgba.set([r, g, b, alpha ? (alpha[i] ?? 255) : 255], i * 4);
-    }
-    return `data:image/png;base64,${base64(await encodePng(width, height, rgba))}`;
+    const rgba = samplesToRgba(width, height, components, data, alpha);
+    return rgba ? rgbaToPngDataUrl(width, height, rgba) : null;
   } catch {
     return null;
   }
@@ -116,9 +104,17 @@ function unpredict(data: Uint8Array, parms: PDFObject | undefined, width: number
   const p = parms instanceof PDFArray ? parms.lookup(0) : parms;
   if (!(p instanceof PDFDict)) return data;
   const predictor = num(simple(p.lookup(PDFName.of('Predictor')))) ?? 1;
-  if (predictor < 2) return data;
   const colors = num(simple(p.lookup(PDFName.of('Colors')))) ?? components;
   const columns = num(simple(p.lookup(PDFName.of('Columns')))) ?? width;
+  return removePredictor(data, predictor, columns, colors);
+}
+
+/**
+ * Undoes a Flate image's predictor. `data` is the inflated samples; `predictor` below 2 means they
+ * are already plain pixels. 8 bits per component only.
+ */
+export function removePredictor(data: Uint8Array, predictor: number, columns: number, colors: number): Uint8Array {
+  if (predictor < 2) return data;
   const bpp = colors;
   const row = columns * colors;
   if (predictor === 2) {
@@ -151,6 +147,29 @@ function unpredict(data: Uint8Array, parms: PDFObject | undefined, width: number
     }
   }
   return out;
+}
+
+/** 8-bit image samples (predictor already removed) as straight RGBA. Null when the buffer is short. */
+export function samplesToRgba(width: number, height: number, components: number, data: Uint8Array, alpha: Uint8Array | null): Uint8Array | null {
+  if (!width || !height || data.length < width * height * components) return null;
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const s = i * components;
+    let r: number, g: number, b: number;
+    if (components === 1) r = g = b = data[s]!;
+    else if (components === 3) [r, g, b] = [data[s]!, data[s + 1]!, data[s + 2]!];
+    else {
+      const k = 1 - data[s + 3]! / 255;
+      [r, g, b] = [0, 1, 2].map((j) => Math.round((255 - data[s + j]!) * k)) as [number, number, number];
+    }
+    rgba.set([r, g, b, alpha && alpha.length > i ? (alpha[i] ?? 255) : 255], i * 4);
+  }
+  return rgba;
+}
+
+/** An 8-bit RGBA image as a PNG data URL. */
+export async function rgbaToPngDataUrl(width: number, height: number, rgba: Uint8Array): Promise<string> {
+  return `data:image/png;base64,${base64(await encodePng(width, height, rgba))}`;
 }
 
 /** A number or name, for reading image dictionaries. */
