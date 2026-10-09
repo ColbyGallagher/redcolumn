@@ -47,7 +47,7 @@ export function legendRows(
     }
     // A count markup holds one point per item counted.
     row.count += m.type === 'count' ? m.points.length : 1;
-    if (totals(m)) row.meters += measureValue(m.type, m.points, scaleOf(m).metersPerPoint, measureProps(m));
+    if (totals(m)) row.meters += measureValue(m.type, m.points, scaleOf(m).metersPerPoint, measureProps(m), scaleOf(m).yMetersPerPoint);
   }
   const scale = scaleFor(legend.pageIndex);
   return [...rows.values()].map(({ meters, ...row }) =>

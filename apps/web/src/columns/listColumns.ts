@@ -125,9 +125,9 @@ export function statusName(id: string, statuses: readonly MarkupStatusDef[]): st
 export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const scale = ctx.scaleOf(m) ?? DEFAULT_SCALE;
   const props = measureProps(m);
-  const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, props) : null;
+  const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : null;
   const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale) : null;
-  const details = isMeasureKind(m.type) ? measureDetails(m.type, m.points, scale.metersPerPoint, props) : {};
+  const details = isMeasureKind(m.type) ? measureDetails(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : {};
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
   const perVolume = METERS_PER_UNIT[volumeUnitOf(scale)];

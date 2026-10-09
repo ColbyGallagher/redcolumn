@@ -1532,8 +1532,7 @@ body,
 .props-panel,
 .sessions,
 .layers,
-.toolchest,
-.measure-panel {
+.toolchest {
   padding: 10px;
 }
 

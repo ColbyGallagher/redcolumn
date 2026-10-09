@@ -40,4 +40,4 @@ After setting the scale, click **All pages**.
 
 - **Different scales in parts of one page** (a detail at a larger scale): see [Viewports](#viewports).
 - **Many pages with different scales**: see [Apply a scale to many pages](#scale-bulk).
-- **Units and precision** (feet-inches, decimal feet, 1/16"…): set them in the [Measurements panel](#measurements-panel).
+- **Precision** (decimal places or inch fractions), and a custom scale's units: set them in the [Measurements panel](#measurements-panel).

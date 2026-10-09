@@ -426,7 +426,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
       const t = out.get(m.type) ?? { value: 0, scale, n: 0 };
-      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m));
+      t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
       out.set(m.type, t);
     }

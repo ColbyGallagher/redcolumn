@@ -1,23 +1,33 @@
 # The Measurements panel
 
-Click **Measurements** on the panel rail to see the page's scale settings, its viewports, and every measurement in the document with totals.
+Click **Measurements** on the panel rail. The tools sit at the top. Under them: the page scale, the subject and label for measurements, and the page's viewports.
 
 ![The Measurements panel](img/measurements-panel.png)
 
-## Scale, units and precision
+## Tools
 
-At the top:
+The row of icons starts a measurement: length, area (and polygon cutout), perimeter (and polylength), diameter, angle, radius (and arc length), volume, count, and Smart Fill. The arrow beside an icon opens its related tools.
 
-- **Scale** — the current page's scale.
-- **Units** — what the measurements are shown in: `ft-in`, `ft`, `in`, `yd`, `mi`, or `mm`, `cm`, `m`, `km`.
-- **Precision** — decimal places (`0.00`), or for feet and inches, the nearest fraction (`1/16"`, `1/8"`… or **Whole inches**).
+## Page scale
+
+- **Page** — the sheet you are on. **Add Scale to More Pages** copies this page's scale to every page, or to a range such as `1-3, 5`.
+- **Calibrate** — draw a line of known length. See [Calibrate](#calibrate).
+- **Preset** — a standard scale, or one you saved.
+- **Custom** — type the scale as paper = real world, for example `1/4` in = `1` ft, or `1` mm = `100` mm.
+- **+ Add Preset** — save the custom scale so it appears under Preset.
+- **Separate Y Scale** — the drawing is stretched, so vertical distances use a different scale from horizontal ones.
+- **Precision** — `0.01` for two decimal places, or for feet and inches the nearest fraction (`1/16"`).
+
+## Measurement properties
+
+**Subject** is the name in the markups list. **Label** is written on the measurement, in front of its value. With a measurement selected, the fields edit that one. With none selected, they apply to the next measurement you draw.
 
 ## Viewports
 
-Areas of the page with their own scale. See [Viewports](#viewports).
+Areas of the page with their own scale. **+** draws one, **×** deletes the selected one, and the wastebasket deletes them by page or for the whole document. See [Viewports](#viewports).
 
-## The list and totals
+## On the drawing
 
-Every measurement is listed with its page and value. Click one to jump to it. At the bottom are totals for each kind, for example **Total Area (4): 2,450 sf**.
+Measurements already in the document are listed with the page and value. Click one to jump to it. Totals for each kind sit under the list, for example **Total Area (4): 2,450 sf**.
 
 > **Tip:** For filtering, grouping and exporting takeoffs, use the [Markups list](#markups-list).

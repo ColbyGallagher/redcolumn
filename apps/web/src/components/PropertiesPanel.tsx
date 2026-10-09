@@ -77,7 +77,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   readOnly = readOnly || (!!store && chosen.some((c) => !store.mayEdit(c)));
   const m = chosen[0]!;
   const scale = cellContext.scaleOf(m);
-  const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m)) : null;
+  const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint) : null;
   const types = [...new Set(chosen.map((c) => c.type))];
   const caps = intersectCaps(types.map(styleCapabilities));
   const ids = chosen.map((c) => c.id);
@@ -541,7 +541,7 @@ const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
 function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; scale: Scale; store: MarkupStore | null; tools: MarkupTools | null; readOnly: boolean }) {
   if (!isMeasureKind(m.type)) return null;
   const q = QUANTITY[m.type];
-  const d = measureDetails(m.type, m.points, scale.metersPerPoint, measureProps(m));
+  const d = measureDetails(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
   const per = METERS_PER_UNIT[scale.unit];
   const update = (patch: Partial<Markup>) => {
     store?.checkpoint();

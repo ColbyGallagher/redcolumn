@@ -1,10 +1,27 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calibratedScale, formatArea, formatFeetInches, formatLength, parseLength, parseScaleText, parseTypedScale, SCALE_PRESETS } from './scale.ts';
+import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, bulgeThrough, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
+
+test('custom scale 1/4 in = 1 ft matches the architectural preset', () => {
+  const built = scaleFromParts(parseScaleNumber('1/4')!, 'in', 1, 'ft', { feetInches: true, precision: 16 });
+  const presetScale = preset('1/4" = 1\'-0"');
+  assert.ok(built);
+  assert.ok(Math.abs(built.metersPerPoint / presetScale.metersPerPoint - 1) < 1e-9);
+  assert.equal(formatScaleNumber(scaleParts(presetScale).paper), '1/4');
+  assert.equal(scaleParts(preset('1" = 20\'')).real, 20);
+});
+
+test('separate Y scale stretches vertical lengths and areas', () => {
+  const x = scaleFromParts(1, 'in', 1, 'ft', { feetInches: true, precision: 16 })!;
+  const y = { ...x, yMetersPerPoint: scaleFromParts(1, 'in', 2, 'ft')!.metersPerPoint };
+  assert.equal(measureLabel('length', [[0, 0], [72, 0]], y), `1'-0"`);
+  assert.equal(measureLabel('length', [[0, 0], [0, 72]], y), `2'-0"`);
+  assert.equal(measureLabel('area', [[0, 0], [72, 0], [72, 72], [0, 72]], y), '2.00 sf');
+});
 
 test('architectural 1/4" = 1\'-0": one paper inch (72pt) is 4 feet', () => {
   const s = preset('1/4" = 1\'-0"');

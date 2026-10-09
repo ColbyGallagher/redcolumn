@@ -148,7 +148,9 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { tex
     const [nx, ny] = dimensionNormal(m.points[0]!, m.points[m.points.length - 1]!);
     at = [at[0] + nx * m.style.leader, at[1] + ny * m.style.leader];
   }
-  return { text: measureLabel(m.type, m.points, scale, measureProps(m)), at };
+  const value = measureLabel(m.type, m.points, scale, measureProps(m));
+  const caption = m.text?.trim();
+  return { text: caption ? `${caption} ${value}` : value, at };
 }
 
 /**

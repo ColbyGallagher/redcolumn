@@ -32,6 +32,11 @@ export interface Scale {
   /** Decimal places for angles (one when unset). */
   anglePrecision?: number;
   /**
+   * Real-world length of one PDF point measured vertically, when the page is scaled differently
+   * in Y than in X. Unset means Y uses `metersPerPoint`.
+   */
+  yMetersPerPoint?: number;
+  /**
    * Imperial lengths with inch fractions: feet as feet-inches (12'-6 1/2"), inches as fractional
    * inches (6 1/2"). Only applies when unit is ft or in.
    */
@@ -293,4 +298,97 @@ export function parseTypedScale(text: string): Scale | null {
   const bare = /^(\d+(?:\.\d+)?(?:[\s-]+\d+\/\d+)?|\d+\/\d+)\s*"?\s*=\s*(\d+(?:\.\d+)?)\s*'?(?:\s*-?\s*(\d+(?:\.\d+)?)\s*"?)?$/.exec(t);
   if (!bare) return parseScaleText(t);
   return parseScaleText(`${bare[1]}" = ${bare[2]}'${bare[3] ? `-${bare[3]}"` : ''}`);
+}
+
+/** Units a scale's paper side can be entered in. */
+export type PaperUnit = 'in' | 'mm' | 'cm';
+
+const PAPER_POINTS: Record<PaperUnit, number> = { in: 72, mm: 72 / 25.4, cm: 72 / 2.54 };
+
+/** A positive number, including an inch fraction such as `1/4` or `1 1/2`. */
+export function parseScaleNumber(text: string): number | null {
+  const t = text.trim();
+  if (/^\d*\.?\d+$/.test(t)) {
+    const v = Number(t);
+    return v > 0 ? v : null;
+  }
+  const m = /^(?:(\d+)[\s-]+)?(\d+)\s*\/\s*(\d+)$/.exec(t);
+  if (!m || !Number(m[3])) return null;
+  const v = Number(m[1] ?? 0) + Number(m[2]) / Number(m[3]);
+  return v > 0 ? v : null;
+}
+
+/** A scale number for a field: a reduced sixteenth when it is one, otherwise a trimmed decimal. */
+export function formatScaleNumber(n: number): string {
+  if (!Number.isFinite(n)) return '';
+  const den = 16;
+  const units = Math.round(n * den);
+  if (Math.abs(n * den - units) < 1e-4) {
+    const whole = Math.trunc(units / den);
+    const frac = units - whole * den;
+    if (!frac) return String(whole);
+    const g = gcd(frac, den);
+    return `${whole ? `${whole} ` : ''}${frac / g}/${den / g}`;
+  }
+  return String(Math.round(n * 1e6) / 1e6);
+}
+
+function scalePartsLabel(paper: number, paperUnit: PaperUnit, real: number, realUnit: LengthUnit): string {
+  const ps = paperUnit === 'in' ? '"' : ` ${paperUnit}`;
+  const rs = realUnit === 'ft' ? "'" : realUnit === 'in' ? '"' : ` ${realUnit}`;
+  return `${formatScaleNumber(paper)}${ps} = ${formatScaleNumber(real)}${rs}`;
+}
+
+/**
+ * Scale from the two sides of a custom equation, such as `1/4 in = 1 ft` or `1 mm = 100 mm`.
+ * Returns null when either side is not a positive length.
+ */
+export function scaleFromParts(
+  paper: number,
+  paperUnit: PaperUnit,
+  real: number,
+  realUnit: LengthUnit,
+  opts: { feetInches?: boolean; precision?: number } = {},
+): Scale | null {
+  if (!(paper > 0) || !(real > 0)) return null;
+  const feetInches = !!opts.feetInches && (realUnit === 'ft' || realUnit === 'in');
+  const precision = opts.precision ?? (feetInches ? 16 : realUnit === 'mm' ? 0 : 2);
+  return {
+    metersPerPoint: (real * METERS_PER_UNIT[realUnit]) / (paper * PAPER_POINTS[paperUnit]),
+    unit: realUnit,
+    feetInches,
+    precision,
+    label: scalePartsLabel(paper, paperUnit, real, realUnit),
+  };
+}
+
+/**
+ * The paper and world sides of a scale, written so an architectural scale stays a fraction of an
+ * inch to a foot and a metric ratio stays `1 mm = N mm`.
+ */
+export function scaleParts(scale: Scale): { paper: number; paperUnit: PaperUnit; real: number; realUnit: LengthUnit } {
+  const imperial = scale.unit === 'in' || scale.unit === 'ft' || scale.unit === 'yd' || scale.unit === 'mi';
+  if (scale.unit === 'ft' || scale.unit === 'in') {
+    const paperIn = METERS_PER_UNIT[scale.unit] / (scale.metersPerPoint * PAPER_POINTS.in);
+    const sixteenths = paperIn * 16;
+    if (paperIn > 0 && paperIn <= 1 && Math.abs(sixteenths - Math.round(sixteenths)) < 1e-3) {
+      return { paper: Math.round(sixteenths) / 16, paperUnit: 'in', real: 1, realUnit: scale.unit };
+    }
+    if (paperIn > 0 && paperIn < 1) return { paper: 1, paperUnit: 'in', real: 1 / paperIn, realUnit: scale.unit };
+    if (paperIn >= 1 && paperIn < 24) return { paper: paperIn, paperUnit: 'in', real: 1, realUnit: scale.unit };
+  }
+  if (!imperial) {
+    const ratio = scale.metersPerPoint / METERS_PER_PAPER_POINT;
+    if (ratio >= 1 && Math.abs(ratio - Math.round(ratio)) < 1e-2) {
+      return { paper: 1, paperUnit: 'mm', real: Math.round(ratio), realUnit: 'mm' };
+    }
+  }
+  const paperUnit: PaperUnit = imperial ? 'in' : 'mm';
+  return { paper: 1, paperUnit, real: (scale.metersPerPoint * PAPER_POINTS[paperUnit]) / METERS_PER_UNIT[scale.unit], realUnit: scale.unit };
+}
+
+/** The custom-equation wording of a scale, such as `1/4" = 1'` or `1 mm = 100 mm`. */
+export function scaleEquation(scale: Scale): string {
+  const p = scaleParts(scale);
+  return scalePartsLabel(p.paper, p.paperUnit, p.real, p.realUnit);
 }
