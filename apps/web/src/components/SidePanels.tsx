@@ -1,85 +1,10 @@
 import type { ReactNode } from 'react';
 import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
-import type { PdfLayer } from '../documents/layers';
 import { MARKUP_LABELS, measureProps, type Viewport, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { DECIMAL_PRECISIONS, SCALE_PRESETS, DEFAULT_SCALE, formatMeasure, FRACTION_PRECISIONS, isMeasureKind, LENGTH_UNITS, measureValue, QUANTITY, type LengthUnit, type MeasureKind, type Scale } from '@nb/measure';
 
 export function PlaceholderPanel({ body }: { body: string }) {
   return <p className="empty">{body}</p>;
-}
-
-export interface LayersPanelProps {
-  /** The PDF's own layers (optional content), and which of them are hidden. */
-  pdfLayers: readonly PdfLayer[];
-  hiddenPdf: ReadonlySet<string>;
-  onPdfLayer: (id: string, show: boolean) => void;
-  /** Markup layers (their markups' `layer`) with counts, and which are hidden. */
-  markupLayers: readonly { name: string; count: number }[];
-  hiddenMarkup: ReadonlySet<string>;
-  onMarkupLayer: (name: string, show: boolean) => void;
-  showLinks: boolean;
-  onShowLinks: (show: boolean) => void;
-}
-
-/**
- * Layers: the PDF's own layers (show or hide each; a locked one only on purpose), markup layers
- * (markups can be moved to a layer from their menu), and the app's hyperlinks.
- */
-export function LayersPanel({ pdfLayers, hiddenPdf, onPdfLayer, markupLayers, hiddenMarkup, onMarkupLayer, showLinks, onShowLinks }: LayersPanelProps) {
-  return (
-    <div className="layers">
-      <h3 className="panel-subhead">PDF layers</h3>
-      {pdfLayers.length ? (
-        <>
-          <div className="layer-actions">
-            <button className="btn small flat" onClick={() => pdfLayers.forEach((l) => hiddenPdf.has(l.id) && onPdfLayer(l.id, true))}>
-              Show all
-            </button>
-            <button className="btn small flat" onClick={() => pdfLayers.forEach((l) => !hiddenPdf.has(l.id) && !l.locked && onPdfLayer(l.id, false))}>
-              Hide all
-            </button>
-          </div>
-          <ul className="layer-list">
-            {pdfLayers.map((l) => (
-              <li key={l.id} style={{ paddingLeft: 8 + l.depth * 14 }}>
-                <label className="field" title={l.locked ? 'The file locks this layer; uncheck to hide it anyway' : undefined}>
-                  <input
-                    type="checkbox"
-                    checked={!hiddenPdf.has(l.id)}
-                    onChange={(e) => (!l.locked || e.target.checked || confirm(`"${l.name}" is locked in this file. Hide it anyway?`)) && onPdfLayer(l.id, e.target.checked)}
-                  />
-                  {l.name}
-                  {l.locked && <span className="layer-lock">🔒</span>}
-                </label>
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
-        <p className="empty">This PDF has no layers of its own.</p>
-      )}
-      <h3 className="panel-subhead">Markup layers</h3>
-      {markupLayers.length ? (
-        <ul className="layer-list">
-          {markupLayers.map((l) => (
-            <li key={l.name}>
-              <label className="field">
-                <input type="checkbox" checked={!hiddenMarkup.has(l.name)} onChange={(e) => onMarkupLayer(l.name, e.target.checked)} />
-                {l.name || 'No layer'} <span className="count">{l.count}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="empty">Right-click markups › Layer to put them on a layer.</p>
-      )}
-      <h3 className="panel-subhead">Shown by the app</h3>
-      <label className="field">
-        <input type="checkbox" checked={showLinks} onChange={(e) => onShowLinks(e.target.checked)} />
-        Hyperlinks
-      </label>
-    </div>
-  );
 }
 
 export function FlagsPanel({
