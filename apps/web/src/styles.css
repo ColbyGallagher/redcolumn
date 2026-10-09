@@ -3062,6 +3062,13 @@ body,
   font-size: 10px;
 }
 
+.thumb .thumb-label-edit {
+  width: 100%;
+  max-width: 160px;
+  font: inherit;
+  text-align: center;
+}
+
 .manage-button {
   margin: 4px 0 8px;
 }
