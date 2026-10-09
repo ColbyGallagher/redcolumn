@@ -336,7 +336,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.editText', 'Edit', 'Edit Text', () => a.setTool('editText'), s.pagesEditable && s.editable, s.tool === 'editText'),
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
-    cmd('tools.sign', 'Tools', 'Sign…', a.signatures, doc),
+    cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),
