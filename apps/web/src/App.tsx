@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -4858,28 +4858,28 @@ export function App() {
         label: 'Order',
         disabled: ro,
         items: [
-          { label: 'Bring to Front', onClick: () => c.tools.arrange(ids, 'front') },
-          { label: 'Bring Forward', onClick: () => c.tools.arrange(ids, 'forward') },
-          { label: 'Send Backward', onClick: () => c.tools.arrange(ids, 'backward') },
-          { label: 'Send to Back', onClick: () => c.tools.arrange(ids, 'back') },
+          { label: 'Bring to Front', shortcut: shortcutLabel('edit.bringToFront'), onClick: () => c.tools.arrange(ids, 'front') },
+          { label: 'Bring Forward', shortcut: shortcutLabel('edit.bringForward'), onClick: () => c.tools.arrange(ids, 'forward') },
+          { label: 'Send Backward', shortcut: shortcutLabel('edit.sendBackward'), onClick: () => c.tools.arrange(ids, 'backward') },
+          { label: 'Send to Back', shortcut: shortcutLabel('edit.sendToBack'), onClick: () => c.tools.arrange(ids, 'back') },
         ],
       },
       {
         label: 'Alignment',
         disabled: ro || allLocked,
         items: [
-          { label: 'Align Left', disabled: one, onClick: () => c.tools.alignSelected('left') },
-          { label: 'Align Center', disabled: one, onClick: () => c.tools.alignSelected('center') },
-          { label: 'Align Right', disabled: one, onClick: () => c.tools.alignSelected('right') },
-          { label: 'Align Top', disabled: one, onClick: () => c.tools.alignSelected('top') },
-          { label: 'Align Middle', disabled: one, onClick: () => c.tools.alignSelected('middle') },
-          { label: 'Align Bottom', disabled: one, onClick: () => c.tools.alignSelected('bottom') },
+          { label: 'Align Left', shortcut: shortcutLabel('edit.alignLeft'), disabled: one, onClick: () => c.tools.alignSelected('left') },
+          { label: 'Align Center', shortcut: shortcutLabel('edit.alignCenter'), disabled: one, onClick: () => c.tools.alignSelected('center') },
+          { label: 'Align Right', shortcut: shortcutLabel('edit.alignRight'), disabled: one, onClick: () => c.tools.alignSelected('right') },
+          { label: 'Align Top', shortcut: shortcutLabel('edit.alignTop'), disabled: one, onClick: () => c.tools.alignSelected('top') },
+          { label: 'Align Middle', shortcut: shortcutLabel('edit.alignMiddle'), disabled: one, onClick: () => c.tools.alignSelected('middle') },
+          { label: 'Align Bottom', shortcut: shortcutLabel('edit.alignBottom'), disabled: one, onClick: () => c.tools.alignSelected('bottom') },
           SEP,
           { label: 'Distribute Horizontally', disabled: ms.length < 3, onClick: () => c.tools.distributeSelected('horizontal') },
           { label: 'Distribute Vertically', disabled: ms.length < 3, onClick: () => c.tools.distributeSelected('vertical') },
           SEP,
-          { label: 'Flip Horizontal', onClick: () => c.tools.flipSelected('horizontal') },
-          { label: 'Flip Vertical', onClick: () => c.tools.flipSelected('vertical') },
+          { label: 'Flip Horizontal', shortcut: shortcutLabel('edit.flipHorizontal'), onClick: () => c.tools.flipSelected('horizontal') },
+          { label: 'Flip Vertical', shortcut: shortcutLabel('edit.flipVertical'), onClick: () => c.tools.flipSelected('vertical') },
         ],
       },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
@@ -5540,7 +5540,7 @@ export function App() {
     install: () => setInstallOpen(true),
     help: (what) => {
       const open = (path: string) => window.open(`${PROJECT_URL}${path}`, '_blank', 'noopener');
-      if (what === 'docs') open('/tree/master/docs');
+      if (what === 'docs') window.open(`${import.meta.env.BASE_URL}help/index.html`, '_blank', 'noopener');
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
@@ -5630,9 +5630,9 @@ export function App() {
       else v.goToPage(which === 'first' ? 0 : pageCount - 1);
     },
     documentProperties: () => setDocPropsOpen(true),
-    rotatePages: () => {
+    rotatePages: (quarterTurns) => {
       showLeft('pages');
-      void applyPageOps([{ type: 'rotate', pages: currentPageOps(), quarterTurns: 1 }]);
+      void applyPageOps([{ type: 'rotate', pages: currentPageOps(), quarterTurns }]);
     },
     insertPages: () => {
       showLeft('pages');
@@ -5657,6 +5657,34 @@ export function App() {
     batch: (kind) => setBatchOpen(kind),
     security: () => setSecurityOpen(true),
     showPanel: (tab) => showLeft(tab),
+    focusPanel: (id) => {
+      if (id === 'markups' || id === 'links') showBottomPanel(id);
+      else showLeft(id);
+    },
+    togglePanels: () => {
+      const open = leftOpen || showBottom;
+      setLeftOpen(!open);
+      setShowBottom(!open);
+    },
+    addBookmark: () => {
+      const cur = activeOpen;
+      if (!cur || !v) return;
+      const view = visibleView(v, paneB ? canvasBRef.current : canvasRef.current);
+      const mark: Bookmark = { id: crypto.randomUUID(), title: pageLabelFor(cur, view.pageIndex), pageIndex: view.pageIndex, rect: view.rect, children: [] };
+      cur.store.setBookmarks(insertBookmark(cur.store.bookmarks(), mark));
+      showLeft('bookmarks');
+    },
+    cycleDocument: (dir) => {
+      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
+      const front = pane === 'b' ? openBRef.current : openRef.current;
+      if (tabs.length < 2 || !front) return;
+      const i = tabs.findIndex((t) => t.file.id === front.file.id);
+      const next = tabs[(i + dir + tabs.length) % tabs.length];
+      if (next) activateTab(pane, next);
+    },
+    align: (how) => activeTools?.alignSelected(how),
+    flip: (axis) => activeTools?.flipSelected(axis),
+    arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showLeft('signatures');
       setSignFor({ fieldName: null });
@@ -6015,6 +6043,9 @@ export function App() {
     showBottom,
     tool: toolsState.tool,
     settings: prefs,
+    openTabCount: (pane === 'b' ? tabsB : tabsA).length,
+    leftTab,
+    bottomTab,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
