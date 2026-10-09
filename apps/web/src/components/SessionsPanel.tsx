@@ -5,6 +5,7 @@ import { forgetRecentSession, recentSessions, restoreRecentSession, type Session
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
 import { ACCESS_SHORT } from './sessions/AccessEditor';
+import { Caret, DocIcon, FilterButton, KebabIcon, PersonIcon, StudioHeader, StudioMenu, StudioRow, StudioTabs, studioIdText, type StudioSort } from './studio/chrome';
 import { offlineReason, useOnline } from '../offline/network';
 import { JoinSessionDialog, SessionSettingsDialog, StartSessionDialog, type StartRequest } from './sessions/SessionDialogs';
 
@@ -63,8 +64,6 @@ interface Props {
 
 type Dialog = 'start' | 'join' | 'settings' | null;
 
-const time = (at: number) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
 /**
  * Live Sessions: a list of the sessions you can get into
  * with Start and Join, and, once in one, its documents, attendees and Record. You can be in
@@ -118,6 +117,9 @@ export function SessionsPanel(props: Props) {
       )}
       {dialog === 'settings' && focused && (
         <SessionSettingsDialog
+          id={focused.snapshot.meta.id}
+          createdAt={focused.snapshot.meta.createdAt}
+          attendeeNames={[focused.snapshot.meta.host, ...focused.snapshot.meta.attendees.map((a) => a.name), ...(focused.snapshot.meta.invited ?? [])]}
           documents={focused.snapshot.meta.documents}
           onAddFiles={(files) => props.onAddFiles(focused.session.id, files)}
           onUpdateDocument={(docId, file) => props.onUpdateDocument(focused.session.id, docId, file)}
@@ -139,8 +141,8 @@ export function SessionsPanel(props: Props) {
           expiresAt={focused.snapshot.meta.expiresAt ?? null}
           busy={props.busy}
           onClose={() => setDialog(null)}
-          onSave={({ name, access, addDocuments, saveCopy, invite, expiresAt }) => {
-            setDialog(null);
+          onSave={({ name, access, addDocuments, saveCopy, invite, expiresAt }, close) => {
+            if (close) setDialog(null);
             const { meta } = focused.snapshot;
             const permissions = {
               ...(addDocuments !== meta.permissions.addDocuments ? { addDocuments } : {}),
@@ -178,33 +180,54 @@ function SessionList({
 }: Props & { onStartDialog: () => void; onJoinDialog: () => void }) {
   const [refresh, setRefresh] = useState(0);
   const online = useOnline();
-  const [filter, setFilter] = useState<'active' | 'all'>('active');
+  const [tab, setTab] = useState<'joined' | 'not' | 'deleted'>('joined');
+  const [sort, setSort] = useState<StudioSort>('recent');
+  const [sortDesc, setSortDesc] = useState(true);
   // Sessions in Drive and OneDrive show their details once joined (reading them needs a sign-in).
   const recent = useMemo(recentSessions, [refresh, joined.length]);
 
-  const rows = recent
-    .map((r) => {
-      const j = joined.find((x) => x.session.id === r.id);
-      const meta = j?.snapshot.meta ?? null;
-      const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
-      const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
-      return { ref: r, joined: j, meta, status, usable: true, access };
-    })
-    .filter((row) => filter === 'all' || row.joined || (row.usable && !row.ref.removed && row.meta?.status !== 'finished'));
+  const rows = recent.map((r) => {
+    const j = joined.find((x) => x.session.id === r.id);
+    const meta = j?.snapshot.meta ?? null;
+    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
+    const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
+    return { ref: r, joined: j, meta, status, usable: true, access };
+  });
+  const notJoinedCount = rows.filter((row) => !row.joined && !row.ref.removed).length;
+  const shown = rows
+    .filter((row) => (tab === 'joined' ? !!row.joined : tab === 'deleted' ? !!row.ref.removed && !row.joined : !row.joined && !row.ref.removed))
+    .sort((a, b) => {
+      const dir = sortDesc ? -1 : 1;
+      if (sort === 'name') return dir * (a.meta?.name ?? a.ref.name).localeCompare(b.meta?.name ?? b.ref.name, undefined, { sensitivity: 'base' });
+      if (sort === 'id') return dir * a.ref.id.localeCompare(b.ref.id);
+      return dir * (a.ref.joinedAt - b.ref.joinedAt);
+    });
 
   return (
-    <div className="sessions">
-      <div className="session-toolbar">
-        <button className="btn primary" onClick={onStartDialog} disabled={busy || !online} title={online ? 'Start a new session' : offlineReason('Starting a session')}>
-          + Start
-        </button>
-        <button className="btn" onClick={onJoinDialog} disabled={busy || !online} title={online ? 'Join a session by its ID' : offlineReason('Joining a session')}>
-          Join…
-        </button>
-        <button className="btn flat" onClick={() => setRefresh((n) => n + 1)} title="Refresh the list" aria-label="Refresh">
-          ↻
-        </button>
-      </div>
+    <div className="sessions bb-studio">
+      <StudioHeader
+        title="All Sessions"
+        onRefresh={() => setRefresh((n) => n + 1)}
+        plus={
+          <StudioMenu
+            label="New session"
+            items={[
+              { label: 'Start session', onClick: onStartDialog, disabled: busy || !online },
+              { label: 'Join session…', onClick: onJoinDialog, disabled: busy || !online },
+            ]}
+          />
+        }
+        filter={<FilterButton sort={sort} desc={sortDesc} onChange={(next, desc) => { setSort(next); setSortDesc(desc); }} />}
+      />
+      <StudioTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'joined', label: 'Joined' },
+          { id: 'not', label: 'Not Joined', count: notJoinedCount },
+          { id: 'deleted', label: 'Deleted' },
+        ]}
+      />
 
       {invite && (
         <div className="session-invite">
@@ -229,84 +252,75 @@ function SessionList({
         </div>
       )}
 
-      <h3>
-        My Sessions
-        <span className="experimental-badge" title="Sessions is experimental and may change">Experimental</span>
-        <span className="record-filter" role="tablist">
-          {(['active', 'all'] as const).map((f) => (
-            <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
-              {f === 'active' ? 'Active' : 'All'}
-            </button>
-          ))}
-        </span>
-      </h3>
-      {rows.length === 0 ? (
-        <p className="empty">
-          {recent.length ? 'No active sessions. Show All to see closed and removed ones.' : 'Sessions you start or join appear here. Start one to mark up PDFs together in Google Drive or OneDrive, or join from an invite link.'}
+      <div className="bb-scroll">
+      {shown.length === 0 ? (
+        <p className="bb-empty">
+          {tab === 'deleted' ? 'No deleted sessions.' : tab === 'not' ? 'Sessions you have not joined are listed here.' : recent.length ? 'You are not in a session right now.' : 'Sessions you start or join appear here.'}
         </p>
       ) : (
-        <ul className="session-list">
-          {rows.map(({ ref, joined: j, meta, status, usable, access }) => (
-            <li key={ref.id} className={j ? 'joined' : usable ? '' : 'unusable'}>
-              <button
-                className="session-row"
-                disabled={busy || !usable || (!j && ((ref.backend === 'drive' && !driveAvailable) || (ref.backend === 'onedrive' && !oneDriveAvailable)))}
-                onClick={() => (j ? onFocus(ref.id) : void onJoin(ref).then((ok) => ok && onFocus(ref.id)))}
-                title={j ? 'Show this session' : 'Join this session'}
-              >
-                <span className="line1">
-                  {j && <span className={`conn ${j.snapshot.status}`} />}
-                  <b>{meta?.name ?? ref.name}</b>
-                  <span className={`status ${status.toLowerCase().replace(/\s/g, '-')}`}>{status}</span>
-                </span>
-                <span className="line2">
-                  <span className="sid">{ref.backend === 'onedrive' ? 'OneDrive' : 'Drive'}</span>
-                  {meta && (
-                    <span>
-                      {meta.host} · {meta.documents.length} doc{meta.documents.length === 1 ? '' : 's'}
-                      {access ? ` · ${access}` : ''}
-                    </span>
-                  )}
-                </span>
-              </button>
-              {!j &&
-                (ref.removed ? (
-                  <button
-                    className="btn small flat"
-                    title="Restore to the Active list"
-                    aria-label="Restore"
-                    onClick={() => {
-                      restoreRecentSession(ref.id);
-                      setRefresh((n) => n + 1);
-                    }}
-                  >
-                    ↺
-                  </button>
-                ) : (
-                  <button
-                    className="btn small flat"
-                    title="Remove from the Active list (restore it from All)"
-                    aria-label="Remove"
-                    onClick={() => {
-                      if (!confirm(`Remove ${meta?.name ?? ref.name} from your Sessions? The session is not deleted, and you can restore it from All.`)) return;
-                      forgetRecentSession(ref.id);
-                      setRefresh((n) => n + 1);
-                    }}
-                  >
-                    ×
-                  </button>
-                ))}
-            </li>
-          ))}
+        <ul className="bb-list">
+          {shown.map(({ ref, joined: j, meta, status, usable, access }) => {
+            const blocked = busy || !usable || (!j && ((ref.backend === 'drive' && !driveAvailable) || (ref.backend === 'onedrive' && !oneDriveAvailable)));
+            const name = meta?.name ?? ref.name;
+            return (
+              <StudioRow
+                key={ref.id}
+                icon={<DocIcon />}
+                name={name}
+                id={ref.id}
+                disabled={blocked || (!!ref.removed && !j)}
+                title={[name, ref.id, status, access].filter(Boolean).join(' · ')}
+                onClick={() => {
+                  if (ref.removed && !j) return;
+                  if (j) onFocus(ref.id);
+                  else void onJoin(ref).then((ok) => ok && onFocus(ref.id));
+                }}
+                trailing={
+                  j ? null : ref.removed ? (
+                    <button
+                      type="button"
+                      className="bb-join"
+                      onClick={() => {
+                        restoreRecentSession(ref.id);
+                        setRefresh((n) => n + 1);
+                      }}
+                    >
+                      Restore
+                    </button>
+                  ) : (
+                    <>
+                      <button type="button" className="bb-join" disabled={blocked} onClick={() => void onJoin(ref).then((ok) => ok && onFocus(ref.id))}>
+                        Join
+                      </button>
+                      <button
+                        type="button"
+                        className="bb-x"
+                        title="Remove from your sessions. Restore it from Deleted."
+                        aria-label="Remove"
+                        onClick={() => {
+                          if (!confirm(`Remove ${name} from your Sessions? The session is not deleted, and you can restore it from Deleted.`)) return;
+                          forgetRecentSession(ref.id);
+                          setRefresh((n) => n + 1);
+                        }}
+                      >
+                        ×
+                      </button>
+                    </>
+                  )
+                }
+              />
+            );
+          })}
         </ul>
       )}
-      {busy && <p className="empty">Connecting…</p>}
+      {busy && <p className="bb-empty">Connecting…</p>}
       {error && <p className="session-error">{error}</p>}
-      <p className="session-me">
-        You appear as <b>{me}</b> (change under Edit → Author).
+      <p className="bb-note">
+        You appear as <b>{me}</b>.
       </p>
       <GoogleIdentity onChanged={() => setRefresh((n) => n + 1)} />
       <MicrosoftIdentity onChanged={() => setRefresh((n) => n + 1)} />
+      </div>
     </div>
   );
 }
@@ -335,12 +349,12 @@ function InSession({
 }: Props & JoinedSession & { onSettings: () => void }) {
   const online = useOnline();
   const { meta, isHost, status, record, presence, backend, needsAuth, viewOnly, denied } = snapshot;
-  const [emails, setEmails] = useState('');
   const finished = meta.status === 'finished';
   // Ended: the host removed the session's files (seen just before, or found gone).
   const ended = !!meta.ended || !!snapshot.removed;
   const [copied, setCopied] = useState<string | null>(null);
-  const [open, setOpen] = useState({ docs: true, people: true, record: true });
+  const [open, setOpen] = useState({ docs: true, people: true });
+  const [who, setWho] = useState<'joined' | 'not'>('joined');
   const fileRef = useRef<HTMLInputElement>(null);
   const access = myAccess(snapshot);
   const policy = policyOf(meta);
@@ -392,341 +406,287 @@ function InSession({
 
   const docName = (id: string | null) => meta.documents.find((d) => d.id === id)?.name ?? null;
   const toggle = (k: keyof typeof open) => setOpen((o) => ({ ...o, [k]: !o[k] }));
-  const others = joined.filter((j) => j.session.id !== session.id);
+  const joinedPeople = people.filter((p) => !p.invitedOnly);
+  const pendingPeople = people.filter((p) => p.invitedOnly);
+  const onlinePeople = joinedPeople.filter((p) => p.here);
+  const offlinePeople = joinedPeople.filter((p) => !p.here);
 
   return (
-    <div className="sessions in-session">
-      <div className="session-nav">
-        <button className="btn small flat" onClick={() => onFocus(null)} title="All sessions">
-          ‹ Sessions
-        </button>
-        {others.length > 0 && (
-          <select aria-label="Switch session" value={session.id} onChange={(e) => onFocus(e.target.value)} title="You are in several sessions">
+    <div className="sessions bb-studio in-session">
+      <div className="bb-session-top">
+        <div className="bb-session-switch">
+          <select aria-label="Session" value={session.id} onChange={(e) => onFocus(e.target.value || null)} title={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline: changes sync when you reconnect'}>
+            <option value="">All Sessions</option>
             {joined.map((j) => (
               <option key={j.session.id} value={j.session.id}>
-                {j.snapshot.meta.name}
+                {j.snapshot.meta.name} — {studioIdText(j.snapshot.meta.id)}
               </option>
             ))}
           </select>
-        )}
-      </div>
-      <div className="session-head">
-        <div className="session-title">
-          <span className={`conn ${status}`} title={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline: changes sync when you reconnect'} />
-          <b title={meta.name}>{meta.name}</b>
-          <span className={`access-badge ${isHost ? 'host' : access}`}>{isHost ? 'Host' : ACCESS_SHORT[access]}</span>
+          <StudioMenu
+            label="Session commands"
+            icon={<KebabIcon />}
+            items={[
+              ...(isHost && !finished && !ended ? [{ label: 'Session settings', onClick: onSettings }] : []),
+              ...(onInviteEmail && (isHost || allows(meta, 'invite')) ? [{ label: 'Share invitations', onClick: () => onInviteEmail(meta.id), disabled: !online }] : []),
+              ...(isHost || allows(meta, 'invite') ? [{ label: copied === 'link' ? 'Link copied' : 'Copy invitation link', onClick: () => copy('link', snapshot.inviteLink) }] : []),
+              { label: 'Session report', onClick: () => onReport(session.id, 'pdf') },
+              { label: 'Record as CSV', onClick: () => onReport(session.id, 'csv') },
+              { label: 'Leave session', onClick: () => onLeave(session.id), danger: true },
+              ...(isHost && session.end && !ended ? [{ label: 'End session…', onClick: () => onEnd(session.id), disabled: busy || !online, danger: true }] : []),
+            ]}
+          />
         </div>
-        {isHost && !finished && !ended && (
-          <button className="btn small manage-button" onClick={onSettings} title="Rename, add or remove documents, set who can do what, or end the session">
-            Manage session…
-          </button>
-        )}
-        {snapshot.email && <p className="session-identity">you are {snapshot.email}</p>}
-        {!finished && meta.expiresAt ? <p className="session-identity">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
-        {(isHost || allows(meta, 'invite')) && (
-        <div className="session-id">
-          <a className="drive-link" href={snapshot.folderUrl} target="_blank" rel="noreferrer" title={`Open the session folder in ${backend === 'onedrive' ? 'OneDrive' : 'Google Drive'}`}>
-            {backend === 'onedrive' ? 'OneDrive' : 'Google Drive'} ↗
-          </a>
-          <button className="btn small" onClick={() => copy('link', snapshot.inviteLink)} title="Copy a link that opens this session">
-            {copied === 'link' ? 'Copied' : 'Invite link'}
-          </button>
-          {onInviteEmail && (
-            <button className="btn small" onClick={() => onInviteEmail(meta.id)} disabled={!online} title={online ? 'Invite people by email' : offlineReason('Inviting people by email')}>
-              Email…
-            </button>
-          )}
-        </div>
-        )}
+        {snapshot.email && <p className="bb-banner">You are {snapshot.email}</p>}
+        {!finished && meta.expiresAt ? <p className="bb-banner">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
         {denied && <p className="session-error">The host has removed your access to this session.</p>}
         {needsAuth && (
-          <div className="session-offline">
+          <div className="bb-banner">
             {`Signed out of ${backend === 'onedrive' ? 'Microsoft' : 'Google'}. Your edits are kept here and saved when you reconnect.`}{' '}
-            <button className="btn small primary" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
+            <button className="bb-text-btn" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
               Reconnect
             </button>
           </div>
         )}
-        {viewOnly && <p className="session-offline">View only: the session folder is shared with you read-only. Ask the host to invite you as an editor.</p>}
-        {!isHost && access === 'view' && !finished && !denied && <p className="session-offline">You can view documents and chat. The host has not given you comment access.</p>}
-        {finished && !ended && <p className="session-finished">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
+        {viewOnly && <p className="bb-banner">View only: the session folder is shared with you read-only.</p>}
+        {!isHost && access === 'view' && !finished && !denied && <p className="bb-banner">You can view documents and chat. The host has not given you comment access.</p>}
+        {finished && !ended && <p className="bb-banner">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
         {ended && <p className="session-error">The host ended this session and removed its files. Documents you have open stay read-only until you close them.</p>}
-        {status === 'offline' && !finished && !denied && !ended && <p className="session-offline">Offline. Keep working: markups sync when the connection returns.</p>}
-      </div>
+        {status === 'offline' && !finished && !denied && !ended && <p className="bb-banner">Offline. Keep working: markups sync when the connection returns.</p>}
 
-      <section className="session-section">
-        <h3 className="collapsible">
-          <button className="twisty" aria-expanded={open.docs} onClick={() => toggle('docs')}>
-            {open.docs ? '▾' : '▸'} Documents ({meta.documents.length})
+        <section>
+          <button type="button" className="bb-sec-h" aria-expanded={open.people} onClick={() => toggle('people')}>
+            <Caret open={open.people} /> Attendees
           </button>
-          {session.canAddDocuments && (
-            <span className="h3-actions">
-              {localDocName && (
-                <button className="btn small" disabled={busy} onClick={() => onAddCurrent(session.id)} title={`Add ${localDocName} and its markups to the session`}>
-                  Add open
-                </button>
-              )}
-              <button className="btn small" disabled={busy} onClick={() => fileRef.current?.click()} title="Add PDFs from this computer">
-                Add files…
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf"
-                multiple
-                hidden
-                onChange={(e) => {
-                  const files = [...(e.target.files ?? [])];
-                  e.target.value = '';
-                  if (files.length) onAddFiles(session.id, files);
-                }}
+          {open.people && (
+            <>
+              <StudioTabs
+                value={who}
+                onChange={setWho}
+                tabs={[
+                  { id: 'joined', label: 'Joined' },
+                  { id: 'not', label: 'Not Joined', count: pendingPeople.length },
+                ]}
               />
-            </span>
+              {who === 'joined' ? (
+                <>
+                  <div className="bb-group">Online ({onlinePeople.length})</div>
+                  <ul className="bb-people">
+                    {onlinePeople.map((p) => (
+                      <li key={p.email ?? p.name}>
+                        <button type="button" className="bb-person" disabled={!p.here?.docId || p.here.self} title={p.email && p.email !== p.name ? p.email : undefined} onClick={() => p.here?.docId && onGoTo(session.id, p.here.docId, p.here.page)}>
+                          <PersonIcon />
+                          <span className="bb-name">
+                            {p.name}
+                            {p.here?.self ? ' (you)' : ''}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="bb-group dim">Offline ({offlinePeople.length})</div>
+                  <ul className="bb-people dim">
+                    {offlinePeople.map((p) => (
+                      <li key={p.email ?? p.name} className="bb-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
+                        <PersonIcon />
+                        <span className="bb-name">{p.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <ul className="bb-people dim">
+                  {pendingPeople.length === 0 && <li className="bb-empty">No one is waiting to join.</li>}
+                  {pendingPeople.map((p) => (
+                    <li key={p.email ?? p.name} className="bb-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
+                      <PersonIcon />
+                      <span className="bb-name">{p.name}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
-        </h3>
-        {open.docs && (
-          <>
-            {meta.documents.length === 0 && <p className="empty">{session.canAddDocuments ? 'Add a PDF to share it with everyone.' : 'The host has not added any documents yet.'}</p>}
-            <ul className="bookmark-list">
+        </section>
+
+        <section>
+          <div className="bb-sec-bar">
+            <button type="button" className="bb-sec-h" aria-expanded={open.docs} onClick={() => toggle('docs')}>
+              <Caret open={open.docs} /> Documents
+            </button>
+            {session.canAddDocuments && (
+              <StudioMenu
+                label="Add documents"
+                items={[
+                  ...(localDocName ? [{ label: `Add ${localDocName}`, onClick: () => onAddCurrent(session.id), disabled: busy }] : []),
+                  { label: 'Add PDFs…', onClick: () => fileRef.current?.click(), disabled: busy },
+                ]}
+              />
+            )}
+          </div>
+          {session.canAddDocuments && (
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/pdf"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = '';
+                if (files.length) onAddFiles(session.id, files);
+              }}
+            />
+          )}
+          {open.docs && (
+            <ul className="bb-docs">
+              {meta.documents.length === 0 && <li className="bb-empty">{session.canAddDocuments ? 'Add a PDF to share it.' : 'No documents yet.'}</li>}
               {meta.documents.map((d) => {
-                const viewers = presence.filter((p) => p.docId === d.id && !p.self);
                 const key = `${session.id}:${d.id}`;
                 const active = activeDoc?.sessionId === session.id && activeDoc.docId === d.id;
                 return (
-                  <li key={d.id} className="session-doc">
-                    <button
-                      className={`bookmark${active ? ' active' : ''}${openDocs.has(key) ? ' is-open' : ''}`}
-                      disabled={denied}
-                      onClick={() => onOpenDocument(session.id, d.id)}
-                      title={`Added by ${d.addedBy} · ${(d.size / 1e6).toFixed(1)} MB${openDocs.has(key) ? ' · open in a tab' : ''}`}
-                    >
-                      <span className="name">{d.name}</span>
-                      <span className="dots">
-                        {viewers.map((p) => (
-                          <i key={p.clientId} style={{ background: p.color }} title={`${p.name} is viewing`} />
-                        ))}
-                      </span>
+                  <li key={d.id} className={active ? 'bb-doc on' : 'bb-doc'}>
+                    <button type="button" className="bb-doc-main" disabled={denied} onClick={() => onOpenDocument(session.id, d.id)} title={`Added by ${d.addedBy}${openDocs.has(key) ? ' · open in a tab' : ''}`}>
+                      <DocIcon />
+                      <span className="bb-name">{d.name}</span>
                     </button>
-                    {isHost && !finished && (
-                      <label className="btn small flat" title="Update to a new revision: pick the new PDF; markups stay on their pages">
-                        ⟳
-                        <input
-                          type="file"
-                          accept="application/pdf,.pdf"
-                          hidden
-                          onChange={(e) => {
-                            const f = e.target.files?.[0];
-                            e.target.value = '';
-                            if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(session.id, d.id, f);
-                          }}
-                        />
-                      </label>
-                    )}
-                    {isHost && !finished && (
-                      <button
-                        className="btn small flat"
-                        title="Remove from session"
-                        onClick={() => {
-                          if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRun(() => session.removeDocument(d.id));
-                        }}
-                      >
-                        ×
-                      </button>
-                    )}
+                    <span className="bb-doc-actions">
+                        {isHost && !finished && (
+                          <label className="bb-mini" title="Update to a new revision">
+                            Update
+                            <input
+                              type="file"
+                              accept="application/pdf,.pdf"
+                              hidden
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(session.id, d.id, f);
+                              }}
+                            />
+                          </label>
+                        )}
+                        {isHost && !finished && (
+                          <button
+                            type="button"
+                            className="bb-mini"
+                            title="Remove from session"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRun(() => session.removeDocument(d.id));
+                            }}
+                          >
+                            Remove
+                          </button>
+                        )}
+                    </span>
                   </li>
                 );
               })}
             </ul>
-          </>
-        )}
-      </section>
-
-      <section className="session-section">
-        <h3 className="collapsible">
-          <button className="twisty" aria-expanded={open.people} onClick={() => toggle('people')}>
-            {open.people ? '▾' : '▸'} Attendees ({people.filter((p) => p.here).length} online)
-          </button>
-          {isHost && !finished && (
-            <span className="h3-actions">
-              <button className="btn small" onClick={onSettings} title="Invite people, create groups and set who can view or comment">
-                Permissions…
-              </button>
-            </span>
           )}
-        </h3>
-        {open.people && (
-          <ul className="attendees">
-            {people.map(({ name, email, here, host, invitedOnly, access: a, groups }) => (
-              <li key={email ?? name} className={here ? 'online' : 'away'}>
-                <button
-                  className="bookmark"
-                  disabled={!here?.docId || here.self}
-                  onClick={() => here?.docId && onGoTo(session.id, here.docId, here.page)}
-                  title={[email && email !== name ? email : '', here?.docId && !here.self ? `Go to ${name}'s page` : '', groups.length ? `Groups: ${groups.join(', ')}` : ''].filter(Boolean).join(' · ') || undefined}
-                >
-                  <i className="dot" style={{ background: here ? here.color : undefined }} />
-                  <span className="name">
-                    {name}
-                    {here?.self ? ' (you)' : ''}
-                  </span>
-                  <span className={`access-badge ${host ? 'host' : a}`}>{host ? 'Host' : ACCESS_SHORT[a]}</span>
-                  <span className="where">{here ? (here.docId ? `${docName(here.docId) ?? ''} p. ${(here.page ?? 0) + 1}` : 'online') : invitedOnly ? 'not joined yet' : 'offline'}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <RecordView session={session} record={record} open={open.record} onToggle={() => toggle('record')} readOnly={finished || !!denied} docName={docName} onGoTo={(docId, page) => onGoTo(session.id, docId, page)} />
-
-      {session.invite && !finished && !viewOnly && (
-        <form
-          className="session-section invite-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const list = emails.split(/[\s,;]+/).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
-            if (!list.length) return;
-            onRun(async () => {
-              await session.invite!(list);
-              setEmails('');
-            });
-          }}
-        >
-          <h3>Invite by email</h3>
-          <div className="row">
-            <input value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="name@company.com, …" aria-label="Email addresses to invite" />
-            <button className="btn small" type="submit" disabled={busy || !emails.trim()}>
-              Invite
-            </button>
-          </div>
-        </form>
-      )}
-
-      {error && <p className="session-error">{error}</p>}
-      <div className="session-actions">
-        <button className="btn small" onClick={() => onReport(session.id, 'pdf')} title="Session Report: documents, attendees, the Record and every markup, as a PDF">
-          Report
-        </button>
-        <button className="btn small flat" onClick={() => onReport(session.id, 'csv')} title="Download the Record as CSV">
-          CSV
-        </button>
-        <span className="spacer" />
-        <button className="btn small danger" onClick={() => onLeave(session.id)} title="Leave this session and close its documents">
-          Leave session
-        </button>
+        </section>
+        {error && <p className="session-error">{error}</p>}
       </div>
-      {isHost && session.end && !ended && (
-        <div className="session-actions end">
-          <button className="btn small danger" disabled={busy || !online} onClick={() => onEnd(session.id)} title={online ? 'Save the documents, markups and record, then remove the session and its files for everyone' : offlineReason('Ending a session')}>
-            End session…
-          </button>
-        </div>
-      )}
+      <RecordView session={session} record={record} readOnly={finished || !!denied} pending={pendingPeople} docName={docName} onGoTo={(docId, page) => onGoTo(session.id, docId, page)} />
     </div>
   );
 }
 
-type RecordFilter = 'all' | 'chat' | 'markup';
-
 function RecordView({
   session,
   record,
-  open,
-  onToggle,
   readOnly,
+  pending,
   docName,
   onGoTo,
 }: {
   session: CollabSession;
   record: RecordEntry[];
-  open: boolean;
-  onToggle: () => void;
   readOnly: boolean;
+  pending: { name: string; email: string | null }[];
   docName: (id: string | null) => string | null;
   onGoTo: (docId: string, page: number | null) => void;
 }) {
-  const [filter, setFilter] = useState<RecordFilter>('all');
+  const [tab, setTab] = useState<'record' | 'alerts' | 'pending'>('record');
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLOListElement>(null);
-  const shown = record.filter((e) => filter === 'all' || (filter === 'chat' ? e.kind === 'chat' : e.kind === 'markup' || e.kind === 'alert'));
+  const activity = record.filter((e) => e.kind !== 'alert');
+  const alerts = record.filter((e) => e.kind === 'alert');
+  const shown = tab === 'alerts' ? alerts : tab === 'record' ? activity : [];
 
-  // Stay scrolled to the newest line unless the reader has scrolled up.
   const pinned = useRef(true);
   useEffect(() => {
     const el = listRef.current;
     if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  }, [shown.length, open]);
+  }, [shown.length, tab]);
 
   return (
-    <section className="session-section record">
-      <h3 className="collapsible">
-        <button className="twisty" aria-expanded={open} onClick={onToggle}>
-          {open ? '▾' : '▸'} Record
-        </button>
-        {open && (
-          <span className="record-filter" role="tablist">
-            {(['all', 'chat', 'markup'] as const).map((f) => (
-              <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
-                {f === 'all' ? 'All' : f === 'chat' ? 'Chat' : 'Markups'}
-              </button>
-            ))}
-          </span>
-        )}
-      </h3>
-      {open && (
-        <>
-          <ol
-            className="record-list"
-            ref={listRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-            }}
-          >
-            {shown.length === 0 && <li className="empty">{filter === 'chat' ? 'No messages yet.' : 'Nothing yet.'}</li>}
-            {shown.map((e) => {
-              const target = e.docId && docName(e.docId) ? e.docId : null;
-              return (
-                <li key={e.id} className={`rec ${e.kind}`}>
-                  <span className="who" style={{ color: attendeeColor(e.author) }}>
-                    {e.author}
+    <section className="bb-dock">
+      <StudioTabs
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: 'record', label: 'Record' },
+          { id: 'alerts', label: 'Notifications' },
+          { id: 'pending', label: 'Pending', count: pending.length },
+        ]}
+      />
+      <ol
+        className="bb-log"
+        ref={listRef}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        }}
+      >
+        {tab === 'pending' && pending.length === 0 && <li className="bb-empty">No pending invitations.</li>}
+        {tab === 'pending' &&
+          pending.map((p) => (
+            <li key={p.email ?? p.name}>
+              <PersonIcon />
+              <span>
+                <b>{p.name}</b>: Not joined yet
+              </span>
+            </li>
+          ))}
+        {tab !== 'pending' && shown.length === 0 && <li className="bb-empty">{tab === 'alerts' ? 'No notifications.' : 'Nothing yet.'}</li>}
+        {tab !== 'pending' &&
+          shown.map((e) => {
+            const target = e.docId && docName(e.docId) ? e.docId : null;
+            const text = e.kind === 'alert' ? `Markup alert${target ? ` (${docName(target)})` : ''}: ${e.text}` : e.text;
+            return (
+              <li key={e.id}>
+                <PersonIcon />
+                {target && (e.kind === 'markup' || e.kind === 'alert') ? (
+                  <button type="button" className="link" onClick={() => onGoTo(target, e.page ?? null)} title="Show on the drawing">
+                    <b>{e.author}</b>: {text}
+                  </button>
+                ) : (
+                  <span>
+                    <b>{e.author}</b>: {text}
                   </span>
-                  <time dateTime={new Date(e.at).toISOString()} title={new Date(e.at).toLocaleString()}>
-                    {time(e.at)}
-                  </time>
-                  {e.kind === 'alert' ? (
-                    <button className="what link alert" disabled={!target} onClick={() => target && onGoTo(target, e.page ?? null)} title="Show the markup">
-                      ⚠ Markup Alert{target ? ` (${docName(target)} p. ${(e.page ?? 0) + 1})` : ''}: {e.text}
-                    </button>
-                  ) : target && e.kind === 'markup' ? (
-                    <button className="what link" onClick={() => onGoTo(target, e.page ?? null)} title="Show on the drawing">
-                      {e.text}
-                    </button>
-                  ) : (
-                    <span className="what">{e.text}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-          {!readOnly && (
-            <form
-              className="chat-form"
-              onSubmit={(ev) => {
-                ev.preventDefault();
-                session.sendChat(draft);
-                setDraft('');
-                pinned.current = true;
-              }}
-            >
-              <input value={draft} onChange={(ev) => setDraft(ev.target.value)} placeholder="Message everyone" maxLength={2000} />
-              <button className="btn small" type="submit" disabled={!draft.trim()}>
-                Send
-              </button>
-            </form>
-          )}
-        </>
+                )}
+              </li>
+            );
+          })}
+      </ol>
+      {!readOnly && (
+        <form
+          className="bb-chat"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            if (!draft.trim()) return;
+            session.sendChat(draft);
+            setDraft('');
+            pinned.current = true;
+          }}
+        >
+          <input value={draft} onChange={(ev) => setDraft(ev.target.value)} placeholder="Chat" aria-label="Chat" maxLength={2000} />
+          <button type="submit" disabled={!draft.trim()}>
+            Send
+          </button>
+        </form>
       )}
     </section>
   );

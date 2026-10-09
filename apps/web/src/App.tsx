@@ -14,7 +14,7 @@ import { DriveAuthError } from './studio/drive/DriveApi';
 import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
-import { allows, canAddMarkups, type RecordEntry } from './studio/protocol';
+import { allows, canAddMarkups, policyOf, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
@@ -6177,7 +6177,7 @@ export function App() {
           ))}
         </nav>
         {leftOpen && (
-          <aside className="panel left" style={{ width: leftWidth }}>
+          <aside className={`panel left${leftTab === 'sessions' || leftTab === 'projects' ? ' bb-chrome' : ''}`} style={{ width: leftWidth }}>
             <h2>
               {LEFT_TITLES[leftTab]}
               <button className="drawer-close" aria-label="Close the panel" title="Close" onClick={() => setLeftOpen(false)}>
@@ -6575,6 +6575,7 @@ export function App() {
           </aside>
         )}
         <div className="workspace">
+          <div id="bb-project-slot" className="bb-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
             <div
               className={`pane${activePane === 'a' ? ' active' : ''}`}
@@ -7103,7 +7104,11 @@ export function App() {
           if (!session || !snap) return null;
           return (
             <InviteDialog
-              title={`Invite to ${snap.meta.name}`}
+              link={snap.inviteLink}
+              groups={policyOf(snap.meta).groups.map((g) => ({
+                name: g.name,
+                emails: g.members.filter((m) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m)),
+              }))}
               onCancel={() => setInviteSession(null)}
               onSend={async (emails) => {
                 // Google Drive or OneDrive shares the session folder and emails the link.
