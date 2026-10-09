@@ -1,6 +1,7 @@
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
+import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -79,9 +80,13 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_TOOLS, MEASURE_TOOLS, ToolBar, toolShortcut } from './components/ToolBar';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { comboOf, keyMap } from './commands/keys';
+import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
 import { MultiplyDialog } from './components/MultiplyDialog';
+import { ChangeColoursDialog } from './components/ChangeColoursDialog';
+import { MENU_ICONS } from './components/menuIcons';
+import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
@@ -756,6 +761,9 @@ export function App() {
   const pasteImageRef = useRef<(file: Blob) => void>(() => {});
   /** The markups the Markups list's filter keeps (null: not filtering). */
   const [listKept, setListKept] = useState<ReadonlySet<string> | null>(null);
+  /** The Markups list's Hide All: no markup is drawn on the page (they stay in the list and the file). */
+  const [allMarkupsHidden, setAllMarkupsHidden] = useState(false);
+  const toggleAllMarkupsHidden = useCallback(() => setAllMarkupsHidden((h) => !h), []);
   const formDrawnRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
   /** Each document's form, by the hash of its contents (re-read after every change). */
   const [formModels, setFormModels] = useState<Record<string, FormModel>>({});
@@ -776,6 +784,10 @@ export function App() {
   const [replyTo, setReplyTo] = useState<{ pane: Pane; id: string } | null>(null);
   /** Edit → Multiply is open for this pane's selection. */
   const [multiplyFor, setMultiplyFor] = useState<Pane | null>(null);
+  /** Right-click › Change Colours: the markups whose colours are being changed. */
+  const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
+  /** Right-click › Capture › View Capture: the picture shown. */
+  const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
   const [blankPdf, setBlankPdf] = useState<'new' | 'blank' | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
@@ -805,6 +817,8 @@ export function App() {
   const [author, setAuthor] = useState(loadAuthor);
   const authorRef = useRef(author);
   authorRef.current = author;
+  // Recorded with every status change, in each document's status history.
+  MarkupStore.author = author;
   const activePaneRef = useRef(activePane);
   activePaneRef.current = activePane;
   /** Every Live Session this browser is in; documents from several can be open at once. */
@@ -3396,7 +3410,7 @@ export function App() {
   /** Every markup in a session as one CSV: a Document column, then the Markups list's main columns. */
   const sessionMarkupsCsv = useCallback(
     async (session: CollabSession) => {
-      const keep = new Set(['subject', 'page', 'sheet', 'measurement', 'author', 'date', 'status', 'comment', 'type']);
+      const keep = new Set(['seq', 'subject', 'page', 'sheet', 'measurement', 'author', 'date', 'status', 'comment', 'type']);
       let columns: ListColumn[] | null = null;
       const rows: ListRowData[] = [];
       for (const d of session.meta.documents) {
@@ -4037,32 +4051,43 @@ export function App() {
       }
     });
   };
+  /**
+   * Part of a page as a picture, with its markups unless `withMarkups` is false. `pixels(w, h)`
+   * gives the scale (pixels per point) for the area's size. Null when the area is off the page.
+   */
+  const renderRegion = async (o: OpenFile, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, pixels: (w: number, h: number) => number, withMarkups = true) => {
+    const size = o.doc.pages[pageIndex];
+    if (!size) return null;
+    const x0 = Math.max(0, rect.x);
+    const y0 = Math.max(0, rect.y);
+    const w = Math.min(size.width, rect.x + rect.w) - x0;
+    const h = Math.min(size.height, rect.y + rect.h) - y0;
+    if (w <= 0 || h <= 0) return null;
+    const scale = pixels(w, h);
+    const { bitmap } = await o.doc.renderTile(pageIndex, scale, Math.floor(x0 * scale), Math.floor(y0 * scale), Math.max(1, Math.ceil(w * scale)), Math.max(1, Math.ceil(h * scale)), { transparent: true });
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const g = canvas.getContext('2d')!;
+    g.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    g.scale(scale, scale);
+    g.translate(-x0, -y0);
+    const store = o.store;
+    const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
+    if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
+    return { canvas, x0, y0, w, h };
+  };
+
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
   snapshotRef.current = (pane, pageIndex, rect, withMarkups = true) => {
     const { o } = paneParts(pane);
     if (!o) return Promise.resolve();
     return (async () => {
-      const size = o.doc.pages[pageIndex];
-      if (!size) return;
-      const x0 = Math.max(0, rect.x);
-      const y0 = Math.max(0, rect.y);
-      const w = Math.min(size.width, rect.x + rect.w) - x0;
-      const h = Math.min(size.height, rect.y + rect.h) - y0;
-      if (w <= 0 || h <= 0) return;
       // The resolution set in Preferences › Snapshot, within 4096 px on the longest side.
-      const scale = Math.min(settings.get().snapshotDpi / 72, 4096 / Math.max(w, h));
-      const { bitmap } = await o.doc.renderTile(pageIndex, scale, Math.floor(x0 * scale), Math.floor(y0 * scale), Math.max(1, Math.ceil(w * scale)), Math.max(1, Math.ceil(h * scale)), { transparent: true });
-      const canvas = document.createElement('canvas');
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const g = canvas.getContext('2d')!;
-      g.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      g.scale(scale, scale);
-      g.translate(-x0, -y0);
-      const store = o.store;
-      const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
-      if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
+      const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(settings.get().snapshotDpi / 72, 4096 / Math.max(w, h)), withMarkups);
+      if (!region) return;
+      const { canvas, x0, y0, w, h } = region;
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
       const now = Date.now();
@@ -4139,9 +4164,10 @@ export function App() {
     const active = paneB ? ctlB?.tools : ctl?.tools;
     for (const tools of [ctl?.tools, ctlB?.tools]) {
       if (!tools) continue;
-      tools.setFilterView(tools === active && listKept ? (m) => !listKept.has(m.id) : null, prefs.filteredMarkups);
+      if (allMarkupsHidden) tools.setFilterView(() => true, 'hide');
+      else tools.setFilterView(tools === active && listKept ? (m) => !listKept.has(m.id) : null, prefs.filteredMarkups);
     }
-  }, [listKept, prefs.filteredMarkups, paneB, ctl, ctlB]);
+  }, [listKept, prefs.filteredMarkups, paneB, ctl, ctlB, allMarkupsHidden]);
 
   // Page layout, page colours and line weights, in both panes.
   useEffect(() => {
@@ -4626,7 +4652,109 @@ export function App() {
       onClick: () => tools.setTool(tool),
     }));
 
-  /** Right-click on markups: edit, status, clipboard, arrange, defaults, properties. */
+  /** Right-click › Auto-size Text Box: each selected text box fitted to its text. */
+  const autoSizeTextBoxes = (store: MarkupStore, ms: readonly Markup[]) => {
+    const g = document.createElement('canvas').getContext('2d');
+    if (!g) return;
+    const sized = ms.flatMap((m) => {
+      if (m.locked || !store.mayEdit(m)) return [];
+      // As text boxes draw it: the font at its size in points.
+      g.font = cssFont(m.style, m.style.fontSize ?? 12);
+      const points = autoSizedPoints(m, (t) => g.measureText(t).width);
+      return points ? [{ id: m.id, points }] : [];
+    });
+    if (!sized.length) return;
+    store.checkpoint();
+    store.batch(() => sized.forEach(({ id, points }) => store.update(id, { points })));
+  };
+
+  /** Right-click › Round All Corners: rounds (or, when all are rounded, squares) rectangles', polygons' and polylines' corners. */
+  const roundCorners = (store: MarkupStore, ms: readonly Markup[], round: boolean) => {
+    const targets = ms.filter((m) => canRoundCorners(m) && !m.locked && store.mayEdit(m));
+    if (!targets.length) return;
+    store.checkpoint();
+    store.batch(() =>
+      targets.forEach((m) => {
+        const { cornerRadius: _radius, ...square } = m.style;
+        store.update(m.id, { style: round ? { ...square, cornerRadius: m.style.cornerRadius || defaultCornerRadius(m) } : square });
+      }),
+    );
+  };
+
+  /**
+   * Right-click › Capture: a picture of each markup with the drawing around it, kept with the markup
+   * (the Markups list's Capture column). Small JPEGs, as they travel with the document.
+   */
+  const captureMarkups = async (o: OpenFile, ms: readonly Markup[]) => {
+    const store = o.store;
+    const pictures: { id: string; capture: string }[] = [];
+    for (const m of ms) {
+      if (!store.mayEdit(m)) continue;
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, 640 / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      pictures.push({ id: m.id, capture: flat.toDataURL('image/jpeg', 0.8) });
+    }
+    if (!pictures.length) return;
+    store.checkpoint();
+    store.batch(() => pictures.forEach(({ id, capture }) => store.update(id, { capture })));
+    setNotice(`Captured ${pictures.length} markup${pictures.length === 1 ? '' : 's'}. The Capture column in the Markups list shows ${pictures.length === 1 ? 'it' : 'them'}.`);
+  };
+
+  /**
+   * Right-click › Flatten: burns the selected markups into their pages; the rest stay markups. The
+   * file as it was is kept as a revision first.
+   */
+  const flattenSelected = async (pane: Pane, ms: readonly Markup[]) => {
+    const { c, o } = paneParts(pane);
+    if (!o) return;
+    if (studioDocOf(o.file.id)) {
+      setError('A Live Session document is shared with others, so its markups cannot be flattened here.');
+      return;
+    }
+    const store = o.store;
+    // Links stay interactive and Spaces are not drawn, so neither is flattened.
+    const targets = ms.filter((m) => m.type !== 'hyperlink' && m.type !== 'space' && !m.locked && store.mayEdit(m));
+    if (!targets.length) return;
+    const n = `${targets.length} markup${targets.length === 1 ? '' : 's'}`;
+    if (!confirm(`Flatten ${n} into the page? ${targets.length === 1 ? 'It becomes' : 'They become'} part of the drawing and can no longer be edited. The file as it is now is kept as a revision.`)) return;
+    try {
+      // The PDF's own annotations the targets stand for (with their replies and states) go too.
+      const imported = store.importedAnnotations();
+      const drop: Record<number, number[]> = {};
+      for (const m of targets) {
+        const l = m.pdfAnnot;
+        if (!l || l.space || (l.id ?? m.id) !== m.id || !imported[m.pageIndex]?.includes(l.index)) continue;
+        (drop[m.pageIndex] ??= []).push(l.index, ...(l.owned ?? []), ...(l.members?.slice(1) ?? []));
+      }
+      // Each target is written once as a new annotation (no replies or states, which have nothing to draw).
+      const fresh: Markup[] = targets.map(({ pdfAnnot: _link, replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' }));
+      const { exportWithAnnotations } = await import('@nb/markup/export');
+      const exported = await exportWithAnnotations(await readFile(o.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+      const { flattenSelection } = await import('./documents/process');
+      const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
+      c?.tools.select([]);
+      await commitDocument(o, bytes.slice().buffer, () => store.removeFlattened(targets.map((m) => m.id), drop), `Before flattening ${n}`);
+      setNotice(`Flattened ${count} markup${count === 1 ? '' : 's'} into the page. File › Revisions has the file as it was.`);
+    } catch (err) {
+      setError(`Flatten failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /**
+   * Right-click on markups, in Bluebeam's order: clipboard and delete; type-specific edits; layer,
+   * order, alignment, action, capture, flatten, group, lock, hide and legend; review; Tool Library;
+   * defaults and properties.
+   */
   const markupMenu = (pane: Pane, ids: string[]): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return [];
@@ -4644,84 +4772,90 @@ export function App() {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, { status: s })));
     };
-    const bounds = boundsOf(ms.flatMap((m) => m.points));
+    const setAll = (patch: (m: Markup) => Partial<Markup>) => {
+      store.checkpoint();
+      store.batch(() => ms.forEach((m) => store.update(m.id, patch(m))));
+    };
     const anyLocked = ms.some((m) => m.locked);
     // Someone else's markups, in a Live Session where this person may edit only their own: like
     // locked ones, they keep only their status and replies open.
     const theirs = ms.some((m) => !store.mayEdit(m));
     const allLocked = ms.every((m) => m.locked || !store.mayEdit(m));
     const grouped = ms.some((m) => m.groupId);
+    const roundable = ms.filter((m) => canRoundCorners(m));
+    const allRound = roundable.length > 0 && roundable.every((m) => m.style.cornerRadius);
+    const pageCount = o.doc.pages.length;
+    const session = studioDocOf(o.file.id);
     return [
-      { label: 'Edit Text', disabled: ro || theirs || !one || !isTextType(first.type), onClick: () => setEditingText(first.id) },
-      { label: 'Reply…', disabled: ro || !one, onClick: () => setReplyTo({ pane, id: first.id }) },
-      // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
-      { label: first.link ? 'Edit Action…' : 'Action…', disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
-      ...(studioDocOf(o.file.id)
+      { label: 'Cut', icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
+      { label: 'Copy', icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
+      { label: 'Paste', icon: MENU_ICONS.paste, shortcut: shortcutLabel('edit.paste'), disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
+      { label: 'Multiply…', icon: MENU_ICONS.multiply, shortcut: shortcutLabel('edit.multiply'), disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
+      { label: 'Format Painter', icon: MENU_ICONS.painter, shortcut: shortcutLabel('edit.formatPainter'), disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
+      { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
+      SEP,
+      { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => setChangeColoursFor({ pane, ids }) },
+      { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
+      // What only some kinds of markup have.
+      ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
+      ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
+      ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
             {
-              label: 'Send Markup Alert…',
-              disabled: !one || sessionById(studioDocOf(o.file.id)!.sessionId)?.meta.status !== 'active',
-              onClick: () => {
-                const d = studioDocOf(o.file.id)!;
-                void askText('Send Markup Alert', first.comment ?? '', { label: 'Everyone in the session is shown this markup, with your message.', confirm: 'Send' }).then((text) => {
-                  if (text) sessionById(d.sessionId)?.sendAlert(d.docId, first.id, first.pageIndex, text);
-                });
-              },
+              label: 'Rotate',
+              disabled: ro || allLocked,
+              items: [
+                { label: 'Rotate 90° Clockwise', onClick: () => turnMarkups(store, ms, 90) },
+                { label: 'Rotate 90° Counterclockwise', onClick: () => turnMarkups(store, ms, -90) },
+                {
+                  label: 'Rotate…',
+                  onClick: () =>
+                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
+                      const deg = Number(t);
+                      if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
+                    }),
+                },
+                { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
+              ],
             },
           ]
         : []),
-      ...(one && first.type === 'legend'
+      ...(callout
         ? [
-            {
-              label: 'Legend Lists',
-              disabled: ro,
-              items: (['page', 'document'] as const).map((scope) => ({
-                label: scope === 'page' ? 'Markups on This Page' : 'Markups in the Document',
-                checked: (first.legend?.scope ?? 'page') === scope,
-                onClick: () => store.update(first.id, { legend: { scope } }),
-              })),
-            },
+            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
+            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
           ]
         : []),
-      { label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs || !one || isTextType(first.type), onClick: () => setCommentEdit({ pane, id: first.id }) },
+      ...(one && first.attachment
+        ? [
+            { label: 'Open Attachment', onClick: () => openAttachment(first) },
+            { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
+          ]
+        : []),
+      SEP,
       {
-        label: 'Status',
+        label: 'Layer',
         disabled: ro,
-        items: store.columnSet().statuses.map((s) => ({
-          label: s.id === 'none' ? 'None' : s.name,
-          checked: status === s.id,
-          onClick: () => setStatus(s.id),
-        })),
-      },
-      {
-        label: 'Add to Tool Library',
         items: [
-          ...profiles
-            .active()
-            .state.toolChests.filter((t) => t.id !== RECENT_TOOLS_ID)
-            .map((t) => ({ label: t.name, onClick: () => toolChestItemsOf(ms, store).forEach((item) => addToToolSet(t.id, item)) })),
+          ...[...new Set(store.all().flatMap((m) => (m.layer ? [m.layer] : [])))].sort().map((name) => ({
+            label: name,
+            checked: ms.every((m) => m.layer === name),
+            onClick: () => setAll(() => ({ layer: name })),
+          })),
+          { label: 'No Layer', checked: ms.every((m) => !m.layer), onClick: () => setAll(() => ({ layer: undefined })) },
           SEP,
           {
-            label: 'New Tool Set…',
+            label: 'New Layer…',
             onClick: () =>
-              void askText('New Tool Set', 'My Tools', { confirm: 'Create' }).then((name) => {
-                if (name) {
-                  const id = createToolSet(name);
-                  toolChestItemsOf(ms, store).forEach((item) => addToToolSet(id, item));
-                }
+              void askText('New Markup Layer', '', { label: 'The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => {
+                if (name) setAll(() => ({ layer: name }));
               }),
           },
         ],
       },
-      SEP,
-      { label: 'Cut', shortcut: 'Ctrl+X', disabled: ro, onClick: () => cutMarkups(pane) },
-      { label: 'Copy', shortcut: 'Ctrl+C', onClick: () => copyMarkups(pane) },
-      { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
-      { label: 'Paste in Place', shortcut: 'Ctrl+Shift+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, 'inPlace') },
-      { label: 'Delete', shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
-      SEP,
       {
-        label: 'Arrange',
+        label: 'Order',
         disabled: ro,
         items: [
           { label: 'Bring to Front', onClick: () => c.tools.arrange(ids, 'front') },
@@ -4748,99 +4882,136 @@ export function App() {
           { label: 'Flip Vertical', onClick: () => c.tools.flipSelected('vertical') },
         ],
       },
-      grouped
-        ? { label: 'Ungroup', shortcut: 'Ctrl+Shift+G', disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
-        : { label: 'Group', shortcut: 'Ctrl+G', disabled: ro || one || allLocked, onClick: () => c.tools.group() },
-      { label: anyLocked ? 'Unlock' : 'Lock', disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
+      // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
+      { label: 'Edit Action…', shortcut: shortcutLabel('edit.editAction'), disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
       {
-        label: 'Layer',
+        label: 'Capture',
         disabled: ro,
         items: [
-          ...[...new Set(store.all().flatMap((m) => (m.layer ? [m.layer] : [])))].sort().map((name) => ({
-            label: name,
-            checked: ms.every((m) => m.layer === name),
-            onClick: () => {
-              store.checkpoint();
-              store.batch(() => ms.forEach((m) => store.update(m.id, { layer: name })));
-            },
-          })),
-          { label: 'No Layer', checked: ms.every((m) => !m.layer), onClick: () => {
-            store.checkpoint();
-            store.batch(() => ms.forEach((m) => store.update(m.id, { layer: undefined })));
-          } },
-          SEP,
           {
-            label: 'New Layer…',
-            onClick: () =>
-              void askText('New Markup Layer', '', { label: 'The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => {
-                if (!name) return;
-                store.checkpoint();
-                store.batch(() => ms.forEach((m) => store.update(m.id, { layer: name })));
-              }),
+            label: ms.some((m) => m.capture) ? 'Capture Again' : 'Capture',
+            disabled: theirs,
+            onClick: () => void captureMarkups(o, ms).catch((err) => setError(`Capture failed: ${err instanceof Error ? err.message : String(err)}`)),
           },
+          { label: 'View Capture', disabled: !one || !first.capture, onClick: () => setCaptureView(first.capture ?? null) },
+          { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
+      },
+      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space'), onClick: () => void flattenSelected(pane, ms) },
+      grouped
+        ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
+        : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
+      { label: anyLocked ? 'Unlock' : 'Lock', shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
+      {
+        label: ms.every((m) => m.hidden) ? 'Show' : 'Hide',
+        icon: MENU_ICONS.hide,
+        disabled: ro,
+        onClick: () => {
+          const hide = !ms.every((m) => m.hidden);
+          setAll(() => ({ hidden: hide || undefined }));
+          if (hide) c.tools.select([]);
+        },
+      },
+      {
+        label: 'Legend',
+        icon: MENU_ICONS.legend,
+        disabled: ro,
+        items: [
+          {
+            label: 'Show in Legends',
+            checked: ms.every((m) => !m.legendHidden),
+            disabled: theirs,
+            onClick: () => {
+              const show = !ms.every((m) => !m.legendHidden);
+              setAll(() => ({ legendHidden: show ? undefined : true }));
+            },
+          },
+          { label: 'New Legend', onClick: () => c.tools.setTool('legend') },
+          ...(one && first.type === 'legend'
+            ? [
+                SEP,
+                ...(['page', 'document'] as const).map((scope) => ({
+                  label: scope === 'page' ? 'Lists Markups on This Page' : 'Lists Markups in the Document',
+                  checked: (first.legend?.scope ?? 'page') === scope,
+                  onClick: () => store.update(first.id, { legend: { scope } }),
+                })),
+              ]
+            : []),
+        ],
+      },
+      SEP,
+      { label: 'Reply', icon: MENU_ICONS.reply, disabled: ro || !one, onClick: () => setReplyTo({ pane, id: first.id }) },
+      {
+        label: 'Set Status',
+        disabled: ro,
+        items: store.columnSet().statuses.map((s) => ({
+          label: s.id === 'none' ? 'None' : s.name,
+          checked: status === s.id,
+          onClick: () => setStatus(s.id),
+        })),
+      },
+      {
+        label: 'Check',
+        checked: ms.every((m) => m.checked),
+        disabled: ro,
+        onClick: () => {
+          const check = !ms.every((m) => m.checked);
+          setAll(() => ({ checked: check || undefined }));
+        },
       },
       {
         label: ms.every((m) => m.flagged) ? 'Unflag' : 'Flag',
         disabled: ro,
         onClick: () => {
           const flag = !ms.every((m) => m.flagged);
-          store.checkpoint();
-          store.batch(() => ms.forEach((m) => store.update(m.id, { flagged: flag || undefined })));
+          setAll(() => ({ flagged: flag || undefined }));
         },
       },
-      {
-        label: ms.every((m) => m.hidden) ? 'Show' : 'Hide',
-        disabled: ro,
-        onClick: () => {
-          const hide = !ms.every((m) => m.hidden);
-          store.checkpoint();
-          store.batch(() => ms.forEach((m) => store.update(m.id, { hidden: hide || undefined })));
-          if (hide) c.tools.select([]);
-        },
-      },
-      ...(ms.every((m) => ROTATABLE.has(m.type))
+      ...(session
         ? [
             {
-              label: 'Rotate',
-              disabled: ro || allLocked,
-              items: [
-                { label: 'Rotate 90° Clockwise', onClick: () => turnMarkups(store, ms, 90) },
-                { label: 'Rotate 90° Counterclockwise', onClick: () => turnMarkups(store, ms, -90) },
-                { label: 'Rotate…', onClick: () => void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
-                  const deg = Number(t);
-                  if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
-                }) },
-                { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
-              ],
+              label: 'Send Markup Alert…',
+              disabled: !one || sessionById(session.sessionId)?.meta.status !== 'active',
+              onClick: () =>
+                void askText('Send Markup Alert', first.comment ?? '', { label: 'Everyone in the session is shown this markup, with your message.', confirm: 'Send' }).then((text) => {
+                  if (text) sessionById(session.sessionId)?.sendAlert(session.docId, first.id, first.pageIndex, text);
+                }),
             },
           ]
         : []),
-      ...(one && first.attachment
-        ? [
-            { label: 'Open Attachment', onClick: () => openAttachment(first) },
-            { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
-          ]
-        : []),
-      ...(callout
-        ? [
-            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
-          ]
-        : []),
       SEP,
-      { label: 'Format Painter', shortcut: 'Ctrl+Shift+C', disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
-      { label: 'Multiply…', shortcut: 'Ctrl+M', disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
-      { label: 'Apply to All Pages', disabled: ro || allLocked || o.doc.pages.length < 2, onClick: () => c.tools.applyToAllPages(o.doc.pages.length) },
       {
-        label: `Select All ${MARKUP_LABELS[first.type]} Markups`,
-        onClick: () => c.tools.select(store.all().filter((m) => m.type === first.type).map((m) => m.id)),
+        label: 'Add to Tool Library',
+        items: [
+          ...profiles
+            .active()
+            .state.toolChests.filter((t) => t.id !== RECENT_TOOLS_ID)
+            .map((t) => ({ label: t.name, onClick: () => toolChestItemsOf(ms, store).forEach((item) => addToToolSet(t.id, item)) })),
+          SEP,
+          {
+            label: 'New Tool Set…',
+            onClick: () =>
+              void askText('New Tool Set', 'My Tools', { confirm: 'Create' }).then((name) => {
+                if (name) {
+                  const id = createToolSet(name);
+                  toolChestItemsOf(ms, store).forEach((item) => addToToolSet(id, item));
+                }
+              }),
+          },
+        ],
       },
-      { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
       SEP,
-      { label: 'Zoom to Markup', onClick: () => c.viewer.zoomToRect(bounds, 2, first.pageIndex) },
-      { label: 'Markup Columns…', onClick: () => setColumnsOpen(true) },
-      { label: 'Properties', onClick: () => showLeft('properties') },
+      { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
+      {
+        label: 'Apply to Pages…',
+        disabled: ro || allLocked || pageCount < 2,
+        onClick: () =>
+          void askText('Apply to Pages', `1-${pageCount}`, { label: 'Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped).', confirm: 'Apply' }).then((text) => {
+            const pages = text === null ? [] : parsePageRange(text, pageCount);
+            if (pages.length) c.tools.applyToPages(pages);
+          }),
+      },
+      { label: 'Properties', icon: MENU_ICONS.properties, onClick: () => showLeft('properties') },
     ];
   };
 
@@ -5273,6 +5444,8 @@ export function App() {
     share: () => void shareDocument(),
     markupsXfdf: (dir) => void markupsXfdf(dir),
     importMarkupsFromPdf: () => void importMarkupsFromPdf(),
+    exportBax: () => void exportMarkupsBax(),
+    importBax: () => void importMarkupsBax(),
     save: () => void saveDocument(false),
     saveAs: () => void saveDocument(true),
     exportCsv: () => downloadCsv(rowsToCsv(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), visibleListColumns)),
@@ -5367,7 +5540,7 @@ export function App() {
     install: () => setInstallOpen(true),
     help: (what) => {
       const open = (path: string) => window.open(`${PROJECT_URL}${path}`, '_blank', 'noopener');
-      if (what === 'docs') open('/tree/master/docs');
+      if (what === 'docs') window.open(`${import.meta.env.BASE_URL}help/index.html`, '_blank', 'noopener');
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
@@ -5404,6 +5577,15 @@ export function App() {
     group: () => activeTools?.group(),
     ungroup: () => activeTools?.ungroup(),
     lock: (locked) => activeTools?.setLocked(locked),
+    autoSize: () => {
+      const store = activeOpen?.store;
+      const ids = activeTools ? [...activeTools.getState().selected] : [];
+      if (store) autoSizeTextBoxes(store, ids.map((id) => store.get(id)).filter((m): m is Markup => !!m));
+    },
+    editAction: () => {
+      const ids = activeTools ? [...activeTools.getState().selected] : [];
+      if (ids.length === 1) setHyperlinkEdit({ pane: activePane, id: ids[0]! });
+    },
     find: () => {
       setLeftTab('search');
       setLeftOpen(true);
@@ -5616,6 +5798,110 @@ export function App() {
       addImported(cur, found, file.name);
     } catch (err) {
       setError(`Importing markups failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Page labels as Bluebeam knows the pages: their sheet numbers (page labels), else none. */
+  const baxLabels = (cur: OpenFile) => cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null);
+
+  /** File › Export › Markups as Bluebeam BAX: every markup, for Revu's Markups › Import Markups. */
+  const exportMarkupsBax = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    try {
+      const { exportBax } = await import('@nb/markup/bax');
+      // The markups as saving writes them; links stay out, as Revu leaves them out of BAX.
+      const xml = await exportBax(await annotatedBytes(cur, { links: false }), { pageLabels: baxLabels(cur) });
+      download(`${cur.file.name.replace(/\.pdf$/i, '')}.bax`, new Blob([xml], { type: 'application/xml' }));
+      setNotice('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.');
+    } catch (err) {
+      setError(`Exporting markups failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /**
+   * File › Import › Markups from Bluebeam BAX (from Revu's Markups › Export Markups). Markups the
+   * document already has, those of the PDF itself or imported before, are updated in place, so a
+   * reviewer's file brings in their statuses, replies and column values; the rest are added.
+   */
+  const importMarkupsBax = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.bax,application/xml,text/xml');
+    if (!file) return;
+    try {
+      const { parseBax, injectBax, baxColumnTag } = await import('@nb/markup/bax');
+      const bax = await parseBax(await file.text());
+      // The file's markups are added to a copy of the PDF and read by the PDF import, like its own.
+      const inj = await injectBax(await readFile(cur.file.hash), bax, baxLabels(cur));
+      const store = cur.store;
+      const found = await readPdfAnnotations(inj.bytes.slice().buffer, store);
+      const mine = found.markups.filter((m) => m.pdfAnnot && inj.added[m.pageIndex]?.includes(m.pdfAnnot.index));
+      if (!mine.length) {
+        setNotice(`${file.name} has no markups for this document${inj.offPage ? ` (${inj.offPage} are on pages it does not have)` : ''}.`);
+        return;
+      }
+      // Column values by name, onto this document's columns (missing ones added as text columns).
+      const set = store.columnSet();
+      const columns = [...set.columns];
+      const fieldsOf = (custom: Record<string, string> | undefined) => {
+        const fields: Record<string, string> = {};
+        for (const [tag, value] of Object.entries(custom ?? {})) {
+          let col = columns.find((c) => baxColumnTag(c.name) === tag);
+          if (!col) columns.push((col = { id: bluebeamColumnId(tag.replace(/_/g, ' ')), name: tag.replace(/_/g, ' '), type: 'text' }));
+          // Calculations are worked out here from their formula.
+          if (col.type === 'formula') continue;
+          const date = /^D:(\d{4})(\d{2})(\d{2})/.exec(value);
+          fields[col.id] = col.type === 'checkmark' ? String(value.toLowerCase() === 'true') : col.type === 'date' && date ? `${date[1]}-${date[2]}-${date[3]}` : value;
+        }
+        return Object.keys(fields).length ? fields : undefined;
+      };
+      const statusIds = new Set(set.statuses.map((x) => x.id));
+      const statuses = [...set.statuses, ...(found.extras.statuses ?? []).filter((x) => !statusIds.has(x.id))];
+      // Groups keep together, under ids of their own (another import must not join them).
+      const groupIds = new Map<string, string>();
+      let added = 0;
+      let updated = 0;
+      let same = 0;
+      store.checkpoint();
+      store.batch(() => {
+        for (const m of mine) {
+          const index = m.pdfAnnot!.index;
+          const nm = inj.nms[m.pageIndex]?.[index];
+          const fields = fieldsOf(inj.custom[m.pageIndex]?.[index]);
+          const { pdfAnnot: _link, seq: _seq, ...rest } = m;
+          const content: Markup = {
+            ...rest,
+            ...(fields ? { fields: { ...m.fields, ...fields } } : {}),
+            ...(m.groupId ? { groupId: groupIds.get(m.groupId) ?? groupIds.set(m.groupId, `bax-group-${nm ?? crypto.randomUUID()}`).get(m.groupId)! } : {}),
+          };
+          // One of the PDF's own markups, or one imported or made here before: updated in place.
+          const own = inj.same[m.pageIndex]?.[index];
+          const existing =
+            (own !== undefined ? store.all().find((x) => x.pageIndex === m.pageIndex && x.pdfAnnot?.index === own && !x.pdfAnnot.space) : undefined) ??
+            store.get(m.id) ??
+            (nm ? store.get(`bax-${nm}`) : undefined);
+          if (existing) {
+            const { id: _id, createdAt: _created, ...patch } = content;
+            const next = { ...patch, groupId: existing.groupId };
+            // A markup the file has as it is here stays untouched (so saving leaves its annotation as it was).
+            if (markupDigest({ ...existing, ...next }) === markupDigest(existing)) same++;
+            else {
+              store.update(existing.id, next);
+              updated++;
+            }
+          } else {
+            // New here: its status history is written into the file when it is saved.
+            store.add({ ...content, id: m.id.startsWith('pdf-') ? `bax-${nm ?? crypto.randomUUID()}` : m.id, statusHistory: m.statusHistory?.map(({ nm: _nm, ...c }) => c) });
+            added++;
+          }
+        }
+      });
+      if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) store.setColumnSet({ columns, statuses });
+      const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} already up to date`].filter(Boolean).join(', ');
+      setNotice(`Imported ${file.name}: ${parts}${inj.offPage ? `; ${inj.offPage} on pages this document does not have were left out` : ''}.`);
+    } catch (err) {
+      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -6504,6 +6790,8 @@ export function App() {
                     onSync={() => setSyncOpen(true)}
                     syncing={!!sheetSync.link}
                     onFiltered={setListKept}
+                    allHidden={allMarkupsHidden}
+                    onToggleAllHidden={toggleAllMarkupsHidden}
                   />
                 )}
               </div>
@@ -6651,6 +6939,41 @@ export function App() {
             />
           );
         })()}
+      {changeColoursFor &&
+        (() => {
+          const store = paneParts(changeColoursFor.pane).o?.store;
+          const ms = store ? changeColoursFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !m.locked && store.mayEdit(m)) : [];
+          if (!store || !ms.length) return null;
+          return (
+            <ChangeColoursDialog
+              colours={markupColours(ms)}
+              onCancel={() => setChangeColoursFor(null)}
+              onApply={(map) => {
+                store.checkpoint();
+                store.batch(() =>
+                  ms.forEach((m) => {
+                    const style = recolouredStyle(m.style, map);
+                    if (style) store.update(m.id, { style });
+                  }),
+                );
+                setChangeColoursFor(null);
+              }}
+            />
+          );
+        })()}
+      {captureView && (
+        <div className="modal-backdrop" onMouseDown={() => setCaptureView(null)}>
+          <div className="modal capture-view" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setCaptureView(null)}>
+            <h3>Capture</h3>
+            <img src={captureView} alt="The markup as captured" />
+            <div className="actions">
+              <button type="button" className="btn primary" autoFocus onClick={() => setCaptureView(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {replyTo &&
         (() => {
           const store = paneParts(replyTo.pane).o?.store;
@@ -7258,6 +7581,8 @@ export function App() {
           onSaveTemplate={(set) => updateWorkspace((w) => ({ ...w, columnTemplate: structuredClone(set) }))}
           onExportXml={(xml) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} columns.xml`, new Blob([xml], { type: 'application/xml' }))}
           onClose={() => setColumnsOpen(false)}
+          list={ws.list}
+          onListChange={(fn) => updateWorkspace((w) => ({ ...w, list: fn(w.list) }))}
         />
       )}
       {exportOpen && activeOpen && (

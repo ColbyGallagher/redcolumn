@@ -894,11 +894,31 @@
 
 /* --- Columns dialog --- */
 
+/* One size whatever is selected, so it never jumps between columns: big. */
 .modal.columns-dialog {
   display: flex;
   flex-direction: column;
-  width: min(860px, calc(100vw - 32px));
-  max-height: calc(100vh - 48px);
+  width: min(1100px, calc(100vw - 32px));
+  height: min(780px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.columns-list .col-section {
+  padding: 8px 8px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.col-row .col-hidden {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.builtin-editor h4 {
+  margin: 0 0 6px;
 }
 
 .columns-head {
@@ -930,9 +950,9 @@
 .columns-body {
   display: grid;
   flex: 1;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 280px 1fr;
   gap: 12px;
-  min-height: 380px;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -1210,7 +1230,9 @@
 }
 
 .statuses-body {
-  min-height: 300px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
 }
 
 .status-rows {

@@ -84,6 +84,8 @@ export interface MarkupStyle {
   arcRadius?: number;
   /** Clouds: arcs bulge inward rather than outward. */
   cloudInside?: boolean;
+  /** Rectangles, polygons and polylines: corners rounded to this radius in points (Round All Corners). */
+  cornerRadius?: number;
   /** Counts: the marker drawn at each item (circle when unset). */
   countShape?: CountShape;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
@@ -99,6 +101,8 @@ export interface MarkupStyle {
   hatch?: HatchPattern;
   /** Text boxes and callouts: draw the text without its box (no outline or fill). */
   noBox?: boolean;
+  /** Text boxes and callouts: no outline around the text; its fill (and a callout's leader) still draw. */
+  borderless?: boolean;
   /** Font for text boxes and measurement labels. */
   fontFamily?: FontFamily;
   bold?: boolean;
@@ -148,6 +152,11 @@ export interface SignatureInfo {
 
 export interface Markup {
   id: string;
+  /**
+   * The markup's ID as people quote it ("see markup 42"): numbered 1, 2, 3... in the order markups
+   * were made in the document, never reused. See `MarkupStore.add`.
+   */
+  seq?: number;
   type: MarkupType;
   pageIndex: number;
   /**
@@ -205,6 +214,13 @@ export interface Markup {
   flagged?: boolean;
   /** Hidden markups are not drawn or printed; they stay in the markups list. */
   hidden?: boolean;
+  /** Left out of every legend's list (Legend › Show in Legends unticked). */
+  legendHidden?: boolean;
+  /**
+   * Capture: a picture of the markup and the drawing around it, taken when asked (a JPEG data URL),
+   * shown in the markups list's Capture column and in reports.
+   */
+  capture?: string;
   /** Clockwise rotation in degrees about the centre of the markup's box (box-shaped types). */
   rotation?: number;
   /** File Attachment markups: the embedded file. */
@@ -212,6 +228,8 @@ export interface Markup {
   /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
   pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;
+  /** Every status change, oldest first (who set which status, when). Saved as Bluebeam's state annotations. */
+  statusHistory?: StatusChange[];
   author: string;
   createdAt: number;
   modifiedAt: number;
@@ -246,6 +264,21 @@ export interface PdfAnnotLink {
   image?: string;
   /** A Bluebeam Space (/BSISpaces entry) rather than an annotation. */
   space?: boolean;
+}
+
+/**
+ * One status change, as Bluebeam keeps them: which state was set, in which status set, by whom and
+ * when. A markup's history is every change, oldest first; its `status` is the latest.
+ */
+export interface StatusChange {
+  /** The state's name as set ("Accepted", "1.2 TfNSW - Closed - Do Not Action"). */
+  state: string;
+  /** The state model: `Review`, or a custom status set's id (see `MarkupStatusDef.model`). */
+  model: string;
+  author: string;
+  at: number;
+  /** /NM of the state annotation that records it in the PDF; unset until it is written there. */
+  nm?: string;
 }
 
 /** Look of a new markup of each type. */

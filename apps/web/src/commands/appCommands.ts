@@ -33,6 +33,9 @@ export interface CommandActions {
   share: () => void;
   markupsXfdf: (dir: 'export' | 'import') => void;
   importMarkupsFromPdf: () => void;
+  /** Bluebeam's markup file (.bax): every markup out, or a reviewer's markups in. */
+  exportBax: () => void;
+  importBax: () => void;
   save: () => void;
   saveAs: () => void;
   exportCsv: () => void;
@@ -61,6 +64,10 @@ export interface CommandActions {
   group: () => void;
   ungroup: () => void;
   lock: (locked: boolean) => void;
+  /** Fits the selected text boxes to their text. */
+  autoSize: () => void;
+  /** Opens the selected markup's action (what clicking it does). */
+  editAction: () => void;
   find: () => void;
   fit: () => void;
   fitWidth: () => void;
@@ -204,6 +211,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.exportImages', 'File', 'Page Images…', () => a.publish('images'), doc && s.canSaveCopy),
     cmd('file.exportXfdf', 'File', 'Markups as XFDF…', () => a.markupsXfdf('export'), doc && s.canSaveCopy),
     cmd('file.importXfdf', 'File', 'Import Markups from XFDF…', () => a.markupsXfdf('import'), s.editable),
+    cmd('file.exportBax', 'File', 'Markups as Bluebeam BAX…', a.exportBax, doc),
+    cmd('file.importBax', 'File', 'Import Markups from Bluebeam BAX…', a.importBax, s.editable),
     cmd('file.importPdfMarkups', 'File', 'Import Markups from PDF…', a.importMarkupsFromPdf, s.editable),
     cmd('file.exportCsv', 'File', 'Export Markups CSV', a.exportCsv, doc && s.canSaveCopy),
     cmd('file.exportSummary', 'File', 'Markup Summary…', a.exportSummary, doc && s.canSaveCopy),
@@ -230,6 +239,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.group', 'Edit', 'Group', a.group, s.selectionCount > 1 && s.editable),
     cmd('edit.ungroup', 'Edit', 'Ungroup', a.ungroup, s.selectionGrouped && s.editable),
     cmd('edit.lock', 'Edit', s.selectionLocked ? 'Unlock' : 'Lock', () => a.lock(!s.selectionLocked), sel && s.editable, s.selectionLocked),
+    cmd('edit.autoSize', 'Edit', 'Auto-size Text Box', a.autoSize, sel && s.editable),
+    cmd('edit.editAction', 'Edit', 'Edit Action…', a.editAction, s.selectionCount === 1 && s.editable),
     cmd('edit.find', 'Edit', 'Find Text', a.find, doc),
     cmd('edit.checkSpelling', 'Edit', 'Check Spelling…', a.checkSpelling, doc),
 
@@ -325,7 +336,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.editText', 'Edit', 'Edit Text', () => a.setTool('editText'), s.pagesEditable && s.editable, s.tool === 'editText'),
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
-    cmd('tools.sign', 'Tools', 'Sign…', a.signatures, doc),
+    cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),

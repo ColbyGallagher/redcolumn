@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { COLUMN_TYPES, columnsFromXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { FUNCTION_NAMES, parseFormula } from '../columns/formula';
-import { BUILT_IN_COLUMNS, cellsFor, customKey, type CellContext } from '../columns/listColumns';
+import { BUILT_IN_COLUMNS, cellsFor, customKey, listColumns, resolveLayout, type CellContext } from '../columns/listColumns';
+import type { MarkupListSettings } from '../workspace/profiles';
 
 interface Props {
   initial: ColumnSet;
@@ -14,7 +15,30 @@ interface Props {
   onSaveTemplate: (set: ColumnSet) => void;
   onExportXml: (xml: string) => void;
   onClose: () => void;
+  /** The Markups list's own settings (the profile's), where built-in columns' options live. */
+  list: MarkupListSettings;
+  onListChange: (fn: (l: MarkupListSettings) => MarkupListSettings) => void;
 }
+
+/** What each built-in column is, shown when it is selected. */
+const BUILT_IN_HINTS: Partial<Record<string, string>> = {
+  seq: 'Each markup’s ID: numbered 1, 2, 3… in the order markups are made, never reused.',
+  subject: 'The markup’s subject; its type’s name until one is typed.',
+  page: 'The page number the markup is on.',
+  sheet: 'The page’s label or sheet number.',
+  space: 'The Spaces the markup lies in.',
+  measurement: 'The measurement’s value at its page or viewport scale.',
+  author: 'Who made the markup.',
+  date: 'When the markup was last changed.',
+  status: 'The markup’s status. Define the statuses on the Statuses tab.',
+  checked: 'Bluebeam’s checkmark: ticked off, separate from the status.',
+  comment: 'The markup’s comment, or the text of a text box.',
+  type: 'The kind of markup.',
+  color: 'The markup’s line colour.',
+  capture: 'A picture of the markup taken with right-click › Capture.',
+};
+
+const builtInId = (key: string) => `builtin:${key}`;
 
 const TYPE_ICONS: Record<ColumnType, string> = { text: 'Aa', multiline: '¶', choice: '▾', number: '#', date: '📅', checkmark: '☑', formula: 'ƒx' };
 
@@ -36,17 +60,23 @@ function formulaError(c: CustomColumn, all: readonly CustomColumn[]): string | n
  * Manage Columns: add text, multiline, dropdown, number, date and calculation columns, mark them
  * required, and define the statuses markups can be given. Shared as XML.
  */
-export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileTemplate, onSave, onSaveTemplate, onExportXml, onClose }: Props) {
+export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileTemplate, onSave, onSaveTemplate, onExportXml, onClose, list, onListChange }: Props) {
   const [tab, setTab] = useState<'columns' | 'statuses'>('columns');
   const [columns, setColumns] = useState<CustomColumn[]>(initial.columns);
   const [statuses, setStatuses] = useState<MarkupStatusDef[]>(initial.statuses);
-  const [selectedId, setSelectedId] = useState<string | null>(initial.columns[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(initial.columns[0]?.id ?? builtInId(BUILT_IN_COLUMNS[0]!.key));
   const [newOption, setNewOption] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const formulaRef = useRef<HTMLTextAreaElement>(null);
 
   const selected = columns.find((c) => c.id === selectedId) ?? null;
+  const builtIn = BUILT_IN_COLUMNS.find((b) => builtInId(b.key) === selectedId) ?? null;
+  // Whether each built-in column shows in the Markups list (the profile's column layout).
+  const layout = resolveLayout(list.columns, listColumns(columns));
+  const shownInList = (key: string) => !layout.find((c) => c.key === key)?.hidden;
+  const setShownInList = (key: string, shown: boolean) =>
+    onListChange((l) => ({ ...l, columns: layout.map((c) => ({ key: c.key, width: c.width, hidden: c.key === key ? !shown : c.hidden })) }));
   const patch = (p: Partial<CustomColumn>) => setColumns((cs) => cs.map((c) => (c.id === selectedId ? { ...c, ...p } : c)));
 
   const nameProblem = (c: CustomColumn) => {
@@ -143,7 +173,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
           <h3>Markup Columns &amp; Statuses</h3>
           <div className="tabs" role="tablist">
             <button role="tab" aria-selected={tab === 'columns'} className={tab === 'columns' ? 'active' : ''} onClick={() => setTab('columns')}>
-              Custom Columns ({columns.length})
+              Columns ({BUILT_IN_COLUMNS.length + columns.length})
             </button>
             <button role="tab" aria-selected={tab === 'statuses'} className={tab === 'statuses' ? 'active' : ''} onClick={() => setTab('statuses')}>
               Statuses ({statuses.length - 1})
@@ -156,6 +186,19 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
           <div className="columns-body">
             <div className="columns-list">
               <ul>
+                <li className="col-section">Built-in</li>
+                {BUILT_IN_COLUMNS.map((b) => (
+                  <li key={b.key}>
+                    <button className={`col-row builtin${builtInId(b.key) === selectedId ? ' active' : ''}`} onClick={() => setSelectedId(builtInId(b.key))} title="Built-in: always there, cannot be deleted">
+                      <span className="col-type-icon" aria-hidden="true">
+                        🔒
+                      </span>
+                      <span className="col-name">{b.label}</span>
+                      {!shownInList(b.key) && <span className="col-hidden">hidden</span>}
+                    </button>
+                  </li>
+                ))}
+                <li className="col-section">Custom</li>
                 {columns.map((c, i) => (
                   <li key={c.id}>
                     <button className={`col-row${c.id === selectedId ? ' active' : ''}${problems[i] ? ' invalid' : ''}`} onClick={() => setSelectedId(c.id)}>
@@ -187,7 +230,61 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
             </div>
 
             <div className="columns-editor">
-              {!selected ? (
+              {builtIn ? (
+                <div className="builtin-editor">
+                  <h4>{builtIn.label}</h4>
+                  <p className="hint-text">{BUILT_IN_HINTS[builtIn.key]}</p>
+                  <p className="hint-text">Built-in columns are always there: they cannot be renamed or deleted. Their options apply straight away, to your profile.</p>
+                  <label className="col-toggle">
+                    <input type="checkbox" checked={shownInList(builtIn.key)} onChange={(e) => setShownInList(builtIn.key, e.target.checked)} />
+                    <span>
+                      <b>Show in the Markups list</b>
+                    </span>
+                  </label>
+                  {builtIn.key === 'status' && (
+                    <>
+                      <div className="col-field">
+                        <span>Status history</span>
+                        <label className="col-toggle">
+                          <input type="radio" name="status-history" checked={list.statusHistory !== 'latest'} onChange={() => onListChange((l) => ({ ...l, statusHistory: 'all' }))} />
+                          <span>
+                            <b>Every status change</b> — the whole history, as Bluebeam lists it
+                          </span>
+                        </label>
+                        <label className="col-toggle">
+                          <input type="radio" name="status-history" checked={list.statusHistory === 'latest'} onChange={() => onListChange((l) => ({ ...l, statusHistory: 'latest' }))} />
+                          <span>
+                            <b>Latest status only</b>
+                          </span>
+                        </label>
+                      </div>
+                      <label className="col-toggle">
+                        <input type="checkbox" checked={list.statusDetails !== false} onChange={(e) => onListChange((l) => ({ ...l, statusDetails: e.target.checked }))} />
+                        <span>
+                          <b>Show who changed it and when</b> — “Completed set by Julie Smit on 28/01/2026 at 2:30 PM”
+                        </span>
+                      </label>
+                      <p className="hint-text">Every status change is recorded with who made it and when, and saved in the PDF so Bluebeam shows the same history.</p>
+                    </>
+                  )}
+                  {builtIn.key === 'comment' && (
+                    <label className="col-toggle">
+                      <input type="checkbox" checked={list.wrapComments !== false} onChange={(e) => onListChange((l) => ({ ...l, wrapComments: e.target.checked }))} />
+                      <span>
+                        <b>Wrap comments</b> — show all of a comment; rows grow to fit
+                      </span>
+                    </label>
+                  )}
+                  {builtIn.key === 'subject' && (
+                    <label className="col-toggle">
+                      <input type="checkbox" checked={list.typeIcons !== false} onChange={(e) => onListChange((l) => ({ ...l, typeIcons: e.target.checked }))} />
+                      <span>
+                        <b>Show type icons</b> — a cloud, arrow… beside each subject, in the markup’s colour
+                      </span>
+                    </label>
+                  )}
+                </div>
+              ) : !selected ? (
                 <p className="empty">Select a column to edit it, or add one.</p>
               ) : (
                 <fieldset disabled={readOnly}>

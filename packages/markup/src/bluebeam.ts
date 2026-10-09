@@ -5,7 +5,7 @@
  * no pdf-lib dependency, so the importer can use it without loading pdf-lib.
  */
 import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
-import type { ColumnType, CustomColumn } from './columns';
+import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
 import type { FontFamily, LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
@@ -57,6 +57,8 @@ export interface PdfExtras {
   ocgNames: ReadonlyMap<number, string>;
   /** Bluebeam custom column definitions (/BSIAnnotColumns), in the order their values are stored. */
   columns: PdfDictValue[];
+  /** Bluebeam custom status sets' states (/BSIStatus): model id /M, state /S, colour /C. */
+  statusDefs?: PdfDictValue[];
   /** Image XObjects used by image markups, as PNG or JPEG data URLs, by object number. */
   images: ReadonlyMap<number, string>;
   /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
@@ -353,12 +355,18 @@ const COLUMN_TYPES: Record<string, ColumnType> = {
 /** Id of an imported Bluebeam column: its name, so the same column in other files lines up. */
 export const bluebeamColumnId = (name: string) => `bluebeam:${name.trim()}`;
 
+/**
+ * Bluebeam keeps a column removed from a file in its list, marked /Deleted, so the values stored
+ * for it keep their place. It is not one of the file's columns any more.
+ */
+const isDeletedColumn = (c: PdfDictValue) => c.Deleted === true;
+
 /** Bluebeam's custom columns, in display order. */
 export function importColumns(raw: readonly PdfDictValue[]): CustomColumn[] {
   const cols = raw.flatMap((c, i) => {
     const name = str(c.Name)?.trim();
     const subtype = nameOf(c.Subtype) ?? '';
-    if (!name) return [];
+    if (!name || isDeletedColumn(c)) return [];
     let type: ColumnType = COLUMN_TYPES[subtype] ?? 'text';
     if (type === 'text' && c.Multiline === true) type = 'multiline';
     const col: CustomColumn = { id: bluebeamColumnId(name), name, type };
@@ -387,7 +395,7 @@ export function importColumnData(data: PdfValue | undefined, raw: readonly PdfDi
   raw.forEach((c, i) => {
     const name = str(c.Name)?.trim();
     const v = values[i];
-    if (!name || typeof v !== 'string' || v === '') return;
+    if (!name || isDeletedColumn(c) || typeof v !== 'string' || v === '') return;
     const type = COLUMN_TYPES[nameOf(c.Subtype) ?? ''] ?? 'text';
     // Calculations are worked out here from their formula.
     if (type === 'formula') return;
@@ -405,4 +413,16 @@ export function importColumnData(data: PdfValue | undefined, raw: readonly PdfDi
 /** A review state's name ("Accepted") as a status id ("accepted"). */
 export function statusIdOf(state: string): string {
   return state.trim().toLowerCase() || 'none';
+}
+
+/** The states of a file's custom status sets (/BSIStatus), as statuses. */
+export function importStatuses(raw: readonly PdfDictValue[]): MarkupStatusDef[] {
+  const seen = new Set<string>();
+  return raw.flatMap((d) => {
+    const name = str(d.S)?.trim();
+    const model = str(d.M)?.trim();
+    if (!name || !model || seen.has(statusIdOf(name))) return [];
+    seen.add(statusIdOf(name));
+    return [{ id: statusIdOf(name), name, color: colorHex(d.C) ?? '#9aa1a9', model }];
+  });
 }

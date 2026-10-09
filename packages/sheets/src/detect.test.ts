@@ -167,3 +167,31 @@ test("a sheet's number referenced in other sheets' notes is still its number", (
     [1, 2, 3, 4, 5, 6].map((n) => `X-DRG-10000${n}`),
   );
 });
+
+test('report pages without title blocks get no sheet number', () => {
+  // A4 report: addresses, stages and figures in prose, a page number in the footer.
+  const report = (n: number): PageText => ({
+    width: 595,
+    height: 842,
+    words: [
+      ...phrase('Henry Lawson Drive Upgrade Project Stage 1B', 60, 90, 14),
+      ...phrase('Level 27, 680 George Street', 60, 160, 10),
+      ...phrase('Sydney NSW 2000', 60, 175, 10),
+      ...phrase(`GPO Box 5394 Sydney NSW 2001 Figure C-${n} shows the pavement`, 60, 300 + n * 20, 10),
+      word(String(n + 100), 290, 820, 8),
+    ],
+  });
+  const result = detectSheets([report(1), report(2), report(3), report(4)]);
+  assert.deepEqual(
+    result.map((r) => r.number),
+    [null, null, null, null],
+  );
+});
+
+test('a bare number is a sheet number when a label names it', () => {
+  const page = (n: string): PageText => ({ width: W, height: H, words: [...phrase('Notes about 680 things', 300, 400, 8), word('DRG', 2400, 1690, 7), word(n, 2450, 1700, 20)] });
+  assert.deepEqual(
+    detectSheets([page('101'), page('102'), page('103')]).map((r) => r.number),
+    ['101', '102', '103'],
+  );
+});

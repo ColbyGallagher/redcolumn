@@ -83,6 +83,8 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'edit.formatPainter': ['Ctrl+Shift+C'],
   'edit.group': ['Ctrl+G'],
   'edit.ungroup': ['Ctrl+Shift+G'],
+  'edit.autoSize': ['Alt+Z'],
+  'edit.editAction': ['Ctrl+Shift+E'],
   'edit.find': ['Ctrl+F'],
   'edit.checkSpelling': ['F7'],
   'help.docs': ['F1'],

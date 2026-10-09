@@ -113,6 +113,26 @@ interface Candidate {
   cx: number;
   cy: number;
   local: number;
+  /** In the title-block zone (bottom-right corner, right edge, bottom strip). */
+  zone: boolean;
+  /** A "DRG No." / "SHEET No." label names this field. */
+  labelled: boolean;
+  /** Set larger than the page's body text. */
+  large: boolean;
+  /** The same value sits in the same place on other sheets: a set number, a running header. */
+  repeated?: boolean;
+}
+
+/**
+ * Whether a number is shaped like a drawing number on its own: a discipline-prefixed sheet number
+ * (C-101, A2.01) or a document number with letters and separators (HLD1BDD-WSPAU-...-300082,
+ * 12345-C-001). Bare numbers and short codes (680, 2000, 1B) are not: in reports and letters they
+ * are addresses, stages and quantities, and only a label next to them makes them a sheet number.
+ */
+export function isDrawingNumberShape(number: string): boolean {
+  const n = number.trim().toUpperCase();
+  if (normalizeSheetNumber(n)) return true;
+  return n.length >= 5 && /[A-Z]/.test(n) && /\d/.test(n) && /[-._/]/.test(n);
 }
 
 /**
@@ -142,8 +162,9 @@ function candidatesFor(page: PageText): Candidate[] {
     const cy = (word.y0 + word.y1) / 2 / page.height;
     // Title blocks sit bottom-right, along the right edge, or as a strip along the bottom.
     let local = Math.min(3, word.size / med);
+    const zone = (cx > 0.65 && cy > 0.65) || cx > 0.8 || cy > 0.85;
     if (cx > 0.65 && cy > 0.65) local += 2;
-    else if (cx > 0.8 || cy > 0.85) local += 1;
+    else if (zone) local += 1;
     if (normalizeSheetNumber(number)) local += disciplineFor(number) ? 1 : 0.5;
     // A "DRG No." / "SHEET No." label just above or to the left names this field.
     const s = word.size;
@@ -153,7 +174,7 @@ function candidatesFor(page: PageText): Candidate[] {
       return (dy > -s * 0.5 && dy < s * 3 && dx > -s * 2 && dx < s * 12) || (Math.abs(dy) < s && dx > 0 && dx < s * 14);
     });
     if (labelled) local += 1.5;
-    out.push({ word, number, cx, cy, local });
+    out.push({ word, number, cx, cy, local, zone, labelled, large: word.size / med >= 1.5 });
   }
   return out;
 }
@@ -271,7 +292,12 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
   const lineCounts = pagesWith(pages.map((p) => lines(p.words).map((l) => l.text)));
   const common = (n: number | undefined) => withText >= 3 && (n ?? 0) > withText * 0.5;
   const repeatedLine = (text: string) => common(lineCounts.get(text));
-  for (const cands of perPage) for (const c of cands) if (withText >= 3 && (numberCounts.get(at(c)) ?? 0) >= 2) c.local -= 4;
+  for (const cands of perPage)
+    for (const c of cands)
+      if (withText >= 3 && (numberCounts.get(at(c)) ?? 0) >= 2) {
+        c.local -= 4;
+        c.repeated = true;
+      }
   // Which pages have a candidate in each cell of a coarse grid over normalized page positions.
   const CELL = 0.04;
   const cellKey = (x: number, y: number) => `${x},${y}`;
@@ -298,12 +324,17 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
     let best: { c: Candidate; score: number; consensus: number } | null = null;
     for (const c of cands) {
       const consensus = pages.length > 1 ? pagesNear(c, pageIndex) / (withText - 1 || 1) : 0;
+      // Every page has some number on it; only one that reads as this sheet's own is taken. Pages
+      // without a title block (reports, letters, specs) get none, rather than an address or a stage.
+      if (c.repeated) continue;
+      if (!c.labelled && !(isDrawingNumberShape(c.number) && (c.zone || (c.large && consensus >= 0.5)))) continue;
       const score = c.local + consensus * 3;
       if (!best || score > best.score) best = { c, score, consensus };
     }
-    const { c, consensus } = best!;
+    if (!best) return empty;
+    const { c, consensus } = best;
     // Confidence: strong when the candidate is big, in the title-block corner and consistent.
-    const confidence = Math.max(0.1, Math.min(0.9, (best!.score - 1) / 7 + (pages.length > 1 ? consensus * 0.2 : 0)));
+    const confidence = Math.max(0.1, Math.min(0.9, (best.score - 1) / 7 + (pages.length > 1 ? consensus * 0.2 : 0)));
     return {
       number: c.number,
       title: findTitle(page, c.word, repeatedLine),

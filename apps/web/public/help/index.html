@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>redcolumn Help</title>
+    <link rel="icon" href="../icon.svg" />
+    <link rel="stylesheet" href="help.css" />
+  </head>
+  <body>
+    <header class="top">
+      <button class="nav-toggle" aria-label="Show contents" aria-expanded="false">☰</button>
+      <a class="brand" href="#welcome"><img src="../icon.svg" alt="" width="22" height="22" /> redcolumn <span>Help</span></a>
+      <a class="back-to-app" href="../">Open redcolumn ↗</a>
+    </header>
+    <div class="layout">
+      <nav class="sidebar" aria-label="Help contents">
+        <div class="search">
+          <input type="search" id="search" placeholder="Search help (e.g. cloud, scale)" aria-label="Search help" autocomplete="off" />
+        </div>
+        <div id="results" hidden></div>
+        <div class="tree-tools">
+          <button type="button" id="expand-all">Expand all</button>
+          <button type="button" id="collapse-all">Collapse all</button>
+        </div>
+        <ul id="toc" class="toc"></ul>
+      </nav>
+      <main id="main" tabindex="-1">
+        <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+        <article id="content" class="content"><p class="loading">Loading…</p></article>
+        <nav class="pager" id="pager" aria-label="Previous and next"></nav>
+      </main>
+    </div>
+    <div class="lightbox" id="lightbox" hidden><img alt="" /></div>
+    <script src="toc.js"></script>
+    <script src="help.js"></script>
+  </body>
+</html>

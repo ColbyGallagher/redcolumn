@@ -269,6 +269,12 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           Box
         </label>
       )}
+      {textStyle && (textType === 'text' || textType === 'callout') && !textStyle.noBox && (
+        <label className="field" title="Draw an outline around the text box (its fill draws either way)">
+          <input type="checkbox" checked={!textStyle.borderless} onChange={(e) => tools.setStyle(textType, { borderless: e.target.checked ? undefined : true })} />
+          Border
+        </label>
+      )}
       {textStyle && textType && styleCapabilities(textType).font && (
         <label className="field" title="Font">
           <select className="font-family" value={textStyle.fontFamily ?? 'sans'} onChange={(e) => tools.setStyle(textType, { fontFamily: e.target.value as FontFamily })}>
@@ -306,4 +312,12 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       </button>
     </div>
   );
+}
+
+/** Icons for markup types not drawn with a tool of their own name. */
+const TYPE_ONLY_ICONS: Partial<Record<string, string>> = { signature: '✍', flagLabel: '◁▭', count: '#' };
+
+/** The icon of a markup's type (the tool that draws it), as the toolbar shows it. */
+export function markupTypeIcon(type: string): string {
+  return [...MARKUP_TOOLS, ...MEASURE_TOOLS].find((t) => t.tool === type)?.icon ?? TYPE_ONLY_ICONS[type] ?? '◆';
 }

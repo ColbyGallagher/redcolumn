@@ -22,7 +22,7 @@ function totals(m: Markup): m is Markup & { type: MeasureKind } {
 
 /** Markups a legend lists: not legends themselves, signatures or pictures. */
 function listed(m: Markup): boolean {
-  return m.type !== 'legend' && m.type !== 'signature' && m.type !== 'image' && m.type !== 'space' && m.type !== 'redaction';
+  return !m.legendHidden && m.type !== 'legend' && m.type !== 'signature' && m.type !== 'image' && m.type !== 'space' && m.type !== 'redaction';
 }
 
 /**

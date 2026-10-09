@@ -5,3 +5,4 @@ dev-dist/
 .DS_Store
 samples/
 reference-data/
+scripts/help/failed-*.png
