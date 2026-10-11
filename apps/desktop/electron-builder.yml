@@ -12,6 +12,9 @@ files:
 extraResources:
   - from: ../web/dist
     to: web
+  # The assistant runs this folder with the executable in Node mode (see mcp-cli.ts).
+  - from: dist/assistant
+    to: assistant
 # Registers redcolumn as a PDF handler. It does not become the default handler.
 # perMachine and any default-handler setting are left unset on purpose.
 fileAssociations:

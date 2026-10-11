@@ -13,6 +13,9 @@ someone else runs their own copy, their policy applies to it.
   entirely in your browser. The redcolumn project never receives your documents or markups.
 - **There is no redcolumn server, no account and no tracking.** The app has no analytics,
   advertising, cookies of its own or error reporting.
+- **The local assistant stays on your computer.** The desktop app can let an AI client you already
+  run read the open drawing. That is off until you turn it on, and the redcolumn project never
+  sees it.
 - **Live Sessions and Projects use your own Google Drive or OneDrive.** When you share documents
   with others, they go to Google or Microsoft under your account, not to us.
 
@@ -116,6 +119,18 @@ These only run when you use them:
   host shares the folder.
 - **Help → Send Log Files** saves a file of recent app messages to your device. Nothing is sent
   unless you choose to send that file to someone.
+
+## Local assistant (desktop app)
+
+The desktop app can let GitHub Copilot, Claude, Codex, or Cursor read the open drawing and update
+a markup. This is off until you turn it on under File › Preferences › MCP.
+
+- It runs only inside the desktop app on that computer. The listener accepts connections from
+  this computer only. The redcolumn project does not receive the drawing, the questions, or the
+  replies.
+- The client you use sends what you ask to its own vendor, the same as any other local tool you
+  connect to it.
+- Turning the assistant off stops the app listening. Quitting the desktop app stops it too.
 
 ## Children
 

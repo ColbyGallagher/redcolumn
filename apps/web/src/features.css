@@ -4462,3 +4462,33 @@ tr.hidden-markup td {
 .markup-summary .actions {
   margin-top: 8px;
 }
+
+.mcp-prefs .assistant-block {
+  margin: 14px 0 0;
+}
+
+.prefs-section .mcp-prefs h4 {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mcp-prefs .assistant-block p {
+  margin: 0 0 8px;
+}
+
+.mcp-prefs pre {
+  margin: 0 0 8px;
+  padding: 8px;
+  overflow: auto;
+  max-height: 140px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

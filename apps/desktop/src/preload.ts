@@ -52,4 +52,12 @@ contextBridge.exposeInMainWorld('redcolumn', {
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'google' | 'microsoft') => call('auth:sign-out', provider),
+  assistantInfo: () => call('assistant:get'),
+  setAssistantEnabled: (on: boolean) => call('assistant:set', on),
+  onAssistantCall(cb: (call: { id: string; method: string; params: unknown }) => void) {
+    const listener = (_event: unknown, call: { id: string; method: string; params: unknown }) => cb(call);
+    ipcRenderer.on('assistant:call', listener);
+    return () => unsubscribe('assistant:call', listener as (...args: unknown[]) => void);
+  },
+  replyAssistant: (id: string, body: { result?: unknown; error?: string }) => ipcRenderer.send('assistant:result', { id, ...body }),
 });

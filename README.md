@@ -48,6 +48,12 @@ The tag must be `v` plus the version, and the file must keep the name `redcolumn
 web app's Install button links to `releases/latest/download/redcolumn-Setup.exe`. Pre-releases and
 drafts are ignored by the update check. The installer is unsigned, so Windows SmartScreen warns.
 
+### Local assistant
+
+The desktop app can answer GitHub Copilot, Claude, Codex, and Cursor about the drawing that is
+open. In the desktop app, File › Preferences › MCP turns that on and shows the command for each
+client. The website does not run it. See [PRIVACY.md](PRIVACY.md).
+
 The user help (Help › Help, F1) is in `apps/web/public/help`: Markdown pages in `pages/`, the
 contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample drawings (see the
 header of `scripts/help/shots.cjs`); re-run it after changing the interface.

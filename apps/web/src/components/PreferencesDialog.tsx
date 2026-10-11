@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, settings, type SetTag, type SetTemplate, type Settings } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
+import { McpPrefs } from './McpPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
+import { desktop } from '../desktop/host';
 
 /**
  * File › Preferences (Ctrl+K), laid out after Bluebeam Revu's: categories down the left with a
@@ -10,7 +12,7 @@ import { OfflinePrefs } from './OfflinePrefs';
  * draft and applied with OK; Cancel discards them.
  */
 
-type Category = 'general' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations';
+type Category = 'general' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations' | 'mcp';
 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
@@ -72,6 +74,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
   { id: 'advanced', label: 'Advanced', tabs: [{ id: 'offline', label: 'Offline' }] },
   { id: 'admin', label: 'Admin', tabs: [] },
   { id: 'integrations', label: 'Integrations', tabs: [] },
+  { id: 'mcp', label: 'MCP', tabs: [{ id: 'mcp', label: 'Enable MCP server' }] },
 ];
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
@@ -125,6 +128,8 @@ interface Props {
   author: string;
   onAuthor: (name: string) => void;
   onClose: () => void;
+  /** Open on this category. MCP is the desktop assistant. */
+  initialCategory?: Category;
 }
 
 /** What Export writes and Import reads. */
@@ -163,11 +168,11 @@ function pickFile(): Promise<string | null> {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
+export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }: Props) {
   const [d, setD] = useState<Settings>(settings.get);
   const [name, setName] = useState(author);
   const [words, setWords] = useState(personalWords);
-  const [category, setCategory] = useState<Category>('general');
+  const [category, setCategory] = useState<Category>(initialCategory ?? 'general');
   const [tabs, setTabs] = useState<Partial<Record<Category, string>>>({});
   const [query, setQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -800,6 +805,7 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
         <OfflinePrefs />
       </div>
     ),
+    mcp: () => <McpPrefs />,
   };
 
   // The Spelling tab's custom words are part of the draft, applied with OK.
@@ -875,9 +881,10 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
   }
 
   // Which tabs match the search: render every tab's labels once.
+  const listed = desktop() ? CATEGORIES : CATEGORIES.filter((c) => c.id !== 'mcp');
   const matches = new Set<string>();
   if (q) {
-    for (const c of CATEGORIES) {
+    for (const c of listed) {
       for (const t of c.tabs) {
         collecting = t.id;
         body[t.id]?.();
@@ -885,7 +892,7 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
       }
     }
   }
-  const visibleCats = q ? CATEGORIES.filter((c) => c.tabs.some((t) => matches.has(t.id))) : CATEGORIES;
+  const visibleCats = q ? listed.filter((c) => c.tabs.some((t) => matches.has(t.id))) : listed;
   const cat = visibleCats.find((c) => c.id === category) ?? visibleCats[0] ?? CATEGORIES[0]!;
   const catTabs = q ? cat.tabs.filter((t) => matches.has(t.id)) : cat.tabs;
   const tab = catTabs.find((t) => t.id === tabs[cat.id]) ?? catTabs[0];
@@ -940,7 +947,7 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
             </nav>
           </div>
           <div className="prefs-frame">
-            {catTabs.length > 0 && (
+            {catTabs.length > 0 && cat.id !== 'mcp' && (
               <div className="prefs-tabs" role="tablist" aria-label={cat.label}>
                 {catTabs.map((t) => (
                   <button key={t.id} type="button" role="tab" aria-selected={t.id === tab?.id} className={t.id === tab?.id ? 'active' : ''} onClick={() => setTabs((x) => ({ ...x, [cat.id]: t.id }))}>
@@ -952,9 +959,11 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
             <section className="prefs-section" role="tabpanel">
               {tab ? body[tab.id]?.() : <p className="pref-note">RedColumn has no {cat.label} preferences yet.</p>}
             </section>
-            <p className="prefs-legend">
-              <span className="pref-stored" /> Saved with your preferences; not used by RedColumn yet.
-            </p>
+            {cat.id !== 'mcp' && (
+              <p className="prefs-legend">
+                <span className="pref-stored" /> Saved with your preferences; not used by RedColumn yet.
+              </p>
+            )}
           </div>
         </div>
         {message && (

@@ -1,5 +1,9 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
+import { mcpLaunch } from './assistant/argv';
+import { endpointFile } from './assistant/endpoint';
+import { askPage, cancelAssistantCalls, takeAssistantResult } from './assistant/page';
+import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
@@ -96,6 +100,27 @@ async function start() {
   });
   handle('auth:sign-out', (provider) => {
     if (provider === 'google' || provider === 'microsoft') return auth.signOut(provider);
+  });
+
+  const assistant = new AssistantService(endpointFile(), (method, params) => askPage(() => mainWindow, method, params));
+  ipcMain.on('assistant:result', (event, body) => {
+    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
+    takeAssistantResult(body);
+  });
+  const script = app.isPackaged ? path.join(process.resourcesPath, 'assistant', 'mcp-cli.js') : path.join(__dirname, 'assistant', 'mcp-cli.js');
+  const launch = () => mcpLaunch(process.execPath, script);
+  handle('assistant:get', () => {
+    const current = assistant.current();
+    return { enabled: current.enabled, ...launch() };
+  });
+  handle('assistant:set', async (on) => {
+    const current = await assistant.setEnabled(on === true);
+    return { enabled: current.enabled, ...launch() };
+  });
+  await assistant.restore();
+  app.on('before-quit', () => {
+    cancelAssistantCalls();
+    assistant.suspend();
   });
 
   app.on('web-contents-created', (_event, contents) => harden(contents));

@@ -46,6 +46,24 @@ export interface RedcolumnDesktop {
   microsoftToken(clientId: string, tenant: string, scopes: string[], interactive: boolean): Promise<DesktopAuth | null>;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
   signOut(provider: 'google' | 'microsoft'): Promise<void>;
+  /** Whether the local assistant is listening, and the command an AI client should run. */
+  assistantInfo(): Promise<AssistantInfo>;
+  setAssistantEnabled(on: boolean): Promise<AssistantInfo>;
+  onAssistantCall(cb: (call: AssistantCall) => void): () => void;
+  replyAssistant(id: string, body: { result?: unknown; error?: string }): void;
+}
+
+export interface AssistantInfo {
+  enabled: boolean;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+export interface AssistantCall {
+  id: string;
+  method: string;
+  params: unknown;
 }
 
 declare global {
