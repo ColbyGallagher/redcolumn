@@ -140,9 +140,11 @@ differences:
    packaged build can sign in.
 3. API permissions → Microsoft Graph → Delegated: `Files.ReadWrite.AppFolder`, `Files.ReadWrite` and
    `Files.ReadWrite.All` (users consent themselves; no admin consent needed unless the tenant
-   requires it). Access is asked for a step at a time, and only for sharing or for opening someone
-   else's folder; any other refusal is reported as an error, not answered with more access. Each
-   browser remembers how far it had to go until the person signs out of Microsoft in the app.
+   requires it). Every call asks for the app folder alone, except sharing calls and calls into
+   someone else's folder. When Microsoft refuses one of those, the app tries the next level for
+   that kind of call only: silently if the person allowed it before, otherwise after its own dialog
+   explains why and the person continues to Microsoft. Any other refusal is reported as an error,
+   not answered with more access. Nothing about the level is stored; each tab starts small.
 
    | Level | Lets the app | Used for |
    |---|---|---|
@@ -150,7 +152,8 @@ differences:
    | `Files.ReadWrite` | Read and write anything in the person's OneDrive | Make a sharing link for a folder (`createLink`); invite by email (`invite`); list, change and remove who a Project folder is shared with (`permissions`) |
    | `Files.ReadWrite.All` | Also files others have shared with them | Open a folder from an invite (`/shares/…`) and read and write it when it lives in someone else's OneDrive |
 
-   The sign-in is kept for the tab only unless the person ticks **Stay signed in on this device**.
+   The sign-in is kept for the tab only unless the person ticks **Stay signed in on this device**,
+   and is forgotten after 30 minutes with no cloud calls.
    The token is sent only to `graph.microsoft.com`; download and upload-session URLs that Graph
    returns are pre-authorised and get no token.
 4. Put the **Application (client) ID** in `VITE_MICROSOFT_CLIENT_ID` (`apps/web/.env.local`

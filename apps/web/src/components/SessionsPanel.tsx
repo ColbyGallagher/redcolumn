@@ -745,8 +745,11 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
           <span title={`${user.name}. ${stay ? 'Kept signed in on this device.' : 'Signed in for this tab only; closing it signs you out.'}`}>
             Microsoft: <b>{user.email}</b>
           </span>
-          <button className="btn small flat" onClick={() => void signOutOfMicrosoft().then(onChanged)}>
+          <button className="btn small flat" onClick={() => void signOutOfMicrosoft().then(onChanged)} title="Forget the sign-in in redcolumn">
             Sign out
+          </button>
+          <button className="btn small flat" onClick={() => void signOutOfMicrosoft({ everywhere: true }).then(onChanged)} title="Also end the Microsoft session in this browser">
+            Sign out everywhere
           </button>
         </>
       ) : (
