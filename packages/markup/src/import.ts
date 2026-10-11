@@ -57,6 +57,11 @@ export interface ImportableAnnotation {
   /** FileAttachment annotations: the embedded file. */
   file?: { name: string; data: Uint8Array } | null;
   link: { targetPage: number | null; targetRect: { x: number; y: number; w: number; h: number } | null; uri: string | null; file: string | null } | null;
+  /**
+   * A picture of this annotation, when its own embedded image could not be read (a Bluebeam
+   * image markup's appearance, or another tool's stamp).
+   */
+  picture?: string;
 }
 
 export interface ImportResult {
@@ -390,7 +395,18 @@ export function importAnnotations(
       }
       markups.push(done);
     });
-    imported.push(a.index);
+    // An image markup with no picture would hide the annotation and leave an empty rectangle.
+    // Leave that annotation on the page, where its own appearance still draws the picture.
+    const idPrefix = `pdf-${pageIndex}-${a.index}`;
+    const bare = markups.filter((m) => (m.id === idPrefix || m.id.startsWith(`${idPrefix}-`)) && m.type === 'image' && !m.image);
+    if (bare.length) {
+      for (const m of bare) {
+        const at = markups.indexOf(m);
+        if (at >= 0) markups.splice(at, 1);
+      }
+    } else {
+      imported.push(a.index);
+    }
   }
 
   // Popups, replies and states of annotations left as they are (stamps, form fields) stay too.
@@ -478,6 +494,11 @@ function toMarkups(a: ImportableAnnotation): Found[] {
     case 'Line':
       return a.line ? [{ type: a.intent === 'LineDimension' ? 'length' : a.intent === 'LineArrow' ? 'arrow' : 'line', points: a.line.map((p) => [p[0], p[1]] as Point), filled: false }] : [];
     case 'Square':
+      // Bluebeam's image tool is a square whose picture lives in the appearance. Without the raw
+      // dictionary the border is all PDFium's subtype says, so keep the rendered picture instead.
+      if (a.intent === 'SquareImage') {
+        return [{ type: 'image', points: a.picture ? [[r.x, r.y], [r.x + r.w, r.y + r.h]] : box, filled: false, ...(a.picture ? { style: { width: 0 }, extra: { image: a.picture } } : {}) }];
+      }
       return [{ type: 'rect', points: box, filled: true }];
     case 'Circle':
       return [{ type: 'ellipse', points: box, filled: true }];
@@ -700,8 +721,14 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       return [{ type: intent === 'LineArrow' ? 'arrow' : 'line', points, filled: false, style: { ...base, ...caps } }];
     }
     case 'Square': {
-      const image = extras.images.get(refNum(r.Image) ?? -1);
-      if (intent === 'SquareImage' || image) return [{ type: 'image', points: innerBox(), filled: false, style: { ...base, fill: null }, ...(image ? { extra: { image } } : {}) }];
+      const embedded = extras.images.get(refNum(r.Image) ?? -1);
+      const shot = extras.appearances?.get(`${pageIndex}:${a.index}`);
+      const image = embedded ?? shot;
+      if (intent === 'SquareImage' || embedded) {
+        // The embedded photo sits inside the border. A snapshot of the appearance already includes it.
+        const points: Point[] = embedded ? innerBox() : [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
+        return [{ type: 'image', points, filled: false, style: { ...base, fill: null, ...(embedded ? {} : { width: 0 }) }, ...(image ? { extra: { image } } : {}) }];
+      }
       return [{ type: 'rect', points: innerBox(), filled: true, style: { ...base, ...fill } }];
     }
     case 'Circle': {

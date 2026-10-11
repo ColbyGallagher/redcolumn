@@ -439,6 +439,36 @@ export class MarkupStore {
     return this.meta.get('annotationsImported') === true;
   }
 
+  /** True after image markups imported as empty rectangles have been checked once. */
+  imageMarkupsChecked(): boolean {
+    return this.meta.get('imageMarkupsChecked') === true;
+  }
+
+  /** Records that image markups were checked, so opening the file does not scan them again. */
+  setImageMarkupsChecked() {
+    if (this.locked || this.imageMarkupsChecked()) return;
+    this.doc.transact(() => this.meta.set('imageMarkupsChecked', true), DETECTION);
+  }
+
+  /**
+   * Gives image markups that were imported as empty rectangles their pictures back. Not an undo
+   * step: it restores what the PDF already showed.
+   */
+  restoreImageMarkups(patches: readonly { id: string; image: string; points: Markup['points'] }[]) {
+    if (this.locked) return;
+    const mine = patches.filter((p) => {
+      const m = this.map.get(p.id);
+      return !!m && this.mayEdit(m) && (m.type !== 'image' || !m.image);
+    });
+    if (!mine.length) return;
+    this.doc.transact(() => {
+      for (const p of mine) {
+        const current = this.map.get(p.id)!;
+        this.map.set(p.id, { ...current, type: 'image', image: p.image, points: p.points, style: { ...current.style, fill: null, width: 0 } });
+      }
+    }, DETECTION);
+  }
+
   /**
    * Existing PDF annotations now represented here, by page and /Annots index. They stay hidden
    * while viewing (even if the markup is later deleted) and are replaced on export.

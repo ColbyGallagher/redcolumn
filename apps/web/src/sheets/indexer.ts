@@ -176,6 +176,36 @@ export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, st
 export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
 
 /**
+ * Image markups an earlier import stored as empty rectangles get their pictures back from the
+ * annotation appearance. One pass: markups that already have a picture are left alone.
+ */
+export async function repairSquareImages(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, signal?: AbortSignal): Promise<void> {
+  const { encodePng } = await import('@nb/markup/pdfExtras');
+  await withBackgroundDoc(await bytes(), async (doc) => {
+    const patches: { id: string; image: string; points: Markup['points'] }[] = [];
+    for (let i = 0; i < doc.pages.length; i++) {
+      signal?.throwIfAborted();
+      for (const a of await doc.annotations(i)) {
+        if (a.subtype !== 'Square' || a.intent !== 'SquareImage' || a.appData || a.flags & (1 | 2 | 32)) continue;
+        const m = store.all().find((x) => {
+          const link = x.pdfAnnot;
+          return x.pageIndex === i && !!link && link.index === a.index && link.part == null;
+        });
+        if (!m || (m.type === 'image' && m.image)) continue;
+        const image = await doc.annotationImage(i, a.index, 2).catch(() => null);
+        if (!image) continue;
+        patches.push({
+          id: m.id,
+          image: `data:image/png;base64,${toBase64(await encodePng(image.width, image.height, image.rgba))}`,
+          points: [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]],
+        });
+      }
+    }
+    store.restoreImageMarkups(patches);
+  });
+}
+
+/**
  * A PDF's own markups and links, which of its annotations they stand for (to hide those), and the
  * scales, viewports, custom columns, statuses and Spaces other tools (Bluebeam Revu) record with them.
  */
@@ -196,11 +226,20 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
       const annotations = await doc.annotations(i);
-      // Other tools' stamps come in as pictures of their own appearance.
+      // Stamps, and Bluebeam image markups whose embedded photo was not decoded, come in as a
+      // picture of their own appearance. Otherwise a square image is imported as an empty rectangle
+      // and the original picture is hidden.
       for (const a of annotations) {
-        if (!raw || a.subtype !== 'Stamp' || a.appData || a.flags & (1 | 2 | 32)) continue;
-        const image = await doc.annotationImage(i, a.index, 3).catch(() => null);
-        if (image) raw.appearances!.set(`${i}:${a.index}`, `data:image/png;base64,${toBase64(await encodePng(image.width, image.height, image.rgba))}`);
+        if (a.appData || a.flags & (1 | 2 | 32)) continue;
+        const squareImage = a.subtype === 'Square' && a.intent === 'SquareImage';
+        if (a.subtype !== 'Stamp' && !squareImage) continue;
+        if (squareImage && imageDecoded(raw, i, a)) continue;
+        if (!raw && !squareImage) continue;
+        const image = await doc.annotationImage(i, a.index, squareImage ? 2 : 3).catch(() => null);
+        if (!image) continue;
+        const url = `data:image/png;base64,${toBase64(await encodePng(image.width, image.height, image.rgba))}`;
+        if (raw) raw.appearances!.set(`${i}:${a.index}`, url);
+        else (a as { picture?: string }).picture = url;
       }
       const result = importAnnotations(i, annotations, (name) => lookup.find(name), raw);
       markups.push(...result.markups);
@@ -223,6 +262,25 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     ];
     return { markups, links, imported, extras, labels };
   });
+}
+
+/** True when this image markup's embedded photo was already decoded from the file. */
+function imageDecoded(
+  raw: { pages: { annots: ({ Image?: unknown } | null)[]; objectNumbers: number[] }[]; images: ReadonlyMap<number, string> } | null,
+  pageIndex: number,
+  a: { index: number; objectNumber?: number },
+): boolean {
+  if (!raw) return false;
+  const page = raw.pages[pageIndex];
+  if (!page) return false;
+  let dict = page.annots[a.index] ?? null;
+  if (a.objectNumber && page.objectNumbers[a.index] !== a.objectNumber) {
+    const at = page.objectNumbers.indexOf(a.objectNumber);
+    dict = at >= 0 ? (page.annots[at] ?? null) : null;
+  }
+  const image = dict?.Image;
+  const num = image && typeof image === 'object' && 'num' in image && typeof (image as { num: unknown }).num === 'number' ? (image as { num: number }).num : null;
+  return num != null && raw.images.has(num);
 }
 
 function toBase64(bytes: Uint8Array): string {

@@ -57,6 +57,21 @@ test('foreign markups map to editable markup types', () => {
   assert.deepEqual(imported, [0, 1, 2, 3, 4]);
 });
 
+test('a Bluebeam image markup keeps its picture when the raw dictionary was not read', () => {
+  const { markups, imported } = importAnnotations(0, [annot({ intent: 'SquareImage', picture: 'data:image/png;base64,aaa' })]);
+  assert.equal(markups[0]?.type, 'image');
+  assert.equal(markups[0]?.image, 'data:image/png;base64,aaa');
+  assert.equal(markups[0]?.style.width, 0);
+  assert.deepEqual(markups[0]?.points, [[100, 100], [150, 120]]);
+  assert.deepEqual(imported, [0]);
+});
+
+test('a Bluebeam image markup with no picture stays drawn by the PDF', () => {
+  const { markups, imported } = importAnnotations(0, [annot({ intent: 'SquareImage' })]);
+  assert.equal(markups.length, 0);
+  assert.deepEqual(imported, []);
+});
+
 test("this app's exported markups come back exactly", () => {
   const original: Markup = {
     id: 'abc',

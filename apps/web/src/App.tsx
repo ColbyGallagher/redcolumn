@@ -131,7 +131,7 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -1189,10 +1189,17 @@ export function App() {
           const project = link ? projectById(link.projectId) : null;
           const shared = link && project ? await project.hasSharedMarkups(link.fileId).catch(() => false) : false;
           await importPdfAnnotations(fresh, cur.store, report, signal, shared ? fromOtherTools : undefined);
+          cur.store.setImageMarkupsChecked();
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
           await linkFromText(fresh, cur.store, report, signal);
+        } else if (!cur.store.imageMarkupsChecked()) {
+          // An earlier import may have stored Bluebeam image markups as empty rectangles.
+          await repairSquareImages(fresh, cur.store, signal);
+          cur.store.setImageMarkupsChecked();
+          ctl?.viewer.clearCache();
+          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal);
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal);
         }
