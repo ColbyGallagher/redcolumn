@@ -824,7 +824,8 @@ export class DriveSession implements CollabSession {
     const failed: string[] = [];
     for (const email of emails) {
       try {
-        await this.api.shareWithUser(this.folderId, email, message);
+        // Every attendee writes their own seat file (presence, chat), so the folder needs write; the app limits what they may change.
+        await this.api.shareWithUser(this.folderId, email, message, 'writer');
       } catch (err) {
         if (err instanceof DriveAuthError) {
           this.set({ needsAuth: true });

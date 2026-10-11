@@ -22,27 +22,82 @@ export const oneDriveConfigured = !!CLIENT_ID;
  */
 const ACCESS_LEVELS = [['Files.ReadWrite.AppFolder'], ['Files.ReadWrite'], ['Files.ReadWrite.All']];
 const LEVEL_KEY = 'nb.onedrive.level';
-const GRAPH = 'https://graph.microsoft.com/v1.0';
+/** Set when the person chose to stay signed in on this device; otherwise the sign-in lasts as long as the tab. */
+const STAY_KEY = 'nb.onedrive.staySignedIn';
+const GRAPH_HOST = 'graph.microsoft.com';
+const GRAPH = `https://${GRAPH_HOST}/v1.0`;
 /** Graph accepts simple uploads up to 4 MB; bigger files go up in chunks through an upload session. */
 const SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
 /** Upload session chunks must be multiples of 320 KiB. */
 const CHUNK = 320 * 1024 * 20;
 /** Where Drive-style properties live inside a JSON file (Graph has no custom file properties). */
 const PROPS_KEY = '_nb';
+/** The only files `remove` deletes: Project check-out locks (OneDrive may add " 1" on a name clash). */
+const REMOVABLE = /^lock-[^/\\]+\.json$/i;
+/** A Live Session folder's manifest; `removeFolder` deletes only folders that hold one. */
+const SESSION_MANIFEST = 'session.json';
 
 let msal: Promise<IPublicClientApplication> | null = null;
+
+/** Whether the Microsoft sign-in is kept on this device across visits (off unless the person chose it). */
+export function staySignedInToMicrosoft(): boolean {
+  try {
+    return localStorage.getItem(STAY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Chooses where the next Microsoft sign-in is kept: this tab only (the default), or this device.
+ * Takes effect at the next sign-in, so it is offered while signed out.
+ */
+export function setStaySignedInToMicrosoft(stay: boolean) {
+  try {
+    if (stay) localStorage.setItem(STAY_KEY, '1');
+    else localStorage.removeItem(STAY_KEY);
+  } catch {
+    // Storage is blocked; the sign-in stays per tab.
+  }
+  // Signed in, the choice waits for the next sign-in (signing out drops the sign-in either way).
+  if (user) return;
+  if (!stay) forgetDeviceSignIn();
+  msal = null;
+}
+
+/**
+ * Removes a Microsoft sign-in kept in this device's storage (MSAL's keys, which name the client ID
+ * or start with `msal.`), so the refresh token does not outlive a choice to keep it per tab.
+ */
+function forgetDeviceSignIn() {
+  if (!CLIENT_ID) return;
+  try {
+    const id = CLIENT_ID.toLowerCase();
+    const doomed: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('msal.') || key.toLowerCase().includes(id))) doomed.push(key);
+    }
+    for (const key of doomed) localStorage.removeItem(key);
+  } catch {
+    // Nothing to clear.
+  }
+}
 
 function app(): Promise<IPublicClientApplication> {
   if (!CLIENT_ID) return Promise.reject(new Error('Microsoft sign-in is not configured for this site.'));
   msal ??= import('@azure/msal-browser').then(async ({ PublicClientApplication }) => {
+    const stay = staySignedInToMicrosoft();
+    // A sign-in kept on the device by an earlier version, or before the person turned this off.
+    if (!stay) forgetDeviceSignIn();
     const pca = new PublicClientApplication({
       auth: {
         clientId: CLIENT_ID,
         authority: `https://login.microsoftonline.com/${TENANT}`,
         redirectUri: new URL(`${import.meta.env.BASE_URL}msal-redirect.html`, window.location.origin).href,
       },
-      // Remembered across visits, so rejoining a session on page load signs in silently.
-      cache: { cacheLocation: 'localStorage' },
+      // Per tab by default, so closing it forgets the refresh token; on the device only by choice.
+      cache: { cacheLocation: stay ? 'localStorage' : 'sessionStorage' },
     });
     await pca.initialize();
     const account = pca.getActiveAccount() ?? pca.getAllAccounts()[0] ?? null;
@@ -147,6 +202,30 @@ export async function signOutOfMicrosoft() {
   setUser(null);
   pca.setActiveAccount(null);
   if (account) await pca.clearCache({ account });
+  // The next sign-in starts again from the app folder only.
+  try {
+    localStorage.removeItem(LEVEL_KEY);
+  } catch {
+    // Nothing stored.
+  }
+  // A changed "stay signed in" choice applies from the next sign-in.
+  msal = null;
+}
+
+/** Whether a URL is Microsoft Graph's, the only host the token may be sent to. */
+export function isGraphUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && u.hostname === GRAPH_HOST;
+  } catch {
+    return false;
+  }
+}
+
+/** Graph calls that manage sharing, which need access to the person's own OneDrive. */
+function isSharingCall(url: string): boolean {
+  const path = url.split('?')[0]!;
+  return /\/(createLink|invite)$/.test(path) || /\/permissions(\/[^/]+)?$/.test(path);
 }
 
 /** A sharing URL as the ID Graph's /shares endpoint takes (`u!` plus unpadded base64url). */
@@ -213,7 +292,7 @@ interface GraphItem {
   file?: { mimeType?: string };
   folder?: unknown;
   createdBy?: { user?: { displayName?: string; email?: string } };
-  parentReference?: { driveId?: string };
+  parentReference?: { driveId?: string; id?: string };
   webUrl?: string;
   '@microsoft.graph.downloadUrl'?: string;
 }
@@ -243,7 +322,7 @@ async function failure(res: Response, what: string): Promise<Error> {
  * unchanged. Differences from Google Drive that this papers over:
  *
  * - Everyone signs in: Graph has no API-key reads, so attendees read the shared folder as themselves.
- * - The session folder's ID is its sharing link as a share ID (`u!…`), which works for anyone the
+ * - The session folder's ID is its sharing link as a share ID (`u!â€¦`), which works for anyone the
  *   link lets in; opening it redeems the link, giving the attendee lasting access.
  * - Graph has no custom file properties. JSON files (the manifest and seats) carry theirs inside
  *   under `_nb`, hidden from callers; PDFs are recognised by extension, added by their creator.
@@ -254,6 +333,8 @@ export class OneDrive implements DriveApi {
   private folders = new Map<string, { driveId: string; itemId: string }>();
   /** The drive each file seen so far lives in. */
   private drives = new Map<string, string>();
+  /** The name of each file listed in or added to a session or Project folder, so deletes can be limited to app files. */
+  private names = new Map<string, string>();
   /** Last known content and properties of JSON files, by item ID. */
   private json = new Map<string, { version: string; body: Record<string, unknown>; props: DriveProps }>();
   /** Writes to one file run one after another, so each starts from the last. */
@@ -273,12 +354,14 @@ export class OneDrive implements DriveApi {
   }
 
   private async fetch(url: string, init: RequestInit, what: string): Promise<Response> {
+    // Absolute URLs (such as `@odata.nextLink`) come back from Graph; anything elsewhere never gets the token.
+    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !isGraphUrl(url)) throw new Error(`OneDrive gave an unexpected address, so redcolumn did not ${what}.`);
     const token = await this.token();
     const headers = new Headers(init.headers);
     headers.set('authorization', `Bearer ${token}`);
     let res: Response;
     try {
-      res = await fetch(url.startsWith('http') ? url : `${GRAPH}${url}`, { cache: 'no-store', ...init, headers });
+      res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
     } catch {
       throw new TypeError(`Offline: could not ${what}.`);
     }
@@ -295,15 +378,17 @@ export class OneDrive implements DriveApi {
   }
 
   /**
-   * The access level to ask for after a refusal, or null when more access would not help. With the
-   * app folder only, any refusal (sharing, other people's links) moves to the person's own files;
-   * with those, a refusal inside someone else's drive moves to files shared with them.
+   * The access level to ask for after a refusal, or null when more access would not help. Only
+   * sharing (links, invites, who a folder is shared with) and reaching into someone else's drive
+   * ever step up: with the app folder only, those move to the person's own files; with those, a
+   * refusal inside someone else's drive moves to files shared with them. Any other refusal is
+   * reported as it is, never answered with wider access.
    */
   private async accessNeeded(status: number, url: string): Promise<number | null> {
     const level = accessLevel();
     if (level >= ACCESS_LEVELS.length - 1) return null;
     const shared = status === 403 || status === 404 ? await this.isShared(url) : false;
-    if (level === 0 && (status === 403 || shared)) return 1;
+    if (level === 0 && ((status === 403 && isSharingCall(url)) || shared)) return 1;
     if (level === 1 && shared) return 2;
     return null;
   }
@@ -405,6 +490,7 @@ export class OneDrive implements DriveApi {
     const out: DriveFile[] = [];
     for (const item of items) {
       this.drives.set(item.id, item.parentReference?.driveId ?? driveId);
+      if (item.file) this.names.set(item.id, item.name);
       const props = isJson(item.name) && item.file ? (await this.readJson(item)).props : null;
       out.push(this.toFile(item, this.propsFor(item, props)));
     }
@@ -515,6 +601,7 @@ export class OneDrive implements DriveApi {
     if (isJson(safe)) ({ blob: body, parsed } = await this.withProps(body, properties));
     const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(safe)}:`, body, what, true);
     this.drives.set(item.id, item.parentReference?.driveId ?? driveId);
+    this.names.set(item.id, item.name);
     if (parsed) this.json.set(item.id, { version: item.eTag ?? '', body: parsed, props: properties });
     return this.toFile(item, parsed ? properties : this.propsFor(item, null));
   }
@@ -577,7 +664,8 @@ export class OneDrive implements DriveApi {
     return shareId;
   }
 
-  async shareWithUser(fileId: string, email: string, message: string, role: 'reader' | 'writer' = 'writer'): Promise<void> {
+  /** Invites someone by email. Without a role they may only read, so a missing role fails safe. */
+  async shareWithUser(fileId: string, email: string, message: string, role: 'reader' | 'writer' = 'reader'): Promise<void> {
     const { driveId, itemId } = await this.resolve(fileId);
     await this.fetch(
       `/drives/${driveId}/items/${itemId}/invite`,
@@ -633,8 +721,14 @@ export class OneDrive implements DriveApi {
     await this.fetch(`/drives/${driveId}/items/${itemId}/permissions/${permissionId}`, { method: 'DELETE' }, 'stop sharing the folder');
   }
 
-  /** Deletes a file. One already gone counts as deleted. */
+  /**
+   * Deletes a file. Only the app's own lock files can go, and only ones listed in or added to a
+   * folder this object opened; anything else is refused here, whatever the caller asks. One already
+   * gone counts as deleted.
+   */
   async remove(fileId: string): Promise<void> {
+    const name = this.names.get(fileId);
+    if (!name || !REMOVABLE.test(name)) throw new Error('redcolumn only deletes its own lock files.');
     try {
       await this.serial(fileId, () => this.fetch(this.itemPath(fileId), { method: 'DELETE' }, 'delete a file'));
     } catch (err) {
@@ -642,13 +736,33 @@ export class OneDrive implements DriveApi {
     }
     this.json.delete(fileId);
     this.drives.delete(fileId);
+    this.names.delete(fileId);
   }
 
-  /** Deletes a folder and everything in it; OneDrive keeps it in the recycle bin for a while. */
+  /**
+   * Deletes a session folder and everything in it; OneDrive keeps it in the recycle bin for a while.
+   * Refused unless the folder sits directly in this person's own app folder and holds a session
+   * manifest, so no other folder can be deleted through this.
+   */
   async removeFolder(folderId: string): Promise<void> {
     const { driveId, itemId } = await this.resolve(folderId);
+    const root = await this.appRoot();
+    const item = (await (await this.fetch(`/drives/${driveId}/items/${itemId}?$select=id,parentReference`, {}, 'check the session folder')).json()) as GraphItem;
+    const inAppFolder = driveId.toLowerCase() === root.driveId.toLowerCase() && item.parentReference?.id === root.itemId;
+    if (!inAppFolder || !(await this.hasChild(driveId, itemId, SESSION_MANIFEST))) throw new Error('redcolumn only removes session folders it made in your OneDrive.');
     await this.fetch(`/drives/${driveId}/items/${itemId}`, { method: 'DELETE' }, 'remove the session folder');
     this.folders.delete(folderId);
+  }
+
+  /** Whether a folder holds a file of this name. */
+  private async hasChild(driveId: string, itemId: string, name: string): Promise<boolean> {
+    try {
+      await this.fetch(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}?$select=id`, {}, 'check the session folder');
+      return true;
+    } catch (err) {
+      if (err instanceof Error && /could not find/.test(err.message)) return false;
+      throw err;
+    }
   }
 
   /** The host owns the session folder, so the manifest sits in their own drive. */

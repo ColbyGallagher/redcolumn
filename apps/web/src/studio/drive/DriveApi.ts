@@ -41,7 +41,7 @@ export interface DriveApi {
    * folder by from then on (OneDrive: the link's share ID), which becomes the session's ID.
    */
   shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<string | void>;
-  /** Shares with one person (an editor unless `role` says reader), emailing them `message`. */
+  /** Shares with one person (a reader unless `role` says writer, so a missing role fails safe), emailing them `message`. */
   shareWithUser(fileId: string, email: string, message: string, role?: 'reader' | 'writer'): Promise<void>;
   /** Whether this user owns the file (the host owns the session's manifest). */
   ownedByMe(fileId: string): Promise<boolean>;
@@ -49,9 +49,9 @@ export interface DriveApi {
   readAppFile?(name: string): Promise<string | null>;
   /** Writes a file in the app's own folder, replacing one of the same name. */
   writeAppFile?(name: string, text: string): Promise<void>;
-  /** Deletes a file (Projects release their check-out locks this way). */
+  /** Deletes one of the app's own lock files (Projects release their check-out locks this way); anything else is refused. */
   remove?(fileId: string): Promise<void>;
-  /** Removes a folder and everything in it, to the drive's trash or recycle bin (Ending a session). */
+  /** Removes a session folder the app made and everything in it, to the drive's trash or recycle bin (Ending a session). */
   removeFolder?(folderId: string): Promise<void>;
   /** Who a folder is shared with, as the drive reports it (for those allowed to see). */
   listPermissions?(folderId: string): Promise<DrivePermission[]>;

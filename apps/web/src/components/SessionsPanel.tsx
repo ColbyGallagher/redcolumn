@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { googleSignInConfigured, googleUser, signInWithGoogle, signOutOfGoogle, subscribeGoogleUser } from '../studio/drive/google';
-import { microsoftUser, oneDriveConfigured, signInWithMicrosoft, signOutOfMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
+import { microsoftUser, oneDriveConfigured, setStaySignedInToMicrosoft, signInWithMicrosoft, signOutOfMicrosoft, staySignedInToMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
 import { forgetRecentSession, recentSessions, restoreRecentSession, type SessionRef } from '../studio/local';
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
@@ -735,12 +735,13 @@ function GoogleIdentity({ onChanged }: { onChanged: () => void }) {
 function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
   const user = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
   const [error, setError] = useState<string | null>(null);
+  const [stay, setStay] = useState(staySignedInToMicrosoft);
   if (!oneDriveConfigured) return null;
   return (
     <div className="google-identity">
       {user ? (
         <>
-          <span title={user.name}>
+          <span title={`${user.name}. ${stay ? 'Kept signed in on this device.' : 'Signed in for this tab only; closing it signs you out.'}`}>
             Microsoft: <b>{user.email}</b>
           </span>
           <button className="btn small flat" onClick={() => void signOutOfMicrosoft().then(onChanged)}>
@@ -758,6 +759,19 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
         >
           Sign in with Microsoft
         </button>
+      )}
+      {!user && (
+        <label title="Off: closing this tab signs you out of Microsoft. On: the sign-in is kept in this browser for up to a day.">
+          <input
+            type="checkbox"
+            checked={stay}
+            onChange={(e) => {
+              setStaySignedInToMicrosoft(e.target.checked);
+              setStay(e.target.checked);
+            }}
+          />{' '}
+          Stay signed in on this device
+        </label>
       )}
       {error && <p className="session-error">{error}</p>}
     </div>
