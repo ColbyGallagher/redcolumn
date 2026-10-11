@@ -36,7 +36,7 @@ const TOKEN_KEY = 'nb.google.token';
 const USER_KEY = 'nb.google.user';
 const API = 'https://www.googleapis.com/drive/v3';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
-const FILE_FIELDS = 'id,name,mimeType,version,size,createdTime,properties';
+const FILE_FIELDS = 'id,name,mimeType,version,size,createdTime,properties,owners(emailAddress)';
 export const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 // Minimal typings for the two Google scripts (Identity Services and the Picker).
@@ -338,8 +338,9 @@ export async function pickSessionFolder(folderId?: string): Promise<{ id: string
   });
 }
 
-function toFile(f: { id: string; name: string; mimeType: string; version?: string; size?: string; createdTime?: string; properties?: DriveProps }): DriveFile {
-  return { id: f.id, name: f.name, mimeType: f.mimeType, version: f.version ?? '0', size: Number(f.size ?? 0), createdTime: f.createdTime ?? '', properties: f.properties ?? {} };
+function toFile(f: { id: string; name: string; mimeType: string; version?: string; size?: string; createdTime?: string; properties?: DriveProps; owners?: { emailAddress?: string }[] }): DriveFile {
+  const owner = f.owners?.[0]?.emailAddress?.toLowerCase();
+  return { id: f.id, name: f.name, mimeType: f.mimeType, version: f.version ?? '0', size: Number(f.size ?? 0), createdTime: f.createdTime ?? '', properties: f.properties ?? {}, ...(owner ? { createdBy: owner } : {}) };
 }
 
 async function failure(res: Response, what: string): Promise<Error> {

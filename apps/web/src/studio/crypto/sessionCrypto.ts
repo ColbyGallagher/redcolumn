@@ -34,6 +34,8 @@ export interface AdmittedSeat {
   host?: boolean;
   /** Taken out of the session: their files are ignored and later keys are not wrapped for them. */
   revoked?: boolean;
+  /** `email` is who the drive says made the seat, not what the seat claims: access is matched by it alone. */
+  verified?: boolean;
 }
 
 /** The encryption part of a session's manifest, written and signed by the host only. */
