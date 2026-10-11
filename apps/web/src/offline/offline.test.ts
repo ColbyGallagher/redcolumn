@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
 import { crc32, drawIcon, encodePng, ICON_FILES, iconPngs } from './icons.ts';
 import { buildManifest } from './manifest.ts';
-import { installPlatform, INSTALL_STEPS } from './install.ts';
+import { INSTALLER_URL, installerSupported, INSTALL_STEPS } from './install.ts';
 import { describeStorage, formatBytes } from './storage.ts';
 import { UpdateGate } from './updates.ts';
 import { isPdf, parseLaunch } from './launch.ts';
@@ -88,17 +88,12 @@ test('the manifest is installable: id, scope, PNG and maskable icons, shortcuts,
   assert.deepEqual(m.share_target.params.files[0]!.accept, ['application/pdf', '.pdf']);
 });
 
-test('installPlatform picks the right steps for each browser', () => {
-  const cases: [string, number, string][] = [
-    ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1', 5, 'ios'],
-    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15', 5, 'ios'],
-    ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15', 0, 'safari-mac'],
-    ['Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36', 5, 'android'],
-    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 Edg/126.0', 0, 'chromium'],
-    ['Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0', 0, 'firefox'],
-  ];
-  for (const [ua, touch, want] of cases) assert.equal(installPlatform(ua, touch), want, ua);
-  assert.match(INSTALL_STEPS.ios.join(' '), /Add to Home Screen/);
+test('the installer link is the latest release and only Windows is offered it', () => {
+  assert.equal(INSTALLER_URL, 'https://github.com/ColbyGallagher/redcolumn/releases/latest/download/redcolumn-Setup.exe');
+  assert.equal(installerSupported('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36'), true);
+  assert.equal(installerSupported('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15'), false);
+  assert.equal(installerSupported('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36'), false);
+  assert.match(INSTALL_STEPS.join(' '), /redcolumn-Setup\.exe/);
 });
 
 test('formatBytes and describeStorage', () => {

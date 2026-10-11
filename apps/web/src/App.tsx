@@ -135,9 +135,11 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, i
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
-import { canPromptInstall, promptInstall } from './offline/install';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop } from './desktop/host';
+import { installAssistant } from './desktop/installAssistant';
+import { setAssistantOn } from './desktop/assistantFlag';
+import type { AssistantDocument } from './desktop/assistant';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -740,6 +742,10 @@ export function App() {
     return () => window.removeEventListener('nb-update-ready', ready);
   }, []);
   const [installOpen, setInstallOpen] = useState(false);
+  useEffect(() => {
+    const host = desktop();
+    if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
+  }, []);
   const [fullScreen, setFullScreen] = useState(false);
   const [activePane, setActivePane] = useState<'a' | 'b'>('a');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -789,6 +795,15 @@ export function App() {
   /** The current commands by id, for the keyboard handler (rebuilt every render). */
   const commandsRef = useRef<ReadonlyMap<string, Command>>(new Map());
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [prefsCategory, setPrefsCategory] = useState<'mcp' | undefined>();
+  useEffect(() => {
+    const open = () => {
+      setPrefsCategory('mcp');
+      setPrefsOpen(true);
+    };
+    window.addEventListener('nb-assistant-open', open);
+    return () => window.removeEventListener('nb-assistant-open', open);
+  }, []);
   const pendingSplit = useRef<File | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
@@ -4270,6 +4285,23 @@ export function App() {
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
+  const assistantHost = useRef<() => AssistantDocument[]>(() => []);
+  assistantHost.current = () => {
+    const pageFor = (t: OpenFile) => {
+      if (t === open) return stats?.pageIndex ?? savedViews.current.get(t.file.id)?.pageIndex ?? 0;
+      if (t === openB) return statsB?.pageIndex ?? savedViews.current.get(t.file.id)?.pageIndex ?? 0;
+      return savedViews.current.get(t.file.id)?.pageIndex ?? 0;
+    };
+    return [...tabsA, ...tabsB].map((t) => ({
+      id: t.file.id,
+      name: t.file.name,
+      pageCount: t.doc.pages.length,
+      pageIndex: pageFor(t),
+      active: t === activeOpen,
+      store: t.store,
+    }));
+  };
+  useEffect(() => installAssistant(() => assistantHost.current()), []);
 
   // The Markups list's filter dims or hides what it leaves out, on the active pane's pages.
   useEffect(() => {
@@ -5732,7 +5764,10 @@ export function App() {
     exportCsv: () => downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), cellContext), visibleListColumns, true)),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
-    preferences: () => setPrefsOpen(true),
+    preferences: () => {
+      setPrefsCategory(undefined);
+      setPrefsOpen(true);
+    },
     manageProfiles: () => setProfilesOpen(true),
     shortcuts: () => setShortcutsOpen(true),
     about: () =>
@@ -5740,7 +5775,7 @@ export function App() {
         [
           'redcolumn: PDF markup and takeoff for construction drawings.',
           'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
-          'Your documents stay in this browser; there is no redcolumn server or account. Privacy policy: ' + `${PROJECT_URL}/blob/master/PRIVACY.md`,
+          `Your documents stay ${desktop() ? 'on this computer' : 'in this browser'}; there is no redcolumn server or account. Privacy policy: ` + `${PROJECT_URL}/blob/master/PRIVACY.md`,
           'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',
           'redcolumn is not affiliated with or endorsed by Bluebeam, Inc. or Nemetschek. Bluebeam and Revu are their trademarks.',
         ].join('\n\n'),
@@ -5832,11 +5867,13 @@ export function App() {
         if (gate?.waiting) return gate.applyNow();
         const host = desktop();
         if (host) {
-          void host.checkForUpdates().then((status) => {
-            if (status === 'ready') setNotice('A new version is ready. It restarts when you are done; Help › Check for Updates restarts it now.');
-            else if (status === 'downloading') setNotice('A new version is downloading. It restarts when you are done.');
-            else if (status === 'unavailable') setNotice('Updates are checked from the installed app.');
-            else setNotice('You have the latest version.');
+          void host.checkForUpdates().then((r) => {
+            if (r.status === 'available') {
+              if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
+
+Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
+            else setNotice(`You have the latest version (${r.current}).`);
           }).catch(() => setNotice('Could not check for updates (offline?).'));
           return;
         }
@@ -6428,10 +6465,7 @@ export function App() {
           switchProfile: (id) => profiles.switchTo(id),
           showLeft,
           showBottom: showBottomPanel,
-          install: () => {
-            if (!canPromptInstall()) return setInstallOpen(true);
-            void promptInstall().then((ok) => ok && setNotice('redcolumn is installed. Open it from its icon.'));
-          },
+          install: () => setInstallOpen(true),
         }}
       />
       {activeTools && showTools && (
@@ -7980,8 +8014,8 @@ export function App() {
           onClose={() => setSyncOpen(false)}
         />
       )}
-      {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} onNotice={setNotice} />}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onClose={() => setPrefsOpen(false)} />}
+      {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}

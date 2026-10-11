@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { desktop } from '../desktop/host';
 import { OCR_LANGUAGES } from '../documents/ocr';
 import { useOnline } from '../offline/network';
 import { downloadOcr, ocrOffline, removeOcr } from '../offline/ocrCache';
@@ -24,13 +25,15 @@ export function OfflinePrefs() {
   useEffect(() => void refresh(), [refresh]);
 
   const d = storage ? describeStorage(storage) : null;
-  const appCached = typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller;
+  // The desktop app runs from files on this computer; the browser app is saved by its service worker.
+  const isDesktop = !!desktop();
+  const appCached = isDesktop || (typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller);
   return (
     <>
       <h4>This device</h4>
       <p className="pref-hint">
         {online ? 'Online.' : 'Offline: documents, markups, measurements and everything else on this device keep working; Live Sessions, signatures’ time stamps and cloud storage wait for the network.'}{' '}
-        {appCached ? 'The app is saved on this device and opens without a network.' : 'The app is not saved for offline use yet (it is once it has loaded from the web, not from a development server).'}
+        {isDesktop ? 'The app is installed on this computer and opens without a network.' : appCached ? 'The app is saved on this device and opens without a network.' : 'The app is not saved for offline use yet (it is once it has loaded from the web, not from a development server).'}
       </p>
       <h4>Storage</h4>
       {d && (
@@ -53,14 +56,14 @@ export function OfflinePrefs() {
         </div>
       )}
       <div className="pref-field">
-        <span className="pref-label">{storage?.persisted ? 'Kept: the browser will not clear redcolumn’s documents to free space.' : 'Not protected: the browser may clear documents and markups if the device runs short of space.'}</span>
+        <span className="pref-label">{storage?.persisted ? `Kept: ${isDesktop ? 'redcolumn’s documents are not cleared to free space.' : 'the browser will not clear redcolumn’s documents to free space.'}` : isDesktop ? 'Not protected: documents and markups could be cleared if the computer runs short of space.' : 'Not protected: the browser may clear documents and markups if the device runs short of space.'}</span>
         {storage && !storage.persisted && (
           <button
             className="btn small"
             onClick={() =>
               void requestPersistence().then(async (ok) => {
                 await refresh();
-                setError(ok ? null : 'The browser declined. Installing the app (Help › Install App) or bookmarking it usually lets it keep the data.');
+                setError(ok ? null : isDesktop ? 'redcolumn could not mark its storage as kept.' : 'The browser declined. Installing the app (Help › Install App) or bookmarking it usually lets it keep the data.');
               })
             }
           >

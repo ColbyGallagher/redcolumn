@@ -55,7 +55,7 @@ Settings for converting to Word, Excel and PowerPoint, and for photos and image 
 **Offline**:
 
 - Whether the app is saved for offline use on this device.
-- **Storage** — how much space your documents use, and **Keep on This Device**, which asks the browser not to clear your documents when space runs low.
+- **Storage** — how much space your documents use, and **Keep on This Device**, which asks the browser not to clear your documents when space runs low (the desktop app is already kept).
 - **OCR languages** — download them now so [OCR](#ocr) works offline.
 
 > **Tip:** Settings for *what the screen shows* (toolbar, panels, tool library, list columns) are kept in [Profiles](#profiles) instead, so you can switch them all at once.

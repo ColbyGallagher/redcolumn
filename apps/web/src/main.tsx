@@ -9,7 +9,6 @@ import { rewriteLibrary } from './storage/fileStore';
 import { googleUser, signOutOfGoogle } from './studio/drive/google';
 import { startIdleSignOut } from './studio/drive/idle';
 import { microsoftUser, signOutOfMicrosoft, staySignedInToMicrosoft } from './studio/drive/onedrive';
-import { captureInstallPrompt } from './offline/install';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
 import { startProfileBackup } from './workspace/profileBackup';
 import { App } from './App';
@@ -25,25 +24,20 @@ if (window.top !== window.self) {
 
 installLogCapture();
 installDesktopBridge();
-// The install prompt fires once, early; Help › Install App shows it later.
-captureInstallPrompt();
 
-// A new version waits until nothing is in progress, then reloads the page (the service worker)
-// or restarts the desktop app. The app shows why it is waiting (Help › Check for Updates).
+// A new version waits until nothing is in progress, then reloads the page (the service worker).
+// The app shows why it is waiting (Help › Check for Updates). The desktop app has no service
+// worker: it is updated by installing a newer release.
 addDomBusyChecks();
 const host = desktop();
 let updateSW = (_reload?: boolean) => {};
 const gate = new UpdateGate({
   busy: busyReasons,
-  apply: () => {
-    if (host) void host.installUpdate();
-    else updateSW(true);
-  },
+  apply: () => updateSW(true),
   onWaiting: (reasons) => window.dispatchEvent(new CustomEvent('nb-update-ready', { detail: reasons })),
 });
 setUpdateGate(gate);
-if (host) host.onUpdateReady(() => gate.ready());
-else updateSW = registerSW({ immediate: true, onNeedRefresh: () => gate.ready() });
+if (!host) updateSW = registerSW({ immediate: true, onNeedRefresh: () => gate.ready() });
 // Check again whenever work finishes: a gesture ends, a dialog closes, the tab is left.
 for (const type of ['pointerup', 'keyup', 'visibilitychange'] as const) window.addEventListener(type, () => setTimeout(() => gate.poke(), 300), true);
 setInterval(() => gate.poke(), 15_000);

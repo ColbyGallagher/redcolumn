@@ -1,6 +1,6 @@
-# Unsigned NSIS builds are for local use. Publishing through GitHub Releases needs a
-# Windows certificate: SmartScreen warns on every unsigned update. macOS auto-update
-# needs signing and notarization, which are not part of this installer.
+# Unsigned NSIS installer. It is attached to a GitHub release by hand (see README), and the app's
+# Help › Check for Updates compares its version with the latest release and links to it.
+# The fixed file name keeps releases/latest/download/redcolumn-Setup.exe a stable download link.
 appId: app.redcolumn.desktop
 productName: redcolumn
 copyright: Copyright © redcolumn contributors
@@ -12,6 +12,9 @@ files:
 extraResources:
   - from: ../web/dist
     to: web
+  # The assistant runs this folder with the executable in Node mode (see mcp-cli.ts).
+  - from: dist/assistant
+    to: assistant
 # Registers redcolumn as a PDF handler. It does not become the default handler.
 # perMachine and any default-handler setting are left unset on purpose.
 fileAssociations:
@@ -38,10 +41,7 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-publish:
-  - provider: github
-    owner: ColbyGallagher
-    repo: redcolumn
+  artifactName: redcolumn-Setup.${ext}
 mac:
   target: dmg
   category: public.app-category.productivity

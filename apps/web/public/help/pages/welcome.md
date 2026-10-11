@@ -1,6 +1,6 @@
 # Welcome to redcolumn
 
-redcolumn is a free program for marking up and measuring construction drawings (PDFs). It runs in your web browser, or as an installed app, and keeps your files on your own computer.
+redcolumn is a free program for marking up and measuring construction drawings (PDFs). It runs in your web browser, or as a Windows desktop app, and keeps your files on your own computer.
 
 ## What you can do
 

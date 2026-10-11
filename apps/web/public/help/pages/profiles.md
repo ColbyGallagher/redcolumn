@@ -36,4 +36,4 @@ On the right, set up the selected profile:
 
 Changes are saved to the profile as you make them. Click **Done**.
 
-> **Warning:** Profiles are saved in this browser only. Clearing the browser's site data removes them. **Export** them to keep a copy.
+> **Warning:** Profiles are saved in this browser (or this desktop app) only. Clearing the browser's site data, or uninstalling the app and its data, removes them. **Export** them to keep a copy.

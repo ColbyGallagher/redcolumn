@@ -1,6 +1,6 @@
 {
   "name": "@nb/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "PDF markup and takeoff for construction drawings",
@@ -8,13 +8,9 @@
   "scripts": {
     "build": "tsc -p .",
     "start": "tsc -p . && electron .",
-    "spike": "tsc -p . && electron . --spike",
     "typecheck": "tsc -p . --noEmit",
-    "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
+    "test": "node --experimental-strip-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
     "package": "pnpm --filter @nb/web build && tsc -p . && electron-builder --win"
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

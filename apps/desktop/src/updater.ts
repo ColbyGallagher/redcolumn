@@ -1,63 +1,35 @@
 import { app } from 'electron';
-import { autoUpdater } from 'electron-updater';
+import { isNewer } from './version';
 
-export type UpdateStatus = 'latest' | 'downloading' | 'ready' | 'unavailable';
+/** The repository whose releases carry the installer. */
+const RELEASES_API = 'https://api.github.com/repos/ColbyGallagher/redcolumn/releases/latest';
+const RELEASE_PAGE_PREFIX = 'https://github.com/ColbyGallagher/redcolumn/releases/';
 
-let status: UpdateStatus = 'unavailable';
+export type UpdateCheck =
+  | { status: 'latest'; current: string }
+  | { status: 'available'; current: string; latest: string; url: string }
+  | { status: 'unavailable'; current: string };
 
-/** How often a long-running app looks for a new release. */
-const CHECK_EVERY_MS = 4 * 60 * 60_000;
-
-/** Checks GitHub Releases. Unpackaged runs report unavailable; an unsigned local build does not phone home. */
-export function startUpdater(onReady: () => void) {
-  if (!app.isPackaged) return;
-  status = 'latest';
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on('update-available', () => {
-    status = 'downloading';
-  });
-  autoUpdater.on('update-not-available', () => {
-    if (status !== 'ready') status = 'latest';
-  });
-  autoUpdater.on('update-downloaded', () => {
-    status = 'ready';
-    onReady();
-  });
-  // Offline, a missing release or a failed download. Without a listener the error is thrown in
-  // the main process. A finished download stays ready.
-  autoUpdater.on('error', (err) => {
-    if (status !== 'ready') status = 'unavailable';
-    console.warn('Update check failed:', err instanceof Error ? err.message : err);
-  });
-  const check = () => {
-    if (status === 'ready' || status === 'downloading') return;
-    void autoUpdater.checkForUpdates().catch(() => {
-      if (status !== 'ready') status = 'unavailable';
-    });
-  };
-  check();
-  setInterval(check, CHECK_EVERY_MS).unref();
-}
-
-export async function checkForUpdates(): Promise<UpdateStatus> {
-  if (!app.isPackaged) return 'unavailable';
-  if (status === 'ready' || status === 'downloading') return status;
+/**
+ * Asks GitHub for the newest published release and compares its tag with this app's version.
+ * Nothing is downloaded: the person opens the release page and runs the installer. Releases
+ * marked draft or pre-release are not returned by this endpoint.
+ */
+export async function checkForUpdates(): Promise<UpdateCheck> {
+  const current = app.getVersion();
   try {
-    const result = await autoUpdater.checkForUpdates();
-    if ((status as UpdateStatus) === 'ready') return 'ready';
-    if (result?.isUpdateAvailable) {
-      status = 'downloading';
-      return 'downloading';
-    }
-    status = 'latest';
-    return 'latest';
+    const res = await fetch(RELEASES_API, {
+      headers: { accept: 'application/vnd.github+json', 'user-agent': `redcolumn/${current}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return { status: 'unavailable', current };
+    const release = (await res.json()) as { tag_name?: unknown; html_url?: unknown };
+    const tag = typeof release.tag_name === 'string' ? release.tag_name : '';
+    const url = typeof release.html_url === 'string' && release.html_url.startsWith(RELEASE_PAGE_PREFIX) ? release.html_url : null;
+    if (!tag || !url) return { status: 'unavailable', current };
+    if (!isNewer(tag, current)) return { status: 'latest', current };
+    return { status: 'available', current, latest: tag.replace(/^v/, ''), url };
   } catch {
-    return 'unavailable';
+    return { status: 'unavailable', current };
   }
-}
-
-export function installUpdate() {
-  if (status !== 'ready') return;
-  autoUpdater.quitAndInstall(false, true);
 }

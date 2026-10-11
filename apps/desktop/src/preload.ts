@@ -47,12 +47,6 @@ contextBridge.exposeInMainWorld('redcolumn', {
   addPrintPage: (job: string, bytes: Uint8Array, type: string, width: number, height: number) => call('print:page', job, bytes, type, width, height),
   finishPrint: (job: string) => call('print:finish', job),
   cancelPrint: (job: string) => call('print:cancel', job),
-  onUpdateReady(cb: () => void) {
-    const listener = () => cb();
-    ipcRenderer.on('update-ready', listener);
-    return () => unsubscribe('update-ready', listener as (...args: unknown[]) => void);
-  },
-  installUpdate: () => call('update:install'),
   checkForUpdates: () => call('update:check'),
   googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
@@ -72,4 +66,12 @@ contextBridge.exposeInMainWorld('redcolumn', {
   },
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'google' | 'microsoft') => call('auth:sign-out', provider),
+  assistantInfo: () => call('assistant:get'),
+  setAssistantEnabled: (on: boolean) => call('assistant:set', on),
+  onAssistantCall(cb: (call: { id: string; method: string; params: unknown }) => void) {
+    const listener = (_event: unknown, call: { id: string; method: string; params: unknown }) => cb(call);
+    ipcRenderer.on('assistant:call', listener);
+    return () => unsubscribe('assistant:call', listener as (...args: unknown[]) => void);
+  },
+  replyAssistant: (id: string, body: { result?: unknown; error?: string }) => ipcRenderer.send('assistant:result', { id, ...body }),
 });

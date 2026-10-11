@@ -6,29 +6,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PRINT_MODE, type PrintMode } from './capabilities';
 
-function minimalPdf(text: string): Buffer {
-  const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET`;
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
-    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-  ];
-  let body = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(Buffer.byteLength(body));
-    const object = objects[i] ?? '';
-    body += `${i + 1} 0 obj\n${object}\nendobj\n`;
-  }
-  const startxref = Buffer.byteLength(body);
-  let xref = `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const offset of offsets) xref += `${String(offset).padStart(10, '0')} 00000 n \n`;
-  body += `${xref}trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF`;
-  return Buffer.from(body);
-}
-
 /** Hidden print windows show only images this process wrote, so scripts are off. */
 
 async function writeTemp(bytes: Uint8Array, ext: string): Promise<string> {
@@ -173,42 +150,5 @@ export async function printBytes(bytes: Uint8Array, mode: PrintMode = PRINT_MODE
     else throw new Error('Image printing is drawn in the window');
   } finally {
     forget(file);
-  }
-}
-
-/** Loads a one-page HTML file and checks whether print-to-PDF kept the marker text. */
-export async function probeHtmlPrint(): Promise<{ bytes: number; hasMarker: boolean; error?: string }> {
-  const file = await writeTemp(Buffer.from('<!doctype html><title>spike</title><p>SPIKEMARKER</p>'), 'html');
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
-  });
-  try {
-    await win.loadFile(file);
-    const out = await win.webContents.printToPDF({});
-    return { bytes: out.length, hasMarker: out.includes('SPIKEMARKER') };
-  } catch (err) {
-    return { bytes: 0, hasMarker: false, error: err instanceof Error ? err.message : String(err) };
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
-    await fs.unlink(file).catch(() => undefined);
-  }
-}
-export async function probeViewerPrint(): Promise<{ bytes: number; hasMarker: boolean; error?: string }> {
-  const file = await writeTemp(minimalPdf('SPIKEMARKER'), 'pdf');
-  const win = new BrowserWindow({
-    show: false,
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },
-  });
-  try {
-    await win.loadURL(pathToFileURL(file).href);
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    const out = await win.webContents.printToPDF({});
-    return { bytes: out.length, hasMarker: out.includes('SPIKEMARKER') };
-  } catch (err) {
-    return { bytes: 0, hasMarker: false, error: err instanceof Error ? err.message : String(err) };
-  } finally {
-    if (!win.isDestroyed()) win.destroy();
-    await fs.unlink(file).catch(() => undefined);
   }
 }

@@ -60,7 +60,11 @@ export interface DesktopFolders {
 }
 
 export type PrintMode = 'viewer' | 'verb' | 'images';
-export type UpdateStatus = 'latest' | 'downloading' | 'ready' | 'unavailable';
+/** The answer to Help › Check for Updates: the newest GitHub release against this app's version. */
+export type UpdateCheck =
+  | { status: 'latest'; current: string }
+  | { status: 'available'; current: string; latest: string; url: string }
+  | { status: 'unavailable'; current: string };
 
 export interface RedcolumnDesktop {
   isDesktop: true;
@@ -83,9 +87,7 @@ export interface RedcolumnDesktop {
   addPrintPage(job: string, bytes: Uint8Array, type: string, width: number, height: number): Promise<void>;
   finishPrint(job: string): Promise<void>;
   cancelPrint(job: string): Promise<void>;
-  onUpdateReady(cb: () => void): () => void;
-  installUpdate(): Promise<void>;
-  checkForUpdates(): Promise<UpdateStatus>;
+  checkForUpdates(): Promise<UpdateCheck>;
   /** null when `interactive` is false and the person has to sign in. */
   googleToken(clientId: string, clientSecret: string, interactive: boolean): Promise<DesktopAuth | null>;
   /** Signs in, or checks the sign-in covers these scopes; null when a sign-in window is needed and `interactive` is false. */
@@ -97,6 +99,24 @@ export interface RedcolumnDesktop {
   localDataKey?: () => Promise<Uint8Array>;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
   signOut(provider: 'google' | 'microsoft'): Promise<void>;
+  /** Whether the local assistant is listening, and the command an AI client should run. */
+  assistantInfo(): Promise<AssistantInfo>;
+  setAssistantEnabled(on: boolean): Promise<AssistantInfo>;
+  onAssistantCall(cb: (call: AssistantCall) => void): () => void;
+  replyAssistant(id: string, body: { result?: unknown; error?: string }): void;
+}
+
+export interface AssistantInfo {
+  enabled: boolean;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+export interface AssistantCall {
+  id: string;
+  method: string;
+  params: unknown;
 }
 
 declare global {

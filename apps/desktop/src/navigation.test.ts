@@ -32,9 +32,11 @@ test('permissions are granted to the app origin only', () => {
   assert.equal(isAppOrigin('', false), false);
 });
 
-test('only http, https and mailto leave the app', () => {
+test('http, https, mailto, and the assistant install links leave the app', () => {
   assert.equal(externalProtocol('https://drive.google.com/drive'), 'https:');
   assert.equal(externalProtocol('mailto:a@b.c?subject=Hi'), 'mailto:');
+  assert.equal(externalProtocol('cursor://anysphere.cursor-deeplink/mcp/install?name=redcolumn'), 'cursor:');
+  assert.equal(externalProtocol('vscode://mcp/install'), 'vscode:');
   assert.equal(externalProtocol('file:///C:/secret.pdf'), null);
   assert.equal(externalProtocol('not a url'), null);
 });

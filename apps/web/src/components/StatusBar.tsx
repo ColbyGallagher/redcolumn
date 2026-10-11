@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { formatLength, type Scale } from '@nb/measure';
 import type { PagePoint, TileViewer } from '../viewer/TileViewer';
 import { settings, useSettings } from '../settings/settings';
 import { useOnline } from '../offline/network';
+import { desktop } from '../desktop/host';
+import { assistantIsOn, subscribeAssistant } from '../desktop/assistantFlag';
 
 interface Props {
   viewer: TileViewer | null;
@@ -35,6 +37,7 @@ function Toggle({ label, title, on, onChange, disabled }: { label: string; title
 export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSnapContent, disabled, sync, onSync }: Props) {
   const prefs = useSettings();
   const online = useOnline();
+  const assistantOn = useSyncExternalStore(subscribeAssistant, assistantIsOn, () => false);
   const [cursor, setCursor] = useState<{ pageIndex: number; point: PagePoint } | null>(null);
 
   useEffect(() => {
@@ -69,6 +72,11 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
         )}
       </div>
       <div className="status-group right">
+        {desktop() && assistantOn && (
+          <button type="button" className="status-toggle on" title="The MCP server can see the open document. File → Preferences → MCP." onClick={() => window.dispatchEvent(new Event('nb-assistant-open'))}>
+            Assistant
+          </button>
+        )}
         {!online && (
           <span className="status-offline" role="status" title="No network. Documents, markups and measurements on this device keep working and are saved here; Live Sessions, time stamps and cloud storage wait for the network.">
             Offline

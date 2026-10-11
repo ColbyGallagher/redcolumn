@@ -37,10 +37,11 @@ export function isAppOrigin(origin: string, dev: boolean): boolean {
 }
 
 /** Protocols the main process may hand to the operating system. */
-export function externalProtocol(url: string): 'http:' | 'https:' | 'mailto:' | null {
+export function externalProtocol(url: string): 'http:' | 'https:' | 'mailto:' | 'cursor:' | 'vscode:' | null {
   try {
     const protocol = new URL(url).protocol;
-    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:') return protocol;
+    // cursor: and vscode: are the local-assistant install links. Nothing else custom leaves the app.
+    if (protocol === 'http:' || protocol === 'https:' || protocol === 'mailto:' || protocol === 'cursor:' || protocol === 'vscode:') return protocol;
     return null;
   } catch {
     return null;

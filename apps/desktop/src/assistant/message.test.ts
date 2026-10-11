@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mcpLaunch } from './argv.ts';
+import { parseEndpoint } from './endpoint.ts';
+import { OFFLINE, handleMcpMessage, takeLines } from './message.ts';
+
+test('the assistant runs the executable as Node so it can read stdin', () => {
+  assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'), {
+    command: 'C:\\Redcolumn\\redcolumn.exe',
+    args: ['C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  });
+});
+
+test('an endpoint needs a port and a 64-character token before it can be dialed', () => {
+  assert.deepEqual(parseEndpoint(''), { enabled: false });
+  assert.deepEqual(parseEndpoint(JSON.stringify({ enabled: true })), { enabled: true });
+  const token = 'a'.repeat(64);
+  assert.deepEqual(parseEndpoint(JSON.stringify({ enabled: true, port: 1, token })), { enabled: true, port: 1, token });
+  assert.deepEqual(parseEndpoint(JSON.stringify({ enabled: true, port: 0, token })), { enabled: true });
+});
+
+test('stdio lines split across chunks and ignore blanks', () => {
+  const state = { buf: '' };
+  assert.deepEqual(takeLines(state, '{"a":1}\n{"b":'), ['{"a":1}']);
+  assert.deepEqual(takeLines(state, '2}\r\n\n'), ['{"b":2}']);
+  assert.equal(state.buf, '');
+});
+
+test('initialize and tools/list answer even when the app is closed', async () => {
+  const init = await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } } }), async () => {
+    throw new Error('should not call');
+  });
+  const parsed = JSON.parse(init ?? '') as { result: { protocolVersion: string; serverInfo: { name: string } } };
+  assert.equal(parsed.result.protocolVersion, '2025-03-26');
+  assert.equal(parsed.result.serverInfo.name, 'redcolumn');
+
+  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string }[] } };
+  assert.deepEqual(list.result.tools.map((t) => t.name), ['list_open_documents', 'list_markups', 'set_markup']);
+});
+
+test('a tool call reaches the app, and a closed app is a plain message', async () => {
+  const ok = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'list_open_documents', arguments: {} } }), async (name) => ({ via: name }))) ?? '') as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(ok.result.isError, false);
+  assert.deepEqual(JSON.parse(ok.result.content[0]!.text), { via: 'list_open_documents' });
+
+  const closed = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'list_markups', arguments: {} } }), async () => {
+    throw new Error(OFFLINE);
+  })) ?? '') as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(closed.result.isError, false);
+  assert.equal(closed.result.content[0]!.text, OFFLINE);
+  assert.equal(await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }), async () => ({})), null);
+});
