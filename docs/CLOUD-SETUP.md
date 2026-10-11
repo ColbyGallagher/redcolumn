@@ -62,6 +62,10 @@ New Live Sessions are encrypted end to end unless the host unticks it (`apps/web
 - **Removing someone** (setting their access to none) makes a new session key, wrapped (ECDH) for
   everyone else; their room files are rewritten with it and the host re-encrypts the documents.
   What the removed person already read cannot be taken back.
+- **Encrypted Projects** are a choice when making a Project (off by default, so a team can still
+  open the PDFs in OneDrive). Their key is in the Project link after `#pk=`; every file's content
+  is sealed before upload. File names and properties stay readable, and there is no signing or key
+  change on removal: removing someone from the folder in OneDrive is what keeps them out.
 - **Costs:** PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be
   recovered. The host manages the session from any browser signed in to the same account, since the
   host keys are in its app folder.

@@ -23,6 +23,7 @@ import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
+import { parseProjectKey, rememberProjectKey } from './studio/crypto/sealedDrive';
 import { rememberSessionKeys } from './studio/crypto/store';
 import { FirstUseHost, StepUpHost } from './components/StepUpDialog';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
@@ -3892,6 +3893,12 @@ export function App() {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     }
     const projectLink = idFromText(params.get('project') ?? '');
+    // An encrypted Project's key comes after # (never sent to any server): keep it, and take it out of the address bar.
+    const projectSecret = projectLink ? parseProjectKey(window.location.hash) : null;
+    if (projectLink && projectSecret) {
+      rememberProjectKey(projectLink, projectSecret);
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
     if (params.has('project')) {
       params.delete('project');
       window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`);
