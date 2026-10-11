@@ -630,3 +630,26 @@ test('encrypted: removing someone changes the key, so they cannot read what come
   assert.equal(s.markups.get('after'), undefined, 'Sam, removed, cannot');
   await assert.rejects(sam.fetchDocument(doc.id), /newer key/);
 });
+
+test('encrypted: the invite email never carries the key, and a seat cannot borrow a name the drive says is not its own', async () => {
+  const { drive, hana } = await encryptedPair();
+  const sent: string[] = [];
+  const api = (hana as unknown as { api: { shareWithUser: (...a: unknown[]) => Promise<void> } }).api;
+  api.shareWithUser = async (_f: unknown, _e: unknown, message: unknown) => void sent.push(String(message));
+  await hana.invite(['lee@x.com']);
+  assert.ok(sent.length === 1 && !sent[0]!.includes('rk='), sent[0]);
+  // Vic's seat claims to be Hana's guest "Sam", but the drive says Vic made it.
+  const access = { default: 'view' as const, people: [{ name: 'Sam', access: 'markup' as const }], groups: [] };
+  await hana.update({ access });
+  const vicDrive = new FakeDrive(drive, 'vic');
+  const vic = await DriveSession.join(vicDrive, hana.id, 'Sam', { ...opts, interactive: true, secret: parseSecret(hana.getSnapshot().inviteLink), identity: person() });
+  const seat = [...drive.files.values()].find((f) => f.id === seatOf(vic))!;
+  // FakeDrive does not report creators; say what a real drive would.
+  const realList = vicDrive.list.bind(vicDrive);
+  (hana as unknown as { api: FakeDrive }).api.list = async (id: string) => (await realList(id)).map((f) => (f.id === seat.id ? { ...f, createdBy: 'vic@x.com' } : f));
+  await hana.poll();
+  const enc = (hana as unknown as { manifest: { enc: { seats: Record<string, { email?: string; verified?: boolean }> } } }).manifest.enc;
+  assert.deepEqual([enc.seats[seat.id]?.email, enc.seats[seat.id]?.verified], ['vic@x.com', true]);
+  const may = (hana as unknown as { seatMay: (s: unknown, r: string) => boolean }).seatMay.bind(hana);
+  assert.equal(may(enc.seats[seat.id], 'doc'), false, 'matched by the verified email, not the claimed name');
+});
