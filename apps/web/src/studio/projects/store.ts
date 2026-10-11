@@ -2,6 +2,7 @@ import { DriveAuthError } from '../drive/DriveApi';
 import { OneDrive, microsoftUser, microsoftUserRestored, parseOneDriveInvite, signInWithMicrosoft } from '../drive/onedrive';
 import { Project, type ProjectDrive, type ProjectOptions } from './Project';
 import { forgetProject, rememberProject } from './local';
+import { newProjectKey, parseProjectKey, projectKey, rememberProjectKey, SealedDrive } from '../crypto/sealedDrive';
 import type { Person } from './model';
 
 /**
@@ -14,6 +15,8 @@ const POLL_MS = 15_000;
 let shared: ProjectDrive | null = null;
 // OneDrive implements `remove`, which Projects need.
 const drive = (): ProjectDrive => (shared ??= new OneDrive() as ProjectDrive);
+/** A Project's drive: sealed with its key when it is an encrypted Project (refusing sealed files without one). */
+const driveFor = (key: string | null): ProjectDrive => new SealedDrive(drive(), key) as ProjectDrive;
 
 const opts: ProjectOptions = { authorize: async () => void (await signInWithMicrosoft()) };
 
@@ -90,10 +93,12 @@ export function adoptProject(project: Project) {
   setProjectView(project.id);
 }
 
-export async function createProject(name: string, me: string): Promise<Project> {
+export async function createProject(name: string, me: string, encrypt = false): Promise<Project> {
   // Signed in first, so the Project knows this person by their email from the start.
   await opts.authorize();
-  const project = await Project.create(drive(), name, person(me), opts);
+  const key = encrypt ? newProjectKey() : null;
+  const project = await Project.create(driveFor(key), name, person(me), opts);
+  if (key) rememberProjectKey(project.id, key);
   track(project);
   setProjectView(project.id);
   return project;
@@ -108,6 +113,9 @@ export async function createProject(name: string, me: string): Promise<Project> 
 export async function openProject(idOrLink: string, me: string, interactive: boolean, show = interactive): Promise<Project> {
   const id = idFromText(idOrLink);
   if (!id) throw new Error('That is not a Project link. Paste the link the owner sent, or the OneDrive link to the Project folder.');
+  // An encrypted Project's key comes after # in its link.
+  const key = parseProjectKey(idOrLink);
+  if (key) rememberProjectKey(id, key);
   const existing = open.get(id)?.project;
   if (existing) {
     if (show) setProjectView(id);
@@ -116,7 +124,7 @@ export async function openProject(idOrLink: string, me: string, interactive: boo
   // Signed in (or the remembered account known) first, so the Project knows this person by email.
   if (interactive) await opts.authorize();
   else await microsoftUserRestored();
-  const attempt = () => Project.open(drive(), id, person(me), { ...opts, interactive });
+  const attempt = () => Project.open(driveFor(projectKey(id)), id, person(me), { ...opts, interactive });
   let project: Project;
   try {
     project = await attempt();

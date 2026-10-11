@@ -126,8 +126,17 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
 
   const make = () =>
     run(async () => {
-      const name = await askText('New Project', '', { label: 'Project name', confirm: 'Create' });
-      if (name?.trim()) await createProject(name, me);
+      const name = await askText('New Project', '', { label: 'Project name', confirm: 'Next' });
+      if (!name?.trim()) return;
+      const kind = await askText('New Project', 'plain', {
+        label: 'Encrypt the Project end to end?',
+        confirm: 'Create',
+        choices: [
+          { value: 'plain', label: 'Not encrypted: the PDFs also open in OneDrive itself' },
+          { value: 'encrypted', label: 'Encrypted: OneDrive stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered' },
+        ],
+      });
+      if (kind) await createProject(name, me, kind === 'encrypted');
     });
   const join = () =>
     run(async () => {
