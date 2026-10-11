@@ -53,6 +53,10 @@ jobs:
         env:
           # The installer is unsigned.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Public Entra client ID (same value as apps/web/.env.example). Vite inlines it
+          # into the web bundle while packaging; without it the installer shows OneDrive
+          # as not set up. Not a secret.
+          VITE_MICROSOFT_CLIENT_ID: b1c13541-0b78-4c60-8ca4-308aa9b23bd0
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
