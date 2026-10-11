@@ -1,3 +1,4 @@
+import { projectKey } from '../crypto/sealedDrive';
 import { readLocal, writeLocal } from '../local';
 
 /** Small per-browser memory for Projects: the ones opened here, and which library files came from one. */
@@ -67,5 +68,7 @@ export function projectInviteLink(id: string): string {
   url.search = '';
   url.hash = '';
   url.searchParams.set('project', id);
-  return url.href;
+  // An encrypted Project's key, after # so it is never sent to any server.
+  const key = projectKey(id);
+  return key ? `${url.href}#pk=${key}` : url.href;
 }

@@ -1,21 +1,23 @@
 name: CI
 
 # Runs on every push and pull request: type checks, every package's tests (including the markup
-# tool tests) and a production build. A red run means the push would break something.
-# Actions are pinned to commits (Dependabot keeps them current; see .github/dependabot.yml).
+# tool tests), a production build, a dependency audit and a security scan of the desktop app.
+# A red run means the push would break something.
 on:
   push:
   pull_request:
   workflow_dispatch:
 
-# Read-only: CI only checks out, tests and builds.
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only: nothing here writes to the repository.
+permissions:
+  contents: read
+
+# Actions are pinned to full commit SHAs (the tag in the comment), so a moved or hijacked tag cannot
+# change what runs. Dependabot (.github/dependabot.yml) proposes updates. See docs/SECURITY-HARDENING.md, 2.5.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -43,3 +45,33 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # High and critical advisories in what ships fail the run. Exceptions, each with its reason,
+      # are in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
+      # Build tools and tests: reported, not blocking.
+      - name: Audit all dependencies (report only)
+        continue-on-error: true
+        run: pnpm audit --audit-level high
+
+  desktop-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      # Electronegativity checks the Electron shell for unsafe settings (docs/SECURITY-HARDENING.md, E1).
+      # HIGH findings fail the run; the rest are listed for review.
+      - name: Electronegativity
+        run: npx -y @doyensec/electronegativity@1.10.3 -i apps/desktop/src -e 44.7.0 -o electronegativity.csv
+
+      - name: Fail on HIGH findings
+        run: node scripts/electronegativity-gate.mjs electronegativity.csv

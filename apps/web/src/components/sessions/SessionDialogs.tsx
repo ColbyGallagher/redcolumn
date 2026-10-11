@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseOneDriveInvite } from '../../studio/drive/onedrive';
+import { parseSecret } from '../../studio/crypto/keys';
+import { rememberSessionKeys } from '../../studio/crypto/store';
 import type { AccessPolicy } from '../../studio/protocol';
 import type { Backend } from '../../studio/types';
 import { AccessEditor, emptyPolicy } from './AccessEditor';
@@ -19,6 +21,8 @@ export interface StartRequest {
   invite: boolean;
   /** When the session ends by itself (ms), or null. */
   expiresAt: number | null;
+  /** End-to-end encrypted: the key travels in the invite link, and the drive stores only ciphertext. */
+  encrypt: boolean;
 }
 
 /** A time for a datetime-local input (local time), and back. */
@@ -121,7 +125,8 @@ export function StartSessionDialog({
   const [name, setName] = useState('');
   const [backend, setBackend] = useState<Backend>(driveAvailable || !oneDriveAvailable ? 'drive' : 'onedrive');
   const [addDocuments, setAddDocuments] = useState(true);
-  const [linkCanEdit, setLinkCanEdit] = useState(true);
+  const [linkCanEdit, setLinkCanEdit] = useState(false);
+  const [encrypt, setEncrypt] = useState(true);
   const [saveCopy, setSaveCopy] = useState(true);
   const [invite, setInvite] = useState(true);
   const [ends, setEnds] = useState('');
@@ -167,7 +172,7 @@ export function StartSessionDialog({
             return;
           }
           if (!sessionEndIsValid(ends) || !(backend === 'drive' ? driveAvailable : oneDriveAvailable)) return;
-          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends) });
+          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends), encrypt });
         }}
       >
         {step === 'general' && (
@@ -194,9 +199,13 @@ export function StartSessionDialog({
                 Attendees who can comment may also add documents
               </label>
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
-              <label className="check" title="Otherwise the link gives view-only access, and people are invited as editors by email">
+              <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
                 <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
                 Anyone with the link can edit the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder
+              </label>
+              <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft, Google or anyone else. The PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be recovered.">
+                <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
+                Encrypt end to end ({backend === 'onedrive' ? 'Microsoft' : 'Google'} stores only scrambled files)
               </label>
             </fieldset>
             <p className="hint">
@@ -327,7 +336,11 @@ export function JoinSessionDialog({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (oneDriveId) onJoinOneDrive(oneDriveId);
+          if (!oneDriveId) return;
+          // An encrypted session's key is in the link after #.
+          const secret = parseSecret(link);
+          if (secret) rememberSessionKeys(oneDriveId, secret);
+          onJoinOneDrive(oneDriveId);
         }}
       >
         <p>You join as {me}. The easiest way in is the invite link from the host.</p>

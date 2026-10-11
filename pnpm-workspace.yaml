@@ -3,5 +3,16 @@ packages:
   - "packages/*"
   - "services/*"
 allowBuilds:
+  # Electron downloads its runtime. electron-winstaller downloads the NSIS tools used to package it.
+  electron: true
+  electron-winstaller: true
   # Its install script only prints a funding message.
   tesseract.js: false
+
+# `pnpm audit` exceptions, each with why it does not reach the app (docs/SECURITY-HARDENING.md, 2.5).
+auditConfig:
+  ignoreGhsas:
+    # node-forge RSA PKCS#1 v1.5 *verification* (no patched release yet). redcolumn verifies every
+    # signature with WebCrypto (apps/web/src/documents/pki.ts); node-forge only makes keys, reads
+    # .p12 files and builds signatures. Remove once node-forge ships a fix.
+    - GHSA-86w9-cpqp-85rv

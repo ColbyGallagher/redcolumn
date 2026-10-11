@@ -1,0 +1,50 @@
+# Unsigned NSIS builds are for local use. Publishing through GitHub Releases needs a
+# Windows certificate: SmartScreen warns on every unsigned update. macOS auto-update
+# needs signing and notarization, which are not part of this installer.
+appId: app.redcolumn.desktop
+productName: redcolumn
+copyright: Copyright © redcolumn contributors
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: ../web/dist
+    to: web
+# Registers redcolumn as a PDF handler. It does not become the default handler.
+# perMachine and any default-handler setting are left unset on purpose.
+fileAssociations:
+  - ext: pdf
+    name: PDF
+    description: PDF document
+    role: Viewer
+    mimeType: application/pdf
+# Electron fuses, flipped in the packaged binary (docs/SECURITY-HARDENING.md, E1): the app cannot be
+# run as plain Node, NODE_OPTIONS and --inspect are ignored, and only the integrity-checked
+# app.asar loads.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+win:
+  target: nsis
+  icon: ../web/dist/icon-512.png
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+publish:
+  - provider: github
+    owner: ColbyGallagher
+    repo: redcolumn
+mac:
+  target: dmg
+  category: public.app-category.productivity
+linux:
+  target: AppImage
+  category: Office

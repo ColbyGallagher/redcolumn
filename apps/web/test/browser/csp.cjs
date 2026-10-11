@@ -1,4 +1,4 @@
-// The Content-Security-Policy (vite.config.ts) leaves the app working: the built pages carry it,
+// The Content-Security-Policy (src/security/csp.ts) leaves the app working: the built pages carry it,
 // and loading the app, opening a PDF, every menu, OCR, spell check and the help pages report no
 // policy violations. Runs against the production build:
 //   pnpm --filter @nb/web build && pnpm --filter @nb/web preview &

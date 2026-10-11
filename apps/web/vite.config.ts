@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa';
 import { iconPngs } from './src/offline/icons.ts';
 import { buildManifest } from './src/offline/manifest.ts';
+import { appCsp, redirectCsp } from './src/security/csp.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -94,43 +95,23 @@ function appIcons(): Plugin {
 }
 
 /**
- * Content-Security-Policy for the built pages, as a meta tag (GitHub Pages cannot send headers).
- * Not applied in development, where Vite injects inline scripts. The help pages carry their own
- * (public/help/index.html).
- * - script-src: the app's own files, WebAssembly (PDFium, Tesseract), and Google's sign-in and
- *   Picker scripts, which load only when Drive is used.
- * - worker-src blob: Tesseract starts its worker from a blob that loads ocr/worker.min.js.
- * - connect-src https: certificate services (time stamps, OCSP, CRLs) are named by the user's
- *   settings and by certificates, form submit addresses by documents, and OneDrive downloads come
- *   from changing Microsoft hosts, so any HTTPS host is allowed; plain HTTP is not.
- * - frame-src: Google's sign-in and Picker, and Microsoft's silent sign-in.
+ * Writes the Content Security Policy and referrer policy into each built page as <meta> tags
+ * (GitHub Pages cannot send headers; vercel.json sends the same policy as a header). Only the
+ * build: the dev server needs inline scripts for hot reload. See src/security/csp.ts.
  */
-const APP_CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client https://apis.google.com",
-  "worker-src 'self' blob:",
-  "connect-src 'self' https:",
-  "img-src 'self' data: blob:",
-  "media-src 'self' data: blob:",
-  "font-src 'self' data:",
-  "style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style",
-  'frame-src https://accounts.google.com https://apis.google.com https://docs.google.com https://drive.google.com https://login.microsoftonline.com https://login.live.com',
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "manifest-src 'self'",
-].join('; ');
-
-/** The sign-in popup's page only runs its own script and hands the result to the app. */
-const REDIRECT_CSP = ["default-src 'none'", "script-src 'self'", "manifest-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'none'"].join('; ');
-
-function contentSecurityPolicy(): Plugin {
+function securityMeta(): Plugin {
+  let options = { google: false, microsoft: false };
   return {
-    name: 'content-security-policy',
+    name: 'security-meta',
     apply: 'build',
+    configResolved(config) {
+      // The desktop app signs in to Google with its own client, but its pages still call Google's APIs.
+      options = { google: !!(config.env.VITE_GOOGLE_CLIENT_ID || config.env.VITE_GOOGLE_DESKTOP_CLIENT_ID), microsoft: !!config.env.VITE_MICROSOFT_CLIENT_ID };
+    },
     transformIndexHtml(html, ctx) {
-      const policy = ctx.filename.endsWith('msal-redirect.html') ? REDIRECT_CSP : APP_CSP;
-      return [{ tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content: policy }, injectTo: 'head-prepend' }];
+      const csp = /msal-redirect\.html$/.test(ctx.filename) ? redirectCsp() : appCsp(options);
+      const tags = `<meta http-equiv="Content-Security-Policy" content="${csp}" />\n    <meta name="referrer" content="no-referrer" />\n    `;
+      return html.replace(/(<meta charset="[^"]*" \/>\s*)/i, `$1${tags}`);
     },
   };
 }
@@ -151,7 +132,7 @@ export default defineConfig({
     ocrAssets(),
     spellAssets(),
     appIcons(),
-    contentSecurityPolicy(),
+    securityMeta(),
     VitePWA({
       // New versions install in the background and wait; the app applies them when no work is in
       // progress (src/offline/updates.ts), so a reload never interrupts a gesture, a dialog or a job.

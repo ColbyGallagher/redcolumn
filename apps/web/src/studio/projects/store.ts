@@ -2,6 +2,9 @@ import { DriveAuthError } from '../drive/DriveApi';
 import { OneDrive, microsoftUser, microsoftUserRestored, parseOneDriveInvite, signInWithMicrosoft } from '../drive/onedrive';
 import { Project, type ProjectDrive, type ProjectOptions } from './Project';
 import { forgetProject, rememberProject } from './local';
+import { desktop } from '../../desktop/host';
+import { FolderDrive, isLocalFolderId } from '../drive/folder';
+import { newProjectKey, parseProjectKey, projectKey, rememberProjectKey, SealedDrive } from '../crypto/sealedDrive';
 import type { Person } from './model';
 
 /**
@@ -14,6 +17,37 @@ const POLL_MS = 15_000;
 let shared: ProjectDrive | null = null;
 // OneDrive implements `remove`, which Projects need.
 const drive = (): ProjectDrive => (shared ??= new OneDrive() as ProjectDrive);
+/** A Project's drive: sealed with its key when it is an encrypted Project (refusing sealed files without one). */
+const driveFor = (key: string | null, base: ProjectDrive = drive()): ProjectDrive => new SealedDrive(base, key) as ProjectDrive;
+
+/**
+ * Projects on a folder this computer syncs: no sign-in, and a check-out counts once it has been on
+ * disk for a while with no earlier claim seen, since a sync client takes seconds to minutes to
+ * bring others' claims in (docs/SECURITY-HARDENING.md, E3).
+ */
+export const LOCAL_LOCK_SETTLE_MS = 30_000;
+const localOpts: ProjectOptions = { authorize: async () => {}, lockSettleMs: LOCAL_LOCK_SETTLE_MS };
+
+/** Whether Projects can use a folder on this computer (the desktop app only). */
+export const localFoldersAvailable = () => !!desktop()?.folder;
+
+/** Makes a Project in a folder the person picks (their sync client shares it). Null if they cancel. */
+export async function createLocalProject(name: string, me: string, encrypt = false): Promise<Project | null> {
+  const parent = await desktop()?.folder.pick('create');
+  if (!parent) return null;
+  const key = encrypt ? newProjectKey() : null;
+  const project = await Project.create(driveFor(key, new FolderDrive(parent.id) as ProjectDrive), name, person(me), localOpts);
+  if (key) rememberProjectKey(project.id, key);
+  track(project);
+  setProjectView(project.id);
+  return project;
+}
+
+/** Opens a Project folder the person picks on this computer. Null if they cancel. */
+export async function openLocalProject(me: string): Promise<Project | null> {
+  const picked = await desktop()?.folder.pick('open');
+  return picked ? openProject(picked.id, me, true) : null;
+}
 
 const opts: ProjectOptions = { authorize: async () => void (await signInWithMicrosoft()) };
 
@@ -90,10 +124,12 @@ export function adoptProject(project: Project) {
   setProjectView(project.id);
 }
 
-export async function createProject(name: string, me: string): Promise<Project> {
+export async function createProject(name: string, me: string, encrypt = false): Promise<Project> {
   // Signed in first, so the Project knows this person by their email from the start.
   await opts.authorize();
-  const project = await Project.create(drive(), name, person(me), opts);
+  const key = encrypt ? newProjectKey() : null;
+  const project = await Project.create(driveFor(key), name, person(me), opts);
+  if (key) rememberProjectKey(project.id, key);
   track(project);
   setProjectView(project.id);
   return project;
@@ -108,15 +144,24 @@ export async function createProject(name: string, me: string): Promise<Project> 
 export async function openProject(idOrLink: string, me: string, interactive: boolean, show = interactive): Promise<Project> {
   const id = idFromText(idOrLink);
   if (!id) throw new Error('That is not a Project link. Paste the link the owner sent, or the OneDrive link to the Project folder.');
+  // An encrypted Project's key comes after # in its link.
+  const key = parseProjectKey(idOrLink);
+  if (key) rememberProjectKey(id, key);
   const existing = open.get(id)?.project;
   if (existing) {
     if (show) setProjectView(id);
     return existing;
   }
+  if (isLocalFolderId(id)) {
+    const project = await Project.open(driveFor(projectKey(id), new FolderDrive(id) as ProjectDrive), id, person(me), { ...localOpts, interactive });
+    track(project);
+    if (show) setProjectView(project.id);
+    return project;
+  }
   // Signed in (or the remembered account known) first, so the Project knows this person by email.
   if (interactive) await opts.authorize();
   else await microsoftUserRestored();
-  const attempt = () => Project.open(drive(), id, person(me), { ...opts, interactive });
+  const attempt = () => Project.open(driveFor(projectKey(id)), id, person(me), { ...opts, interactive });
   let project: Project;
   try {
     project = await attempt();
@@ -149,6 +194,7 @@ export function closeProject(id: string) {
 
 export function idFromText(text: string): string | null {
   const t = text.trim();
+  if (/^lf:[\w-]+:[\w-]*$/.test(t)) return t;
   try {
     const param = new URL(t).searchParams.get('project');
     if (param && /^u![\w-]{8,}$/.test(param)) return param;

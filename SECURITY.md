@@ -58,9 +58,11 @@ as you find something. Research done in good faith within these rules will not b
 
 - The app has no server; your files stay in your browser unless you use Live Sessions, Projects or
   spreadsheet sync (see [PRIVACY.md](PRIVACY.md)).
-- The published pages carry a Content-Security-Policy that limits the scripts and frames they can
-  load (`apps/web/vite.config.ts`).
-- Every pull request runs the tests, a production build and CodeQL code scanning. GitHub Actions
-  are pinned to commits, and Dependabot proposes dependency and security updates.
+- The published pages carry a Content-Security-Policy that limits the scripts, frames and
+  connections they can use (`apps/web/src/security/csp.ts`).
+- Every pull request runs the tests, a production build, a dependency audit and CodeQL code
+  scanning. GitHub Actions are pinned to commits, and Dependabot proposes updates to them.
+- The hardening plan for Live Sessions, Projects and the desktop app is in
+  [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md).
 - OpenSSF Scorecard checks the repository's security practices weekly.
 - The security test plan is in [docs/security/PENTEST-PLAN.md](docs/security/PENTEST-PLAN.md).

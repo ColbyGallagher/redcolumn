@@ -1,18 +1,7 @@
-# Dependabot: weekly pull requests for npm packages (pnpm) and for the GitHub Actions the
-# workflows use (pinned to commits; Dependabot updates the commit and its version comment).
-# Security updates also arrive as soon as an advisory is published, when Dependabot security
-# updates are on in the repository's settings.
+# Keeps the pinned GitHub Actions (full commit SHAs in .github/workflows) up to date: Dependabot
+# opens a pull request with the new SHA and tag. npm dependencies are updated by hand.
 version: 2
 updates:
-  - package-ecosystem: npm
-    directory: /
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 10
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-
   - package-ecosystem: github-actions
     directory: /
     schedule:
