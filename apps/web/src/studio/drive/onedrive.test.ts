@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
+import { DriveAuthError } from './DriveApi';
 import { OneDrive } from './onedrive';
 
 interface Item {
@@ -180,4 +181,90 @@ test('who the folder is shared with is listed, changed and removed', async () =>
   assert.deepEqual(graph.permissions.find((p) => p.id === 'u')!.roles, ['read']);
   await od.removePermission(folder, 'i');
   assert.deepEqual((await od.listPermissions(folder)).map((p) => p.name), ['Hana', 'Sam', 'Anyone with the link']);
+});
+
+test('the token goes only to Microsoft Graph, including the next page of a listing', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  const sent: string[] = [];
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    if (new Headers(init.headers).has('authorization')) sent.push(new URL(url).hostname);
+    if (/\/children\?\$top=999$/.test(url)) return Response.json({ value: [], '@odata.nextLink': 'https://evil.example/v1.0/next' });
+    return inner(input, init);
+  }) as typeof fetch;
+  await assert.rejects(od.list(folder), /unexpected address/);
+  assert.ok(sent.length > 0);
+  assert.ok(sent.every((h) => h === 'graph.microsoft.com'), `token sent to ${sent.join(', ')}`);
+});
+
+test('only lock files the adapter has seen can be deleted', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('Tower (redcolumn project)');
+  const manifest = await od.createFile(folder, 'project.json', 'application/json', json({ name: 'Tower' }), { nbRole: 'manifest' });
+  const lock = await od.createFile(folder, 'lock-f1-abc.json', 'application/json', json({ by: 'Hana' }), { nbRole: 'lock' });
+  graph.calls.length = 0;
+  await assert.rejects(od.remove(manifest.id), /only deletes its own lock files/);
+  await assert.rejects(od.remove('unknown-id'), /only deletes its own lock files/);
+  assert.equal(graph.calls.filter((c) => c.method === 'DELETE').length, 0, 'nothing was sent to OneDrive');
+  // The fake has no DELETE; a 400 back shows the request was allowed out.
+  await assert.rejects(od.remove(lock.id), /unexpected DELETE/);
+});
+
+test('an invite without a role is read-only', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('Tower (redcolumn project)');
+  const bodies: string[] = [];
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    if (String(input).endsWith('/invite')) {
+      bodies.push(String(init.body));
+      return Response.json({ value: [] });
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+  await od.shareWithUser(folder, 'sam@x.com', 'Join');
+  await od.shareWithUser(folder, 'lee@x.com', 'Join', 'writer');
+  assert.deepEqual(bodies.map((b) => (JSON.parse(b) as { roles: string[] }).roles), [['read'], ['write']]);
+});
+
+test('a refusal outside sharing is reported, not answered with wider access', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  const file = await od.createFile(folder, 'A-101.pdf', 'application/pdf', pdf('rev A'), {});
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    if (/\/(content|createLink)$/.test(new URL(url).pathname)) return Response.json({ error: { message: 'Access denied' } }, { status: 403 });
+    return inner(input, init);
+  }) as typeof fetch;
+  await assert.rejects(od.updateContent(file.id, pdf('rev B')), (err: Error) => !(err instanceof DriveAuthError) && /Access denied/.test(err.message));
+  await assert.rejects(od.shareWithLink(folder, 'reader'), (err: Error) => err instanceof DriveAuthError && /share/.test(err.message));
+});
+
+test('only a session folder in the app folder can be removed', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  let parent = 'elsewhere';
+  let hasManifest = false;
+  let deleted = false;
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const path = decodeURIComponent(new URL(String(input)).pathname.replace(/^\/v1\.0/, ''));
+    if (path === `/drives/d1/items/${folder}` && (init.method ?? 'GET') === 'GET') return Response.json({ id: folder, parentReference: { driveId: 'd1', id: parent } });
+    if (path === `/drives/d1/items/${folder}:/session.json`) return hasManifest ? Response.json({ id: 'm' }) : Response.json({ error: { message: 'not found' } }, { status: 404 });
+    if (path === `/drives/d1/items/${folder}` && init.method === 'DELETE') {
+      deleted = true;
+      return new Response(null, { status: 204 });
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+  await assert.rejects(od.removeFolder(folder), /only removes session folders/);
+  parent = 'approot';
+  await assert.rejects(od.removeFolder(folder), /only removes session folders/, 'no manifest');
+  assert.equal(deleted, false);
+  hasManifest = true;
+  await od.removeFolder(folder);
+  assert.equal(deleted, true);
 });

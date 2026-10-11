@@ -492,14 +492,14 @@ export class GoogleDrive implements DriveApi {
     );
   }
 
-  async shareWithUser(fileId: string, email: string, message: string): Promise<void> {
+  async shareWithUser(fileId: string, email: string, message: string, role: 'reader' | 'writer' = 'reader'): Promise<void> {
     const u = new URL(`${API}/files/${fileId}/permissions`);
     u.searchParams.set('supportsAllDrives', 'true');
     u.searchParams.set('sendNotificationEmail', 'true');
     u.searchParams.set('emailMessage', message);
     await this.authed(
       u.href,
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'user', role: 'writer', emailAddress: email }) },
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'user', role, emailAddress: email }) },
       `invite ${email}`,
     );
   }
