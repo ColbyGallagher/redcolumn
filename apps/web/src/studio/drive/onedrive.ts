@@ -246,7 +246,7 @@ export function microsoftSignedInSince(): number | null {
 
 /** Where the Microsoft sign-in is kept, in words for the Access page. */
 export function microsoftTokenPlace(): string {
-  if (desktop()) return "In the desktop app's own storage, encrypted by the system key store, until you sign out.";
+  if (desktop()) return "In the desktop app's main process, encrypted by the system key store, until you sign out. The app's pages never see it: OneDrive calls go through the main process.";
   return staySignedInToMicrosoft()
     ? 'In this browser until you sign out (Stay signed in is on). Microsoft ends it after about a day without use.'
     : 'In this tab only; closing the tab, or 30 minutes without cloud work, signs you out.';
@@ -261,6 +261,10 @@ export function setStepUpConfirm(confirm: StepUpConfirm | null) {
   confirmStepUp = confirm;
 }
 
+/**
+ * On the desktop app, makes sure the main process holds a token for these scopes (signing in when
+ * `interactive`). The page never receives it: Graph calls go through the main process.
+ */
 async function desktopGraphToken(scopes: string[], interactive: boolean): Promise<string> {
   const host = desktop();
   if (!host || !CLIENT_ID) throw new DriveAuthError('Microsoft sign-in is not configured for this app.');
@@ -268,7 +272,7 @@ async function desktopGraphToken(scopes: string[], interactive: boolean): Promis
     const result = await host.microsoftToken(CLIENT_ID, TENANT, scopes, interactive);
     if (!result) throw new DriveAuthError(interactive ? 'Microsoft sign-in was closed.' : 'Sign in to Microsoft to open OneDrive sessions.');
     setUser({ email: result.email.toLowerCase(), name: result.name || result.email });
-    return result.accessToken;
+    return '';
   } catch (err) {
     if (err instanceof DriveAuthError) throw err;
     const message = err instanceof Error ? err.message : 'Microsoft sign-in failed.';
@@ -505,9 +509,29 @@ export class OneDrive implements DriveApi {
   private unshared = new Map<string, string>();
   private token: (scopes: string[]) => Promise<string>;
 
+  /** On the desktop app, Graph calls go through the main process, which holds the token. */
+  private brokered: boolean;
+
   /** `token` stands in for Microsoft sign-in in tests. */
-  constructor(token: (scopes: string[]) => Promise<string> = silentToken) {
-    this.token = token;
+  constructor(token?: (scopes: string[]) => Promise<string>) {
+    this.token = token ?? silentToken;
+    this.brokered = !token;
+  }
+
+  /** One Graph call made by the desktop app's main process (apps/desktop/src/graph.ts). */
+  private async viaMainProcess(host: NonNullable<ReturnType<typeof desktop>>, url: string, init: RequestInit, level: number, what: string): Promise<Response> {
+    const headers: Record<string, string> = {};
+    new Headers(init.headers).forEach((value, key) => (headers[key] = value));
+    const body = init.body == null ? undefined : new Uint8Array(await new Response(init.body).arrayBuffer());
+    let reply;
+    try {
+      reply = await host.graphRequest(CLIENT_ID!, TENANT, { url, method: init.method ?? 'GET', headers, ...(body ? { body } : {}), level });
+    } catch {
+      throw new TypeError(`Offline: could not ${what}.`);
+    }
+    if (reply.authNeeded) throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
+    const nullBody = reply.status === 204 || reply.status === 304;
+    return new Response(nullBody ? null : (reply.body as BodyInit), { status: reply.status, statusText: reply.statusText, headers: reply.headers });
   }
 
   folderUrl(folderId: string): string {
@@ -533,14 +557,20 @@ export class OneDrive implements DriveApi {
     const kind = await this.kindOf(url);
     let level = levelFor(kind);
     for (;;) {
-      const token = await this.token(ACCESS_LEVELS[level]!);
-      const headers = new Headers(init.headers);
-      headers.set('authorization', `Bearer ${token}`);
       let res: Response;
-      try {
-        res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
-      } catch {
-        throw new TypeError(`Offline: could not ${what}.`);
+      const host = this.brokered ? desktop() : null;
+      if (host && CLIENT_ID) {
+        noteCloudActivity();
+        res = await this.viaMainProcess(host, url.startsWith('/') ? `${GRAPH}${url}` : url, init, level, what);
+      } else {
+        const token = await this.token(ACCESS_LEVELS[level]!);
+        const headers = new Headers(init.headers);
+        headers.set('authorization', `Bearer ${token}`);
+        try {
+          res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
+        } catch {
+          throw new TypeError(`Offline: could not ${what}.`);
+        }
       }
       if (res.ok) return res;
       const next = nextLevel(kind, level, res.status);

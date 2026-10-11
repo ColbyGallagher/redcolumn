@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   checkForUpdates: () => call('update:check'),
   googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
+  graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'google' | 'microsoft') => call('auth:sign-out', provider),
 });
