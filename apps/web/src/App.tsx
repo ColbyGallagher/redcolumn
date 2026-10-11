@@ -22,7 +22,7 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { askText, AskTextHost } from './components/AskText';
-import { StepUpHost } from './components/StepUpDialog';
+import { FirstUseHost, StepUpHost } from './components/StepUpDialog';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
@@ -7977,6 +7977,7 @@ export function App() {
       {ctxMenu && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
       <AskTextHost />
       <StepUpHost />
+      <FirstUseHost />
       {editing && activeOpen && v && activeTools && (
         <TextEditor key={editing.id} markup={editing} store={activeOpen.store} viewer={v} onDone={() => setEditingText(null)} />
       )}

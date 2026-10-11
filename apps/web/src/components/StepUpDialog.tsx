@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { PROJECT_URL } from '../help/whatsNew';
+import { setFirstUseConfirm, type CloudProviderName } from '../studio/drive/notices';
 import { setStepUpConfirm, type StepUp } from '../studio/drive/onedrive';
 
 /** Words for a step up, shown before Microsoft's own sign-in window (docs/SECURITY-HARDENING.md, 1.3). */
@@ -37,13 +39,65 @@ export function StepUpHost() {
       <div className="modal" role="dialog" aria-label={title} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>
         <h3>{title}</h3>
         <p>{body}</p>
-        <p className="hint">You can drop back to the smallest access afterwards by signing out of Microsoft in the Sessions panel.</p>
+        <p className="access-note">You can drop back to the smallest access afterwards in Preferences › Account › Access.</p>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(false)}>
             Cancel
           </button>
           <button type="button" className="btn primary" autoFocus onClick={() => done(true)}>
             Continue to Microsoft
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The summary before the first sign-in to a provider on this browser (docs/SECURITY-HARDENING.md, 1.5); mount once. */
+export function FirstUseHost() {
+  const [req, setReq] = useState<{ provider: CloudProviderName; resolve: (ok: boolean) => void } | null>(null);
+  useEffect(() => {
+    setFirstUseConfirm((provider) => new Promise<boolean>((resolve) => setReq((prev) => (prev?.resolve(false), { provider, resolve }))));
+    return () => setFirstUseConfirm(null);
+  }, []);
+  if (!req) return null;
+  const done = (ok: boolean) => {
+    setReq(null);
+    req.resolve(ok);
+  };
+  const name = req.provider === 'microsoft' ? 'Microsoft' : 'Google';
+  const drive = req.provider === 'microsoft' ? 'OneDrive' : 'Google Drive';
+  return (
+    <div className="modal-backdrop" onMouseDown={() => done(false)}>
+      <div className="modal" role="dialog" aria-label={`Before you sign in to ${name}`} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>
+        <h3>Before you sign in to {name}</h3>
+        <ul>
+          <li>
+            <b>What goes to {name}:</b> the PDFs, markups, chat and names in the sessions, Projects and spreadsheets you use, saved in a folder in your {drive} (or the host's) and shared with the people invited.
+          </li>
+          <li>
+            <b>What goes to redcolumn:</b> nothing. There is no redcolumn server; your browser talks to {name} directly.
+          </li>
+          <li>
+            <b>Access:</b>{' '}
+            {req.provider === 'microsoft'
+              ? "at first only the app's own folder in your OneDrive. If sharing or someone else's folder needs more, the app tells you why first."
+              : 'only files and folders the app made or that you pick, never the rest of your Drive.'}
+          </li>
+        </ul>
+        <p className="access-note">
+          See Preferences › Account to check what was allowed and what the app did, or read the{' '}
+          <a href={`${PROJECT_URL}/blob/master/PRIVACY.md`} target="_blank" rel="noopener noreferrer">
+            privacy policy
+          </a>
+          .
+        </p>
+        <div className="actions">
+          <button type="button" className="btn" onClick={() => done(false)}>
+            Cancel
+          </button>
+          <button type="button" className="btn primary" autoFocus onClick={() => done(true)}>
+            Continue to {name}
           </button>
         </div>
       </div>
