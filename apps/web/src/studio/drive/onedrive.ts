@@ -371,7 +371,7 @@ async function failure(res: Response, what: string): Promise<Error> {
  * unchanged. Differences from Google Drive that this papers over:
  *
  * - Everyone signs in: Graph has no API-key reads, so attendees read the shared folder as themselves.
- * - The session folder's ID is its sharing link as a share ID (`u!â€¦`), which works for anyone the
+ * - The session folder's ID is its sharing link as a share ID (`u!…`), which works for anyone the
  *   link lets in; opening it redeems the link, giving the attendee lasting access.
  * - Graph has no custom file properties. JSON files (the manifest and seats) carry theirs inside
  *   under `_nb`, hidden from callers; PDFs are recognised by extension, added by their creator.
