@@ -1,4 +1,5 @@
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 
 /**
@@ -6,13 +7,25 @@ import { requireOnline } from '../../offline/network';
  * these is secret: browser apps ship them publicly, and the API key is restricted to this site.
  */
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const API_KEY = import.meta.env.VITE_GOOGLE_API_KEY as string | undefined;
+/** A Google Cloud OAuth client of type Desktop. The web client cannot sign in from app://redcolumn. */
+const DESKTOP_CLIENT_ID = import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_ID as string | undefined;
+/**
+ * Google issues a Desktop client a "secret" and requires it on the token request even with PKCE.
+ * It ships inside the app, so it is not confidential (Google's installed-app guidance says so).
+ */
+const DESKTOP_CLIENT_SECRET = (import.meta.env.VITE_GOOGLE_DESKTOP_CLIENT_SECRET as string | undefined) ?? '';
+const isDesktop = typeof window !== 'undefined' && !!window.redcolumn;
+/**
+ * A browser API key restricted to websites does not work from app://redcolumn, which sends no
+ * http(s) referrer. The desktop app can use its own key, restricted to the Drive and Picker APIs.
+ */
+const API_KEY = ((isDesktop && (import.meta.env.VITE_GOOGLE_DESKTOP_API_KEY as string | undefined)) || import.meta.env.VITE_GOOGLE_API_KEY) as string | undefined;
 /** The Cloud project number; lets the Picker grant this app access to the folder a user picks. */
 const APP_ID = import.meta.env.VITE_GOOGLE_APP_ID as string | undefined;
 
 export const googleConfigured = !!(CLIENT_ID && API_KEY && APP_ID);
-/** Google sign-in (identity in sessions) needs only the OAuth client. */
-export const googleSignInConfigured = !!CLIENT_ID;
+/** Google sign-in (identity in sessions) needs only the OAuth client. The desktop app uses its own client. */
+export const googleSignInConfigured = isDesktop ? !!DESKTOP_CLIENT_ID : !!CLIENT_ID;
 
 // Drive access for Drive sessions, plus the signed-in person's email to identify them in sessions.
 const SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
@@ -144,8 +157,38 @@ class GoogleAuth {
     if (t) window.google?.accounts.oauth2.revoke(t);
   }
 
+  /** Remembers a token the desktop app already obtained. */
+  adopt(token: string, expiresAt: number) {
+    this.token = token;
+    this.expiresAt = expiresAt;
+    try {
+      sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ token, expiresAt }));
+    } catch {
+      // Kept in memory only.
+    }
+  }
+
+  /**
+   * The desktop app's token: refreshed silently when it can be. The system browser opens only
+   * right after a click or key press, never from background Drive work.
+   */
+  async desktopToken(interactive: boolean): Promise<string> {
+    const host = desktop();
+    if (!host || !DESKTOP_CLIENT_ID) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client. Set VITE_GOOGLE_DESKTOP_CLIENT_ID (see docs/CLOUD-SETUP.md).');
+    const result = await host.googleToken(DESKTOP_CLIENT_ID, DESKTOP_CLIENT_SECRET, interactive);
+    if (!result) throw new DriveAuthError('Sign in to Google to open Google Drive sessions.');
+    this.adopt(result.accessToken, result.expiresAt);
+    if (result.email) setUser({ email: result.email.toLowerCase(), name: result.name || result.email });
+    return result.accessToken;
+  }
+
   /** Returns a token, asking Google for one if needed. Call from a click when possible. */
   async get(): Promise<string> {
+    if (desktop()) {
+      const valid = this.valid();
+      if (valid) return valid;
+      return this.desktopToken(navigator.userActivation?.isActive ?? false);
+    }
     const valid = this.valid();
     if (valid) return valid;
     if (!CLIENT_ID) throw new Error('Google sign-in is not configured for this site.');
@@ -223,6 +266,13 @@ export function subscribeGoogleUser(listener: () => void): () => void {
 /** Signs in with Google (a popup, so call it from a click) and reads who the account is. */
 export async function signInWithGoogle(): Promise<GoogleUser> {
   requireOnline('Signing in with Google');
+  const host = desktop();
+  if (host) {
+    await googleAuth.desktopToken(true);
+    const next = googleUser();
+    if (!next) throw new Error("Google did not share this account's email address.");
+    return next;
+  }
   const token = await googleAuth.get();
   const cur = googleUser();
   if (cur) return cur;
@@ -235,6 +285,8 @@ export async function signInWithGoogle(): Promise<GoogleUser> {
 }
 
 export function signOutOfGoogle() {
+  const host = desktop();
+  if (host) void host.signOut('google');
   googleAuth.revoke();
   setUser(null);
 }

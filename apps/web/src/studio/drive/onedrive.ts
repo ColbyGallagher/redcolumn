@@ -1,5 +1,6 @@
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps } from './DriveApi';
+import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 
 /**
@@ -125,8 +126,25 @@ function setUser(next: MicrosoftUser | null) {
   for (const l of userListeners) l();
 }
 
-// Pick up an account remembered from an earlier visit.
-const restored = CLIENT_ID && typeof window !== 'undefined' ? app().then((pca) => setUser(toUser(pca.getActiveAccount())), () => {}) : Promise.resolve();
+// Pick up an account remembered from an earlier visit. The desktop app asks the main process,
+// which keeps the refresh token; the browser uses MSAL's cache.
+const restored = (async () => {
+  if (typeof window === 'undefined') return;
+  const host = desktop();
+  if (host) {
+    if (!CLIENT_ID) return;
+    const account = await host.microsoftAccount(CLIENT_ID).catch(() => null);
+    if (account) setUser({ email: account.email.toLowerCase(), name: account.name || account.email });
+    return;
+  }
+  if (!CLIENT_ID) return;
+  try {
+    const pca = await app();
+    setUser(toUser(pca.getActiveAccount()));
+  } catch {
+    // Not remembered.
+  }
+})();
 
 /** Resolves once the account remembered from an earlier visit (if any) is known to `microsoftUser`. */
 export const microsoftUserRestored = (): Promise<void> => restored;
@@ -159,8 +177,24 @@ function raiseAccess(level: number) {
 
 const scopes = () => ACCESS_LEVELS[accessLevel()]!;
 
+async function desktopGraphToken(interactive: boolean): Promise<string> {
+  const host = desktop();
+  if (!host || !CLIENT_ID) throw new DriveAuthError('Microsoft sign-in is not configured for this app.');
+  try {
+    const result = await host.microsoftToken(CLIENT_ID, TENANT, scopes(), interactive);
+    if (!result) throw new DriveAuthError(interactive ? 'Microsoft sign-in was closed.' : 'Sign in to Microsoft to open OneDrive sessions.');
+    setUser({ email: result.email.toLowerCase(), name: result.name || result.email });
+    return result.accessToken;
+  } catch (err) {
+    if (err instanceof DriveAuthError) throw err;
+    const message = err instanceof Error ? err.message : 'Microsoft sign-in failed.';
+    throw new DriveAuthError(/closed/i.test(message) ? 'Microsoft sign-in was closed.' : message);
+  }
+}
+
 /** A Graph token without any popup, or a DriveAuthError when the user has to sign in. */
 async function silentToken(): Promise<string> {
+  if (desktop()) return desktopGraphToken(false);
   const pca = await app();
   const account = pca.getActiveAccount();
   if (!account) throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
@@ -177,6 +211,16 @@ async function silentToken(): Promise<string> {
  */
 export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
   requireOnline('Signing in with Microsoft');
+  if (desktop()) {
+    try {
+      await desktopGraphToken(false);
+    } catch {
+      await desktopGraphToken(true);
+    }
+    const next = microsoftUser();
+    if (!next) throw new DriveAuthError('Microsoft sign-in failed.');
+    return next;
+  }
   const pca = await app();
   try {
     await silentToken();
@@ -197,9 +241,14 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
 }
 
 export async function signOutOfMicrosoft() {
+  const host = desktop();
+  setUser(null);
+  if (host) {
+    await host.signOut('microsoft');
+    return;
+  }
   const pca = await app();
   const account = pca.getActiveAccount();
-  setUser(null);
   pca.setActiveAccount(null);
   if (account) await pca.clearCache({ account });
   // The next sign-in starts again from the app folder only.
