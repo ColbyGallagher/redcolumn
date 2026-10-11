@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
+import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DesktopAuth } from './auth';
@@ -152,6 +153,21 @@ async function start() {
   handle('folder:remove', (id) => folders.remove(str(id)));
   handle('folder:owned', (id) => folders.ownedByMe(str(id)));
   handle('folder:show', async (id) => void shell.openPath(await folders.folderPath(str(id))));
+
+  // "Encrypt local data" (docs/SECURITY-HARDENING.md, E4): one key per install, stored only
+  // encrypted by the system key store, handed to the app's own page.
+  const keyFile = path.join(app.getPath('userData'), 'local-data-key.bin');
+  handle('local:key', async () => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('This computer has no system key store, so local data cannot be encrypted.');
+    const saved = await fs.readFile(keyFile).catch(() => null);
+    if (saved) return Buffer.from(safeStorage.decryptString(saved), 'base64');
+    const key = randomBytes(32);
+    await fs.writeFile(keyFile, safeStorage.encryptString(key.toString('base64')), { mode: 0o600, flag: 'wx' }).catch(async (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EEXIST') throw err;
+    });
+    const stored = await fs.readFile(keyFile);
+    return Buffer.from(safeStorage.decryptString(stored), 'base64');
+  });
 
   handle('auth:sign-out', (provider) => {
     if (provider === 'microsoft') for (const broker of brokers.values()) broker.reset();

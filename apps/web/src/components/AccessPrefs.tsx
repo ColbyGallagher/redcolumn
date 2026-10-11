@@ -15,6 +15,7 @@ import {
   subscribeMicrosoftUser,
 } from '../studio/drive/onedrive';
 import { desktop } from '../desktop/host';
+import { checkLocalKey, localEncryptionAvailable, localEncryptionOn, requestLocalEncryption } from '../storage/localCrypto';
 
 /** What each OneDrive access level lets the app do, in the words PRIVACY.md uses. */
 export const MICROSOFT_LEVELS = [
@@ -170,7 +171,41 @@ export function AccessPrefs() {
           </p>
         )}
       </section>
+      {localEncryptionAvailable() && <LocalDataSection />}
     </div>
+  );
+}
+
+/** The desktop app's "Encrypt local data", for shared computers (docs/SECURITY-HARDENING.md, E4). */
+function LocalDataSection() {
+  const [on, setOn] = useState(localEncryptionOn);
+  const [busy, setBusy] = useState<string | null>(null);
+  const change = async (next: boolean) => {
+    const what = next
+      ? 'Encrypt the library and markups on this computer? Every document is rewritten; this can take a while for a large library. The app restarts afterwards.'
+      : 'Store the library and markups on this computer unencrypted again? The app restarts afterwards.';
+    if (!confirm(what)) return;
+    setBusy(next ? 'Encrypting as the app restarts…' : 'Decrypting as the app restarts…');
+    try {
+      if (next) await checkLocalKey();
+      setOn(next);
+      requestLocalEncryption(next);
+    } catch (err) {
+      setBusy(null);
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  };
+  return (
+    <section>
+      <h4>This computer</h4>
+      <label className="pref-check">
+        <input type="checkbox" checked={on} disabled={!!busy} onChange={(e) => void change(e.target.checked)} /> Encrypt local data
+      </label>
+      <p className="access-note">
+        {busy ??
+          "Seals the library's PDFs, its list and every document's markups on this computer, with a key the system key store protects (Windows: your account's DPAPI). Someone who copies the files, or uses another account here, cannot read them. Preferences and Studio lists are not encrypted."}
+      </p>
+    </section>
   );
 }
 

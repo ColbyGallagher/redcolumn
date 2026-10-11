@@ -94,6 +94,16 @@ sync clients' conflict copies or half-synced files. A check-out counts once its 
 disk for 30 seconds with no earlier claim seen, since others' claims take a while to sync. The
 Project's owner is the install that made it. Encrypted Projects work here too.
 
+### Encrypt local data (desktop app)
+
+**Preferences › Account › Access › This computer › Encrypt local data** seals the library's PDFs,
+the library list and every document's markups with AES-GCM before they reach this computer's
+storage. The key is made once by the main process and kept only encrypted by the system key store
+(`safeStorage`: DPAPI on Windows, Keychain on macOS), so the files copied off the disk, or read by
+another account, are unreadable. Turning it on or off converts what is stored as the app restarts,
+before anything opens; reading always accepts both forms. Preferences, Studio lists and saved
+sign-in details are not covered.
+
 ## Google Drive
 
 ### How it works

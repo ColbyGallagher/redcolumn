@@ -2,7 +2,7 @@ export * from './model';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
 export * from './columns';
-export { MarkupStore, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
+export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { hitTest, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';
 export { arcPoints, circleThrough } from './arc';
