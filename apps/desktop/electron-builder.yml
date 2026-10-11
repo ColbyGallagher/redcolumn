@@ -1,5 +1,6 @@
-# Unsigned NSIS installer. It is attached to a GitHub release by hand (see README), and the app's
-# Help › Check for Updates compares its version with the latest release and links to it.
+# Unsigned NSIS installer. The Release workflow attaches it to a GitHub release when a v* tag is
+# pushed (see README), and the app's Help › Check for Updates compares its version with the latest
+# release and links to it.
 # The fixed file name keeps releases/latest/download/redcolumn-Setup.exe a stable download link.
 appId: app.redcolumn.desktop
 productName: redcolumn
