@@ -3,5 +3,8 @@ packages:
   - "packages/*"
   - "services/*"
 allowBuilds:
+  # Electron downloads its runtime. electron-winstaller downloads the NSIS tools used to package it.
+  electron: true
+  electron-winstaller: true
   # Its install script only prints a funding message.
   tesseract.js: false

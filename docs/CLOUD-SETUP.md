@@ -80,13 +80,25 @@ Code: `apps/web/src/studio/drive/`.
      `https://colbygallagher.github.io`, and any other address the app is served from.
    - No redirect URIs are needed.
    - The Client ID is `VITE_GOOGLE_CLIENT_ID`.
-5. **API key**: go to Credentials → Create credentials → API key, then edit it.
+5. **Desktop client** (the Electron app only): Clients → Create client → **Desktop app**.
+   No JavaScript origin can be registered for `app://redcolumn`, and Google refuses sign-in inside
+   an embedded browser, so the desktop app opens the system browser and listens on
+   `http://127.0.0.1:<port>` (PKCE and `state`). Put the client ID in
+   `VITE_GOOGLE_DESKTOP_CLIENT_ID` and the client secret in `VITE_GOOGLE_DESKTOP_CLIENT_SECRET`:
+   Google requires the secret on the token request for Desktop clients even with PKCE, and treats
+   it as non-confidential for installed apps. The desktop app uses this client in dev too.
+   Test sign-in from a packaged build.
+6. **API key**: go to Credentials → Create credentials → API key, then edit it.
    - Application restrictions → Websites: `http://localhost:5173/*`, `http://localhost:4173/*`,
      `https://colbygallagher.github.io/*`, `https://docs.google.com/*` (the Picker runs there),
      and any other address the app is served from (for example your Vercel domain).
    - API restrictions: Google Drive API and Google Picker API.
    - The key is `VITE_GOOGLE_API_KEY`.
-6. **Configure the app**:
+   - The desktop app loads from `app://redcolumn`, which is not a website a key can be restricted
+     to. For Drive sessions in the desktop app, create a second key with API restrictions only
+     (Google Drive API and Google Picker API) and put it in `VITE_GOOGLE_DESKTOP_API_KEY`. Test
+     the Picker from a packaged build.
+7. **Configure the app**:
    - Local: copy `apps/web/.env.example` to `apps/web/.env.local` and fill it in.
    - GitHub Pages: add the same names under the repository's Settings → Secrets and variables →
      Actions → **Variables**.
@@ -120,6 +132,12 @@ differences:
    Microsoft accounts* (or narrower, and set `VITE_MICROSOFT_TENANT` to match).
 2. Platform **Single-page application**, redirect URIs: `http://localhost:5173/msal-redirect.html`
    and your site's, e.g. `https://<user>.github.io/redcolumn/msal-redirect.html`.
+   For the Electron app, add a platform **Mobile and desktop applications** with redirect URI
+   `http://127.0.0.1` (no port, no path). The desktop app opens the system browser and redirects to
+   `http://127.0.0.1:<port>`; Entra ignores the port of a loopback redirect, but the path must match,
+   so the app sends none. `app://redcolumn/...` is not a valid SPA redirect.
+   The same client ID is `VITE_MICROSOFT_CLIENT_ID`. A popup that works in dev does not mean the
+   packaged build can sign in.
 3. API permissions → Microsoft Graph → Delegated: `Files.ReadWrite.AppFolder`, `Files.ReadWrite` and
    `Files.ReadWrite.All` (users consent themselves; no admin consent needed unless the tenant
    requires it). Access is asked for a step at a time, and only for sharing or for opening someone

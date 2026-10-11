@@ -132,7 +132,8 @@ import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { canPromptInstall, promptInstall } from './offline/install';
-import { droppedPdfs, handleOf, pickFilesToOpen, recallHandle, rememberHandle, saveAsWithPicker, writeToHandle } from './storage/diskHandles';
+import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
+import { desktop } from './desktop/host';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -244,9 +245,12 @@ const MARKUP_CLIP = 'redcolumn markups';
 
 function download(name: string, blob: Blob) {
   // Browsers with the File System Access API show a Save As dialog; others download.
-  void saveAsWithPicker(name, blob.type, blob).then((r) => {
-    if (r === 'unsupported') anchorDownload(name, blob);
-  });
+  void saveAsWithPicker(name, blob.type, blob).then(
+    (r) => {
+      if (r === 'unsupported') anchorDownload(name, blob);
+    },
+    (err) => window.alert(err instanceof Error ? err.message : `${name} could not be saved.`),
+  );
 }
 
 /** Writes one summary report into a folder chosen on the Output tab. */
@@ -712,15 +716,21 @@ export function App() {
   const [hiddenMarkupLayers, setHiddenMarkupLayers] = useState<Record<string, string[]>>({});
   const [publishFor, setPublishFor] = useState<'pdf' | 'images' | null>(null);
   const publishing = useJobRunning('publish');
-  // A newer version of the app is ready (the service worker found one). It loads by itself once
-  // nothing is in progress (src/offline/updates.ts); until then the notice says what it waits for.
+  const [locationTick, setLocationTick] = useState(0);
+  useEffect(() => subscribeFileLocations(() => setLocationTick((n) => n + 1)), []);
+  useEffect(() => {
+    void primeFileLocations();
+  }, []);
+  // A newer version of the app is ready. It loads (or the desktop app restarts) once nothing is
+  // in progress (src/offline/updates.ts); until then the notice says what it waits for.
   const updateWaitingFor = useRef('');
   useEffect(() => {
     const ready = (e: Event) => {
       const reasons = ((e as CustomEvent<string[]>).detail ?? []).join(', ');
       if (!reasons || reasons === updateWaitingFor.current) return;
       updateWaitingFor.current = reasons;
-      setNotice(`A new version of redcolumn is ready. It loads when you are done (${reasons}); Help › Check for Updates loads it now.`);
+      const when = desktop() ? 'restarts' : 'loads';
+      setNotice(`A new version of redcolumn is ready. It ${when} when you are done (${reasons}); Help › Check for Updates ${when} it now.`);
     };
     window.addEventListener('nb-update-ready', ready);
     return () => window.removeEventListener('nb-update-ready', ready);
@@ -5326,6 +5336,15 @@ export function App() {
       SEP,
       { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
       { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
+      ...(desktop()
+        ? [{
+            label: 'Open File Location',
+            disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+            onClick: () => void revealFileLocation(t.file.id).then((ok) => {
+              if (!ok) setError('That file has no folder on this computer.');
+            }),
+          }]
+        : []),
       {
         label: 'Save a Copy of the Original…',
         onClick: () => void readFile(t.file.hash).then((bytes) => download(t.file.name, new Blob([bytes], { type: 'application/pdf' }))),
@@ -5541,6 +5560,15 @@ export function App() {
     { label: 'Save a Copy…', onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
     { label: 'Use as Template', checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
     { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(f.name) },
+    ...(desktop()
+      ? [{
+          label: 'Open File Location',
+          disabled: locationTick < 0 || !hasFileLocation(f.id),
+          onClick: () => void revealFileLocation(f.id).then((ok) => {
+            if (!ok) setError('That file has no folder on this computer.');
+          }),
+        }]
+      : []),
     SEP,
     {
       label: 'Remove from Device…',
@@ -5549,7 +5577,7 @@ export function App() {
         if (confirm(`Remove "${f.name}" from this device? Its markups are kept and return if you open it again.`)) {
           fileGroups.forget(f.id);
           drawingSets.forget(f.id);
-          void removeFile(f).then(refreshLibrary);
+          void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary);
         }
       },
     },
@@ -5784,6 +5812,16 @@ export function App() {
       else if (what === 'updates') {
         const gate = updateGate();
         if (gate?.waiting) return gate.applyNow();
+        const host = desktop();
+        if (host) {
+          void host.checkForUpdates().then((status) => {
+            if (status === 'ready') setNotice('A new version is ready. It restarts when you are done; Help › Check for Updates restarts it now.');
+            else if (status === 'downloading') setNotice('A new version is downloading. It restarts when you are done.');
+            else if (status === 'unavailable') setNotice('Updates are checked from the installed app.');
+            else setNotice('You have the latest version.');
+          }).catch(() => setNotice('Could not check for updates (offline?).'));
+          return;
+        }
         void navigator.serviceWorker
           ?.getRegistration()
           .then(async (reg) => {
@@ -6862,7 +6900,7 @@ export function App() {
                   return at < 0 ? [...base, SEP, ...groupEntries] : [...base.slice(0, at), SEP, ...groupEntries, ...base.slice(at)];
                 }}
                 reveal={revealFile}
-                onRemove={(f) => void removeFile(f).then(refreshLibrary)}
+                onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
               />
             )}
             <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" onPointerDown={onLeftResize} />

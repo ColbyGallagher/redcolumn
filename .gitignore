@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dev-dist/
+release/
 *.local
 .DS_Store
 samples/

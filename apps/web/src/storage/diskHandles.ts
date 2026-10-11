@@ -2,8 +2,14 @@
  * Links library documents to the file they were opened from, so Save can write over that file
  * (the File System Access API: Chromium browsers and installed PWAs). Handles are kept in
  * IndexedDB by library document id; where the API is missing everything here is a no-op and the
- * app falls back to downloading.
+ * app falls back to downloading. The desktop app stores a token instead of a browser handle.
  */
+
+import { desktop } from '../desktop/host';
+import { isTokenRecord } from '../desktop/record';
+import { hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
+
+export { hasFileLocation, revealFileLocation, subscribeFileLocations };
 
 type Mode = 'read' | 'readwrite';
 interface PermissionHandle extends FileSystemFileHandle {
@@ -41,16 +47,19 @@ function db(): Promise<IDBDatabase> {
 }
 
 export async function rememberHandle(id: string, handle: FileSystemFileHandle | null): Promise<void> {
+  const token = tokenOf(handle);
   try {
     const d = await db();
     await new Promise<void>((resolve, reject) => {
       const tx = d.transaction('files', 'readwrite');
-      if (handle) tx.objectStore('files').put(handle, id);
+      if (token && handle) tx.objectStore('files').put({ v: 1, token, name: handle.name }, id);
+      else if (handle) tx.objectStore('files').put(handle, id);
       else tx.objectStore('files').delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
     d.close();
+    noteLocation(id, token);
   } catch {
     // Not remembered: Save asks where to put the file instead.
   }
@@ -59,15 +68,78 @@ export async function rememberHandle(id: string, handle: FileSystemFileHandle | 
 export async function recallHandle(id: string): Promise<FileSystemFileHandle | null> {
   try {
     const d = await db();
-    const handle = await new Promise<FileSystemFileHandle | null>((resolve, reject) => {
+    const handle = await new Promise<unknown>((resolve, reject) => {
       const req = d.transaction('files').objectStore('files').get(id);
-      req.onsuccess = () => resolve((req.result as FileSystemFileHandle | undefined) ?? null);
+      req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     d.close();
-    return handle;
+    if (isTokenRecord(handle)) {
+      noteLocation(id, handle.token);
+      return tokenHandle(handle.token, handle.name);
+    }
+    return (handle as FileSystemFileHandle | undefined) ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Forgets the file a document was opened from, for Remove from Device. The desktop app also drops
+ * the path, unless another document still points at the same file.
+ */
+export async function forgetHandle(id: string): Promise<void> {
+  try {
+    const d = await db();
+    const { previous, stillUsed } = await new Promise<{ previous: unknown; stillUsed: boolean }>((resolve, reject) => {
+      const tx = d.transaction('files', 'readwrite');
+      const store = tx.objectStore('files');
+      let previous: unknown;
+      let stillUsed = false;
+      const get = store.get(id);
+      get.onsuccess = () => {
+        previous = get.result;
+        store.delete(id);
+        if (!isTokenRecord(previous)) return;
+        const token = previous.token;
+        const cursor = store.openCursor();
+        cursor.onsuccess = () => {
+          const c = cursor.result;
+          if (!c) return;
+          if (String(c.key) !== id && isTokenRecord(c.value) && c.value.token === token) stillUsed = true;
+          else c.continue();
+        };
+      };
+      tx.oncomplete = () => resolve({ previous, stillUsed });
+      tx.onerror = () => reject(tx.error);
+    });
+    d.close();
+    noteLocation(id, null);
+    const host = desktop();
+    if (host && isTokenRecord(previous) && !stillUsed) await host.forgetToken(previous.token);
+  } catch {
+    // Nothing remembered.
+  }
+}
+
+/** Loads remembered desktop paths so Open file location can enable before a file is opened. */
+export async function primeFileLocations(): Promise<void> {
+  if (!desktop()) return;
+  try {
+    const d = await db();
+    await new Promise<void>((resolve, reject) => {
+      const req = d.transaction('files').objectStore('files').openCursor();
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return resolve();
+        if (isTokenRecord(cursor.value)) noteLocation(String(cursor.key), cursor.value.token);
+        cursor.continue();
+      };
+      req.onerror = () => reject(req.error);
+    });
+    d.close();
+  } catch {
+    // Locations stay disabled until a file is opened.
   }
 }
 
@@ -75,6 +147,23 @@ const PDF_TYPES: PickerOptions['types'] = [{ description: 'PDF and pictures', ac
 
 /** Shows the system Open dialog; null if the browser has none (use the file input) or it was cancelled. */
 export async function pickFilesToOpen(): Promise<File[] | null> {
+  const host = desktop();
+  if (host?.nativeFiles) {
+    try {
+      const picked = await host.pickOpen();
+      if (!picked) return [];
+      const files: File[] = [];
+      for (const item of picked) {
+        const bytes = ownedBytes(await host.readToken(item.token));
+        const file = new File([bytes], item.name, { type: mimeFor(item.name) });
+        bindHandle(file, tokenHandle(item.token, item.name));
+        files.push(file);
+      }
+      return files;
+    } catch {
+      return null;
+    }
+  }
   const pick = win().showOpenFilePicker;
   if (!pick) return null;
   try {
@@ -104,6 +193,15 @@ export async function writeToHandle(handle: FileSystemFileHandle, data: Blob | B
 
 /** Shows the system Save As dialog and writes `data` there. Returns the chosen file, or null if cancelled. */
 export async function saveAsWithPicker(name: string, mime: string, data: Blob | BufferSource): Promise<FileSystemFileHandle | null | 'unsupported'> {
+  const host = desktop();
+  if (host?.nativeFiles) {
+    // A file that could not be written (open in another program, read-only, disk full) is an
+    // error the person needs to see, not a reason to fall back to a download.
+    const picked = await host.pickSave(name);
+    if (!picked) return null;
+    if (!(await host.writeToken(picked.token, await toBytes(data)))) throw new Error(`${picked.name} could not be written.`);
+    return tokenHandle(picked.token, picked.name);
+  }
   const pick = win().showSaveFilePicker;
   if (!pick) return 'unsupported';
   const ext = /\.[a-z0-9]+$/i.exec(name)?.[0];
@@ -129,11 +227,13 @@ export async function saveAsWithPicker(name: string, mime: string, data: Blob | 
  */
 export async function droppedPdfs(dt: DataTransfer): Promise<File[]> {
   const isPdf = (f: { name: string; type: string }) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  // Electron's drop files carry a path. A File System Access handle from the same drop does not.
+  if (desktop()) return bindDesktopPaths([...dt.files].filter(isPdf));
   const asked = [...dt.items]
     .filter((i) => i.kind === 'file')
     .map((i) => (i as DataTransferItem & { getAsFileSystemHandle?: () => Promise<FileSystemHandle | null> }).getAsFileSystemHandle?.() ?? null);
   const fallback = [...dt.files];
-  if (!asked.length || asked.every((p) => !p)) return fallback.filter(isPdf);
+  if (!asked.length || asked.every((p) => !p)) return bindDesktopPaths(fallback.filter(isPdf));
   const files: File[] = [];
   for (const p of asked) {
     try {
@@ -147,5 +247,16 @@ export async function droppedPdfs(dt: DataTransfer): Promise<File[]> {
       // Not readable through a handle: the plain files below still open.
     }
   }
-  return files.length ? files : fallback.filter(isPdf);
+  return bindDesktopPaths(files.length ? files : fallback.filter(isPdf));
 }
+
+async function bindDesktopPaths(files: File[]): Promise<File[]> {
+  const host = desktop();
+  if (!host) return files;
+  for (const file of files) {
+    const token = await host.tokenForFile(file);
+    if (token) bindHandle(file, tokenHandle(token, file.name));
+  }
+  return files;
+}
+
