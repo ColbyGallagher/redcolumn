@@ -36,6 +36,29 @@ export interface GraphReply {
   authNeeded?: boolean;
 }
 
+export interface DesktopFolderFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  version: string;
+  size: number;
+  createdTime: string;
+  properties: Record<string, string>;
+}
+
+export interface DesktopFolders {
+  pick(purpose: 'create' | 'open'): Promise<{ id: string; name: string } | null>;
+  list(id: string): Promise<DesktopFolderFile[]>;
+  download(id: string): Promise<Uint8Array>;
+  createFolder(parent: string, name: string): Promise<string>;
+  createFile(folder: string, name: string, body: Uint8Array, props: Record<string, string>): Promise<DesktopFolderFile>;
+  updateContent(id: string, body: Uint8Array): Promise<string>;
+  updateProperties(id: string, props: Record<string, string>): Promise<string>;
+  remove(id: string): Promise<void>;
+  ownedByMe(id: string): Promise<boolean>;
+  show(id: string): Promise<void>;
+}
+
 export type PrintMode = 'viewer' | 'verb' | 'images';
 export type UpdateStatus = 'latest' | 'downloading' | 'ready' | 'unavailable';
 
@@ -68,6 +91,8 @@ export interface RedcolumnDesktop {
   /** Signs in, or checks the sign-in covers these scopes; null when a sign-in window is needed and `interactive` is false. */
   microsoftToken(clientId: string, tenant: string, scopes: string[], interactive: boolean): Promise<DesktopAccount | null>;
   graphRequest(clientId: string, tenant: string, request: GraphRequest): Promise<GraphReply>;
+  /** Projects on a folder this computer syncs; IDs only, never paths (apps/desktop/src/folderDrive.ts). */
+  folder: DesktopFolders;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
   signOut(provider: 'google' | 'microsoft'): Promise<void>;
 }

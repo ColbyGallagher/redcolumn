@@ -6,7 +6,9 @@ import { forgetProject, knownProjects, restoreProject, libraryCopyOf, linkOf, pr
 import { descendantFolders, folderPath, type ProjectFile, type ProjectFolder } from '../studio/projects/model';
 import type { Project } from '../studio/projects/Project';
 import { copyState, describeQueued, isUnreachable, noteText, projectQueue } from '../studio/projects/queue';
-import { closeProject, createProject, openProject, openProjects, projectById, projectView, projectsVersion, setProjectView, subscribeProjects } from '../studio/projects/store';
+import { desktop } from '../desktop/host';
+import { isLocalFolderId } from '../studio/drive/folder';
+import { closeProject, createLocalProject, createProject, localFoldersAvailable, openLocalProject, openProject, openProjects, projectById, projectView, projectsVersion, setProjectView, subscribeProjects } from '../studio/projects/store';
 import { askText } from './AskText';
 import { Dialog } from './sessions/SessionDialogs';
 import { DocIcon, FilterButton, FolderIcon, StudioHeader, StudioMenu, StudioRow, StudioTabs, studioIdText, type StudioSort } from './studio/chrome';
@@ -124,19 +126,23 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
   const blocked = busy || !online || !oneDriveAvailable;
   const why = !oneDriveAvailable ? 'This build is not set up for OneDrive.' : !online ? offlineReason('Projects') : undefined;
 
-  const make = () =>
+  /** `local`: a folder on this computer that a sync client shares, instead of OneDrive. */
+  const make = (local = false) =>
     run(async () => {
       const name = await askText('New Project', '', { label: 'Project name', confirm: 'Next' });
       if (!name?.trim()) return;
+      const where = local ? 'the sync service' : 'OneDrive';
       const kind = await askText('New Project', 'plain', {
         label: 'Encrypt the Project end to end?',
-        confirm: 'Create',
+        confirm: local ? 'Choose folder…' : 'Create',
         choices: [
-          { value: 'plain', label: 'Not encrypted: the PDFs also open in OneDrive itself' },
-          { value: 'encrypted', label: 'Encrypted: OneDrive stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered' },
+          { value: 'plain', label: `Not encrypted: the PDFs also open in ${local ? 'other apps' : 'OneDrive itself'}` },
+          { value: 'encrypted', label: `Encrypted: ${where} stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered` },
         ],
       });
-      if (kind) await createProject(name, me, kind === 'encrypted');
+      if (!kind) return;
+      if (local) await createLocalProject(name, me, kind === 'encrypted');
+      else await createProject(name, me, kind === 'encrypted');
     });
   const join = () =>
     run(async () => {
@@ -155,6 +161,13 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
             items={[
               { label: 'New project', onClick: () => void make(), disabled: blocked },
               { label: 'Open from link…', onClick: () => void join(), disabled: blocked },
+              // A folder this computer syncs (OneDrive, Dropbox, a file server): no sign-in, works offline.
+              ...(localFoldersAvailable()
+                ? [
+                    { label: 'New project in a folder on this computer…', onClick: () => void make(true), disabled: busy },
+                    { label: 'Open a project folder on this computer…', onClick: () => void run(() => openLocalProject(me)), disabled: busy },
+                  ]
+                : []),
             ]}
           />
         }
@@ -650,6 +663,12 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
                 <dd>{space}</dd>
               </dl>
               <div className="bb-set-links">
+                {isLocalFolderId(project.id) ? (
+                  // Shared by the sync client: people open the synced folder with "Open a project folder on this computer…".
+                  <button type="button" className="bb-set-link" title="Share this folder from the app that syncs it (OneDrive, Dropbox…)" onClick={() => void desktop()?.folder.show(project.id)}>
+                    Show folder
+                  </button>
+                ) : (
                 <button
                   type="button"
                   className="bb-set-link"
@@ -662,6 +681,7 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
                 >
                   {copied ? 'Link copied' : 'Copy invite link'}
                 </button>
+                )}
                 {url && (
                   <a className="bb-set-link" href={url} target="_blank" rel="noreferrer">
                     Open in OneDrive

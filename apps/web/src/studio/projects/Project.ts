@@ -82,6 +82,8 @@ export interface ProjectOptions {
   authorize: () => Promise<void>;
   /** How often open files' markups are read while visible; 0 disables the timers (tests). */
   markupPollMs?: number;
+  /** How long a check-out claim waits for others' claims to arrive before it counts (folders a sync client shares). */
+  lockSettleMs?: number;
 }
 
 const dec = new TextDecoder();
@@ -536,6 +538,8 @@ export class Project {
     }
     const lock: Lock = { by: this.me.name, key: personKey(this.me), at: Date.now(), ...(note?.trim() ? { note: note.trim().slice(0, 200) } : {}) };
     const claim = await this.write(() => this.api.createFile(this.folderId, `lock-${fileId}-${newId()}.json`, 'application/json', jsonBlob(lock), { nbRole: ROLE.lock, nbF: fileId }));
+    // Through a sync client, others' claims take a while to arrive: the earliest still wins once they have.
+    if (this.opts.lockSettleMs) await new Promise((r) => setTimeout(r, this.opts.lockSettleMs));
     await this.poll();
     file = this.file(fileId);
     if (file.checkout?.lockId !== claim.id) {

@@ -57,6 +57,18 @@ contextBridge.exposeInMainWorld('redcolumn', {
   googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
+  folder: {
+    pick: (purpose: 'create' | 'open') => call('folder:pick', purpose),
+    list: (id: string) => call('folder:list', id),
+    download: async (id: string) => new Uint8Array(await call<Uint8Array>('folder:download', id)),
+    createFolder: (parent: string, name: string) => call('folder:create-folder', parent, name),
+    createFile: (folder: string, name: string, body: Uint8Array, props: Record<string, string>) => call('folder:create-file', folder, name, body, props),
+    updateContent: (id: string, body: Uint8Array) => call('folder:update', id, body),
+    updateProperties: (id: string, props: Record<string, string>) => call('folder:props', id, props),
+    remove: (id: string) => call('folder:remove', id),
+    ownedByMe: (id: string) => call('folder:owned', id),
+    show: (id: string) => call('folder:show', id),
+  },
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'google' | 'microsoft') => call('auth:sign-out', provider),
 });

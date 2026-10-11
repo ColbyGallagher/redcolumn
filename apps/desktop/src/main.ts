@@ -1,7 +1,9 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
+import { FolderStore } from './folderDrive';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -114,6 +116,43 @@ async function start() {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
   });
+  // Projects on a folder this computer syncs (docs/SECURITY-HARDENING.md, E3). The page gets IDs, never paths.
+  const foldersFile = path.join(app.getPath('userData'), 'project-folders.json');
+  const savedFolders = await fs
+    .readFile(foldersFile, 'utf8')
+    .then((t) => JSON.parse(t) as { owner?: string; roots?: Record<string, string> })
+    .catch(() => ({}) as { owner?: string; roots?: Record<string, string> });
+  const folders = new FolderStore(savedFolders.roots ?? {}, savedFolders.owner);
+  const saveFolders = () => fs.writeFile(foldersFile, JSON.stringify({ owner: folders.owner, roots: folders.saved() }));
+  if (!savedFolders.owner) await saveFolders().catch(() => undefined);
+  const str = (v: unknown) => {
+    if (typeof v !== 'string') throw new Error('That request is not allowed.');
+    return v;
+  };
+  const bytes = (v: unknown) => {
+    if (!(v instanceof Uint8Array)) throw new Error('That request is not allowed.');
+    return v;
+  };
+  const props = (v: unknown) => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  handle('folder:pick', async (purpose) => {
+    const win = mainWindow;
+    const options = { title: purpose === 'open' ? 'Open a Project folder' : 'Choose where the Project folder goes', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return null;
+    const id = await folders.addRoot(result.filePaths[0]);
+    await saveFolders();
+    return { id, name: path.basename(result.filePaths[0]) };
+  });
+  handle('folder:list', (id) => folders.list(str(id)));
+  handle('folder:download', (id) => folders.download(str(id)));
+  handle('folder:create-folder', (parent, name) => folders.createFolder(str(parent), str(name)));
+  handle('folder:create-file', (folder, name, body, p) => folders.createFile(str(folder), str(name), bytes(body), props(p)));
+  handle('folder:update', (id, body) => folders.updateContent(str(id), bytes(body)));
+  handle('folder:props', (id, p) => folders.updateProperties(str(id), props(p)));
+  handle('folder:remove', (id) => folders.remove(str(id)));
+  handle('folder:owned', (id) => folders.ownedByMe(str(id)));
+  handle('folder:show', async (id) => void shell.openPath(await folders.folderPath(str(id))));
+
   handle('auth:sign-out', (provider) => {
     if (provider === 'microsoft') for (const broker of brokers.values()) broker.reset();
     if (provider === 'google' || provider === 'microsoft') return auth.signOut(provider);
