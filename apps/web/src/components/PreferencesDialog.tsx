@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, settings, type SetTag, type SetTemplate, type Settings } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
+import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
 
 /**
@@ -10,7 +11,7 @@ import { OfflinePrefs } from './OfflinePrefs';
  * draft and applied with OK; Cancel discards them.
  */
 
-type Category = 'general' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations';
+type Category = 'general' | 'account' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations';
 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
@@ -70,6 +71,14 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
     ],
   },
   { id: 'advanced', label: 'Advanced', tabs: [{ id: 'offline', label: 'Offline' }] },
+  {
+    id: 'account',
+    label: 'Account',
+    tabs: [
+      { id: 'access', label: 'Access' },
+      { id: 'activity', label: 'Activity' },
+    ],
+  },
   { id: 'admin', label: 'Admin', tabs: [] },
   { id: 'integrations', label: 'Integrations', tabs: [] },
 ];
@@ -798,6 +807,19 @@ export function PreferencesDialog({ author, onAuthor, onClose }: Props) {
       <div className="pref-free">
         <span className="pref-search-words">{label('Offline storage OCR languages device')}</span>
         <OfflinePrefs />
+      </div>
+    ),
+    // Account
+    access: () => (
+      <div className="pref-free">
+        <span className="pref-search-words">{label('Access sign in sign out Microsoft OneDrive Google permission token stay signed in')}</span>
+        <AccessPrefs />
+      </div>
+    ),
+    activity: () => (
+      <div className="pref-free">
+        <span className="pref-search-words">{label('Activity cloud actions log OneDrive Google uploaded shared deleted')}</span>
+        <ActivityPrefs />
       </div>
     ),
   };

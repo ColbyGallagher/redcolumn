@@ -2,7 +2,9 @@ import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser'
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps } from './DriveApi';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
+import { logCloudAction } from './cloudLog';
 import { noteCloudActivity } from './idle';
+import { firstUse } from './notices';
 
 /**
  * Microsoft configuration from the build (apps/web/.env.local, or GitHub Actions variables). The
@@ -227,6 +229,29 @@ function stepUpMessage(step: StepUp): string {
   return step.level === 1 ? 'Allow access to your OneDrive to open this folder.' : 'Allow access to files shared with you to open this folder.';
 }
 
+const SINCE_KEY = 'nb.onedrive.since';
+const sinceStore = (): Storage | null => {
+  try {
+    return staySignedInToMicrosoft() || desktop() ? localStorage : sessionStorage;
+  } catch {
+    return null;
+  }
+};
+
+/** When this browser signed in to Microsoft (ms since 1970), if the app saw it happen. */
+export function microsoftSignedInSince(): number | null {
+  const v = Number(sinceStore()?.getItem(SINCE_KEY));
+  return v > 0 ? v : null;
+}
+
+/** Where the Microsoft sign-in is kept, in words for the Access page. */
+export function microsoftTokenPlace(): string {
+  if (desktop()) return "In the desktop app's own storage, encrypted by the system key store, until you sign out.";
+  return staySignedInToMicrosoft()
+    ? 'In this browser until you sign out (Stay signed in is on). Microsoft ends it after about a day without use.'
+    : 'In this tab only; closing the tab, or 30 minutes without cloud work, signs you out.';
+}
+
 /** Shows the app's own explanation before Microsoft is asked for more; resolves false to cancel. */
 export type StepUpConfirm = (step: StepUp) => Promise<boolean>;
 let confirmStepUp: StepUpConfirm | null = null;
@@ -275,6 +300,7 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
   const step = pending;
   const scopes = ACCESS_LEVELS[step?.level ?? 0]!;
   const confirm = async () => {
+    await firstUse('microsoft');
     if (step && confirmStepUp && !(await confirmStepUp(step))) throw new DriveAuthError('Microsoft was not asked for more access.');
   };
   if (desktop()) {
@@ -305,6 +331,7 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
   accessChanged();
   const next = microsoftUser();
   if (!next) throw new DriveAuthError('Microsoft sign-in failed.');
+  if (!microsoftSignedInSince()) sinceStore()?.setItem(SINCE_KEY, String(Date.now()));
   return next;
 }
 
@@ -316,6 +343,13 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
 export async function signOutOfMicrosoft(options: { everywhere?: boolean } = {}) {
   const host = desktop();
   setUser(null);
+  for (const store of [localStorage, sessionStorage]) {
+    try {
+      store.removeItem(SINCE_KEY);
+    } catch {
+      // Nothing stored.
+    }
+  }
   dropMicrosoftStepUps();
   if (host) {
     await host.signOut('microsoft');
@@ -460,6 +494,8 @@ export class OneDrive implements DriveApi {
   private drives = new Map<string, string>();
   /** The name of each file listed in or added to a session or Project folder, so deletes can be limited to app files. */
   private names = new Map<string, string>();
+  /** Folder names as the app knows them (by item or share ID), for the activity list. */
+  private folderNames = new Map<string, string>();
   /** Last known content and properties of JSON files, by item ID. */
   private json = new Map<string, { version: string; body: Record<string, unknown>; props: DriveProps }>();
   /** Writes to one file run one after another, so each starts from the last. */
@@ -554,13 +590,22 @@ export class OneDrive implements DriveApi {
       if (!driveId) throw new Error('OneDrive could not find the session folder.');
       return { driveId, itemId: folderId };
     }
-    const res = await this.fetch(`/shares/${folderId}/driveItem?$select=id,parentReference`, { headers: { prefer: 'redeemSharingLink' } }, 'open the session folder');
+    const res = await this.fetch(`/shares/${folderId}/driveItem?$select=id,name,parentReference`, { headers: { prefer: 'redeemSharingLink' } }, 'open the session folder');
     const item = (await res.json()) as GraphItem;
+    if (item.name) {
+      this.folderNames.set(folderId, item.name);
+      this.folderNames.set(item.id, item.name);
+    }
     const ref = { driveId: item.parentReference?.driveId ?? '', itemId: item.id };
     if (!ref.driveId) throw new Error('OneDrive did not say where the session folder is.');
     this.folders.set(folderId, ref);
     this.drives.set(item.id, ref.driveId);
     return ref;
+  }
+
+  /** A file or folder's name for the activity list. */
+  private label(id: string): string {
+    return this.names.get(id) ?? this.folderNames.get(id) ?? 'a file';
   }
 
   private itemPath(fileId: string): string {
@@ -652,6 +697,8 @@ export class OneDrive implements DriveApi {
     this.drives.set(item.id, driveId);
     this.folders.set(item.id, { driveId, itemId: item.id });
     this.unshared.set(name, item.id);
+    this.folderNames.set(item.id, item.name);
+    logCloudAction('onedrive', 'create folder', item.name);
     return item.id;
   }
 
@@ -673,6 +720,7 @@ export class OneDrive implements DriveApi {
     const { driveId, itemId } = await this.appRoot();
     // A PUT to a path replaces a file of that name.
     await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([text], { type: 'application/json' }), 'save your settings');
+    logCloudAction('onedrive', 'save app file', name);
   }
 
   /**
@@ -683,6 +731,7 @@ export class OneDrive implements DriveApi {
   async writeAppBinary(name: string, body: Blob, mimeType: string): Promise<{ id: string; url: string }> {
     const { driveId, itemId } = await this.appRoot();
     const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([body], { type: mimeType }), 'save the spreadsheet');
+    logCloudAction('onedrive', 'save app file', name);
     return { id: item.id, url: item.webUrl ?? 'https://onedrive.live.com/' };
   }
 
@@ -732,6 +781,7 @@ export class OneDrive implements DriveApi {
     const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(safe)}:`, body, what, true);
     this.drives.set(item.id, item.parentReference?.driveId ?? driveId);
     this.names.set(item.id, item.name);
+    logCloudAction('onedrive', 'upload', item.name);
     if (parsed) this.json.set(item.id, { version: item.eTag ?? '', body: parsed, props: properties });
     return this.toFile(item, parsed ? properties : this.propsFor(item, null));
   }
@@ -752,12 +802,18 @@ export class OneDrive implements DriveApi {
   /** Replaces a file's content: JSON keeps the properties stored inside it; anything else goes up as is. */
   updateContent(fileId: string, body: Blob): Promise<string> {
     return this.serial(fileId, async () => {
-      if (body.type !== 'application/json') return (await this.upload(this.itemPath(fileId), body, 'save your changes')).eTag ?? '';
+      if (body.type !== 'application/json') {
+        const item = await this.upload(this.itemPath(fileId), body, 'save your changes');
+        logCloudAction('onedrive', 'replace', this.label(fileId));
+        return item.eTag ?? '';
+      }
       const cur = this.json.get(fileId);
       // Written unread, the file would lose its properties, and with them its role in the session.
       if (!cur) throw new Error('OneDrive has not read that file yet.');
       const parsed = JSON.parse(await body.text()) as Record<string, unknown>;
-      return this.writeJson(fileId, parsed, cur.props, 'save your changes');
+      const version = await this.writeJson(fileId, parsed, cur.props, 'save your changes');
+      logCloudAction('onedrive', 'replace', this.label(fileId));
+      return version;
     });
   }
 
@@ -791,6 +847,8 @@ export class OneDrive implements DriveApi {
     const shareId = shareIdFromUrl(url);
     this.folders.set(shareId, { driveId: this.drives.get(fileId)!, itemId: fileId });
     for (const [name, id] of this.unshared) if (id === fileId) this.unshared.delete(name);
+    if (this.folderNames.has(fileId)) this.folderNames.set(shareId, this.folderNames.get(fileId)!);
+    logCloudAction('onedrive', 'share by link', `${this.label(fileId)} (${type === 'edit' ? 'can edit' : 'can view'})`);
     return shareId;
   }
 
@@ -806,6 +864,7 @@ export class OneDrive implements DriveApi {
       },
       `invite ${email}`,
     );
+    logCloudAction('onedrive', 'invite', `${email} to ${this.label(fileId)} (${role === 'reader' ? 'can view' : 'can edit'})`);
   }
 
   /** Who the folder is shared with. Only people who can manage its sharing may ask. */
@@ -844,11 +903,13 @@ export class OneDrive implements DriveApi {
       { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ roles: [role === 'reader' ? 'read' : 'write'] }) },
       'change who can edit the folder',
     );
+    logCloudAction('onedrive', 'change access', `${this.label(folderId)} (${role === 'reader' ? 'can view' : 'can edit'})`);
   }
 
   async removePermission(folderId: string, permissionId: string): Promise<void> {
     const { driveId, itemId } = await this.resolve(folderId);
     await this.fetch(`/drives/${driveId}/items/${itemId}/permissions/${permissionId}`, { method: 'DELETE' }, 'stop sharing the folder');
+    logCloudAction('onedrive', 'stop sharing', this.label(folderId));
   }
 
   /**
@@ -864,6 +925,7 @@ export class OneDrive implements DriveApi {
     } catch (err) {
       if (!(err instanceof Error) || !/could not find/.test(err.message)) throw err;
     }
+    logCloudAction('onedrive', 'delete', name);
     this.json.delete(fileId);
     this.drives.delete(fileId);
     this.names.delete(fileId);
@@ -881,6 +943,7 @@ export class OneDrive implements DriveApi {
     const inAppFolder = driveId.toLowerCase() === root.driveId.toLowerCase() && item.parentReference?.id === root.itemId;
     if (!inAppFolder || !(await this.hasChild(driveId, itemId, SESSION_MANIFEST))) throw new Error('redcolumn only removes session folders it made in your OneDrive.');
     await this.fetch(`/drives/${driveId}/items/${itemId}`, { method: 'DELETE' }, 'remove the session folder');
+    logCloudAction('onedrive', 'delete folder', this.label(folderId));
     this.folders.delete(folderId);
   }
 

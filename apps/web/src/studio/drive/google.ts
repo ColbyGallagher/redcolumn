@@ -1,5 +1,7 @@
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { logCloudAction } from './cloudLog';
 import { noteCloudActivity } from './idle';
+import { firstUse } from './notices';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 
@@ -138,6 +140,11 @@ class GoogleAuth {
     }
   }
 
+  /** When the current token runs out (ms since 1970), or null without one. */
+  expires(): number | null {
+    return this.valid() ? this.expiresAt : null;
+  }
+
   valid(): string | null {
     return this.token && Date.now() < this.expiresAt - 60_000 ? this.token : null;
   }
@@ -176,6 +183,7 @@ class GoogleAuth {
   async desktopToken(interactive: boolean): Promise<string> {
     const host = desktop();
     if (!host || !DESKTOP_CLIENT_ID) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client. Set VITE_GOOGLE_DESKTOP_CLIENT_ID (see docs/CLOUD-SETUP.md).');
+    if (interactive) await firstUse('google');
     const result = await host.googleToken(DESKTOP_CLIENT_ID, DESKTOP_CLIENT_SECRET, interactive);
     if (!result) throw new DriveAuthError('Sign in to Google to open Google Drive sessions.');
     this.adopt(result.accessToken, result.expiresAt);
@@ -194,6 +202,8 @@ class GoogleAuth {
     const valid = this.valid();
     if (valid) return valid;
     if (!CLIENT_ID) throw new Error('Google sign-in is not configured for this site.');
+    // Before Google's script loads at all, the first time on this browser.
+    await firstUse('google');
     await loadScript('https://accounts.google.com/gsi/client');
     const google = window.google!;
     this.client ??= google.accounts.oauth2.initTokenClient({
@@ -346,6 +356,10 @@ async function failure(res: Response, what: string): Promise<Error> {
 
 /** The Drive REST API, from the browser. Reads use the API key; writes use the signed-in user. */
 export class GoogleDrive implements DriveApi {
+  /** Names of files and folders seen so far, for the activity list. */
+  private names = new Map<string, string>();
+  private label = (id: string) => this.names.get(id) ?? 'a file';
+
   private async authed(url: string, init: RequestInit, what: string): Promise<Response> {
     noteCloudActivity();
     const token = googleAuth.valid();
@@ -388,6 +402,7 @@ export class GoogleDrive implements DriveApi {
       if (pageToken) u.searchParams.set('pageToken', pageToken);
       const body = (await (await this.keyed(u.href, 'read the session folder')).json()) as { files: Parameters<typeof toFile>[0][]; nextPageToken?: string };
       out.push(...body.files.map(toFile));
+      for (const f of out) this.names.set(f.id, f.name);
       pageToken = body.nextPageToken ?? '';
     } while (pageToken);
     return out;
@@ -416,7 +431,10 @@ export class GoogleDrive implements DriveApi {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name, mimeType: FOLDER_MIME, parents: [parent], properties }) },
       'create the session folder',
     );
-    return ((await res.json()) as { id: string }).id;
+    const id = ((await res.json()) as { id: string }).id;
+    this.names.set(id, name);
+    logCloudAction('google', 'create folder', name);
+    return id;
   }
 
   /** Apps/redcolumn in My Drive, where session folders go (made on first use). */
@@ -470,11 +488,15 @@ export class GoogleDrive implements DriveApi {
     const location = start.headers.get('location');
     if (!location) throw new Error(`Google Drive did not accept the upload of ${name}.`);
     const res = await this.authed(location, { method: 'PUT', headers: { 'content-type': mimeType }, body }, `upload ${name}`);
-    return toFile(await res.json());
+    const file = toFile(await res.json());
+    this.names.set(file.id, file.name);
+    logCloudAction('google', 'upload', file.name);
+    return file;
   }
 
   async updateContent(fileId: string, body: Blob): Promise<string> {
     const res = await this.authed(`${UPLOAD}/files/${fileId}?uploadType=media&supportsAllDrives=true&fields=version`, { method: 'PATCH', body }, 'save your changes');
+    logCloudAction('google', 'replace', this.label(fileId));
     return ((await res.json()) as { version: string }).version;
   }
 
@@ -493,6 +515,7 @@ export class GoogleDrive implements DriveApi {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'anyone', role, allowFileDiscovery: false }) },
       'share the session folder by link (your Google Workspace may not allow link sharing)',
     );
+    logCloudAction('google', 'share by link', `${this.label(fileId)} (${role === 'writer' ? 'can edit' : 'can view'})`);
   }
 
   async shareWithUser(fileId: string, email: string, message: string, role: 'reader' | 'writer' = 'reader'): Promise<void> {
@@ -505,6 +528,7 @@ export class GoogleDrive implements DriveApi {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'user', role, emailAddress: email }) },
       `invite ${email}`,
     );
+    logCloudAction('google', 'invite', `${email} to ${this.label(fileId)} (${role === 'writer' ? 'can edit' : 'can view'})`);
   }
 
   /** Moves a folder (and so everything in it) to the trash, where Google Drive keeps it for 30 days. */
@@ -514,6 +538,7 @@ export class GoogleDrive implements DriveApi {
       { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) },
       'remove the session folder',
     );
+    logCloudAction('google', 'delete folder', this.label(folderId));
   }
 
   async ownedByMe(fileId: string): Promise<boolean> {

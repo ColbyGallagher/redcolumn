@@ -75,6 +75,11 @@ sign in to Google or Microsoft.
   cloud work (no session or Project open), the app forgets the sign-in in that tab. **Sign out**
   forgets it in the app; **Sign out everywhere** also ends your Microsoft session in this browser.
   The sign-in token is only ever sent to Microsoft Graph.
+- **Seeing what was allowed and done:** **Preferences › Account › Access** shows who is signed in,
+  the access in use and where the sign-in is kept. **Activity** lists what the app created, saved,
+  shared and deleted in Google Drive and OneDrive from this browser. That list stays in your
+  browser and is never sent anywhere. Before the first sign-in to each provider, the app shows a
+  short summary of what goes where.
 - **What other attendees see:** your name or email, your markups, chat messages, and which page
   you are viewing while you are in the session.
 - **Removing it:** delete the session folder in your Google Drive or OneDrive. You can withdraw the
