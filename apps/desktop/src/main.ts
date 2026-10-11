@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import path from 'node:path';
 import { DesktopAuth } from './auth';
+import { GraphBroker, type GraphRequest } from './graph';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -89,16 +90,32 @@ async function start() {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client.');
     return auth.google(clientId, typeof clientSecret === 'string' ? clientSecret : '', interactive === true);
   });
-  handle('auth:microsoft', (clientId, tenant, scopes, interactive) => {
+  // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
+  handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
     const list = Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [];
-    return auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
+    const result = await auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
+    return result ? { email: result.email, name: result.name, expiresAt: result.expiresAt } : null;
+  });
+  // Every OneDrive call from the page goes through the broker, which holds the token (docs/SECURITY-HARDENING.md, E2).
+  const brokers = new Map<string, GraphBroker>();
+  handle('graph:request', (clientId, tenant, request) => {
+    if (typeof clientId !== 'string' || !clientId || !request || typeof request !== 'object') throw new Error('That request is not allowed.');
+    const t = typeof tenant === 'string' && tenant ? tenant : 'common';
+    const key = `${clientId} ${t}`;
+    let broker = brokers.get(key);
+    if (!broker) {
+      broker = new GraphBroker((scopes) => auth.microsoft(clientId, t, scopes, false).then((r) => r?.accessToken ?? null, () => null));
+      brokers.set(key, broker);
+    }
+    return broker.request(request as GraphRequest);
   });
   handle('auth:microsoft-account', (clientId) => {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
   });
   handle('auth:sign-out', (provider) => {
+    if (provider === 'microsoft') for (const broker of brokers.values()) broker.reset();
     if (provider === 'google' || provider === 'microsoft') return auth.signOut(provider);
   });
 
@@ -126,6 +143,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      webviewTag: false,
     },
   });
   mainWindow = win;

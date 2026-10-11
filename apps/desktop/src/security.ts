@@ -10,6 +10,7 @@ const childWindow = (): BrowserWindowConstructorOptions => ({
     contextIsolation: true,
     sandbox: true,
     nodeIntegration: false,
+    webviewTag: false,
   },
 });
 

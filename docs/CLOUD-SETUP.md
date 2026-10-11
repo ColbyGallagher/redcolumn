@@ -44,6 +44,16 @@ Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`,
   PDFs are not in the policy, so those requests are refused with a message and signing carries on
   without them. Most of these services refuse browser requests anyway.
 
+### Desktop app
+
+The desktop app (`apps/desktop`) keeps the Microsoft sign-in in its main process, encrypted with
+the system key store. Every OneDrive call from the page goes through a Graph broker there
+(`apps/desktop/src/graph.ts`), which attaches the token and applies the same rules as the web app:
+Graph only, wider access only for sharing calls and other people's drives, and deletes only of the
+app's own lock files and session folders. The page never receives a Microsoft token. Every
+`app://` response carries `frame-ancestors 'none'` and `nosniff`, and the packaged binary has the
+`RunAsNode`, `NODE_OPTIONS` and `--inspect` fuses off and asar integrity checks on.
+
 ## Google Drive
 
 ### How it works
