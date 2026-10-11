@@ -42,7 +42,7 @@ Traced from the code (`apps/web/src/studio/drive/`), October 2026.
 | Links | Session and Project folders are shared "Anyone with the link" (edit when the link may edit), falling back to the organization. `onedrive.ts` lines 555–578 | A forwarded link lets anyone in, with no expiry |
 | Deletes | `remove()` deletes any item ID it is given; only Project lock files are passed today. `removeFolder()` deletes a session folder when the host ends it. `onedrive.ts` lines 636–652 | The limit lives in the callers, not the API |
 | Content Security Policy | None. `apps/web/index.html`, `msal-redirect.html`, `public/help/index.html` | Nothing limits what an injected script could load or where it could send data |
-| Hosting | GitHub Pages (`vite.config.ts` line 96), which cannot set response headers | A CSP can be set only with `<meta>`, which cannot do `frame-ancestors` |
+| Hosting | GitHub Pages (`vite.config.ts` line 96), which cannot set response headers, and Vercel (`redcolumn-web.vercel.app`, with a preview deployment for every branch), which can but has no `vercel.json` yet | On GitHub Pages a CSP can only be a `<meta>`, which cannot do `frame-ancestors`. On Vercel no security headers are sent |
 | Service worker | Precaches the app shell only; no Graph or Google responses are cached. `vite.config.ts` lines 112–153 | Fine as is |
 | Privacy notice | "Even then, it only reads and writes the session folders." `PRIVACY.md` line 58 | True of the code, but the permission is broader, and the notice should say so |
 
@@ -130,7 +130,9 @@ script could do if one ever got onto the page (a compromised dependency, a bug t
 
 Add a policy to `index.html`, `msal-redirect.html` and `public/help/index.html`. On GitHub Pages
 it has to be a `<meta http-equiv="Content-Security-Policy">`; insert it at build time with a small
-Vite plugin (`transformIndexHtml`), since the dev server needs a looser one for hot reload.
+Vite plugin (`transformIndexHtml`), since the dev server needs a looser one for hot reload. On
+Vercel, send the same policy as a header from `vercel.json` (see 2.4). Generate both from one
+source so they cannot drift apart.
 
 Starting point for the app (every host to be confirmed in testing; see open questions):
 
@@ -187,9 +189,10 @@ keep it that way (a test that the start page makes no request to a Google host).
 from npm, which is preferred. These Google scripts change without notice, so Subresource Integrity
 cannot pin them. That is a reason to keep them off the page until needed.
 
-### 2.4 Headers that `<meta>` cannot set (S, needs a hosting decision)
+### 2.4 Headers that `<meta>` cannot set (S)
 
-GitHub Pages cannot send headers, so these are not possible there:
+GitHub Pages cannot send headers, so these are not possible there. Vercel can, through a
+`headers` entry in `vercel.json`:
 
 - `frame-ancestors 'none'` (stops other sites framing the app to trick clicks);
 - `Referrer-Policy: no-referrer` (keeps invite share IDs out of `Referer`);
@@ -197,17 +200,23 @@ GitHub Pages cannot send headers, so these are not possible there:
 - `X-Content-Type-Options: nosniff`;
 - `Cross-Origin-Opener-Policy: same-origin-allow-popups` (keeps sign-in popups working).
 
-Two options:
+Plan:
 
-1. **Stay on GitHub Pages.** Add `<meta name="referrer" content="no-referrer">` (that one works in
+1. **Vercel:** add `vercel.json` with these headers and the CSP from 2.1 on every path. It is
+   still a static site with no redcolumn server. Leave CSP reporting off, since reports would go
+   to a server.
+2. **GitHub Pages:** add `<meta name="referrer" content="no-referrer">` (that one works in
    `<meta>`), and a check at start-up that refuses to run inside a frame (`window.top !==
    window.self`).
-2. **Move to a static host that takes a `_headers` file** (Cloudflare Pages or Netlify). It is
-   still a static site with no redcolumn server, and it allows a real header CSP with reporting
-   turned off.
+3. **Pick one main address** and say which in the README. If it is Vercel, GitHub Pages can
+   redirect to it, so every visitor gets the headers.
 
-Recommendation: option 1 now, and option 2 if the Electron version does not become the main way
-people install.
+**Vercel preview deployments.** Every branch gets its own address, built from code that may not
+have been reviewed. Do not register preview addresses as Microsoft redirect URIs or Google
+JavaScript origins, and leave `VITE_MICROSOFT_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` unset for the
+Preview environment. Then unreviewed code can never receive a sign-in for the production app
+registration. If previews need to test sign-in, use a separate test app registration with its
+own client IDs.
 
 ### 2.5 Supply chain (S)
 
@@ -498,7 +507,7 @@ on iPad. Electron first, then the browser if it proves useful.
    365?
 4. Signature checks and `connect-src`: list common time stamp and certificate status servers, or
    block and explain? See 2.1.
-5. Hosting: stay on GitHub Pages, or move to a static host with headers? See 2.4.
+5. Hosting: which address is the main one, GitHub Pages or Vercel? See 2.4.
 6. For local-folder Live Sessions, is sync-client latency acceptable, or is a direct connection
    between computers (WebRTC) worth the work? Direct connections need someone to introduce the two
    computers and fail on some company networks without a relay, which would be a server.
@@ -511,7 +520,8 @@ on iPad. Electron first, then the browser if it proves useful.
 | Token only to Graph; step-up only for sharing and joining | 3.5, 3.6 | S | Small, contained changes in `onedrive.ts` |
 | Microsoft cache per tab, with Stay signed in | 3.1 | S | Biggest cut in token exposure for least work |
 | Delete limits in the API; invite default `reader` | 4.3, 4.1 | S | Safe defaults |
-| CSP, referrer `<meta>`, Trusted Types, frame check | 2.1–2.4 | M | Needs the host list from testing |
+| Keep production client IDs off Vercel previews | 2.4 | S | Settings only; closes a path for unreviewed code to get a sign-in |
+| CSP, `vercel.json` headers, referrer `<meta>`, Trusted Types, frame check | 2.1–2.4 | M | Needs the host list from testing |
 | Scopes per action, no stored level; explain before step-up | 3.4, 1.3 | M | Changes the sign-in flow; test with real accounts |
 | Account settings → Access, activity list, first-use notice | 1.2, 1.4, 1.5 | M | Builds on 3.1–3.4 |
 | Forget tokens when idle; sign out everywhere | 3.2, 3.3 | S | |
