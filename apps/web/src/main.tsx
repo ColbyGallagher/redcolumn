@@ -12,6 +12,12 @@ import './styles.css';
 import './features.css';
 import './offline.css';
 
+// Another site framing the app could trick clicks (GitHub Pages cannot send frame-ancestors).
+if (window.top !== window.self) {
+  document.body.textContent = 'redcolumn cannot run inside another page. Open it in its own tab.';
+  throw new Error('redcolumn refused to run in a frame.');
+}
+
 installLogCapture();
 installDesktopBridge();
 // The install prompt fires once, early; Help › Install App shows it later.

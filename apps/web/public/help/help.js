@@ -25,8 +25,19 @@
 
   const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+  // Everything shown goes through the `help` Trusted Types policy (the page's CSP refuses raw
+  // strings), which refuses anything that could run script, so a slip in the Markdown below cannot.
+  const UNSAFE = /<\s*\/?\s*(script|iframe|frame|object|embed|base|form|meta|link|style|svg|math)\b|<[^>]*\son[a-z]+\s*=|<[^>]*\b(href|src|action|formaction|srcdoc)\s*=\s*["']?\s*(javascript|vbscript|data):/i;
+  const checked = (html) => {
+    if (UNSAFE.test(html)) throw new Error('Help: refused HTML that could run script.');
+    return html;
+  };
+  const policy = window.trustedTypes ? window.trustedTypes.createPolicy('help', { createHTML: checked }) : { createHTML: checked };
+  const html = (s) => policy.createHTML(s);
+
   function href(target) {
-    if (/^[a-z]+:|^\.\.\/|^\//i.test(target)) return target;
+    if (/^[a-z][a-z\d+.-]*:/i.test(target)) return /^(https?|mailto):/i.test(target) ? target : '#';
+    if (/^\.\.\/|^\//.test(target)) return target;
     return '#' + target.replace(/^#/, '');
   }
 
@@ -219,16 +230,16 @@
     const content = $('#content');
     try {
       const md = await load(id);
-      content.innerHTML = blocks(md.replace(/\r/g, '').split('\n'));
+      content.innerHTML = html(blocks(md.replace(/\r/g, '').split('\n')));
     } catch {
-      content.innerHTML = '<h1>' + esc(p.title) + '</h1><p class="missing">This page could not be loaded. If you are offline, open it once while online so it is saved for offline use.</p>';
+      content.innerHTML = html('<h1>' + esc(p.title) + '</h1><p class="missing">This page could not be loaded. If you are offline, open it once while online so it is saved for offline use.</p>');
     }
     const i = pages.indexOf(p);
     const prev = pages[i - 1];
     const next = pages[i + 1];
     $('#pager').innerHTML =
-      (prev ? '<a class="prev" href="#' + prev.id + '"><small>← Previous</small>' + esc(prev.title) + '</a>' : '') +
-      (next ? '<a class="next" href="#' + next.id + '"><small>Next →</small>' + esc(next.title) + '</a>' : '');
+      html((prev ? '<a class="prev" href="#' + prev.id + '"><small>← Previous</small>' + esc(prev.title) + '</a>' : '') +
+      (next ? '<a class="next" href="#' + next.id + '"><small>Next →</small>' + esc(next.title) + '</a>' : ''));
     markCurrent(id);
     const main = $('#main');
     const target = anchor && document.getElementById(anchor);
@@ -284,7 +295,7 @@
     saveOpen();
   }
 
-  $('#toc').innerHTML = renderToc(TOC, []);
+  $('#toc').innerHTML = html(renderToc(TOC, []));
   $('#toc').addEventListener('click', (e) => {
     const btn = e.target.closest('.group > button');
     if (btn) setOpen(btn.parentElement, !btn.parentElement.classList.contains('open'));
@@ -336,12 +347,12 @@
       hits.push({ p, score, snippet });
     }
     hits.sort((a, b) => b.score - a.score);
-    results.innerHTML = hits.length
+    results.innerHTML = html(hits.length
       ? hits
           .slice(0, 40)
           .map((h) => '<a class="hit" href="#' + h.p.id + '"><b>' + esc(h.p.title) + '</b><small>' + esc(h.snippet) + '</small></a>')
           .join('')
-      : '<div class="none">No pages match “' + esc(q) + '”. Try a shorter word.</div>';
+      : '<div class="none">No pages match “' + esc(q) + '”. Try a shorter word.</div>');
     results.hidden = false;
     toc.hidden = true;
     tools.hidden = true;
