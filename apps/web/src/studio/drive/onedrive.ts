@@ -243,6 +243,12 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
 export async function signOutOfMicrosoft() {
   const host = desktop();
   setUser(null);
+  // The next sign-in starts again from the app folder only.
+  try {
+    localStorage.removeItem(LEVEL_KEY);
+  } catch {
+    // Nothing stored.
+  }
   if (host) {
     await host.signOut('microsoft');
     return;
@@ -251,12 +257,6 @@ export async function signOutOfMicrosoft() {
   const account = pca.getActiveAccount();
   pca.setActiveAccount(null);
   if (account) await pca.clearCache({ account });
-  // The next sign-in starts again from the app folder only.
-  try {
-    localStorage.removeItem(LEVEL_KEY);
-  } catch {
-    // Nothing stored.
-  }
   // A changed "stay signed in" choice applies from the next sign-in.
   msal = null;
 }

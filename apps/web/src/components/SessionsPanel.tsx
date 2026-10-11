@@ -6,6 +6,7 @@ import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
 import { ACCESS_SHORT } from './sessions/AccessEditor';
 import { Caret, DocIcon, FilterButton, KebabIcon, PersonIcon, StudioHeader, StudioMenu, StudioRow, StudioTabs, studioIdText, type StudioSort } from './studio/chrome';
+import { desktop } from '../desktop/host';
 import { offlineReason, useOnline } from '../offline/network';
 import { JoinSessionDialog, SessionSettingsDialog, StartSessionDialog, type StartRequest } from './sessions/SessionDialogs';
 
@@ -760,7 +761,8 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
           Sign in with Microsoft
         </button>
       )}
-      {!user && (
+      {/* The desktop app keeps the sign-in in the system keychain instead. */}
+      {!user && !desktop() && (
         <label title="Off: closing this tab signs you out of Microsoft. On: the sign-in is kept in this browser for up to a day.">
           <input
             type="checkbox"
