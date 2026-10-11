@@ -5,6 +5,8 @@
  * markups are kept by that id.
  */
 
+import { openLocal, sealLocal } from './localCrypto';
+
 export interface StoredFile {
   /** Stable document id: the hash of the file as first added. */
   id: string;
@@ -43,7 +45,8 @@ async function filesDir() {
 async function readIndex(): Promise<StoredFile[]> {
   try {
     const handle = await (await root()).getFileHandle(INDEX_FILE);
-    const entries = JSON.parse(await (await handle.getFile()).text()) as (Omit<StoredFile, 'id'> & { id?: string })[];
+    const raw = await openLocal(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+    const entries = JSON.parse(new TextDecoder().decode(raw)) as (Omit<StoredFile, 'id'> & { id?: string })[];
     // Entries from before ids existed keep their hash as their id, so their markups stay attached.
     return entries.map((e) => ({ ...e, id: e.id ?? e.hash }));
   } catch {
@@ -54,7 +57,7 @@ async function readIndex(): Promise<StoredFile[]> {
 async function writeIndex(entries: StoredFile[]) {
   const handle = await (await root()).getFileHandle(INDEX_FILE, { create: true });
   const w = await handle.createWritable();
-  await w.write(JSON.stringify(entries));
+  await w.write((await sealLocal(new TextEncoder().encode(JSON.stringify(entries)))) as Uint8Array<ArrayBuffer>);
   await w.close();
 }
 
@@ -90,7 +93,7 @@ async function writeBlob(hash: string, bytes: ArrayBuffer) {
   }
   const handle = await dir.getFileHandle(`${hash}.pdf`, { create: true });
   const w = await handle.createWritable();
-  await w.write(bytes);
+  await w.write((await sealLocal(new Uint8Array(bytes))) as Uint8Array<ArrayBuffer>);
   await w.close();
 }
 
@@ -185,7 +188,24 @@ export async function cacheFile(bytes: ArrayBuffer): Promise<string> {
 
 export async function readFile(hash: string): Promise<ArrayBuffer> {
   const handle = await (await filesDir()).getFileHandle(`${hash}.pdf`);
-  return (await handle.getFile()).arrayBuffer();
+  return (await openLocal(new Uint8Array(await (await handle.getFile()).arrayBuffer()))).slice().buffer;
+}
+
+/**
+ * Writes every stored document and the index again, sealed or not as local encryption now says
+ * (after it is turned on or off).
+ */
+export async function rewriteLibrary(): Promise<void> {
+  const dir = await filesDir();
+  for await (const [name, entry] of (dir as unknown as { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries()) {
+    if (entry.kind !== 'file' || !name.endsWith('.pdf')) continue;
+    const handle = entry as FileSystemFileHandle;
+    const plain = await openLocal(new Uint8Array(await (await handle.getFile()).arrayBuffer()));
+    const w = await handle.createWritable();
+    await w.write((await sealLocal(plain)) as Uint8Array<ArrayBuffer>);
+    await w.close();
+  }
+  await updateIndex((entries) => ({ entries, result: undefined }));
 }
 
 export async function touchFile(id: string): Promise<void> {

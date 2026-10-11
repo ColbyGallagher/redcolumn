@@ -93,6 +93,8 @@ export interface RedcolumnDesktop {
   graphRequest(clientId: string, tenant: string, request: GraphRequest): Promise<GraphReply>;
   /** Projects on a folder this computer syncs; IDs only, never paths (apps/desktop/src/folderDrive.ts). */
   folder: DesktopFolders;
+  /** The key for "Encrypt local data": made once, kept encrypted by the system key store. Absent where there is none. */
+  localDataKey?: () => Promise<Uint8Array>;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
   signOut(provider: 'google' | 'microsoft'): Promise<void>;
 }

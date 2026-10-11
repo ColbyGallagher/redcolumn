@@ -4,6 +4,8 @@ import { registerSW } from 'virtual:pwa-register';
 import { installDesktopBridge } from './desktop/bridge';
 import { desktop } from './desktop/host';
 import { installLogCapture } from './help/logs';
+import { installLocalEncryption } from './storage/localCrypto';
+import { rewriteLibrary } from './storage/fileStore';
 import { googleUser, signOutOfGoogle } from './studio/drive/google';
 import { startIdleSignOut } from './studio/drive/idle';
 import { microsoftUser, signOutOfMicrosoft, staySignedInToMicrosoft } from './studio/drive/onedrive';
@@ -57,8 +59,11 @@ if (!host)
     if (microsoftUser() && !staySignedInToMicrosoft()) await signOutOfMicrosoft();
   });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+// Before anything opens a document: local data is sealed on this device when "Encrypt local data" is on.
+void installLocalEncryption(rewriteLibrary).finally(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  ),
 );

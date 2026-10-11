@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
+  localDataKey: async () => new Uint8Array(await call<Uint8Array>('local:key')),
   folder: {
     pick: (purpose: 'create' | 'open') => call('folder:pick', purpose),
     list: (id: string) => call('folder:list', id),
