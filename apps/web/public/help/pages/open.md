@@ -27,7 +27,7 @@ Drag a PDF from your file manager (File Explorer or Finder) and drop it on the d
 - Choose {{File > Open Recent}} and click the file, **or**
 - Click **File Access** on the panel rail and click the file. See [File Access](#file-access).
 
-> **Tip:** If you [install redcolumn as an app](#install), you can also open PDFs straight from your file manager: right-click the PDF, choose **Open with**, then **redcolumn**.
+> **Tip:** If you [install the desktop app](#install), you can also open PDFs straight from your file manager: right-click the PDF, choose **Open with**, then **redcolumn**.
 
 > **Note:** A PDF you open is kept on this device so it opens instantly next time, even offline. Your markups are kept with it automatically.
 

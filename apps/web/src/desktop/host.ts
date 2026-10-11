@@ -13,7 +13,11 @@ export interface DesktopAuth {
 }
 
 export type PrintMode = 'viewer' | 'verb' | 'images';
-export type UpdateStatus = 'latest' | 'downloading' | 'ready' | 'unavailable';
+/** The answer to Help › Check for Updates: the newest GitHub release against this app's version. */
+export type UpdateCheck =
+  | { status: 'latest'; current: string }
+  | { status: 'available'; current: string; latest: string; url: string }
+  | { status: 'unavailable'; current: string };
 
 export interface RedcolumnDesktop {
   isDesktop: true;
@@ -36,9 +40,7 @@ export interface RedcolumnDesktop {
   addPrintPage(job: string, bytes: Uint8Array, type: string, width: number, height: number): Promise<void>;
   finishPrint(job: string): Promise<void>;
   cancelPrint(job: string): Promise<void>;
-  onUpdateReady(cb: () => void): () => void;
-  installUpdate(): Promise<void>;
-  checkForUpdates(): Promise<UpdateStatus>;
+  checkForUpdates(): Promise<UpdateCheck>;
   /** null when `interactive` is false and the person has to sign in. */
   googleToken(clientId: string, clientSecret: string, interactive: boolean): Promise<DesktopAuth | null>;
   microsoftToken(clientId: string, tenant: string, scopes: string[], interactive: boolean): Promise<DesktopAuth | null>;

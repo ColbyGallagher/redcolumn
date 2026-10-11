@@ -1,6 +1,6 @@
 # Privacy policy
 
-_Last updated: 4 October 2026_
+_Last updated: 11 October 2026_
 
 redcolumn is a free, open-source PDF markup and takeoff app that runs in your web browser. This
 policy explains what happens to your documents and information when you use it. It applies to the
@@ -36,6 +36,14 @@ receive standard request information when your browser loads the app, such as yo
 browser type and the pages requested, and handle it under their own privacy policies
 ([GitHub](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement),
 [Vercel](https://vercel.com/legal/privacy-policy)). We do not receive or use this information.
+
+## Checking for updates (desktop app)
+
+In the desktop app, Help › Check for Updates (and only when you choose it) asks GitHub for the
+newest release of this project, `api.github.com/repos/ColbyGallagher/redcolumn/releases/latest`.
+GitHub receives your IP address and the request's standard headers, and handles them under its
+privacy policy. Nothing from your documents is sent. Nothing is downloaded until you open the
+release page and choose to.
 
 ## Live Sessions (Google Drive and OneDrive)
 

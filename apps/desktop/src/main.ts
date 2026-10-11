@@ -9,17 +9,14 @@ import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
-import { runSpike } from './spike';
-import { checkForUpdates, installUpdate, startUpdater } from './updater';
+import { checkForUpdates } from './updater';
 
 const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
 const launches = new LaunchQueue(allowlist);
 let mainWindow: BrowserWindow | null = null;
 
-if (process.argv.includes('--spike')) {
-  void app.whenReady().then(() => runSpike().finally(() => app.exit(0)));
-} else if (!app.requestSingleInstanceLock()) {
+if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
@@ -84,7 +81,6 @@ async function start() {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
   handle('update:check', () => checkForUpdates());
-  handle('update:install', () => installUpdate());
   handle('auth:google', (clientId, clientSecret, interactive) => {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client.');
     return auth.google(clientId, typeof clientSecret === 'string' ? clientSecret : '', interactive === true);
@@ -106,7 +102,6 @@ async function start() {
   createWindow();
   for (const filePath of earlyOpens) launches.note(filePath);
   launches.noteArgv(process.argv);
-  startUpdater(() => mainWindow?.webContents.send('update-ready'));
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

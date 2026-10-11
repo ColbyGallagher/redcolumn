@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
-import { canPromptInstall, INSTALL_STEPS, installPlatform, isStandalone, onInstallChange, promptInstall } from '../offline/install';
+import { INSTALL_STEPS, INSTALLER_URL, installerSupported, isStandalone, RELEASES_URL } from '../offline/install';
 
 /**
- * Help › Install App: installs redcolumn as an app. Where the browser offers an install prompt it
- * is shown from here; otherwise (Safari, iOS, Firefox) the dialog gives that platform's steps.
+ * Help › Install App: downloads the Windows desktop app, which opens PDFs from real file paths,
+ * saves straight back to them and works with no network.
  */
-export function InstallDialog({ onClose, onNotice }: { onClose: () => void; onNotice: (text: string) => void }) {
-  const [canPrompt, setCanPrompt] = useState(canPromptInstall);
-  useEffect(() => onInstallChange(() => setCanPrompt(canPromptInstall())), []);
-  const platform = installPlatform(navigator.userAgent, navigator.maxTouchPoints);
+export function InstallDialog({ onClose }: { onClose: () => void }) {
   const installed = isStandalone();
+  const supported = installerSupported(navigator.userAgent);
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal print-dialog install-dialog" role="dialog" aria-label="Install App" onMouseDown={(e) => e.stopPropagation()}>
@@ -18,36 +15,32 @@ export function InstallDialog({ onClose, onNotice }: { onClose: () => void; onNo
           <p>redcolumn is running as an installed app.</p>
         ) : (
           <>
-            <p>Installed, redcolumn opens from its own icon in its own window, opens PDFs from your files, and works with no network: your documents and markups stay on this device.</p>
-            {canPrompt ? (
-              <p className="print-hint">Your browser can install it now.</p>
-            ) : (
+            <p>The desktop app opens from its own icon, opens PDFs from your files, saves straight back to them and works with no network. Your documents and markups stay on this computer.</p>
+            {supported ? (
               <ol className="install-steps">
-                {INSTALL_STEPS[platform].map((step) => (
+                {INSTALL_STEPS.map((step) => (
                   <li key={step}>{step}</li>
                 ))}
               </ol>
+            ) : (
+              <p className="print-hint">The desktop app is for Windows only for now.</p>
             )}
           </>
         )}
         <div className="actions">
           <span className="spacer" />
           <button className="btn" onClick={onClose}>
-            {canPrompt && !installed ? 'Cancel' : 'Close'}
+            Close
           </button>
-          {canPrompt && !installed && (
-            <button
-              className="btn primary"
-              autoFocus
-              onClick={() =>
-                void promptInstall().then((ok) => {
-                  onClose();
-                  if (ok) onNotice('redcolumn is installed. Open it from its icon.');
-                })
-              }
-            >
-              Install
-            </button>
+          {!installed && (
+            <a className="btn" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+              All releases
+            </a>
+          )}
+          {!installed && supported && (
+            <a className="btn primary" href={INSTALLER_URL} onClick={onClose}>
+              Download for Windows
+            </a>
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@
 
 Open-source PDF markup and takeoff for construction drawings, in the browser. Mark up and measure
 drawings, run takeoffs, compare revisions, manage drawing sets, and review together in live
-sessions over Google Drive or OneDrive and shared Projects in OneDrive. It installs as an app and works offline. Your documents
+sessions over Google Drive or OneDrive and shared Projects in OneDrive. It is also a Windows desktop app that opens and saves real file paths, and works offline. Your documents
 stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](PRIVACY.md)).
 
 ## Features
@@ -33,6 +33,20 @@ pnpm dev          # the web app
 pnpm test
 pnpm typecheck
 ```
+
+### Releasing the desktop app
+
+Raise `version` in `apps/desktop/package.json` (Help › Check for Updates compares it with the
+latest release's tag), then build and publish the installer:
+
+```sh
+pnpm --filter @nb/desktop package
+gh release create v0.1.0 apps/desktop/release/redcolumn-Setup.exe --title "redcolumn 0.1.0"
+```
+
+The tag must be `v` plus the version, and the file must keep the name `redcolumn-Setup.exe`: the
+web app's Install button links to `releases/latest/download/redcolumn-Setup.exe`. Pre-releases and
+drafts are ignored by the update check. The installer is unsigned, so Windows SmartScreen warns.
 
 The user help (Help › Help, F1) is in `apps/web/public/help`: Markdown pages in `pages/`, the
 contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample drawings (see the

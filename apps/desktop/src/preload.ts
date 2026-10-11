@@ -47,12 +47,6 @@ contextBridge.exposeInMainWorld('redcolumn', {
   addPrintPage: (job: string, bytes: Uint8Array, type: string, width: number, height: number) => call('print:page', job, bytes, type, width, height),
   finishPrint: (job: string) => call('print:finish', job),
   cancelPrint: (job: string) => call('print:cancel', job),
-  onUpdateReady(cb: () => void) {
-    const listener = () => cb();
-    ipcRenderer.on('update-ready', listener);
-    return () => unsubscribe('update-ready', listener as (...args: unknown[]) => void);
-  },
-  installUpdate: () => call('update:install'),
   checkForUpdates: () => call('update:check'),
   googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),

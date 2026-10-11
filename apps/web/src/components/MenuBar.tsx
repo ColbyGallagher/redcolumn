@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
-import { isStandalone, onInstallChange } from '../offline/install';
+import { desktop } from '../desktop/host';
+import { isStandalone } from '../offline/install';
 import type { Tool } from '../markup/MarkupTools';
 import { MEASURE_TOOLS } from './ToolBar';
 
@@ -77,7 +78,7 @@ export interface MenuBarProps {
     switchProfile: (id: string) => void;
     showLeft: (tab: LeftTab) => void;
     showBottom: (tab: BottomTab) => void;
-    /** The Install App button: the browser's prompt where it has one, else the steps dialog. */
+    /** The Install App button: opens the dialog that downloads the desktop app. */
     install: () => void;
   };
 }
@@ -169,8 +170,7 @@ function Submenu({ label, children }: { label: string; children: ReactNode }) {
 export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, on }: MenuBarProps) {
   const [open, setOpen] = useState<MenuId | null>(null);
   const root = useRef<HTMLDivElement>(null);
-  const [installed, setInstalled] = useState(isStandalone);
-  useEffect(() => onInstallChange(() => setInstalled(isStandalone())), []);
+  const installed = isStandalone();
 
   useEffect(() => {
     if (!open) return;
@@ -513,7 +513,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="help.docs" />
             <Cmd id="help.community" />
             <Cmd id="help.updates" />
-            <Cmd id="help.install" />
+            {!desktop() && <Cmd id="help.install" />}
             <Cmd id="help.support" />
             <Cmd id="help.suggest" />
             <Cmd id="help.logs" />
@@ -550,7 +550,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       {!installed && (
-        <button type="button" className="install-app-btn" title={'Install redcolumn as an app:\n• Works offline, even with no signal\n• Its own window, with a taskbar, dock or home screen icon\n• Offered as the opener for PDFs in your file manager (desktop)\n• Share PDFs to it from other apps (phone)\n• Right-click the icon for Open and New PDF shortcuts\n• Updates install in the background without interrupting your work'} onClick={on.install}>
+        <button type="button" className="install-app-btn" title={'Download the redcolumn desktop app (Windows):\n• Opens PDFs from your file manager\n• Saves straight back to the file\n• Works offline, even with no signal\n• Its own window and taskbar icon'} onClick={on.install}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <path fill="none" stroke="currentColor" strokeWidth="1.8" d="M8 2v8m-3-3 3 3 3-3M3 13h10" />
           </svg>

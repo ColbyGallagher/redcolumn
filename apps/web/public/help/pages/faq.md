@@ -10,7 +10,7 @@ Yes. Markups are kept automatically as you work. To get them **into the PDF file
 
 ### Why does Save download a file instead of saving over mine?
 
-Some browsers (Firefox, Safari) don't let web apps write to files. In those, Save downloads a copy. Use Chrome or Edge, or [install the app](#install), to save straight to the file.
+Some browsers (Firefox, Safari) don't let web apps write to files. In those, Save downloads a copy. Use Chrome or Edge, or [install the desktop app](#install), to save straight to the file.
 
 ### Can I use redcolumn without internet?
 

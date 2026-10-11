@@ -4,7 +4,6 @@ import { registerSW } from 'virtual:pwa-register';
 import { installDesktopBridge } from './desktop/bridge';
 import { desktop } from './desktop/host';
 import { installLogCapture } from './help/logs';
-import { captureInstallPrompt } from './offline/install';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
 import { startProfileBackup } from './workspace/profileBackup';
 import { App } from './App';
@@ -14,25 +13,19 @@ import './offline.css';
 
 installLogCapture();
 installDesktopBridge();
-// The install prompt fires once, early; Help › Install App shows it later.
-captureInstallPrompt();
 
-// A new version waits until nothing is in progress, then reloads the page (the service worker)
-// or restarts the desktop app. The app shows why it is waiting (Help › Check for Updates).
+// A new version waits until nothing is in progress, then reloads the page (the service worker).
+// The app shows why it is waiting (Help › Check for Updates). The desktop app has no service
+// worker: it is updated by installing a newer release.
 addDomBusyChecks();
-const host = desktop();
 let updateSW = (_reload?: boolean) => {};
 const gate = new UpdateGate({
   busy: busyReasons,
-  apply: () => {
-    if (host) void host.installUpdate();
-    else updateSW(true);
-  },
+  apply: () => updateSW(true),
   onWaiting: (reasons) => window.dispatchEvent(new CustomEvent('nb-update-ready', { detail: reasons })),
 });
 setUpdateGate(gate);
-if (host) host.onUpdateReady(() => gate.ready());
-else updateSW = registerSW({ immediate: true, onNeedRefresh: () => gate.ready() });
+if (!desktop()) updateSW = registerSW({ immediate: true, onNeedRefresh: () => gate.ready() });
 // Check again whenever work finishes: a gesture ends, a dialog closes, the tab is left.
 for (const type of ['pointerup', 'keyup', 'visibilitychange'] as const) window.addEventListener(type, () => setTimeout(() => gate.poke(), 300), true);
 setInterval(() => gate.poke(), 15_000);

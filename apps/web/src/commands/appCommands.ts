@@ -1,4 +1,5 @@
 import { BATCH_LABELS, type BatchKind } from '../components/BatchDialog';
+import { desktop } from '../desktop/host';
 import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
@@ -417,7 +418,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('help.docs', 'Help', 'Help', () => a.help('docs')),
     cmd('help.whatsNew', 'Help', "Learn What's New", () => a.help('whatsNew')),
     cmd('help.updates', 'Help', 'Check for Updates', () => a.help('updates')),
-    cmd('help.install', 'Help', 'Install App…', a.install),
+    // The desktop app is already installed.
+    ...(desktop() ? [] : [cmd('help.install', 'Help', 'Install App…', a.install)]),
     cmd('help.support', 'Help', 'Technical Support', () => a.help('support')),
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),

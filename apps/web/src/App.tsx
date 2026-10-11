@@ -131,7 +131,6 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, i
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
-import { canPromptInstall, promptInstall } from './offline/install';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop } from './desktop/host';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
@@ -5722,7 +5721,7 @@ export function App() {
         [
           'redcolumn: PDF markup and takeoff for construction drawings.',
           'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
-          'Your documents stay in this browser; there is no redcolumn server or account. Privacy policy: ' + `${PROJECT_URL}/blob/master/PRIVACY.md`,
+          `Your documents stay ${desktop() ? 'on this computer' : 'in this browser'}; there is no redcolumn server or account. Privacy policy: ` + `${PROJECT_URL}/blob/master/PRIVACY.md`,
           'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',
           'redcolumn is not affiliated with or endorsed by Bluebeam, Inc. or Nemetschek. Bluebeam and Revu are their trademarks.',
         ].join('\n\n'),
@@ -5814,11 +5813,13 @@ export function App() {
         if (gate?.waiting) return gate.applyNow();
         const host = desktop();
         if (host) {
-          void host.checkForUpdates().then((status) => {
-            if (status === 'ready') setNotice('A new version is ready. It restarts when you are done; Help › Check for Updates restarts it now.');
-            else if (status === 'downloading') setNotice('A new version is downloading. It restarts when you are done.');
-            else if (status === 'unavailable') setNotice('Updates are checked from the installed app.');
-            else setNotice('You have the latest version.');
+          void host.checkForUpdates().then((r) => {
+            if (r.status === 'available') {
+              if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
+
+Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
+            else setNotice(`You have the latest version (${r.current}).`);
           }).catch(() => setNotice('Could not check for updates (offline?).'));
           return;
         }
@@ -6410,10 +6411,7 @@ export function App() {
           switchProfile: (id) => profiles.switchTo(id),
           showLeft,
           showBottom: showBottomPanel,
-          install: () => {
-            if (!canPromptInstall()) return setInstallOpen(true);
-            void promptInstall().then((ok) => ok && setNotice('redcolumn is installed. Open it from its icon.'));
-          },
+          install: () => setInstallOpen(true),
         }}
       />
       {activeTools && showTools && (
@@ -7962,7 +7960,7 @@ export function App() {
           onClose={() => setSyncOpen(false)}
         />
       )}
-      {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} onNotice={setNotice} />}
+      {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
