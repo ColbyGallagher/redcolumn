@@ -121,7 +121,7 @@ export function StartSessionDialog({
   const [name, setName] = useState('');
   const [backend, setBackend] = useState<Backend>(driveAvailable || !oneDriveAvailable ? 'drive' : 'onedrive');
   const [addDocuments, setAddDocuments] = useState(true);
-  const [linkCanEdit, setLinkCanEdit] = useState(true);
+  const [linkCanEdit, setLinkCanEdit] = useState(false);
   const [saveCopy, setSaveCopy] = useState(true);
   const [invite, setInvite] = useState(true);
   const [ends, setEnds] = useState('');
@@ -194,7 +194,7 @@ export function StartSessionDialog({
                 Attendees who can comment may also add documents
               </label>
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
-              <label className="check" title="Otherwise the link gives view-only access, and people are invited as editors by email">
+              <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
                 <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
                 Anyone with the link can edit the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder
               </label>

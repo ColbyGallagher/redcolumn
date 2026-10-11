@@ -40,7 +40,7 @@ export interface DriveApi {
    * Shares a file or folder with anyone who has the link. May return the ID others open the
    * folder by from then on (OneDrive: the link's share ID), which becomes the session's ID.
    */
-  shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<string | void>;
+  shareWithLink(fileId: string, role: 'reader' | 'writer', options?: LinkOptions): Promise<string | void>;
   /** Shares with one person (a reader unless `role` says writer, so a missing role fails safe), emailing them `message`. */
   shareWithUser(fileId: string, email: string, message: string, role?: 'reader' | 'writer'): Promise<void>;
   /** Whether this user owns the file (the host owns the session's manifest). */
@@ -74,6 +74,12 @@ export interface DrivePermission {
 }
 
 /** Sign-in lapsed (or was never given); retry after `reconnect`. */
+/** How a sharing link is made, where the drive supports it. */
+export interface LinkOptions {
+  /** When the link stops letting new people in (ms since 1970). Drives that cannot expire links ignore it. */
+  expires?: number;
+}
+
 export class DriveAuthError extends Error {}
 
 /** The user may view but not change this file or folder. */

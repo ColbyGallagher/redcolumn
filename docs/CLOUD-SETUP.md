@@ -121,7 +121,13 @@ differences:
   itself. Opening it redeems the link, so the attendee keeps access.
 - Graph has no custom file properties, so the manifest and seats carry theirs inside the JSON
   (under `_nb`); PDFs are recognised by extension.
-- Work accounts whose tenant blocks "Anyone" links fall back to an organization-only link.
+- **Links:** view-only by default; people who mark up or chat are invited by email (or the host
+  ticks "Anyone with the link can edit"). Work and school accounts get a link for people in the
+  organization first, and "Anyone" only if that fails; invite people outside by email. A session's
+  link stops letting new people in when the session ends, or after a week if it has no end date
+  (people who already joined keep access; Microsoft needs Microsoft 365 for this on personal
+  accounts, and the link is made without an end where it is refused). Ending a session removes its
+  links before it deletes the folder, so the copy in the recycle bin cannot be reached by link.
 - Session folders live in the app's own folder, `Apps/redcolumn` (OneDrive names it after the app
   registration, so keep that named `redcolumn`).
 
@@ -219,9 +225,9 @@ The Project folder's sharing in OneDrive is what controls access; the app follow
 - **Can edit:** open, check out and in, add and change files and folders.
 - **Can view:** read only. The app finds this out when OneDrive refuses a write, and then offers
   no editing.
-- New Projects are shared by link so an invite link works: "Anyone with the link" can edit, or, for
-  work accounts whose tenant blocks that, people in the organization. Turn the link off or make it
-  view-only under People to restrict the Project to the people listed.
+- New Projects are shared by a view-only link so an invite link works (for people in the
+  organization first on work accounts); editors are invited by email under People. Turn the link
+  off under People to restrict the Project to the people listed. Project links do not expire.
 
 The app cannot hold back what OneDrive allows: anyone who can edit the folder in OneDrive itself
 can also change its files there.
