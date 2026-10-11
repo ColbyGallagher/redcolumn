@@ -37,16 +37,24 @@ pnpm typecheck
 ### Releasing the desktop app
 
 Raise `version` in `apps/desktop/package.json` (Help › Check for Updates compares it with the
-latest release's tag), then build and publish the installer:
+latest release's tag), merge that, then tag the merge commit and push the tag:
 
 ```sh
-pnpm --filter @nb/desktop package
-gh release create v0.1.0 apps/desktop/release/redcolumn-Setup.exe --title "redcolumn 0.1.0"
+git checkout master && git pull
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
-The tag must be `v` plus the version, and the file must keep the name `redcolumn-Setup.exe`: the
-web app's Install button links to `releases/latest/download/redcolumn-Setup.exe`. Pre-releases and
-drafts are ignored by the update check. The installer is unsigned, so Windows SmartScreen warns.
+The `Release` workflow (`.github/workflows/release.yml`) checks that the tag is `v` plus the
+desktop version, runs the typecheck and tests, builds the installer on Windows and publishes a
+GitHub release with `redcolumn-Setup.exe` attached. The file keeps that name because the web app's
+Install button links to `releases/latest/download/redcolumn-Setup.exe`, so each new release is what
+the button downloads. A tag with a suffix such as `v0.3.0-beta.1` is published as a pre-release,
+which the Install button and the update check ignore. The installer is unsigned, so Windows
+SmartScreen warns.
+
+To build the installer locally instead, run `pnpm --filter @nb/desktop package`; it is written to
+`apps/desktop/release/`.
 
 ### Local assistant
 
