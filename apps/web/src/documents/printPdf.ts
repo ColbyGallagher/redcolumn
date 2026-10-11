@@ -1,4 +1,5 @@
 import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, rgb } from 'pdf-lib';
+import { desktop } from '../desktop/host';
 import { flattenAnnotations } from './process';
 
 /** What File › Print puts on paper: the drawing with markups, the drawing alone, or markups alone. */
@@ -124,6 +125,28 @@ export async function printablePdf(bytes: ArrayBuffer | Uint8Array, content: Pri
  * Falls back to a new tab where the browser cannot print a PDF inside a frame.
  */
 export function printPdfBytes(bytes: Uint8Array): void {
+  const host = desktop();
+  if (!host) {
+    printInFrame(bytes);
+    return;
+  }
+  void printOnDesktop(bytes).catch(() => {
+    void host.printPdf(bytes).catch(() => printInFrame(bytes));
+  });
+}
+
+async function printOnDesktop(bytes: Uint8Array): Promise<void> {
+  const host = desktop();
+  if (!host) return;
+  if (host.printMode === 'images') {
+    const { printPdfAsImages } = await import('../desktop/printImages');
+    await printPdfAsImages(bytes, host);
+    return;
+  }
+  await host.printPdf(bytes);
+}
+
+function printInFrame(bytes: Uint8Array): void {
   const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }));
   const frame = document.createElement('iframe');
   frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
