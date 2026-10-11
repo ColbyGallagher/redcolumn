@@ -14,9 +14,10 @@ export interface ClientSetup {
   hrefLabel?: string;
 }
 
+/** A single-quoted shell word. Backslashes stay literal, which a Windows path needs. */
 function quote(value: string): string {
-  if (!/[\s"]/.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
+  if (!/[\s']/.test(value)) return value;
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 function toml(value: string): string {

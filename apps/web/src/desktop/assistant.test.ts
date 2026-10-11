@@ -74,8 +74,8 @@ test('each client starts this installation as Node', () => {
   const clients = clientSetups(launch, 'win');
   assert.deepEqual(clients.map((c) => c.id), ['copilot', 'claude', 'claude-code', 'codex', 'cursor']);
   for (const client of clients) assert.match(client.copy, /redcolumn\.exe/);
-  assert.match(clients[2]!.copy, /^claude mcp add --scope user redcolumn --env ELECTRON_RUN_AS_NODE=1 -- "/);
-  assert.match(clients[3]!.copy, /^codex mcp add redcolumn --env ELECTRON_RUN_AS_NODE=1 -- "/);
+  assert.match(clients[2]!.copy, /^claude mcp add --scope user redcolumn --env ELECTRON_RUN_AS_NODE=1 -- '/);
+  assert.match(clients[3]!.copy, /^codex mcp add redcolumn --env ELECTRON_RUN_AS_NODE=1 -- '/);
   assert.match(clients[3]!.copy, /\[mcp_servers\.redcolumn\]/);
   const cursor = new URL(clients[4]!.href!);
   const config = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(cursor.searchParams.get('config') ?? ''), (c) => c.charCodeAt(0)))) as { command: string; args: string[]; env: { ELECTRON_RUN_AS_NODE: string } };
