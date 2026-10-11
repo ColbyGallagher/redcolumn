@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa';
 import { iconPngs } from './src/offline/icons.ts';
 import { buildManifest } from './src/offline/manifest.ts';
+import { appCsp, redirectCsp } from './src/security/csp.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -93,6 +94,27 @@ function appIcons(): Plugin {
   };
 }
 
+/**
+ * Writes the Content Security Policy and referrer policy into each built page as <meta> tags
+ * (GitHub Pages cannot send headers; vercel.json sends the same policy as a header). Only the
+ * build: the dev server needs inline scripts for hot reload. See src/security/csp.ts.
+ */
+function securityMeta(): Plugin {
+  let options = { google: false, microsoft: false };
+  return {
+    name: 'security-meta',
+    apply: 'build',
+    configResolved(config) {
+      options = { google: !!config.env.VITE_GOOGLE_CLIENT_ID, microsoft: !!config.env.VITE_MICROSOFT_CLIENT_ID };
+    },
+    transformIndexHtml(html, ctx) {
+      const csp = /msal-redirect\.html$/.test(ctx.filename) ? redirectCsp() : appCsp(options);
+      const tags = `<meta http-equiv="Content-Security-Policy" content="${csp}" />\n    <meta name="referrer" content="no-referrer" />\n    `;
+      return html.replace(/(<meta charset="[^"]*" \/>\s*)/i, `$1${tags}`);
+    },
+  };
+}
+
 const base = process.env.GITHUB_PAGES === 'true' ? '/redcolumn/' : '/';
 
 /** Screenshots in public/screenshots, shown by richer install prompts. */
@@ -109,6 +131,7 @@ export default defineConfig({
     ocrAssets(),
     spellAssets(),
     appIcons(),
+    securityMeta(),
     VitePWA({
       // New versions install in the background and wait; the app applies them when no work is in
       // progress (src/offline/updates.ts), so a reload never interrupts a gesture, a dialog or a job.

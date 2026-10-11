@@ -27,6 +27,23 @@ People are matched by their Google or Microsoft email, or by the name they join 
 Author). The app respects the policy, but what actually protects the files is the folder's sharing
 in Google Drive or OneDrive.
 
+## Security policy and hosting
+
+Each built page carries a Content Security Policy (`apps/web/src/security/csp.ts`): only the app's
+own scripts run, and the page connects only to Microsoft Graph and sign-in, and to Google's APIs,
+for the providers whose client ID the build has. The help also requires Trusted Types. GitHub Pages
+cannot send headers, so the policy is a `<meta>`, and the app refuses to run inside another page.
+Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`, `no-referrer`,
+`nosniff`, a `Permissions-Policy`).
+
+- **Vercel preview deployments** are built from branches that may not have been reviewed. Do not
+  register preview addresses as Microsoft redirect URIs or Google JavaScript origins, and leave
+  `VITE_MICROSOFT_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` unset for the Preview environment. To test
+  sign-in on previews, use a separate test app registration with its own client IDs.
+- **Certificate services** (time stamps, OCSP, revocation lists) and **form submit addresses** in
+  PDFs are not in the policy, so those requests are refused with a message and signing carries on
+  without them. Most of these services refuse browser requests anyway.
+
 ## Google Drive
 
 ### How it works

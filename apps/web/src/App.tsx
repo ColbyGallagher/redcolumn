@@ -438,7 +438,7 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   try {
     res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
   } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it)`);
+    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
   }
   if (!res.ok) throw new Error(`${host} answered ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
