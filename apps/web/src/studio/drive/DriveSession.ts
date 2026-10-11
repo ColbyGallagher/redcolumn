@@ -583,7 +583,9 @@ export class DriveSession implements CollabSession {
       try {
         const content = await this.crypto.openJson<SeatContent>(new Uint8Array(await this.api.download(f.id)));
         if (!content.keys?.sign || !content.keys.dh) throw new Error('no keys');
-        const seat: AdmittedSeat = { name: f.properties.nbName ?? 'Someone', ...(f.properties.nbEmail ? { email: f.properties.nbEmail } : {}), keys: content.keys };
+        // The drive's own record of who made the seat outranks what the seat says about itself.
+        const email = f.createdBy ?? f.properties.nbEmail;
+        const seat: AdmittedSeat = { name: f.properties.nbName ?? 'Someone', ...(email ? { email } : {}), ...(f.createdBy ? { verified: true } : {}), keys: content.keys };
         next = await this.crypto.wrapAllFor({ ...next, seats: { ...next.seats, [f.id]: seat } }, f.id, content.keys);
       } catch (err) {
         if (err instanceof TypeError || err instanceof DriveAuthError) throw err;
@@ -597,7 +599,8 @@ export class DriveSession implements CollabSession {
   private seatMay(seat: AdmittedSeat, room: string): boolean {
     if (seat.revoked) return false;
     if (room === SESSION_ROOM) return true;
-    return canAddMarkups(accessFor(this.manifest, seat.name, !!seat.host, seat.email));
+    // A verified seat is matched by its email only, so a seat cannot claim someone else's name to get their access.
+    return canAddMarkups(accessFor(this.manifest, seat.verified && seat.email ? seat.email : seat.name, !!seat.host, seat.email));
   }
 
   /** Merges one changed file: a room file, or a seat from before room files. Our own writes are skipped. */
@@ -1007,7 +1010,10 @@ export class DriveSession implements CollabSession {
   }
 
   async invite(emails: string[]) {
-    const message = `Join the Live Session “${this.meta.name}” in redcolumn: ${this.snap.inviteLink}`;
+    // An encrypted session's key never goes through the drive's invite email: the host sends the full link another way.
+    const message = this.crypto
+      ? `Join the Live Session “${this.meta.name}” in redcolumn. It is end-to-end encrypted: ask ${this.me} for the full invite link, which carries its key. The folder: ${this.snap.inviteLink.split('#')[0]}`
+      : `Join the Live Session “${this.meta.name}” in redcolumn: ${this.snap.inviteLink}`;
     const failed: string[] = [];
     for (const email of emails) {
       try {
