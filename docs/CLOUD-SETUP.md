@@ -80,6 +80,20 @@ app's own lock files and session folders. The page never receives a Microsoft to
 `app://` response carries `frame-ancestors 'none'` and `nosniff`, and the packaged binary has the
 `RunAsNode`, `NODE_OPTIONS` and `--inspect` fuses off and asar integrity checks on.
 
+### Projects on a folder on this computer (desktop app)
+
+In the desktop app, Projects can live in a folder that the person's own sync client keeps in step
+(OneDrive, Dropbox, Google Drive, a file server): **New project in a folder on this computer…** and
+**Open a project folder on this computer…** in the Projects panel. redcolumn signs in to nothing and
+holds no token; the sync client moves the files, and sharing is done in that client (**Show
+folder** opens it). The main process (`apps/desktop/src/folderDrive.ts`) gives the page opaque IDs,
+never paths, keeps every path inside a folder the person chose (symbolic links out are refused),
+creates only `.json` and `.pdf` files, never replaces a file when making one, writes replacements
+beside the file and renames them over it, deletes only check-out lock files, and does not list
+sync clients' conflict copies or half-synced files. A check-out counts once its claim has been on
+disk for 30 seconds with no earlier claim seen, since others' claims take a while to sync. The
+Project's owner is the install that made it. Encrypted Projects work here too.
+
 ## Google Drive
 
 ### How it works

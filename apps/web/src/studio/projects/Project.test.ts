@@ -468,3 +468,18 @@ test('an encrypted Project works the same, stores only ciphertext, and needs its
   await assert.rejects(Project.open(sealedFor('eve', null), owner.id, { name: 'Eve', email: 'eve@x.com' }, opts), ProjectLockedError);
   assert.equal(parseProjectKey(`https://x/?project=u!abc#pk=${key}`), key);
 });
+
+test('on a folder a sync client shares, a check-out waits for earlier claims to arrive', async () => {
+  const drive = new FakeStore();
+  const settle = { ...opts, lockSettleMs: 30 };
+  const owner = await Project.create(new FakeDrive(drive, 'hana'), 'Tower', hana, settle);
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  const member = await Project.open(new FakeDrive(drive, 'sam'), owner.id, sam, settle);
+  // Sam claims first; Hana's claim lands while Sam's is still settling, and Hana's sync is slower.
+  const samTry = member.checkOut(f.id);
+  await owner.poll();
+  const hanaTry = owner.checkOut(f.id);
+  const [samResult, hanaResult] = await Promise.allSettled([samTry, hanaTry]);
+  assert.equal(samResult.status, 'fulfilled', 'the earlier claim wins');
+  assert.equal(hanaResult.status, 'rejected');
+});
