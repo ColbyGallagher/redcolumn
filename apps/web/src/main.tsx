@@ -4,6 +4,9 @@ import { registerSW } from 'virtual:pwa-register';
 import { installDesktopBridge } from './desktop/bridge';
 import { desktop } from './desktop/host';
 import { installLogCapture } from './help/logs';
+import { googleUser, signOutOfGoogle } from './studio/drive/google';
+import { startIdleSignOut } from './studio/drive/idle';
+import { microsoftUser, signOutOfMicrosoft, staySignedInToMicrosoft } from './studio/drive/onedrive';
 import { captureInstallPrompt } from './offline/install';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
 import { startProfileBackup } from './workspace/profileBackup';
@@ -46,6 +49,13 @@ setInterval(() => gate.poke(), 15_000);
 void navigator.storage?.persist?.();
 // Keep profiles copied to Google Drive or OneDrive once the person has turned that on (File › Profiles).
 startProfileBackup();
+// After 30 minutes with no cloud work, forget the sign-in tokens in this tab (docs/SECURITY-HARDENING.md, 3.2).
+// The desktop app keeps its sign-ins in the main process instead; "Stay signed in" keeps Microsoft's.
+if (!host)
+  startIdleSignOut(async () => {
+    if (googleUser()) signOutOfGoogle();
+    if (microsoftUser() && !staySignedInToMicrosoft()) await signOutOfMicrosoft();
+  });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

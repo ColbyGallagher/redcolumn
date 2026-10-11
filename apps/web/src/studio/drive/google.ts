@@ -1,4 +1,5 @@
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { noteCloudActivity } from './idle';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 
@@ -184,6 +185,7 @@ class GoogleAuth {
 
   /** Returns a token, asking Google for one if needed. Call from a click when possible. */
   async get(): Promise<string> {
+    noteCloudActivity();
     if (desktop()) {
       const valid = this.valid();
       if (valid) return valid;
@@ -345,6 +347,7 @@ async function failure(res: Response, what: string): Promise<Error> {
 /** The Drive REST API, from the browser. Reads use the API key; writes use the signed-in user. */
 export class GoogleDrive implements DriveApi {
   private async authed(url: string, init: RequestInit, what: string): Promise<Response> {
+    noteCloudActivity();
     const token = googleAuth.valid();
     if (!token) throw new DriveAuthError('Sign in to Google to save your changes.');
     const headers = new Headers(init.headers);

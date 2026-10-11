@@ -2,6 +2,7 @@ import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser'
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps } from './DriveApi';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
+import { noteCloudActivity } from './idle';
 
 /**
  * Microsoft configuration from the build (apps/web/.env.local, or GitHub Actions variables). The
@@ -15,14 +16,14 @@ const TENANT = (import.meta.env.VITE_MICROSOFT_TENANT as string | undefined) || 
 export const oneDriveConfigured = !!CLIENT_ID;
 
 /**
- * Least access first, stepping up only when Microsoft refuses something (MSAL adds openid, profile
- * and offline_access for sign-in):
+ * Least access first, stepping up only for sharing or opening someone else's folder, and only for
+ * those calls (MSAL adds openid, profile and offline_access for sign-in):
  *   0. Files.ReadWrite.AppFolder: only the app's own folder, Apps/redcolumn, where sessions live.
  *   1. Files.ReadWrite: the person's own OneDrive (if sharing the session folder needs it).
  *   2. Files.ReadWrite.All: also files others share with them (if joining someone's session needs it).
  */
 const ACCESS_LEVELS = [['Files.ReadWrite.AppFolder'], ['Files.ReadWrite'], ['Files.ReadWrite.All']];
-const LEVEL_KEY = 'nb.onedrive.level';
+const LEGACY_LEVEL_KEY = 'nb.onedrive.level';
 /** Set when the person chose to stay signed in on this device; otherwise the sign-in lasts as long as the tab. */
 const STAY_KEY = 'nb.onedrive.staySignedIn';
 const GRAPH_HOST = 'graph.microsoft.com';
@@ -91,6 +92,12 @@ function app(): Promise<IPublicClientApplication> {
     const stay = staySignedInToMicrosoft();
     // A sign-in kept on the device by an earlier version, or before the person turned this off.
     if (!stay) forgetDeviceSignIn();
+    // Earlier versions kept the widest access ever needed and used it for every call.
+    try {
+      localStorage.removeItem(LEGACY_LEVEL_KEY);
+    } catch {
+      // Nothing stored.
+    }
     const pca = new PublicClientApplication({
       auth: {
         clientId: CLIENT_ID,
@@ -158,30 +165,82 @@ export function subscribeMicrosoftUser(listener: () => void): () => void {
   return () => userListeners.delete(listener);
 }
 
-/** The access this browser has needed so far (remembered across visits). */
-function accessLevel(): number {
-  try {
-    return Math.min(ACCESS_LEVELS.length - 1, Math.max(0, Number(localStorage.getItem(LEVEL_KEY)) || 0));
-  } catch {
-    return 0;
-  }
+/**
+ * What a Graph call reaches, which decides the access it asks for: the app folder (`own`),
+ * sharing settings (`share`), or someone else's drive or a sharing link (`shared`).
+ */
+export type AccessKind = 'own' | 'share' | 'shared';
+
+/** A step up in access that a call needs and Microsoft has not been asked for yet. */
+export interface StepUp {
+  /** Index into the access levels: 1 (the person's OneDrive) or 2 (also files shared with them). */
+  level: number;
+  kind: AccessKind;
+  /** What the app was doing, as "share the session folder by link". */
+  what: string;
 }
 
-function raiseAccess(level: number) {
-  try {
-    localStorage.setItem(LEVEL_KEY, String(level));
-  } catch {
-    // Asked again next visit.
-  }
+/**
+ * The access each kind of call has needed in this tab. Not kept across visits, and only the calls
+ * of that kind ask for it: settings backup, spreadsheet sync and the app's own folders always ask
+ * for the app folder alone (docs/SECURITY-HARDENING.md, 3.4).
+ */
+let reached: Record<AccessKind, number> = { own: 0, share: 0, shared: 0 };
+let pending: StepUp | null = null;
+let accessSnapshot: { level: number; pending: StepUp | null } = { level: 0, pending: null };
+const accessListeners = new Set<() => void>();
+
+function accessChanged() {
+  accessSnapshot = { level: Math.max(reached.own, reached.share, reached.shared), pending };
+  for (const l of accessListeners) l();
 }
 
-const scopes = () => ACCESS_LEVELS[accessLevel()]!;
+/** The widest access this tab has used, and any step up waiting for the next sign-in. */
+export function microsoftAccess(): { level: number; pending: StepUp | null } {
+  return accessSnapshot;
+}
 
-async function desktopGraphToken(interactive: boolean): Promise<string> {
+export function subscribeMicrosoftAccess(listener: () => void): () => void {
+  accessListeners.add(listener);
+  return () => accessListeners.delete(listener);
+}
+
+/** Drops every step up, so the next calls ask for the app folder alone again. */
+export function dropMicrosoftStepUps() {
+  reached = { own: 0, share: 0, shared: 0 };
+  pending = null;
+  accessChanged();
+}
+
+/** The access level a call of this kind uses now. */
+const levelFor = (kind: AccessKind) => reached[kind];
+
+/** The level to try after Microsoft refused a call, or null when more access would not help. */
+function nextLevel(kind: AccessKind, level: number, status: number): number | null {
+  if (kind === 'share' && status === 403 && level === 0) return 1;
+  if (kind === 'shared' && (status === 403 || status === 404) && level < ACCESS_LEVELS.length - 1) return level + 1;
+  return null;
+}
+
+function stepUpMessage(step: StepUp): string {
+  if (step.kind === 'share') return 'Allow access to your OneDrive to share the folder.';
+  return step.level === 1 ? 'Allow access to your OneDrive to open this folder.' : 'Allow access to files shared with you to open this folder.';
+}
+
+/** Shows the app's own explanation before Microsoft is asked for more; resolves false to cancel. */
+export type StepUpConfirm = (step: StepUp) => Promise<boolean>;
+let confirmStepUp: StepUpConfirm | null = null;
+
+/** Registers the dialog that explains a step up (StepUpHost does this once mounted). */
+export function setStepUpConfirm(confirm: StepUpConfirm | null) {
+  confirmStepUp = confirm;
+}
+
+async function desktopGraphToken(scopes: string[], interactive: boolean): Promise<string> {
   const host = desktop();
   if (!host || !CLIENT_ID) throw new DriveAuthError('Microsoft sign-in is not configured for this app.');
   try {
-    const result = await host.microsoftToken(CLIENT_ID, TENANT, scopes(), interactive);
+    const result = await host.microsoftToken(CLIENT_ID, TENANT, scopes, interactive);
     if (!result) throw new DriveAuthError(interactive ? 'Microsoft sign-in was closed.' : 'Sign in to Microsoft to open OneDrive sessions.');
     setUser({ email: result.email.toLowerCase(), name: result.name || result.email });
     return result.accessToken;
@@ -192,14 +251,15 @@ async function desktopGraphToken(interactive: boolean): Promise<string> {
   }
 }
 
-/** A Graph token without any popup, or a DriveAuthError when the user has to sign in. */
-async function silentToken(): Promise<string> {
-  if (desktop()) return desktopGraphToken(false);
+/** A Graph token for these scopes without any popup, or a DriveAuthError when the user has to sign in. */
+async function silentToken(scopes: string[] = ACCESS_LEVELS[0]!): Promise<string> {
+  noteCloudActivity();
+  if (desktop()) return desktopGraphToken(scopes, false);
   const pca = await app();
   const account = pca.getActiveAccount();
   if (!account) throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
   try {
-    return (await pca.acquireTokenSilent({ scopes: scopes(), account })).accessToken;
+    return (await pca.acquireTokenSilent({ scopes, account })).accessToken;
   } catch {
     throw new DriveAuthError('Microsoft sign-in has expired.');
   }
@@ -207,56 +267,72 @@ async function silentToken(): Promise<string> {
 
 /**
  * Signs in with Microsoft (a popup, so call it from a click); does nothing when already signed in
- * with the access needed. After Microsoft refused something, this asks for the next access level.
+ * with the access needed. When a call needed more access, this explains why in the app's own
+ * dialog first, then asks Microsoft for that access only.
  */
 export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
   requireOnline('Signing in with Microsoft');
+  const step = pending;
+  const scopes = ACCESS_LEVELS[step?.level ?? 0]!;
+  const confirm = async () => {
+    if (step && confirmStepUp && !(await confirmStepUp(step))) throw new DriveAuthError('Microsoft was not asked for more access.');
+  };
   if (desktop()) {
     try {
-      await desktopGraphToken(false);
+      await desktopGraphToken(scopes, false);
     } catch {
-      await desktopGraphToken(true);
+      await confirm();
+      await desktopGraphToken(scopes, true);
     }
-    const next = microsoftUser();
-    if (!next) throw new DriveAuthError('Microsoft sign-in failed.');
-    return next;
-  }
-  const pca = await app();
-  try {
-    await silentToken();
-  } catch {
+  } else {
+    const pca = await app();
     try {
-      const account = pca.getActiveAccount();
-      const result = await pca.acquireTokenPopup({ scopes: scopes(), ...(account ? { account } : { prompt: 'select_account' }) });
-      pca.setActiveAccount(result.account);
-    } catch (err) {
-      const code = (err as { errorCode?: string }).errorCode;
-      throw new DriveAuthError(code === 'user_cancelled' ? 'Microsoft sign-in was closed.' : `Microsoft sign-in failed${err instanceof Error ? `: ${err.message}` : '.'}`);
+      await silentToken(scopes);
+    } catch {
+      await confirm();
+      try {
+        const account = pca.getActiveAccount();
+        const result = await pca.acquireTokenPopup({ scopes, ...(account ? { account } : { prompt: 'select_account' }) });
+        pca.setActiveAccount(result.account);
+      } catch (err) {
+        const code = (err as { errorCode?: string }).errorCode;
+        throw new DriveAuthError(code === 'user_cancelled' ? 'Microsoft sign-in was closed.' : `Microsoft sign-in failed${err instanceof Error ? `: ${err.message}` : '.'}`);
+      }
     }
+    setUser(toUser(pca.getActiveAccount()));
   }
-  const next = toUser(pca.getActiveAccount());
+  if (step && pending === step) pending = null;
+  accessChanged();
+  const next = microsoftUser();
   if (!next) throw new DriveAuthError('Microsoft sign-in failed.');
-  setUser(next);
   return next;
 }
 
-export async function signOutOfMicrosoft() {
+/**
+ * Signs out of Microsoft in this app: forgets the tokens and every step up. `everywhere` also ends
+ * the Microsoft session in this browser (a Microsoft sign-out window), so the next sign-in asks
+ * for the account again.
+ */
+export async function signOutOfMicrosoft(options: { everywhere?: boolean } = {}) {
   const host = desktop();
   setUser(null);
-  // The next sign-in starts again from the app folder only.
-  try {
-    localStorage.removeItem(LEVEL_KEY);
-  } catch {
-    // Nothing stored.
-  }
+  dropMicrosoftStepUps();
   if (host) {
     await host.signOut('microsoft');
+    // The system browser holds the Microsoft session; its sign-out page ends it.
+    if (options.everywhere) window.open(`https://login.microsoftonline.com/${encodeURIComponent(TENANT)}/oauth2/v2.0/logout`, '_blank');
     return;
   }
   const pca = await app();
   const account = pca.getActiveAccount();
   pca.setActiveAccount(null);
-  if (account) await pca.clearCache({ account });
+  if (account) {
+    if (options.everywhere) {
+      const redirect = new URL(`${import.meta.env.BASE_URL}msal-redirect.html`, window.location.origin).href;
+      await pca.logoutPopup({ account, postLogoutRedirectUri: redirect }).catch(() => {});
+    }
+    await pca.clearCache({ account });
+  }
   // A changed "stay signed in" choice applies from the next sign-in.
   msal = null;
 }
@@ -391,10 +467,10 @@ export class OneDrive implements DriveApi {
   private myDrive: Promise<string> | null = null;
   /** Session folders created but not yet shared, by name. */
   private unshared = new Map<string, string>();
-  private token: () => Promise<string>;
+  private token: (scopes: string[]) => Promise<string>;
 
   /** `token` stands in for Microsoft sign-in in tests. */
-  constructor(token: () => Promise<string> = silentToken) {
+  constructor(token: (scopes: string[]) => Promise<string> = silentToken) {
     this.token = token;
   }
 
@@ -402,44 +478,49 @@ export class OneDrive implements DriveApi {
     return urlFromShareId(folderId) ?? 'https://onedrive.live.com/';
   }
 
-  private async fetch(url: string, init: RequestInit, what: string): Promise<Response> {
-    // Absolute URLs (such as `@odata.nextLink`) come back from Graph; anything elsewhere never gets the token.
-    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !isGraphUrl(url)) throw new Error(`OneDrive gave an unexpected address, so redcolumn did not ${what}.`);
-    const token = await this.token();
-    const headers = new Headers(init.headers);
-    headers.set('authorization', `Bearer ${token}`);
-    let res: Response;
-    try {
-      res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
-    } catch {
-      throw new TypeError(`Offline: could not ${what}.`);
-    }
-    if (!res.ok) {
-      const next = await this.accessNeeded(res.status, url);
-      if (next !== null) {
-        // Sign in again asking for more (the session shows Reconnect; starting or joining asks at once).
-        raiseAccess(next);
-        throw new DriveAuthError(next === 1 ? 'Allow access to your OneDrive to share the session folder.' : 'Allow access to files shared with you to open this session.');
-      }
-      throw await failure(res, what);
-    }
-    return res;
+  /** What a Graph call reaches, for the access it asks for. */
+  private async kindOf(url: string): Promise<AccessKind> {
+    if (isSharingCall(url)) return 'share';
+    return (await this.isShared(url)) ? 'shared' : 'own';
   }
 
   /**
-   * The access level to ask for after a refusal, or null when more access would not help. Only
-   * sharing (links, invites, who a folder is shared with) and reaching into someone else's drive
-   * ever step up: with the app folder only, those move to the person's own files; with those, a
-   * refusal inside someone else's drive moves to files shared with them. Any other refusal is
-   * reported as it is, never answered with wider access.
+   * Calls Graph with a token for just the access this kind of call needs. When Microsoft refuses a
+   * sharing call, or a call into someone else's drive, it tries the next level up for that kind of
+   * call only: at once if Microsoft already allowed it, otherwise by asking for a sign-in (the
+   * session shows Reconnect, which explains the step up first). Any other refusal is reported as
+   * it is, never answered with wider access.
    */
-  private async accessNeeded(status: number, url: string): Promise<number | null> {
-    const level = accessLevel();
-    if (level >= ACCESS_LEVELS.length - 1) return null;
-    const shared = status === 403 || status === 404 ? await this.isShared(url) : false;
-    if (level === 0 && ((status === 403 && isSharingCall(url)) || shared)) return 1;
-    if (level === 1 && shared) return 2;
-    return null;
+  private async fetch(url: string, init: RequestInit, what: string): Promise<Response> {
+    // Absolute URLs (such as `@odata.nextLink`) come back from Graph; anything elsewhere never gets the token.
+    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !isGraphUrl(url)) throw new Error(`OneDrive gave an unexpected address, so redcolumn did not ${what}.`);
+    const kind = await this.kindOf(url);
+    let level = levelFor(kind);
+    for (;;) {
+      const token = await this.token(ACCESS_LEVELS[level]!);
+      const headers = new Headers(init.headers);
+      headers.set('authorization', `Bearer ${token}`);
+      let res: Response;
+      try {
+        res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
+      } catch {
+        throw new TypeError(`Offline: could not ${what}.`);
+      }
+      if (res.ok) return res;
+      const next = nextLevel(kind, level, res.status);
+      if (next === null) throw await failure(res, what);
+      reached[kind] = Math.max(reached[kind], next);
+      try {
+        await this.token(ACCESS_LEVELS[next]!);
+      } catch (err) {
+        if (!(err instanceof DriveAuthError)) throw err;
+        pending = { level: next, kind, what };
+        accessChanged();
+        throw new DriveAuthError(stepUpMessage(pending));
+      }
+      accessChanged();
+      level = next;
+    }
   }
 
   /** Whether a Graph URL reaches into another person's drive (or through a sharing link). */

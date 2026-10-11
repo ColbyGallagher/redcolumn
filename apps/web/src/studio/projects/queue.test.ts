@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { DriveAuthError } from '../drive/DriveApi';
 import { copyState, describeQueued, noteText, ProjectQueue, type KeyValueStore, type QueuedChange } from './queue';
 
 const memory = (): KeyValueStore & { data: Map<string, string> } => {
@@ -110,4 +111,16 @@ test('notes written offline say so when they are sent late', () => {
   const n = { ...note('a', 'Door moved'), id: '1', at: Date.UTC(2026, 0, 1) };
   assert.equal(noteText(n, n.at + 1000), 'noted on a.pdf: “Door moved”');
   assert.match(noteText(n, n.at + 3_600_000), /^noted on a\.pdf \(written offline .+\): “Door moved”$/);
+});
+
+test('a sign-in forgotten while idle stops sending and keeps everything queued for Reconnect', async () => {
+  const q = new ProjectQueue(memory());
+  q.add(checkin('a', 'clouds'));
+  q.add(note('b', 'y'));
+  const r = await q.send(async () => {
+    throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
+  });
+  assert.equal(r.stopped, true);
+  assert.deepEqual(q.all().map(describeQueued), ['Check in a.pdf: clouds', 'Note on b.pdf: y']);
+  assert.ok(q.all().every((c) => !c.error));
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { DriveAuthError } from './DriveApi';
-import { OneDrive } from './onedrive';
+import { dropMicrosoftStepUps, microsoftAccess, OneDrive } from './onedrive';
 
 interface Item {
   id: string;
@@ -99,6 +99,7 @@ class FakeGraph {
 let graph: FakeGraph;
 const realFetch = globalThis.fetch;
 beforeEach(() => {
+  dropMicrosoftStepUps();
   graph = new FakeGraph();
   globalThis.fetch = graph.fetch as typeof fetch;
 });
@@ -230,7 +231,14 @@ test('an invite without a role is read-only', async () => {
 });
 
 test('a refusal outside sharing is reported, not answered with wider access', async () => {
-  const od = new OneDrive(token);
+  const asked: string[][] = [];
+  // Microsoft has only allowed the app folder so far.
+  const appFolderOnly = async (scopes: string[]) => {
+    asked.push(scopes);
+    if (scopes[0] !== 'Files.ReadWrite.AppFolder') throw new DriveAuthError('Microsoft sign-in has expired.');
+    return 'token';
+  };
+  const od = new OneDrive(appFolderOnly);
   const folder = await od.createFolder('L2 (redcolumn session)');
   const file = await od.createFile(folder, 'A-101.pdf', 'application/pdf', pdf('rev A'), {});
   const inner = graph.fetch;
@@ -240,7 +248,35 @@ test('a refusal outside sharing is reported, not answered with wider access', as
     return inner(input, init);
   }) as typeof fetch;
   await assert.rejects(od.updateContent(file.id, pdf('rev B')), (err: Error) => !(err instanceof DriveAuthError) && /Access denied/.test(err.message));
+  assert.ok(asked.every((s) => s[0] === 'Files.ReadWrite.AppFolder'), 'no wider token was asked for');
+  assert.equal(microsoftAccess().pending, null);
   await assert.rejects(od.shareWithLink(folder, 'reader'), (err: Error) => err instanceof DriveAuthError && /share/.test(err.message));
+  assert.deepEqual(microsoftAccess().pending, { level: 1, kind: 'share', what: 'share the session folder by link' }, 'the next sign-in asks for the OneDrive, explaining why');
+});
+
+test('a step up applies only to the calls that needed it', async () => {
+  const asked: string[] = [];
+  const od = new OneDrive(async (scopes) => {
+    asked.push(scopes[0]!);
+    return scopes[0]!;
+  });
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  const inner = graph.fetch;
+  const seen: { path: string; token: string }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const path = new URL(String(input)).pathname;
+    const token = new Headers(init.headers).get('authorization')!.slice(7);
+    seen.push({ path, token });
+    // Sharing needs more than the app folder; Microsoft had already allowed it, so no sign-in.
+    if (path.endsWith('/createLink')) return token === 'Files.ReadWrite' ? Response.json({ link: { webUrl: 'https://1drv.ms/f/s!abc' } }) : Response.json({ error: { message: 'Access denied' } }, { status: 403 });
+    return inner(input, init);
+  }) as typeof fetch;
+  await od.shareWithLink(folder, 'reader');
+  assert.deepEqual(seen.filter((c) => c.path.endsWith('/createLink')).map((c) => c.token), ['Files.ReadWrite.AppFolder', 'Files.ReadWrite']);
+  assert.equal(microsoftAccess().level, 1);
+  await od.writeAppFile('profiles.json', '{}');
+  const after = seen.slice(seen.findIndex((c) => c.token === 'Files.ReadWrite') + 1);
+  assert.ok(after.length > 0 && after.every((c) => c.token === 'Files.ReadWrite.AppFolder'), 'settings backup still asks for the app folder alone');
 });
 
 test('only a session folder in the app folder can be removed', async () => {
