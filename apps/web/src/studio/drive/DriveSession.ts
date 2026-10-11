@@ -28,6 +28,8 @@ import { claimSeat, inPool } from './rooms';
  */
 
 const MANIFEST = 'manifest';
+/** How long a Live Session's invite link lets new people in, when the session has no end date. */
+export const LINK_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 const SEAT = 'seat';
 const DOCUMENT = 'document';
 /** Seats whose content is only `{ v: 2 }`, so readers need not download them. */
@@ -243,7 +245,9 @@ export class DriveSession implements CollabSession {
     await opts.authorize();
     const created = await api.createFolder(`${name} (redcolumn session)`, { nbStudio: 'session' });
     // Everyone reads with the API key, so the folder must be readable by link; editing by link is optional.
-    const folderId = (await api.shareWithLink(created, opts.linkCanEdit ? 'writer' : 'reader')) || created;
+    // The invite link lets new people in until the session ends, or for a week (people who joined keep access).
+    const expires = opts.expiresAt ?? Date.now() + LINK_LIFETIME_MS;
+    const folderId = (await api.shareWithLink(created, opts.linkCanEdit ? 'writer' : 'reader', { expires })) || created;
     const manifest: Manifest = { v: 1, name, host: me, createdAt: Date.now(), status: 'active', endedAt: null, permissions, removed: [], ...(opts.expiresAt ? { expiresAt: opts.expiresAt } : {}) };
     if (opts.access) {
       manifest.access = opts.access;

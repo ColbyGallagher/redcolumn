@@ -1,4 +1,4 @@
-import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
+import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps, type LinkOptions } from './DriveApi';
 import { logCloudAction } from './cloudLog';
 import { noteCloudActivity } from './idle';
 import { firstUse } from './notices';
@@ -509,7 +509,8 @@ export class GoogleDrive implements DriveApi {
     return ((await res.json()) as { version: string }).version;
   }
 
-  async shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<void> {
+  /** Google Drive cannot expire an "anyone with the link" permission, so `expires` is not used here. */
+  async shareWithLink(fileId: string, role: 'reader' | 'writer', _options?: LinkOptions): Promise<void> {
     await this.authed(
       `${API}/files/${fileId}/permissions?supportsAllDrives=true`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'anyone', role, allowFileDiscovery: false }) },

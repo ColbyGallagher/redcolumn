@@ -349,7 +349,8 @@ export class Project {
     if (!clean) throw new ProjectError('Give the Project a name.');
     await opts.authorize();
     const created = await api.createFolder(`${clean} (redcolumn project)`, { nbStudio: 'project' });
-    const folderId = (await api.shareWithLink(created, opts.linkCanEdit === false ? 'reader' : 'writer')) || created;
+    // A view link by default: editors are invited by email (docs/SECURITY-HARDENING.md, 4.2). Project links do not expire.
+    const folderId = (await api.shareWithLink(created, opts.linkCanEdit ? 'writer' : 'reader')) || created;
     const manifest: ProjectManifest = { v: 1, name: clean, owner: me.name, ...(me.email ? { ownerEmail: me.email } : {}), createdAt: Date.now(), members: [] };
     await api.createFile(folderId, MANIFEST_NAME, 'application/json', jsonBlob(manifest), { nbRole: ROLE.manifest });
     const project = new Project(api, me, folderId, true, { manifest, folders: [], files: [], record: [], level: 'owner', loadedAt: Date.now(), presence: [] }, opts);

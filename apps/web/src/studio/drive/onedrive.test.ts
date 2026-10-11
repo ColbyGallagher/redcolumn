@@ -304,3 +304,48 @@ test('only a session folder in the app folder can be removed', async () => {
   await od.removeFolder(folder);
   assert.equal(deleted, true);
 });
+
+test('links: view by default, organization first on work accounts, expiry where accepted', async () => {
+  const od = new OneDrive(token);
+  const asked: { type: string; scope: string; expirationDateTime?: string }[] = [];
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const path = new URL(String(input)).pathname;
+    if (path.endsWith('/me/drive/special/approot')) return Response.json({ id: 'approot', parentReference: { driveId: 'd1', driveType: 'business' } });
+    if (path.endsWith('/createLink')) {
+      const body = JSON.parse(String(init.body)) as (typeof asked)[number];
+      asked.push(body);
+      // Like a tenant without link expiry.
+      if (body.expirationDateTime) return Response.json({ error: { message: 'Expiration is not supported' } }, { status: 400 });
+      return Response.json({ link: { webUrl: 'https://contoso.sharepoint.com/:f:/g/abc' } });
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  const week = Date.UTC(2026, 9, 18);
+  await od.shareWithLink(folder, 'reader', { expires: week });
+  assert.deepEqual(asked, [
+    { type: 'view', scope: 'organization', expirationDateTime: new Date(week).toISOString() },
+    { type: 'view', scope: 'organization' },
+  ]);
+});
+
+test('ending a session takes its links off before deleting the folder', async () => {
+  const od = new OneDrive(token);
+  const folder = await od.createFolder('L2 (redcolumn session)');
+  const order: string[] = [];
+  const inner = graph.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const path = decodeURIComponent(new URL(String(input)).pathname.replace(/^\/v1\.0/, ''));
+    const method = init.method ?? 'GET';
+    if (path === `/drives/d1/items/${folder}` && method === 'GET') return Response.json({ id: folder, parentReference: { driveId: 'd1', id: 'approot' } });
+    if (path === `/drives/d1/items/${folder}:/session.json`) return Response.json({ id: 'm' });
+    if (method === 'DELETE') {
+      order.push(path.replace(`/drives/d1/items/${folder}`, 'folder'));
+      if (path === `/drives/d1/items/${folder}`) return new Response(null, { status: 204 });
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+  await od.removeFolder(folder);
+  assert.deepEqual(order, ['folder/permissions/l', 'folder']);
+});

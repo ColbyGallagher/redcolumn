@@ -1,5 +1,5 @@
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
-import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps } from './DriveApi';
+import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps, type LinkOptions } from './DriveApi';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 import { logCloudAction } from './cloudLog';
@@ -451,7 +451,7 @@ interface GraphItem {
   file?: { mimeType?: string };
   folder?: unknown;
   createdBy?: { user?: { displayName?: string; email?: string } };
-  parentReference?: { driveId?: string; id?: string };
+  parentReference?: { driveId?: string; id?: string; driveType?: string };
   webUrl?: string;
   '@microsoft.graph.downloadUrl'?: string;
 }
@@ -500,7 +500,7 @@ export class OneDrive implements DriveApi {
   private json = new Map<string, { version: string; body: Record<string, unknown>; props: DriveProps }>();
   /** Writes to one file run one after another, so each starts from the last. */
   private writes = new Map<string, Promise<unknown>>();
-  private myDrive: Promise<string> | null = null;
+  private myDrive: Promise<NonNullable<GraphItem['parentReference']>> | null = null;
   /** Session folders created but not yet shared, by name. */
   private unshared = new Map<string, string>();
   private token: (scopes: string[]) => Promise<string>;
@@ -573,8 +573,13 @@ export class OneDrive implements DriveApi {
 
   /** The signed-in person's drive, found through the app folder (readable at every access level). */
   private myDriveId(): Promise<string> {
+    return this.myDriveRef().then((r) => r.driveId ?? '');
+  }
+
+  /** The signed-in person's drive and its type (`personal`, or `business` for work and school accounts). */
+  private myDriveRef(): Promise<NonNullable<GraphItem['parentReference']>> {
     this.myDrive ??= this.fetch('/me/drive/special/approot?$select=id,parentReference', {}, 'check the session host')
-      .then(async (r) => ((await r.json()) as GraphItem).parentReference?.driveId ?? '')
+      .then(async (r) => ((await r.json()) as GraphItem).parentReference ?? {})
       .catch((err: unknown) => {
         this.myDrive = null;
         throw err;
@@ -825,23 +830,39 @@ export class OneDrive implements DriveApi {
     });
   }
 
-  /** Makes a sharing link for the folder; its share ID becomes the session's ID. */
-  async shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<string> {
+  /**
+   * Makes a sharing link for the folder; its share ID becomes the session's ID. Work and school
+   * accounts get a link for people in the organization first (anyone else is invited by email);
+   * personal accounts get a link for anyone. `expires` is set where Microsoft accepts it (it needs
+   * Microsoft 365 on personal accounts) and left off where it does not.
+   */
+  async shareWithLink(fileId: string, role: 'reader' | 'writer', options: LinkOptions = {}): Promise<string> {
     const type = role === 'writer' ? 'edit' : 'view';
-    const create = (scope: string) =>
+    const business = await this.myDriveRef().then((r) => r.driveType === 'business', () => false);
+    const scopes = business ? ['organization', 'anonymous'] : ['anonymous', 'organization'];
+    const expirationDateTime = options.expires ? new Date(options.expires).toISOString() : undefined;
+    const create = (scope: string, expires?: string) =>
       this.fetch(
         `${this.itemPath(fileId)}/createLink`,
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, scope }) },
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type, scope, ...(expires ? { expirationDateTime: expires } : {}) }) },
         'share the session folder by link',
       );
-    let res: Response;
-    try {
-      res = await create('anonymous');
-    } catch (err) {
-      // Work accounts may not allow links for anyone; fall back to people in the organization.
-      if (err instanceof DriveAuthError || err instanceof TypeError) throw err;
-      res = await create('organization');
+    let res: Response | null = null;
+    let last: unknown = null;
+    for (const scope of scopes) {
+      for (const expires of expirationDateTime ? [expirationDateTime, undefined] : [undefined]) {
+        try {
+          res = await create(scope, expires);
+          break;
+        } catch (err) {
+          // A sign-in or a lost connection is not answered with another kind of link.
+          if (err instanceof DriveAuthError || err instanceof TypeError) throw err;
+          last = err;
+        }
+      }
+      if (res) break;
     }
+    if (!res) throw last instanceof Error ? last : new Error('OneDrive could not share the session folder by link.');
     const url = ((await res.json()) as { link?: { webUrl?: string } }).link?.webUrl;
     if (!url) throw new Error('OneDrive did not return a sharing link for the session folder.');
     const shareId = shareIdFromUrl(url);
@@ -870,7 +891,8 @@ export class OneDrive implements DriveApi {
   /** Who the folder is shared with. Only people who can manage its sharing may ask. */
   async listPermissions(folderId: string): Promise<DrivePermission[]> {
     const { driveId, itemId } = await this.resolve(folderId);
-    const res = await this.fetch(`/drives/${driveId}/items/${itemId}/permissions`, {}, 'see who the folder is shared with');
+    // Only the fields the app shows (docs/SECURITY-HARDENING.md, 4.4).
+    const res = await this.fetch(`/drives/${driveId}/items/${itemId}/permissions?$select=id,roles,grantedToV2,grantedToIdentitiesV2,grantedTo,invitation,link,inheritedFrom`, {}, 'see who the folder is shared with');
     const { value } = (await res.json()) as { value: GraphPermission[] };
     return value.map((p) => {
       const people = [p.grantedToV2?.user, ...(p.grantedToIdentitiesV2 ?? []).map((i) => i.user), p.grantedTo?.user].filter((u): u is { displayName?: string; email?: string } => !!u);
@@ -942,6 +964,9 @@ export class OneDrive implements DriveApi {
     const item = (await (await this.fetch(`/drives/${driveId}/items/${itemId}?$select=id,parentReference`, {}, 'check the session folder')).json()) as GraphItem;
     const inAppFolder = driveId.toLowerCase() === root.driveId.toLowerCase() && item.parentReference?.id === root.itemId;
     if (!inAppFolder || !(await this.hasChild(driveId, itemId, SESSION_MANIFEST))) throw new Error('redcolumn only removes session folders it made in your OneDrive.');
+    // Take the links off first, so the copy OneDrive keeps in the recycle bin cannot be reached by one.
+    const links = await this.listPermissions(folderId).then((all) => all.filter((p) => p.kind === 'link' && !p.inherited), () => []);
+    for (const link of links) await this.removePermission(folderId, link.id).catch(() => {});
     await this.fetch(`/drives/${driveId}/items/${itemId}`, { method: 'DELETE' }, 'remove the session folder');
     logCloudAction('onedrive', 'delete folder', this.label(folderId));
     this.folders.delete(folderId);
