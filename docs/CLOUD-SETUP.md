@@ -27,6 +27,83 @@ People are matched by their Google or Microsoft email, or by the name they join 
 Author). The app respects the policy, but what actually protects the files is the folder's sharing
 in Google Drive or OneDrive.
 
+## Security policy and hosting
+
+Each built page carries a Content Security Policy (`apps/web/src/security/csp.ts`): only the app's
+own scripts run, and the page connects only to Microsoft Graph and sign-in, and to Google's APIs,
+for the providers whose client ID the build has. The help also requires Trusted Types. GitHub Pages
+cannot send headers, so the policy is a `<meta>`, and the app refuses to run inside another page.
+Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`, `no-referrer`,
+`nosniff`, a `Permissions-Policy`).
+
+- **Vercel preview deployments** are built from branches that may not have been reviewed. Do not
+  register preview addresses as Microsoft redirect URIs or Google JavaScript origins, and leave
+  `VITE_MICROSOFT_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` unset for the Preview environment. To test
+  sign-in on previews, use a separate test app registration with its own client IDs.
+- **Certificate services** (time stamps, OCSP, revocation lists) and **form submit addresses** in
+  PDFs are not in the policy, so those requests are refused with a message and signing carries on
+  without them. Most of these services refuse browser requests anyway.
+
+### End-to-end encrypted sessions
+
+New Live Sessions are encrypted end to end unless the host unticks it (`apps/web/src/studio/crypto/`).
+
+- **The key is in the invite link** after `#rk=`, which browsers never send to a server. The
+  session's PDFs, markups, chat, the Record and the manifest are sealed with AES-GCM in the browser
+  before upload, so Google and Microsoft store only ciphertext, and a forwarded sharing link without
+  the `#` part opens nothing. File names, seat names and presence (which page someone is on) are
+  file properties and stay readable to anyone the folder is shared with.
+- **Signing.** Each browser has its own ECDSA key (kept in IndexedDB, not extractable) and signs
+  every room file it writes. The host has keys of its own for the session, kept in its app folder
+  (`session-host-keys.json`, not shared): the link pins their fingerprint, the host signs the
+  manifest, and the manifest lists each admitted seat's keys. Room files from a seat the host has
+  not admitted, signed by another key, or (for documents) from someone without markup access are
+  ignored, even by people who can write to the folder in OneDrive.
+- **Removing someone** (setting their access to none) makes a new session key, wrapped (ECDH) for
+  everyone else; their room files are rewritten with it and the host re-encrypts the documents.
+  What the removed person already read cannot be taken back.
+- **Encrypted Projects** are a choice when making a Project (off by default, so a team can still
+  open the PDFs in OneDrive). Their key is in the Project link after `#pk=`; every file's content
+  is sealed before upload. File names and properties stay readable, and there is no signing or key
+  change on removal: removing someone from the folder in OneDrive is what keeps them out.
+- **Costs:** PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be
+  recovered. The host manages the session from any browser signed in to the same account, since the
+  host keys are in its app folder.
+
+### Desktop app
+
+The desktop app (`apps/desktop`) keeps the Microsoft sign-in in its main process, encrypted with
+the system key store. Every OneDrive call from the page goes through a Graph broker there
+(`apps/desktop/src/graph.ts`), which attaches the token and applies the same rules as the web app:
+Graph only, wider access only for sharing calls and other people's drives, and deletes only of the
+app's own lock files and session folders. The page never receives a Microsoft token. Every
+`app://` response carries `frame-ancestors 'none'` and `nosniff`, and the packaged binary has the
+`RunAsNode`, `NODE_OPTIONS` and `--inspect` fuses off and asar integrity checks on.
+
+### Projects on a folder on this computer (desktop app)
+
+In the desktop app, Projects can live in a folder that the person's own sync client keeps in step
+(OneDrive, Dropbox, Google Drive, a file server): **New project in a folder on this computer…** and
+**Open a project folder on this computer…** in the Projects panel. redcolumn signs in to nothing and
+holds no token; the sync client moves the files, and sharing is done in that client (**Show
+folder** opens it). The main process (`apps/desktop/src/folderDrive.ts`) gives the page opaque IDs,
+never paths, keeps every path inside a folder the person chose (symbolic links out are refused),
+creates only `.json` and `.pdf` files, never replaces a file when making one, writes replacements
+beside the file and renames them over it, deletes only check-out lock files, and does not list
+sync clients' conflict copies or half-synced files. A check-out counts once its claim has been on
+disk for 30 seconds with no earlier claim seen, since others' claims take a while to sync. The
+Project's owner is the install that made it. Encrypted Projects work here too.
+
+### Encrypt local data (desktop app)
+
+**Preferences › Account › Access › This computer › Encrypt local data** seals the library's PDFs,
+the library list and every document's markups with AES-GCM before they reach this computer's
+storage. The key is made once by the main process and kept only encrypted by the system key store
+(`safeStorage`: DPAPI on Windows, Keychain on macOS), so the files copied off the disk, or read by
+another account, are unreadable. Turning it on or off converts what is stored as the app restarts,
+before anything opens; reading always accepts both forms. Preferences, Studio lists and saved
+sign-in details are not covered.
+
 ## Google Drive
 
 ### How it works
@@ -104,7 +181,13 @@ differences:
   itself. Opening it redeems the link, so the attendee keeps access.
 - Graph has no custom file properties, so the manifest and seats carry theirs inside the JSON
   (under `_nb`); PDFs are recognised by extension.
-- Work accounts whose tenant blocks "Anyone" links fall back to an organization-only link.
+- **Links:** view-only by default; people who mark up or chat are invited by email (or the host
+  ticks "Anyone with the link can edit"). Work and school accounts get a link for people in the
+  organization first, and "Anyone" only if that fails; invite people outside by email. A session's
+  link stops letting new people in when the session ends, or after a week if it has no end date
+  (people who already joined keep access; Microsoft needs Microsoft 365 for this on personal
+  accounts, and the link is made without an end where it is refused). Ending a session removes its
+  links before it deletes the folder, so the copy in the recycle bin cannot be reached by link.
 - Session folders live in the app's own folder, `Apps/redcolumn` (OneDrive names it after the app
   registration, so keep that named `redcolumn`).
 
@@ -123,10 +206,22 @@ differences:
    packaged build can sign in.
 3. API permissions → Microsoft Graph → Delegated: `Files.ReadWrite.AppFolder`, `Files.ReadWrite` and
    `Files.ReadWrite.All` (users consent themselves; no admin consent needed unless the tenant
-   requires it). Access is asked for a step at a time, and only when Microsoft refuses the smaller
-   one: first `Files.ReadWrite.AppFolder` (only `Apps/redcolumn`), then `Files.ReadWrite` (if
-   sharing the session folder needs it), then `Files.ReadWrite.All` (if an attendee cannot open the
-   host's folder without it). Each browser remembers how far it had to go.
+   requires it). Every call asks for the app folder alone, except sharing calls and calls into
+   someone else's folder. When Microsoft refuses one of those, the app tries the next level for
+   that kind of call only: silently if the person allowed it before, otherwise after its own dialog
+   explains why and the person continues to Microsoft. Any other refusal is reported as an error,
+   not answered with more access. Nothing about the level is stored; each tab starts small.
+
+   | Level | Lets the app | Used for |
+   |---|---|---|
+   | `Files.ReadWrite.AppFolder` | Read and write `Apps/redcolumn` only | Find the app folder; create session and Project folders; upload, read, list and replace their files; settings backup (`profiles.json`); spreadsheet sync (`.xlsx`); end-of-session copies |
+   | `Files.ReadWrite` | Read and write anything in the person's OneDrive | Make a sharing link for a folder (`createLink`); invite by email (`invite`); list, change and remove who a Project folder is shared with (`permissions`) |
+   | `Files.ReadWrite.All` | Also files others have shared with them | Open a folder from an invite (`/shares/…`) and read and write it when it lives in someone else's OneDrive |
+
+   The sign-in is kept for the tab only unless the person ticks **Stay signed in on this device**,
+   and is forgotten after 30 minutes with no cloud calls.
+   The token is sent only to `graph.microsoft.com`; download and upload-session URLs that Graph
+   returns are pre-authorised and get no token.
 4. Put the **Application (client) ID** in `VITE_MICROSOFT_CLIENT_ID` (`apps/web/.env.local`
    locally, an Actions variable for GitHub Pages).
 
@@ -190,9 +285,9 @@ The Project folder's sharing in OneDrive is what controls access; the app follow
 - **Can edit:** open, check out and in, add and change files and folders.
 - **Can view:** read only. The app finds this out when OneDrive refuses a write, and then offers
   no editing.
-- New Projects are shared by link so an invite link works: "Anyone with the link" can edit, or, for
-  work accounts whose tenant blocks that, people in the organization. Turn the link off or make it
-  view-only under People to restrict the Project to the people listed.
+- New Projects are shared by a view-only link so an invite link works (for people in the
+  organization first on work accounts); editors are invited by email under People. Turn the link
+  off under People to restrict the Project to the people listed. Project links do not expire.
 
 The app cannot hold back what OneDrive allows: anyone who can edit the folder in OneDrive itself
 can also change its files there.

@@ -82,6 +82,8 @@ export interface ProjectOptions {
   authorize: () => Promise<void>;
   /** How often open files' markups are read while visible; 0 disables the timers (tests). */
   markupPollMs?: number;
+  /** How long a check-out claim waits for others' claims to arrive before it counts (folders a sync client shares). */
+  lockSettleMs?: number;
 }
 
 const dec = new TextDecoder();
@@ -349,7 +351,8 @@ export class Project {
     if (!clean) throw new ProjectError('Give the Project a name.');
     await opts.authorize();
     const created = await api.createFolder(`${clean} (redcolumn project)`, { nbStudio: 'project' });
-    const folderId = (await api.shareWithLink(created, opts.linkCanEdit === false ? 'reader' : 'writer')) || created;
+    // A view link by default: editors are invited by email (docs/SECURITY-HARDENING.md, 4.2). Project links do not expire.
+    const folderId = (await api.shareWithLink(created, opts.linkCanEdit ? 'writer' : 'reader')) || created;
     const manifest: ProjectManifest = { v: 1, name: clean, owner: me.name, ...(me.email ? { ownerEmail: me.email } : {}), createdAt: Date.now(), members: [] };
     await api.createFile(folderId, MANIFEST_NAME, 'application/json', jsonBlob(manifest), { nbRole: ROLE.manifest });
     const project = new Project(api, me, folderId, true, { manifest, folders: [], files: [], record: [], level: 'owner', loadedAt: Date.now(), presence: [] }, opts);
@@ -535,6 +538,8 @@ export class Project {
     }
     const lock: Lock = { by: this.me.name, key: personKey(this.me), at: Date.now(), ...(note?.trim() ? { note: note.trim().slice(0, 200) } : {}) };
     const claim = await this.write(() => this.api.createFile(this.folderId, `lock-${fileId}-${newId()}.json`, 'application/json', jsonBlob(lock), { nbRole: ROLE.lock, nbF: fileId }));
+    // Through a sync client, others' claims take a while to arrive: the earliest still wins once they have.
+    if (this.opts.lockSettleMs) await new Promise((r) => setTimeout(r, this.opts.lockSettleMs));
     await this.poll();
     file = this.file(fileId);
     if (file.checkout?.lockId !== claim.id) {

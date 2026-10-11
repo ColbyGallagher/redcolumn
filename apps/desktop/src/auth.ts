@@ -72,6 +72,11 @@ async function writeSaved(file: string, saved: SavedAuth) {
 
 export class DesktopAuth {
   private flow: { close: (reason?: Error) => void } | null = null;
+  /**
+   * Microsoft access tokens by the scopes they were asked for, kept in memory only, so calls that
+   * need the app folder alone and sharing calls each keep their own token without refreshing.
+   */
+  private msTokens = new Map<string, AuthResult>();
 
   constructor(private dir: string) {}
 
@@ -80,6 +85,7 @@ export class DesktopAuth {
   }
 
   async signOut(provider: 'google' | 'microsoft') {
+    if (provider === 'microsoft') this.msTokens.clear();
     const file = this.file(provider === 'google' ? 'google-auth.json' : 'microsoft-auth.json');
     if (provider === 'google') {
       // Revoke the grant too, so the refresh token stops working wherever a copy might be.
@@ -176,8 +182,11 @@ export class DesktopAuth {
     const graphScopes = scopes.map((s) => (s.includes('/') ? s : `https://graph.microsoft.com/${s}`));
     const full = [...new Set([...graphScopes, 'openid', 'profile', 'email', 'offline_access'])];
     const saved = await readSaved(this.file('microsoft-auth.json'), clientId);
+    const key = [...full].sort().join(' ');
+    const cached = this.msTokens.get(key);
+    if (saved && cached && cached.expiresAt > Date.now() + 60_000) return cached;
+    // The scopes the person has allowed so far, from every sign-in kept (refreshing does not narrow it).
     const covers = saved && full.every((s) => saved.scopes.includes(s) || s === 'offline_access');
-    if (saved && covers && saved.expiresAt > Date.now() + 60_000) return publicResult(saved);
     if (saved && covers) {
       try {
         return await this.refreshMicrosoft(clientId, tenant, full, saved);
@@ -208,12 +217,14 @@ export class DesktopAuth {
       }));
       const who = await microsoftUser(String(json.access_token));
       const result = tokenResult(json, who.email, who.name);
+      const before = saved?.clientId === clientId ? saved.scopes : [];
       await writeSaved(this.file('microsoft-auth.json'), {
         ...result,
         clientId,
         refreshToken: typeof json.refresh_token === 'string' ? json.refresh_token : '',
-        scopes: full,
+        scopes: [...new Set([...before, ...full])],
       });
+      this.msTokens.set(key, result);
       return result;
     });
   }
@@ -230,8 +241,9 @@ export class DesktopAuth {
       ...saved,
       ...result,
       refreshToken: typeof json.refresh_token === 'string' ? json.refresh_token : saved.refreshToken,
-      scopes,
+      scopes: [...new Set([...saved.scopes, ...scopes])],
     });
+    this.msTokens.set([...scopes].sort().join(' '), result);
     return result;
   }
 

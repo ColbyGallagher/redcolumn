@@ -40,12 +40,29 @@ function fileFor(root: string, pathname: string): string | null {
 
 /** Serves the built web app at app://redcolumn/. Missing files 404; there is no silent fallback. */
 export function registerAppProtocol() {
-  protocol.handle('app', (request) => {
+  protocol.handle('app', async (request) => {
     const url = new URL(request.url);
     if (url.hostname !== 'redcolumn') return new Response('Not found', { status: 404 });
     const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
     const file = fileFor(webRoot(), pathname);
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('Not found', { status: 404 });
-    return net.fetch(pathToFileURL(file).href);
+    return withSecurityHeaders(await net.fetch(pathToFileURL(file).href));
   });
+}
+
+/**
+ * Headers a <meta> cannot set, on every app:// response: nothing may frame the app, and nothing is
+ * sniffed. Each page's full Content Security Policy is in the page itself (apps/web/src/security/csp.ts).
+ */
+export const SECURITY_HEADERS: Record<string, string> = {
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+};
+
+function withSecurityHeaders(res: Response): Response {
+  const headers = new Headers(res.headers);
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) headers.set(key, value);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }

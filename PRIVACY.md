@@ -63,10 +63,38 @@ sign in to Google or Microsoft.
 - **Google Drive access:** the app asks for the narrowest Drive permission Google offers
   (`drive.file`). It can only open files and folders the app created or that you choose in
   Google's file picker. It cannot see the rest of your Drive.
-- **OneDrive access:** the app first asks only for its own folder in your OneDrive
-  (`Apps/redcolumn`). Microsoft requires broader access to share that folder, and to let people
-  open a session folder in someone else's OneDrive, so the app asks for more only when Microsoft
-  refuses the smaller permission. Even then, it only reads and writes the session folders.
+- **OneDrive access:** Microsoft offers three levels of access. redcolumn asks for the smallest
+  first, and for more only when sharing a folder or opening someone else's needs it. Before
+  Microsoft's window opens for more, the app says why in its own dialog, and you can cancel.
+  1. **The app's own folder** (`Apps/redcolumn`). This is all most people ever grant. Sessions,
+     Projects, spreadsheet sync and settings backup live here.
+  2. **Your OneDrive.** Needed to share a session or Project folder by link or by email. This
+     permission lets the app read and change any file in your OneDrive. redcolumn uses it only on
+     the session or Project folder you are sharing.
+  3. **Your OneDrive and files shared with you.** Needed only to join a session or Project in
+     someone else's OneDrive. This permission also reaches files other people have shared with
+     you. redcolumn uses it only on the folder in the invite you opened.
+
+  Microsoft remembers what you allowed until you withdraw it (Microsoft account → Privacy → Apps
+  and services). The app uses the wider access only for the calls that needed it (sharing, or the
+  folder you opened), and only in that tab: everything else, and the next visit, starts again from
+  the app's own folder. The app only deletes its own check-out lock files and session folders it
+  made in `Apps/redcolumn`.
+- **How long you stay signed in to Microsoft:** by default only while the tab is open; closing it
+  signs you out. Tick **Stay signed in on this device** before signing in to keep the sign-in in
+  this browser instead (Microsoft limits it to about a day without use). After 30 minutes with no
+  cloud work (no session or Project open), the app forgets the sign-in in that tab. **Sign out**
+  forgets it in the app; **Sign out everywhere** also ends your Microsoft session in this browser.
+  The sign-in token is only ever sent to Microsoft Graph.
+- **Seeing what was allowed and done:** **Preferences › Account › Access** shows who is signed in,
+  the access in use and where the sign-in is kept. **Activity** lists what the app created, saved,
+  shared and deleted in Google Drive and OneDrive from this browser. That list stays in your
+  browser and is never sent anywhere. Before the first sign-in to each provider, the app shows a
+  short summary of what goes where.
+- **Encryption:** new sessions are encrypted end to end unless the host turns it off. The key is
+  in the invite link after `#`, which is never sent to Google, Microsoft or us, so they store only
+  scrambled files. File names and attendee names are still visible to people the folder is shared
+  with.
 - **What other attendees see:** your name or email, your markups, chat messages, and which page
   you are viewing while you are in the session.
 - **Removing it:** delete the session folder in your Google Drive or OneDrive. You can withdraw the

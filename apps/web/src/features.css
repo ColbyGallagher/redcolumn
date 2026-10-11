@@ -4492,3 +4492,66 @@ tr.hidden-markup td {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* Preferences › Account (Access and Activity). */
+.access-prefs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: auto;
+}
+
+.access-prefs section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.access-prefs h4 {
+  margin: 0;
+  font-weight: 600;
+}
+
+.access-prefs p {
+  margin: 0;
+}
+
+.access-prefs .pref-row {
+  flex-wrap: wrap;
+}
+
+.access-prefs details ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.access-prefs .pref-table {
+  flex: none;
+  max-height: 320px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.access-prefs .pref-table-row {
+  grid-template-columns: 170px minmax(0, 1fr);
+  grid-auto-flow: row;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.access-prefs .activity-when {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.access-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.modal .access-note {
+  margin-top: 8px;
+}

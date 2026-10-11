@@ -77,6 +77,10 @@ is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 redcolumn has no server, account, analytics or tracking. See [PRIVACY.md](PRIVACY.md) for what the
 optional features (Live Sessions, Projects and signature checks) send and to whom.
 
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Please do not open a public issue.
+
 ## Licence
 
 redcolumn is licensed under the [Apache License 2.0](LICENSE). See [NOTICE](NOTICE). Third-party

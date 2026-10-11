@@ -1,10 +1,14 @@
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
+import { randomBytes } from 'node:crypto';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { mcpLaunch } from './assistant/argv';
 import { endpointFile } from './assistant/endpoint';
 import { askPage, cancelAssistantCalls, takeAssistantResult } from './assistant/page';
 import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
+import { GraphBroker, type GraphRequest } from './graph';
+import { FolderStore } from './folderDrive';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -89,16 +93,84 @@ async function start() {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client.');
     return auth.google(clientId, typeof clientSecret === 'string' ? clientSecret : '', interactive === true);
   });
-  handle('auth:microsoft', (clientId, tenant, scopes, interactive) => {
+  // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
+  handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
     const list = Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [];
-    return auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
+    const result = await auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
+    return result ? { email: result.email, name: result.name, expiresAt: result.expiresAt } : null;
+  });
+  // Every OneDrive call from the page goes through the broker, which holds the token (docs/SECURITY-HARDENING.md, E2).
+  const brokers = new Map<string, GraphBroker>();
+  handle('graph:request', (clientId, tenant, request) => {
+    if (typeof clientId !== 'string' || !clientId || !request || typeof request !== 'object') throw new Error('That request is not allowed.');
+    const t = typeof tenant === 'string' && tenant ? tenant : 'common';
+    const key = `${clientId} ${t}`;
+    let broker = brokers.get(key);
+    if (!broker) {
+      broker = new GraphBroker((scopes) => auth.microsoft(clientId, t, scopes, false).then((r) => r?.accessToken ?? null, () => null));
+      brokers.set(key, broker);
+    }
+    return broker.request(request as GraphRequest);
   });
   handle('auth:microsoft-account', (clientId) => {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
   });
+  // Projects on a folder this computer syncs (docs/SECURITY-HARDENING.md, E3). The page gets IDs, never paths.
+  const foldersFile = path.join(app.getPath('userData'), 'project-folders.json');
+  const savedFolders = await fs
+    .readFile(foldersFile, 'utf8')
+    .then((t) => JSON.parse(t) as { owner?: string; roots?: Record<string, string> })
+    .catch(() => ({}) as { owner?: string; roots?: Record<string, string> });
+  const folders = new FolderStore(savedFolders.roots ?? {}, savedFolders.owner);
+  const saveFolders = () => fs.writeFile(foldersFile, JSON.stringify({ owner: folders.owner, roots: folders.saved() }));
+  if (!savedFolders.owner) await saveFolders().catch(() => undefined);
+  const str = (v: unknown) => {
+    if (typeof v !== 'string') throw new Error('That request is not allowed.');
+    return v;
+  };
+  const bytes = (v: unknown) => {
+    if (!(v instanceof Uint8Array)) throw new Error('That request is not allowed.');
+    return v;
+  };
+  const props = (v: unknown) => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
+  handle('folder:pick', async (purpose) => {
+    const win = mainWindow;
+    const options = { title: purpose === 'open' ? 'Open a Project folder' : 'Choose where the Project folder goes', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return null;
+    const id = await folders.addRoot(result.filePaths[0]);
+    await saveFolders();
+    return { id, name: path.basename(result.filePaths[0]) };
+  });
+  handle('folder:list', (id) => folders.list(str(id)));
+  handle('folder:download', (id) => folders.download(str(id)));
+  handle('folder:create-folder', (parent, name) => folders.createFolder(str(parent), str(name)));
+  handle('folder:create-file', (folder, name, body, p) => folders.createFile(str(folder), str(name), bytes(body), props(p)));
+  handle('folder:update', (id, body) => folders.updateContent(str(id), bytes(body)));
+  handle('folder:props', (id, p) => folders.updateProperties(str(id), props(p)));
+  handle('folder:remove', (id) => folders.remove(str(id)));
+  handle('folder:owned', (id) => folders.ownedByMe(str(id)));
+  handle('folder:show', async (id) => void shell.openPath(await folders.folderPath(str(id))));
+
+  // "Encrypt local data" (docs/SECURITY-HARDENING.md, E4): one key per install, stored only
+  // encrypted by the system key store, handed to the app's own page.
+  const keyFile = path.join(app.getPath('userData'), 'local-data-key.bin');
+  handle('local:key', async () => {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error('This computer has no system key store, so local data cannot be encrypted.');
+    const saved = await fs.readFile(keyFile).catch(() => null);
+    if (saved) return Buffer.from(safeStorage.decryptString(saved), 'base64');
+    const key = randomBytes(32);
+    await fs.writeFile(keyFile, safeStorage.encryptString(key.toString('base64')), { mode: 0o600, flag: 'wx' }).catch(async (err: NodeJS.ErrnoException) => {
+      if (err.code !== 'EEXIST') throw err;
+    });
+    const stored = await fs.readFile(keyFile);
+    return Buffer.from(safeStorage.decryptString(stored), 'base64');
+  });
+
   handle('auth:sign-out', (provider) => {
+    if (provider === 'microsoft') for (const broker of brokers.values()) broker.reset();
     if (provider === 'google' || provider === 'microsoft') return auth.signOut(provider);
   });
 
@@ -146,6 +218,7 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,
+      webviewTag: false,
     },
   });
   mainWindow = win;

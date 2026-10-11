@@ -7,7 +7,6 @@ import { pathToFileURL } from 'node:url';
 import { PRINT_MODE, type PrintMode } from './capabilities';
 
 /** Hidden print windows show only images this process wrote, so scripts are off. */
-const PRINT_PREFERENCES = { contextIsolation: true, sandbox: true, nodeIntegration: false, javascript: false } as const;
 
 async function writeTemp(bytes: Uint8Array, ext: string): Promise<string> {
   const file = path.join(os.tmpdir(), `redcolumn-${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`);
@@ -90,7 +89,8 @@ export async function finishImagePrint(id: string): Promise<void> {
     if (!job.pages.length) return;
     const file = path.join(job.dir, 'print.html');
     await fs.writeFile(file, imagesHtml(job.pages));
-    const win = new BrowserWindow({ show: false, webPreferences: PRINT_PREFERENCES });
+    // Spelled out here, not in a shared constant, so the CI scan (Electronegativity) can see it.
+    const win = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, javascript: false } });
     try {
       await win.loadFile(file);
       await printContents(win);

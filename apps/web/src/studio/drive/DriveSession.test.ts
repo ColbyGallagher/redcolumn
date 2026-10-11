@@ -5,6 +5,9 @@ import type { EditRule, MarkupStore } from '@nb/markup';
 import type { RecordEntry } from '../protocol';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { DriveSession } from './DriveSession';
+import { newIdentity, parseSecret } from '../crypto/keys';
+import { SessionCrypto } from '../crypto/sessionCrypto';
+import type { HostKeys } from '../crypto/store';
 
 // Node 24+ has Web Locks, shared by every test in this file. Fake Drives reuse file ids from test to
 // test, so seat locks left by one test's sessions would block the same seat in the next. Tests that
@@ -538,4 +541,115 @@ test('attendees edit only their own markups unless allowed to edit anyone’s', 
   await hana.update({ access: { ...access, default: 'view', people: [] } });
   await sam.poll();
   assert.equal(s.readOnly(), true, 'view access is still read-only');
+});
+
+// ---- End-to-end encrypted sessions ----
+
+const memoryHostKeys = () => {
+  const saved = new Map<string, HostKeys>();
+  return { load: async (id: string) => saved.get(id) ?? null, save: async (id: string, k: HostKeys) => void saved.set(id, k) };
+};
+const person = () => {
+  const id = newIdentity();
+  return () => id;
+};
+
+async function encryptedPair(access?: Parameters<typeof DriveSession.create>[4]['access']) {
+  const drive = new FakeStore();
+  const hostKeys = memoryHostKeys();
+  const hana = await DriveSession.create(new FakeDrive(drive, 'hana'), 'Level 2', 'Hana', { markup: true, addDocuments: true }, { ...opts, linkCanEdit: true, encrypt: true, identity: person(), hostKeys, ...(access ? { access } : {}) });
+  const secret = parseSecret(hana.getSnapshot().inviteLink);
+  assert.ok(secret, 'the invite link carries the key after #');
+  const join = (user: string, name: string) => DriveSession.join(new FakeDrive(drive, user), hana.id, name, { ...opts, interactive: true, secret, identity: person() });
+  const sam = await join('sam', 'Sam');
+  // The host lets Sam's seat in.
+  await hana.poll();
+  await sam.poll();
+  return { drive, hana, sam, join, secret: secret! };
+}
+
+const stored = (drive: FakeStore) => [...drive.files.values()].map((f) => new TextDecoder().decode(f.body)).join('\n');
+
+test('encrypted: markups, chat and documents sync, and the drive holds only ciphertext', async () => {
+  const { drive, hana, sam } = await encryptedPair();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  await sam.poll();
+  assert.equal(new TextDecoder().decode(await sam.fetchDocument(doc.id)), '%PDF-1.7');
+  const a = fakeStore();
+  const b = fakeStore();
+  await hana.attach(doc.id, a.store);
+  await sam.attach(doc.id, b.store);
+  a.markups.set('m1', { id: 'm1', type: 'cloud', pageIndex: 2, status: 'none' });
+  sam.sendChat('On it');
+  await Promise.all([hana.flush(), sam.flush()]);
+  await Promise.all([hana.poll(), sam.poll()]);
+  assert.equal(b.markups.get('m1')?.type, 'cloud');
+  assert.ok(hana.getSnapshot().record.some((e: RecordEntry) => e.author === 'Sam' && e.text === 'On it'));
+  const all = stored(drive);
+  for (const plain of ['%PDF', 'On it', 'cloud', 'Level 2']) assert.ok(!all.includes(plain), `"${plain}" is not stored in the clear`);
+});
+
+test('encrypted: a link without its key cannot join', async () => {
+  const { drive, hana } = await encryptedPair();
+  await assert.rejects(DriveSession.join(new FakeDrive(drive, 'eve'), hana.id, 'Eve', { ...opts, interactive: true, identity: person() }), /missing its key/);
+});
+
+test('encrypted: room files not signed by their seat are ignored', async () => {
+  const { drive, hana, sam, secret } = await encryptedPair();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  const a = fakeStore();
+  await hana.attach(doc.id, a.store);
+  // Eve has the link and write access, and writes a delta as if from Sam's seat.
+  const eve = await SessionCrypto.create(secret, await newIdentity());
+  const forged = new Y.Doc();
+  forged.getMap('markups').set('x', { id: 'x', type: 'cloud', pageIndex: 0, status: 'none' });
+  await new FakeDrive(drive, 'eve').createFile(hana.id, roomFile(sam, doc.id, 'nbdelta').replace('.nbdelta', ' 1.nbdelta'), 'application/octet-stream', new Blob([(await eve.sealRoom(Y.encodeStateAsUpdate(forged))) as Uint8Array<ArrayBuffer>]), {});
+  await hana.poll();
+  assert.equal(a.markups.get('x'), undefined, 'the forged markup is not merged');
+});
+
+test('encrypted: removing someone changes the key, so they cannot read what comes next', async () => {
+  const access = { default: 'markup' as const, people: [] as { name: string; access: 'markup' | 'view' | 'none' | null }[], groups: [] };
+  const { hana, sam, join } = await encryptedPair(access);
+  const vic = await join('vic', 'Vic');
+  await hana.poll();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  await hana.update({ access: { ...access, people: [{ name: 'Sam', access: 'none' }] } });
+  const a = fakeStore();
+  const v = fakeStore();
+  const s = fakeStore();
+  await hana.attach(doc.id, a.store);
+  await vic.poll();
+  await vic.attach(doc.id, v.store);
+  await sam.poll();
+  await sam.attach(doc.id, s.store);
+  a.markups.set('after', { id: 'after', type: 'cloud', pageIndex: 0, status: 'none' });
+  await hana.flush();
+  await Promise.all([vic.poll(), sam.poll()]);
+  assert.equal(v.markups.get('after')?.type, 'cloud', 'Vic, still in, reads it');
+  assert.equal(s.markups.get('after'), undefined, 'Sam, removed, cannot');
+  await assert.rejects(sam.fetchDocument(doc.id), /newer key/);
+});
+
+test('encrypted: the invite email never carries the key, and a seat cannot borrow a name the drive says is not its own', async () => {
+  const { drive, hana } = await encryptedPair();
+  const sent: string[] = [];
+  const api = (hana as unknown as { api: { shareWithUser: (...a: unknown[]) => Promise<void> } }).api;
+  api.shareWithUser = async (_f: unknown, _e: unknown, message: unknown) => void sent.push(String(message));
+  await hana.invite(['lee@x.com']);
+  assert.ok(sent.length === 1 && !sent[0]!.includes('rk='), sent[0]);
+  // Vic's seat claims to be Hana's guest "Sam", but the drive says Vic made it.
+  const access = { default: 'view' as const, people: [{ name: 'Sam', access: 'markup' as const }], groups: [] };
+  await hana.update({ access });
+  const vicDrive = new FakeDrive(drive, 'vic');
+  const vic = await DriveSession.join(vicDrive, hana.id, 'Sam', { ...opts, interactive: true, secret: parseSecret(hana.getSnapshot().inviteLink), identity: person() });
+  const seat = [...drive.files.values()].find((f) => f.id === seatOf(vic))!;
+  // FakeDrive does not report creators; say what a real drive would.
+  const realList = vicDrive.list.bind(vicDrive);
+  (hana as unknown as { api: FakeDrive }).api.list = async (id: string) => (await realList(id)).map((f) => (f.id === seat.id ? { ...f, createdBy: 'vic@x.com' } : f));
+  await hana.poll();
+  const enc = (hana as unknown as { manifest: { enc: { seats: Record<string, { email?: string; verified?: boolean }> } } }).manifest.enc;
+  assert.deepEqual([enc.seats[seat.id]?.email, enc.seats[seat.id]?.verified], ['vic@x.com', true]);
+  const may = (hana as unknown as { seatMay: (s: unknown, r: string) => boolean }).seatMay.bind(hana);
+  assert.equal(may(enc.seats[seat.id], 'doc'), false, 'matched by the verified email, not the claimed name');
 });

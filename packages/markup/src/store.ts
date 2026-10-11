@@ -55,6 +55,22 @@ const LINK_AUTO_CONFIDENCE = 0.75;
 
 /** Transaction origin for edits made by this client; the undo manager only tracks these. */
 const LOCAL = Symbol('local');
+/** Where a document's markups are kept on this device: IndexedDB, unless the app sets another (encrypted) store. */
+export interface MarkupPersistence {
+  whenSynced: Promise<unknown>;
+  destroy(): Promise<void> | void;
+}
+
+export type MarkupPersistenceFactory = (name: string, doc: Y.Doc) => MarkupPersistence;
+/** Markups in IndexedDB as they are (the default). */
+export const plainMarkupPersistence: MarkupPersistenceFactory = (name, doc) => new IndexeddbPersistence(name, doc);
+let persistenceFactory: MarkupPersistenceFactory = plainMarkupPersistence;
+
+/** Sets how markups are kept on this device; call before any store opens. */
+export function setMarkupPersistence(factory: MarkupPersistenceFactory | null) {
+  persistenceFactory = factory ?? plainMarkupPersistence;
+}
+
 /** Origin for automatic sheet detection: persisted and synced, but not undoable. */
 const DETECTION = Symbol('detection');
 /** Markup IDs handed out to markups that had none, or settled after two people made the same one. */
@@ -84,7 +100,7 @@ export class MarkupStore {
   /** Small document-level flags (e.g. whether link detection has run). */
   readonly meta: Y.Map<unknown>;
   readonly undoManager: Y.UndoManager;
-  private persistence: IndexeddbPersistence | null;
+  private persistence: MarkupPersistence | null;
   private listeners = new Set<() => void>();
   private snapshot: Markup[] = [];
   private scaleSnapshot: Readonly<Record<number, Scale>> = {};
@@ -121,7 +137,7 @@ export class MarkupStore {
     };
     this.undoManager.on('stack-item-added', label as never);
     this.undoManager.on('stack-item-updated', label as never);
-    this.persistence = persist ? new IndexeddbPersistence(`nb-markups-${fileHash}`, this.doc) : null;
+    this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
       if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;

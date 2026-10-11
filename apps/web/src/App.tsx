@@ -22,6 +22,10 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { askText, AskTextHost } from './components/AskText';
+import { parseSecret } from './studio/crypto/keys';
+import { parseProjectKey, rememberProjectKey } from './studio/crypto/sealedDrive';
+import { rememberSessionKeys } from './studio/crypto/store';
+import { FirstUseHost, StepUpHost } from './components/StepUpDialog';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
@@ -444,7 +448,7 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   try {
     res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
   } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it)`);
+    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
   }
   if (!res.ok) throw new Error(`${host} answered ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
@@ -3423,6 +3427,7 @@ export function App() {
                     linkCanEdit: req.linkCanEdit,
                     access: req.access,
                     expiresAt: req.expiresAt,
+                    encrypt: req.encrypt,
                     email: microsoftEmail(),
                     identify: microsoftEmail,
                   });
@@ -3443,6 +3448,7 @@ export function App() {
                   linkCanEdit: req.linkCanEdit,
                   access: req.access,
                   expiresAt: req.expiresAt,
+                  encrypt: req.encrypt,
                   email: googleEmail(),
                   identify: googleEmail,
                 });
@@ -3895,7 +3901,19 @@ export function App() {
     const onedrive = parseOneDriveInvite(params.get('onedrive') ?? '');
     const driveInvite = gdrive ?? onedrive;
     const inviteBackend = gdrive ? 'drive' : 'onedrive';
+    // An encrypted session's key comes after # (never sent to any server): keep it, and take it out of the address bar.
+    const secret = driveInvite ? parseSecret(window.location.hash) : null;
+    if (driveInvite && secret) {
+      rememberSessionKeys(driveInvite, secret);
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
     const projectLink = idFromText(params.get('project') ?? '');
+    // An encrypted Project's key comes after # (never sent to any server): keep it, and take it out of the address bar.
+    const projectSecret = projectLink ? parseProjectKey(window.location.hash) : null;
+    if (projectLink && projectSecret) {
+      rememberProjectKey(projectLink, projectSecret);
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
     if (params.has('project')) {
       params.delete('project');
       window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`);
@@ -8009,6 +8027,8 @@ Open the download page? Run the new installer to update; your documents and mark
       )}
       {ctxMenu && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
       <AskTextHost />
+      <StepUpHost />
+      <FirstUseHost />
       {editing && activeOpen && v && activeTools && (
         <TextEditor key={editing.id} markup={editing} store={activeOpen.store} viewer={v} onDone={() => setEditingText(null)} />
       )}

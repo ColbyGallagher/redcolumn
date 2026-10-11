@@ -19,6 +19,8 @@ export interface DriveFile {
   size: number;
   createdTime: string;
   properties: DriveProps;
+  /** Who made the file, as the drive itself reports it (not as the file claims), when it says. */
+  createdBy?: string;
 }
 
 export interface DriveApi {
@@ -40,8 +42,8 @@ export interface DriveApi {
    * Shares a file or folder with anyone who has the link. May return the ID others open the
    * folder by from then on (OneDrive: the link's share ID), which becomes the session's ID.
    */
-  shareWithLink(fileId: string, role: 'reader' | 'writer'): Promise<string | void>;
-  /** Shares with one person (an editor unless `role` says reader), emailing them `message`. */
+  shareWithLink(fileId: string, role: 'reader' | 'writer', options?: LinkOptions): Promise<string | void>;
+  /** Shares with one person (a reader unless `role` says writer, so a missing role fails safe), emailing them `message`. */
   shareWithUser(fileId: string, email: string, message: string, role?: 'reader' | 'writer'): Promise<void>;
   /** Whether this user owns the file (the host owns the session's manifest). */
   ownedByMe(fileId: string): Promise<boolean>;
@@ -49,9 +51,9 @@ export interface DriveApi {
   readAppFile?(name: string): Promise<string | null>;
   /** Writes a file in the app's own folder, replacing one of the same name. */
   writeAppFile?(name: string, text: string): Promise<void>;
-  /** Deletes a file (Projects release their check-out locks this way). */
+  /** Deletes one of the app's own lock files (Projects release their check-out locks this way); anything else is refused. */
   remove?(fileId: string): Promise<void>;
-  /** Removes a folder and everything in it, to the drive's trash or recycle bin (Ending a session). */
+  /** Removes a session folder the app made and everything in it, to the drive's trash or recycle bin (Ending a session). */
   removeFolder?(folderId: string): Promise<void>;
   /** Who a folder is shared with, as the drive reports it (for those allowed to see). */
   listPermissions?(folderId: string): Promise<DrivePermission[]>;
@@ -74,6 +76,12 @@ export interface DrivePermission {
 }
 
 /** Sign-in lapsed (or was never given); retry after `reconnect`. */
+/** How a sharing link is made, where the drive supports it. */
+export interface LinkOptions {
+  /** When the link stops letting new people in (ms since 1970). Drives that cannot expire links ignore it. */
+  expires?: number;
+}
+
 export class DriveAuthError extends Error {}
 
 /** The user may view but not change this file or folder. */

@@ -4,6 +4,7 @@ import type { EditRule, MarkupStore } from '@nb/markup';
 import { test } from 'node:test';
 import { DriveAuthError, DriveForbiddenError, type DriveFile, type DrivePermission, type DriveProps } from '../drive/DriveApi';
 import { CheckedOutError, Project, ProjectError, type ProjectDrive } from './Project';
+import { newProjectKey, parseProjectKey, ProjectLockedError, SealedDrive } from '../crypto/sealedDrive';
 
 type Stored = DriveFile & { parent: string; owner: string; body: Uint8Array };
 
@@ -448,4 +449,37 @@ test('everyone sees who has which file open, and on which page', async () => {
   await new Promise((r) => setTimeout(r, 10));
   await member.poll();
   assert.deepEqual(seen(member), [['Sam', 'A-102', 0, true]], 'closing shows as gone straight away');
+});
+
+test('an encrypted Project works the same, stores only ciphertext, and needs its key', async () => {
+  const drive = new FakeStore();
+  const key = newProjectKey();
+  const sealedFor = (user: string, k: string | null) => new SealedDrive(new FakeDrive(drive, user), k) as ProjectDrive;
+  const owner = await Project.create(sealedFor('hana', key), 'Tower', hana, opts);
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  const member = await Project.open(sealedFor('sam', key), owner.id, sam, opts);
+  await member.checkOut(f.id, 'redlines');
+  await member.checkIn(f.id, pdf('two'), 'Added the stair core');
+  await owner.poll();
+  assert.equal(text((await owner.download(f.id)).bytes), '%PDF-1.7 two');
+  assert.equal(owner.getSnapshot().files[0]!.checkout, null, 'the lock file was found and released');
+  const stored = [...drive.files.values()].map((x) => new TextDecoder().decode(x.body)).join('\n');
+  for (const plain of ['%PDF', 'Tower', 'stair core', 'Hana']) assert.ok(!stored.includes(plain), `"${plain}" is not stored in the clear`);
+  await assert.rejects(Project.open(sealedFor('eve', null), owner.id, { name: 'Eve', email: 'eve@x.com' }, opts), ProjectLockedError);
+  assert.equal(parseProjectKey(`https://x/?project=u!abc#pk=${key}`), key);
+});
+
+test('on a folder a sync client shares, a check-out waits for earlier claims to arrive', async () => {
+  const drive = new FakeStore();
+  const settle = { ...opts, lockSettleMs: 30 };
+  const owner = await Project.create(new FakeDrive(drive, 'hana'), 'Tower', hana, settle);
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  const member = await Project.open(new FakeDrive(drive, 'sam'), owner.id, sam, settle);
+  // Sam claims first; Hana's claim lands while Sam's is still settling, and Hana's sync is slower.
+  const samTry = member.checkOut(f.id);
+  await owner.poll();
+  const hanaTry = owner.checkOut(f.id);
+  const [samResult, hanaResult] = await Promise.allSettled([samTry, hanaTry]);
+  assert.equal(samResult.status, 'fulfilled', 'the earlier claim wins');
+  assert.equal(hanaResult.status, 'rejected');
 });

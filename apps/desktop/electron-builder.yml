@@ -23,6 +23,17 @@ fileAssociations:
     description: PDF document
     role: Viewer
     mimeType: application/pdf
+# Electron fuses, flipped in the packaged binary (docs/SECURITY-HARDENING.md, E1): the app cannot be
+# run as plain Node, NODE_OPTIONS and --inspect are ignored, and only the integrity-checked
+# app.asar loads.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
 win:
   target: nsis
   icon: ../web/dist/icon-512.png
