@@ -19,6 +19,8 @@ export interface DriveFile {
   size: number;
   createdTime: string;
   properties: DriveProps;
+  /** Who made the file, as the drive itself reports it (not as the file claims), when it says. */
+  createdBy?: string;
 }
 
 export interface DriveApi {

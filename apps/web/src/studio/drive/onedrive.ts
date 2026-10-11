@@ -658,6 +658,7 @@ export class OneDrive implements DriveApi {
       size: item.size ?? 0,
       createdTime: item.createdDateTime ?? '',
       properties: props,
+      ...(item.createdBy?.user?.email ? { createdBy: item.createdBy.user.email.toLowerCase() } : {}),
     };
   }
 
