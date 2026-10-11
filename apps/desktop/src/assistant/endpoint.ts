@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 /**
- * A fixed folder, not Electron's user-data path. The assistant process is this executable
- * running as Node, so it cannot ask Electron where user data lives. Both sides use this file.
+ * A fixed folder, not Electron's user-data path. The assistant process is a separate Node
+ * program, so it cannot ask Electron where user data lives. Both sides use this file.
  */
 export function endpointFile(): string {
   const dir = process.platform === 'win32'

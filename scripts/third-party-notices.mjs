@@ -56,6 +56,14 @@ const BUNDLED = [
     note: 'Liberation Sans, Serif and Mono (public/fonts), embedded in PDF/A exports in place of Helvetica, Times and Courier.',
     file: 'liberation-fonts.txt',
   },
+  {
+    name: 'Node.js',
+    version: '24.21.0',
+    licence: 'MIT',
+    homepage: 'https://nodejs.org',
+    note: 'The packaged local assistant runs on this Node.js binary (resources/assistant/node.exe on Windows, node on macOS and Linux). The Electron RunAsNode fuse is off, so the app executable cannot run the assistant. The binary also includes other software; the complete licence from that Node.js distribution is shipped beside it as LICENSE-node.txt. The MIT licence for Node.js itself follows.',
+    file: 'node.txt',
+  },
 ];
 
 const out = [

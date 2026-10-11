@@ -69,20 +69,31 @@ test('a custom column can be set by name, and a calculation cannot', async () =>
   assert.throws(() => assistantCall([drawing], 'set_markup', { id: 'door', field: 'Cost', value: '4' }), /calculated/);
 });
 
-test('each client starts this installation as Node', () => {
-  const launch = { command: 'C:\\Program Files\\redcolumn\\redcolumn.exe', args: ['C:\\Program Files\\redcolumn\\resources\\assistant\\mcp-cli.js'], env: { ELECTRON_RUN_AS_NODE: '1' } };
+test('each client starts the bundled Node program', () => {
+  const launch = { command: 'C:\\Program Files\\redcolumn\\resources\\assistant\\node.exe', args: ['C:\\Program Files\\redcolumn\\resources\\assistant\\mcp-cli.js'], env: {} };
   const clients = clientSetups(launch, 'win');
   assert.deepEqual(clients.map((c) => c.id), ['copilot', 'claude', 'claude-code', 'codex', 'cursor']);
-  for (const client of clients) assert.match(client.copy, /redcolumn\.exe/);
-  assert.match(clients[2]!.copy, /^claude mcp add --scope user redcolumn --env ELECTRON_RUN_AS_NODE=1 -- '/);
-  assert.match(clients[3]!.copy, /^codex mcp add redcolumn --env ELECTRON_RUN_AS_NODE=1 -- '/);
+  for (const client of clients) {
+    assert.match(client.copy, /node\.exe/);
+    assert.doesNotMatch(client.copy, /ELECTRON_RUN_AS_NODE/);
+  }
+  assert.match(clients[2]!.copy, /^claude mcp add --scope user redcolumn -- '/);
+  assert.match(clients[3]!.copy, /^codex mcp add redcolumn -- '/);
   assert.match(clients[3]!.copy, /\[mcp_servers\.redcolumn\]/);
+  assert.doesNotMatch(clients[3]!.copy, /\[mcp_servers\.redcolumn\.env\]/);
   const cursor = new URL(clients[4]!.href!);
-  const config = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(cursor.searchParams.get('config') ?? ''), (c) => c.charCodeAt(0)))) as { command: string; args: string[]; env: { ELECTRON_RUN_AS_NODE: string } };
+  const config = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(cursor.searchParams.get('config') ?? ''), (c) => c.charCodeAt(0)))) as { command: string; args: string[]; env?: { ELECTRON_RUN_AS_NODE: string } };
   assert.deepEqual(config.args, launch.args);
-  assert.equal(config.env.ELECTRON_RUN_AS_NODE, '1');
+  assert.equal(config.env, undefined);
   assert.equal(config.command, launch.command);
   const vscode = new URL(clients[0]!.href!);
   const vscodeConfig = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(decodeURIComponent(vscode.searchParams.get('config') ?? '')), (c) => c.charCodeAt(0)))) as { type: string };
   assert.equal(vscodeConfig.type, 'stdio');
+});
+
+test('a development launch still passes ELECTRON_RUN_AS_NODE through', () => {
+  const launch = { command: 'C:\\Redcolumn\\redcolumn.exe', args: ['mcp-cli.js'], env: { ELECTRON_RUN_AS_NODE: '1' } };
+  const clients = clientSetups(launch, 'win');
+  assert.match(clients[2]!.copy, /--env ELECTRON_RUN_AS_NODE=1 /);
+  assert.match(clients[3]!.copy, /\[mcp_servers\.redcolumn\.env\]\nELECTRON_RUN_AS_NODE = "1"/);
 });

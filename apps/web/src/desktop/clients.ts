@@ -37,18 +37,24 @@ export function claudeConfigPath(platform: 'win' | 'mac' | 'other'): string {
   return 'Claude Desktop → Settings → Developer → Edit Config';
 }
 
-/** One install action per client. Each starts this installation's executable as Node, so stdin works. */
+/** One install action per client. Each starts the Node program shipped with this installation. */
 export function clientSetups(launch: AssistantLaunch, platform: 'win' | 'mac' | 'other'): ClientSetup[] {
   const command = quote(launch.command);
   const args = launch.args.map(quote).join(' ');
-  const server = { command: launch.command, args: launch.args, env: launch.env };
+  const server = {
+    command: launch.command,
+    args: launch.args,
+    ...(Object.keys(launch.env).length > 0 ? { env: launch.env } : {}),
+  };
   const cursorConfig = server;
   const vscodeConfig = { type: 'stdio', ...server };
   const claude = { mcpServers: { redcolumn: server } };
   const copilot = { servers: { redcolumn: vscodeConfig } };
   const envLines = Object.entries(launch.env).map(([key, value]) => `${key} = ${toml(value)}`).join('\n');
-  const tomlBlock = `[mcp_servers.redcolumn]\ncommand = ${toml(launch.command)}\nargs = [${launch.args.map(toml).join(', ')}]\n\n[mcp_servers.redcolumn.env]\n${envLines}`;
+  const envTable = envLines ? `\n\n[mcp_servers.redcolumn.env]\n${envLines}` : '';
+  const tomlBlock = `[mcp_servers.redcolumn]\ncommand = ${toml(launch.command)}\nargs = [${launch.args.map(toml).join(', ')}]${envTable}`;
   const envFlags = Object.entries(launch.env).map(([key, value]) => `--env ${key}=${quote(value)}`).join(' ');
+  const envPrefix = envFlags ? `${envFlags} ` : '';
   return [
     {
       id: 'copilot',
@@ -68,13 +74,13 @@ export function clientSetups(launch: AssistantLaunch, platform: 'win' | 'mac' | 
       id: 'claude-code',
       title: 'Claude Code',
       note: 'User scope, so the assistant is available in every project.',
-      copy: `claude mcp add --scope user redcolumn ${envFlags} -- ${command} ${args}`,
+      copy: `claude mcp add --scope user redcolumn ${envPrefix}-- ${command} ${args}`,
     },
     {
       id: 'codex',
       title: 'Codex',
       note: 'This writes ~/.codex/config.toml, which the Codex CLI, the IDE extension, and the ChatGPT desktop app share. The table below is the same entry if you edit the file yourself.',
-      copy: `codex mcp add redcolumn ${envFlags} -- ${command} ${args}\n\n${tomlBlock}`,
+      copy: `codex mcp add redcolumn ${envPrefix}-- ${command} ${args}\n\n${tomlBlock}`,
     },
     {
       id: 'cursor',

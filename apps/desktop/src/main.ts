@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { mcpLaunch } from './assistant/argv';
+import { assistantNodePath, mcpLaunch } from './assistant/argv';
 import { endpointFile } from './assistant/endpoint';
 import { askPage, cancelAssistantCalls, takeAssistantResult } from './assistant/page';
 import { AssistantService } from './assistant/service';
@@ -179,8 +179,9 @@ async function start() {
     if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
     takeAssistantResult(body);
   });
-  const script = app.isPackaged ? path.join(process.resourcesPath, 'assistant', 'mcp-cli.js') : path.join(__dirname, 'assistant', 'mcp-cli.js');
-  const launch = () => mcpLaunch(process.execPath, script);
+  const assistantDir = app.isPackaged ? path.join(process.resourcesPath, 'assistant') : path.join(__dirname, 'assistant');
+  const script = path.join(assistantDir, 'mcp-cli.js');
+  const launch = () => mcpLaunch(process.execPath, script, app.isPackaged ? assistantNodePath(assistantDir) : undefined);
   handle('assistant:get', () => {
     const current = assistant.current();
     return { enabled: current.enabled, ...launch() };

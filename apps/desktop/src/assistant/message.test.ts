@@ -1,14 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mcpLaunch } from './argv.ts';
+import { assistantNodePath, mcpLaunch } from './argv.ts';
 import { parseEndpoint } from './endpoint.ts';
 import { OFFLINE, handleMcpMessage, takeLines } from './message.ts';
 
-test('the assistant runs the executable as Node so it can read stdin', () => {
+test('development runs Electron as Node so the GUI executable can read stdin', () => {
   assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'), {
     command: 'C:\\Redcolumn\\redcolumn.exe',
     args: ['C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'],
     env: { ELECTRON_RUN_AS_NODE: '1' },
+  });
+});
+
+test('a packaged build starts the bundled Node binary, because the app fuse ignores ELECTRON_RUN_AS_NODE', () => {
+  const nodePath = assistantNodePath('C:\\Redcolumn\\resources\\assistant', 'win32');
+  assert.equal(nodePath, 'C:\\Redcolumn\\resources\\assistant\\node.exe');
+  assert.equal(assistantNodePath('/Applications/redcolumn.app/Contents/Resources/assistant', 'darwin'), '/Applications/redcolumn.app/Contents/Resources/assistant/node');
+  assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'C:\\Redcolumn\\resources\\assistant\\mcp-cli.js', nodePath), {
+    command: nodePath,
+    args: ['C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'],
+    env: {},
   });
 });
 

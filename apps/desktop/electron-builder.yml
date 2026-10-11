@@ -10,10 +10,16 @@ directories:
 files:
   - dist/**
   - package.json
+  # The assistant Node binary is an extra resource. Leaving it in the asar would pack it twice.
+  - "!dist/assistant/node.exe"
+  - "!dist/assistant/node"
+  - "!dist/assistant/LICENSE-node.txt"
+  - "!dist/.node-cache/**"
 extraResources:
   - from: ../web/dist
     to: web
-  # The assistant runs this folder with the executable in Node mode (see mcp-cli.ts).
+  # mcp-cli.js plus the Node binary that runs it. The RunAsNode fuse below is off, so this is
+  # not the app executable (see apps/desktop/scripts/fetch-assistant-node.mjs).
   - from: dist/assistant
     to: assistant
 # Registers redcolumn as a PDF handler. It does not become the default handler.

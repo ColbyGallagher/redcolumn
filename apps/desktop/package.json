@@ -10,7 +10,7 @@
     "start": "tsc -p . && electron .",
     "typecheck": "tsc -p . --noEmit",
     "test": "node --experimental-strip-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
-    "package": "pnpm --filter @nb/web build && tsc -p . && electron-builder --win"
+    "package": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs && electron-builder --win"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
