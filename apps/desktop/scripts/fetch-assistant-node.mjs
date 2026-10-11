@@ -115,9 +115,9 @@ async function main() {
   const extractDir = path.join(cacheDir, 'extract');
   await rm(extractDir, { recursive: true, force: true });
   await mkdir(extractDir, { recursive: true });
-  const args = process.platform === 'win32' ? ['--force-local'] : [];
-  args.push('-xf', path.basename(archive), '-C', 'extract', asset.node, asset.license);
-  await execFileAsync('tar', args, { cwd: cacheDir });
+  // The archive argument is a file name in cwd, so it has no drive letter. Windows
+  // bsdtar (GitHub runners) rejects --force-local, which GNU tar would want only for a path with a colon.
+  await execFileAsync('tar', ['-xf', path.basename(archive), '-C', 'extract', asset.node, asset.license], { cwd: cacheDir });
   await copyFile(path.join(extractDir, asset.node), binary);
   await copyFile(path.join(extractDir, asset.license), license);
   if (process.platform !== 'win32') await chmod(binary, 0o755);
