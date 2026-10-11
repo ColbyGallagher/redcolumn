@@ -414,6 +414,11 @@ body,
   background: rgba(0, 0, 0, 0.45);
 }
 
+/* Above menus, so Allow or Deny is the thing on screen. */
+.modal-backdrop.assistant-confirm {
+  z-index: 90;
+}
+
 .modal {
   width: min(360px, calc(100vw - 32px));
   padding: 16px;

@@ -150,8 +150,9 @@ These only run when you use them:
 
 ## Local assistant (desktop app)
 
-The desktop app can let GitHub Copilot, Claude, Codex, or Cursor read the open drawing and update
-a markup. This is off until you turn it on under File › Preferences › MCP.
+The desktop app can let GitHub Copilot, Claude, Codex, or Cursor read the open drawing, run commands,
+and edit markups. Deletes and document changes wait for Allow in redcolumn. This is off until you
+turn it on under File › Preferences › MCP.
 
 - It runs only inside the desktop app on that computer. The listener accepts connections from
   this computer only. The redcolumn project does not receive the drawing, the questions, or the

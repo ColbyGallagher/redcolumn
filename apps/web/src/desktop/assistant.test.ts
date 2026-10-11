@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MarkupStore, type Markup } from '@nb/markup';
-import { assistantCall, assistantDocuments, type AssistantDocument } from './assistant.ts';
+import { assistantCall, assistantDocuments, isDestructiveCommand, type AssistantCommand, type AssistantDocument, type AssistantTools } from './assistant.ts';
+import { allowAssistant, assistantPrompt, confirmAssistant, denyAssistant } from './assistantConfirm.ts';
 import { clientSetups } from './clients.ts';
 
 function markup(partial: Partial<Markup> & Pick<Markup, 'id' | 'type'>): Markup {
@@ -24,13 +25,13 @@ async function doc(name: string, active: boolean): Promise<AssistantDocument> {
   const store = await MarkupStore.open(`assistant-${name}-${Math.random()}`, { persist: false });
   store.add(markup({ id: 'door', type: 'length', text: 'D1', subject: 'Door', comment: 'check', seq: 1 }));
   store.setDetectedSheets([[0, { number: 'A-101', title: 'Floor plan', discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]]);
-  return { id: name.toLowerCase(), name, pageCount: 2, pageIndex: 0, active, store };
+  return { id: name.toLowerCase(), name, pageCount: 2, pageIndex: 0, active, store, pageSize: () => ({ width: 612, height: 792 }) };
 }
 
 test('the active drawing is listed once, with its sheet and measurement', async () => {
   const a = await doc('A-101.pdf', true);
   const copy = { ...a, active: false };
-  const listed = assistantCall([copy, a], 'list_open_documents', {}) as { documents: { name: string; page: number; sheetNumber: string; active: boolean }[] };
+  const listed = (await assistantCall([copy, a], 'list_open_documents', {})) as { documents: { name: string; page: number; sheetNumber: string; active: boolean }[] };
   assert.equal(listed.documents.length, 1);
   assert.equal(listed.documents[0]!.name, 'A-101.pdf');
   assert.equal(listed.documents[0]!.page, 1);
@@ -38,21 +39,22 @@ test('the active drawing is listed once, with its sheet and measurement', async 
   assert.equal(listed.documents[0]!.active, true);
   assert.equal(assistantDocuments([copy, a]).length, 1);
 
-  const markups = assistantCall([a], 'list_markups', { page: 1 }) as { markups: { id: string; status: string; measurement?: string }[] };
+  const markups = (await assistantCall([a], 'list_markups', { page: 1 })) as { markups: { id: string; status: string; measurement?: string; points: number[][] }[] };
   assert.equal(markups.markups[0]!.id, 'door');
   assert.equal(markups.markups[0]!.status, 'None');
   assert.ok(markups.markups[0]!.measurement);
+  assert.equal(markups.markups[0]!.points.length, 2);
 });
 
 test('setting a status is its own undo step', async () => {
   const drawing = await doc('A-101.pdf', true);
-  const changed = assistantCall([drawing], 'set_markup', { seq: 1, status: 'Accepted' }) as { markup: { status: string } };
+  const changed = (await assistantCall([drawing], 'set_markup', { seq: 1, status: 'Accepted' })) as { markup: { status: string } };
   assert.equal(changed.markup.status, 'Accepted');
   assert.equal(drawing.store.get('door')?.status, 'accepted');
   drawing.store.undo();
   assert.equal(drawing.store.get('door')?.status, 'none');
-  assert.throws(() => assistantCall([drawing], 'set_markup', { id: 'missing', status: 'Accepted' }), /No markup missing/);
-  assert.throws(() => assistantCall([], 'list_markups', {}), /No document is open/);
+  await assert.rejects(() => assistantCall([drawing], 'set_markup', { id: 'missing', status: 'Accepted' }), /No markup missing/);
+  await assert.rejects(() => assistantCall([], 'list_markups', {}), /No document is open/);
 });
 
 test('a custom column can be set by name, and a calculation cannot', async () => {
@@ -64,9 +66,124 @@ test('a custom column can be set by name, and a calculation cannot', async () =>
     ],
     statuses: drawing.store.columnSet().statuses,
   });
-  assistantCall([drawing], 'set_markup', { id: 'door', field: 'Trade', value: 'Doors' });
+  await assistantCall([drawing], 'set_markup', { id: 'door', field: 'Trade', value: 'Doors' });
   assert.equal(drawing.store.get('door')?.fields?.trade, 'Doors');
-  assert.throws(() => assistantCall([drawing], 'set_markup', { id: 'door', field: 'Cost', value: '4' }), /calculated/);
+  await assert.rejects(() => assistantCall([drawing], 'set_markup', { id: 'door', field: 'Cost', value: '4' }), /calculated/);
+});
+
+test('placing and updating a markup are each one undo step', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const placed = (await assistantCall([drawing], 'place_markup', { page: 1, type: 'rect', points: [[10, 10], [40, 30]], text: 'Note' })) as { markup: { id: string; text?: string } };
+  assert.equal(placed.markup.text, 'Note');
+  assert.equal(drawing.store.all().length, 2);
+  drawing.store.undo();
+  assert.equal(drawing.store.all().length, 1);
+
+  await assistantCall([drawing], 'update_markup', { id: 'door', points: [[1, 1], [20, 1]], text: 'D2', style: { stroke: '#00ff00', width: 3 } });
+  assert.equal(drawing.store.get('door')?.text, 'D2');
+  assert.equal(drawing.store.get('door')?.style.stroke, '#00ff00');
+  assert.deepEqual(drawing.store.get('door')?.points, [[1, 1], [20, 1]]);
+  drawing.store.undo();
+  assert.equal(drawing.store.get('door')?.text, 'D1');
+  assert.equal(drawing.store.get('door')?.style.stroke, '#000');
+});
+
+test('deleting asks first and does nothing when denied', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  let asked = '';
+  await assert.rejects(
+    () => assistantCall([drawing], 'delete_markups', { ids: ['door'] }, { confirm: async (message) => { asked = message; return false; } }),
+    /Not confirmed/,
+  );
+  assert.match(asked, /markup 1/);
+  assert.match(asked, /A-101\.pdf/);
+  assert.ok(drawing.store.get('door'));
+
+  await assistantCall([drawing], 'delete_markups', { ids: ['door'] }, { confirm: async () => true });
+  assert.equal(drawing.store.get('door'), undefined);
+  drawing.store.undo();
+  assert.ok(drawing.store.get('door'));
+});
+
+test('a denied command does not run, and a disabled one is refused', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  let ran = false;
+  const remove: AssistantCommand = { id: 'edit.delete', label: 'Delete', category: 'Edit', enabled: true, run: () => { ran = true; } };
+  const commands = () => new Map<string, AssistantCommand>([['edit.delete', remove], ['view.zoomIn', { id: 'view.zoomIn', label: 'Zoom In', category: 'View', enabled: false, run: () => { ran = true; } }]]);
+  await assert.rejects(() => assistantCall([drawing], 'run_command', { id: 'edit.delete' }, { commands, confirm: async () => false }), /Not confirmed/);
+  assert.equal(ran, false);
+  await assert.rejects(() => assistantCall([drawing], 'run_command', { id: 'view.zoomIn' }, { commands, confirm: async () => true }), /Zoom In is not available/);
+  assert.equal(ran, false);
+
+  let confirmed = false;
+  const host = globalThis as { confirm?: (message?: string) => boolean };
+  host.confirm = () => {
+    confirmed = true;
+    return false;
+  };
+  remove.run = () => {
+    if (!host.confirm?.('Delete 1 markup?')) throw new Error('cancelled');
+  };
+  try {
+    await assistantCall([drawing], 'run_command', { id: 'edit.delete' }, { commands, confirm: async () => true });
+    assert.equal(confirmed, false);
+  } finally {
+    delete host.confirm;
+  }
+});
+
+test('a dialog command starts in the app and does not ask', async () => {
+  let ran = false;
+  const commands = () => new Map<string, AssistantCommand>([['file.open', { id: 'file.open', label: 'Open…', category: 'File', enabled: true, run: () => { ran = true; } }]]);
+  const started = await assistantCall([], 'run_command', { id: 'file.open' }, { commands, confirm: async () => { throw new Error('should not ask'); } });
+  assert.deepEqual(started, { started: true, needsYou: true });
+  assert.equal(ran, true);
+});
+
+test('page and command failures name what went wrong', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  await assert.rejects(() => assistantCall([drawing], 'get_page', { page: 9 }), /Page 9 is not in A-101\.pdf/);
+  await assert.rejects(() => assistantCall([{ ...drawing, pageSize: () => null }], 'get_page', { page: 1 }), /Page size is not available/);
+  const page = (await assistantCall([drawing], 'get_page', {})) as { page: number; width: number; height: number; scale?: string };
+  assert.equal(page.page, 1);
+  assert.equal(page.width, 612);
+  assert.equal(page.height, 792);
+  assert.equal(page.scale, undefined);
+});
+
+test('only destructive commands ask', () => {
+  assert.equal(isDestructiveCommand('edit.delete'), true);
+  assert.equal(isDestructiveCommand('file.save'), true);
+  assert.equal(isDestructiveCommand('batch.flatten'), true);
+  assert.equal(isDestructiveCommand('view.zoomIn'), false);
+  assert.equal(isDestructiveCommand('tool.line'), false);
+  assert.equal(isDestructiveCommand('edit.eraseContent'), false);
+});
+
+test('selection follows the drawing on screen, and one confirmation shows at a time', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  await assert.rejects(() => assistantCall([drawing], 'select_markups', { ids: ['door'] }), /not the drawing on screen/);
+  let selected: string[] = [];
+  const tools: AssistantTools = {
+    owns: (store) => store === drawing.store,
+    place: () => { throw new Error('not used'); },
+    select: (ids) => { selected = [...ids]; },
+  };
+  const picked = await assistantCall([drawing], 'select_markups', { ids: ['door'] }, { toolsFor: () => tools });
+  assert.deepEqual(selected, ['door']);
+  assert.deepEqual(picked, { document: 'A-101.pdf', selected: ['door'] });
+
+  const first = confirmAssistant('Delete markup 1 on A-101.pdf?');
+  const second = confirmAssistant('Allow the assistant to Save on A-101.pdf?');
+  assert.equal(assistantPrompt(), 'Delete markup 1 on A-101.pdf?');
+  denyAssistant();
+  assert.equal(await first, false);
+  assert.equal(assistantPrompt(), null);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(assistantPrompt(), 'Allow the assistant to Save on A-101.pdf?');
+  allowAssistant();
+  assert.equal(await second, true);
+  assert.equal(assistantPrompt(), null);
 });
 
 test('each client starts the bundled Node program', () => {

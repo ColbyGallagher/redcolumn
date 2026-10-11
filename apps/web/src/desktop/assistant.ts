@@ -1,5 +1,5 @@
-import { measureProps, type Markup, type MarkupStore } from '@nb/markup';
-import { isMeasureKind, measureLabel } from '@nb/measure';
+import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point } from '@nb/markup';
+import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 
 /** One open drawing the assistant can see. Page indexes are 0-based, as the viewer stores them. */
 export interface AssistantDocument {
@@ -9,6 +9,92 @@ export interface AssistantDocument {
   pageIndex: number;
   active: boolean;
   store: MarkupStore;
+  /** Displayed page size in PDF points. Absent in tests that never ask for a page. */
+  pageSize?: (pageIndex: number) => { width: number; height: number } | null;
+}
+
+/** A menu command the assistant can list and run. */
+export interface AssistantCommand {
+  id: string;
+  label: string;
+  category: string;
+  enabled: boolean;
+  checked?: boolean;
+  run: () => void;
+}
+
+/** Text and subject written onto a markup as it is placed. */
+export interface PlaceExtras {
+  text?: string;
+  comment?: string;
+  subject?: string;
+}
+
+/**
+ * The drawing tools for one pane. `place` uses the armed tool's defaults; `select` is what
+ * align, group, and copy act on.
+ */
+export interface AssistantTools {
+  owns(store: MarkupStore): boolean;
+  place(type: MarkupType, pageIndex: number, points: Point[], extras?: PlaceExtras): Markup;
+  select(ids: Iterable<string>): void;
+}
+
+/** What the renderer supplies beyond the open drawings. */
+export interface AssistantEnv {
+  commands?: () => ReadonlyMap<string, AssistantCommand>;
+  toolsFor?: (documentId: string) => AssistantTools | null;
+  confirm?: (message: string) => Promise<boolean>;
+}
+
+/**
+ * Commands that delete, discard, import, write the file, or change pages. `run_command` asks
+ * before these. Arming a tool does not: the gesture still happens on the page.
+ */
+const DESTRUCTIVE_COMMANDS = new Set([
+  'edit.delete',
+  'edit.cut',
+  'file.close',
+  'file.closeAll',
+  'file.revert',
+  'file.importXfdf',
+  'file.importBax',
+  'file.importPdfMarkups',
+  'file.save',
+  'file.saveAll',
+  'document.rotatePages',
+  'document.rotateCounterclockwise',
+  'document.insertPages',
+  'document.insertBlank',
+  'document.deletePages',
+  'document.replacePages',
+  'document.cropPages',
+  'document.pageSetup',
+  'document.headerFooter',
+  'document.numberPages',
+  'document.flatten',
+  'document.unflatten',
+  'document.reduceSize',
+  'document.repair',
+  'document.colour',
+  'document.ocr',
+  'document.slipSheet',
+  'document.labelRegions',
+  'document.scaleRegions',
+  'tools.applyRedactions',
+  'tools.sign',
+  'tools.autoFields',
+  'document.security',
+  'document.pdfa',
+]);
+
+/** Open, Save As, and Print always hand the dialog to the person, even if a label loses its ellipsis. */
+const NEEDS_YOU = new Set(['file.open', 'file.saveAs', 'file.print']);
+
+const FILE_TYPES = new Set<MarkupType>(['image', 'stamp', 'signature', 'attachment']);
+
+export function isDestructiveCommand(id: string): boolean {
+  return id.startsWith('batch.') || DESTRUCTIVE_COMMANDS.has(id);
 }
 
 /** The active drawing wins when the same file is open in both panes. */
@@ -59,6 +145,8 @@ function publicMarkup(doc: AssistantDocument, markup: Markup) {
     ...(markup.seq !== undefined ? { seq: markup.seq } : {}),
     type: markup.type,
     page: markup.pageIndex + 1,
+    points: markup.points,
+    style: { stroke: markup.style.stroke, fill: markup.style.fill, width: markup.style.width },
     ...(markup.text ? { text: markup.text } : {}),
     ...(markup.subject ? { subject: markup.subject } : {}),
     ...(markup.comment ? { comment: markup.comment } : {}),
@@ -67,6 +155,7 @@ function publicMarkup(doc: AssistantDocument, markup: Markup) {
     ...(measurement(doc, markup) ? { measurement: measurement(doc, markup) } : {}),
     ...(Object.keys(fields).length ? { fields } : {}),
     ...(markup.hidden ? { hidden: true } : {}),
+    ...(markup.locked ? { locked: true } : {}),
   };
 }
 
@@ -90,14 +179,19 @@ function record(params: unknown): Record<string, unknown> {
   return params as Record<string, unknown>;
 }
 
+function pageIndexOf(doc: AssistantDocument, raw: unknown): number {
+  const page = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(page) || page < 1 || page > doc.pageCount) throw new Error(`Page ${String(raw)} is not in ${doc.name} (1–${doc.pageCount}).`);
+  return page - 1;
+}
+
 function listMarkups(docs: readonly AssistantDocument[], params: unknown) {
   const args = record(params);
   const doc = findDocument(docs, args.document);
   let markups = doc.store.all();
   if (args.page !== undefined) {
-    const page = typeof args.page === 'number' ? args.page : Number(args.page);
-    if (!Number.isInteger(page) || page < 1 || page > doc.pageCount) throw new Error(`Page ${String(args.page)} is not in ${doc.name} (1–${doc.pageCount}).`);
-    markups = markups.filter((m) => m.pageIndex === page - 1);
+    const index = pageIndexOf(doc, args.page);
+    markups = markups.filter((m) => m.pageIndex === index);
   }
   return { document: doc.name, id: doc.id, markups: markups.map((m) => publicMarkup(doc, m)) };
 }
@@ -155,10 +249,299 @@ function setMarkup(docs: readonly AssistantDocument[], params: unknown) {
   return { document: doc.name, markup: publicMarkup(doc, next) };
 }
 
+function markupType(raw: unknown): MarkupType {
+  if (typeof raw !== 'string' || !(raw in TYPE_INFO)) throw new Error(`Unknown markup type "${String(raw)}".`);
+  return raw as MarkupType;
+}
+
+function pointsOf(raw: unknown): Point[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error('Give the points to draw.');
+  return raw.map((point, i) => {
+    if (!Array.isArray(point) || point.length < 2 || typeof point[0] !== 'number' || typeof point[1] !== 'number' || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) {
+      throw new Error(`Point ${i + 1} has to be an x and a y.`);
+    }
+    return [point[0], point[1]];
+  });
+}
+
+/** A note, flag, or typewriter placed with one click gets a box, the same way the tool does at zoom 1. */
+function expandPlaced(type: MarkupType, points: Point[]): Point[] {
+  if (points.length !== 1) return points;
+  const a = points[0]!;
+  if (type === 'note' || type === 'flag') {
+    const s = 22;
+    return [a, [a[0] + (type === 'flag' ? s * 0.8 : s), a[1] + s]];
+  }
+  if (type === 'typewriter') return [a, [a[0] + 48, a[1] + 22.4]];
+  return points;
+}
+
+function requirePoints(type: MarkupType, points: Point[]) {
+  const info = TYPE_INFO[type];
+  if (type === 'callout') {
+    if (points.length < 4) throw new Error("Callout needs a tip, a knee, and the box's two corners.");
+    return;
+  }
+  if (info.draw === 'text') {
+    if (points.length < 2 || points.length % 2 !== 0) throw new Error(`${info.label} needs a pair of corners for each line of text.`);
+    return;
+  }
+  if (info.click) {
+    if (info.click.fixed !== undefined && points.length !== info.click.fixed) throw new Error(`${info.label} needs ${info.click.fixed} points.`);
+    else if (points.length < info.click.min) throw new Error(`${info.label} needs at least ${info.click.min} point${info.click.min === 1 ? '' : 's'}.`);
+    return;
+  }
+  if (info.draw === 'freehand') {
+    if (points.length < 2) throw new Error(`${info.label} needs at least 2 points.`);
+    return;
+  }
+  if (info.draw === 'place') {
+    if (points.length < 1 || points.length > 2) throw new Error(`${info.label} needs one point, or two corners.`);
+    return;
+  }
+  if (points.length !== 2) throw new Error(`${info.label} needs two opposite corners.`);
+}
+
+function refuseFileType(type: MarkupType) {
+  if (!FILE_TYPES.has(type)) return;
+  const command = type === 'signature' ? 'tools.sign' : `tool.${type}`;
+  throw new Error(`${TYPE_INFO[type].label} needs a file. Run ${command} with run_command, then place it in redcolumn.`);
+}
+
+function extrasOf(args: Record<string, unknown>): PlaceExtras {
+  const extras: PlaceExtras = {};
+  if (typeof args.text === 'string' && args.text) extras.text = args.text;
+  if (typeof args.comment === 'string' && args.comment) extras.comment = args.comment;
+  if (typeof args.subject === 'string' && args.subject) extras.subject = args.subject;
+  return extras;
+}
+
+function placeOnStore(doc: AssistantDocument, type: MarkupType, pageIndex: number, points: Point[], extras: PlaceExtras): Markup {
+  const now = Date.now();
+  const markup: Markup = {
+    id: crypto.randomUUID(),
+    type,
+    pageIndex,
+    points,
+    style: { ...DEFAULT_STYLES[type] },
+    status: 'none',
+    author: MarkupStore.author || 'redcolumn',
+    createdAt: now,
+    modifiedAt: now,
+    ...(extras.text ? { text: extras.text } : {}),
+    ...(extras.comment ? { comment: extras.comment } : {}),
+    ...(extras.subject ? { subject: extras.subject } : {}),
+  };
+  doc.store.checkpoint();
+  doc.store.add(markup);
+  return doc.store.get(markup.id) ?? markup;
+}
+
+function placeMarkup(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  if (args.page === undefined) throw new Error('Say which page to draw on.');
+  const pageIndex = pageIndexOf(doc, args.page);
+  const type = markupType(args.type);
+  refuseFileType(type);
+  const points = pointsOf(args.points);
+  requirePoints(type, points);
+  const extras = extrasOf(args);
+  const tools = env.toolsFor?.(doc.id) ?? null;
+  const markup = tools?.owns(doc.store) ? tools.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras);
+  return { document: doc.name, markup: publicMarkup(doc, markup) };
+}
+
+function colorOf(value: unknown, name: string): string {
+  if (typeof value !== 'string' || !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) throw new Error(`${name} has to be a color like #ff0000.`);
+  return value;
+}
+
+function styleOf(raw: unknown): Partial<MarkupStyle> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Style has to be stroke, fill, width, opacity, or font size.');
+  const style = raw as Record<string, unknown>;
+  if (!('stroke' in style) && !('fill' in style) && !('width' in style) && !('opacity' in style) && !('fontSize' in style)) {
+    throw new Error('Style has to be stroke, fill, width, opacity, or font size.');
+  }
+  const patch: Partial<MarkupStyle> = {};
+  if ('stroke' in style) patch.stroke = colorOf(style.stroke, 'Stroke');
+  if ('fill' in style) patch.fill = style.fill === null ? null : colorOf(style.fill, 'Fill');
+  if ('width' in style) {
+    if (typeof style.width !== 'number' || !Number.isFinite(style.width) || style.width < 0) throw new Error('Width has to be a number of points.');
+    patch.width = style.width;
+  }
+  if ('opacity' in style) {
+    if (typeof style.opacity !== 'number' || !Number.isFinite(style.opacity) || style.opacity < 0 || style.opacity > 1) throw new Error('Opacity has to be between 0 and 1.');
+    patch.opacity = style.opacity;
+  }
+  if ('fontSize' in style) {
+    if (typeof style.fontSize !== 'number' || !Number.isFinite(style.fontSize) || style.fontSize <= 0) throw new Error('Font size has to be a number of points.');
+    patch.fontSize = style.fontSize;
+  }
+  return patch;
+}
+
+function samePoints(a: readonly Point[], b: readonly Point[]): boolean {
+  return a.length === b.length && a.every((p, i) => p[0] === b[i]?.[0] && p[1] === b[i]?.[1]);
+}
+
+function updateMarkup(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const markup = findMarkup(doc, args);
+  if (markup.locked) throw new Error('That markup is locked.');
+  if (!doc.store.mayEdit(markup)) throw new Error('That markup cannot be changed.');
+  const patch: Partial<Omit<Markup, 'id'>> = {};
+  if (args.points !== undefined) {
+    const points = pointsOf(args.points);
+    requirePoints(markup.type, points);
+    patch.points = points;
+  }
+  if (typeof args.text === 'string') patch.text = args.text ? args.text : undefined;
+  if (args.style !== undefined) patch.style = { ...markup.style, ...styleOf(args.style) };
+  if (!('points' in patch) && !('text' in patch) && !patch.style) throw new Error('Say what to change: points, text, or style.');
+  doc.store.checkpoint();
+  doc.store.update(markup.id, patch);
+  const next = doc.store.get(markup.id);
+  if (!next) throw new Error(`No markup ${markup.id} is on ${doc.name}.`);
+  if (patch.points && !samePoints(next.points, patch.points)) throw new Error('That markup cannot be changed.');
+  if ('text' in patch && (next.text ?? '') !== (patch.text ?? '')) throw new Error('That markup cannot be changed.');
+  if (patch.style) {
+    if (next.style.stroke !== patch.style.stroke || next.style.fill !== patch.style.fill || next.style.width !== patch.style.width) throw new Error('That markup cannot be changed.');
+    if (patch.style.opacity !== undefined && next.style.opacity !== patch.style.opacity) throw new Error('That markup cannot be changed.');
+    if (patch.style.fontSize !== undefined && next.style.fontSize !== patch.style.fontSize) throw new Error('That markup cannot be changed.');
+  }
+  return { document: doc.name, markup: publicMarkup(doc, next) };
+}
+
+function idsOf(raw: unknown, empty: string): string[] {
+  if (!Array.isArray(raw) || raw.some((id) => typeof id !== 'string' || !id)) throw new Error(empty);
+  return raw as string[];
+}
+
+function markupsById(doc: AssistantDocument, ids: readonly string[]): Markup[] {
+  return ids.map((id) => {
+    const markup = doc.store.get(id);
+    if (!markup) throw new Error(`No markup ${id} is on ${doc.name}.`);
+    return markup;
+  });
+}
+
+async function ask(env: AssistantEnv, message: string) {
+  const ok = env.confirm ? await env.confirm(message) : false;
+  if (!ok) throw new Error('Not confirmed.');
+}
+
+async function deleteMarkups(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const ids = idsOf(args.ids, 'Say which markups to delete: their ids from list_markups.');
+  if (!ids.length) throw new Error('Say which markups to delete: their ids from list_markups.');
+  const found = markupsById(doc, ids);
+  if (found.some((m) => m.locked)) throw new Error(found.length === 1 ? 'That markup is locked.' : 'Those markups are locked.');
+  if (found.some((m) => !doc.store.mayEdit(m))) throw new Error('That markup cannot be changed.');
+  const labels = found.map((m) => (m.seq !== undefined ? String(m.seq) : m.id));
+  const what = found.length === 1 ? `markup ${labels[0]}` : `${found.length} markups (${labels.join(', ')})`;
+  await ask(env, `Delete ${what} on ${doc.name}? You can still Undo in redcolumn.`);
+  doc.store.checkpoint();
+  doc.store.remove(ids);
+  if (ids.some((id) => doc.store.get(id))) throw new Error('That markup cannot be changed.');
+  return { document: doc.name, deleted: ids };
+}
+
+function selectMarkups(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  const ids = idsOf(args.ids, 'Say which markups to select: their ids from list_markups.');
+  markupsById(doc, ids);
+  const tools = env.toolsFor?.(doc.id) ?? null;
+  if (!tools?.owns(doc.store)) throw new Error(`${doc.name} is not the drawing on screen.`);
+  tools.select(ids);
+  return { document: doc.name, selected: ids };
+}
+
+function getPage(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  const pageIndex = args.page === undefined ? doc.pageIndex : pageIndexOf(doc, args.page);
+  if (pageIndex < 0 || pageIndex >= doc.pageCount) throw new Error(`Page ${pageIndex + 1} is not in ${doc.name} (1–${doc.pageCount}).`);
+  const size = doc.pageSize?.(pageIndex) ?? null;
+  if (!size) throw new Error(`Page size is not available for page ${pageIndex + 1} of ${doc.name}.`);
+  const scale = doc.store.hasScale(pageIndex) ? scaleEquation(doc.store.scaleFor(pageIndex)) : undefined;
+  return { document: doc.name, id: doc.id, page: pageIndex + 1, width: size.width, height: size.height, ...(scale ? { scale } : {}) };
+}
+
+function listCommands(params: unknown, env: AssistantEnv) {
+  const commands = env.commands?.();
+  if (!commands) throw new Error('Commands are not available.');
+  const categoryRaw = record(params).category;
+  const category = typeof categoryRaw === 'string' ? categoryRaw.trim().toLowerCase() : '';
+  const list = [...commands.values()].filter((command) => !category || command.category.toLowerCase() === category);
+  return {
+    commands: list.map((command) => ({
+      id: command.id,
+      label: command.label,
+      category: command.category,
+      enabled: command.enabled,
+      ...(command.checked === undefined ? {} : { checked: command.checked }),
+    })),
+  };
+}
+
+function commandNeedsYou(command: AssistantCommand): boolean {
+  return command.label.endsWith('…') || command.label.endsWith('...') || NEEDS_YOU.has(command.id);
+}
+
+/** While a command runs, its own confirm is already answered by Allow. A confirm after an await still appears. */
+function acceptConfirms(run: () => void) {
+  const host = globalThis as { confirm?: (message?: string) => boolean };
+  const previous = host.confirm;
+  host.confirm = () => true;
+  try {
+    run();
+  } finally {
+    if (previous) host.confirm = previous;
+    else delete host.confirm;
+  }
+}
+
+function activeName(docs: readonly AssistantDocument[]): string | undefined {
+  const open = assistantDocuments(docs);
+  return (open.find((doc) => doc.active) ?? open[0])?.name;
+}
+
+async function runCommand(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const commands = env.commands?.();
+  if (!commands) throw new Error('Commands are not available.');
+  const id = record(params).id;
+  if (typeof id !== 'string' || !id) throw new Error('Say which command to run. list_commands has the ids.');
+  const command = commands.get(id);
+  if (!command) throw new Error(`No command ${id}.`);
+  const action = command.label.replace(/…$/, '').replace(/\.\.\.$/, '');
+  if (!command.enabled) throw new Error(`${action} is not available.`);
+  if (isDestructiveCommand(command.id)) {
+    const name = activeName(docs);
+    await ask(env, name ? `Allow the assistant to ${action} on ${name}?` : `Allow the assistant to ${action}?`);
+  }
+  acceptConfirms(() => command.run());
+  if (commandNeedsYou(command)) return { started: true, needsYou: true };
+  return { ok: true, id: command.id };
+}
+
 /** Runs one assistant tool against the drawings that are open right now. */
-export function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown): unknown {
+export async function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv = {}): Promise<unknown> {
   if (method === 'list_open_documents') return { documents: assistantDocuments(docs).map(publicDocument) };
   if (method === 'list_markups') return listMarkups(docs, params);
   if (method === 'set_markup') return setMarkup(docs, params);
+  if (method === 'get_page') return getPage(docs, params);
+  if (method === 'place_markup') return placeMarkup(docs, params, env);
+  if (method === 'update_markup') return updateMarkup(docs, params);
+  if (method === 'delete_markups') return deleteMarkups(docs, params, env);
+  if (method === 'select_markups') return selectMarkups(docs, params, env);
+  if (method === 'list_commands') return listCommands(params, env);
+  if (method === 'run_command') return runCommand(docs, params, env);
   throw new Error('Unknown tool.');
 }

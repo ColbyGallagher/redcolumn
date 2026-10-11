@@ -259,3 +259,15 @@ test('a read-only document draws nothing', async () => {
   assert.equal(h.store.all().length, 0);
   await h.store.destroy();
 });
+
+test('place writes one markup and undo removes it', async () => {
+  const h = await setup();
+  const placed = h.tools.place('rect', 0, [[10, 20], [80, 90]], { text: 'A' });
+  assert.equal(h.store.all().length, 1);
+  assert.equal(placed.text, 'A');
+  assert.equal(h.store.get(placed.id)?.author, 'Tester');
+  assert.equal(h.created.at(-1)?.id, placed.id);
+  h.store.undo();
+  assert.equal(h.store.all().length, 0);
+  await h.store.destroy();
+});

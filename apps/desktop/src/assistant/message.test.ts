@@ -46,8 +46,21 @@ test('initialize and tools/list answer even when the app is closed', async () =>
   assert.equal(parsed.result.protocolVersion, '2025-03-26');
   assert.equal(parsed.result.serverInfo.name, 'redcolumn');
 
-  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string }[] } };
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['list_open_documents', 'list_markups', 'set_markup']);
+  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; annotations?: { destructiveHint?: boolean } }[] } };
+  assert.deepEqual(list.result.tools.map((t) => t.name), [
+    'list_open_documents',
+    'list_markups',
+    'set_markup',
+    'list_commands',
+    'run_command',
+    'get_page',
+    'select_markups',
+    'place_markup',
+    'update_markup',
+    'delete_markups',
+  ]);
+  assert.equal(list.result.tools.find((t) => t.name === 'delete_markups')?.annotations?.destructiveHint, true);
+  assert.equal(list.result.tools.find((t) => t.name === 'run_command')?.annotations, undefined);
 });
 
 test('a tool call reaches the app, and a closed app is a plain message', async () => {

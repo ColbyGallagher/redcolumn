@@ -1,6 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { OFFLINE } from './message';
+import { OFFLINE, PAGE_WAIT_MS } from './message';
 
 interface Waiter {
   resolve: (value: unknown) => void;
@@ -31,10 +31,19 @@ export function cancelAssistantCalls() {
   }
 }
 
+/** Deletes and commands can wait on Allow or Deny, so bring the window forward for those. */
+function focusForConfirm(win: BrowserWindow, method: string) {
+  if (method !== 'delete_markups' && method !== 'run_command') return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
 /** Asks the open window. The caller already checked the message came from the app page. */
-export function askPage(getWindow: () => BrowserWindow | null, method: string, params: unknown, timeoutMs = 10_000): Promise<unknown> {
+export function askPage(getWindow: () => BrowserWindow | null, method: string, params: unknown, timeoutMs = PAGE_WAIT_MS): Promise<unknown> {
   const win = getWindow();
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) return Promise.reject(new Error(OFFLINE));
+  focusForConfirm(win, method);
   const id = randomBytes(8).toString('hex');
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {

@@ -685,6 +685,43 @@ export class MarkupTools implements ViewerOverlay {
     this.setState({ selected: this.withGroups(ids) });
   }
 
+  /** Whether these tools are editing this drawing (the one on screen in their pane). */
+  owns(store: MarkupStore): boolean {
+    return this.store === store;
+  }
+
+  /**
+   * Places a markup the way finishing its tool does: the armed tool's defaults, one undo step,
+   * then the new markup is selected. A note, flag, or typewriter given one point grows a box
+   * sized for the current zoom.
+   */
+  place(type: MarkupType, pageIndex: number, points: Point[], extras?: { text?: string; comment?: string; subject?: string }): Markup {
+    const store = this.store;
+    if (!store) throw new Error('No document is open.');
+    if (store.readOnly) throw new Error('This drawing is read-only.');
+    const zoom = this.viewer.zoomFor(pageIndex) || 1;
+    let placed = points;
+    if (points.length === 1 && (type === 'note' || type === 'flag' || type === 'typewriter')) {
+      const a = points[0]!;
+      if (type === 'typewriter') {
+        const size = (this.state.preset?.type === type ? this.state.preset.style?.fontSize : undefined) ?? this.state.styles[type]?.fontSize ?? 12;
+        placed = [a, [a[0] + size * 4, a[1] + size * 1.2 + 8]];
+      } else {
+        const s = NOTE_PX / zoom;
+        placed = [a, [a[0] + s * (type === 'flag' ? 0.8 : 1), a[1] + s]];
+      }
+    }
+    const markup = this.newMarkup(type, pageIndex, placed);
+    if (extras?.text) markup.text = extras.text;
+    if (extras?.comment) markup.comment = extras.comment;
+    if (extras?.subject) markup.subject = extras.subject;
+    store.checkpoint();
+    store.add(markup);
+    this.options.onCreated?.(markup);
+    this.select([markup.id]);
+    return store.get(markup.id) ?? markup;
+  }
+
   /** `ids` plus every markup sharing a group with one of them. */
   private withGroups(ids: Iterable<string>): Set<string> {
     const out = new Set(ids);

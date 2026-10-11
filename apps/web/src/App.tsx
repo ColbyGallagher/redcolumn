@@ -137,7 +137,9 @@ import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop } from './desktop/host';
+import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
+import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import type { AssistantDocument } from './desktop/assistant';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
@@ -4306,9 +4308,25 @@ export function App() {
       pageIndex: pageFor(t),
       active: t === activeOpen,
       store: t.store,
+      pageSize: (pageIndex: number) => {
+        const page = t.doc.pages[pageIndex];
+        return page ? { width: page.width, height: page.height } : null;
+      },
     }));
   };
-  useEffect(() => installAssistant(() => assistantHost.current()), []);
+  const assistantRuntime = useRef({
+    documents: () => assistantHost.current(),
+    commands: () => commandsRef.current,
+    toolsFor: (id: string) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
+    confirm: confirmAssistant,
+  });
+  assistantRuntime.current = {
+    documents: () => assistantHost.current(),
+    commands: () => commandsRef.current,
+    toolsFor: (id) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
+    confirm: confirmAssistant,
+  };
+  useEffect(() => installAssistant(() => assistantRuntime.current), []);
 
   // The Markups list's filter dims or hides what it leaves out, on the active pane's pages.
   useEffect(() => {
@@ -8034,6 +8052,7 @@ Open the download page? Run the new installer to update; your documents and mark
       )}
       {ctxMenu && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
       <AskTextHost />
+      <AssistantConfirmDialog />
       <StepUpHost />
       <FirstUseHost />
       {editing && activeOpen && v && activeTools && (

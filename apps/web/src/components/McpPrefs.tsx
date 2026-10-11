@@ -65,7 +65,7 @@ export function McpPrefs() {
         {info.enabled ? 'On. Leave redcolumn open. This takes effect immediately, not when you press OK. Each client below starts this installation.' : 'Off. The desktop app is not listening.'}
       </p>
       {error && <p className="print-error">{error}</p>}
-      <p className="pref-note">While this is on, an AI client on this computer can read the open drawing and update a markup. The change is one undo. Drawings stay on this computer, and redcolumn does not receive them.</p>
+      <p className="pref-note">While this is on, an AI client on this computer can read the open drawing, run commands, and edit markups. Deletes and document changes wait for Allow. Drawings stay on this computer, and redcolumn does not receive them.</p>
       {clients.map((client) => (
         <section key={client.id} className="assistant-block">
           <h4>{client.title}</h4>

@@ -1,10 +1,10 @@
 import net from 'node:net';
 import { StringDecoder } from 'node:string_decoder';
 import { readEndpoint } from './endpoint';
-import { OFFLINE } from './message';
+import { CLIENT_WAIT_MS, OFFLINE } from './message';
 
 /** One tool call to the running app. A closed app or a bad token is the same message the tool returns. */
-export function requestAssistant(port: number, token: string, method: string, params: unknown, timeoutMs = 20_000): Promise<unknown> {
+export function requestAssistant(port: number, token: string, method: string, params: unknown, timeoutMs = CLIENT_WAIT_MS): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const socket = net.connect({ host: '127.0.0.1', port });
     const decoder = new StringDecoder('utf8');
