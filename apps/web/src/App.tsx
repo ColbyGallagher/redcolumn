@@ -22,6 +22,8 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { askText, AskTextHost } from './components/AskText';
+import { parseSecret } from './studio/crypto/keys';
+import { rememberSessionKeys } from './studio/crypto/store';
 import { FirstUseHost, StepUpHost } from './components/StepUpDialog';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
@@ -3409,6 +3411,7 @@ export function App() {
                     linkCanEdit: req.linkCanEdit,
                     access: req.access,
                     expiresAt: req.expiresAt,
+                    encrypt: req.encrypt,
                     email: microsoftEmail(),
                     identify: microsoftEmail,
                   });
@@ -3429,6 +3432,7 @@ export function App() {
                   linkCanEdit: req.linkCanEdit,
                   access: req.access,
                   expiresAt: req.expiresAt,
+                  encrypt: req.encrypt,
                   email: googleEmail(),
                   identify: googleEmail,
                 });
@@ -3881,6 +3885,12 @@ export function App() {
     const onedrive = parseOneDriveInvite(params.get('onedrive') ?? '');
     const driveInvite = gdrive ?? onedrive;
     const inviteBackend = gdrive ? 'drive' : 'onedrive';
+    // An encrypted session's key comes after # (never sent to any server): keep it, and take it out of the address bar.
+    const secret = driveInvite ? parseSecret(window.location.hash) : null;
+    if (driveInvite && secret) {
+      rememberSessionKeys(driveInvite, secret);
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
     const projectLink = idFromText(params.get('project') ?? '');
     if (params.has('project')) {
       params.delete('project');

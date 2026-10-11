@@ -80,6 +80,10 @@ sign in to Google or Microsoft.
   shared and deleted in Google Drive and OneDrive from this browser. That list stays in your
   browser and is never sent anywhere. Before the first sign-in to each provider, the app shows a
   short summary of what goes where.
+- **Encryption:** new sessions are encrypted end to end unless the host turns it off. The key is
+  in the invite link after `#`, which is never sent to Google, Microsoft or us, so they store only
+  scrambled files. File names and attendee names are still visible to people the folder is shared
+  with.
 - **What other attendees see:** your name or email, your markups, chat messages, and which page
   you are viewing while you are in the session.
 - **Removing it:** delete the session folder in your Google Drive or OneDrive. You can withdraw the

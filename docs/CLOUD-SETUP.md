@@ -44,6 +44,28 @@ Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`,
   PDFs are not in the policy, so those requests are refused with a message and signing carries on
   without them. Most of these services refuse browser requests anyway.
 
+### End-to-end encrypted sessions
+
+New Live Sessions are encrypted end to end unless the host unticks it (`apps/web/src/studio/crypto/`).
+
+- **The key is in the invite link** after `#rk=`, which browsers never send to a server. The
+  session's PDFs, markups, chat, the Record and the manifest are sealed with AES-GCM in the browser
+  before upload, so Google and Microsoft store only ciphertext, and a forwarded sharing link without
+  the `#` part opens nothing. File names, seat names and presence (which page someone is on) are
+  file properties and stay readable to anyone the folder is shared with.
+- **Signing.** Each browser has its own ECDSA key (kept in IndexedDB, not extractable) and signs
+  every room file it writes. The host has keys of its own for the session, kept in its app folder
+  (`session-host-keys.json`, not shared): the link pins their fingerprint, the host signs the
+  manifest, and the manifest lists each admitted seat's keys. Room files from a seat the host has
+  not admitted, signed by another key, or (for documents) from someone without markup access are
+  ignored, even by people who can write to the folder in OneDrive.
+- **Removing someone** (setting their access to none) makes a new session key, wrapped (ECDH) for
+  everyone else; their room files are rewritten with it and the host re-encrypts the documents.
+  What the removed person already read cannot be taken back.
+- **Costs:** PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be
+  recovered. The host manages the session from any browser signed in to the same account, since the
+  host keys are in its app folder.
+
 ### Desktop app
 
 The desktop app (`apps/desktop`) keeps the Microsoft sign-in in its main process, encrypted with
