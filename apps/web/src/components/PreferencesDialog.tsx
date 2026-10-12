@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, settings, type SetTag, type SetTemplate, type Settings } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -164,7 +165,7 @@ function pickFile(): Promise<string | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,application/json';
+    input.accept = '.json,.xml,application/json,text/xml,application/xml';
     input.addEventListener('change', () => {
       const f = input.files?.[0];
       if (f) void f.text().then(resolve, () => resolve(null));
@@ -695,6 +696,12 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }
               const raw = await pickFile();
               if (!raw) return;
               try {
+                // A Revu categories file (.xml) is read as a template over the current Assign by tag.
+                if (/^\uFEFF?\s*</.test(raw)) {
+                  const revu = parseCategoriesXml(raw);
+                  set({ setTemplates: { ...d.setTemplates, [revu.name]: { assignBy: template.assignBy, categories: revu.categories } }, setDefaultTemplate: revu.name });
+                  return;
+                }
                 const t = JSON.parse(raw) as { name?: string; template?: SetTemplate };
                 if (!t.name || !Array.isArray(t.template?.categories)) throw new Error('Not a Sets template');
                 set({ setTemplates: { ...d.setTemplates, [t.name]: t.template }, setDefaultTemplate: t.name });
@@ -708,6 +715,9 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }
           <span className="spacer" />
           <button type="button" className="btn" title="Save this template to a file" onClick={() => saveFile(`${d.setDefaultTemplate}.sets-template.json`, JSON.stringify({ name: d.setDefaultTemplate, template }, null, 2))}>
             Save
+          </button>
+          <button type="button" className="btn" title="Save this template as a Bluebeam Revu categories file" onClick={() => saveFile(`${d.setDefaultTemplate}.xml`, categoriesToXml({ name: d.setDefaultTemplate, categories: template.categories }))}>
+            Export for Revu
           </button>
           <button
             type="button"

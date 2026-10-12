@@ -4,6 +4,8 @@ export * from './style';
 export { lineArt, lineStyleFonts, lineStyleHasText, lineStyleReach, readLineStyle, styledParts, type ArtText, type CustomLine, type LineArt, type TextMeasure } from './lineStyle';
 export { parseBlx, setTitle, type LineSet } from './lineSet';
 export { parseBhx, type HatchSet } from './hatchSet';
+export { applyBookmarkTemplate, DEFAULT_BOOKMARK_TEMPLATE, parseBookmarkTemplate, sheetSeries, type BookmarkTemplate, type BookmarkTemplateNode, type TemplatePage } from './bookmarkTemplate';
+export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCategorySet } from './setCategories';
 export * from './columns';
 export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
