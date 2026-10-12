@@ -115,3 +115,19 @@ test('two people adding a markup at once settle on different IDs', async () => {
   assert.equal(two.get('next')!.seq, 4);
   await Promise.all([one.destroy(), two.destroy()]);
 });
+
+test('a hook hears each new markup, not an edit of one already there', async () => {
+  const store = await MarkupStore.open('test', { persist: false });
+  const heard: string[] = [];
+  MarkupStore.onAdded = (_, m) => heard.push(m.id);
+  try {
+    store.add(rect('a', 0));
+    store.add({ ...rect('a', 0), author: 'Sam' });
+    store.update('a', { author: 'Kim' });
+    store.add(rect('b', 20));
+  } finally {
+    MarkupStore.onAdded = null;
+  }
+  assert.deepEqual(heard, ['a', 'b']);
+  await store.destroy();
+});

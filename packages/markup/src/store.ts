@@ -84,6 +84,8 @@ const NUMBERING = Symbol('numbering');
 export class MarkupStore {
   /** Who is making changes here (Preferences › name): recorded with each status change. */
   static author = '';
+  /** Called after a new markup is added here (not on an edit, an import or a remote change). */
+  static onAdded: ((store: MarkupStore, markup: Markup) => void) | null = null;
 
   readonly doc = new Y.Doc();
   readonly map: Y.Map<Markup>;
@@ -764,11 +766,13 @@ export class MarkupStore {
     if (this.locked) return;
     const clean: Record<string, unknown> = { ...markup };
     for (const k of Object.keys(clean)) if (clean[k] === undefined) delete clean[k];
+    let added = false;
     this.doc.transact(() => {
       const existing = this.map.get(markup.id);
       if (existing) {
         if (existing.seq) clean.seq = existing.seq;
       } else {
+        added = true;
         const seq = this.lastSeq() + 1;
         clean.seq = seq;
         this.meta.set('seq', seq);
@@ -777,6 +781,7 @@ export class MarkupStore {
       }
       this.map.set(markup.id, clean as unknown as Markup);
     }, LOCAL);
+    if (added) MarkupStore.onAdded?.(this, clean as unknown as Markup);
   }
 
   /** Merges `patch` into a markup; a field patched to undefined is removed. */

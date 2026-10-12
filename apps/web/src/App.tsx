@@ -4655,6 +4655,35 @@ export function App() {
     }
   };
 
+  // The first markup someone makes asks for the name to sign this and later markups with.
+  useEffect(() => {
+    let named = false;
+    try {
+      named = localStorage.getItem(AUTHOR_KEY) !== null;
+    } catch {
+      // Storage unavailable: ask once per session.
+    }
+    const waiting: { store: MarkupStore; id: string }[] = [];
+    let asking = false;
+    MarkupStore.onAdded = (store, m) => {
+      if (named || m.author !== authorRef.current) return;
+      waiting.push({ store, id: m.id });
+      if (asking) return;
+      asking = true;
+      void askText('Your name', '', { label: 'Your markups are signed with this name. You can change it later in Preferences.', confirm: 'Save' }).then((name) => {
+        named = true; // Declined: ask again next time the app starts, not on every markup.
+        if (!name) return;
+        MarkupStore.author = name;
+        persistAuthor(name);
+        for (const w of waiting) if (w.store.get(w.id)) w.store.update(w.id, { author: name });
+      });
+    };
+    return () => {
+      MarkupStore.onAdded = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const showLeft = (tab: LeftTab) => {
     setLeftTab(tab);
     setLeftOpen(true);

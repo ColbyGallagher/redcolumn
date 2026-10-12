@@ -2946,10 +2946,12 @@ body,
 }
 
 .ctx-sub {
-  display: none;
   position: absolute;
   top: -5px;
   left: 100%;
+  /* Closes after a short delay, so a diagonal move to its items does not shut it. */
+  visibility: hidden;
+  transition: visibility 0s linear 0.35s;
 }
 
 .ctx-sub.flip {
@@ -2959,7 +2961,8 @@ body,
 
 .ctx-has-sub:hover > .ctx-sub,
 .ctx-has-sub:focus-within > .ctx-sub {
-  display: block;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .ctx-has-sub:hover > .menu-item:not(:disabled) {
