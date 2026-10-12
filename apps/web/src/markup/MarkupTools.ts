@@ -180,6 +180,11 @@ type Gesture =
   | { kind: 'hyperlink'; markup: Markup; start: Point }
   /** Text markup tools: the words from where the drag began to the pointer get marked. */
   | { kind: 'textMark'; markup: Markup; from: Point; copyOnly?: boolean }
+  /**
+   * Highlight tool while the page's words are still loading. The drag is kept as a stroke until
+   * the words arrive: if it began on a word it becomes a text highlight, otherwise the stroke stays.
+   */
+  | { kind: 'pendingHighlight'; markup: Markup; from: Point }
   /** Eraser: rubbing out parts of pen and highlighter strokes. */
   | { kind: 'erase'; pageIndex: number }
   /** Drag on empty page with Select: markups wholly inside the box get selected. */
@@ -268,6 +273,8 @@ export type FillType = (typeof FILL_TYPES)[number];
 interface Modifiers {
   shiftKey: boolean;
   altKey: boolean;
+  /** Ctrl or ⌘: the Highlight tool draws a free stroke instead of marking words. */
+  ctrlKey: boolean;
 }
 
 export interface MarkupToolsOptions {
@@ -392,7 +399,24 @@ export class MarkupTools implements ViewerOverlay {
     onImageLoad(() => this.viewer.invalidate());
     // Grid and snapping preferences change what is drawn.
     settings.subscribe(() => this.refreshSketch());
+    window.addEventListener('keydown', this.onModifierKey);
+    window.addEventListener('keyup', this.onModifierKey);
   }
+
+  /** Drops the modifier-key listener. */
+  dispose() {
+    window.removeEventListener('keydown', this.onModifierKey);
+    window.removeEventListener('keyup', this.onModifierKey);
+  }
+
+  /**
+   * Ctrl (and ⌘) change whether Highlight marks words or draws a stroke, so the cursor follows
+   * the key even when the pointer stays still. The global modifier record is updated first.
+   */
+  private onModifierKey = (e: KeyboardEvent) => {
+    if (e.repeat || (e.key !== 'Control' && e.key !== 'Meta' && e.key !== 'Shift' && e.key !== 'Alt')) return;
+    this.viewer.refreshPointerCursor();
+  };
 
   // --- state for React -------------------------------------------------------------------
 
@@ -552,16 +576,76 @@ export class MarkupTools implements ViewerOverlay {
     if (!cached && this.textSource) {
       this.pageWords.set(pageIndex, 'loading');
       const source = this.textSource;
-      source(pageIndex)
-        .then((words) => {
-          if (this.textSource === source) this.pageWords.set(pageIndex, words);
-        })
-        .catch((err) => {
+      source(pageIndex).then(
+        (words) => {
+          if (this.textSource !== source) return;
+          this.pageWords.set(pageIndex, words);
+          const g = this.gesture;
+          if (g?.kind === 'pendingHighlight' && g.markup.pageIndex === pageIndex) this.resolvePendingHighlight(g, g.markup.points.at(-1) ?? g.from);
+          this.viewer.refreshPointerCursor();
+        },
+        (err) => {
           console.error('Loading page text failed', err);
           this.pageWords.delete(pageIndex);
-        });
+        },
+      );
     }
     return null;
+  }
+
+  /** True when `p` sits on a word of the page. Words still loading count as not. */
+  private overText(pageIndex: number, p: Point): boolean {
+    const words = this.wordsFor(pageIndex);
+    return !!words && wordAt(words, p, TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0;
+  }
+
+  /**
+   * Starts a Highlight drag. Over a word it marks the text; with no words loaded yet the stroke
+   * is kept until they arrive. Returns false to draw a free stroke (off the text, or Ctrl held).
+   */
+  private startHighlighter(e: PointerEvent, pageIndex: number, p: Point): boolean {
+    if (e.button !== 0 || e.ctrlKey || e.metaKey) return false;
+    if (!this.wordsFor(pageIndex)) {
+      this.setGesture({ kind: 'pendingHighlight', markup: this.newMarkup('highlighter', pageIndex, [p]), from: p });
+      return true;
+    }
+    if (!this.overText(pageIndex, p)) return false;
+    this.setGesture({ kind: 'textMark', markup: this.textHighlightFromTool(pageIndex), from: p });
+    return true;
+  }
+
+  /** A text highlight in the Highlight tool's colour and opacity. */
+  private textHighlightFromTool(pageIndex: number): Markup {
+    const markup = this.newMarkup('textHighlight', pageIndex, []);
+    const preset = this.state.preset?.type === 'highlighter' ? this.state.preset : null;
+    const look = preset?.style ?? this.state.styles.highlighter;
+    markup.style = { ...markup.style, stroke: look.stroke, opacity: look.opacity };
+    if (preset?.subject) markup.subject = preset.subject;
+    return markup;
+  }
+
+  /** The words from `from` to `to` become `markup`'s lines and comment. */
+  private applyTextMark(markup: Markup, from: Point, to: Point) {
+    const words = this.wordsFor(markup.pageIndex);
+    const reach = TEXT_REACH_PX / this.viewer.zoomFor(markup.pageIndex);
+    const { points, text } = lineRects(words ? selectRange(words, from, to, reach) : []);
+    markup.points = points;
+    markup.comment = text;
+  }
+
+  /**
+   * When the page's words have arrived, a pending Highlight drag becomes a text highlight if it
+   * began on a word, otherwise the free stroke already drawn. Returns false while the words are unknown.
+   */
+  private resolvePendingHighlight(g: { markup: Markup; from: Point }, at: Point): boolean {
+    const pageIndex = g.markup.pageIndex;
+    if (!this.wordsFor(pageIndex)) return false;
+    if (this.overText(pageIndex, g.from)) {
+      const markup = this.textHighlightFromTool(pageIndex);
+      this.applyTextMark(markup, g.from, at);
+      this.setGesture({ kind: 'textMark', markup, from: g.from });
+    } else this.setGesture({ kind: 'draw', markup: g.markup });
+    return true;
   }
 
   setShowLinks(showLinks: boolean) {
@@ -635,6 +719,9 @@ export class MarkupTools implements ViewerOverlay {
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
     this.setState({ tool, selected: tool === 'select' || tool === 'lasso' ? this.state.selected : new Set(), preset: armed, painterSource: null });
+    // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
+    if (tool === 'highlighter') this.wordsFor(this.page);
+    this.viewer.refreshPointerCursor();
   }
 
   /** Shows markups the Markups list filters out faintly ('dim'), not at all ('hide') or normally. */
@@ -1228,7 +1315,7 @@ export class MarkupTools implements ViewerOverlay {
       for (const r of markupLines(g.markup.points)) ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.restore();
     }
-    if ((g?.kind === 'draw' || g?.kind === 'textMark') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
+    if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
       const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
@@ -1477,6 +1564,8 @@ export class MarkupTools implements ViewerOverlay {
 
     // Calibration is click-by-click and handled above.
     if (tool !== 'select' && tool !== 'calibrate') {
+      // Highlight marks the words under the pointer. Ctrl draws a free stroke, including over text.
+      if (tool === 'highlighter' && this.startHighlighter(e, pageIndex, toPoint(pt))) return true;
       // Cloud+ draws a cloud, then adds a callout pointing at it.
       const type: MarkupType = tool === 'cloudPlus' ? 'cloud' : (tool as MarkupType);
       const p = snapsWhileDrawing(type) ? this.resolve(pt, e, null) : toPoint(pt);
@@ -1607,11 +1696,15 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.kind === 'textMark') {
-      const words = this.wordsFor(g.markup.pageIndex);
-      const reach = TEXT_REACH_PX / this.viewer.zoomFor(g.markup.pageIndex);
-      const { points, text } = lineRects(words ? selectRange(words, g.from, toPoint(pt), reach) : []);
-      g.markup.points = points;
-      g.markup.comment = text;
+      this.applyTextMark(g.markup, g.from, toPoint(pt));
+    } else if (g.kind === 'pendingHighlight') {
+      const m = g.markup;
+      const p = toPoint(pt);
+      const last = m.points[m.points.length - 1]!;
+      if (Math.hypot(p[0] - last[0], p[1] - last[1]) * this.viewer.zoomFor(this.page) >= 1.5) m.points = [...m.points, p];
+      if (this.resolvePendingHighlight(g, p)) this.pointerMove(e, pt, pageIndex);
+      else this.viewer.invalidate();
+      return;
     } else if (g.kind === 'box') {
       g.end = toPoint(pt);
     } else if (g.kind === 'lasso') {
@@ -1677,6 +1770,15 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     const g = this.gesture;
     if (!g || !this.store) return;
+    if (g.kind === 'pendingHighlight') {
+      const at = toPoint(pt);
+      const m = g.markup;
+      const last = m.points[m.points.length - 1]!;
+      if (Math.hypot(at[0] - last[0], at[1] - last[1]) * this.viewer.zoomFor(this.page) >= 1.5) m.points = [...m.points, at];
+      if (!this.resolvePendingHighlight(g, at)) this.setGesture({ kind: 'draw', markup: m });
+      this.pointerUp(e, pt, pageIndex);
+      return;
+    }
     if (g.kind === 'multi') {
       // Pressing, dragging and releasing places the second point, so a length can be dragged out.
       const p = this.resolve(pt, e, g.markup.points.at(-1)!);
@@ -1780,6 +1882,7 @@ export class MarkupTools implements ViewerOverlay {
       return tool === 'eraser' ? 'none' : 'crosshair';
     }
     if (tool === 'editText') return 'text';
+    if (tool === 'highlighter') return !lastModifiers.ctrlKey && this.overText(pageIndex, toPoint(pt)) ? 'text' : 'crosshair';
     if ((isMarkupTool(tool) && TYPE_INFO[tool].draw === 'text') || tool === 'selectText') {
       const words = this.wordsFor(pageIndex);
       return words && wordAt(words, toPoint(pt), TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0 ? 'text' : 'default';
@@ -2183,13 +2286,14 @@ export class MarkupTools implements ViewerOverlay {
 
 /**
  * Modifier keys at the last pointer or key event. Hover events come from the viewer without the
- * originating event, so track modifiers globally (Shift/Alt pressed while hovering count too).
+ * originating event, so track modifiers globally (Shift, Alt and Ctrl pressed while hovering count too).
  */
-const lastModifiers: Modifiers = { shiftKey: false, altKey: false };
+const lastModifiers: Modifiers = { shiftKey: false, altKey: false, ctrlKey: false };
 for (const type of ['pointermove', 'keydown', 'keyup'] as const) {
   window.addEventListener(type, (e) => {
     lastModifiers.shiftKey = e.shiftKey;
     lastModifiers.altKey = e.altKey;
+    lastModifiers.ctrlKey = e.ctrlKey || e.metaKey;
   });
 }
 

@@ -33,7 +33,7 @@ Tools are drawn in one of four ways:
 |---|---|---|
 | **Drag** | Line, Arrow, Rectangle, Ellipse, Cloud, Text Box, Callout, Stamp… | Press the mouse button, drag, let go. |
 | **Click points** | Polyline, Polygon, Polygon Cloud, Arc | Click each corner. Finish by pressing [[Enter]], double-clicking, or clicking the first point again. |
-| **Freehand** | Pen, Highlighter | Hold the button down and draw. |
+| **Freehand** | Pen, Highlighter | Hold the button down and draw. Over text, the Highlighter marks the words; hold [[Ctrl]] to draw a stroke there too. |
 | **Click once** | Note, Flag, Typewriter, File Attachment | Click where it goes. |
 
 Useful keys while drawing:

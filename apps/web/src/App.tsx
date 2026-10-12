@@ -1006,6 +1006,7 @@ export function App() {
     // Debugging handle for the browser console in development builds.
     if (import.meta.env.DEV) Object.assign(window, { __nb: { engine, viewer, tools } });
     return () => {
+      tools.dispose();
       viewer.destroy();
       engine.terminate();
     };
@@ -1020,6 +1021,7 @@ export function App() {
     viewer.setOverlay(tools);
     setCtlB({ viewer, tools });
     return () => {
+      tools.dispose();
       viewer.destroy();
       setCtlB(null);
     };

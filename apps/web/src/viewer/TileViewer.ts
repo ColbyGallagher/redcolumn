@@ -548,6 +548,20 @@ export class TileViewer {
     return this.magnify;
   }
 
+  /**
+   * Sets the cursor from the overlay at the pointer's last position. Modifier keys change what
+   * Highlight does under a still pointer, so the cursor has to follow the key as well as the mouse.
+   */
+  refreshPointerCursor() {
+    if (this.gesturePage !== null || this.drag || this.navTool || !this.pointer || !this.doc || !this.overlay) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const clientX = rect.left + this.pointer.x;
+    const clientY = rect.top + this.pointer.y;
+    const page = this.pageAtClient(clientX, clientY);
+    if (page === null) return;
+    this.canvas.style.cursor = this.overlay.hover(this.clientToPage(clientX, clientY, page), page) || '';
+  }
+
   /** Zoom tool (drag a box, click to zoom in, Alt-click out), Dynamic Zoom (drag up or down) or Pan. */
   setNavTool(tool: NavTool) {
     this.navTool = tool;

@@ -9,8 +9,25 @@ import type { TileViewer } from '../viewer/TileViewer';
 import type { MarkupTools as Tools } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
-(globalThis as { window?: unknown }).window ??= { addEventListener() {}, removeEventListener() {} };
+type WinListener = (e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean; key?: string; repeat?: boolean }) => void;
+const windowListeners = new Map<string, Set<WinListener>>();
+(globalThis as { window?: unknown }).window ??= {
+  addEventListener(type: string, fn: WinListener) {
+    let set = windowListeners.get(type);
+    if (!set) windowListeners.set(type, (set = new Set()));
+    set.add(fn);
+  },
+  removeEventListener(type: string, fn: WinListener) {
+    windowListeners.get(type)?.delete(fn);
+  },
+};
 const { MarkupTools } = await import('./MarkupTools');
+
+/** Presses or releases Ctrl the way the page tracks modifier keys (hover has no event of its own). */
+function holdCtrl(down: boolean) {
+  const e = { shiftKey: false, altKey: false, ctrlKey: down, metaKey: false, key: 'Control', repeat: false };
+  for (const fn of windowListeners.get(down ? 'keydown' : 'keyup') ?? []) fn(e);
+}
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
@@ -23,6 +40,7 @@ const viewer = {
   pageSize: () => ({ width: 612, height: 792 }),
   pageNearClient: () => 0,
   clientToPage: (x: number, y: number) => [x, y],
+  refreshPointerCursor() {},
 } as unknown as TileViewer;
 
 /** A line of PDF text across the top of the page, for the text markup tools. */
@@ -257,6 +275,79 @@ test('a read-only document draws nothing', async () => {
   for (const type of ['rect', 'pen', 'length', 'note'] as const) await drawWith(h, type);
   h.tools.finish();
   assert.equal(h.store.all().length, 0);
+  await h.store.destroy();
+});
+
+test('the highlighter marks words under the pointer and draws a stroke everywhere else', async () => {
+  const h = await setup();
+  h.tools.setTool('highlighter');
+  h.tools.setStyle('highlighter', { stroke: '#22c55e', opacity: 0.55 });
+  await settle();
+
+  assert.equal(h.tools.hover([50, 106], 0), 'text', 'text cursor over a word');
+  assert.equal(h.tools.hover([100, 200], 0), 'crosshair', 'crosshair off the text');
+  holdCtrl(true);
+  try {
+    assert.equal(h.tools.hover([50, 106], 0), 'crosshair', 'Ctrl draws freely, so the cursor is a crosshair on text too');
+  } finally {
+    holdCtrl(false);
+  }
+  assert.equal(h.tools.hover([50, 106], 0), 'text');
+
+  drag(h.tools, [50, 106], [160, 106]);
+  const text = h.store.all()[0]!;
+  assert.equal(text.type, 'textHighlight');
+  assert.equal(text.comment, 'GENERAL NOTES');
+  assert.equal(text.style.stroke, '#22c55e', 'uses the Highlight colour');
+  assert.equal(text.style.opacity, 0.55);
+  assert.equal(text.style.width, DEFAULT_STYLES.textHighlight.width, 'a text highlight is not a wide stroke');
+  const b = boundsOf(text.points);
+  assert.ok(b.x <= 50.5 && b.x + b.w >= 159.5 && b.y <= 101 && b.y + b.h >= 111);
+
+  // Starting off the text stays a stroke, even when the drag ends on a word.
+  drag(h.tools, [100, 200], [80, 106]);
+  const stroke = h.store.all().find((m) => m.id !== text.id)!;
+  assert.equal(stroke.type, 'highlighter');
+  assert.equal(stroke.style.stroke, '#22c55e');
+  assert.equal(stroke.style.width, DEFAULT_STYLES.highlighter.width);
+  assert.ok(stroke.points.length >= 2 && stroke.points[0]![1] === 200);
+
+  h.store.remove([stroke.id]);
+  drag(h.tools, [50, 106], [160, 106], { ctrlKey: true });
+  const free = h.store.all().find((m) => m.id !== text.id)!;
+  assert.equal(free.type, 'highlighter', 'Ctrl draws a stroke over the words');
+  assert.ok(free.points.length >= 2 && free.points[0]![1] === 106);
+
+  h.store.undo();
+  assert.equal(h.store.get(free.id), undefined, 'the stroke is one undo step');
+  assert.ok(h.store.get(text.id), 'the text highlight stays');
+  await h.store.destroy();
+});
+
+test('a highlight drag that starts before the page text loads still marks the words', async () => {
+  const h = await setup();
+  let deliver: (words: readonly WordBox[]) => void = () => {};
+  h.tools.setTextSource(() => new Promise((resolve) => { deliver = resolve; }));
+  h.tools.setTool('highlighter');
+  press(h.tools, [50, 106]);
+  move(h.tools, [160, 106]);
+  assert.equal(h.store.all().length, 0, 'nothing is committed while the words are loading');
+  deliver(WORDS);
+  await settle();
+  release(h.tools, [160, 106]);
+  const [m] = h.store.all();
+  assert.equal(m?.type, 'textHighlight');
+  assert.equal(m?.comment, 'GENERAL NOTES');
+
+  let deliverOff: (words: readonly WordBox[]) => void = () => {};
+  h.tools.setTextSource(() => new Promise((resolve) => { deliverOff = resolve; }));
+  press(h.tools, [100, 200]);
+  move(h.tools, [150, 220]);
+  deliverOff(WORDS);
+  await settle();
+  release(h.tools, [180, 240]);
+  const off = h.store.all().find((markup) => markup.id !== m?.id);
+  assert.equal(off?.type, 'highlighter', 'a drag that began off the text stays a stroke once the words arrive');
   await h.store.destroy();
 });
 

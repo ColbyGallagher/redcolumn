@@ -1,16 +1,23 @@
 # Highlighter
 
-Draws a wide, see-through stroke, like a highlighter pen. Use it to colour over walls, pipes or areas.
+Highlights words, or draws a wide see-through stroke. Over text it follows the words. Hold [[Ctrl]] to draw freely, including over text. Where there is no text, it draws a stroke.
 
-## Highlight
+## Highlight text
 
 1. Click **Highlighter** on the toolbar.
 
    ![The Highlighter button on the toolbar](img/pick-highlighter.png)
-2. Hold the mouse button down and drag over what you want to highlight.
+2. Point at a word. The pointer turns into a text cursor.
+3. Drag across the words. You can drag over several lines.
 
-   ![A yellow highlight along the kitchen wall](img/draw-highlighter.png)
+The highlighted words are copied into the markup's **Comments**.
 
-Change the width and colour on the toolbar.
+## Draw a stroke
 
-> **Tip:** To highlight **words** in the PDF neatly, use [Text Highlight](#tool-text-highlight) instead. It follows the lines of text exactly.
+Hold [[Ctrl]] and drag to draw a free stroke over text. Away from text, just drag.
+
+![A yellow highlight along the kitchen wall](img/draw-highlighter.png)
+
+Change the colour on the toolbar. The width is the free stroke; text highlights follow the words and use the same colour.
+
+> **Tip:** A scan has no real text until you run [OCR](#ocr). Until then the highlighter draws a stroke. [Text Highlight](#tool-text-highlight) always marks words and never draws a stroke.

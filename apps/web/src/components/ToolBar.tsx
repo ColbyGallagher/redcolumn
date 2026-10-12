@@ -83,6 +83,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   attachment: 'choose a file, then click to place its paperclip',
   flag: 'click to place a flag; double-click to add a note',
   snapshot: 'drag a box: the area is copied as a picture',
+  highlighter: 'over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text',
   textHighlight: 'drag across text in the PDF',
   underline: 'drag across text in the PDF',
   strikeout: 'drag across text in the PDF',
