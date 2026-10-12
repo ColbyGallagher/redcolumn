@@ -282,7 +282,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       continue;
     }
     if (part.hatch && part.clip) {
-      const draw = hatchDraw(part.hatch.id, part.hatch.scale);
+      const draw = hatchDraw(part.hatch.id, part.hatch.scale, part.hatch.spec);
       if (draw) {
         const [hr, hg, hb] = rgb(part.hatch.color);
         hatchPattern = doc.context.register(hatchPatternStream(doc, draw));

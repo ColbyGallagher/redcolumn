@@ -111,3 +111,18 @@ test('a brick rectangle exports an uncolored tiling pattern and round-trips its 
   assert.equal(parsed.style.hatchColor, '#0000ff');
   assert.equal(parsed.style.hatchScale, 100);
 });
+
+test('an imported hatch carried on the markup draws and exports as a tiling pattern', async () => {
+  const spec = { scaleX: 1, scaleY: 1, size: 18, lineWidth: 1, elements: [{ type: 'line' as const, x1: 0, y1: 0.5, x2: 1, y2: 0.5 }] };
+  const m = rect('set:Mine/Stripe', { hatchSpec: spec });
+  const part = markupShape(m).find((p) => p.hatch);
+  assert.deepEqual(part?.hatch?.spec, spec);
+  assert.equal(markupShape(rect('set:Mine/Stripe')).find((p) => p.hatch), undefined, 'without its pattern an imported hatch is not drawn');
+  const original = await (async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    return doc.save({ useObjectStreams: false });
+  })();
+  const bytes = await exportWithAnnotations(original.buffer as ArrayBuffer, [m]);
+  assert.match(Buffer.from(bytes).toString('latin1'), /\/PatternType 1/);
+});

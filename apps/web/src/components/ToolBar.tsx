@@ -1,12 +1,13 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
-import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
+import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
-import { HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
+import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
 import { shortcutLabel } from '../commands/shortcuts';
+import { useWorkspace } from '../workspace/profiles';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -164,6 +165,7 @@ function toolTitle(tool: Tool) {
 }
 
 export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
+  const { lineSets } = useWorkspace();
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
   const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
@@ -245,12 +247,31 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           </label>
           {styleCapabilities(styleType).dash && (
             <label className="field" title="Line style">
-              <select value={style.dashArray ? 'custom' : (style.dash ?? 'solid')} onChange={(e) => e.target.value !== 'custom' && tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined })}>
-                {style.dashArray && <option value="custom">Custom ({style.dashArray.map((n) => Math.round(n * 100) / 100).join(' ')})</option>}
+              <select
+                value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
+                onChange={(e) => {
+                  if (e.target.value === 'custom') return;
+                  // A style from an imported Revu line set (value 'line:<set>:<style>').
+                  const [, si, li] = e.target.value.split(':');
+                  const picked = e.target.value.startsWith('line:') ? lineSets[Number(si)]?.styles[Number(li)] : undefined;
+                  if (picked) tools.setStyle(styleType, { lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
+                  else tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined, lineStyle: undefined });
+                }}
+              >
+                {(style.lineStyle || style.dashArray) && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
                 {LINE_DASHES.map((d) => (
                   <option key={d.value} value={d.value}>
                     {d.label}
                   </option>
+                ))}
+                {lineSets.map((set, si) => (
+                  <optgroup key={set.title} label={set.title}>
+                    {set.styles.map((l, li) => (
+                      <option key={l.name} value={`line:${si}:${li}`}>
+                        {l.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
@@ -362,18 +383,19 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
   }, [open]);
 
   const current = style.hatch;
-  const active = !!resolveHatch(current);
+  const { hatchSets } = useWorkspace();
+  const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? LEGACY_HATCH_LABELS[current] ?? 'Hatch');
-  const choose = (value: 'none' | HatchPattern | StoredHatch) => {
-    if (value === 'none') onChange({ hatch: undefined, hatchColor: undefined, hatchScale: undefined });
-    else onChange({ hatch: value });
+  const name = !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? 'Hatch');
+  const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
+    if (value === 'none') onChange({ hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined });
+    else onChange({ hatch: value, hatchSpec: spec });
   };
   return (
     <div className="hatch-menu" ref={root}>
       <button type="button" className={`btn hatch-btn${active ? ' on' : ''}`} disabled={disabled} title="Hatch pattern, color and scale" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
         {name}
-        {active && current && <HatchSwatch pattern={current} color={color} width={36} height={18} />}
+        {active && current && <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={36} height={18} />}
       </button>
       {open && (
         <div className="hatch-pop" role="dialog" aria-label="Hatch">
@@ -386,10 +408,24 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
               </button>
             );
           })}
-          {current && !HATCH_PATTERNS.some((h) => h.value === current) && (
-            <button type="button" className="hatch-choice on" aria-pressed onClick={() => choose(current)}>
-              <HatchSwatch pattern={current} color={color} width={48} height={22} />
-              {LEGACY_HATCH_LABELS[current] ?? current}
+          {hatchSets.map((set) => (
+            <div key={set.title} className="hatch-group">
+              <div className="hatch-group-title">{set.title}</div>
+              {set.hatches.map((h) => {
+                const on = current === h.id;
+                return (
+                  <button key={h.id} type="button" className={`hatch-choice${on ? ' on' : ''}`} aria-pressed={on} onClick={() => choose(h.id, h.spec)}>
+                    <HatchSwatch pattern={h.id} spec={h.spec} color={color} width={48} height={22} />
+                    {h.name}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {current && !HATCH_PATTERNS.some((h) => h.value === current) && !hatchSets.some((s) => s.hatches.some((h) => h.id === current)) && (
+            <button type="button" className="hatch-choice on" aria-pressed onClick={() => choose(current, style.hatchSpec)}>
+              <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={48} height={22} />
+              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
             </button>
           )}
           <div className="hatch-pop-row">

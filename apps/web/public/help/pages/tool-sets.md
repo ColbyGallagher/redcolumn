@@ -33,6 +33,15 @@ Click the **⋯** (Tool set options) button at the right of a set's heading:
 
 redcolumn reads its own `.json` tool sets and Bluebeam® Revu® tool sets (`.btx`). You can also drag the file onto the Tool Library.
 
+## Import line styles and hatches
+
+**Import…** also reads Bluebeam® Revu® line style sets (`.blx`) and hatch sets (`.bhx`). Revu keeps them in its settings folder, next to your tool sets.
+
+- **Line styles** appear in the **Line style** list, in the toolbar and in [Properties](#properties), under the set's name. Pick one to draw a line as a pattern of dashes, text and symbols, such as *Gas* or *Fenceline Circle*.
+- **Hatches** appear in the **Hatch** list the same way. Revu's *Standard* hatch set is already built in, so importing it adds nothing new.
+
+Each set is listed as a tag under the Import button. Click **×** on a tag to remove the set from your profile. Markups that already use a style or hatch keep it, because the pattern is saved with the markup.
+
 ## Share with your team
 
 Export a set, send the file to colleagues, and they **Import** it. Tool sets are part of your [profile](#profiles), so backing up a profile backs them up too.

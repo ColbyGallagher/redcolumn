@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, type Markup, type MarkupType, type Point } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
-import { importToolSets, toolSetFile } from '../toolchest/toolSets';
+import { importRevuFiles, isRevuLibraryFile, REVU_LIBRARY_ACCEPT } from '../toolchest/revuLibraries';
+import { toolSetFile } from '../toolchest/toolSets';
 import { RECENT_TOOLS_ID, updateWorkspace, useWorkspace, type ToolChestItem, type ToolSet } from '../workspace/profiles';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
 import { useSettings } from '../settings/settings';
@@ -183,18 +184,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
   const [fileDrag, setFileDrag] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const importFiles = (files: File[]) =>
-    void importToolSets(files).then(({ added, skipped, failed }) =>
-      setMessage(
-        [
-          added ? `Imported ${added} tool${added === 1 ? '' : 's'}.` : '',
-          skipped ? `${skipped} tool${skipped === 1 ? ' is' : 's are'} not supported yet (stamps, images, symbols…).` : '',
-          ...failed,
-        ]
-          .filter(Boolean)
-          .join(' ') || 'No tools found.',
-      ),
-    );
+  const importFiles = (files: File[]) => void importRevuFiles(files).then(setMessage);
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const editSet = (id: string, fn: (s: ToolSet) => ToolSet | null) =>
@@ -330,7 +320,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       }}
       onDragLeave={() => setFileDrag(false)}
       onDrop={(e) => {
-        const files = [...e.dataTransfer.files].filter((f) => /\.(btx|json)$/i.test(f.name));
+        const files = [...e.dataTransfer.files].filter((f) => isRevuLibraryFile(f.name));
         setFileDrag(false);
         if (!files.length) return;
         e.preventDefault();
@@ -341,13 +331,13 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
         <button className="btn small" onClick={() => setNaming({ setId: 'new' })} title="Create a new tool set">
           + New Tool Set
         </button>
-        <button className="btn small" onClick={() => fileRef.current?.click()} title="Import tool sets (Bluebeam® Revu® .btx, or redcolumn .json), or drop them here">
+        <button className="btn small" onClick={() => fileRef.current?.click()} title="Import tool sets (Bluebeam® Revu® .btx, or redcolumn .json) line style sets (.blx) and hatch sets (.bhx), or drop them here">
           Import…
         </button>
         <input
           ref={fileRef}
           type="file"
-          accept=".btx,.json,application/xml,text/xml,application/json"
+          accept={REVU_LIBRARY_ACCEPT}
           multiple
           hidden
           onChange={(e) => {
@@ -371,6 +361,26 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
           </button>
         )}
       </div>
+      {(ws.lineSets.length > 0 || ws.hatchSets.length > 0) && (
+        <div className="toolchest-libs" aria-label="Imported libraries">
+          {ws.lineSets.map((s) => (
+            <span key={`l:${s.title}`} className="toolchest-lib" title={`${s.styles.length} line styles, in the Line style pickers`}>
+              {s.title} · lines
+              <button type="button" aria-label={`Remove the line style set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((x) => x !== s) }))}>
+                ×
+              </button>
+            </span>
+          ))}
+          {ws.hatchSets.map((s) => (
+            <span key={`h:${s.title}`} className="toolchest-lib" title={`${s.hatches.length} hatches, in the Hatch pickers`}>
+              {s.title} · hatches
+              <button type="button" aria-label={`Remove the hatch set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, hatchSets: w.hatchSets.filter((x) => x !== s) }))}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       {message && (
         <p className="toolchest-message" onClick={() => setMessage(null)}>
           {message}

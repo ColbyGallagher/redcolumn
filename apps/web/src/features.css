@@ -1517,6 +1517,39 @@
   color: #f87171;
 }
 
+.toolchest-libs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+
+.toolchest-lib {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 8px;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.16);
+  font-size: 11px;
+}
+
+.toolchest-lib button {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.hatch-group-title {
+  padding: 4px 6px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
 .toolchest-message {
   margin: 0 0 6px;
   padding: 6px 8px;

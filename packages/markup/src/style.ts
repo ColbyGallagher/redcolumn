@@ -62,8 +62,8 @@ export function dashPattern(dash: LineDash | undefined, width: number): number[]
   return (DASH_UNITS[dash ?? 'solid'] ?? []).map((u) => u * w);
 }
 
-export { HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
-export type { HatchDraw, HatchPattern, LegacyHatch, StoredHatch } from './hatches';
+export { customHatchId, HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
+export type { CustomHatchId, HatchDraw, HatchElement, HatchPattern, HatchSpec, LegacyHatch, StoredHatch } from './hatches';
 
 /** Families map to the PDF standard fonts so exported markups look the same in every viewer. */
 export type FontFamily = 'sans' | 'serif' | 'mono';

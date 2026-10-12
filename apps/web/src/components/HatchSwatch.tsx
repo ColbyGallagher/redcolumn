@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { hatchDraw, paintHatchCell, type StoredHatch } from '@nb/markup';
+import { hatchDraw, paintHatchCell, type HatchSpec, type StoredHatch } from '@nb/markup';
 
 /** Names of hatch ids saved before the Standard set. */
 export const LEGACY_HATCH_LABELS: Record<string, string> = {
@@ -9,13 +9,16 @@ export const LEGACY_HATCH_LABELS: Record<string, string> = {
   diagonalCross: 'Diagonal cross',
 };
 
+/** The name of an imported hatch id (`set:<set>/<name>`). */
+export const customHatchName = (id: string) => id.slice(id.indexOf('/') + 1);
+
 /** A few repeats of a hatch, so a pattern can be recognized before it is applied. */
-export function HatchSwatch({ pattern, color, width = 72, height = 32 }: { pattern: StoredHatch; color: string; width?: number; height?: number }) {
+export function HatchSwatch({ pattern, spec, color, width = 72, height = 32 }: { pattern: StoredHatch; spec?: HatchSpec; color: string; width?: number; height?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
-    const draw = hatchDraw(pattern, 100);
+    const draw = hatchDraw(pattern, 100, spec);
     if (!canvas || !ctx || !draw) return;
     const w = canvas.width;
     const h = canvas.height;
@@ -39,6 +42,6 @@ export function HatchSwatch({ pattern, color, width = 72, height = 32 }: { patte
       }
     }
     ctx.restore();
-  }, [pattern, color, width, height]);
+  }, [pattern, spec, color, width, height]);
   return <canvas ref={ref} className="hatch-swatch" width={width} height={height} style={{ width, height }} aria-hidden />;
 }
