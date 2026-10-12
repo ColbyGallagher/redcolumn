@@ -37,6 +37,10 @@ export interface PlaceExtras {
 export interface AssistantTools {
   owns(store: MarkupStore): boolean;
   place(type: MarkupType, pageIndex: number, points: Point[], extras?: PlaceExtras): Markup;
+  /** Cloud+: a cloud and the callout grouped with it. */
+  placeCloudPlus?(pageIndex: number, points: Point[], extras?: PlaceExtras): { cloud: Markup; callout: Markup };
+  /** Smart Fill: the markup made from the region enclosed around a point. */
+  fill?(pageIndex: number, at: Point, extras?: PlaceExtras): Promise<Markup>;
   select(ids: Iterable<string>): void;
 }
 
@@ -337,12 +341,32 @@ function placeOnStore(doc: AssistantDocument, type: MarkupType, pageIndex: numbe
   return doc.store.get(markup.id) ?? markup;
 }
 
-function placeMarkup(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+/** Cloud+ and Smart Fill are tools, not markup types: they make markups from a gesture. */
+const GESTURE_TOOLS = new Set(['cloudPlus', 'dynamicFill']);
+
+async function placeGesture(doc: AssistantDocument, tool: string, pageIndex: number, points: Point[], extras: PlaceExtras, env: AssistantEnv) {
+  const label = tool === 'cloudPlus' ? 'Cloud+' : 'Smart Fill';
+  const tools = env.toolsFor?.(doc.id) ?? null;
+  if (!tools?.owns(doc.store)) throw new Error(`${doc.name} has to be the drawing on screen for ${label}.`);
+  if (tool === 'cloudPlus') {
+    if (!tools.placeCloudPlus) throw new Error('Cloud+ is not available.');
+    requirePoints('cloud', points);
+    const { cloud, callout } = tools.placeCloudPlus(pageIndex, points, extras);
+    return { document: doc.name, markup: publicMarkup(doc, cloud), callout: publicMarkup(doc, callout) };
+  }
+  if (!tools.fill) throw new Error('Smart Fill is not available.');
+  if (points.length !== 1) throw new Error('Smart Fill needs one point inside a closed outline.');
+  const markup = await tools.fill(pageIndex, points[0]!, extras);
+  return { document: doc.name, markup: publicMarkup(doc, markup) };
+}
+
+async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
   const args = record(params);
   const doc = findDocument(docs, args.document);
   if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
   if (args.page === undefined) throw new Error('Say which page to draw on.');
   const pageIndex = pageIndexOf(doc, args.page);
+  if (typeof args.type === 'string' && GESTURE_TOOLS.has(args.type)) return placeGesture(doc, args.type, pageIndex, pointsOf(args.points), extrasOf(args), env);
   const type = markupType(args.type);
   refuseFileType(type);
   const points = pointsOf(args.points);
