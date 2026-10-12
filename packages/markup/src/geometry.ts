@@ -2,6 +2,7 @@ import { arcPoints } from './arc';
 import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
+import { wrapParagraph } from './textLists';
 import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch } from './hatches';
@@ -720,19 +721,5 @@ export const TEXT_LINE_HEIGHT = 1.2;
  * the markup's font size, so the same layout serves canvas and PDF output.
  */
 export function layoutText(text: string, maxWidth: number, measure: (s: string) => number): string[] {
-  const lines: string[] = [];
-  for (const para of text.split('\n')) {
-    let line = '';
-    for (const word of para.split(/(\s+)/)) {
-      const next = line + word;
-      if (line && measure(next.trimEnd()) > maxWidth) {
-        lines.push(line.trimEnd());
-        line = word.trimStart();
-      } else {
-        line = next;
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-  return lines;
+  return text.split('\n').flatMap((para) => wrapParagraph(para, maxWidth, measure));
 }

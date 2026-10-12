@@ -1,6 +1,7 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
-import { dimensionNormal, layoutText, markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
+import { layoutParagraphs } from './textLists';
+import { dimensionNormal, markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
@@ -182,16 +183,18 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const b = contentBox(m);
   const size = m.style.fontSize ?? 12;
   const inner = b.w - TEXT_PADDING * 2;
-  const lines = layoutText(m.text ?? '', inner, measure);
+  const lines = layoutParagraphs(m.text ?? '', inner, measure);
   const lineH = size * TEXT_LINE_HEIGHT;
   const total = lines.length * lineH;
   const valign = m.style.verticalAlign ?? 'top';
   const top =
     valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - TEXT_PADDING - total : b.y + TEXT_PADDING;
-  return lines.map((text, i) => {
+  return lines.map(({ text, indent }, i) => {
     const width = measure(text);
+    // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
+    const full = indent + width;
     const align = m.style.textAlign ?? 'left';
-    const x = align === 'center' ? b.x + (b.w - width) / 2 : align === 'right' ? b.x + b.w - TEXT_PADDING - width : b.x + TEXT_PADDING;
+    const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - TEXT_PADDING - full : b.x + TEXT_PADDING) + indent;
     return { text, x, y: top + i * lineH, width };
   });
 }

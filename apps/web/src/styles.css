@@ -356,6 +356,43 @@ body,
   overflow: hidden;
 }
 
+/* List buttons over the text editor. Their mousedown is cancelled so the editor keeps focus (it commits on blur). */
+.text-editor-bar {
+  position: fixed;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
+.text-editor-bar button {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.text-editor-bar button:hover {
+  background: var(--border);
+}
+
+.text-editor-bar .sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border);
+}
+
 @media (max-width: 1000px) {
   .rail,
   .panel.left {

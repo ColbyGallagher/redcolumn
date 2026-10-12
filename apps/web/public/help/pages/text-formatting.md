@@ -26,6 +26,19 @@ Select the text markup and open the [Properties panel](#properties) for more:
 - **Vertical** — top, middle or bottom of the box.
 - **Text color** — the colour of the words (separate from the box).
 
+## Lists
+
+While you type in a text markup, a small bar above it makes lists. Select lines and press a button, or just start typing:
+
+- **•** bulleted, **1.** numbered, **a.** lettered, **i.** roman, **☐** checklist. Press the same button again to take the lines out of the list.
+- Type `-` or `*` and a space at the start of a line to start a bulleted list, or `[]` and a space for a checklist.
+- **Enter** adds the next item. Press Enter on an empty item to finish the list. Numbers follow on by themselves.
+- **Tab** and **Shift+Tab** (or the arrow buttons) move an item in and out a level. Numbered lists change style as they nest: 1. then a. then i.; bullets change shape.
+- **Backspace** at the start of an item's text takes the item out of the list.
+- **[[Ctrl+Shift+8]]** bullets, **[[Ctrl+Shift+7]]** numbers, **[[Ctrl+Shift+9]]** checklist.
+
+A list is ordinary text (`• milk`, `1. milk`), so it looks the same in Bluebeam, Acrobat and other viewers. Lines that wrap hang under the item's text once you finish editing.
+
 ## Make the box fit the text
 
 Select the text box and choose {{Edit > Auto-size Text Box}} (or press [[Alt+Z]]).
