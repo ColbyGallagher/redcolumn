@@ -3,7 +3,6 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
-import type { CustomLine } from './lineStyle';
 import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
@@ -93,8 +92,6 @@ export interface MarkupStyle {
   fillOpacity?: number;
   /** Line style; solid when unset. */
   dash?: LineDash;
-  /** A Bluebeam custom line style (a pattern of dashes, text and symbols) drawn instead of `dash`. */
-  lineStyle?: CustomLine;
   /** Line endings (line, arrow, length, polylength); unset uses the type's default look. */
   startCap?: LineEnding;
   endCap?: LineEnding;

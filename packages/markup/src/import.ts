@@ -27,7 +27,6 @@ import {
 } from './bluebeam';
 import { markupDigest } from './digest';
 import { readBsiLegend } from './bsiLegend';
-import { readLineStyle } from './lineStyle';
 import type { LineDash } from './style';
 import type { Viewport } from './viewports';
 
@@ -584,12 +583,10 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
-  const customLine = readLineStyle(r.LineStyle, r.LineStyleName);
   const base: Partial<MarkupStyle> = {
     ...(color ? { stroke: color } : {}),
     width,
     ...(dash ? { dash } : {}),
-    ...(customLine ? { lineStyle: customLine } : {}),
   };
   const le = (() => {
     const v = r.LE;
