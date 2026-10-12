@@ -87,6 +87,11 @@ function appData(m: Markup): Omit<Markup, 'pdfAnnot'> {
 
 const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/** One line of text as a rich text paragraph. Its leading spaces (a nested list's indent) become no-break spaces, which XHTML would otherwise collapse. */
+function richParagraph(line: string): string {
+  return line ? `<p>${escapeXml(line.replace(/^ +/, (spaces) => '\u00a0'.repeat(spaces.length)))}</p>` : '<p />';
+}
+
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
 function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
   const s = m.style;
@@ -100,7 +105,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     ...(s.italic ? ['font-style:italic'] : []),
     ...(s.underline ? ['text-decoration:underline'] : []),
   ].join('; ');
-  const paragraphs = (m.text ?? '').split('\n').map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />'));
+  const paragraphs = (m.text ?? '').split('\n').map(richParagraph);
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
   return { DS: pdfText(ds), RC: pdfText(rc) };
 }
@@ -1089,7 +1094,7 @@ function refreshRichText(d: PDFDict, always = false) {
   if (!always && !d.has(PDFName.of('RC'))) return;
   const text = d.lookupMaybe(PDFName.of('Contents'), PDFString, PDFHexString)?.decodeText() ?? '';
   const ds = d.lookupMaybe(PDFName.of('DS'), PDFString, PDFHexString)?.decodeText();
-  const body = text.split(/\r\n?|\n/).map((line) => (line ? `<p>${escapeXml(line)}</p>` : '<p />')).join('');
+  const body = text.split(/\r\n?|\n/).map(richParagraph).join('');
   d.set(PDFName.of('RC'), pdfText(`<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2"${ds ? ` style="${escapeXml(ds)}"` : ''}>${body}</body>`));
 }
 
