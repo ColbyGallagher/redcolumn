@@ -14,6 +14,7 @@ import {
   drawSelection,
   distribute,
   flip,
+  BOX_OPPOSITE,
   handlePositions,
   hitTest,
   markupSegments,
@@ -146,6 +147,8 @@ const NOTE_PX = 22;
 const STAMP_PX = 200;
 /** On-screen size of a legend placed with a click. */
 const LEGEND_PX = { w: 280, h: 150 };
+/** On-screen size of a flag label placed with a click. */
+const FLAG_LABEL_PX = { w: 150, h: 30 };
 /** On-screen radius of the eraser, by size. */
 const ERASER_PX = { small: 5, medium: 10, large: 20 } as const;
 /** Screen distance within which a text markup drag picks up a word. */
@@ -1217,32 +1220,39 @@ export class MarkupTools implements ViewerOverlay {
    * Smart Fill: finds the region enclosed by the drawing's lines (and markups, so a drawn line
    * can close a gap) around a point and makes it the chosen kind of markup.
    */
-  private async fillAt(pageIndex: number, at: Point) {
+  private async fillAt(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<{ markup?: Markup; error?: string }> {
     const store = this.store;
     const size = this.viewer.pageSize(pageIndex);
-    if (!store || !size || !this.snapSource) return;
+    if (!store || !size || !this.snapSource) return { error: 'Smart Fill is not ready on this page.' };
     let index: SnapIndex;
     try {
       const cached = this.snapIndexes.get(pageIndex);
       index = cached && cached !== 'loading' ? cached : await this.snapSource(pageIndex);
     } catch {
-      this.options.onNotice?.('Could not read the drawing on this page.');
-      return;
+      return { error: 'Could not read the drawing on this page.' };
     }
     const walls: number[] = [];
     for (const m of store.forPage(pageIndex)) if (m.type !== 'space' && !TYPE_INFO[m.type].content && TYPE_INFO[m.type].draw !== 'text') walls.push(...markupSegments(m));
     const segments = walls.length ? Float32Array.from([...index.segments, ...walls]) : index.segments;
     const polygon = dynamicFill(segments, at, { width: size.width, height: size.height })?.map(([x, y]): Point => [x, y]);
-    if (!polygon) {
-      this.options.onNotice?.('No enclosed area there: click inside a closed outline, or draw a line to close the gap.');
-      return;
-    }
+    if (!polygon) return { error: 'No enclosed area there: click inside a closed outline, or draw a line to close the gap.' };
     const type = this.state.fillAs;
     const m = this.newMarkup(type, pageIndex, type === 'polylength' ? [...polygon, polygon[0]!] : polygon);
+    if (extras?.text) m.text = extras.text;
+    if (extras?.comment) m.comment = extras.comment;
+    if (extras?.subject) m.subject = extras.subject;
     store.checkpoint();
     store.add(m);
     this.options.onCreated?.(m);
     if (type === 'space') this.options.onSpaceDrawn?.(m.id);
+    return { markup: store.get(m.id) ?? m };
+  }
+
+  /** Smart Fill at a point, for the assistant: the markup the armed fill type makes, or the reason it could not. */
+  async fill(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<Markup> {
+    const { markup, error } = await this.fillAt(pageIndex, at, extras);
+    if (!markup) throw new Error(error ?? 'Smart Fill found nothing there.');
+    return markup;
   }
 
   /** Area or volume whose next cutout the Cutout tool draws. */
@@ -1488,7 +1498,9 @@ export class MarkupTools implements ViewerOverlay {
 
     if (tool === 'dynamicFill') {
       if (e.button !== 0) return false;
-      void this.fillAt(pageIndex, toPoint(pt));
+      void this.fillAt(pageIndex, toPoint(pt)).then(({ error }) => {
+        if (error) this.options.onNotice?.(error);
+      });
       return true;
     }
 
@@ -2157,6 +2169,10 @@ export class MarkupTools implements ViewerOverlay {
       }
     } else if (m.type === 'legend' && tiny) {
       m.points = [a, [a[0] + LEGEND_PX.w / zoom, a[1] + LEGEND_PX.h / zoom]];
+    } else if (m.type === 'flagLabel' && tiny) {
+      // The flag's point is at the click; the label's text sits right of it.
+      m.points = [a, [a[0] + FLAG_LABEL_PX.w / zoom, a[1] + FLAG_LABEL_PX.h / zoom]];
+      m.text ||= 'FLAG';
     } else if (m.type === 'note' || m.type === 'attachment' || m.type === 'flag') {
       if (m.type === 'attachment' && !m.attachment) return;
       const s = NOTE_PX / zoom;
@@ -2239,6 +2255,14 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Cloud+: the cloud just drawn, plus a callout from its top-right corner, as one group. */
   private addCloudCallout(cloud: Markup) {
+    const callout = this.cloudCalloutPair(cloud);
+    this.options.onCreated?.(cloud);
+    this.setState({ tool: 'select', selected: new Set([cloud.id, callout.id]) });
+    this.options.onEditText(callout.id);
+  }
+
+  /** Adds `cloud` and its callout to the drawing as one group, and returns the callout. */
+  private cloudCalloutPair(cloud: Markup): Markup {
     const zoom = this.viewer.zoomFor(this.page);
     const b = boundsOf(cloud.points);
     const groupId = crypto.randomUUID();
@@ -2249,9 +2273,23 @@ export class MarkupTools implements ViewerOverlay {
     if (cloud.subject) callout.subject = cloud.subject;
     this.store!.add({ ...cloud, groupId });
     this.store!.add({ ...callout, groupId, createdAt: cloud.createdAt + 1, modifiedAt: cloud.createdAt + 1 });
+    return callout;
+  }
+
+  /** Cloud+ for the assistant: a cloud over two corners with a callout from its top-right, as one undo step. `text` goes on the callout. */
+  placeCloudPlus(pageIndex: number, points: Point[], extras?: { text?: string; comment?: string; subject?: string }): { cloud: Markup; callout: Markup } {
+    const store = this.store;
+    if (!store) throw new Error('No document is open.');
+    if (store.readOnly) throw new Error('This drawing is read-only.');
+    const cloud = this.newMarkup('cloud', pageIndex, points);
+    if (extras?.comment) cloud.comment = extras.comment;
+    if (extras?.subject) cloud.subject = extras.subject;
+    store.checkpoint();
+    const callout = this.cloudCalloutPair(cloud);
+    if (extras?.text) store.update(callout.id, { text: extras.text });
     this.options.onCreated?.(cloud);
-    this.setState({ tool: 'select', selected: new Set([cloud.id, callout.id]) });
-    this.options.onEditText(callout.id);
+    this.select([cloud.id, callout.id]);
+    return { cloud: store.get(cloud.id) ?? cloud, callout: store.get(callout.id) ?? callout };
   }
 
   /** A page's markups in drawing order: Spaces underneath everything, then oldest first. */
@@ -2356,20 +2394,47 @@ function midpoints(m: Markup): { index: number; at: Point }[] {
 }
 
 /**
- * A markup's points after dragging handle `index` to `point`. A rotated box keeps its opposite
- * corner where it is on the page: both corners are worked out in the turned frame of the new box.
+ * A markup's points after dragging handle `index` to `point`. A box's corner handles move two of its
+ * edges, its edge handles one; whichever it is, the handle across from it stays where it is on the
+ * page, rotated box or not.
  */
 function handleEdit(m: Markup, index: number, point: Point): Point[] {
   const points = [...m.points];
-  if (!m.rotation || TYPE_INFO[m.type].handles !== 'ends' || points.length !== 2) {
-    points[index] = point;
+  if (TYPE_INFO[m.type].handles !== 'box' || points.length !== 2) {
+    if (!m.rotation || TYPE_INFO[m.type].handles !== 'ends' || points.length !== 2) {
+      points[index] = point;
+      return points;
+    }
+    const other = rotatePoint(points[1 - index]!, rotationCentre(m), m.rotation);
+    const centre: Point = [(other[0] + point[0]) / 2, (other[1] + point[1]) / 2];
+    points[index] = rotatePoint(point, centre, -m.rotation);
+    points[1 - index] = rotatePoint(other, centre, -m.rotation);
     return points;
   }
-  const other = rotatePoint(points[1 - index]!, rotationCentre(m), m.rotation);
-  const centre: Point = [(other[0] + point[0]) / 2, (other[1] + point[1]) / 2];
-  points[index] = rotatePoint(point, centre, -m.rotation);
-  points[1 - index] = rotatePoint(other, centre, -m.rotation);
-  return points;
+  // The edit in the box's own frame (a rotated box's pointer position turned back first).
+  const c0 = rotationCentre(m);
+  const u = m.rotation ? rotatePoint(point, c0, -m.rotation) : point;
+  const [a, b] = [points[0]!, points[1]!];
+  let [ax, ay, bx, by] = [a[0], a[1], b[0], b[1]];
+  switch (index) {
+    case 0: [ax, ay] = u; break;
+    case 1: [bx, by] = u; break;
+    case 2: [bx, ay] = u; break;
+    case 3: [ax, by] = u; break;
+    case 4: ay = u[1]; break;
+    case 5: by = u[1]; break;
+    case 6: ax = u[0]; break;
+    default: bx = u[0];
+  }
+  const edited: Point[] = [[ax, ay], [bx, by]];
+  if (!m.rotation) return edited;
+  // The turned box keeps the handle across from the one dragged where it was on the page.
+  const across = handlePositions({ ...m, points: edited, rotation: 0 })[BOX_OPPOSITE[index]!]!;
+  const anchor = rotatePoint(across, c0, m.rotation);
+  const c1 = rotationCentre({ type: m.type, points: edited });
+  // Its new centre sits where the anchor is, plus its offset from the handle across, turned.
+  const [ox, oy] = rotatePoint([c1[0] - across[0], c1[1] - across[1]], [0, 0], m.rotation);
+  return edited.map((q): Point => [q[0] + anchor[0] + ox - c1[0], q[1] + anchor[1] + oy - c1[1]]);
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */

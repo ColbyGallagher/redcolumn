@@ -206,6 +206,47 @@ test('clicking back on the first point closes a polygon', async () => {
   await h.store.destroy();
 });
 
+test('a box has grips on its corners and the middles of its edges', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // corners (100, 200) and (260, 300)
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  // The middle of the right edge moves only that edge.
+  drag(h.tools, [260, 250], [300, 270]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [300, 300]]);
+  // The middle of the top edge likewise.
+  drag(h.tools, [200, 200], [210, 180]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 180], [300, 300]]);
+  // The corner that is neither of the two it was drawn by moves two edges.
+  drag(h.tools, [300, 180], [320, 170]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 170], [320, 300]]);
+  await h.store.destroy();
+});
+
+test('a turned box resizes from a grip with the grip across from it staying put', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // 160 wide, 100 high, centre (180, 250)
+  const [m] = h.store.all();
+  h.store.update(m!.id, { rotation: 90 });
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  // Turned a quarter clockwise, the box's right edge middle (260, 250) sits at (180, 330).
+  // Dragging it 20 further along the box's own axis (down on the page) lengthens it by 20.
+  drag(h.tools, [180, 330], [180, 350]);
+  const after = h.store.get(m!.id)!;
+  const [a, b] = after.points as [Point, Point];
+  assert.equal(Math.round(b[0] - a[0]), 180, 'wider by 20');
+  assert.equal(Math.round(b[1] - a[1]), 100, 'same height');
+  // The left edge middle stayed at (180, 170) on the page.
+  const c: Point = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const left: Point = [a[0], c[1]];
+  const dx = left[0] - c[0];
+  const dy = left[1] - c[1];
+  assert.ok(Math.abs(c[0] - dy + 0 - 180) < 1e-6 && Math.abs(c[1] + dx - 170) < 1e-6, 'the opposite edge did not move');
+  await h.store.destroy();
+});
+
 test('select, move and delete a drawn markup', async () => {
   const h = await setup();
   await drawWith(h, 'rect');
@@ -348,6 +389,21 @@ test('a highlight drag that starts before the page text loads still marks the wo
   release(h.tools, [180, 240]);
   const off = h.store.all().find((markup) => markup.id !== m?.id);
   assert.equal(off?.type, 'highlighter', 'a drag that began off the text stays a stroke once the words arrive');
+  await h.store.destroy();
+});
+
+test('placeCloudPlus writes a grouped cloud and callout in one undo step', async () => {
+  const h = await setup();
+  const { cloud, callout } = h.tools.placeCloudPlus(0, [[10, 20], [80, 90]], { text: 'Check', subject: 'Cloud+' });
+  assert.equal(cloud.type, 'cloud');
+  assert.equal(callout.type, 'callout');
+  assert.equal(callout.text, 'Check');
+  assert.ok(cloud.groupId && cloud.groupId === callout.groupId);
+  assert.equal(callout.subject, 'Cloud+');
+  assert.equal(h.store.all().length, 2);
+  assert.equal(h.created.at(-1)?.id, cloud.id);
+  h.store.undo();
+  assert.equal(h.store.all().length, 0);
   await h.store.destroy();
 });
 

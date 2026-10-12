@@ -2,7 +2,7 @@ import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale }
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
 import { dimensionNormal, markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { stampLayout } from './stamp';
@@ -410,10 +410,19 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
   }
   ctx.fillStyle = '#fff';
   const h = handlePx * px;
-  for (const [x, y] of handlePositions({ ...m, rotation: 0 })) {
+  const box = TYPE_INFO[m.type].handles === 'box';
+  handlePositions({ ...m, rotation: 0 }).forEach(([x, y], i) => {
+    // A box's corners are round and the middles of its edges square, as in Bluebeam.
+    if (box && BOX_CORNERS.includes(i)) {
+      ctx.beginPath();
+      ctx.arc(x, y, h / 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      return;
+    }
     ctx.fillRect(x - h / 2, y - h / 2, h, h);
     ctx.strokeRect(x - h / 2, y - h / 2, h, h);
-  }
+  });
   ctx.restore();
   const knob = rotateHandle(m, zoom);
   if (knob) {
@@ -443,14 +452,27 @@ export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; s
   return { stem: rotatePoint(top, c, m.rotation ?? 0), at: rotatePoint(at, c, m.rotation ?? 0) };
 }
 
+/** A box's handles by index: its two defining corners, the other two corners, then the middles of its four edges. */
+export const BOX_CORNERS: readonly number[] = [0, 1, 2, 3];
+
+/** The handle across the box from each box handle (the one that stays put while it is dragged). */
+export const BOX_OPPOSITE: readonly number[] = [1, 0, 3, 2, 5, 4, 7, 6];
+
 /**
- * Draggable handles. Two-point shapes expose their defining points, measurements and click-drawn
- * shapes every vertex; pen strokes and notes are move-only. Index i corresponds to `m.points[i]`.
+ * Draggable handles. Lines expose their end points, boxes their corners and edge middles (the two
+ * points they are defined by first), measurements and click-drawn shapes every vertex; pen strokes
+ * and notes are move-only. Index i < 2 corresponds to `m.points[i]`.
  */
 export function handlePositions(m: Markup): [number, number][] {
   const handles = TYPE_INFO[m.type].handles;
-  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : m.points.slice(0, 2);
+  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : m.points.slice(0, 2);
   if (!m.rotation) return pts;
   const c = rotationCentre(m);
   return pts.map((p) => rotatePoint(p, c, m.rotation!));
+}
+
+/** Handle positions of a box given by two opposite corners (see `BOX_CORNERS`). */
+function boxHandles(points: readonly Point[]): Point[] {
+  const [a, b] = [points[0]!, points[1] ?? points[0]!];
+  return [a, b, [b[0], a[1]], [a[0], b[1]], [(a[0] + b[0]) / 2, a[1]], [(a[0] + b[0]) / 2, b[1]], [a[0], (a[1] + b[1]) / 2], [b[0], (a[1] + b[1]) / 2]];
 }

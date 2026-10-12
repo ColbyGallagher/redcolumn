@@ -18,8 +18,11 @@ export interface MarkupTypeInfo {
   click?: { min: number; fixed?: number; closes?: boolean };
   /** An outline enclosing an area: fill and hatching apply (polygons once they have three points). */
   closed: boolean;
-  /** Handles when selected: the two defining points, every vertex, or none (move only). */
-  handles: 'ends' | 'vertices' | 'none';
+  /**
+   * Handles when selected: the two end points of a line, the corners and edge middles of a box
+   * (its two defining corners come first), every vertex, or none (move only).
+   */
+  handles: 'ends' | 'box' | 'vertices' | 'none';
   /** Grabbed anywhere inside its box, even without a fill. */
   solid: boolean;
   /** Typed text or a picture drawn in its box. */
@@ -52,10 +55,10 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   arrow: { label: 'Arrow', style: line(), draw: 'drag', closed: false, handles: 'ends', solid: false, ends: ['none', 'filledArrow'], measure: false, caps: OPEN },
   polyline: { label: 'Polyline', style: line(), draw: 'click', click: { min: 2 }, closed: false, handles: 'vertices', solid: false, ends: ['none', 'none'], measure: false, caps: OPEN },
   arc: { label: 'Arc', style: line(), draw: 'click', click: { min: 3, fixed: 3 }, closed: false, handles: 'vertices', solid: false, ends: ['none', 'none'], measure: false, caps: OPEN },
-  rect: { label: 'Rectangle', style: line(), draw: 'drag', closed: true, handles: 'ends', solid: false, measure: false, caps: SHAPE },
-  ellipse: { label: 'Ellipse', style: line(), draw: 'drag', closed: true, handles: 'ends', solid: false, measure: false, caps: SHAPE },
+  rect: { label: 'Rectangle', style: line(), draw: 'drag', closed: true, handles: 'box', solid: false, measure: false, caps: SHAPE },
+  ellipse: { label: 'Ellipse', style: line(), draw: 'drag', closed: true, handles: 'box', solid: false, measure: false, caps: SHAPE },
   polygon: { label: 'Polygon', style: line(), draw: 'click', click: { min: 3, closes: true }, closed: true, handles: 'vertices', solid: false, measure: false, caps: SHAPE },
-  cloud: { label: 'Cloud', style: line(), draw: 'drag', closed: true, handles: 'ends', solid: false, measure: false, caps: { ...SHAPE, arcRadius: 'Arc size' } },
+  cloud: { label: 'Cloud', style: line(), draw: 'drag', closed: true, handles: 'box', solid: false, measure: false, caps: { ...SHAPE, arcRadius: 'Arc size' } },
   // A cloud along any outline, drawn point by point (Bluebeam's own cloud).
   polygonCloud: {
     label: 'Polygon Cloud',
@@ -82,7 +85,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     style: line({ width: 1, fontSize: 12 }),
     draw: 'drag',
     closed: false,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     content: 'text',
     measure: false,
@@ -105,21 +108,21 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     style: line({ width: 0, fontSize: 12 }),
     draw: 'place',
     closed: false,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     content: 'text',
     measure: false,
     caps: caps({ font: true, textLayout: true }),
   },
   note: { label: 'Note', style: { stroke: '#a16207', fill: '#fde047', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },
-  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'ends', solid: true, content: 'image', measure: false, caps: NONE },
-  signature: { label: 'Signature', style: { stroke: '#1e3a8a', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'ends', solid: true, content: 'image', measure: false, caps: NONE },
+  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: NONE },
+  signature: { label: 'Signature', style: { stroke: '#1e3a8a', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: NONE },
   stamp: {
     label: 'Stamp',
     style: { stroke: '#15803d', fill: null, width: 2, opacity: 0.9 },
     draw: 'drag',
     closed: false,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     measure: false,
     caps: caps({ fill: true }),
@@ -130,7 +133,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     style: { stroke: '#374151', fill: '#ffffff', width: 0.75, opacity: 1 },
     draw: 'drag',
     closed: false,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     measure: false,
     caps: caps({ fill: true, font: true }),
@@ -154,7 +157,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     style: { stroke: '#dc2626', fill: '#000000', width: 1.5, opacity: 1, fillOpacity: 0.25, dash: 'dashed' },
     draw: 'drag',
     closed: true,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     measure: false,
     caps: caps({ fill: true }),
@@ -181,7 +184,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     style: { stroke: '#7f1d1d', fill: '#7f1d1d', width: 0, opacity: 1, fillOpacity: 0.6, fontSize: 8, textColor: '#ffffff', verticalAlign: 'middle' },
     draw: 'drag',
     closed: false,
-    handles: 'ends',
+    handles: 'box',
     solid: true,
     content: 'text',
     measure: false,
@@ -190,7 +193,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   // Struck-out PDF text with the replacement (its text) marked by a caret.
   replaceText: { label: 'Replace Text', style: { stroke: '#2563eb', fill: null, width: 1, opacity: 1 }, draw: 'text', closed: false, handles: 'none', solid: true, measure: false, caps: NONE },
   // A clickable area; its action (link) is chosen after drawing it.
-  hyperlink: { label: 'Hyperlink', style: { stroke: '#2563eb', fill: null, width: 1, opacity: 1 }, draw: 'drag', closed: false, handles: 'ends', solid: true, measure: false, caps: caps({ dash: true }) },
+  hyperlink: { label: 'Hyperlink', style: { stroke: '#2563eb', fill: null, width: 1, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, measure: false, caps: caps({ dash: true }) },
   diameter: {
     label: 'Diameter',
     style: { stroke: '#0d9488', fill: null, width: 1, opacity: 1 },

@@ -119,10 +119,14 @@ const TOOLS: ToolDef[] = [
       properties: {
         document: documentProp,
         page: { type: 'integer', description: '1-based page number.' },
-        type: { type: 'string', description: 'Markup type, such as rect, cloud, length, or text.' },
+        type: {
+          type: 'string',
+          description:
+            'Markup type, such as rect, cloud, length, or text. Also cloudPlus (a cloud with a callout; text goes on the callout) and dynamicFill (Smart Fill: one point inside a closed outline makes the fill type chosen in redcolumn, area by default). Both need the drawing on screen.',
+        },
         points: {
           type: 'array',
-          description: 'PDF points, origin at the top-left, y down. A line, rectangle, ellipse, cloud, text box, or redaction is two opposite corners. A callout is the tip, the knee, and the box\'s two corners. A pen or highlight is the path. A polygon, area, or space is its vertices.',
+          description: 'PDF points, origin at the top-left, y down. A line, rectangle, ellipse, cloud, cloudPlus, text box, or redaction is two opposite corners. A callout is the tip, the knee, and the box\'s two corners. A pen or highlight is the path. A polygon, area, or space is its vertices.',
           items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
         },
         text: { type: 'string' },

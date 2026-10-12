@@ -35,7 +35,7 @@ export { isSpace, spaceName, spaceOf, spacePath, spacesContaining, spaceTree } f
 export { legendRows, legendSymbol, type LegendRow } from './legend';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, shapeBounds, type Alignment, type Axis } from './arrange';
-export { dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';

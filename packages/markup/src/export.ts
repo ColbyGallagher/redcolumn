@@ -7,10 +7,10 @@ import { markupShape, type PathCmd } from './geometry';
 import { arcPoints } from './arc';
 import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
-import { legendLayout, legendRows } from './legend';
+import { legendLayout, legendRows, legendSymbol } from './legend';
 import { stampLayout } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
 import { hatchDraw, type HatchDraw } from './hatches';
 import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
@@ -89,7 +89,7 @@ const escapeXml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').
 
 /** One line of text as a rich text paragraph. Its leading spaces (a nested list's indent) become no-break spaces, which XHTML would otherwise collapse. */
 function richParagraph(line: string): string {
-  return line ? `<p>${escapeXml(line.replace(/^ +/, (spaces) => '\u00a0'.repeat(spaces.length)))}</p>` : '<p />';
+  return line ? `<p>${escapeXml(line.replace(/^ +/, (spaces) => ' '.repeat(spaces.length)))}</p>` : '<p />';
 }
 
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
@@ -377,9 +377,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     ops.push('/GS1 gs', `${fmt(L.box.x)} ${fmt(L.box.y)} ${fmt(L.box.w)} ${fmt(L.box.h)} re W n`);
     for (const [i, row] of rows.entries()) {
       const r = L.rows[i]!;
-      const [cr, cg, cb] = rgb(row.sample.style.stroke);
-      const [fr, fg, fb] = rgb(row.sample.style.fill ?? row.sample.style.stroke);
-      ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg ${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG 0.5 w`, `${fmt(r.symbol.x)} ${fmt(r.symbol.y)} ${fmt(r.symbol.w)} ${fmt(r.symbol.h)} re B`);
+      // A band separator, then the symbol drawn as a small copy of the markup, as on screen.
+      const [dr, dg, db] = rgb(style.stroke);
+      ops.push('q', `${fmt(dr)} ${fmt(dg)} ${fmt(db)} RG 0.5 w`, `${fmt(L.box.x)} ${fmt(r.y)} m ${fmt(L.box.x + L.box.w)} ${fmt(r.y)} l S`, 'Q');
+      const symbol = legendSymbol(row.sample, r.symbol);
+      const [cr, cg, cb] = rgb(symbol.style.stroke);
+      ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(dashPattern(symbol.style.dash, symbol.style.width)));
+      for (const part of markupShape(symbol)) {
+        if (part.hatch && part.clip) continue;
+        ops.push(pathOps(part.path));
+        if (part.fill) {
+          const [fr, fg, fb] = rgb(part.fill);
+          ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`);
+        }
+        const star = part.evenOdd ? '*' : '';
+        ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
+      }
+      ops.push('Q');
     }
     ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(size)} Tf`);
     text('Legend', L.title.x, baseline(L.box.y, bandH), 'left');
@@ -466,6 +480,36 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   return { x, y, w: x1 - x, h: y1 - y };
 }
 
+/** The subject Bluebeam gives a markup of this kind, for those whose name differs from ours. */
+const BLUEBEAM_SUBJECTS: Partial<Record<MarkupType, string>> = {
+  polyline: 'PolyLine',
+  text: 'Text Box',
+  callout: 'Call-out',
+  typewriter: 'Typewritten Text',
+  flagLabel: 'Flag',
+  flag: 'Flag',
+  highlighter: 'Highlight',
+  textHighlight: 'Highlight',
+  strikeout: 'Strikeout',
+  attachment: 'File Attachment',
+  length: 'Length Measurement',
+  polylength: 'Polylength Measurement',
+  area: 'Area Measurement',
+  perimeter: 'Perimeter Measurement',
+  volume: 'Volume Measurement',
+  count: 'Count Measurement',
+  diameter: 'Diameter Measurement',
+  radius: 'Radius Measurement',
+  angle: 'Angle Measurement',
+  arc: 'Arc',
+  polygonCloud: 'Cloud',
+};
+
+function defaultSubject(m: Markup): string {
+  if (m.type === 'stamp') return m.stamp?.lines[0] || 'Stamp';
+  return BLUEBEAM_SUBJECTS[m.type] ?? TYPE_INFO[m.type].label;
+}
+
 function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const { doc, matrix } = ctx;
   const b = boundsWithText(ctx, m);
@@ -516,7 +560,8 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const label = measurementLabel(m, ctx.scale);
   const signed = m.signature ? `Signed by ${m.signature.signer} on ${new Date(m.signature.signedAt).toLocaleString()}${m.signature.reason ? ` (${m.signature.reason})` : ''}` : null;
   const contents = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' ? [m.text, m.type === 'replaceText' ? m.comment : null].filter(Boolean).join(' — ') : [signed, label?.text, m.comment].filter(Boolean).join(' — ');
-  if (m.subject) base.Subj = pdfText(m.subject);
+  // Bluebeam's Markups List names and groups markups by subject: without one they sit under a blank group.
+  base.Subj = pdfText(m.subject || defaultSubject(m));
   if (contents) base.Contents = pdfText(contents);
   if (fill) base.IC = fill;
 
@@ -674,10 +719,17 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       base.Contents = pdfText(`Space: ${m.subject || 'Space'}`);
       break;
     case 'diameter':
-    case 'radius':
       // Other tools see the circle; ours come back as the measurement from NBData.
-      specific = { Subtype: 'Circle', RD: rd, Measure: measureDict(ctx.scale), ...(m.type === 'diameter' ? { IT: 'CircleDimension' } : {}) };
+      specific = { Subtype: 'Circle', RD: rd, Measure: measureDict(ctx.scale), IT: 'CircleDimension' };
       break;
+    case 'radius': {
+      // Bluebeam's radius is a three-vertex polygon: a point on the circle, the centre, the arc's end
+      // (the same point again for a whole circle). Its handles sit on those, not on a box.
+      const [centre, edge, end] = user as [Point, Point, Point | undefined];
+      const arcEnd = end ?? edge;
+      specific = { Subtype: 'Polygon', Vertices: flat([edge, centre, arcEnd]), IT: 'PolygonRadius', Measure: measureDict(ctx.scale) };
+      break;
+    }
     case 'arcLength':
       specific = { Subtype: 'PolyLine', Vertices: flat(arcPoints(m.points).map((p) => apply(matrix, p))), IT: 'PolyLineDimension', Measure: measureDict(ctx.scale), LE: le };
       break;
@@ -1287,10 +1339,86 @@ function writeSpaces(doc: PDFDocument, page: PDFPage, matrix: Matrix, spaces: re
     d.set(PDFName.of('Path'), doc.context.obj(m.points.map((p) => apply(matrix, p))));
     d.set(PDFName.of('C'), doc.context.obj(rgb(m.style.fill ?? m.style.stroke)));
     d.set(PDFName.of('CA'), PDFNumber.of(m.style.fillOpacity ?? 0.1));
+    d.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify(appData(m))));
     keep.push(entry instanceof PDFRef ? (doc.context.assign(entry, d), entry) : d);
   });
   if (keep.length) page.node.set(PDFName.of('BSISpaces'), doc.context.obj(keep));
   else page.node.delete(PDFName.of('BSISpaces'));
+}
+
+/**
+ * Markups grouped here are grouped for Bluebeam too: one annotation leads (it lists the members in
+ * /GroupNesting) and the rest point at it with /IRT and /RT /Group. A Cloud+ (a cloud with its
+ * callout) leads with the callout and carries the Cloud+ name and PolyText intent, as Bluebeam's does.
+ */
+function writeGroups(doc: PDFDocument, made: ReadonlyMap<Markup, { dict: PDFDict; ref: PDFRef }>) {
+  const groups = new Map<string, Markup[]>();
+  for (const m of made.keys()) {
+    if (!m.groupId) continue;
+    if (!groups.has(m.groupId)) groups.set(m.groupId, []);
+    groups.get(m.groupId)!.push(m);
+  }
+  for (const members of groups.values()) {
+    if (members.length < 2) continue;
+    const cloud = members.find((m) => m.type === 'cloud');
+    const callout = members.find((m) => m.type === 'callout');
+    const cloudPlus = members.length === 2 && !!cloud && !!callout;
+    const leader = (cloudPlus ? callout : members[0])!;
+    const name = cloudPlus ? 'Cloud+' : 'Group';
+    const lead = made.get(leader)!;
+    lead.dict.set(PDFName.of('GroupNesting'), doc.context.obj([PDFHexString.fromText(name), PDFHexString.fromText(`/${leader.id}`), ...members.filter((m) => m !== leader).map((m) => PDFHexString.fromText(`/${m.id}`))]));
+    for (const m of members) {
+      const { dict } = made.get(m)!;
+      if (m !== leader) {
+        dict.set(PDFName.of('IRT'), lead.ref);
+        dict.set(PDFName.of('RT'), PDFName.of('Group'));
+      }
+      if (cloudPlus) {
+        dict.set(PDFName.of('Subj'), pdfText(name));
+        dict.set(PDFName.of('ITEx'), PDFName.of('PolyText'));
+      }
+    }
+  }
+}
+
+/** A new Space in its page's /BSISpaces, the entry Bluebeam's Spaces panel lists. */
+function addSpace(doc: PDFDocument, page: PDFPage, matrix: Matrix, m: Markup) {
+  const entry = doc.context.obj({
+    Type: 'Space',
+    Title: pdfText(m.subject || 'Space'),
+    Path: m.points.map((p) => apply(matrix, p)),
+    C: rgb(m.style.fill ?? m.style.stroke),
+    CA: m.style.fillOpacity ?? 0.1,
+    // What Bluebeam has no place for (comments, fields, hatching): ours come back whole from here.
+    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(m))),
+  });
+  const key = PDFName.of('BSISpaces');
+  const list = page.node.lookupMaybe(key, PDFArray);
+  if (list) list.push(entry);
+  else page.node.set(key, doc.context.obj([entry]));
+}
+
+/** Takes a deleted annotation's /Flag out of the catalog's /BSIFlags, so the Flags panel does not list it. */
+function dropFlag(doc: PDFDocument, annot: PDFObject | undefined) {
+  if (!(annot instanceof PDFDict)) return;
+  const flag = annot.get(PDFName.of('Flag'));
+  const list = doc.catalog.lookupMaybe(PDFName.of('BSIFlags'), PDFArray);
+  if (!flag || !list) return;
+  const at = list.asArray().findIndex((e) => e === flag);
+  if (at >= 0) list.remove(at);
+}
+
+/**
+ * Makes a flag label one of Bluebeam's Flags: the annotation points at a /Flag dictionary (whose
+ * parent is the annotation), and the catalog's /BSIFlags lists them for the Flags panel.
+ */
+function addFlag(doc: PDFDocument, annot: PDFDict, ref: PDFRef) {
+  const flag = doc.context.register(doc.context.obj({ Type: 'Flag', Parent: ref }));
+  annot.set(PDFName.of('Flag'), flag);
+  const key = PDFName.of('BSIFlags');
+  const list = doc.catalog.lookupMaybe(key, PDFArray);
+  if (list) list.push(flag);
+  else doc.catalog.set(key, doc.context.obj([flag]));
 }
 
 const yOf = (s: Scale) => s.yMetersPerPoint ?? s.metersPerPoint;
@@ -1448,8 +1576,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     link.set(m, kind);
   }
   const changed = (m: Markup) => !link.has(m) || !unchangedSinceImport(m);
+  // A new Space belongs in the page's /BSISpaces, where Bluebeam keeps them, not among its annotations.
+  const isNewSpace = (m: Markup) => m.type === 'space' && !link.has(m);
   // What gets an annotation written from it: new and changed markups, never Bluebeam Spaces.
-  const written = markups.filter((m) => link.get(m) !== 'space' && changed(m));
+  const written = markups.filter((m) => link.get(m) !== 'space' && !isNewSpace(m) && changed(m));
 
   // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
@@ -1606,7 +1736,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
           if (d instanceof PDFDict) realignColumnData(doc, d, columns);
         });
       }
-      for (const i of [...remove].sort((a, b) => b - a)) annots.remove(i);
+      for (const i of [...remove].sort((a, b) => b - a)) {
+        dropFlag(doc, doc.context.lookup(annots.get(i)));
+        annots.remove(i);
+      }
     }
     for (const ref of added) page.node.addAnnot(ref);
 
@@ -1615,15 +1748,23 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     if (importedSpaces?.length) writeSpaces(doc, page, ctx.matrix, list.filter((m) => link.get(m) === 'space'), importedSpaces);
 
     // New markups, and imported ones whose annotation is gone, are added.
+    const made = new Map<Markup, { dict: PDFDict; ref: PDFRef }>();
     for (const m of list) {
       if (link.has(m)) continue;
+      if (isNewSpace(m)) {
+        addSpace(doc, page, ctx.matrix, m);
+        continue;
+      }
       const dict = build(m);
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
+      made.set(m, { dict, ref });
+      if (m.type === 'flagLabel') addFlag(doc, dict, ref);
       for (const replyRef of placeReplies(doc, ref, m, new Map())) page.node.addAnnot(replyRef);
       statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
       if (m.checked) page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, 'Marked', 'Marked')));
     }
+    writeGroups(doc, made);
   }
   if (options.links) addLinks(doc, pages, options.links);
   return doc.save();

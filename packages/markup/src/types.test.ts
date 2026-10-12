@@ -5,6 +5,7 @@ import { isMeasureKind } from '@nb/measure';
 import { exportWithAnnotations } from './export.ts';
 import { markupShape } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
+import { readPdfExtras } from './pdfExtras.ts';
 import { DEFAULT_STYLES, MARKUP_TYPES, type Markup, type MarkupType, type Point } from './model.ts';
 import { TYPE_INFO } from './types.ts';
 
@@ -55,9 +56,13 @@ test('every markup type exports to a PDF annotation and comes back exactly, repl
     const appData = out.context.lookup(ref, PDFDict).lookup(PDFName.of('NBData'), PDFString, PDFHexString).decodeText();
     return { index, subtype: '', rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 1, contents: '', author: '', intent: '', cloudy: false, da: '', appData, flags: 4, vertices: [], ink: [], line: null, link: null };
   });
-  // One annotation per markup, plus the reply (which import leaves to its markup).
-  assert.equal(found.length, markups.length + 1);
-  const { markups: back } = importAnnotations(0, found);
+  // One annotation per markup, plus the reply (which import leaves to its markup); a Space is a
+  // Bluebeam Space on the page, not an annotation.
+  assert.equal(found.length, markups.length);
+  const { markups: imported } = importAnnotations(0, found, undefined, await readPdfExtras(bytes));
+  // Spaces come after the annotations, as they are read from the page's own list.
+  const back = markups.map((m) => imported.find((i) => i.id === m.id)!);
+  assert.equal(imported.length, markups.length);
   assert.deepEqual(back.map((m) => m.type), MARKUP_TYPES);
   assert.deepEqual(back.map(({ pdfAnnot: _link, ...m }) => m), markups);
 });

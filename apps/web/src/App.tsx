@@ -6842,7 +6842,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 }}
               />
             ) : leftTab === 'flags' ? (
-              <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flag') : null} />
+              <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
             ) : leftTab === 'projects' ? (
               <ProjectsPanel
                 me={author}
