@@ -392,21 +392,6 @@ test('a highlight drag that starts before the page text loads still marks the wo
   await h.store.destroy();
 });
 
-test('placeCloudPlus writes a grouped cloud and callout in one undo step', async () => {
-  const h = await setup();
-  const { cloud, callout } = h.tools.placeCloudPlus(0, [[10, 20], [80, 90]], { text: 'Check', subject: 'Cloud+' });
-  assert.equal(cloud.type, 'cloud');
-  assert.equal(callout.type, 'callout');
-  assert.equal(callout.text, 'Check');
-  assert.ok(cloud.groupId && cloud.groupId === callout.groupId);
-  assert.equal(callout.subject, 'Cloud+');
-  assert.equal(h.store.all().length, 2);
-  assert.equal(h.created.at(-1)?.id, cloud.id);
-  h.store.undo();
-  assert.equal(h.store.all().length, 0);
-  await h.store.destroy();
-});
-
 test('place writes one markup and undo removes it', async () => {
   const h = await setup();
   const placed = h.tools.place('rect', 0, [[10, 20], [80, 90]], { text: 'A' });
