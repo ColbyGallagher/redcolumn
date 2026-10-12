@@ -34,6 +34,7 @@ export {
 export { markupAnchor, scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 export { isSpace, spaceName, spaceOf, spacePath, spacesContaining, spaceTree } from './spaces';
 export { legendRows, legendSymbol, type LegendRow } from './legend';
+export { clampLines, deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, newTable, setTableCell, tableCellAt, tableCellRect, tableCells, tableCellText, tableGrid, tableOf, tableSummary, type TableData, type TableEdit } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, shapeBounds, type Alignment, type Axis } from './arrange';
 export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';

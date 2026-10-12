@@ -3,6 +3,7 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
+import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
 import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
@@ -34,6 +35,7 @@ export type MarkupType =
   | 'signature'
   | 'stamp'
   | 'legend'
+  | 'table'
   | 'hyperlink'
   | 'space'
   | 'redaction'
@@ -273,6 +275,8 @@ export interface Markup {
     /** Bluebeam's id for this legend, kept when it came from there. */
     nameId?: string;
   };
+  /** Tables: the grid and what is in its cells. */
+  table?: TableData;
   /** Subject shown in the markup list; the type's name when unset (tool library tools set it). */
   subject?: string;
   /** Values of the document's custom columns, keyed by column id. */

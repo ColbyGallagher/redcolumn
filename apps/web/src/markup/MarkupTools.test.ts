@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
-import type { MarkupTools as Tools } from './MarkupTools';
+import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
 type WinListener = (e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean; key?: string; repeat?: boolean }) => void;
@@ -50,7 +50,7 @@ function pointer(extra: Partial<PointerEvent> = {}): PointerEvent {
   return { button: 0, buttons: 1, pointerType: 'mouse', shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, detail: 1, preventDefault() {}, stopPropagation() {}, ...extra } as PointerEvent;
 }
 
-async function setup() {
+async function setup(extra: Partial<MarkupToolsOptions> = {}) {
   const store = await MarkupStore.open(`tools-ui-${Math.random()}`, { persist: false });
   const created: Markup[] = [];
   const tools = new MarkupTools(viewer, {
@@ -61,6 +61,7 @@ async function setup() {
     onCreated: (m) => created.push(m),
     defaultStamp: () => DEFAULT_STAMPS[0]!,
     stampValues: () => ({ file: 'A-101.pdf', page: '1' }),
+    ...extra,
   });
   tools.setStore(store);
   tools.setSnap(false);
@@ -416,5 +417,50 @@ test('place writes one markup and undo removes it', async () => {
   assert.equal(h.created.at(-1)?.id, placed.id);
   h.store.undo();
   assert.equal(h.store.all().length, 0);
+  await h.store.destroy();
+});
+
+test('the Table tool asks for its rows and columns, then places the table as one undo step', async () => {
+  const asked: TableDraft[] = [];
+  const h = await setup({ onNewTable: (d) => asked.push(d) });
+  h.tools.setTool('table');
+  drag(h.tools, [100, 200], [400, 320]);
+  assert.equal(asked.length, 1, 'asked once');
+  assert.equal(h.store.all().length, 0, 'nothing is placed until the size is chosen');
+  const m = h.tools.addTable(asked[0]!, 4, 2)!;
+  assert.deepEqual([m.table!.rows.length, m.table!.cols.length], [4, 2]);
+  assert.deepEqual(boundsOf(m.points), { x: 100, y: 200, w: 300, h: 120 }, 'a dragged box is divided into equal cells');
+  assert.deepEqual([...h.tools.getState().selected], [m.id]);
+  assert.deepEqual(h.created.map((c) => c.id), [m.id]);
+  h.store.undo();
+  assert.equal(h.store.all().length, 0);
+  await h.store.destroy();
+});
+
+test('a click with the Table tool gives each cell a comfortable size, and cancelling places nothing', async () => {
+  const asked: TableDraft[] = [];
+  const h = await setup({ onNewTable: (d) => asked.push(d) });
+  h.tools.setTool('table');
+  click(h.tools, [100, 200]);
+  assert.equal(asked.length, 1);
+  assert.ok(asked[0]!.tiny);
+  assert.equal(h.store.all().length, 0, 'closing the dialog leaves nothing behind');
+  const m = h.tools.addTable(asked[0]!, 2, 3)!;
+  const b = boundsOf(m.points);
+  assert.deepEqual([b.x, b.y], [100, 200]);
+  assert.ok(b.w > 100 && b.h > 30 && b.w > b.h, 'wider than tall for 3 columns by 2 rows');
+  await h.store.destroy();
+});
+
+test('double-clicking a table cell edits that cell', async () => {
+  const edited: { id: string; row: number; col: number }[] = [];
+  const h = await setup({ onEditTableCell: (id, row, col) => edited.push({ id, row, col }) });
+  h.tools.setTool('table');
+  drag(h.tools, [100, 200], [400, 320]);
+  const m = h.store.all()[0]!;
+  assert.equal(m.table?.rows.length, 3, 'three by three when nothing asks');
+  h.tools.setTool('select');
+  h.tools.doubleClick([350, 310], 0);
+  assert.deepEqual(edited, [{ id: m.id, row: 2, col: 2 }]);
   await h.store.destroy();
 });

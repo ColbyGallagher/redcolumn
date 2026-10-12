@@ -5,6 +5,7 @@ import { dimensionNormal, markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type Path
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
+import { tableCells, tableCellText } from './table';
 import { stampLayout } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw } from './hatches';
 import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
@@ -351,6 +352,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
   }
   if (m.type === 'legend') drawLegend(ctx, m, zoom, legends);
+  if (m.type === 'table') drawTable(ctx, m);
   if (m.type === 'space' && m.points.length > 2) {
     const [x, y] = polygonCentroid(m.points);
     ctx.font = cssFont(style, style.fontSize ?? 14, true);
@@ -374,6 +376,27 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
   }
   ctx.restore();
+}
+
+/** A table's cell text, each cell's lines laid out and clipped like a text box. */
+function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
+  const size = m.style.fontSize ?? 12;
+  ctx.font = cssFont(m.style, size);
+  ctx.fillStyle = textColor(m.style);
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  for (const cell of tableCells(m)) {
+    if (!cell.text) continue;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
+    ctx.clip();
+    for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
+      ctx.fillText(line.text, line.x, line.y);
+      if (m.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
+    }
+    ctx.restore();
+  }
 }
 
 /** A legend's title and rows: symbol, description, quantity and measurement total. */

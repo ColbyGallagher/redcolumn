@@ -138,6 +138,18 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     measure: false,
     caps: caps({ fill: true, font: true }),
   },
+  // A grid of cells with text in them; its rows and columns can be inserted and deleted.
+  table: {
+    label: 'Table',
+    // No font size: new tables get one that reads well at the zoom they are drawn at.
+    style: { stroke: '#374151', fill: null, width: 0.75, opacity: 1, verticalAlign: 'middle' },
+    draw: 'drag',
+    closed: false,
+    handles: 'box',
+    solid: true,
+    measure: false,
+    caps: caps({ fill: true, dash: true, font: true, textLayout: true }),
+  },
   // A named region (room, zone, level); its name is the subject, drawn at its centre.
   space: {
     label: 'Space',

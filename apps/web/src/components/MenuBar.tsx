@@ -15,7 +15,7 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
   { label: 'Freehand', tools: ['pen', 'highlighter'] },
   { label: 'Text Markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
   { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'flagLabel', 'note'] },
-  { label: 'Other', tools: ['image', 'flag', 'legend', 'space'] },
+  { label: 'Other', tools: ['image', 'flag', 'legend', 'table', 'space'] },
 ];
 
 export type LeftTab =
