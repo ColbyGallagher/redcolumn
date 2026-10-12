@@ -7,7 +7,7 @@ import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
-import { tableGrid } from './table';
+import { tableCells, tableLines } from './table';
 import type { LineArt } from './lineStyle';
 
 /** Path commands in page space. `C` is a cubic Bézier: two control points, then the end point. */
@@ -134,12 +134,17 @@ function baseShape(m: Markup): ShapePart[] {
     case 'table': {
       // The frame, then the lines between rows and columns; cell text is drawn from `table`.
       const b = boundsOf(points);
-      const { xs, ys } = tableGrid(m);
-      const inner: PathCmd[] = [
-        ...xs.slice(1, -1).flatMap((x): PathCmd[] => [['M', x, b.y], ['L', x, b.y + b.h]]),
-        ...ys.slice(1, -1).flatMap((y): PathCmd[] => [['M', b.x, y], ['L', b.x + b.w, y]]),
+      const inner: PathCmd[] = tableLines(m).flatMap(([x1, y1, x2, y2]): PathCmd[] => [['M', x1, y1], ['L', x2, y2]]);
+      const lines = inner.length && style.width > 0 ? [{ path: inner, stroke: true, fill: null }] : [];
+      // Cells with a background of their own are filled over the table's, under the lines.
+      const shaded = tableCells(m).filter((c) => c.fill);
+      if (!shaded.length) return [{ path: rectPath(b), stroke: style.width > 0, fill: style.fill }, ...lines];
+      return [
+        ...(style.fill ? [{ path: rectPath(b), stroke: false, fill: style.fill }] : []),
+        ...shaded.map((c) => ({ path: rectPath(c.rect), stroke: false, fill: c.fill! })),
+        { path: rectPath(b), stroke: style.width > 0, fill: null },
+        ...lines,
       ];
-      return [{ path: rectPath(b), stroke: style.width > 0, fill: style.fill }, ...(inner.length && style.width > 0 ? [{ path: inner, stroke: true, fill: null }] : [])];
     }
     case 'textHighlight':
       return markupLines(points).map((r) => ({ path: rectPath(r), stroke: false, fill: style.stroke }));

@@ -60,7 +60,21 @@ import {
   rotationCentre,
   type Attachment,
   newTable,
+  CELL_STYLE_KEYS,
+  clearTableFormats,
+  formatTableCells,
+  tableCellStyle,
+  type CellFormat,
+  mergeTableCells,
+  moveTableLine,
+  splitTableCell,
   tableCellAt,
+  tableLineAt,
+  tableOf,
+  tableRange,
+  tableRegion,
+  tableRegionRect,
+  type TableLine,
 } from '@nb/markup';
 import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex, type SnapKind } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -197,7 +211,24 @@ type Gesture =
   /** Drag on empty page with Select: markups wholly inside the box get selected. */
   | { kind: 'box'; start: Point; end: Point; add: boolean }
   /** Lasso: markups wholly inside the free-form outline get selected. */
-  | { kind: 'lasso'; pageIndex: number; path: Point[]; add: boolean };
+  | { kind: 'lasso'; pageIndex: number; path: Point[]; add: boolean }
+  /** Dragging a row or column line of the selected table; `to` is its page position (x or y). */
+  | { kind: 'tableLine'; id: string; line: TableLine; to: number }
+  /** Dragging across the cells of the selected table to select a block of them. */
+  | { kind: 'tableCells'; id: string; from: TableCell };
+
+/** A cell of a table markup. */
+export interface TableCell {
+  row: number;
+  col: number;
+}
+
+/** The cells selected in a table: the block between the cell clicked and the one dragged or Shift-clicked to. */
+export interface TableSelection {
+  id: string;
+  anchor: TableCell;
+  focus: TableCell;
+}
 
 type PageRect = { x: number; y: number; w: number; h: number };
 /** How long a navigation target stays highlighted. */
@@ -245,6 +276,8 @@ export interface ToolsState {
   fillAs: FillType;
   /** Draw to Size: the next segment (click-drawn tools) or box (after a click) can be typed. */
   sketch: SketchState | null;
+  /** The cells selected in the one selected table, if any. */
+  tableCells: TableSelection | null;
 }
 
 export interface SketchState {
@@ -324,7 +357,7 @@ export interface MarkupToolsOptions {
   /** A table was drawn: ask how many rows and columns, then place it with `addTable`. */
   onNewTable?: (draft: TableDraft) => void;
   /** A table's cell was double-clicked: edit its text. */
-  onEditTableCell?: (id: string, row: number, col: number) => void;
+  onEditTableCell?: (id: string, row: number, col: number, text?: string) => void;
   /** Values new markups start with in the document's custom columns. */
   defaultFields?: () => Record<string, string> | undefined;
   /** A markup was drawn (for Recent Tools). */
@@ -393,7 +426,7 @@ export class MarkupTools implements ViewerOverlay {
   private filterMode: 'show' | 'dim' | 'hide' = 'show';
   /** Markup layers switched off in the Layers panel ('' is markups on no layer). */
   private hiddenLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
   private hoveredLink: string | null = null;
@@ -464,6 +497,9 @@ export class MarkupTools implements ViewerOverlay {
 
   private setState(patch: Partial<ToolsState>) {
     this.state = { ...this.state, ...patch };
+    // Cells stay selected only while their table is the one thing selected.
+    const cells = this.state.tableCells;
+    if (cells && (this.state.selected.size !== 1 || !this.state.selected.has(cells.id) || this.state.tool !== 'select')) this.state = { ...this.state, tableCells: null };
     for (const l of this.listeners) l();
     this.viewer.invalidate();
   }
@@ -757,6 +793,24 @@ export class MarkupTools implements ViewerOverlay {
     this.viewer.invalidate();
   }
 
+  /**
+   * The markups whose handles show and drag: the one selected markup, or the members of one selected
+   * group (a Cloud+'s cloud and callout). A callout comes first so its arrow tip wins where it sits on
+   * a corner of the cloud.
+   */
+  private handleTargets(): Markup[] {
+    const store = this.store;
+    if (!store || this.state.selected.size === 0) return [];
+    const ms = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
+    if (ms.length !== this.state.selected.size) return [];
+    if (ms.length === 1) return ms;
+    const groupId = ms[0]!.groupId;
+    if (!groupId || ms.some((m) => m.groupId !== groupId || m.pageIndex !== ms[0]!.pageIndex)) return [];
+    // Only the whole group counts; a group selected along with other markups moves as one.
+    if (store.all().some((m) => m.groupId === groupId && !this.state.selected.has(m.id))) return [];
+    return ms.sort((a, b) => Number(b.type === 'callout') - Number(a.type === 'callout'));
+  }
+
   /** Midpoint knobs between the vertices of a selected outline or path: drag one to add a vertex. */
   private drawVertexKnobs(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
     if (this.frozen(m)) return;
@@ -968,6 +1022,11 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Updates the style for `type` (future markups) and applies it to selected markups of that type. */
   setStyle(type: MarkupType, patch: Partial<MarkupStyle>) {
+    // With cells selected, the text settings are theirs: the table and the tool's defaults stay as they are.
+    if (type === 'table' && this.state.tableCells && Object.keys(patch).every(isCellStyleKey)) {
+      this.applyCellStyle(patch as Partial<CellFormat>);
+      return;
+    }
     const { preset } = this.state;
     // A Tool Library tool keeps its own style; changing it leaves the type's defaults alone.
     if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
@@ -982,7 +1041,7 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const id of this.state.selected) {
         const m = store.get(id);
-        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch } });
+        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch }, ...tableOwnStyleCleared(m, patch) });
       }
     });
   }
@@ -1000,9 +1059,35 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const id of ids) {
         const m = store.get(id);
-        if (m && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, patch) });
+        if (m && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, patch), ...tableOwnStyleCleared(m, patch) });
       }
     });
+  }
+
+  /**
+   * Sets text style and background on the selected table cells, as in a spreadsheet: a field set to
+   * undefined goes back to the table's. Rapid changes merge into one undo step.
+   */
+  applyCellStyle(patch: Partial<CellFormat>) {
+    const s = this.tableSelection();
+    const store = this.store;
+    if (!s || !store || store.readOnly || this.frozen(s.markup)) return;
+    store.batch(() => store.update(s.markup.id, { table: formatTableCells(s.markup, s.range, patch) }));
+  }
+
+  /** Takes every setting of its own off the selected cells, so they look like the rest of the table. */
+  clearCellFormatting() {
+    const s = this.tableSelection();
+    const store = this.store;
+    if (!s || !store || store.readOnly || this.frozen(s.markup)) return;
+    store.checkpoint();
+    store.update(s.markup.id, { table: clearTableFormats(s.markup, undefined, s.range) });
+  }
+
+  /** The text style of the selected cell (the first of several), with the table's under it. */
+  selectedCellStyle(): MarkupStyle | null {
+    const s = this.tableSelection();
+    return s ? tableCellStyle(s.markup, s.range.row, s.range.col) : null;
   }
 
   /** Topmost markup at a point on a page (for right-click menus). */
@@ -1315,6 +1400,7 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     this.drawViewports(ctx, pageIndex, zoom);
+    const editable = new Set(this.handleTargets().map((t) => t.id));
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
@@ -1328,7 +1414,8 @@ export class MarkupTools implements ViewerOverlay {
       if (m.replies?.length && settings.get().replyIndicators) drawReplyIndicator(ctx, shown, zoom);
       if (this.state.selected.has(m.id)) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
-        if (this.state.selected.size === 1) this.drawVertexKnobs(ctx, shown, zoom);
+        if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
+        if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
     this.drawFormWidgets(ctx, pageIndex);
@@ -1411,6 +1498,89 @@ export class MarkupTools implements ViewerOverlay {
       for (const m of template) drawMarkup(ctx, { ...m, points: translated(m, x - (b.x + b.w / 2), y - (b.y + b.h / 2)) }, zoom, scale);
       ctx.restore();
     }
+  }
+
+  /** The selected cells of a table: tinted, with a heavier outline round the block. */
+  private drawTableCells(ctx: CanvasRenderingContext2D, m: Markup, sel: TableSelection, zoom: number) {
+    const r = tableRegionRect(m, tableRange(m, sel.anchor, sel.focus));
+    ctx.save();
+    ctx.fillStyle = 'rgba(37, 99, 235, 0.16)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.strokeStyle = '#2563eb';
+    ctx.lineWidth = 2 / zoom;
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
+    ctx.restore();
+  }
+
+  /** The cells selected in the selected table, as the block of cells they cover (merged cells taken whole). */
+  tableSelection(): { markup: Markup; cell: TableCell; range: ReturnType<typeof tableRange> } | null {
+    const sel = this.state.tableCells;
+    const m = sel && this.store?.get(sel.id);
+    if (!sel || !m || m.type !== 'table') return null;
+    const range = tableRange(m, sel.anchor, sel.focus);
+    return { markup: m, cell: { row: range.row, col: range.col }, range };
+  }
+
+  /** Selects one cell of a table (selecting the table if need be). */
+  selectTableCell(id: string, cell: TableCell) {
+    this.setState({ tool: 'select', selected: new Set([id]), tableCells: { id, anchor: cell, focus: cell } });
+  }
+
+  /** Whether the selected cells can be merged: more than one cell, and not exactly one merged cell already. */
+  canMergeCells(): boolean {
+    const sel = this.state.tableCells;
+    const s = this.tableSelection();
+    return !!s && !!sel && !!mergeTableCells(s.markup, sel.anchor, sel.focus);
+  }
+
+  /** Whether any of the selected cells is a merged cell. */
+  canSplitCells(): boolean {
+    const s = this.tableSelection();
+    return !!s && (tableOf(s.markup).merges ?? []).some((g) => g.row < s.range.row + s.range.rowSpan && g.row + g.rowSpan > s.range.row && g.col < s.range.col + s.range.colSpan && g.col + g.colSpan > s.range.col);
+  }
+
+  /** Merges the selected cells into one. Returns false when fewer than two cells are selected (or the table is locked). */
+  mergeSelectedCells(): boolean {
+    const s = this.tableSelection();
+    const sel = this.state.tableCells;
+    if (!s || !sel || !this.store || this.store.readOnly || this.frozen(s.markup)) return false;
+    const table = mergeTableCells(s.markup, sel.anchor, sel.focus);
+    if (!table) return false;
+    this.store.checkpoint();
+    this.store.update(s.markup.id, { table });
+    this.setState({ tableCells: { id: s.markup.id, anchor: s.cell, focus: s.cell } });
+    return true;
+  }
+
+  /** Splits the merged cells within the selected cells back into single cells. Returns false when none was merged. */
+  splitSelectedCells(): boolean {
+    const s = this.tableSelection();
+    if (!s || !this.store || this.store.readOnly || this.frozen(s.markup)) return false;
+    let table = tableOf(s.markup);
+    let any = false;
+    for (let row = s.range.row; row < s.range.row + s.range.rowSpan; row++) {
+      for (let col = s.range.col; col < s.range.col + s.range.colSpan; col++) {
+        const g = tableRegion(table, row, col);
+        if (g.rowSpan * g.colSpan < 2) continue;
+        const next = splitTableCell({ table }, row, col);
+        if (next) {
+          table = next;
+          any = true;
+        }
+      }
+    }
+    if (!any) return false;
+    this.store.checkpoint();
+    this.store.update(s.markup.id, { table });
+    return true;
+  }
+
+  /** Edits the text of the selected cell (the first of several), starting with `text` already typed. */
+  editSelectedCell(text?: string): boolean {
+    const s = this.tableSelection();
+    if (!s || !this.store || this.store.readOnly || this.frozen(s.markup)) return false;
+    this.options.onEditTableCell?.(s.markup.id, s.cell.row, s.cell.col, text);
+    return true;
   }
 
   /** Viewports: dashed outlines with their name and scale, so measurements inside are explained. */
@@ -1607,9 +1777,7 @@ export class MarkupTools implements ViewerOverlay {
     const p = toPoint(pt);
     const zoom = this.viewer.zoomFor(this.page);
     const tol = this.hitPx / zoom;
-    if (this.state.selected.size === 1) {
-      const [id] = this.state.selected;
-      const m = this.store.get(id!);
+    for (const m of this.handleTargets()) {
       const knob = m ? rotateHandle(m, zoom) : null;
       if (m && knob && Math.hypot(knob.at[0] - p[0], knob.at[1] - p[1]) <= tol * 1.5 && !this.store.readOnly) {
         this.setGesture({ kind: 'rotate', id: m.id, angle: m.rotation ?? 0 });
@@ -1642,6 +1810,13 @@ export class MarkupTools implements ViewerOverlay {
         bulges?.splice(mid.index - 1, 1, 0, 0);
         this.store.update(m.id, { points, ...(bulges ? { bulges } : {}) });
         this.setGesture({ kind: 'handle', id: m.id, index: mid.index, point: p });
+        return true;
+      }
+      // A row or column line of the selected table drags to resize the two cells either side of it.
+      const line = m?.type === 'table' && !this.frozen(m) && !this.store.readOnly && !e.shiftKey ? tableLineAt(m, p, tol) : null;
+      if (m && line) {
+        this.store.checkpoint();
+        this.setGesture({ kind: 'tableLine', id: m.id, line, to: line.axis === 'col' ? p[0] : p[1] });
         return true;
       }
     }
@@ -1693,6 +1868,24 @@ export class MarkupTools implements ViewerOverlay {
       }
     }
     const members = this.withGroups([hit.id]);
+    if (hit.type === 'table' && members.size === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const cell = tableCellAt(hit, p);
+      const only = this.state.selected.size === 1 && this.state.selected.has(hit.id);
+      const b = boundsOf(hit.points);
+      const onFrame = Math.min(p[0] - b.x, b.x + b.w - p[0], p[1] - b.y, b.y + b.h - p[1]) <= tol;
+      if (cell && only && e.shiftKey) {
+        // Shift-click stretches the selected cells to this one.
+        const at = this.state.tableCells;
+        this.setState({ tableCells: { id: hit.id, anchor: at?.id === hit.id ? at.anchor : cell, focus: cell } });
+        return true;
+      }
+      if (cell && !e.shiftKey && !onFrame) {
+        this.setState({ selected: new Set([hit.id]), tableCells: { id: hit.id, anchor: cell, focus: cell } });
+        // Dragging inside a table already selected selects a block of cells; the first press on one moves it.
+        this.setGesture(only ? { kind: 'tableCells', id: hit.id, from: cell } : { kind: 'move', start: p, dx: 0, dy: 0 });
+        return true;
+      }
+    }
     if (e.shiftKey) {
       const next = new Set(this.state.selected);
       const on = !next.has(hit.id);
@@ -1778,6 +1971,16 @@ export class MarkupTools implements ViewerOverlay {
       const p = toPoint(pt);
       g.dx = p[0] - g.start[0];
       g.dy = p[1] - g.start[1];
+    } else if (g.kind === 'tableLine') {
+      g.to = g.line.axis === 'col' ? pt[0] : pt[1];
+    } else if (g.kind === 'tableCells') {
+      const m = this.store?.get(g.id);
+      if (m) {
+        const b = boundsOf(m.points);
+        const cell = tableCellAt(m, [Math.min(Math.max(pt[0], b.x), b.x + b.w), Math.min(Math.max(pt[1], b.y), b.y + b.h)]);
+        const now = this.state.tableCells;
+        if (cell && (now?.focus.row !== cell.row || now.focus.col !== cell.col)) this.setState({ tableCells: { id: g.id, anchor: g.from, focus: cell } });
+      }
     } else if (g.kind === 'rotate') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -1875,6 +2078,10 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g.kind === 'rotate') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { rotation: g.angle || undefined });
+    } else if (g.kind === 'tableLine') {
+      const m = this.store.get(g.id);
+      const table = m && moveTableLine(m, g.line, g.to);
+      if (table) this.store.update(g.id, { table });
     }
     this.snapHit = null;
   }
@@ -1894,7 +2101,10 @@ export class MarkupTools implements ViewerOverlay {
     else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
     else if (hit?.type === 'table' && !this.frozen(hit)) {
       const cell = tableCellAt(hit, toPoint(pt));
-      if (cell) this.options.onEditTableCell?.(hit.id, cell.row, cell.col);
+      if (cell) {
+        this.setState({ selected: new Set([hit.id]), tableCells: { id: hit.id, anchor: cell, focus: cell } });
+        this.options.onEditTableCell?.(hit.id, cell.row, cell.col);
+      }
     }
   }
 
@@ -1954,6 +2164,11 @@ export class MarkupTools implements ViewerOverlay {
         this.snapHit = null;
         this.hoveredLink = hovered;
         this.viewer.invalidate();
+      }
+      if (hit?.type === 'table' && this.state.selected.size === 1 && this.state.selected.has(hit.id) && !this.frozen(hit) && !this.store?.readOnly) {
+        const line = this.gesture?.kind === 'tableLine' ? this.gesture.line : tableLineAt(hit, p, this.hitPx / this.viewer.zoomFor(pageIndex));
+        if (line) return line.axis === 'col' ? 'col-resize' : 'row-resize';
+        return 'cell';
       }
       return link || hyper ? 'pointer' : hit ? 'move' : overText ? 'text' : null;
     }
@@ -2364,6 +2579,7 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'handle' && g.id === m.id) return { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
+    if (g?.kind === 'tableLine' && g.id === m.id) return { ...m, table: moveTableLine(m, g.line, g.to) ?? m.table };
     return m;
   }
 }
@@ -2556,6 +2772,18 @@ function mergeStyle(style: MarkupStyle, patch: Partial<MarkupStyle>): MarkupStyl
   const out: Record<string, unknown> = { ...style, ...patch };
   for (const k of Object.keys(out)) if (out[k] === undefined) delete out[k];
   return out as unknown as MarkupStyle;
+}
+
+const isCellStyleKey = (key: string): key is (typeof CELL_STYLE_KEYS)[number] => (CELL_STYLE_KEYS as readonly string[]).includes(key);
+
+/**
+ * What changing a whole table's text style does to its cells: ones that had their own setting for it
+ * lose that, so the change shows on every cell.
+ */
+function tableOwnStyleCleared(m: Markup, patch: Partial<MarkupStyle>): Partial<Markup> {
+  if (m.type !== 'table' || !m.table?.formats) return {};
+  const keys = Object.keys(patch).filter(isCellStyleKey);
+  return keys.length ? { table: clearTableFormats(m, keys) } : {};
 }
 
 /** The non-printing dotted grid, `spacing` points apart; sparser when zoomed far out. */

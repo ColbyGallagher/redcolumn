@@ -395,20 +395,21 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
 
 /** A table's cell text, each cell's lines laid out and clipped like a text box. */
 function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
-  const size = m.style.fontSize ?? 12;
-  ctx.font = cssFont(m.style, size);
-  ctx.fillStyle = textColor(m.style);
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
   for (const cell of tableCells(m)) {
     if (!cell.text) continue;
+    // Each cell has the table's text style, with what it sets of its own.
+    const size = cell.style.fontSize ?? 12;
+    ctx.font = cssFont(cell.style, size);
+    ctx.fillStyle = textColor(cell.style);
     ctx.save();
     ctx.beginPath();
     ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
     ctx.clip();
     for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
       ctx.fillText(line.text, line.x, line.y);
-      if (m.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
+      if (cell.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
     }
     ctx.restore();
   }

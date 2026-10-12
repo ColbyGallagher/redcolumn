@@ -11,11 +11,17 @@ import {
   insertTableColumn,
   insertTableRow,
   MAX_TABLE_LINES,
+  mergeTableCells,
+  moveTableLine,
   newTable,
   setTableCell,
+  splitTableCell,
   tableCellAt,
   tableCellRect,
+  tableCells,
   tableGrid,
+  tableLineAt,
+  tableLines,
   tableOf,
   tableSummary,
 } from './table.ts';
@@ -175,4 +181,91 @@ test('a table saved to PDF is a stamp with its text for other tools, and keeps i
   const data = JSON.parse((dict.get(PDFName.of('NBData')) as PDFHexString).decodeText()) as Markup;
   assert.equal(data.type, 'table');
   assert.deepEqual(data.table, m.table);
+});
+
+test('merged cells are one cell: its box covers them all and a point in any of them finds the first', () => {
+  const m = withCells(table(3, 3, [[0, 0], [300, 90]]), [[0, 0, 'A'], [0, 1, 'B'], [1, 0, 'C'], [1, 1, 'D']]);
+  const merged = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 1, col: 1 })! };
+  assert.deepEqual(tableCellRect(merged, 1, 1), { x: 0, y: 0, w: 200, h: 60 });
+  assert.deepEqual(tableCellAt(merged, [150, 50]), { row: 0, col: 0 });
+  assert.equal(tableOf(merged).cells[0]![0], 'A\nB\nC\nD', 'the text of every merged cell is kept');
+  assert.deepEqual(tableOf(merged).cells[1], ['', '', '']);
+  assert.equal(tableCells(merged).length, 9 - 3);
+});
+
+test('merging a range grows it to take in the merged cells it touches, and one cell is no merge', () => {
+  let m = table(4, 4);
+  m = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 0, col: 1 })! };
+  const t = mergeTableCells(m, { row: 0, col: 1 }, { row: 1, col: 2 })!;
+  assert.deepEqual(t.merges, [{ row: 0, col: 0, rowSpan: 2, colSpan: 3 }]);
+  assert.equal(mergeTableCells(m, { row: 2, col: 2 }, { row: 2, col: 2 }), null);
+  assert.equal(mergeTableCells(m, { row: 0, col: 0 }, { row: 0, col: 0 }), null, 'a merged cell on its own is already one');
+});
+
+test('a merged cell can be split, leaving its text in the first cell', () => {
+  let m = withCells(table(2, 2), [[0, 0, 'Hi']]);
+  m = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 1, col: 1 })! };
+  const split = splitTableCell(m, 1, 1)!;
+  assert.equal(split.merges, undefined);
+  assert.equal(split.cells[0]![0], 'Hi');
+  assert.equal(splitTableCell({ table: split }, 0, 0), null);
+});
+
+test('no line is drawn inside a merged cell, and none can be grabbed there', () => {
+  let m = table(2, 3, [[0, 0], [300, 100]]);
+  assert.equal(tableLines(m).length, 2 + 1);
+  m = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 0, col: 1 })! };
+  assert.deepEqual(tableLines(m).filter((l) => l[0] === l[2]), [[100, 50, 100, 100], [200, 0, 200, 100]]);
+  assert.deepEqual(tableLineAt(m, [100, 25], 3), null);
+  assert.deepEqual(tableLineAt(m, [100, 75], 3), { axis: 'col', line: 1 });
+  assert.deepEqual(tableLineAt(m, [50, 50], 3), { axis: 'row', line: 1 });
+  assert.equal(tableLineAt(m, [150, 20], 3), null);
+});
+
+test('dragging a line trades space with its neighbour and keeps the table size', () => {
+  const m = table(2, 2, [[0, 0], [200, 100]]);
+  const wider = { ...m, table: moveTableLine(m, { axis: 'col', line: 1 }, 150)! };
+  assert.deepEqual(tableGrid(wider).xs, [0, 150, 200]);
+  const taller = { ...m, table: moveTableLine(m, { axis: 'row', line: 1 }, 20)! };
+  assert.deepEqual(tableGrid(taller).ys, [0, 20, 100]);
+  assert.deepEqual(tableGrid({ ...m, table: moveTableLine(m, { axis: 'col', line: 1 }, 9999, 10)! }).xs, [0, 190, 200], 'it stops short of squashing the next column');
+  assert.equal(moveTableLine(m, { axis: 'col', line: 2 }, 100), null);
+  assert.equal(moveTableLine(m, { axis: 'row', line: 0 }, 100), null);
+});
+
+test('merges follow rows and columns being added and removed', () => {
+  let m = table(4, 4);
+  m = { ...m, table: mergeTableCells(m, { row: 1, col: 1 }, { row: 2, col: 2 })! };
+  assert.deepEqual(applied(m, insertTableRow(m, 0, 0)).table!.merges, [{ row: 2, col: 1, rowSpan: 2, colSpan: 2 }]);
+  assert.deepEqual(applied(m, insertTableRow(m, 2, 1)).table!.merges, [{ row: 1, col: 1, rowSpan: 3, colSpan: 2 }], 'inside it, the merged cell grows');
+  assert.deepEqual(applied(m, insertTableColumn(m, 3, 0)).table!.merges, [{ row: 1, col: 1, rowSpan: 2, colSpan: 2 }], 'after it, nothing changes');
+  assert.deepEqual(applied(m, deleteTableColumn(m, 0)).table!.merges, [{ row: 1, col: 0, rowSpan: 2, colSpan: 2 }]);
+  assert.deepEqual(applied(m, deleteTableRow(m, 2)).table!.merges, [{ row: 1, col: 1, rowSpan: 1, colSpan: 2 }]);
+  const one = { ...table(3, 3), table: mergeTableCells(table(3, 3), { row: 0, col: 0 }, { row: 1, col: 0 })! };
+  assert.equal(applied(one, deleteTableRow(one, 1)).table!.merges, undefined, 'a merge down to one cell is a merge no more');
+});
+
+test('deleting the first row of a merged cell hands its text to the next', () => {
+  let m = withCells(table(3, 2), [[0, 0, 'Keep']]);
+  m = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 1, col: 0 })! };
+  const t = applied(m, deleteTableRow(m, 0)).table!;
+  assert.equal(t.merges, undefined);
+  assert.equal(t.cells[0]![0], 'Keep');
+});
+
+test('a damaged merge list is ignored: overlaps, one cell and out of range', () => {
+  const t = tableOf({ table: { rows: [1, 1], cols: [1, 1], cells: [], merges: [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }, { row: 1, col: 1, rowSpan: 1, colSpan: 2 }, { row: 5, col: 0, rowSpan: 2, colSpan: 2 }, { row: 0, col: 0, rowSpan: 1, colSpan: 1 }] } });
+  assert.deepEqual(t.merges, [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }]);
+});
+
+test('merged cells keep their grid when saved to PDF', async () => {
+  let m = withCells(table(2, 2, [[50, 50], [250, 130]]), [[0, 0, 'Wide']]);
+  m = { ...m, table: mergeTableCells(m, { row: 0, col: 0 }, { row: 0, col: 1 })! };
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const bytes = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m]);
+  const page = (await PDFDocument.load(bytes)).getPage(0);
+  const dict = page.doc.context.lookup(page.node.Annots()!.get(0), PDFDict);
+  const data = JSON.parse((dict.get(PDFName.of('NBData')) as PDFHexString).decodeText()) as Markup;
+  assert.deepEqual(data.table!.merges, [{ row: 0, col: 0, rowSpan: 1, colSpan: 2 }]);
 });
