@@ -88,6 +88,12 @@ test('fields in a stamp are filled in when it is placed', async () => {
   assert.deepEqual(dated.lines, ['05/10/2026']);
 });
 
+test('rich text keeps its paragraphs and breaks, and text that looks like a tag stays text', async () => {
+  const box: Box = { ...HEAD, text: '<p>One</p><p>Two &lt;b&gt;</p><br/>Three' };
+  const p = await parseStampPdf(await stampPdf([box], { artBox: ART_BOX }));
+  assert.deepEqual(textStamp(p, 'x').lines, ['One', 'Two <b>', 'Three']);
+});
+
 test('a PDF with nothing to use is refused', async () => {
   const doc = await PDFDocument.create();
   doc.addPage();
