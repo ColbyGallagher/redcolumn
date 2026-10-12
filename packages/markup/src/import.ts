@@ -27,6 +27,7 @@ import {
 } from './bluebeam';
 import { markupDigest } from './digest';
 import { readBsiLegend } from './bsiLegend';
+import { readLineStyle } from './lineStyle';
 import type { LineDash } from './style';
 import type { Viewport } from './viewports';
 
@@ -583,10 +584,15 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
+  const customLine = readLineStyle(r.LineStyle, r.LineStyleName);
+  const dashArray = nameOf(bs?.S) === 'D' ? (nums(bs?.D).length ? nums(bs?.D) : [3]).map((n) => Math.max(n, 0)) : [];
+  const exact = dashArray.some((n) => n > 0) ? { dashArray } : {};
   const base: Partial<MarkupStyle> = {
     ...(color ? { stroke: color } : {}),
     width,
     ...(dash ? { dash } : {}),
+    ...exact,
+    ...(customLine ? { lineStyle: customLine } : {}),
   };
   const le = (() => {
     const v = r.LE;
@@ -657,6 +663,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         fill: color,
         ...(color && fillOpacity !== null && fillOpacity < 1 ? { fillOpacity } : {}),
         ...(dash ? { dash } : {}),
+        ...exact,
       };
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;

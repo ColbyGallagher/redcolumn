@@ -336,7 +336,15 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
         </Row>
         {caps.dash && (
           <Row label="Line style">
-            <select value={style.dash ?? 'solid'} onChange={(e) => set('dash', e.target.value === 'solid' ? undefined : (e.target.value as LineDash))}>
+            <select
+              value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
+              onChange={(e) => {
+                if (e.target.value === 'custom') return;
+                // A plain style replaces a custom (Bluebeam) one.
+                onChange({ dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined, lineStyle: undefined });
+              }}
+            >
+              {(style.lineStyle || style.dashArray) && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
               {LINE_DASHES.map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
