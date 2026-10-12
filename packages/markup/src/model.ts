@@ -3,6 +3,7 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
+import type { TableData } from './table';
 import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
@@ -33,6 +34,7 @@ export type MarkupType =
   | 'signature'
   | 'stamp'
   | 'legend'
+  | 'table'
   | 'hyperlink'
   | 'space'
   | 'redaction'
@@ -257,6 +259,8 @@ export interface Markup {
   link?: LinkAction;
   /** Legends: which markups they list, those on their own page or in the whole document. */
   legend?: { scope: 'page' | 'document' };
+  /** Tables: the grid and what is in its cells. */
+  table?: TableData;
   /** Subject shown in the markup list; the type's name when unset (tool library tools set it). */
   subject?: string;
   /** Values of the document's custom columns, keyed by column id. */

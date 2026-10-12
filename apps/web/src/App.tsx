@@ -2,11 +2,12 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
-import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type Tool } from './markup/MarkupTools';
+import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
@@ -53,6 +54,8 @@ import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
 import { BookmarksPanel, type ViewTarget } from './components/BookmarksPanel';
 import { HyperlinkDialog } from './components/HyperlinkDialog';
+import { TableDialog } from './components/TableDialog';
+import { TableCellEditor } from './components/TableCellEditor';
 import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
@@ -822,6 +825,9 @@ export function App() {
   const [clipboardCount, setClipboardCount] = useState(0);
   const [commentEdit, setCommentEdit] = useState<{ pane: Pane; id: string } | null>(null);
   const [hyperlinkEdit, setHyperlinkEdit] = useState<{ pane: Pane; id: string } | null>(null);
+  // A table just drawn, waiting for its rows and columns; and the table cell being typed in.
+  const [tableDraft, setTableDraft] = useState<{ pane: Pane; draft: TableDraft } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ id: string; row: number; col: number } | null>(null);
   /** Symbol Search: the symbol box the user drew, and in which pane. */
   const [visualSearchBox, setVisualSearchBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   const followHyperlinkRef = useRef<(m: Markup) => void>(() => {});
@@ -968,6 +974,8 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onEditComment: (id) => setCommentEdit({ pane, id }),
       onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
+      onNewTable: (draft) => setTableDraft({ pane, draft }),
+      onEditTableCell: (id, row, col) => setEditingCell({ id, row, col }),
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
@@ -4974,7 +4982,7 @@ export function App() {
    * order, alignment, action, capture, flatten, group, lock, hide and legend; review; Tool Library;
    * defaults and properties.
    */
-  const markupMenu = (pane: Pane, ids: string[]): MenuEntry[] => {
+  const markupMenu = (pane: Pane, ids: string[], at?: Point): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return [];
     const store = o.store;
@@ -5008,6 +5016,28 @@ export function App() {
     const allRound = roundable.length > 0 && roundable.every((m) => m.style.cornerRadius);
     const pageCount = o.doc.pages.length;
     const session = studioDocOf(o.file.id);
+    // Right-click inside a table: its rows and columns, at the cell under the pointer (the last ones when the menu came from the list).
+    const tableItems = (m: Markup): MenuEntry[] => {
+      const t = tableOf(m);
+      const cell = (at && tableCellAt(m, at)) || { row: t.rows.length - 1, col: t.cols.length - 1 };
+      const off = ro || theirs || !!m.locked;
+      const apply = (edit: TableEdit | null) => {
+        if (!edit) return;
+        store.checkpoint();
+        store.update(m.id, edit);
+      };
+      return [
+        SEP,
+        { label: 'Edit Cell Text', disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
+        { label: 'Insert Row Above', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
+        { label: 'Insert Row Below', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
+        { label: 'Insert Column Left', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
+        { label: 'Insert Column Right', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col + 1, cell.col)) },
+        { label: `Delete Row ${cell.row + 1}`, danger: true, disabled: off || t.rows.length <= 1, onClick: () => apply(deleteTableRow(m, cell.row)) },
+        { label: `Delete Column ${cell.col + 1}`, danger: true, disabled: off || t.cols.length <= 1, onClick: () => apply(deleteTableColumn(m, cell.col)) },
+        SEP,
+      ];
+    };
     return [
       { label: 'Cut', icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
       { label: 'Copy', icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
@@ -5021,6 +5051,7 @@ export function App() {
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
+      ...(one && first.type === 'table' ? tableItems(first) : []),
       ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
       ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
@@ -5313,7 +5344,7 @@ export function App() {
       c.tools.select([hit.id]);
       ids = [hit.id];
     }
-    showMenu(e, markupMenu(pane, ids));
+    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]]));
   };
 
   const copyMarkups = (pane: Pane) => {
@@ -7899,6 +7930,15 @@ Open the download page? Run the new installer to update; your documents and mark
             />
           );
         })()}
+      {tableDraft && (
+        <TableDialog
+          onCancel={() => setTableDraft(null)}
+          onApply={(rows, columns) => {
+            paneParts(tableDraft.pane).c?.tools.addTable(tableDraft.draft, rows, columns);
+            setTableDraft(null);
+          }}
+        />
+      )}
       {hyperlinkEdit &&
         (() => {
           const { o } = paneParts(hyperlinkEdit.pane);
@@ -8060,6 +8100,11 @@ Open the download page? Run the new installer to update; your documents and mark
       {editing && activeOpen && v && activeTools && (
         <TextEditor key={editing.id} markup={editing} store={activeOpen.store} viewer={v} onDone={() => setEditingText(null)} />
       )}
+      {editingCell && activeOpen && v && (() => {
+        const table = activeOpen.store.get(editingCell.id);
+        if (table?.type !== 'table') return null;
+        return <TableCellEditor key={`${table.id}:${editingCell.row}:${editingCell.col}`} markup={table} row={editingCell.row} col={editingCell.col} store={activeOpen.store} viewer={v} onDone={(to) => setEditingCell(to ? { id: table.id, ...to } : null)} />;
+      })()}
     </div>
   );
 }

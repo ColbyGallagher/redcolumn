@@ -7,6 +7,7 @@ import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf
 import { TYPE_INFO } from './types';
 import { resolveHatch } from './hatches';
 import { lineEnds, type LineEnding } from './style';
+import { tableGrid } from './table';
 
 /** Path commands in page space. `C` is a cubic Bézier: two control points, then the end point. */
 export type PathCmd = ['M', number, number] | ['L', number, number] | ['C', number, number, number, number, number, number] | ['Z'];
@@ -127,6 +128,16 @@ function baseShape(m: Markup): ShapePart[] {
     case 'legend':
       // The frame; rows and text are drawn from the markups it lists (see legend.ts).
       return [{ path: rectPath(boundsOf(points)), stroke: style.width > 0, fill: style.fill }];
+    case 'table': {
+      // The frame, then the lines between rows and columns; cell text is drawn from `table`.
+      const b = boundsOf(points);
+      const { xs, ys } = tableGrid(m);
+      const inner: PathCmd[] = [
+        ...xs.slice(1, -1).flatMap((x): PathCmd[] => [['M', x, b.y], ['L', x, b.y + b.h]]),
+        ...ys.slice(1, -1).flatMap((y): PathCmd[] => [['M', b.x, y], ['L', b.x + b.w, y]]),
+      ];
+      return [{ path: rectPath(b), stroke: style.width > 0, fill: style.fill }, ...(inner.length && style.width > 0 ? [{ path: inner, stroke: true, fill: null }] : [])];
+    }
     case 'textHighlight':
       return markupLines(points).map((r) => ({ path: rectPath(r), stroke: false, fill: style.stroke }));
     case 'underline':

@@ -59,6 +59,8 @@ import {
   rotatePoint,
   rotationCentre,
   type Attachment,
+  newTable,
+  tableCellAt,
 } from '@nb/markup';
 import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex, type SnapKind } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -147,6 +149,8 @@ const NOTE_PX = 22;
 const STAMP_PX = 200;
 /** On-screen size of a legend placed with a click. */
 const LEGEND_PX = { w: 280, h: 150 };
+/** On-screen size of one cell of a table placed with a click. */
+const TABLE_CELL_PX = { w: 90, h: 26 };
 /** On-screen size of a flag label placed with a click. */
 const FLAG_LABEL_PX = { w: 150, h: 30 };
 /** On-screen radius of the eraser, by size. */
@@ -280,6 +284,15 @@ interface Modifiers {
   ctrlKey: boolean;
 }
 
+/** A table just drawn, waiting for its rows and columns (see `MarkupTools.addTable`). */
+export interface TableDraft {
+  markup: Markup;
+  /** Clicked rather than dragged: the table gets a comfortable size for its cells. */
+  tiny: boolean;
+  /** The page's zoom when it was drawn. */
+  zoom: number;
+}
+
 export interface MarkupToolsOptions {
   author: () => string;
   /** A text markup needs its text entered or edited. */
@@ -308,6 +321,10 @@ export interface MarkupToolsOptions {
   onFollowHyperlink?: (m: Markup) => void;
   /** A hyperlink was drawn or double-clicked: choose its action. */
   onEditHyperlink?: (id: string) => void;
+  /** A table was drawn: ask how many rows and columns, then place it with `addTable`. */
+  onNewTable?: (draft: TableDraft) => void;
+  /** A table's cell was double-clicked: edit its text. */
+  onEditTableCell?: (id: string, row: number, col: number) => void;
   /** Values new markups start with in the document's custom columns. */
   defaultFields?: () => Record<string, string> | undefined;
   /** A markup was drawn (for Recent Tools). */
@@ -1875,6 +1892,29 @@ export class MarkupTools implements ViewerOverlay {
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
     else if ((hit?.type === 'dimension' || hit?.type === 'replaceText') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
     else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
+    else if (hit?.type === 'table' && !this.frozen(hit)) {
+      const cell = tableCellAt(hit, toPoint(pt));
+      if (cell) this.options.onEditTableCell?.(hit.id, cell.row, cell.col);
+    }
+  }
+
+  /**
+   * Places a table drawn with the Table tool once its size is chosen. A click (no drag) gives each
+   * cell a comfortable on-screen size; a dragged box is divided into equal cells.
+   */
+  addTable(draft: TableDraft, rows: number, cols: number): Markup | null {
+    const store = this.store;
+    if (!store || store.readOnly) return null;
+    const table = newTable(rows, cols);
+    const m: Markup = { ...draft.markup, table };
+    if (draft.tiny) {
+      const a = m.points[0]!;
+      m.points = [a, [a[0] + (table.cols.length * TABLE_CELL_PX.w) / draft.zoom, a[1] + (table.rows.length * TABLE_CELL_PX.h) / draft.zoom]];
+    }
+    store.add(m);
+    this.options.onCreated?.(m);
+    this.setState({ tool: 'select', selected: new Set([m.id]) });
+    return m;
   }
 
   hover(pt: PagePoint | null, pageIndex: number): string | null {
@@ -2019,7 +2059,7 @@ export class MarkupTools implements ViewerOverlay {
     // Sizes the user set explicitly in the tool's defaults are kept as they are.
     if (preset?.stamp) style.stroke = preset.stamp.color;
     if (type === 'cloud' || type === 'polygonCloud') style.arcRadius ??= CLOUD_ARC_PX / zoom;
-    if (type === 'legend') style.fontSize ??= LABEL_PX / zoom;
+    if (type === 'legend' || type === 'table') style.fontSize ??= LABEL_PX / zoom;
     if (type === 'space') style.fontSize ??= (LABEL_PX * 1.4) / zoom;
     if (isMeasureKind(type)) {
       style.arcRadius ??= MARKER_PX / zoom;
@@ -2167,6 +2207,12 @@ export class MarkupTools implements ViewerOverlay {
         const h = w / stampAspect(m.stamp);
         m.points = [[a[0] - w / 2, a[1] - h / 2], [a[0] + w / 2, a[1] + h / 2]];
       }
+    } else if (m.type === 'table') {
+      // The rows and columns are asked for first; the table is placed once they are chosen.
+      const draft = { markup: m, tiny, zoom };
+      if (this.options.onNewTable) this.options.onNewTable(draft);
+      else this.addTable(draft, 3, 3);
+      return;
     } else if (m.type === 'legend' && tiny) {
       m.points = [a, [a[0] + LEGEND_PX.w / zoom, a[1] + LEGEND_PX.h / zoom]];
     } else if (m.type === 'flagLabel' && tiny) {
