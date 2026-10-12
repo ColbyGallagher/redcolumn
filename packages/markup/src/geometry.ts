@@ -3,7 +3,7 @@ import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -561,13 +561,7 @@ function ellipsePath(b: { x: number; y: number; w: number; h: number }): PathCmd
 
 /** Revision cloud: each edge of the box is split into semicircular bumps bulging outward. */
 function cloudPath(b: { x: number; y: number; w: number; h: number }, radius: number, inside = false): PathCmd[] {
-  const corners: Point[] = [
-    [b.x, b.y],
-    [b.x + b.w, b.y],
-    [b.x + b.w, b.y + b.h],
-    [b.x, b.y + b.h],
-  ];
-  return cloudPolygonPath(corners, radius, inside);
+  return cloudPolygonPath(cloudCorners([[b.x, b.y], [b.x + b.w, b.y + b.h]]), radius, inside);
 }
 
 /** Arcs along each edge of a closed outline, bulging out of it (or into it with `inside`). */
@@ -586,13 +580,12 @@ function cloudPolygonPath(corners: readonly Point[], radius: number, inside = fa
     const q = corners[(i + 1) % corners.length]!;
     const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
     if (len === 0) continue;
-    const n = Math.max(1, Math.round(len / (radius * 2)));
+    const { n, r } = cloudBumps(len, radius);
     const ux = (q[0] - p[0]) / len;
     const uy = (q[1] - p[1]) / len;
     // Outward normal: perpendicular to the edge, on the outside of the outline.
     const nx = -uy * out;
     const ny = ux * out;
-    const r = len / n / 2;
     for (let s = 0; s < n; s++) {
       const ax = p[0] + ux * r * 2 * s;
       const ay = p[1] + uy * r * 2 * s;

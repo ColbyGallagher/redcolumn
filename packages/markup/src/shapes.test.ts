@@ -218,3 +218,72 @@ test('resizedBox keeps the first corner, also when rotated', () => {
 test('circleBox centres the circle on its point', () => {
   assert.deepEqual(circleBox([10, 20], 5), [[5, 15], [15, 25]]);
 });
+
+test('a cloud\'s bounds hold its stretched bumps, which a short edge makes bigger than the nominal radius', () => {
+  // 163 long at radius 35 is 2.3 bumps, rounded to 2 of radius 40.75: past a 35 point pad.
+  const m = markup('cloud', [[0, 0], [163, 100]], { style: { ...DEFAULT_STYLES.cloud, arcRadius: 35, width: 2 } });
+  const b = markupBounds(m);
+  assert.ok(b.x <= -40.75 - 1 && b.y <= -(100 / Math.round(100 / 70) / 2) - 1, `bounds ${JSON.stringify(b)}`);
+  assert.ok(b.x + b.w >= 163 + 40.75 + 1);
+});
+
+test('Bluebeam sees a radius, a space and a flag label as its own kinds', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const original = await doc.save();
+  const markups = [
+    markup('radius', [[200, 200], [250, 200]]),
+    markup('space', [[10, 10], [100, 10], [100, 100], [10, 100]], { subject: 'Kitchen' }),
+    markup('flagLabel', [[300, 300], [380, 320]], { text: 'Check' }),
+    markup('legend', [[10, 200], [150, 300]]),
+  ].map((m, i) => ({ ...m, id: `m${i}`, createdAt: i }));
+  const out = await PDFDocument.load(await exportWithAnnotations(original.buffer as ArrayBuffer, markups));
+  const page = out.getPage(0).node;
+  const dicts = page.lookup(PDFName.of('Annots'), PDFArray).asArray().map((ref) => out.context.lookup(ref, PDFDict));
+  const name = (d: PDFDict, key: string) => d.get(PDFName.of(key))?.toString();
+
+  // A radius is a polygon of a point on the circle, its centre and the arc's end, not a boxed circle.
+  const radius = dicts.find((d) => name(d, 'IT') === '/PolygonRadius')!;
+  assert.equal(name(radius, 'Subtype'), '/Polygon');
+  assert.deepEqual(radius.lookup(PDFName.of('Vertices'), PDFArray).asArray().map((n) => Number(n.toString())), [250, 200, 200, 200, 250, 200].map((x, i) => (i % 2 ? 400 - x : x)));
+  assert.equal(radius.has(PDFName.of('RD')), false);
+  // Every annotation has a subject, which Bluebeam's Markups List names and groups them by.
+  const subj = (d: PDFDict) => d.lookup(PDFName.of('Subj'), PDFString, PDFHexString).decodeText();
+  assert.deepEqual(dicts.map(subj).sort(), ['Flag', 'Legend', 'Radius Measurement']);
+
+  // A space is an entry in the page's /BSISpaces, not an annotation.
+  const spaces = page.lookup(PDFName.of('BSISpaces'), PDFArray).asArray().map((e) => out.context.lookup(e, PDFDict));
+  assert.equal(spaces.length, 1);
+  assert.equal(spaces[0]!.lookup(PDFName.of('Title'), PDFString, PDFHexString).decodeText(), 'Kitchen');
+  assert.equal(spaces[0]!.lookup(PDFName.of('Path'), PDFArray).size(), 4);
+  assert.equal(dicts.length, 3, 'radius, flag label and legend');
+
+  // A flag label is listed in the catalog's /BSIFlags, and its /Flag points back at it.
+  const flags = out.catalog.lookup(PDFName.of('BSIFlags'), PDFArray).asArray();
+  assert.equal(flags.length, 1);
+  const flagged = dicts.find((d) => d.has(PDFName.of('Flag')))!;
+  assert.equal(name(flagged, 'Subtype'), '/FreeText');
+  assert.equal(flagged.get(PDFName.of('Flag')), flags[0]);
+  const parent = out.context.lookup(flags[0]!, PDFDict).get(PDFName.of('Parent'));
+  assert.equal(out.context.lookup(parent, PDFDict), flagged);
+});
+
+test('a Cloud+ is grouped for Bluebeam: the callout leads, the cloud points at it', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const original = await doc.save();
+  const markups = [
+    markup('cloud', [[50, 50], [150, 120]], { groupId: 'g' }),
+    markup('callout', [[150, 50], [190, 20], [200, 10], [280, 40]], { groupId: 'g', text: 'Revise' }),
+  ].map((m, i) => ({ ...m, id: `m${i}`, createdAt: i }));
+  const out = await PDFDocument.load(await exportWithAnnotations(original.buffer as ArrayBuffer, markups));
+  const dicts = out.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray).asArray().map((ref) => out.context.lookup(ref, PDFDict));
+  const [cloud, callout] = dicts as [PDFDict, PDFDict];
+  const text = (d: PDFDict, k: string) => d.lookup(PDFName.of(k), PDFString, PDFHexString).decodeText();
+  assert.equal(text(cloud, 'Subj'), 'Cloud+');
+  assert.equal(text(callout, 'Subj'), 'Cloud+');
+  assert.deepEqual(callout.lookup(PDFName.of('GroupNesting'), PDFArray).asArray().map((e) => (e as PDFHexString).decodeText()), ['Cloud+', '/m1', '/m0']);
+  assert.equal(out.context.lookup(cloud.get(PDFName.of('IRT')), PDFDict), callout);
+  assert.equal(cloud.get(PDFName.of('RT'))?.toString(), '/Group');
+  assert.equal(callout.has(PDFName.of('IRT')), false);
+});

@@ -10,6 +10,9 @@ import type { Markup, MarkupStyle, Point, Rect } from './model';
 import type { FontFamily, LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
 
+/** Where our own copy of a markup rides in a PDF object; must match export.ts's. */
+const APP_DATA_KEY = 'NBData';
+
 /** A PDF name (without its slash). */
 export class PdfName {
   readonly name: string;
@@ -322,17 +325,34 @@ export function importSpaces(pageIndex: number, page: PdfPageExtras, now: number
     });
     if (points.length < 3) return;
     const color = colorHex(s.C) ?? '#0369a1';
+    // A Space we wrote carries the rest of the markup (comments, fields, hatching); what Bluebeam
+    // keeps (its outline, name and colour) comes from the Space itself, as Bluebeam may have edited it.
+    let ours: Partial<Markup> = {};
+    try {
+      const data: unknown = JSON.parse(str(s[APP_DATA_KEY]) ?? '');
+      if (data && typeof data === 'object' && (data as Markup).type === 'space') ours = data as Markup;
+    } catch {
+      // Bluebeam's own Space.
+    }
+    const { pdfAnnot: _stale, style: ourStyle, ...rest } = ours;
+    // Our colours stay unless Bluebeam's colour is no longer the one we wrote.
+    const sameColor = !!ourStyle && (ourStyle.fill ?? ourStyle.stroke) === color;
+    // The name we wrote for a Space with none stays none.
+    const title = str(s.Title) ?? 'Space';
+    const subject = ours.type && title === (rest.subject || 'Space') ? rest.subject : title;
+    const style: MarkupStyle = { width: 1, opacity: 1, ...ourStyle, ...(sameColor ? {} : { stroke: color, fill: color }), fillOpacity: num(s.CA) ?? 0.1 } as MarkupStyle;
     out.push({
-      id: `pdf-space-${pageIndex}-${i}`,
-      type: 'space',
-      pageIndex,
-      points,
-      subject: str(s.Title) ?? 'Space',
-      style: { stroke: color, fill: color, width: 1, opacity: 1, fillOpacity: num(s.CA) ?? 0.1 },
       status: 'none',
       author: '',
       createdAt: now,
       modifiedAt: now,
+      ...rest,
+      id: rest.id ?? `pdf-space-${pageIndex}-${i}`,
+      type: 'space',
+      pageIndex,
+      points,
+      ...(subject === undefined ? {} : { subject }),
+      style,
       pdfAnnot: { index: i, digest: '', space: true },
     });
   });

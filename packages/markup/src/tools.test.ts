@@ -8,6 +8,7 @@ import { DEFAULT_SCALE, measureValue, type MeasureKind } from '@nb/measure';
 import { exportWithAnnotations, type Matrix } from './export.ts';
 import { flatten, hitTest, markupShape, moved, resizedBox } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
+import { readPdfExtras } from './pdfExtras.ts';
 import { boundsOf, DEFAULT_STYLES, isMeasureKind, markupBounds, MARKUP_TYPES, ROTATABLE, type Markup, type MarkupStyle, type MarkupType, type Point } from './model.ts';
 import { drawMarkup, drawSelection, handlePositions, measurementLabel } from './render.ts';
 import { MarkupStore } from './store.ts';
@@ -128,6 +129,11 @@ for (const type of MARKUP_TYPES) {
     const handles = handlePositions(m);
     if (info.handles === 'none') assert.equal(handles.length, 0);
     else if (info.handles === 'ends') assert.deepEqual(handles, m.points.slice(0, 2));
+    else if (info.handles === 'box') {
+      // Its two defining corners first, then the other corners and the middles of the four edges.
+      assert.equal(handles.length, 8);
+      assert.deepEqual(handles.slice(0, 2), m.points.slice(0, 2));
+    }
     else assert.deepEqual(handles, m.points);
   });
 
@@ -149,7 +155,7 @@ for (const type of MARKUP_TYPES) {
     assert.ok(close(after.w, before.w) && close(after.h, before.h), 'same size');
   });
 
-  if (info.handles === 'ends' && sample(type).length === 2) {
+  if ((info.handles === 'ends' || info.handles === 'box') && sample(type).length === 2) {
     test(`${type}: resizes from its first corner`, () => {
       const m = markup(type);
       const box = boundsOf(resizedBox(m, 200, 50));
@@ -247,7 +253,8 @@ test('every tool with every property set survives saving to PDF and opening agai
       if (!data) return [];
       return [{ index, subtype: '', rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 1, contents: '', author: '', intent: '', cloudy: false, da: '', appData: data.decodeText(), flags: 4, vertices: [], ink: [], line: null, link: null }];
     });
-  const { markups: back } = importAnnotations(0, found);
+  // Spaces are Bluebeam Spaces on the page, which carry our data too.
+  const { markups: back } = importAnnotations(0, found, undefined, await readPdfExtras(bytes));
   const byId = new Map(back.map(({ pdfAnnot: _link, ...m }) => [m.id, m]));
   for (const m of markups) assert.deepEqual(byId.get(m.id), m, `${m.type} came back changed`);
 });

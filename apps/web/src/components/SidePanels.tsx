@@ -22,11 +22,11 @@ export function FlagsPanel({
   onAdd: (() => void) | null;
 }) {
   // Flags on the page (Flag markups), markups flagged for follow-up, and markups with a status.
-  const flags = markups.filter((m) => m.type === 'flag').sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt);
-  const flagged = markups.filter((m) => m.flagged && m.type !== 'flag');
+  const flags = markups.filter((m) => m.type === 'flag' || m.type === 'flagLabel').sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt);
+  const flagged = markups.filter((m) => m.flagged && m.type !== 'flag' && m.type !== 'flagLabel');
   const withStatus = markups.filter((m) => m.status !== 'none');
   const add = (
-    <button className="btn small" disabled={!onAdd} title="Click on the page to place a flag" onClick={onAdd ?? undefined}>
+    <button className="btn small" disabled={!onAdd} title="Click on the page to place a flag label" onClick={onAdd ?? undefined}>
       ⚑ Add Flag
     </button>
   );
@@ -52,7 +52,7 @@ export function FlagsPanel({
       {flags.length > 0 && (
         <>
           <h3 className="panel-subhead">Flags</h3>
-          <ul className="bookmark-list">{flags.map((m) => item(m, <span className="num" style={{ color: m.style.fill ?? m.style.stroke }}>⚑</span>, `${m.comment?.split('\n')[0] || 'Flag'} · p. ${m.pageIndex + 1}`))}</ul>
+          <ul className="bookmark-list">{flags.map((m) => item(m, <span className="num" style={{ color: m.style.fill ?? m.style.stroke }}>⚑</span>, `${(m.type === 'flagLabel' ? m.text : m.comment)?.split('\n')[0] || 'Flag'} · p. ${m.pageIndex + 1}`))}</ul>
         </>
       )}
       {flagged.length > 0 && (

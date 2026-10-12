@@ -454,7 +454,7 @@ function unrotatedBounds(m: Markup): Rect {
   const pad =
     m.style.width / 2 +
     (ends[0] !== 'none' || ends[1] !== 'none' ? capSize(m) : 0) +
-    (m.type === 'cloud' || m.type === 'polygonCloud' ? cloudRadius(m) : 0) +
+    (m.type === 'cloud' || m.type === 'polygonCloud' ? cloudReach(m) : 0) +
     (isMeasureKind(m.type) ? markerSize(m) * (m.type === 'angle' ? 3 : 1) : 0) +
     (m.type === 'length' || m.type === 'dimension' ? Math.abs(m.style.leader ?? 0) : 0);
   return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
@@ -474,4 +474,39 @@ export function capSize(m: Markup): number {
 /** Radius of the arcs along a cloud's edge. */
 export function cloudRadius(m: Markup): number {
   return m.style.arcRadius ?? Math.max(4, m.style.width * 4);
+}
+
+/** How an edge of `len` is split into bumps: their count, and the radius that makes them fit it exactly. */
+export function cloudBumps(len: number, radius: number): { n: number; r: number } {
+  const n = Math.max(1, Math.round(len / (radius * 2)));
+  return { n, r: len / n / 2 };
+}
+
+/**
+ * How far a cloud's bumps stand out from its outline. Bumps stretch to fit their edge, so a short
+ * edge's single bump can be up to half again the nominal radius: padding by the nominal radius
+ * alone clips them (Bluebeam cuts a cloud off at its Rect).
+ */
+export function cloudReach(m: Markup): number {
+  const radius = cloudRadius(m);
+  const pts = m.type === 'cloud' ? cloudCorners(m.points) : m.points;
+  let reach = radius;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!;
+    const q = pts[(i + 1) % pts.length]!;
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len > 0) reach = Math.max(reach, cloudBumps(len, radius).r);
+  }
+  return reach;
+}
+
+/** The four corners of a cloud's box, clockwise from the top left. */
+export function cloudCorners(points: readonly Point[]): Point[] {
+  const b = boundsOf(points);
+  return [
+    [b.x, b.y],
+    [b.x + b.w, b.y],
+    [b.x + b.w, b.y + b.h],
+    [b.x, b.y + b.h],
+  ];
 }
