@@ -22,6 +22,8 @@ From here you can click a stamp and click **Place** to use it.
    | **Time** | `{Time}` – the time it is placed |
    | **File name** | `{File}` – the PDF's name |
    | **Page or sheet number** | `{Page}` – e.g. A-101 |
+   | **File location** | `{Path}` – where the PDF is |
+   | **Day of the month**, **Month number**, **Year** | `{dd}`, `{mm}`, `{yyyy}` – e.g. 05/10/2026 |
 
 5. Pick a **Colour** and a **Frame** (Rounded, Square or None).
 6. Check the preview at the bottom, then click **Save Stamp**.
@@ -29,6 +31,15 @@ From here you can click a stamp and click **Place** to use it.
    ![Making a new CHECKED stamp](img/stamps-new.png)
 
 Your stamp now appears in {{Tools > Stamp}}.
+
+## Import stamps from Bluebeam® Revu®
+
+Revu keeps its stamps as PDF files in its Stamps folder.
+
+1. Click **Import…** in the Stamps window.
+2. Pick one or more stamp PDFs and click **Open**.
+
+A stamp that is only text arrives as an ordinary stamp you can change. Revu's `&[Date]`, `&[Time]`, `&[File]`, `&[Path]`, `&[dd]`, `&[mm]` and `&[yyyy]` become the fields above. A stamp with artwork (a seal, a tag, a box) arrives as a picture with its text over it. You can change that text, but not the picture. Importing a stamp again replaces the one of the same name.
 
 ## Change or delete a stamp
 

@@ -363,7 +363,20 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.textBaseline = 'middle';
     ctx.fillText(spaceName(m), x, y);
   }
-  if (m.type === 'stamp' && m.stamp) {
+  if (m.type === 'stamp' && m.stamp?.art) {
+    // A picture with its text over it, the text placed by fractions of the box.
+    const b = boundsOf(m.points);
+    const img = markupImage(m.stamp.art.image);
+    if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    for (const t of m.stamp.art.texts) {
+      ctx.font = `${t.italic ? 'italic ' : ''}${t.bold ? 'bold ' : ''}${t.size * b.h}px ${TEXT_FONT_FAMILY}`;
+      ctx.fillStyle = t.color;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = t.align;
+      const x = b.x + (t.align === 'left' ? t.x : t.align === 'right' ? t.x + t.w : t.x + t.w / 2) * b.w;
+      ctx.fillText(t.text, x, b.y + (t.y + t.h / 2) * b.h, Math.max(1, t.w * b.w));
+    }
+  } else if (m.type === 'stamp' && m.stamp) {
     const b = boundsOf(m.points);
     const measure = (text: string, bold: boolean) => {
       ctx.font = `${bold ? 'bold ' : ''}100px ${TEXT_FONT_FAMILY}`;
