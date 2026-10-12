@@ -1,7 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import {
+  CELL_STYLE_KEYS,
   DEFAULT_STYLES,
   FONT_FAMILIES,
+  tableCellFormat,
+  tableCellStyle,
   HATCH_PATTERNS,
   LINE_DASHES,
   LINE_ENDINGS,
@@ -82,6 +85,17 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const caps = intersectCaps(types.map(styleCapabilities));
   const ids = chosen.map((c) => c.id);
   const disabled = readOnly || !tools;
+  // With cells of a table selected, its font settings are theirs, as in a spreadsheet; the rest is the table's.
+  const cellSel = chosen.length === 1 && m.type === 'table' ? (tools?.tableSelection() ?? null) : null;
+  const shownStyle = cellSel ? tableCellStyle(m, cellSel.range.row, cellSel.range.col) : m.style;
+  const cellFill = cellSel ? tableCellFormat(m, cellSel.range.row, cellSel.range.col).fill : undefined;
+  const changeStyle = (patch: Partial<MarkupStyle>) => {
+    if (!cellSel) return tools?.applyStyle(ids, patch);
+    const own = Object.fromEntries(Object.entries(patch).filter(([k]) => (CELL_STYLE_KEYS as readonly string[]).includes(k)));
+    const rest = Object.fromEntries(Object.entries(patch).filter(([k]) => !(CELL_STYLE_KEYS as readonly string[]).includes(k)));
+    if (Object.keys(own).length) tools?.applyCellStyle(own);
+    if (Object.keys(rest).length) tools?.applyStyle(ids, rest);
+  };
   return (
     <div className="props-panel">
       {chosen.length > 1 && (
@@ -204,7 +218,28 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         </Section>
       )}
       {cellContext.columns.length > 0 && <CustomFields markup={m} ids={ids} store={store} readOnly={readOnly} cellContext={cellContext} />}
-      <StyleEditor style={m.style} type={m.type} caps={caps} disabled={disabled} onChange={(patch) => tools?.applyStyle(ids, patch)} />
+      {cellSel && tools && (
+        <Section title="Cells">
+          <p className="empty">
+            {cellSel.range.rowSpan * cellSel.range.colSpan === 1 ? `Row ${cellSel.range.row + 1}, column ${cellSel.range.col + 1}` : `${cellSel.range.rowSpan} rows by ${cellSel.range.colSpan} columns`}: font settings below apply to just these cells.
+          </p>
+          <fieldset className="props-style" disabled={disabled}>
+            <Row label="Cell fill">
+              <label className="inline">
+                <input type="checkbox" checked={!!cellFill} onChange={(e) => tools.applyCellStyle({ fill: e.target.checked ? '#fef9c3' : undefined })} />
+                {cellFill ? '' : 'None'}
+              </label>
+              {cellFill && <input type="color" value={cellFill} onChange={(e) => tools.applyCellStyle({ fill: e.target.value })} />}
+            </Row>
+            <div className="props-actions">
+              <button className="btn" title="Take the font, colour and fill of these cells back to the table's" onClick={() => tools.clearCellFormatting()}>
+                Clear cell formatting
+              </button>
+            </div>
+          </fieldset>
+        </Section>
+      )}
+      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} onChange={changeStyle} />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (

@@ -414,24 +414,34 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
 
   if (m.type === 'table') {
-    // The grid is drawn with the shape; each cell's text is laid out in its box and clipped to it.
-    const font = ctx.fonts.get(standardFont(style, false))!;
-    const size = style.fontSize ?? 12;
-    const ascent = font.heightAtSize(size, { descender: false });
+    // The grid is drawn with the shape; each cell's text is laid out in its box and clipped to it,
+    // in the cell's own font, size and colour. The table's font is F0, any others F1, F2, ...
+    const tableFont = ctx.fonts.get(standardFont(style, false))!;
+    const fontNames = new Map<StandardFonts, string>([[standardFont(style, false), 'F0']]);
+    const fontRefs: Record<string, PDFRef> = { F0: tableFont.ref };
     for (const cell of tableCells(m)) {
       if (!cell.text) continue;
       const { x, y, w, h } = cell.rect;
-      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeText(font, cell.text) }), (s) => font.widthOfTextAtSize(s, size));
-      ops.push('q', '/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
+      const fontName = standardFont(cell.style, false);
+      const font = ctx.fonts.get(fontName)!;
+      if (!fontNames.has(fontName)) {
+        fontNames.set(fontName, `F${fontNames.size}`);
+        fontRefs[fontNames.get(fontName)!] = font.ref;
+      }
+      const size = cell.style.fontSize ?? 12;
+      const ascent = font.heightAtSize(size, { descender: false });
+      const [cr, cg, cb] = rgb(textColor(cell.style));
+      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeText(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
+      ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
       for (const line of lines) ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${font.encodeText(line.text).toString()} Tj`);
       ops.push('ET');
-      if (style.underline) {
-        ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`);
+      if (cell.style.underline) {
+        ops.push(`${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`);
         for (const line of lines) if (line.text) ops.push(underlineOps(line.x, line.y + size * 0.98, line.width, size));
       }
       ops.push('Q');
     }
-    resources.Font = { F0: font.ref };
+    resources.Font = fontRefs;
   }
 
   if (m.type === 'legend') {
@@ -1660,6 +1670,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
       ...(m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
+      // A table's cells can each have a font of their own.
+      ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
     ];
     for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));

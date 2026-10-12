@@ -408,6 +408,25 @@ test('placeCloudPlus writes a grouped cloud and callout in one undo step', async
   await h.store.destroy();
 });
 
+test('a Cloud+ keeps the grips of its cloud and its callout, and a grip drags only its own markup', async () => {
+  const h = await setup();
+  const { cloud, callout } = h.tools.placeCloudPlus(0, [[100, 200], [300, 300]]);
+  h.tools.setTool('select');
+  h.tools.select([cloud.id]); // selecting one member selects the group
+  assert.equal(h.tools.getState().selected.size, 2);
+  // The cloud's bottom-left corner (a grip neither of the two defining corners).
+  drag(h.tools, [100, 300], [80, 320]);
+  assert.deepEqual(h.store.get(cloud.id)?.points, [[80, 200], [300, 320]]);
+  // The callout's box moved nothing.
+  assert.deepEqual(h.store.get(callout.id)?.points, callout.points);
+  // A callout's arrow tip is a grip too.
+  const tip = callout.points[0]!;
+  drag(h.tools, [tip[0], tip[1]], [tip[0] + 10, tip[1] - 10]);
+  assert.deepEqual(h.store.get(callout.id)?.points[0], [tip[0] + 10, tip[1] - 10]);
+  assert.deepEqual(h.store.get(cloud.id)?.points, [[80, 200], [300, 320]]);
+  await h.store.destroy();
+});
+
 test('place writes one markup and undo removes it', async () => {
   const h = await setup();
   const placed = h.tools.place('rect', 0, [[10, 20], [80, 90]], { text: 'A' });
@@ -462,5 +481,157 @@ test('double-clicking a table cell edits that cell', async () => {
   h.tools.setTool('select');
   h.tools.doubleClick([350, 310], 0);
   assert.deepEqual(edited, [{ id: m.id, row: 2, col: 2 }]);
+  await h.store.destroy();
+});
+
+/** A drawn 3 by 3 table, 100 wide and 40 tall per cell from (100, 200), selected with the Select tool. */
+async function tableHarness(extra: Partial<MarkupToolsOptions> = {}) {
+  const h = await setup(extra);
+  h.tools.setTool('table');
+  drag(h.tools, [100, 200], [400, 320]);
+  h.tools.setTool('select');
+  const m = h.store.all()[0]!;
+  h.tools.select([m.id]);
+  return { ...h, id: m.id, table: () => h.store.get(m.id)!.table! };
+}
+
+test('a click on a table cell selects that cell, and dragging across cells selects a block', async () => {
+  const h = await tableHarness();
+  click(h.tools, [250, 300]);
+  assert.deepEqual(h.tools.getState().tableCells, { id: h.id, anchor: { row: 2, col: 1 }, focus: { row: 2, col: 1 } });
+  drag(h.tools, [150, 220], [250, 260]);
+  const sel = h.tools.getState().tableCells!;
+  assert.deepEqual([sel.anchor, sel.focus], [{ row: 0, col: 0 }, { row: 1, col: 1 }]);
+  assert.deepEqual(h.tools.tableSelection()!.range, { row: 0, col: 0, rowSpan: 2, colSpan: 2 });
+  assert.deepEqual(boundsOf(h.store.get(h.id)!.points), { x: 100, y: 200, w: 300, h: 120 }, 'selecting cells does not move the table');
+  h.tools.select([]);
+  assert.equal(h.tools.getState().tableCells, null, 'deselecting the table drops its cells');
+  await h.store.destroy();
+});
+
+test('the first press on a table selects it and its cell, and dragging then moves the table', async () => {
+  const h = await tableHarness();
+  h.tools.select([]);
+  drag(h.tools, [150, 220], [170, 240]);
+  assert.deepEqual(boundsOf(h.store.get(h.id)!.points), { x: 120, y: 220, w: 300, h: 120 });
+  assert.deepEqual(h.tools.getState().tableCells?.anchor, { row: 0, col: 0 });
+  await h.store.destroy();
+});
+
+test('a selected table moves by its outer edge', async () => {
+  const h = await tableHarness();
+  drag(h.tools, [100, 250], [130, 250]);
+  assert.deepEqual(boundsOf(h.store.get(h.id)!.points), { x: 130, y: 200, w: 300, h: 120 });
+  await h.store.destroy();
+});
+
+test('dragging a column or row line resizes the cells either side as one undo step', async () => {
+  const h = await tableHarness();
+  drag(h.tools, [200, 300], [250, 300]);
+  assert.deepEqual(tableOfCols(h.table()), [150, 50, 100]);
+  drag(h.tools, [350, 280], [350, 250]);
+  assert.deepEqual(h.table().rows, [1, 0.25, 1.75]);
+  assert.deepEqual(boundsOf(h.store.get(h.id)!.points), { x: 100, y: 200, w: 300, h: 120 }, 'the table keeps its size');
+  h.store.undo();
+  assert.deepEqual(h.table().rows, [1, 1, 1]);
+  assert.deepEqual(tableOfCols(h.table()), [150, 50, 100]);
+  await h.store.destroy();
+});
+
+test('a line stops short of squashing the cell beside it', async () => {
+  const h = await tableHarness();
+  drag(h.tools, [200, 300], [999, 300]);
+  assert.deepEqual(tableOfCols(h.table()), [196, 4, 100]);
+  await h.store.destroy();
+});
+
+test('selected cells merge into one and split again', async () => {
+  const h = await tableHarness();
+  assert.equal(h.tools.canMergeCells(), false, 'no cells are selected yet');
+  drag(h.tools, [150, 220], [250, 260]);
+  assert.equal(h.tools.canMergeCells(), true);
+  assert.equal(h.tools.canSplitCells(), false);
+  assert.equal(h.tools.mergeSelectedCells(), true);
+  assert.deepEqual(h.table().merges, [{ row: 0, col: 0, rowSpan: 2, colSpan: 2 }]);
+  assert.deepEqual(h.tools.getState().tableCells?.focus, { row: 0, col: 0 }, 'the merged cell is what stays selected');
+  assert.equal(h.tools.canSplitCells(), true);
+  assert.equal(h.tools.canMergeCells(), false, 'one merged cell is already one');
+  click(h.tools, [250, 260]);
+  assert.deepEqual(h.tools.getState().tableCells?.anchor, { row: 0, col: 0 }, 'any part of a merged cell selects it');
+  assert.equal(h.tools.splitSelectedCells(), true);
+  assert.equal(h.table().merges, undefined);
+  h.store.undo();
+  assert.equal(h.table().merges?.length, 1);
+  await h.store.destroy();
+});
+
+test('typing on a selected cell edits it, and Enter or F2 edit it without replacing its text', async () => {
+  const edited: { row: number; col: number; text?: string }[] = [];
+  const h = await tableHarness({ onEditTableCell: (_id, row, col, text) => edited.push({ row, col, text }) });
+  assert.equal(h.tools.editSelectedCell('x'), false, 'no cell is selected until one is clicked');
+  click(h.tools, [350, 220]);
+  assert.equal(h.tools.editSelectedCell('q'), true);
+  assert.equal(h.tools.editSelectedCell(), true);
+  assert.deepEqual(edited.slice(-2), [{ row: 0, col: 2, text: 'q' }, { row: 0, col: 2, text: undefined }]);
+  await h.store.destroy();
+});
+
+test('a locked table lets its cells be selected but not merged or resized', async () => {
+  const h = await tableHarness();
+  h.store.update(h.id, { locked: true });
+  drag(h.tools, [150, 220], [250, 260]);
+  assert.equal(h.tools.mergeSelectedCells(), false);
+  drag(h.tools, [200, 300], [250, 300]);
+  assert.deepEqual(h.table().cols, [1, 1, 1]);
+  await h.store.destroy();
+});
+
+const tableOfCols = (t: { cols: number[] }) => t.cols.map((n) => Math.round((n / t.cols.reduce((a, b) => a + b, 0)) * 300));
+
+test('font settings go to the selected cells only, as in a spreadsheet', async () => {
+  const h = await tableHarness();
+  const before = h.store.get(h.id)!.style;
+  drag(h.tools, [150, 220], [250, 260]);
+  h.tools.applyCellStyle({ fontSize: 22, bold: true, textColor: '#ff0000', fill: '#ffff00' });
+  const formats = h.table().formats!;
+  assert.deepEqual(Object.keys(formats).sort(), ['0,0', '0,1', '1,0', '1,1']);
+  assert.deepEqual(formats['1,1'], { fontSize: 22, bold: true, textColor: '#ff0000', fill: '#ffff00' });
+  assert.deepEqual(h.store.get(h.id)!.style, before, 'the table itself is unchanged');
+  assert.equal(h.tools.selectedCellStyle()!.fontSize, 22, 'the controls show the selected cell');
+  h.store.undo();
+  assert.equal(h.table().formats, undefined);
+  await h.store.destroy();
+});
+
+test('the toolbar font controls follow the selected cells and leave the tool defaults alone', async () => {
+  const h = await tableHarness();
+  const defaults = h.tools.getState().styles.table;
+  const size = h.store.get(h.id)!.style.fontSize;
+  click(h.tools, [250, 300]);
+  h.tools.setStyle('table', { fontFamily: 'serif', fontSize: 30 });
+  assert.deepEqual(h.table().formats, { '2,1': { fontFamily: 'serif', fontSize: 30 } });
+  assert.equal(h.store.get(h.id)!.style.fontSize, size, 'the table keeps its own size');
+  assert.deepEqual(h.tools.getState().styles.table, defaults);
+  await h.store.destroy();
+});
+
+test('a text setting for the whole table takes it off cells that had their own, and cell formatting can be cleared', async () => {
+  const h = await tableHarness();
+  click(h.tools, [250, 300]);
+  h.tools.applyCellStyle({ fontSize: 30, fill: '#eeeeee' });
+  h.tools.applyStyle([h.id], { fontSize: 9 });
+  assert.deepEqual(h.table().formats, { '2,1': { fill: '#eeeeee' } }, 'its size goes, its background stays');
+  assert.equal(h.store.get(h.id)!.style.fontSize, 9);
+  h.tools.clearCellFormatting();
+  assert.equal(h.table().formats, undefined);
+  await h.store.destroy();
+});
+
+test('cells of a locked table cannot be formatted', async () => {
+  const h = await tableHarness();
+  click(h.tools, [250, 300]);
+  h.store.update(h.id, { locked: true });
+  h.tools.applyCellStyle({ bold: true });
+  assert.equal(h.table().formats, undefined);
   await h.store.destroy();
 });

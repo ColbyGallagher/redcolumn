@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
@@ -607,6 +608,15 @@ function isTyping(target: EventTarget | null) {
   return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 }
 
+/** Opens the editor on the selected table cell at once, so keys typed right after the first reach it. */
+function startCellEdit(tools: MarkupTools, typed?: string): boolean {
+  let started = false;
+  flushSync(() => {
+    started = tools.editSelectedCell(typed);
+  });
+  return started;
+}
+
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
@@ -827,7 +837,7 @@ export function App() {
   const [hyperlinkEdit, setHyperlinkEdit] = useState<{ pane: Pane; id: string } | null>(null);
   // A table just drawn, waiting for its rows and columns; and the table cell being typed in.
   const [tableDraft, setTableDraft] = useState<{ pane: Pane; draft: TableDraft } | null>(null);
-  const [editingCell, setEditingCell] = useState<{ id: string; row: number; col: number } | null>(null);
+  const [editingCell, setEditingCell] = useState<{ id: string; row: number; col: number; text?: string } | null>(null);
   /** Symbol Search: the symbol box the user drew, and in which pane. */
   const [visualSearchBox, setVisualSearchBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   const followHyperlinkRef = useRef<(m: Markup) => void>(() => {});
@@ -975,7 +985,7 @@ export function App() {
       onEditComment: (id) => setCommentEdit({ pane, id }),
       onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
       onNewTable: (draft) => setTableDraft({ pane, draft }),
-      onEditTableCell: (id, row, col) => setEditingCell({ id, row, col }),
+      onEditTableCell: (id, row, col, text) => setEditingCell({ id, row, col, text }),
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
@@ -4020,7 +4030,10 @@ export function App() {
       if (e.key === 'Enter' && measuring) tools.finish();
       else if ((e.key === 'Backspace' || e.key === 'Delete') && measuring) tools.removeLastPoint();
       else if (e.key === 'Escape') tools.cancel();
-      else {
+      // Typing on a selected table cell, or Enter or F2, edits it; the typed character starts its new text.
+      else if (tools.getState().tableCells && !e.ctrlKey && !e.metaKey && !e.altKey && !e.isComposing && (e.key.length === 1 || e.key === 'Enter' || e.key === 'F2') && startCellEdit(tools, e.key.length === 1 ? e.key : undefined)) {
+        // Handled.
+      } else {
         // Everything else runs a command through the active profile's shortcuts.
         const combo = comboOf(e);
         const all = commandsRef.current;
@@ -5050,6 +5063,10 @@ export function App() {
       const t = tableOf(m);
       const cell = (at && tableCellAt(m, at)) || { row: t.rows.length - 1, col: t.cols.length - 1 };
       const off = ro || theirs || !!m.locked;
+      // Right-clicking outside the selected cells selects the cell under the pointer; inside them, the whole block stays selected.
+      const selected = c.tools.tableSelection();
+      const inside = !!selected && selected.markup.id === m.id && cell.row >= selected.range.row && cell.row < selected.range.row + selected.range.rowSpan && cell.col >= selected.range.col && cell.col < selected.range.col + selected.range.colSpan;
+      if (!inside) c.tools.selectTableCell(m.id, cell);
       const apply = (edit: TableEdit | null) => {
         if (!edit) return;
         store.checkpoint();
@@ -5058,6 +5075,8 @@ export function App() {
       return [
         SEP,
         { label: 'Edit Cell Text', disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
+        { label: 'Merge Cells', disabled: off || !c.tools.canMergeCells(), onClick: () => c.tools.mergeSelectedCells() },
+        { label: 'Split Cell', disabled: off || !c.tools.canSplitCells(), onClick: () => c.tools.splitSelectedCells() },
         { label: 'Insert Row Above', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
         { label: 'Insert Row Below', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
         { label: 'Insert Column Left', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
@@ -6563,7 +6582,7 @@ Open the download page? Run the new installer to update; your documents and mark
           cloudBubble={cloudBubble}
           geometry={selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null}
           textType={textType}
-          textMarkupStyle={selectedText?.style}
+          textMarkupStyle={selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style}
           enabled={!!activeOpen && !activeReadOnly}
           visibleTools={ws.toolbarTools}
           author={author}
@@ -8132,7 +8151,22 @@ Open the download page? Run the new installer to update; your documents and mark
       {editingCell && activeOpen && v && (() => {
         const table = activeOpen.store.get(editingCell.id);
         if (table?.type !== 'table') return null;
-        return <TableCellEditor key={`${table.id}:${editingCell.row}:${editingCell.col}`} markup={table} row={editingCell.row} col={editingCell.col} store={activeOpen.store} viewer={v} onDone={(to) => setEditingCell(to ? { id: table.id, ...to } : null)} />;
+        return (
+          <TableCellEditor
+            key={`${table.id}:${editingCell.row}:${editingCell.col}`}
+            markup={table}
+            row={editingCell.row}
+            col={editingCell.col}
+            typed={editingCell.text}
+            store={activeOpen.store}
+            viewer={v}
+            onDone={(to) => {
+              // The cell being left, or the one moved on to, stays the selected one.
+              activeTools?.selectTableCell(table.id, to ?? editingCell);
+              setEditingCell(to ? { id: table.id, ...to } : null);
+            }}
+          />
+        );
       })()}
     </div>
   );

@@ -33,7 +33,7 @@ export function TableDialog({ onApply, onCancel }: Props) {
         }}
       >
         <h3>Table</h3>
-        <p>Right-click inside a table to insert or delete rows and columns, and double-click a cell to type in it.</p>
+        <p>Click a cell to select it and double-click to type in it. Drag the lines to resize, drag across cells and right-click to merge them, or right-click to insert or delete rows and columns.</p>
         <div className="form-grid">
           <label htmlFor="table-rows">Rows</label>
           <input id="table-rows" type="number" inputMode="numeric" min={1} max={MAX_TABLE_LINES} value={rows} onChange={(e) => setRows(e.target.value)} aria-invalid={!valid(rows)} autoFocus onFocus={(e) => e.currentTarget.select()} />

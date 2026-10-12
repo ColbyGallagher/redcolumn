@@ -1,5 +1,5 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { cssFont, setTableCell, tableCellRect, tableOf, textColor, type Markup, type MarkupStore } from '@nb/markup';
+import { useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { cssFont, setTableCell, tableCellFormat, tableCellRect, tableCellStyle, tableOf, tableRegion, textColor, type Markup, type MarkupStore } from '@nb/markup';
 import { useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
@@ -9,6 +9,8 @@ interface Props {
   markup: Markup;
   row: number;
   col: number;
+  /** Text typed on the selected cell to start editing it: it replaces the cell's text, as in a spreadsheet. */
+  typed?: string;
   store: MarkupStore;
   viewer: TileViewer;
   /** Finished; `to` is the cell to edit next (Tab, Shift+Tab, Enter), if any. */
@@ -19,21 +21,28 @@ interface Props {
  * In-place editor over one cell of a table. Commits on blur; Esc cancels. Tab and Shift+Tab move
  * along the cells, Enter moves down, and Shift+Enter starts a new line in the cell.
  */
-export function TableCellEditor({ markup, row, col, store, viewer, onDone }: Props) {
+export function TableCellEditor({ markup, row, col, typed, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
   const next = useRef<{ row: number; col: number } | undefined>(undefined);
   const { spellCheck } = useSettings();
 
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
+  // A layout effect, so the editor has focus before the browser handles the next key.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    el?.focus();
+    if (typed !== undefined) el?.setSelectionRange(el.value.length, el.value.length);
+    else el?.select();
+    // Once, when it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const table = tableOf(markup);
   const cell = tableCellRect(markup, row, col);
   const [x0, y0] = viewer.pageToClient([cell.x, cell.y], markup.pageIndex);
-  const fontSize = markup.style.fontSize ?? 12;
+  // The cell's own font, size and colour over the table's.
+  const style = tableCellStyle(markup, row, col);
+  const fontSize = style.fontSize ?? 12;
   // When zoomed out, enlarge the editor so the text being typed stays readable.
   const scale = Math.max(viewer.zoomFor(markup.pageIndex), MIN_EDIT_FONT_PX / fontSize);
 
@@ -54,15 +63,25 @@ export function TableCellEditor({ markup, row, col, store, viewer, onDone }: Pro
     e.stopPropagation();
     if (e.nativeEvent.isComposing) return;
     const cols = table.cols.length;
-    const index = row * cols + col;
-    const at = (i: number) => (i >= 0 && i < cols * table.rows.length ? { row: Math.floor(i / cols), col: i % cols } : undefined);
+    const total = cols * table.rows.length;
+    // The next cell along that is not covered by a merged cell.
+    const along = (dir: 1 | -1) => {
+      for (let i = row * cols + col + dir; i >= 0 && i < total; i += dir) {
+        const r = Math.floor(i / cols);
+        const g = tableRegion(table, r, i % cols);
+        if (g.row === r && g.col === i % cols) return { row: r, col: i % cols };
+      }
+      return undefined;
+    };
     if (e.key === 'Escape') {
       cancelled.current = true;
       e.currentTarget.blur();
     } else if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      move(e, at(index + (e.shiftKey ? -1 : 1)));
+      move(e, along(e.shiftKey ? -1 : 1));
     } else if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-      move(e, row + 1 < table.rows.length ? { row: row + 1, col } : undefined);
+      const below = row + tableRegion(table, row, col).rowSpan;
+      const g = below < table.rows.length ? tableRegion(table, below, col) : null;
+      move(e, g ? { row: g.row, col: g.col } : undefined);
     }
   };
 
@@ -72,18 +91,19 @@ export function TableCellEditor({ markup, row, col, store, viewer, onDone }: Pro
       ref={ref}
       className="text-editor"
       aria-label={`Row ${row + 1}, column ${col + 1}`}
-      defaultValue={table.cells[row]?.[col] ?? ''}
+      defaultValue={typed ?? table.cells[row]?.[col] ?? ''}
       style={{
         left: x0,
         top: y0,
         width: cell.w * scale,
         height: cell.h * scale,
-        font: cssFont(markup.style, fontSize * scale),
+        font: cssFont(style, fontSize * scale),
         lineHeight: 1.2,
-        textAlign: markup.style.textAlign ?? 'left',
-        textDecoration: markup.style.underline ? 'underline' : undefined,
+        textAlign: style.textAlign ?? 'left',
+        textDecoration: style.underline ? 'underline' : undefined,
         padding: 4 * scale,
-        color: textColor(markup.style),
+        color: textColor(style),
+        background: tableCellFormat(markup, row, col).fill,
       }}
       onBlur={finish}
       onKeyDown={onKeyDown}
