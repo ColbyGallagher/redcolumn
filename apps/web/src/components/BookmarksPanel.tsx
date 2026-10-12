@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
+  applyBookmarkTemplate,
   bookmarkPos,
   bookmarksFromLabels,
+  DEFAULT_BOOKMARK_TEMPLATE,
   findBookmark,
   flattenBookmarks,
   indentBookmark,
@@ -11,9 +13,12 @@ import {
   shiftBookmark,
   updateBookmark,
   type Bookmark,
+  type BookmarkTemplate,
   type Place,
   type Rect,
 } from '@nb/markup';
+import { importRevuFiles } from '../toolchest/revuLibraries';
+import { useWorkspace } from '../workspace/profiles';
 import { InlineName } from './InlineName';
 
 export interface ViewTarget {
@@ -49,6 +54,10 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [placeSel, setPlaceSel] = useState<string | null>(null);
   const [renamingPlace, setRenamingPlace] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const { bookmarkTemplates } = useWorkspace();
+  const templates = [DEFAULT_BOOKMARK_TEMPLATE, ...bookmarkTemplates.filter((t) => t.name !== DEFAULT_BOOKMARK_TEMPLATE.name)];
 
   if (!pageCount) return <p className="empty">Open a PDF to see bookmarks.</p>;
 
@@ -76,6 +85,17 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
     if (bookmarks.length && !confirm('Replace the bookmarks with one per page, named by page label?')) return;
     onBookmarks(bookmarksFromLabels(Array.from({ length: pageCount }, (_, i) => pageLabel(i)), newId));
     setSelected(null);
+  };
+  const applyTemplate = (t: BookmarkTemplate) => {
+    if (bookmarks.length && !confirm(`Replace the bookmarks with the "${t.name}" template?`)) return;
+    const { tree, unmatched } = applyBookmarkTemplate(t, Array.from({ length: pageCount }, (_, i) => ({ pageIndex: i, label: pageLabel(i) })), newId);
+    onBookmarks(tree);
+    setSelected(null);
+    setNote(
+      tree.length
+        ? `Filed ${pageCount - unmatched.length} of ${pageCount} pages under "${t.name}".${unmatched.length ? ` ${unmatched.length} had no sheet number that fits: ${unmatched.slice(0, 5).map((i) => pageLabel(i) || `page ${i + 1}`).join(', ')}${unmatched.length > 5 ? '…' : ''}.` : ''}`
+        : `No page has a sheet number that fits "${t.name}" (pages are filed by numbers like A-101 or C-205).`,
+    );
   };
   const addPlace = () => {
     const view = currentView();
@@ -133,7 +153,44 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           <button className="btn small" title="Create a bookmark for every page from its page label" onClick={fromLabels}>
             From labels
           </button>
+          <select
+            className="btn small"
+            aria-label="Bookmark template"
+            title="File the pages under a bookmark template, by their sheet numbers"
+            value=""
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'import') importRef.current?.click();
+              else applyTemplate(templates.find((t) => t.name === v.slice(2))!);
+            }}
+          >
+            <option value="" disabled>
+              Template…
+            </option>
+            {templates.map((t) => (
+              <option key={t.name} value={`t:${t.name}`}>
+                Apply {t.name}
+              </option>
+            ))}
+            <option value="import">Import template…</option>
+          </select>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".xml,text/xml,application/xml"
+            hidden
+            onChange={(e) => {
+              const files = [...(e.target.files ?? [])];
+              e.target.value = '';
+              if (files.length) void importRevuFiles(files).then(setNote);
+            }}
+          />
         </div>
+      )}
+      {note && (
+        <p className="pref-hint" role="status" onClick={() => setNote(null)}>
+          {note}
+        </p>
       )}
       {!rows.length ? (
         <p className="empty">No bookmarks. {editable ? 'Add one for the current view, or create them from page labels.' : ''}</p>

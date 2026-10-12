@@ -5,7 +5,7 @@ import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
-import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
@@ -110,6 +110,8 @@ export interface MarkupStyle {
   hatchColor?: string;
   /** Hatch scale in percent. 100 is the pattern's authored size (a quarter inch). Unset means 100. */
   hatchScale?: number;
+  /** The pattern of an imported hatch (`hatch` is `set:…`), so the markup draws where the set is not installed. */
+  hatchSpec?: HatchSpec;
   /** Text boxes and callouts: draw the text without its box (no outline or fill). */
   noBox?: boolean;
   /** Text boxes and callouts: no outline around the text; its fill (and a callout's leader) still draw. */

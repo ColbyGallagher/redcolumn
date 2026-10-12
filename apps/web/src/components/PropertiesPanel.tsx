@@ -28,7 +28,8 @@ import {
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
-import { HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
+import { useWorkspace } from '../workspace/profiles';
+import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 
 interface Props {
   markups: Markup[];
@@ -358,8 +359,9 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const measure = isMeasureKind(type);
-  const hatchOn = !!resolveHatch(style.hatch);
+  const hatchOn = !!resolveHatch(style.hatch, style.hatchSpec);
   const hatchValue = style.hatch ?? 'none';
+  const { lineSets, hatchSets } = useWorkspace();
   return (
     <fieldset className="props-style" disabled={disabled}>
       <Section title="Appearance">
@@ -375,6 +377,13 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
               value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
               onChange={(e) => {
                 if (e.target.value === 'custom') return;
+                // A style from an imported Revu line set (value 'line:<set>:<style>').
+                const [, si, li] = e.target.value.split(':');
+                const picked = e.target.value.startsWith('line:') ? lineSets[Number(si)]?.styles[Number(li)] : undefined;
+                if (picked) {
+                  onChange({ lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
+                  return;
+                }
                 // A plain style replaces a custom (Bluebeam) one.
                 onChange({ dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined, lineStyle: undefined });
               }}
@@ -384,6 +393,15 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
                 <option key={d.value} value={d.value}>
                   {d.label}
                 </option>
+              ))}
+              {lineSets.map((set, si) => (
+                <optgroup key={set.title} label={set.title}>
+                  {set.styles.map((l, li) => (
+                    <option key={l.name} value={`line:${si}:${li}`}>
+                      {l.name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </Row>
@@ -414,8 +432,11 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
                 value={hatchValue}
                 onChange={(e) => {
                   const value = e.target.value;
-                  if (value === 'none') onChange({ hatch: undefined, hatchColor: undefined, hatchScale: undefined });
-                  else onChange({ hatch: value as StoredHatch });
+                  if (value === 'none') onChange({ hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined });
+                  else {
+                    const spec = hatchSets.flatMap((s) => s.hatches).find((h) => h.id === value)?.spec;
+                    onChange({ hatch: value as StoredHatch, hatchSpec: spec });
+                  }
                 }}
               >
                 {HATCH_PATTERNS.map((h) => (
@@ -423,11 +444,20 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
                     {h.label}
                   </option>
                 ))}
-                {hatchValue !== 'none' && !HATCH_PATTERNS.some((h) => h.value === hatchValue) && (
-                  <option value={hatchValue}>{LEGACY_HATCH_LABELS[hatchValue] ?? hatchValue}</option>
+                {hatchSets.map((set) => (
+                  <optgroup key={set.title} label={set.title}>
+                    {set.hatches.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+                {hatchValue !== 'none' && !HATCH_PATTERNS.some((h) => h.value === hatchValue) && !hatchSets.some((s) => s.hatches.some((h) => h.id === hatchValue)) && (
+                  <option value={hatchValue}>{hatchValue.startsWith('set:') ? customHatchName(hatchValue) : (LEGACY_HATCH_LABELS[hatchValue] ?? hatchValue)}</option>
                 )}
               </select>
-              {hatchOn && style.hatch && <HatchSwatch pattern={style.hatch} color={style.hatchColor ?? style.stroke} />}
+              {hatchOn && style.hatch && <HatchSwatch pattern={style.hatch} spec={style.hatchSpec} color={style.hatchColor ?? style.stroke} />}
             </Row>
             {hatchOn && (
               <>

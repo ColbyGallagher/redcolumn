@@ -5,7 +5,7 @@ import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
 import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
-import { resolveHatch } from './hatches';
+import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
 import { tableCells, tableLines } from './table';
 import type { LineArt } from './lineStyle';
@@ -26,7 +26,7 @@ export interface ShapePart {
   /** Clip hatch (and any other fill of this part) to this path. */
   clip?: PathCmd[];
   /** Tile this hatch inside `clip`. The path stays empty so tiles are not expanded into commands. */
-  hatch?: { id: string; scale: number; color: string };
+  hatch?: { id: string; scale: number; color: string; spec?: HatchSpec };
   /** Fill (or clip) with the even-odd rule, so inner rings are holes. */
   evenOdd?: boolean;
   /** A custom line style laid out along a stroke (see `styledParts`): strokes and fills in the line color, and text. */
@@ -39,14 +39,14 @@ const KAPPA = 0.5522847498;
 /** Vector shapes that draw a markup. Text content is laid out separately (see `layoutText`). */
 export function markupShape(m: Markup): ShapePart[] {
   const parts = baseShape(m);
-  if (resolveHatch(m.style.hatch) && parts[0] && isClosed(m)) {
+  if (resolveHatch(m.style.hatch, m.style.hatchSpec) && parts[0] && isClosed(m)) {
     parts.push({
       path: [],
       stroke: false,
       fill: null,
       clip: parts[0].path,
       evenOdd: parts[0].evenOdd,
-      hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke },
+      hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke, ...(m.style.hatchSpec ? { spec: m.style.hatchSpec } : {}) },
     });
   }
   return parts;
@@ -679,7 +679,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
   }
   const b = markupBounds(m);
   if (p[0] < b.x - tolerance || p[0] > b.x + b.w + tolerance || p[1] < b.y - tolerance || p[1] > b.y + b.h + tolerance) return false;
-  if (m.type === 'area' || m.type === 'volume' || m.type === 'space' || (m.type === 'polygon' && (m.style.fill || resolveHatch(m.style.hatch)))) {
+  if (m.type === 'area' || m.type === 'volume' || m.type === 'space' || (m.type === 'polygon' && (m.style.fill || resolveHatch(m.style.hatch, m.style.hatchSpec)))) {
     if (pointInPolygon(p, outlinePoints(m)) && !(m.holes ?? []).some((h) => h.length > 2 && pointInPolygon(p, h))) return true;
   } else if (m.type === 'count') {
     const r = markerSize(m) + tolerance;
@@ -687,7 +687,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
   } else if (TYPE_INFO[m.type].draw === 'text') {
     // Text markups: anywhere on one of their lines.
     return markupLines(m.points).some((r) => p[0] >= r.x - tolerance && p[0] <= r.x + r.w + tolerance && p[1] >= r.y - tolerance && p[1] <= r.y + r.h + tolerance);
-  } else if (TYPE_INFO[m.type].solid || m.style.fill || resolveHatch(m.style.hatch)) {
+  } else if (TYPE_INFO[m.type].solid || m.style.fill || resolveHatch(m.style.hatch, m.style.hatchSpec)) {
     // Text boxes and filled shapes are grabbable anywhere inside.
     const inner = contentBox(m);
     if (p[0] >= inner.x && p[0] <= inner.x + inner.w && p[1] >= inner.y && p[1] <= inner.y + inner.h) return true;

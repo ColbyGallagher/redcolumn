@@ -282,7 +282,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       continue;
     }
     if (part.hatch && part.clip) {
-      const draw = hatchDraw(part.hatch.id, part.hatch.scale);
+      const draw = hatchDraw(part.hatch.id, part.hatch.scale, part.hatch.spec);
       if (draw) {
         const [hr, hg, hb] = rgb(part.hatch.color);
         hatchPattern = doc.context.register(hatchPatternStream(doc, draw));
@@ -396,7 +396,36 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
 
-  if (m.type === 'stamp' && m.stamp) {
+  const stampArt = m.type === 'stamp' ? m.stamp?.art : undefined;
+  if (stampArt) {
+    // A picture with its text over it, the text placed by fractions of the box.
+    const b = boundsOf(m.points);
+    const picture = ctx.images.get(stampArt.image);
+    if (picture) {
+      ops.push('q /GS1 gs', `${fmt(b.w)} 0 0 ${fmt(-b.h)} ${fmt(b.x)} ${fmt(b.y + b.h)} cm`, '/Im0 Do', 'Q');
+      resources.XObject = { Im0: picture.ref };
+    }
+    const fonts: Record<string, PDFRef> = {};
+    ops.push('/GS1 gs', 'BT');
+    for (const t of stampArt.texts) {
+      const fontName = t.bold ? (t.italic ? StandardFonts.HelveticaBoldOblique : StandardFonts.HelveticaBold) : t.italic ? StandardFonts.HelveticaOblique : StandardFonts.Helvetica;
+      const font = ctx.fonts.get(fontName);
+      if (!font) continue;
+      fonts[fontName] = font.ref;
+      const size = t.size * b.h;
+      const text = safeText(font, t.text);
+      const w = font.widthOfTextAtSize(text, size);
+      // Shrunk to fit the text's box width, as the canvas does.
+      const fit = Math.min(1, (t.w * b.w) / Math.max(w, 1e-6));
+      const drawn = w * fit;
+      const left = b.x + t.x * b.w;
+      const x = t.align === 'left' ? left : t.align === 'right' ? left + t.w * b.w - drawn : left + (t.w * b.w - drawn) / 2;
+      const [r, g, bl] = rgb(t.color);
+      ops.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`, `/${fontName} ${fmt(size * fit)} Tf`, `1 0 0 -1 ${fmt(x)} ${fmt(b.y + (t.y + t.h / 2) * b.h + size * fit * 0.35)} Tm`, `${font.encodeText(text).toString()} Tj`);
+    }
+    ops.push('ET');
+    resources.Font = fonts;
+  } else if (m.type === 'stamp' && m.stamp) {
     const bold = ctx.fonts.get(StandardFonts.HelveticaBold)!;
     const regular = ctx.fonts.get(StandardFonts.Helvetica)!;
     const [sr, sg, sb] = rgb(style.stroke);
@@ -1669,7 +1698,9 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
-      ...(m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
+      ...(m.type === 'stamp'
+        ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica, ...(m.stamp?.art ? [StandardFonts.HelveticaBoldOblique, StandardFonts.HelveticaOblique] : [])]
+        : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
       // A table's cells can each have a font of their own.
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
@@ -1678,9 +1709,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   }
   const images = new Map<string, PDFImage>();
   for (const m of written) {
-    if (!isImageType(m.type) || !m.image || images.has(m.image)) continue;
-    const img = await embedDataUrl(doc, m.image);
-    if (img) images.set(m.image, img);
+    const src = isImageType(m.type) ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : undefined;
+    if (!src || images.has(src)) continue;
+    const img = await embedDataUrl(doc, src);
+    if (img) images.set(src, img);
   }
   const placeNames = addPlaces(doc, pages, options.places ?? []);
   if (options.bookmarks) writeOutline(doc, pages, options.bookmarks, placeNames);

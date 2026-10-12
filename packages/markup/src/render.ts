@@ -7,7 +7,7 @@ import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout } from './stamp';
-import { hatchDraw, paintHatchCell, type HatchDraw } from './hatches';
+import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 
@@ -92,7 +92,9 @@ function hatchTile(draw: HatchDraw, color: string, zoom: number): CanvasImageSou
   const z = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
   const pxW = Math.max(1, Math.min(512, Math.round(draw.metrics.cellW * z)));
   const pxH = Math.max(1, Math.min(512, Math.round(draw.metrics.cellH * z)));
-  const key = `${draw.id}|${color}|${pxW}x${pxH}|${draw.metrics.lineWidth.toFixed(3)}`;
+  // An imported hatch can change under the same id (the set imported again), so its geometry is in the key.
+  const shape = draw.id.startsWith('set:') ? `|${draw.lines.length}.${draw.dots.length}.${draw.lines.reduce((n, l) => n + l.x1 + 3 * l.y1 + 5 * l.x2 + 7 * l.y2, 0).toFixed(3)}.${draw.dots.reduce((n, d) => n + d.x + 3 * d.y, 0).toFixed(3)}` : '';
+  const key = `${draw.id}${shape}|${color}|${pxW}x${pxH}|${draw.metrics.lineWidth.toFixed(3)}`;
   const cached = hatchTiles.get(key);
   if (cached) return cached;
   try {
@@ -138,8 +140,8 @@ function pathBounds(path: PathCmd[]): { x: number; y: number; w: number; h: numb
 }
 
 /** Fills `clip` with a hatch. A bitmap pattern when a canvas exists; otherwise the tiles that cover the clip. */
-function paintHatch(ctx: CanvasRenderingContext2D, clip: PathCmd[], evenOdd: boolean | undefined, hatch: { id: string; scale: number; color: string }, alpha: number, zoom: number) {
-  const draw = hatchDraw(hatch.id, hatch.scale);
+function paintHatch(ctx: CanvasRenderingContext2D, clip: PathCmd[], evenOdd: boolean | undefined, hatch: { id: string; scale: number; color: string; spec?: HatchSpec }, alpha: number, zoom: number) {
+  const draw = hatchDraw(hatch.id, hatch.scale, hatch.spec);
   if (!draw) return;
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -361,7 +363,20 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.textBaseline = 'middle';
     ctx.fillText(spaceName(m), x, y);
   }
-  if (m.type === 'stamp' && m.stamp) {
+  if (m.type === 'stamp' && m.stamp?.art) {
+    // A picture with its text over it, the text placed by fractions of the box.
+    const b = boundsOf(m.points);
+    const img = markupImage(m.stamp.art.image);
+    if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    for (const t of m.stamp.art.texts) {
+      ctx.font = `${t.italic ? 'italic ' : ''}${t.bold ? 'bold ' : ''}${t.size * b.h}px ${TEXT_FONT_FAMILY}`;
+      ctx.fillStyle = t.color;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = t.align;
+      const x = b.x + (t.align === 'left' ? t.x : t.align === 'right' ? t.x + t.w : t.x + t.w / 2) * b.w;
+      ctx.fillText(t.text, x, b.y + (t.y + t.h / 2) * b.h, Math.max(1, t.w * b.w));
+    }
+  } else if (m.type === 'stamp' && m.stamp) {
     const b = boundsOf(m.points);
     const measure = (text: string, bold: boolean) => {
       ctx.font = `${bold ? 'bold ' : ''}100px ${TEXT_FONT_FAMILY}`;

@@ -2,6 +2,10 @@ export * from './model';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
 export { lineArt, lineStyleFonts, lineStyleHasText, lineStyleReach, readLineStyle, styledParts, type ArtText, type CustomLine, type LineArt, type TextMeasure } from './lineStyle';
+export { parseBlx, setTitle, type LineSet } from './lineSet';
+export { parseBhx, type HatchSet } from './hatchSet';
+export { applyBookmarkTemplate, DEFAULT_BOOKMARK_TEMPLATE, parseBookmarkTemplate, sheetSeries, type BookmarkTemplate, type BookmarkTemplateNode, type TemplatePage } from './bookmarkTemplate';
+export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCategorySet } from './setCategories';
 export * from './columns';
 export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
@@ -10,7 +14,8 @@ export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseLis
 export { arcPoints, circleThrough } from './arc';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetDistance, offsetPath, offsetPoints } from './offset';
-export { DEFAULT_STAMPS, resolveStamp, STAMP_FIELDS, stampAspect, type StampContent, type StampDef, type StampValues } from './stamp';
+export { DEFAULT_STAMPS, resolveStamp, STAMP_FIELDS, stampAspect, type StampArt, type StampArtText, type StampContent, type StampDef, type StampValues } from './stamp';
+export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
   actionTarget,
   bookmarkPos,

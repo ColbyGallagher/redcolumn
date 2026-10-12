@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { DEFAULT_STYLES, drawMarkup, resolveStamp, STAMP_FIELDS, stampAspect, type Markup, type StampDef } from '@nb/markup';
+import { DEFAULT_STYLES, drawMarkup, onImageLoad, resolveStamp, STAMP_FIELDS, stampAspect, type Markup, type StampDef } from '@nb/markup';
+import { importRevuStamps } from '../stamps/revuStamps';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
 interface Props {
@@ -16,8 +17,11 @@ function blankStamp(): StampDef {
 }
 
 /** A stamp drawn as it would be placed now (fields filled in with sample values). */
-export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<StampDef, 'lines' | 'frame' | 'color'>; author: string; width?: number }) {
+export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<StampDef, 'lines' | 'frame' | 'color' | 'art'>; author: string; width?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
+  // A stamp's picture loads after the first draw.
+  const [, setLoaded] = useState(0);
+  useEffect(() => onImageLoad(() => setLoaded((n) => n + 1)), []);
   const content = resolveStamp(stamp, { user: author, file: 'Drawing.pdf', page: 'A-101', now: new Date() });
   const height = Math.max(24, Math.round(width / stampAspect(content)));
   useEffect(() => {
@@ -57,6 +61,8 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
   const picked = library.find((s) => s.id === pickedId) ?? library[0]!;
   const [draft, setDraft] = useState<StampDef | null>(() => (creating ? blankStamp() : null));
   const linesRef = useRef<HTMLTextAreaElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   const save = (def: StampDef) => {
     updateWorkspace((w) => ({ ...w, stamps: w.stamps.some((s) => s.id === def.id) ? w.stamps.map((s) => (s.id === def.id ? def : s)) : [...w.stamps, def] }));
@@ -85,10 +91,35 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                 </li>
               ))}
             </ul>
+            {message && (
+              <p className="pref-hint" role="status" onClick={() => setMessage(null)}>
+                {message}
+              </p>
+            )}
             <div className="actions">
               <button className="btn" onClick={() => setDraft(blankStamp())}>
                 New…
               </button>
+              <button className="btn" title="Import stamps from Bluebeam® Revu® (the PDFs in its Stamps folder)" onClick={() => importRef.current?.click()}>
+                Import…
+              </button>
+              <input
+                ref={importRef}
+                type="file"
+                accept=".pdf,application/pdf"
+                multiple
+                hidden
+                onChange={(e) => {
+                  const files = [...(e.target.files ?? [])];
+                  e.target.value = '';
+                  if (!files.length) return;
+                  setMessage('Importing…');
+                  void importRevuStamps(files).then(({ added, failed }) => {
+                    if (added[0]) setPickedId(added[0].id);
+                    setMessage([added.length ? `Imported ${added.length} stamp${added.length === 1 ? '' : 's'}.` : '', ...failed].filter(Boolean).join(' ') || 'Nothing to import.');
+                  });
+                }}
+              />
               <button className="btn" onClick={() => setDraft(picked.builtIn ? { ...picked, id: crypto.randomUUID(), name: `${picked.name} (copy)`, builtIn: undefined } : { ...picked })}>
                 {picked.builtIn ? 'Copy and Edit…' : 'Edit…'}
               </button>
@@ -123,26 +154,46 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
             <div className="form-grid">
               <label htmlFor="stamp-name">Name</label>
               <input id="stamp-name" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-              <label htmlFor="stamp-lines">Wording</label>
-              <textarea id="stamp-lines" ref={linesRef} rows={3} value={draft.lines.join('\n')} onChange={(e) => setDraft({ ...draft, lines: e.target.value.split('\n') })} />
-              <span />
-              <div className="field-chips">
-                {STAMP_FIELDS.map((f) => (
-                  <button key={f.token} type="button" className="btn small" title={`Insert ${f.label.toLowerCase()}, filled in when placed`} onClick={() => insertField(f.token)}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-              <label htmlFor="stamp-color">Colour</label>
-              <input id="stamp-color" type="color" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} />
-              <label htmlFor="stamp-frame">Frame</label>
-              <select id="stamp-frame" value={draft.frame} onChange={(e) => setDraft({ ...draft, frame: e.target.value as StampDef['frame'] })}>
-                <option value="rounded">Rounded</option>
-                <option value="box">Square</option>
-                <option value="none">None</option>
-              </select>
+              {draft.art ? (
+                draft.art.texts.map((t, i) => (
+                  <Fragment key={i}>
+                    <label htmlFor={`stamp-text-${i}`}>Text {draft.art!.texts.length > 1 ? i + 1 : ''}</label>
+                    <input
+                      id={`stamp-text-${i}`}
+                      value={t.text}
+                      onChange={(e) => {
+                        const texts = draft.art!.texts.map((x, j) => (j === i ? { ...x, text: e.target.value } : x));
+                        setDraft({ ...draft, art: { ...draft.art!, texts }, lines: texts.map((x) => x.text) });
+                      }}
+                    />
+                  </Fragment>
+                ))
+              ) : (
+                <>
+                  <label htmlFor="stamp-lines">Wording</label>
+                  <textarea id="stamp-lines" ref={linesRef} rows={3} value={draft.lines.join('\n')} onChange={(e) => setDraft({ ...draft, lines: e.target.value.split('\n') })} />
+                  <span />
+                  <div className="field-chips">
+                    {STAMP_FIELDS.map((f) => (
+                      <button key={f.token} type="button" className="btn small" title={`Insert ${f.label.toLowerCase()}, filled in when placed`} onClick={() => insertField(f.token)}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                  <label htmlFor="stamp-color">Colour</label>
+                  <input id="stamp-color" type="color" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} />
+                  <label htmlFor="stamp-frame">Frame</label>
+                  <select id="stamp-frame" value={draft.frame} onChange={(e) => setDraft({ ...draft, frame: e.target.value as StampDef['frame'] })}>
+                    <option value="rounded">Rounded</option>
+                    <option value="box">Square</option>
+                    <option value="none">None</option>
+                  </select>
+                </>
+              )}
             </div>
-            <p className="pref-hint">The first line is the headline. Fields such as {'{Date}'} are filled in when the stamp is placed.</p>
+            <p className="pref-hint">
+              {draft.art ? 'This stamp is a picture with text on it. Change the text here; fields such as {Date} are filled in when it is placed.' : 'The first line is the headline. Fields such as {Date} are filled in when the stamp is placed.'}
+            </p>
             <div className="stamp-preview-row">
               <StampPreview stamp={draft} author={author} width={240} />
             </div>

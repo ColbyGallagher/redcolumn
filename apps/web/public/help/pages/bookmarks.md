@@ -36,6 +36,14 @@ Select a bookmark, then use the small buttons:
 
 Click a bookmark to go to it.
 
+## File sheets under a template
+
+For a drawing set, choose a **Template** (the list at the end of the buttons) and **Apply Construction Documents**. Each page becomes a bookmark in the folder for its discipline, in the slot for its hundred of sheet numbers: *A-101* goes in *Architectural › A-100*, *C-205* in *Civil › C-200*. Sheets the template has no slot for go in *Other*; empty folders are left out. Applying replaces the current bookmarks, after asking.
+
+The pages are filed by the sheet number redcolumn read from each page, so sheets named like *A-101* or *A101* work best. A note under the buttons says how many pages were filed and which were not.
+
+To use a template from Bluebeam® Revu®, choose **Import template…** and pick its `.xml` file (Revu keeps them in its settings folder, e.g. `Construction.xml`). A Revu categories file (`Categories\*.xml`) can be imported the same way: it becomes a Sets category template, in Preferences › Sets › Categories, where **Load…** and **Export for Revu** also read and write it.
+
 ## Places
 
 A Place is a saved view with a name, such as *Kitchen detail*. [Links](#actions) can jump to a Place. If the drawing changes, move the Place and every link to it follows.
