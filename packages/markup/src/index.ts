@@ -1,6 +1,7 @@
 export * from './model';
 export { TYPE_INFO, type MarkupTypeInfo } from './types';
 export * from './style';
+export { lineArt, lineStyleFonts, lineStyleHasText, lineStyleReach, readLineStyle, styledParts, type ArtText, type CustomLine, type LineArt, type TextMeasure } from './lineStyle';
 export * from './columns';
 export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';

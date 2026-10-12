@@ -7,6 +7,7 @@ import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf
 import { TYPE_INFO } from './types';
 import { resolveHatch } from './hatches';
 import { lineEnds, type LineEnding } from './style';
+import type { LineArt } from './lineStyle';
 
 /** Path commands in page space. `C` is a cubic Bézier: two control points, then the end point. */
 export type PathCmd = ['M', number, number] | ['L', number, number] | ['C', number, number, number, number, number, number] | ['Z'];
@@ -27,6 +28,8 @@ export interface ShapePart {
   hatch?: { id: string; scale: number; color: string };
   /** Fill (or clip) with the even-odd rule, so inner rings are holes. */
   evenOdd?: boolean;
+  /** A custom line style laid out along a stroke (see `styledParts`): strokes and fills in the line color, and text. */
+  art?: LineArt;
 }
 
 /** Cubic Bézier constant for approximating a quarter circle. */
