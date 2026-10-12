@@ -1,10 +1,11 @@
-import { parseBhx, parseBlx } from '@nb/markup';
+import { parseBhx, parseBlx, parseBookmarkTemplate, parseCategoriesXml } from '@nb/markup';
+import { settings } from '../settings/settings';
 import { updateWorkspace } from '../workspace/profiles';
 import { importToolSets } from './toolSets';
 
 /** The kinds of Revu file importRevuFiles takes, as an `accept` list. */
-export const REVU_LIBRARY_ACCEPT = '.btx,.blx,.bhx,.json,application/xml,text/xml,application/json';
-export const isRevuLibraryFile = (name: string) => /\.(btx|json|blx|bhx)$/i.test(name);
+export const REVU_LIBRARY_ACCEPT = '.btx,.blx,.bhx,.xml,.json,application/xml,text/xml,application/json';
+export const isRevuLibraryFile = (name: string) => /\.(btx|json|blx|bhx|xml)$/i.test(name);
 
 /** `Imported 3 line styles (Advanced).` */
 const said = (n: number, what: string, title: string) => `Imported ${n} ${what}${n === 1 ? '' : 's'} (${title}).`;
@@ -44,6 +45,26 @@ export async function importRevuFiles(files: File[]): Promise<string> {
         else {
           updateWorkspace((w) => ({ ...w, hatchSets: [...w.hatchSets.filter((s) => s.title !== set.title), fresh] }));
           out.push(`Imported ${fresh.hatches.length} hatch${fresh.hatches.length === 1 ? '' : 'es'} (${set.title}).`);
+        }
+      } else if (/\.xml$/i.test(f.name)) {
+        // Revu's bookmark templates and category sets are both plain .xml: the contents say which.
+        const text = await f.text();
+        const name = f.name.replace(/\.xml$/i, '');
+        let template: ReturnType<typeof parseBookmarkTemplate> | null = null;
+        try {
+          template = parseBookmarkTemplate(text, name);
+        } catch {
+          // Not a bookmark template: perhaps categories.
+        }
+        if (template) {
+          const t = template;
+          updateWorkspace((w) => ({ ...w, bookmarkTemplates: [...w.bookmarkTemplates.filter((x) => x.name !== t.name), t] }));
+          out.push(`Imported the bookmark template ${t.name}: apply it from the Bookmarks panel.`);
+        } else {
+          const cats = parseCategoriesXml(text, name);
+          const current = settings.get().setTemplates;
+          settings.set({ setTemplates: { ...current, [cats.name]: { assignBy: current[cats.name]?.assignBy ?? 'Drawing Number', categories: cats.categories } } });
+          out.push(`Imported the Sets category template ${cats.name}: choose it in Preferences › Sets › Categories.`);
         }
       } else if (!isRevuLibraryFile(f.name)) failed.push(`${f.name}: not a file redcolumn can import`);
     } catch (err) {

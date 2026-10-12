@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STAMPS, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 
@@ -93,6 +93,8 @@ export interface WorkspaceState {
   lineSets: LineSet[];
   /** Imported Revu hatch sets (.bhx), offered in the Hatch pickers. */
   hatchSets: HatchSet[];
+  /** Imported Revu bookmark templates, offered in the Bookmarks panel (the built-in one is always there). */
+  bookmarkTemplates: BookmarkTemplate[];
 }
 
 export interface Profile {
@@ -125,6 +127,7 @@ export function defaultWorkspace(): WorkspaceState {
     lastStampId: null,
     lineSets: [],
     hatchSets: [],
+    bookmarkTemplates: [],
   };
 }
 
