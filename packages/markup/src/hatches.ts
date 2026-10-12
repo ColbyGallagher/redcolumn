@@ -20,7 +20,12 @@ export type HatchPattern =
 /** Ids saved by the old angle hatches. They still draw; the dropdown does not list them. */
 export type LegacyHatch = 'diagonal' | 'backDiagonal' | 'cross' | 'diagonalCross';
 
-export type StoredHatch = HatchPattern | LegacyHatch;
+/** An imported hatch (Revu .bhx) is `set:<set title>/<hatch name>`; its pattern travels with the markup. */
+export type CustomHatchId = `set:${string}`;
+
+export type StoredHatch = HatchPattern | LegacyHatch | CustomHatchId;
+
+export const customHatchId = (setTitle: string, name: string): CustomHatchId => `set:${setTitle}/${name}`;
 
 /** Dropdown entries, including None. Legacy ids are absent. */
 export const HATCH_PATTERNS: { value: 'none' | HatchPattern; label: string }[] = [
@@ -47,8 +52,8 @@ export type HatchElement =
   | { type: 'line'; x1: number; y1: number; x2: number; y2: number }
   | { type: 'dot'; x: number; y: number; size: 'small' | 'large' };
 
-interface HatchDef {
-  id: HatchPattern | 'diagonalCross';
+/** A hatch pattern as authored: what an imported one carries on the markup that uses it. */
+export interface HatchSpec {
   scaleX: number;
   scaleY: number;
   /** Tile edge in points at scale 100. */
@@ -57,6 +62,10 @@ interface HatchDef {
   lineWidth: number;
   /** Unit-cell elements, y up. */
   elements: HatchElement[];
+}
+
+interface HatchDef extends HatchSpec {
+  id: string;
 }
 
 const line = (s: readonly number[]): HatchElement => ({ type: 'line', x1: s[0]!, y1: s[1]!, x2: s[2]!, y2: s[3]! });
@@ -206,10 +215,29 @@ const LEGACY: Record<string, string> = {
   cross: 'grid',
 };
 
-/** The pattern `id` draws, or null for none. Legacy angle names map onto the Standard set. */
-export function resolveHatch(id: string | undefined | null): HatchDef | null {
+/**
+ * The pattern `id` draws, or null for none. Legacy angle names map onto the Standard set; an
+ * imported hatch (`set:…`) draws from the `spec` its markup carries.
+ */
+export function resolveHatch(id: string | undefined | null, spec?: HatchSpec | null): HatchDef | null {
   if (!id || id === 'none') return null;
+  if (id.startsWith('set:')) return spec && spec.elements.length ? { ...spec, id } : null;
   return BY_ID.get(LEGACY[id] ?? id) ?? null;
+}
+
+const r5 = (n: number) => Math.round(n * 1e5) / 1e5;
+
+/** A pattern's geometry as comparable text: element order does not matter. */
+function hatchKey(s: HatchSpec): string {
+  const els = s.elements.map((e) => (e.type === 'line' ? `L${r5(e.x1)},${r5(e.y1)},${r5(e.x2)},${r5(e.y2)}` : `D${r5(e.x)},${r5(e.y)},${e.size}`)).sort();
+  return [r5(s.scaleX), r5(s.scaleY), r5(s.size), r5(s.lineWidth), ...els].join('|');
+}
+
+/** The built-in Standard hatch that has exactly this pattern (an imported copy of Revu's Standard set), if any. */
+export function builtInHatchFor(spec: HatchSpec): HatchPattern | null {
+  const key = hatchKey(spec);
+  const hit = STANDARD.find((d) => hatchKey(d) === key);
+  return hit ? (hit.id as HatchPattern) : null;
 }
 
 /** Scale percent clamped to Revu's 50–200. Unset is 100. */
@@ -233,15 +261,15 @@ export interface HatchDot {
 
 /** One tile in page points (y down), ready to stroke and repeat. */
 export interface HatchDraw {
-  id: HatchPattern | 'diagonalCross';
+  id: string;
   metrics: { cellW: number; cellH: number; lineWidth: number; dotRadius: number };
   lines: HatchLine[];
   dots: HatchDot[];
 }
 
 /** Tile geometry for `id` at `scalePercent` (100 is the authored quarter-inch tile). */
-export function hatchDraw(id: string | undefined | null, scalePercent?: number): HatchDraw | null {
-  const def = resolveHatch(id);
+export function hatchDraw(id: string | undefined | null, scalePercent?: number, spec?: HatchSpec | null): HatchDraw | null {
+  const def = resolveHatch(id, spec);
   if (!def) return null;
   const user = hatchScaleOf(scalePercent) / 100;
   const cellW = def.size * def.scaleX * user;

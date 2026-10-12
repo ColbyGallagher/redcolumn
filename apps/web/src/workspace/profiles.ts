@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STAMPS, type ColumnSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { DEFAULT_STAMPS, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 
@@ -89,6 +89,10 @@ export interface WorkspaceState {
   stamps: StampDef[];
   /** The stamp the Stamp tool places when none is chosen. */
   lastStampId: string | null;
+  /** Imported Revu line style sets (.blx), offered in the Line style pickers. */
+  lineSets: LineSet[];
+  /** Imported Revu hatch sets (.bhx), offered in the Hatch pickers. */
+  hatchSets: HatchSet[];
 }
 
 export interface Profile {
@@ -119,6 +123,8 @@ export function defaultWorkspace(): WorkspaceState {
     shortcuts: {},
     stamps: [],
     lastStampId: null,
+    lineSets: [],
+    hatchSets: [],
   };
 }
 
