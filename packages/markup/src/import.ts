@@ -26,6 +26,8 @@ import {
   type PdfExtras,
 } from './bluebeam';
 import { markupDigest } from './digest';
+import { readBsiLegend } from './bsiLegend';
+import { readLineStyle } from './lineStyle';
 import type { LineDash } from './style';
 import type { Viewport } from './viewports';
 
@@ -582,10 +584,12 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
+  const customLine = readLineStyle(r.LineStyle, r.LineStyleName);
   const base: Partial<MarkupStyle> = {
     ...(color ? { stroke: color } : {}),
     width,
     ...(dash ? { dash } : {}),
+    ...(customLine ? { lineStyle: customLine } : {}),
   };
   const le = (() => {
     const v = r.LE;
@@ -806,6 +810,14 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       return [{ type: 'polyline', points: verts, filled: false, style: { ...base, ...caps } }];
     }
     case 'Stamp': {
+      // A Bluebeam legend: a live legend listing the kinds of markup its keys name.
+      const bsi = readBsiLegend(r);
+      if (bsi) {
+        const [p, q] = innerBox();
+        const own = bsi.pages.length === 1 && bsi.pages[0] === pageIndex;
+        const legend = { scope: bsi.scope, ...(bsi.pages.length && !own ? { pages: bsi.pages } : {}), keys: bsi.keys, ...(bsi.nameId ? { nameId: bsi.nameId } : {}) };
+        return [{ type: 'legend', points: [p!, q!], filled: true, style: { width: a.borderWidth > 0 ? a.borderWidth : 0.75 }, extra: { legend, subject: 'Legend' } }];
+      }
       // Another tool's stamp (Bluebeam's Approved, a snapshot): its own appearance, as a picture.
       const image = extras.appearances?.get(`${pageIndex}:${a.index}`);
       if (!image) return [];

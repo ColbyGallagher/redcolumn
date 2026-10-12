@@ -3,6 +3,7 @@ import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
+import type { CustomLine } from './lineStyle';
 import { lineEnds, type FontFamily, type LineDash, type LineEnding, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
@@ -92,6 +93,8 @@ export interface MarkupStyle {
   fillOpacity?: number;
   /** Line style; solid when unset. */
   dash?: LineDash;
+  /** A Bluebeam custom line style (a pattern of dashes, text and symbols) drawn instead of `dash`. */
+  lineStyle?: CustomLine;
   /** Line endings (line, arrow, length, polylength); unset uses the type's default look. */
   startCap?: LineEnding;
   endCap?: LineEnding;
@@ -256,7 +259,18 @@ export interface Markup {
   /** Hyperlinks: where clicking the markup goes. */
   link?: LinkAction;
   /** Legends: which markups they list, those on their own page or in the whole document. */
-  legend?: { scope: 'page' | 'document' };
+  legend?: {
+    scope: 'page' | 'document';
+    /** A Bluebeam legend's own page list (it can count pages other than its own); overrides scope. */
+    pages?: number[];
+    /**
+     * A Bluebeam legend's rows: only markups of these types and subjects are listed (all of them
+     * when unset). `key` is Bluebeam's own key, kept so its look survives a round trip.
+     */
+    keys?: { type: number; subject: string; key?: unknown }[];
+    /** Bluebeam's id for this legend, kept when it came from there. */
+    nameId?: string;
+  };
   /** Subject shown in the markup list; the type's name when unset (tool library tools set it). */
   subject?: string;
   /** Values of the document's custom columns, keyed by column id. */

@@ -20,6 +20,8 @@ import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import { markupDigest, unchangedSinceImport } from './digest';
+import { bsiLegendValue } from './bsiLegend';
+import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
 
 /**
@@ -77,6 +79,14 @@ function pathOps(path: PathCmd[]): string {
 function pdfText(s: string) {
   // PDFHexString.fromText writes UTF-16BE, which every viewer decodes for text strings.
   return PDFHexString.fromText(s);
+}
+
+/** Plain values with their strings as PDF text (`context.obj` would turn plain strings into names). */
+function textValues(v: unknown): unknown {
+  if (typeof v === 'string') return pdfText(v);
+  if (Array.isArray(v)) return v.map(textValues);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, textValues(x)]));
+  return v;
 }
 
 /** The markup data written into its annotation: without its link to an imported annotation, and attachment bytes (kept once, in the file). */
@@ -480,36 +490,6 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   return { x, y, w: x1 - x, h: y1 - y };
 }
 
-/** The subject Bluebeam gives a markup of this kind, for those whose name differs from ours. */
-const BLUEBEAM_SUBJECTS: Partial<Record<MarkupType, string>> = {
-  polyline: 'PolyLine',
-  text: 'Text Box',
-  callout: 'Call-out',
-  typewriter: 'Typewritten Text',
-  flagLabel: 'Flag',
-  flag: 'Flag',
-  highlighter: 'Highlight',
-  textHighlight: 'Highlight',
-  strikeout: 'Strikeout',
-  attachment: 'File Attachment',
-  length: 'Length Measurement',
-  polylength: 'Polylength Measurement',
-  area: 'Area Measurement',
-  perimeter: 'Perimeter Measurement',
-  volume: 'Volume Measurement',
-  count: 'Count Measurement',
-  diameter: 'Diameter Measurement',
-  radius: 'Radius Measurement',
-  angle: 'Angle Measurement',
-  arc: 'Arc',
-  polygonCloud: 'Cloud',
-};
-
-function defaultSubject(m: Markup): string {
-  if (m.type === 'stamp') return m.stamp?.lines[0] || 'Stamp';
-  return BLUEBEAM_SUBJECTS[m.type] ?? TYPE_INFO[m.type].label;
-}
-
 function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const { doc, matrix } = ctx;
   const b = boundsWithText(ctx, m);
@@ -792,10 +772,14 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       break;
     }
     case 'legend': {
-      // Other tools see a text box listing the rows; ours come back as a live legend.
+      // Other tools see a stamp, not a text box: they redraw a FreeText from its text when it is
+      // resized (losing the symbols and bands), but only scale a stamp's appearance. The rows are
+      // in /Contents for lists and search; ours come back as a live legend.
       const rows = legendRows(m, ctx.all, ctx.scaleFor, ctx.scaleOf);
       base.Contents = pdfText(['Legend', ...rows.map((r) => `${r.label}: ${r.count}${r.measure ? ` (${r.measure})` : ''}`)].join('\n'));
-      specific = { Subtype: 'FreeText', RD: rd, DA: PDFString.of(`/Helv ${m.style.fontSize ?? 10} Tf 0 0 0 rg`) };
+      // Bluebeam's own legend is a snapshot stamp with its keys and totals in /BSILegend, which it
+      // keeps current as markups change.
+      specific = { Subtype: 'Stamp', IT: 'StampSnapshot', BSILegend: textValues(bsiLegendValue(m, ctx.all, ctx.pages.length, ctx.scaleFor, ctx.scaleOf)) as never };
       break;
     }
     case 'callout': {

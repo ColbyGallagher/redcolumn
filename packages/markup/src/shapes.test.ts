@@ -258,6 +258,12 @@ test('Bluebeam sees a radius, a space and a flag label as its own kinds', async 
   assert.equal(spaces[0]!.lookup(PDFName.of('Path'), PDFArray).size(), 4);
   assert.equal(dicts.length, 3, 'radius, flag label and legend');
 
+  // A legend is a stamp: other tools scale its appearance on resize, where a FreeText would be
+  // redrawn from its text, losing the symbols and bands.
+  const legend = dicts.find((d) => subj(d) === 'Legend')!;
+  assert.equal(name(legend, 'Subtype'), '/Stamp');
+  assert.ok(legend.has(PDFName.of('AP')));
+
   // A flag label is listed in the catalog's /BSIFlags, and its /Flag points back at it.
   const flags = out.catalog.lookup(PDFName.of('BSIFlags'), PDFArray).asArray();
   assert.equal(flags.length, 1);
