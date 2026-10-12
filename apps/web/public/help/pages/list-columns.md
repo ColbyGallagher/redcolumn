@@ -6,7 +6,7 @@ Click **Columns ▾** on the list's toolbar and tick the columns to show.
 
 ![The Columns menu](img/list-columns-menu.png)
 
-Built-in columns include ID, Subject, Page, Page Label, Space, Measurement, Length, Area, Volume, Wall Area, Depth, Slope, Author, Date, Status, Checkmark, Comments, Type, Colour and Capture.
+Built-in columns include ID, Subject, Page, Page Label, Space, Measurement, Length, Area, Volume, Wall Area, Depth, Slope, Author, Date, Creation Date, Status, Checkmark, Comments, Lock, Layer, Type, Colour and Capture.
 
 **Reset Column Layout** puts the columns back to how they started.
 

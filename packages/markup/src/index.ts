@@ -6,6 +6,7 @@ export { parseBlx, setTitle, type LineSet } from './lineSet';
 export { parseBhx, type HatchSet } from './hatchSet';
 export { applyBookmarkTemplate, DEFAULT_BOOKMARK_TEMPLATE, parseBookmarkTemplate, sheetSeries, type BookmarkTemplate, type BookmarkTemplateNode, type TemplatePage } from './bookmarkTemplate';
 export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCategorySet } from './setCategories';
+export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
 export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';

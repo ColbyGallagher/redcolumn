@@ -36,4 +36,11 @@ On the right, set up the selected profile:
 
 Changes are saved to the profile as you make them. Click **Done**.
 
+## Import a Bluebeam® Revu® profile
+
+**Import…** also reads a Revu profile (`.bpx`; Revu keeps them in its settings folder, such as *Field Issues* or *Quantity Takeoff*). It becomes a new profile, a copy of your current setup with the **Markup List** laid out as Revu's was: the same columns, in the same order, with the same widths, and the ones Revu hides hidden. Any custom columns the profile defines are added to **Columns & Statuses**.
+
+Revu columns we have no equivalent for (such as *Label*, *Count* and *Legend*) are named in the message and left out. Revu's other panel layouts are not read. The profile can also be added from the Tool Library's **Import…**, which adds it without switching to it.
+
+
 > **Warning:** Profiles are saved in this browser (or this desktop app) only. Clearing the browser's site data, or uninstalling the app and its data, removes them. **Export** them to keep a copy.

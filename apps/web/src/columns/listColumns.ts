@@ -37,9 +37,12 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'slope', label: 'Slope', align: 'right', defaultWidth: 70 },
   { key: 'author', label: 'Author', defaultWidth: 100 },
   { key: 'date', label: 'Date', defaultWidth: 140 },
+  { key: 'created', label: 'Creation Date', defaultWidth: 140 },
   { key: 'status', label: 'Status', defaultWidth: 220 },
   { key: 'checked', label: 'Checkmark', defaultWidth: 50 },
   { key: 'comment', label: 'Comments', defaultWidth: 220 },
+  { key: 'locked', label: 'Lock', defaultWidth: 50 },
+  { key: 'layer', label: 'Layer', defaultWidth: 100 },
   { key: 'type', label: 'Type', defaultWidth: 90 },
   { key: 'color', label: 'Colour', defaultWidth: 70 },
   { key: 'capture', label: 'Capture', defaultWidth: 70 },
@@ -47,6 +50,9 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
 
 /** Shown until the user changes the layout. */
 const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
+
+/** Built-in columns that existed before layouts could lack them: one missing from a saved layout is shown. */
+const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer'].includes(k)));
 
 export const customKey = (id: string) => `custom:${id}`;
 
@@ -87,7 +93,8 @@ export function resolveLayout(layout: readonly ColumnLayout[], columns: readonly
   const fresh = !layout.length;
   for (const c of columns) {
     if (seen.has(c.key)) continue;
-    const col = { ...c, width: c.defaultWidth, hidden: fresh ? !DEFAULT_VISIBLE.has(c.key) && !c.custom : false };
+    // Built-in columns added since a layout was saved start hidden, so a new one does not appear in a list the user arranged.
+    const col = { ...c, width: c.defaultWidth, hidden: !c.custom && !DEFAULT_VISIBLE.has(c.key) && (fresh || !LONG_STANDING.has(c.key)) };
     // The markup ID leads the list, also in layouts saved before it existed.
     if (c.key === 'seq') out.unshift(col);
     else out.push(col);
@@ -148,6 +155,9 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     slope: cell(m.slope?.value ? formatSlope(m.slope) : ''),
     author: cell(m.author),
     date: { text: new Date(m.modifiedAt).toLocaleString(), num: m.modifiedAt },
+    created: { text: new Date(m.createdAt).toLocaleString(), num: m.createdAt },
+    locked: { text: m.locked ? '🔒' : '', num: m.locked ? 1 : 0 },
+    layer: cell(m.layer ?? ''),
     status: cell(statusName(m.status, ctx.statuses)),
     checked: { text: m.checked ? '✓' : '', num: m.checked ? 1 : 0 },
     comment: cell((isTextType(m.type) ? m.text : m.comment) ?? ''),
