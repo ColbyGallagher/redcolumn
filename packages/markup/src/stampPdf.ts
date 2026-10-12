@@ -64,19 +64,38 @@ const numbers = (a: PDFObject | undefined): number[] | null => {
 
 const textOf = (v: PDFObject | undefined): string => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '');
 
-/** The text of a rich text value (`/RC`): paragraphs and breaks become new lines. */
+/**
+ * The text of a rich text value (`/RC`): its tags are dropped, paragraphs and breaks become new
+ * lines. Read tag by tag with no pattern to trip over, with entities decoded last so text such as
+ * `&lt;b&gt;` stays text.
+ */
 function richText(xml: string): string {
-  const body = /<body\b[^>]*>([\s\S]*)<\/body>/i.exec(xml)?.[1] ?? xml;
-  return unescapeXml(
-    body
-      .replace(/<\/p>\s*<p\b[^>]*>/gi, '\n')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<[^>]*>/g, ''),
-  )
-    .split('\n')
+  const NL = String.fromCharCode(10);
+  let out = '';
+  let i = 0;
+  while (i < xml.length) {
+    const open = xml.indexOf('<', i);
+    if (open < 0) {
+      out += xml.slice(i);
+      break;
+    }
+    out += xml.slice(i, open);
+    const close = xml.indexOf('>', open);
+    if (close < 0) break;
+    const tag = xml.slice(open + 1, close).trim().toLowerCase();
+    const closing = tag.startsWith('/');
+    const name = tag.slice(closing ? 1 : 0).split(/[\s/]/)[0];
+    if (name === 'br' || name === 'p' || name === 'div') {
+      if (name === 'br' || closing) out += NL;
+      else if (out && !out.endsWith(NL)) out += NL;
+    }
+    i = close + 1;
+  }
+  return unescapeXml(out)
+    .split(NL)
     .map((l) => l.trim())
     .filter(Boolean)
-    .join('\n');
+    .join(NL);
 }
 
 /** What the annotation's appearance stream draws: its text, font, size and colour. */
