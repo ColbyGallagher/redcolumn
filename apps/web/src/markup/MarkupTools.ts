@@ -1220,32 +1220,39 @@ export class MarkupTools implements ViewerOverlay {
    * Smart Fill: finds the region enclosed by the drawing's lines (and markups, so a drawn line
    * can close a gap) around a point and makes it the chosen kind of markup.
    */
-  private async fillAt(pageIndex: number, at: Point) {
+  private async fillAt(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<{ markup?: Markup; error?: string }> {
     const store = this.store;
     const size = this.viewer.pageSize(pageIndex);
-    if (!store || !size || !this.snapSource) return;
+    if (!store || !size || !this.snapSource) return { error: 'Smart Fill is not ready on this page.' };
     let index: SnapIndex;
     try {
       const cached = this.snapIndexes.get(pageIndex);
       index = cached && cached !== 'loading' ? cached : await this.snapSource(pageIndex);
     } catch {
-      this.options.onNotice?.('Could not read the drawing on this page.');
-      return;
+      return { error: 'Could not read the drawing on this page.' };
     }
     const walls: number[] = [];
     for (const m of store.forPage(pageIndex)) if (m.type !== 'space' && !TYPE_INFO[m.type].content && TYPE_INFO[m.type].draw !== 'text') walls.push(...markupSegments(m));
     const segments = walls.length ? Float32Array.from([...index.segments, ...walls]) : index.segments;
     const polygon = dynamicFill(segments, at, { width: size.width, height: size.height })?.map(([x, y]): Point => [x, y]);
-    if (!polygon) {
-      this.options.onNotice?.('No enclosed area there: click inside a closed outline, or draw a line to close the gap.');
-      return;
-    }
+    if (!polygon) return { error: 'No enclosed area there: click inside a closed outline, or draw a line to close the gap.' };
     const type = this.state.fillAs;
     const m = this.newMarkup(type, pageIndex, type === 'polylength' ? [...polygon, polygon[0]!] : polygon);
+    if (extras?.text) m.text = extras.text;
+    if (extras?.comment) m.comment = extras.comment;
+    if (extras?.subject) m.subject = extras.subject;
     store.checkpoint();
     store.add(m);
     this.options.onCreated?.(m);
     if (type === 'space') this.options.onSpaceDrawn?.(m.id);
+    return { markup: store.get(m.id) ?? m };
+  }
+
+  /** Smart Fill at a point, for the assistant: the markup the armed fill type makes, or the reason it could not. */
+  async fill(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<Markup> {
+    const { markup, error } = await this.fillAt(pageIndex, at, extras);
+    if (!markup) throw new Error(error ?? 'Smart Fill found nothing there.');
+    return markup;
   }
 
   /** Area or volume whose next cutout the Cutout tool draws. */
@@ -1491,7 +1498,9 @@ export class MarkupTools implements ViewerOverlay {
 
     if (tool === 'dynamicFill') {
       if (e.button !== 0) return false;
-      void this.fillAt(pageIndex, toPoint(pt));
+      void this.fillAt(pageIndex, toPoint(pt)).then(({ error }) => {
+        if (error) this.options.onNotice?.(error);
+      });
       return true;
     }
 
@@ -2246,6 +2255,14 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Cloud+: the cloud just drawn, plus a callout from its top-right corner, as one group. */
   private addCloudCallout(cloud: Markup) {
+    const callout = this.cloudCalloutPair(cloud);
+    this.options.onCreated?.(cloud);
+    this.setState({ tool: 'select', selected: new Set([cloud.id, callout.id]) });
+    this.options.onEditText(callout.id);
+  }
+
+  /** Adds `cloud` and its callout to the drawing as one group, and returns the callout. */
+  private cloudCalloutPair(cloud: Markup): Markup {
     const zoom = this.viewer.zoomFor(this.page);
     const b = boundsOf(cloud.points);
     const groupId = crypto.randomUUID();
@@ -2256,9 +2273,23 @@ export class MarkupTools implements ViewerOverlay {
     if (cloud.subject) callout.subject = cloud.subject;
     this.store!.add({ ...cloud, groupId });
     this.store!.add({ ...callout, groupId, createdAt: cloud.createdAt + 1, modifiedAt: cloud.createdAt + 1 });
+    return callout;
+  }
+
+  /** Cloud+ for the assistant: a cloud over two corners with a callout from its top-right, as one undo step. `text` goes on the callout. */
+  placeCloudPlus(pageIndex: number, points: Point[], extras?: { text?: string; comment?: string; subject?: string }): { cloud: Markup; callout: Markup } {
+    const store = this.store;
+    if (!store) throw new Error('No document is open.');
+    if (store.readOnly) throw new Error('This drawing is read-only.');
+    const cloud = this.newMarkup('cloud', pageIndex, points);
+    if (extras?.comment) cloud.comment = extras.comment;
+    if (extras?.subject) cloud.subject = extras.subject;
+    store.checkpoint();
+    const callout = this.cloudCalloutPair(cloud);
+    if (extras?.text) store.update(callout.id, { text: extras.text });
     this.options.onCreated?.(cloud);
-    this.setState({ tool: 'select', selected: new Set([cloud.id, callout.id]) });
-    this.options.onEditText(callout.id);
+    this.select([cloud.id, callout.id]);
+    return { cloud: store.get(cloud.id) ?? cloud, callout: store.get(callout.id) ?? callout };
   }
 
   /** A page's markups in drawing order: Spaces underneath everything, then oldest first. */

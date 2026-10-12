@@ -151,6 +151,41 @@ test('page and command failures name what went wrong', async () => {
   assert.equal(page.scale, undefined);
 });
 
+test('Cloud+ and Smart Fill go through the tools on screen, and say why when they cannot', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const cloud = markup({ id: 'c1', type: 'cloud' });
+  const callout = markup({ id: 'c2', type: 'callout', text: 'Check' });
+  const filled = markup({ id: 'f1', type: 'area' });
+  const calls: string[] = [];
+  const tools: AssistantTools = {
+    owns: (store) => store === drawing.store,
+    place: () => { throw new Error('not used'); },
+    placeCloudPlus: (page, points, extras) => {
+      calls.push(`cloud+ ${page} ${points.length} ${extras?.text}`);
+      return { cloud, callout };
+    },
+    fill: async (page, at) => {
+      calls.push(`fill ${page} ${at.join(',')}`);
+      return filled;
+    },
+    select: () => {},
+  };
+  const env = { toolsFor: () => tools };
+
+  await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'cloudPlus', page: 1, points: [[0, 0], [50, 50]] }), /on screen for Cloud\+/);
+  await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5]] }), /on screen for Smart Fill/);
+
+  const pair = (await assistantCall([drawing], 'place_markup', { type: 'cloudPlus', page: 1, points: [[0, 0], [50, 50]], text: 'Check' }, env)) as { markup: { type: string }; callout: { type: string } };
+  assert.equal(pair.markup.type, 'cloud');
+  assert.equal(pair.callout.type, 'callout');
+  await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'cloudPlus', page: 1, points: [[0, 0]] }, env), /Cloud needs two opposite corners/);
+
+  const area = (await assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5]] }, env)) as { markup: { type: string } };
+  assert.equal(area.markup.type, 'area');
+  await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5], [9, 9]] }, env), /one point inside a closed outline/);
+  assert.deepEqual(calls, ['cloud+ 0 2 Check', 'fill 0 5,5']);
+});
+
 test('only destructive commands ask', () => {
   assert.equal(isDestructiveCommand('edit.delete'), true);
   assert.equal(isDestructiveCommand('file.save'), true);
