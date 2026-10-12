@@ -1,11 +1,12 @@
 import { parseBhx, parseBlx, parseBookmarkTemplate, parseCategoriesXml } from '@nb/markup';
 import { settings } from '../settings/settings';
+import { importBpxProfile } from '../workspace/revuProfile';
 import { updateWorkspace } from '../workspace/profiles';
 import { importToolSets } from './toolSets';
 
 /** The kinds of Revu file importRevuFiles takes, as an `accept` list. */
-export const REVU_LIBRARY_ACCEPT = '.btx,.blx,.bhx,.xml,.json,application/xml,text/xml,application/json';
-export const isRevuLibraryFile = (name: string) => /\.(btx|json|blx|bhx|xml)$/i.test(name);
+export const REVU_LIBRARY_ACCEPT = '.btx,.blx,.bhx,.bpx,.xml,.json,application/xml,text/xml,application/json';
+export const isRevuLibraryFile = (name: string) => /\.(btx|json|blx|bhx|bpx|xml)$/i.test(name);
 
 /** `Imported 3 line styles (Advanced).` */
 const said = (n: number, what: string, title: string) => `Imported ${n} ${what}${n === 1 ? '' : 's'} (${title}).`;
@@ -46,6 +47,10 @@ export async function importRevuFiles(files: File[]): Promise<string> {
           updateWorkspace((w) => ({ ...w, hatchSets: [...w.hatchSets.filter((s) => s.title !== set.title), fresh] }));
           out.push(`Imported ${fresh.hatches.length} hatch${fresh.hatches.length === 1 ? '' : 'es'} (${set.title}).`);
         }
+      } else if (/\.bpx$/i.test(f.name)) {
+        // The profile is added, not switched to: the list the user is working in stays as it is.
+        const r = importBpxProfile(await f.text(), f.name, false);
+        out.push(`Imported the profile ${r.profile.name} (${r.columns} markup list columns): switch to it in Profiles.${r.skipped.length ? ` No equivalent yet for ${r.skipped.join(', ')}.` : ''}`);
       } else if (/\.xml$/i.test(f.name)) {
         // Revu's bookmark templates and category sets are both plain .xml: the contents say which.
         const text = await f.text();

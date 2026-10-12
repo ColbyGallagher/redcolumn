@@ -221,6 +221,12 @@ export const profiles = {
     commit({ profiles: [...kept, ...incoming], activeId: incoming.some((p) => p.id === data.activeId) ? data.activeId! : incoming[0]!.id });
     return incoming.length;
   },
+  /** A new profile with `state` laid over the defaults; `activate` makes it the active one. */
+  add(name: string, state: Partial<WorkspaceState>, activate = true): Profile {
+    const p: Profile = { id: crypto.randomUUID(), name, state: upgrade(state) };
+    commit({ profiles: [...saved.profiles, p], activeId: activate ? p.id : saved.activeId });
+    return p;
+  },
   importJson(text: string): Profile {
     const data = JSON.parse(text) as { format?: string; name?: string; state?: Partial<WorkspaceState> };
     if (data.format !== 'nb-profile' || !data.state) throw new Error('This is not a profile file.');

@@ -7,6 +7,7 @@ import { profiles, updateWorkspace, useProfiles, type WorkspaceState } from '../
 import { InlineName } from './InlineName';
 import { LEFT_TITLES, type LeftTab } from './MenuBar';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from './ToolBar';
+import { importBpxProfile } from '../workspace/revuProfile';
 
 type Tab = 'toolbar' | 'panels' | 'toolchest' | 'list' | 'columns';
 
@@ -345,13 +346,18 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
         <input
           ref={importRef}
           type="file"
-          accept=".json,application/json"
+          accept=".json,.bpx,application/json,text/xml,application/xml"
           hidden
           onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
             if (!f) return;
             try {
+              if (/\.bpx$/i.test(f.name)) {
+                const r = importBpxProfile(await f.text(), f.name, true);
+                setMessage(`Imported "${r.profile.name}" from Bluebeam Revu and made it active: ${r.columns} markup list columns shown.${r.skipped.length ? ` No equivalent yet for ${r.skipped.join(', ')}.` : ''}`);
+                return;
+              }
               const p = profiles.importJson(await f.text());
               setMessage(`Imported "${p.name}" and made it active.`);
             } catch (err) {
