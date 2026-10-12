@@ -462,7 +462,11 @@ export function toolStyle(type: MarkupType, d: PdfDict, defaults: Defaults): Mar
   const w = num(bs?.W) ?? border;
   if (w !== null && w > 0) style.width = w;
   const dash = dashFrom(d);
-  if (dash) style.dash = dash;
+  if (dash) {
+    style.dash = dash;
+    const exact = ((Array.isArray(bs?.D) ? bs!.D : Array.isArray(d.D) ? d.D : [3]) as number[]).filter((n) => typeof n === 'number').map((n) => Math.max(n, 0));
+    if (exact.some((n) => n > 0)) style.dashArray = exact;
+  }
   if (Array.isArray(d.LE) && (type === 'line' || type === 'arrow' || type === 'length' || type === 'polylength')) {
     const [s, e] = d.LE.map((x) => LE[nm(x)]);
     if (s) style.startCap = s;

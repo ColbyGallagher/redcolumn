@@ -4,6 +4,7 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexStr
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
+import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
 import { arcPoints } from './arc';
 import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
@@ -21,6 +22,8 @@ import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import { markupDigest, unchangedSinceImport } from './digest';
+import { bsiLegendValue } from './bsiLegend';
+import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
 
 /**
@@ -80,6 +83,14 @@ function pdfText(s: string) {
   return PDFHexString.fromText(s);
 }
 
+/** Plain values with their strings as PDF text (`context.obj` would turn plain strings into names). */
+function textValues(v: unknown): unknown {
+  if (typeof v === 'string') return pdfText(v);
+  if (Array.isArray(v)) return v.map(textValues);
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, textValues(x)]));
+  return v;
+}
+
 /** The markup data written into its annotation: without its link to an imported annotation, and attachment bytes (kept once, in the file). */
 function appData(m: Markup): Omit<Markup, 'pdfAnnot'> {
   const { pdfAnnot: _link, ...rest } = m;
@@ -130,6 +141,35 @@ const DA_FONT_NAMES: Record<FontFamily, string> = { sans: 'Helv', serif: 'TiRo',
 function standardFont(style: MarkupStyle, measure: boolean): StandardFonts {
   const bold = style.bold ?? measure;
   return STANDARD_FONTS[style.fontFamily ?? 'sans'][(bold ? 1 : 0) + (style.italic ? 2 : 0)]!;
+}
+
+/** The standard font a custom line style's text is set in. */
+const artStandardFont = (t: Pick<ArtText, 'font' | 'bold' | 'italic'>): StandardFonts => STANDARD_FONTS[t.font][(t.bold ? 1 : 0) + (t.italic ? 2 : 0)]!;
+
+/** A custom line style's laid out strokes, fills and text as content stream operators, in the line color. */
+function artOps(art: LineArt, ctx: Ctx, color: [number, number, number], fontRefs: Record<string, PDFRef>): string[] {
+  const ops: string[] = ['/GS0 gs [] 0 d'];
+  const [r, g, b] = color;
+  if (art.fill.length) ops.push(`${fmt(r)} ${fmt(g)} ${fmt(b)} rg`, pathOps(art.fill), 'f');
+  if (art.stroke.length) ops.push(pathOps(art.stroke), 'S');
+  if (art.texts.length) {
+    ops.push('/GS1 gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
+    for (const t of art.texts) {
+      const name = artStandardFont(t);
+      const font = ctx.fonts.get(name);
+      if (!font) continue;
+      const text = safeText(font, t.text);
+      const w = font.widthOfTextAtSize(text, t.size);
+      const cos = Math.cos(t.angle);
+      const sin = Math.sin(t.angle);
+      // Centred on its point along the line and on the line itself; glyphs flipped upright in y-down page space.
+      const x = t.x - (w / 2) * cos - t.size * 0.35 * sin;
+      const y = t.y - (w / 2) * sin + t.size * 0.35 * cos;
+      fontRefs[`FL${name}`] = font.ref;
+      ops.push('BT', `/FL${name} ${fmt(t.size)} Tf`, `${[cos, sin, sin, -cos, x, y].map(fmt).join(' ')} Tm`, `${font.encodeText(text).toString()} Tj`, 'ET');
+    }
+  }
+  return ops;
 }
 
 /** Encodes text for a standard font, replacing characters WinAnsi cannot represent. */
@@ -218,7 +258,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   const fillAlpha = style.opacity * (style.fillOpacity ?? 1);
   const [sr, sg, sb] = rgb(style.stroke);
   const [tr, tg, tb] = rgb(textColor(style));
-  const dash = dashPattern(style.dash, style.width);
+  const dash = style.dashArray ?? dashPattern(style.dash, style.width);
   const ops: string[] = ['q', `${matrix.map(fmt).join(' ')} cm`];
   if (m.rotation) {
     // Turn about the box's centre in page space (clockwise, as y points down).
@@ -231,7 +271,16 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   ops.push('/GS0 gs', `${fmt(style.width)} w`, '1 J 1 j', `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`);
   if (m.type === 'highlighter') ops.push('0 J');
   let hatchPattern: PDFRef | null = null;
-  for (const part of markupShape(m)) {
+  const artFonts: Record<string, PDFRef> = {};
+  const measure = (text: string, family: ArtText['font'], bold: boolean, italic: boolean, size: number) => {
+    const font = ctx.fonts.get(artStandardFont({ font: family, bold, italic }));
+    return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
+  };
+  for (const part of styledParts(markupShape(m), style.lineStyle, style.width, measure)) {
+    if (part.art) {
+      ops.push(...artOps(part.art, ctx, [sr, sg, sb], artFonts));
+      continue;
+    }
     if (part.hatch && part.clip) {
       const draw = hatchDraw(part.hatch.id, part.hatch.scale);
       if (draw) {
@@ -252,6 +301,8 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       continue;
     }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
+    // An exact dash pattern has flat ends, as it does in other viewers.
+    if (style.dashArray) ops.push(part.decoration ? '1 J' : '0 J');
     ops.push(pathOps(part.path));
     if (part.fill) {
       const [fr, fg, fb] = rgb(part.fill);
@@ -404,7 +455,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       ops.push('q', `${fmt(dr)} ${fmt(dg)} ${fmt(db)} RG 0.5 w`, `${fmt(L.box.x)} ${fmt(r.y)} m ${fmt(L.box.x + L.box.w)} ${fmt(r.y)} l S`, 'Q');
       const symbol = legendSymbol(row.sample, r.symbol);
       const [cr, cg, cb] = rgb(symbol.style.stroke);
-      ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(dashPattern(symbol.style.dash, symbol.style.width)));
+      ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(symbol.style.dashArray ?? dashPattern(symbol.style.dash, symbol.style.width)));
       for (const part of markupShape(symbol)) {
         if (part.hatch && part.clip) continue;
         ops.push(pathOps(part.path));
@@ -429,6 +480,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
   ops.push('Q');
+  if (Object.keys(artFonts).length) resources.Font = { ...(resources.Font as LiteralObject | undefined), ...artFonts };
 
   const stream = doc.context.flateStream(ops.join('\n'), {
     Type: 'XObject',
@@ -454,6 +506,12 @@ const PDF_LINE_ENDINGS: Record<LineEnding, string> = {
   tick: 'Butt',
   slash: 'Slash',
 };
+
+/** A custom line style's pattern as PDF values: its text as literal strings, as Bluebeam writes it. */
+function lineStyleValue(v: unknown): unknown {
+  if (typeof v === 'string') return /^[ -~]*$/.test(v) ? PDFString.of(v) : PDFHexString.fromText(v);
+  return Array.isArray(v) ? v.map(lineStyleValue) : v;
+}
 
 /** Bluebeam's cloud intensity (0–2) for a cloud's arc size: about 3 pt per step. */
 function cloudEffect(m: Markup): LiteralObject {
@@ -499,37 +557,15 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
     const r = dimFont.widthOfTextAtSize(safeText(dimFont, dim.text), dim.size) / 2 + dim.size;
     take(dim.at[0], dim.at[1], r, r);
   }
+  // A custom line style reaches off the line: symbols, text and parallel lines.
+  if (m.style.lineStyle) {
+    const reach = lineStyleReach(m.style.lineStyle, m.style.width);
+    x -= reach;
+    y -= reach;
+    x1 += reach;
+    y1 += reach;
+  }
   return { x, y, w: x1 - x, h: y1 - y };
-}
-
-/** The subject Bluebeam gives a markup of this kind, for those whose name differs from ours. */
-const BLUEBEAM_SUBJECTS: Partial<Record<MarkupType, string>> = {
-  polyline: 'PolyLine',
-  text: 'Text Box',
-  callout: 'Call-out',
-  typewriter: 'Typewritten Text',
-  flagLabel: 'Flag',
-  flag: 'Flag',
-  highlighter: 'Highlight',
-  textHighlight: 'Highlight',
-  strikeout: 'Strikeout',
-  attachment: 'File Attachment',
-  length: 'Length Measurement',
-  polylength: 'Polylength Measurement',
-  area: 'Area Measurement',
-  perimeter: 'Perimeter Measurement',
-  volume: 'Volume Measurement',
-  count: 'Count Measurement',
-  diameter: 'Diameter Measurement',
-  radius: 'Radius Measurement',
-  angle: 'Angle Measurement',
-  arc: 'Arc',
-  polygonCloud: 'Cloud',
-};
-
-function defaultSubject(m: Markup): string {
-  if (m.type === 'stamp') return m.stamp?.lines[0] || 'Stamp';
-  return BLUEBEAM_SUBJECTS[m.type] ?? TYPE_INFO[m.type].label;
 }
 
 function annotationDict(ctx: Ctx, m: Markup): PDFDict {
@@ -559,7 +595,7 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   const fill = m.style.fill ? rgb(m.style.fill) : null;
   // A boxless text box has no border for other readers to draw.
   const borderWidth = (m.style.noBox && m.type === 'text') || (m.style.borderless && (m.type === 'text' || m.type === 'callout')) ? 0 : m.style.width;
-  const dash = dashPattern(m.style.dash, m.style.width);
+  const dash = m.style.dashArray ?? dashPattern(m.style.dash, m.style.width);
   const [startCap, endCap] = lineEnds(m);
   const le = [PDF_LINE_ENDINGS[startCap], PDF_LINE_ENDINGS[endCap]];
   const filledEnd = [startCap, endCap].some((c) => c.startsWith('filled'));
@@ -579,6 +615,10 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     // An attachment's bytes live once, in its embedded file, not in the data copy too.
     [APP_DATA_KEY]: pdfText(JSON.stringify(appData(m))),
   };
+  if (m.style.lineStyle) {
+    base.LineStyle = lineStyleValue(m.style.lineStyle.spec) as never;
+    base.LineStyleName = pdfText(m.style.lineStyle.name) as never;
+  }
   const label = measurementLabel(m, ctx.scale);
   const signed = m.signature ? `Signed by ${m.signature.signer} on ${new Date(m.signature.signedAt).toLocaleString()}${m.signature.reason ? ` (${m.signature.reason})` : ''}` : null;
   const contents = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' ? [m.text, m.type === 'replaceText' ? m.comment : null].filter(Boolean).join(' — ') : [signed, label?.text, m.comment].filter(Boolean).join(' — ');
@@ -814,10 +854,14 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       break;
     }
     case 'legend': {
-      // Other tools see a text box listing the rows; ours come back as a live legend.
+      // Other tools see a stamp, not a text box: they redraw a FreeText from its text when it is
+      // resized (losing the symbols and bands), but only scale a stamp's appearance. The rows are
+      // in /Contents for lists and search; ours come back as a live legend.
       const rows = legendRows(m, ctx.all, ctx.scaleFor, ctx.scaleOf);
       base.Contents = pdfText(['Legend', ...rows.map((r) => `${r.label}: ${r.count}${r.measure ? ` (${r.measure})` : ''}`)].join('\n'));
-      specific = { Subtype: 'FreeText', RD: rd, DA: PDFString.of(`/Helv ${m.style.fontSize ?? 10} Tf 0 0 0 rg`) };
+      // Bluebeam's own legend is a snapshot stamp with its keys and totals in /BSILegend, which it
+      // keeps current as markups change.
+      specific = { Subtype: 'Stamp', IT: 'StampSnapshot', BSILegend: textValues(bsiLegendValue(m, ctx.all, ctx.pages.length, ctx.scaleFor, ctx.scaleOf)) as never };
       break;
     }
     case 'table': {
@@ -1013,7 +1057,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
 /** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
-const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', APP_DATA_KEY]);
+const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
 /** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
 const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
 /** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
@@ -1614,7 +1658,10 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const fonts = new Map<StandardFonts, PDFFont>();
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
-    const names = m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : [];
+    const names = [
+      ...(m.type === 'stamp' ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica] : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
+      ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
+    ];
     for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));
   }
   const images = new Map<string, PDFImage>();

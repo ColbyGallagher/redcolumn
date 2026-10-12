@@ -245,7 +245,8 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           </label>
           {styleCapabilities(styleType).dash && (
             <label className="field" title="Line style">
-              <select value={style.dash ?? 'solid'} onChange={(e) => tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash) })}>
+              <select value={style.dashArray ? 'custom' : (style.dash ?? 'solid')} onChange={(e) => e.target.value !== 'custom' && tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined })}>
+                {style.dashArray && <option value="custom">Custom ({style.dashArray.map((n) => Math.round(n * 100) / 100).join(' ')})</option>}
                 {LINE_DASHES.map((d) => (
                   <option key={d.value} value={d.value}>
                     {d.label}

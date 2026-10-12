@@ -122,6 +122,11 @@ function Sep() {
   return <div className="menu-sep" role="separator" />;
 }
 
+/** How long a flyout stays after the pointer leaves it, so a diagonal move to its items does not close it. */
+const FLYOUT_CLOSE_DELAY = 400;
+/** How long the pointer must rest on a submenu row before it replaces a sibling's open flyout. */
+const SIBLING_OPEN_DELAY = 300;
+
 /**
  * A submenu that pops out to the side, as in desktop menus. The flyout is fixed-positioned so the
  * scrolling menu it sits in does not clip it; it flips left or shifts up near the window's edges.
@@ -131,16 +136,32 @@ function Submenu({ label, children }: { label: string; children: ReactNode }) {
   const fly = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const openFly = () => {
-    clearTimeout(closeTimer.current);
+  const openTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const show = () => {
     const r = row.current?.getBoundingClientRect();
     if (r) setPos({ left: r.right - 2, top: r.top - 5 });
   };
+  const openFly = () => {
+    clearTimeout(closeTimer.current);
+    clearTimeout(openTimer.current);
+    // Another submenu in the same menu is open: the pointer may only be passing over this row on a
+    // diagonal to that submenu's items, so wait to see if it stays before taking over.
+    const sibling = !pos && row.current?.parentElement?.querySelector(':scope > .menu-sub > .menu-flyout');
+    if (sibling) openTimer.current = setTimeout(show, SIBLING_OPEN_DELAY);
+    else show();
+  };
   const closeFly = () => {
     clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(() => setPos(null), 150);
+    clearTimeout(openTimer.current);
+    closeTimer.current = setTimeout(() => setPos(null), FLYOUT_CLOSE_DELAY);
   };
-  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(closeTimer.current);
+      clearTimeout(openTimer.current);
+    },
+    [],
+  );
   useLayoutEffect(() => {
     const el = fly.current;
     const r = row.current?.getBoundingClientRect();

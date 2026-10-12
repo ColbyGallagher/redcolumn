@@ -1,5 +1,6 @@
 import { DEFAULT_SCALE, formatMeasure, isMeasureKind, measureValue, QUANTITY, type MeasureKind, type Scale } from '@nb/measure';
 import { contentBox, MARKUP_LABELS, measureProps, type Markup, type Point, type Rect } from './model';
+import { cloudPlusGroups, legendKeyOf } from './bluebeamTypes';
 import { TYPE_INFO } from './types';
 
 /** One line of a legend: a kind of markup (type, subject and look), how many and how much. */
@@ -20,9 +21,25 @@ function totals(m: Markup): m is Markup & { type: MeasureKind } {
   return q === 'length' || q === 'area' || q === 'volume';
 }
 
-/** Markups a legend lists: not legends themselves, signatures or pictures. */
-function listed(m: Markup): boolean {
-  return !m.legendHidden && m.type !== 'legend' && m.type !== 'signature' && m.type !== 'image' && m.type !== 'space' && m.type !== 'redaction';
+/** Markups a legend lists: not legends themselves, signatures or pictures (unless a Bluebeam legend's keys name them). */
+export function listed(m: Markup, legend?: Markup): boolean {
+  const pictures = !!legend?.legend?.keys;
+  return !m.legendHidden && m.type !== 'legend' && m.type !== 'signature' && (pictures || m.type !== 'image') && m.type !== 'space' && m.type !== 'redaction';
+}
+
+/** Whether a legend counts markups on this page: its own page, every page, or the pages it names. */
+export function onLegendPage(legend: Markup, pageIndex: number): boolean {
+  const pages = legend.legend?.pages;
+  if (pages) return pages.includes(pageIndex);
+  return legend.legend?.scope === 'document' || pageIndex === legend.pageIndex;
+}
+
+/** Whether a Bluebeam legend's keys include this markup (always, for a legend with no keys). */
+export function inLegendKeys(legend: Markup, m: Markup, plus: ReadonlySet<string>): boolean {
+  const keys = legend.legend?.keys;
+  if (!keys) return true;
+  const k = legendKeyOf(m, plus);
+  return !!k && keys.some((x) => x.type === k.type && x.subject === k.subject);
 }
 
 /**
@@ -35,10 +52,10 @@ export function legendRows(
   scaleFor: (pageIndex: number) => Scale = () => DEFAULT_SCALE,
   scaleOf: (m: Markup) => Scale = (m) => scaleFor(m.pageIndex),
 ): LegendRow[] {
-  const scope = legend.legend?.scope ?? 'page';
   const rows = new Map<string, LegendRow & { meters: number }>();
+  const plus = legend.legend?.keys ? cloudPlusGroups(all) : new Set<string>();
   for (const m of [...all].sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt)) {
-    if (!listed(m) || (scope === 'page' && m.pageIndex !== legend.pageIndex)) continue;
+    if (!listed(m, legend) || !onLegendPage(legend, m.pageIndex) || !inLegendKeys(legend, m, plus)) continue;
     const key = `${m.type}|${m.subject ?? ''}|${m.style.stroke}|${m.style.fill ?? ''}`;
     let row = rows.get(key);
     if (!row) {

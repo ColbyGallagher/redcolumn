@@ -8,7 +8,8 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw } from './hatches';
-import { cssFont, dashPattern, labelStyle, textColor } from './style';
+import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 
 export const TEXT_FONT_FAMILY = 'Helvetica, Arial, sans-serif';
 
@@ -40,6 +41,47 @@ function tracePath(ctx: CanvasRenderingContext2D, path: PathCmd[]) {
     else if (c[0] === 'L') ctx.lineTo(c[1], c[2]);
     else if (c[0] === 'C') ctx.bezierCurveTo(c[1], c[2], c[3], c[4], c[5], c[6]);
     else ctx.closePath();
+  }
+}
+
+/** CSS font for a line style's text. */
+function artFont(t: Pick<ArtText, 'font' | 'bold' | 'italic' | 'size'>): string {
+  const family = FONT_FAMILIES.find((f) => f.value === t.font) ?? FONT_FAMILIES[0]!;
+  return `${t.italic ? 'italic ' : ''}${t.bold ? 'bold ' : ''}${t.size}px ${family.css}`;
+}
+
+const canvasMeasure = (ctx: CanvasRenderingContext2D): TextMeasure => (text, font, bold, italic, size) => {
+  ctx.save();
+  ctx.font = artFont({ font, bold, italic, size });
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w;
+};
+
+/** A custom line style's laid out strokes, fills and text, in the stroke color. */
+function paintArt(ctx: CanvasRenderingContext2D, art: LineArt) {
+  ctx.setLineDash([]);
+  if (art.fill.length) {
+    tracePath(ctx, art.fill);
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.fill();
+  }
+  if (art.stroke.length) {
+    tracePath(ctx, art.stroke);
+    ctx.stroke();
+  }
+  if (art.texts.length) {
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const t of art.texts) {
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      ctx.rotate(t.angle);
+      ctx.font = artFont(t);
+      ctx.fillText(t.text, 0, 0);
+      ctx.restore();
+    }
   }
 }
 
@@ -229,10 +271,14 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   ctx.strokeStyle = style.stroke;
   ctx.lineJoin = 'round';
   ctx.lineCap = m.type === 'highlighter' ? 'butt' : 'round';
-  const dash = dashPattern(style.dash, lineWidth);
+  const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
   // Highlighter multiplies so drawing detail stays visible underneath.
   if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
-  for (const part of markupShape(m)) {
+  for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
+    if (part.art) {
+      paintArt(ctx, part.art);
+      continue;
+    }
     if (part.hatch && part.clip) {
       paintHatch(ctx, part.clip, part.evenOdd, part.hatch, style.opacity * (style.fillOpacity ?? 1), zoom);
       continue;
@@ -247,6 +293,8 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
     if (part.stroke) {
       ctx.setLineDash(part.decoration ? [] : dash);
+      // An exact dash pattern is drawn with flat ends, as other viewers do; presets use round ones for dots.
+      if (style.dashArray) ctx.lineCap = part.decoration ? 'round' : 'butt';
       ctx.stroke();
     }
   }
