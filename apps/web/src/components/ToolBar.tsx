@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -6,6 +6,7 @@ import { ComboField } from './ComboField';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
+import { TOOL_ICONS } from './toolIcons';
 import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 
@@ -14,61 +15,135 @@ export function toolShortcut(tool: Tool): string | undefined {
   return shortcutLabel(`tool.${tool}`);
 }
 
-export const MARKUP_TOOLS: { tool: Tool; icon: string }[] = [
-  { tool: 'select', icon: '⬉' },
-  { tool: 'lasso', icon: '◌' },
-  { tool: 'line', icon: '╱' },
-  { tool: 'arrow', icon: '↗' },
-  { tool: 'dimension', icon: '⟷' },
-  { tool: 'polyline', icon: '⋀' },
-  { tool: 'arc', icon: '⌒' },
-  { tool: 'ellipticalArc', icon: '◜' },
-  { tool: 'rect', icon: '▭' },
-  { tool: 'ellipse', icon: '◯' },
-  { tool: 'polygon', icon: '⬡' },
-  { tool: 'cloud', icon: '☁' },
-  { tool: 'polygonCloud', icon: '⛅' },
-  { tool: 'cloudPlus', icon: '☁⁺' },
-  { tool: 'pen', icon: '✎' },
-  { tool: 'highlighter', icon: '▮' },
-  { tool: 'eraser', icon: '⌫' },
-  { tool: 'textHighlight', icon: 'H̲' },
-  { tool: 'underline', icon: 'U̲' },
-  { tool: 'strikeout', icon: 'S̶' },
-  { tool: 'squiggly', icon: 'W̰' },
-  { tool: 'replaceText', icon: 'R̶‸' },
-  { tool: 'text', icon: 'T' },
-  { tool: 'callout', icon: '↘T' },
-  { tool: 'typewriter', icon: 'Aa' },
-  { tool: 'flagLabel', icon: '◁▭' },
-  { tool: 'note', icon: '▤' },
-  { tool: 'image', icon: '⛶' },
-  { tool: 'attachment', icon: '📎' },
-  { tool: 'flag', icon: '⚑' },
-  { tool: 'snapshot', icon: '📷' },
-  { tool: 'stamp', icon: '⛋' },
-  { tool: 'legend', icon: '☷' },
-  { tool: 'table', icon: '▦' },
-  { tool: 'hyperlink', icon: '🔗' },
-  { tool: 'space', icon: '⬚' },
-  { tool: 'redaction', icon: '▇' },
+/** A toolbar tool and the icon its button shows (a text glyph, or a drawn icon from toolIcons). */
+export interface ToolEntry {
+  tool: Tool;
+  icon: ReactNode;
+}
+
+/** A named run of related tools: kept together on the toolbar and as a submenu in tool menus. */
+export interface ToolGroup {
+  label: string;
+  tools: ToolEntry[];
+}
+
+export const MARKUP_GROUPS: ToolGroup[] = [
+  {
+    label: 'Select',
+    tools: [
+      { tool: 'select', icon: '⬉' },
+      { tool: 'lasso', icon: '◌' },
+    ],
+  },
+  {
+    label: 'Lines',
+    tools: [
+      { tool: 'line', icon: '╱' },
+      { tool: 'arrow', icon: '↗' },
+      { tool: 'dimension', icon: '⟷' },
+      { tool: 'polyline', icon: TOOL_ICONS.polyline },
+      { tool: 'arc', icon: '⌒' },
+      { tool: 'ellipticalArc', icon: '◜' },
+    ],
+  },
+  {
+    label: 'Shapes',
+    tools: [
+      { tool: 'rect', icon: '▭' },
+      { tool: 'ellipse', icon: '◯' },
+      { tool: 'polygon', icon: '⬡' },
+      { tool: 'cloud', icon: '☁' },
+      { tool: 'polygonCloud', icon: '⛅' },
+      { tool: 'cloudPlus', icon: '☁⁺' },
+    ],
+  },
+  {
+    label: 'Freehand',
+    tools: [
+      { tool: 'pen', icon: '✎' },
+      { tool: 'highlighter', icon: TOOL_ICONS.highlighter },
+      { tool: 'eraser', icon: TOOL_ICONS.eraser },
+    ],
+  },
+  {
+    label: 'Text Markup',
+    tools: [
+      { tool: 'textHighlight', icon: 'H̲' },
+      { tool: 'underline', icon: 'U̲' },
+      { tool: 'strikeout', icon: 'S̶' },
+      { tool: 'squiggly', icon: 'W̰' },
+      { tool: 'replaceText', icon: 'R̶‸' },
+    ],
+  },
+  {
+    label: 'Text & Notes',
+    tools: [
+      { tool: 'text', icon: 'T' },
+      { tool: 'callout', icon: '↘T' },
+      { tool: 'typewriter', icon: 'Aa' },
+      { tool: 'flagLabel', icon: TOOL_ICONS.flagLabel },
+      { tool: 'note', icon: '▤' },
+    ],
+  },
+  {
+    label: 'Insert',
+    tools: [
+      { tool: 'image', icon: TOOL_ICONS.image },
+      { tool: 'stamp', icon: TOOL_ICONS.stamp },
+      { tool: 'attachment', icon: '📎' },
+      { tool: 'hyperlink', icon: '🔗' },
+      { tool: 'snapshot', icon: '📷' },
+    ],
+  },
+  {
+    label: 'Tables & Areas',
+    tools: [
+      { tool: 'legend', icon: '☷' },
+      { tool: 'table', icon: '▦' },
+      { tool: 'space', icon: '⬚' },
+      { tool: 'redaction', icon: '▇' },
+    ],
+  },
 ];
 
-export const MEASURE_TOOLS: { tool: Tool; icon: string }[] = [
-  { tool: 'calibrate', icon: '⇹' },
-  { tool: 'length', icon: '↔' },
-  { tool: 'polylength', icon: '⤳' },
-  { tool: 'area', icon: '▰' },
-  { tool: 'perimeter', icon: '⬠' },
-  { tool: 'count', icon: '#' },
-  { tool: 'angle', icon: '∠' },
-  { tool: 'diameter', icon: '⌀' },
-  { tool: 'radius', icon: '◔' },
-  { tool: 'arcLength', icon: '◠' },
-  { tool: 'volume', icon: '⬙' },
-  { tool: 'dynamicFill', icon: '🪣' },
-  { tool: 'visualSearch', icon: '🔍' },
+export const MEASURE_GROUPS: ToolGroup[] = [
+  { label: 'Scale', tools: [{ tool: 'calibrate', icon: '⇹' }] },
+  {
+    label: 'Lengths',
+    tools: [
+      { tool: 'length', icon: '↔' },
+      { tool: 'polylength', icon: '⤳' },
+      { tool: 'perimeter', icon: '⬠' },
+      { tool: 'arcLength', icon: '◠' },
+    ],
+  },
+  {
+    label: 'Circles & Angles',
+    tools: [
+      { tool: 'diameter', icon: '⌀' },
+      { tool: 'radius', icon: '◔' },
+      { tool: 'angle', icon: '∠' },
+    ],
+  },
+  {
+    label: 'Areas & Volumes',
+    tools: [
+      { tool: 'area', icon: '▰' },
+      { tool: 'volume', icon: '⬙' },
+      { tool: 'dynamicFill', icon: '🪣' },
+    ],
+  },
+  {
+    label: 'Counts',
+    tools: [
+      { tool: 'count', icon: '#' },
+      { tool: 'visualSearch', icon: '🔍' },
+    ],
+  },
 ];
+
+export const MARKUP_TOOLS: ToolEntry[] = MARKUP_GROUPS.flatMap((g) => g.tools);
+export const MEASURE_TOOLS: ToolEntry[] = MEASURE_GROUPS.flatMap((g) => g.tools);
 
 const TOOL_HINTS: Partial<Record<Tool, string>> = {
   polyline: 'click points; double-click or Enter to finish',
@@ -84,7 +159,6 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   dimension: 'drag a line; type the dimension text',
   replaceText: 'drag across the text to replace; type the new wording',
   attachment: 'choose a file, then click to place its paperclip',
-  flag: 'click to place a flag; double-click to add a note',
   snapshot: 'drag a box: the area is copied as a picture',
   highlighter: 'over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text',
   textHighlight: 'drag across text in the PDF',
@@ -130,8 +204,6 @@ const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
 
-const ICONS = new Map([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
-
 interface Props {
   tools: MarkupTools;
   state: ToolsState;
@@ -172,10 +244,15 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
   const toolsPick = (tool: Tool) => tools.setTool(tool);
   return (
     <div className="toolbar tools">
-      {[MARKUP_TOOLS, MEASURE_TOOLS].map((list, i) => (
+      {[MARKUP_GROUPS, MEASURE_GROUPS].map((groups, i) => (
         <Fragment key={i}>
           {i > 0 && <span className="sep" />}
-          {list.filter(shown).map(({ tool, icon }) =>
+          {groups
+            .map((g) => ({ ...g, tools: g.tools.filter(shown) }))
+            .filter((g) => g.tools.length)
+            .map((g) => (
+              <span key={g.label} className="tool-group" role="group" aria-label={g.label}>
+          {g.tools.map(({ tool, icon }) =>
             tool === 'stamp' ? (
               <StampMenu
                 key={tool}
@@ -195,6 +272,8 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
               </button>
             ),
           )}
+              </span>
+            ))}
         </Fragment>
       ))}
       {state.tool === 'dynamicFill' && (
@@ -456,9 +535,9 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
 }
 
 /** Icons for markup types not drawn with a tool of their own name. */
-const TYPE_ONLY_ICONS: Partial<Record<string, string>> = { signature: '✍', flagLabel: '◁▭', count: '#' };
+const TYPE_ONLY_ICONS: Partial<Record<string, ReactNode>> = { signature: '✍', flag: '⚑', count: '#' };
 
 /** The icon of a markup's type (the tool that draws it), as the toolbar shows it. */
-export function markupTypeIcon(type: string): string {
+export function markupTypeIcon(type: string): ReactNode {
   return [...MARKUP_TOOLS, ...MEASURE_TOOLS].find((t) => t.tool === type)?.icon ?? TYPE_ONLY_ICONS[type] ?? '◆';
 }

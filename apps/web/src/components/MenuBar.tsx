@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { desktop } from '../desktop/host';
 import { isStandalone } from '../offline/install';
 import type { Tool } from '../markup/MarkupTools';
 import { MEASURE_TOOLS } from './ToolBar';
+import { MenuSearch } from './MenuSearch';
+import type { PrefEntry } from './PreferencesDialog';
 
 /**
  * Tools › Markup, in groups. Left out because the menus list them elsewhere: Stamp, File
@@ -15,7 +17,7 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
   { label: 'Freehand', tools: ['pen', 'highlighter'] },
   { label: 'Text Markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
   { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'flagLabel', 'note'] },
-  { label: 'Other', tools: ['image', 'flag', 'legend', 'table', 'space'] },
+  { label: 'Other', tools: ['image', 'legend', 'table', 'space'] },
 ];
 
 export type LeftTab =
@@ -80,6 +82,8 @@ export interface MenuBarProps {
     showBottom: (tab: BottomTab) => void;
     /** The Install App button: opens the dialog that downloads the desktop app. */
     install: () => void;
+    /** A preference picked in the search box: opens Preferences on its tab. */
+    openSetting: (setting: PrefEntry) => void;
   };
 }
 
@@ -192,6 +196,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   const [open, setOpen] = useState<MenuId | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
+  const commandList = useMemo(() => [...commands.values()], [commands]);
 
   useEffect(() => {
     if (!open) return;
@@ -576,6 +581,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           )}
         </div>
       ))}
+      <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />
       {!installed && (
         <button type="button" className="install-app-btn" title={'Download the redcolumn desktop app (Windows):\n• Opens PDFs from your file manager\n• Saves straight back to the file\n• Works offline, even with no signal\n• Its own window and taskbar icon'} onClick={on.install}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_STYLES, drawMarkup, onImageLoad, resolveStamp, STAMP_FIELDS, stampAspect, type Markup, type StampDef } from '@nb/markup';
 import { importRevuStamps } from '../stamps/revuStamps';
@@ -235,7 +235,7 @@ export function StampMenu({
   onNew,
   onManage,
 }: {
-  icon: string;
+  icon: ReactNode;
   disabled: boolean;
   /** The Stamp tool is the one in use. */
   active: boolean;

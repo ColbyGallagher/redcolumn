@@ -10,6 +10,8 @@ export type MenuEntry =
       checked?: boolean;
       /** Drawn before the label (a tick replaces it while checked). */
       icon?: ReactNode;
+      /** Drawn at the start of the label, kept while checked (a tool's own icon in a checklist). */
+      lead?: ReactNode;
       danger?: boolean;
       onClick?: () => void;
       items?: MenuEntry[];
@@ -60,7 +62,10 @@ function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => vo
             <div key={`${i}:${it.label}`} className="ctx-has-sub">
               <button role="menuitem" aria-haspopup="menu" className="menu-item has-sub" disabled={it.disabled || !children.length}>
                 <span className="check">{it.checked ? '✓' : (it.icon ?? '')}</span>
-                <span className="label">{it.label}</span>
+                <span className="label">
+              {it.lead != null && <span className="lead">{it.lead}</span>}
+              {it.label}
+            </span>
                 <span className="sc">▸</span>
               </button>
               {!it.disabled && children.length > 0 && <MenuList items={children} onDone={onDone} sub />}
@@ -79,7 +84,10 @@ function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => vo
             }}
           >
             <span className="check">{it.checked ? '✓' : (it.icon ?? '')}</span>
-            <span className="label">{it.label}</span>
+            <span className="label">
+              {it.lead != null && <span className="lead">{it.lead}</span>}
+              {it.label}
+            </span>
             {it.shortcut ? <span className="sc">{it.shortcut}</span> : <span />}
           </button>
         );

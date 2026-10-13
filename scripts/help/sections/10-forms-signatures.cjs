@@ -74,7 +74,7 @@ module.exports = async function (h) {
   await h.closeModal();
 
   // Flags panel.
-  await h.tool('flag');
+  await h.tool('flagLabel');
   await h.clickAt(560, 120);
   await h.wait(300);
   await h.closeModal();

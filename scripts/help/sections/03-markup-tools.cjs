@@ -378,13 +378,6 @@ module.exports = async function (h) {
   }
   await reset();
 
-  await where('flag', 'Flag');
-  await h.tool('flag');
-  await h.clickAt(...P(50, 36));
-  await reset();
-  await result('draw-flag', P(46, 40), P(56, 32));
-  await clear();
-
   // Legend: needs some markups to list.
   await h.tool('cloud');
   await h.drag(P(41, 40), P(61, 26));

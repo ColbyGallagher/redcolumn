@@ -33,7 +33,7 @@ import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
-import { PreferencesDialog } from './components/PreferencesDialog';
+import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, useSettings } from './settings/settings';
 import { buildRows, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
@@ -85,7 +85,7 @@ import { CompareResultsPanel, type CompareResults, type CompareStop } from './co
 import { JobsBar } from './components/JobsBar';
 import { isAbort, runJob, startJob, useJobRunning, type JobContext } from './jobs/jobs';
 import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from './components/VisualSearchPanel';
-import { MARKUP_TOOLS, MEASURE_TOOLS, ToolBar, toolShortcut } from './components/ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { comboOf, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
@@ -810,10 +810,10 @@ export function App() {
   /** The current commands by id, for the keyboard handler (rebuilt every render). */
   const commandsRef = useRef<ReadonlyMap<string, Command>>(new Map());
   const [prefsOpen, setPrefsOpen] = useState(false);
-  const [prefsCategory, setPrefsCategory] = useState<'mcp' | undefined>();
+  const [prefsCategory, setPrefsCategory] = useState<{ category: PrefCategory; tab?: string; query?: string } | undefined>();
   useEffect(() => {
     const open = () => {
-      setPrefsCategory('mcp');
+      setPrefsCategory({ category: 'mcp' });
       setPrefsOpen(true);
     };
     window.addEventListener('nb-assistant-open', open);
@@ -4921,6 +4921,15 @@ export function App() {
       onClick: () => tools.setTool(tool),
     }));
 
+  /** Tool picks in a submenu per group (Lines, Shapes, Freehand…); a group of one is listed inline. */
+  const groupedToolEntries = (tools: MarkupTools, groups: ToolGroup[], keep: (t: ToolEntry) => boolean = () => true): MenuEntry[] =>
+    groups.flatMap((g): MenuEntry[] => {
+      const items = g.tools.filter(keep);
+      if (!items.length) return [];
+      if (items.length === 1) return toolEntries(tools, items);
+      return [{ label: g.label, checked: items.some((t) => tools.getState().tool === t.tool), items: toolEntries(tools, items) }];
+    });
+
   /** Right-click › Auto-size Text Box: each selected text box fitted to its text. */
   const autoSizeTextBoxes = (store: MarkupStore, ms: readonly Markup[]) => {
     const g = document.createElement('canvas').getContext('2d');
@@ -5329,8 +5338,8 @@ export function App() {
     const pageOps = shared || busyPages;
     return [
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
-      { label: 'Markup', disabled: ro, items: toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool !== 'select')) },
-      { label: 'Measure', disabled: ro, items: toolEntries(c.tools, MEASURE_TOOLS) },
+      { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
+      { label: 'Measure', disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
       SEP,
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
       { label: 'Select All Markups', shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
@@ -5554,11 +5563,33 @@ export function App() {
         const next = cur.includes(tool) ? cur.filter((t) => t !== tool) : all.filter((t) => t === tool || cur.includes(t));
         return { ...w, toolbarTools: next.length === all.length ? null : next };
       });
-    const list = (tools: { tool: Tool; icon: string }[]): MenuEntry[] =>
-      tools.map(({ tool, icon }) => ({ label: `${icon}  ${toolLabel(tool)}`, checked: onToolbar(tool), onClick: () => toggle(tool) }));
+    const list = (tools: ToolEntry[]): MenuEntry[] =>
+      tools.map(({ tool, icon }) => ({ label: toolLabel(tool), lead: icon, checked: onToolbar(tool), onClick: () => toggle(tool) }));
+    // One submenu per group, with "show all / hide all" for the group at its top.
+    const groups = (gs: ToolGroup[]): MenuEntry[] =>
+      gs.map((g) => {
+        const on = g.tools.filter((t) => onToolbar(t.tool)).length;
+        const setGroup = (show: boolean) =>
+          updateWorkspace((w) => {
+            const cur = w.toolbarTools ?? all;
+            const ids = g.tools.map((t) => t.tool);
+            const next = all.filter((t) => (ids.includes(t) ? show : cur.includes(t)));
+            return { ...w, toolbarTools: next.length === all.length ? null : next };
+          });
+        return {
+          label: `${g.label} (${on}/${g.tools.length})`,
+          items: [
+            { label: 'Show All in Group', disabled: on === g.tools.length, onClick: () => setGroup(true) },
+            { label: 'Hide Group', disabled: on === 0, onClick: () => setGroup(false) },
+            SEP,
+            ...list(g.tools),
+          ],
+        };
+      });
     return [
       ...(clicked ? [{ label: `Remove ${toolLabel(clicked)} from Toolbar`, onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
-      { label: 'Toolbar Tools', items: [{ label: 'Markup', items: list(MARKUP_TOOLS) }, { label: 'Measure', items: list(MEASURE_TOOLS) }] },
+      { label: 'Markup Tools', items: groups(MARKUP_GROUPS) },
+      { label: 'Measure Tools', items: groups(MEASURE_GROUPS) },
       {
         label: 'Reset Toolbar to Defaults',
         disabled: ws.toolbarTools?.length === DEFAULT_TOOLBAR_TOOLS.length && DEFAULT_TOOLBAR_TOOLS.every((t) => ws.toolbarTools?.includes(t)),
@@ -6572,6 +6603,10 @@ Open the download page? Run the new installer to update; your documents and mark
           showLeft,
           showBottom: showBottomPanel,
           install: () => setInstallOpen(true),
+          openSetting: (s) => {
+            setPrefsCategory({ category: s.category, tab: s.tab, query: s.label === s.tabLabel ? undefined : s.label });
+            setPrefsOpen(true);
+          },
         }}
       />
       {activeTools && showTools && (
@@ -8130,7 +8165,7 @@ Open the download page? Run the new installer to update; your documents and mark
         />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}
