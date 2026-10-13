@@ -103,6 +103,18 @@ test('snap finds long segments far from their endpoints', () => {
   assert.deepEqual(s?.point, [2500, 2500]);
 });
 
+test('snap to curves can be turned off without losing straight lines', () => {
+  // A straight line at y=0 and a curve piece at y=50.
+  const idx = new SnapIndex(new Float32Array([0, 0, 100, 0, 0, 50, 100, 50]), 16, new Uint8Array([0, 1]));
+  const lines = new Set(['nearest'] as const);
+  assert.equal(idx.snap([30, 52], 5, [], lines)?.point[1], 50);
+  assert.equal(idx.snap([30, 52], 5, [], lines, false), null);
+  assert.equal(idx.snap([30, 2], 5, [], lines, false)?.point[1], 0);
+  // With straight-line snapping off, curves still snap.
+  assert.equal(idx.snap([30, 2], 5, [], new Set(), true), null);
+  assert.equal(idx.snap([30, 52], 5, [], new Set(), true)?.point[1], 50);
+});
+
 test('parseLength accepts decimals and feet-inches', () => {
   assert.equal(parseLength('25', 'ft'), 25);
   assert.equal(parseLength('12.5', 'm'), 12.5);

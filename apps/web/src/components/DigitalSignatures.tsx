@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import type { DigitalIdRecord } from '../documents/digitalIds';
+import { recalledPassword } from '../documents/idPasswords';
 import type { SignatureCheck } from '../documents/pdfSign';
 import type { SavedSignature } from '../signatures/signatures';
 import { askText } from './AskText';
@@ -367,6 +368,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
   const [tsa, setTsa] = useState(savedTsa);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const remembered = idId ? recalledPassword(idId) : null;
   return (
     <div className="modal-backdrop" onMouseDown={busy ? undefined : onCancel}>
       <form
@@ -382,7 +384,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           setBusy(true);
           setError(null);
           saveTsa(tsa);
-          onSign({ idId, password, reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null }).catch((err) => {
+          onSign({ idId, password: remembered ?? password, reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null }).catch((err) => {
             setError(err instanceof Error ? err.message : String(err));
             setBusy(false);
           });
@@ -409,10 +411,14 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
                 ))}
               </select>
             </label>
-            <label className="row">
-              Password
-              <input type="password" autoFocus autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
-            </label>
+            {remembered ? (
+              <p className="print-hint">Unlocked: no password needed until the time-out in Preferences › Signature.</p>
+            ) : (
+              <label className="row">
+                Password
+                <input type="password" autoFocus autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+            )}
             <label className="row">
               Reason
               <input value={reason} onChange={(e) => setReason(e.target.value)} />

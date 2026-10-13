@@ -136,122 +136,98 @@ export interface Settings {
   // exported with the rest, but nothing in RedColumn reads them yet.
 
   // General › Options
-  language: 'en-GB' | 'en-US' | 'en-AU'; // stored: the interface is English only
-  saveLanguageInDocs: boolean; // stored
-  theme: 'dark' | 'light'; // stored: the app has one (dark) theme
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
-  startupFile: string; // stored: a web page cannot open a path on disk by itself
-  openHomePage: boolean; // stored: there is no WebTab
-  showRecentOnStartup: boolean; // stored
+  /** Library id of a document opened (in front) every time the app starts; '' for none. */
+  startupFile: string;
   // General › Document
-  documentRecovery: boolean; // stored
-  saveMode: 'publish' | 'incremental' | 'full'; // stored
-  pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide'; // stored
-  singleDisplay: 'fitPage' | 'fitWidth' | 'actual' | 'last'; // stored
-  continuousDisplay: 'fitPage' | 'fitWidth' | 'actual' | 'last'; // stored
+  /** Changes not saved to a document's file survive closing it and restarting (it stays marked unsaved); off, Don't Save discards them. */
+  documentRecovery: boolean;
+  /** How a document is laid out when first shown: Auto puts drawings (larger than tabloid) a page at a time and scrolls smaller pages. */
+  pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
-  rotateAllPages: boolean; // stored
-  autoReorderBookmarks: boolean; // stored
-  redirectLinksOnSlipSheet: boolean; // stored
-  promptIfLocked: boolean; // stored
-  findHyperlinks: boolean; // stored
-  rememberLastPage: boolean; // stored
   // General › Navigation
   /** What the plain mouse wheel does in single page view and in continuous view. */
   singlePageWheel: 'zoom' | 'scroll';
   continuousWheel: 'zoom' | 'scroll';
-  wheelSensitivity: number; // stored: the zoom steps set the wheel's rate
-  horizontalScrollbar: boolean; // stored: the view is drawn on a canvas, without scrollbars
-  horizontalMouseWheel: boolean; // stored
-  verticalScrollbar: boolean; // stored
-  scrollbarOnLeft: boolean; // stored
-  lockPanFitWidth: boolean; // stored
-  synchroniseViews: boolean; // stored
-  syncMode: 'document' | 'page' | 'location'; // stored
-  enable3DMouse: boolean; // stored: browsers do not expose 3D mice
-  keyboardAccelerators: boolean; // stored
+  /** How far a wheel notch scrolls, and how fast a trackpad zooms (1–10; 4 is the browser's rate). */
+  wheelSensitivity: number;
   // General › Grid & Snap
-  snapLines: boolean; // stored: the snap index does not tell lines from curves
-  snapCurves: boolean; // stored
+  /** Snap to Content: nearest point on straight lines. */
+  snapLines: boolean;
+  /** Snap to Content also snaps onto curves (arcs, circles, splines) in the drawing. */
+  snapCurves: boolean;
   /** Which kinds of drawing geometry Snap to Content snaps to. */
   snapMidpoints: boolean;
   snapEndpoints: boolean;
   snapIntersections: boolean;
-  snapPageBounds: boolean; // stored
-  ignoreTinySegments: boolean; // stored
   /** How near (screen pixels) the pointer must come to a point to snap to it. */
   snapSensitivity: number;
   /** Colour of the snap marker. */
   snapColour: string;
   // General › Spelling
-  autoComplete: boolean; // stored
   /** Browser spell check (underlines) while typing markup text and comments. */
   spellCheck: boolean;
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
-  spellColour: string; // stored: the browser draws its own underline
-  dictionary: 'en-AU' | 'en-GB' | 'en-US'; // stored: one English dictionary is bundled
+  /** Dictionary Check Spelling uses. */
+  dictionary: 'en-AU' | 'en-GB' | 'en-US';
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
-  dominantMeasureOnly: boolean; // stored
   richTextComments: boolean; // stored
-  wrapCommentText: boolean; // stored
-  excludeFilteredOnExport: boolean; // stored
+  /** Markup exports (CSV, Markup Summary) leave out the markups the list's filters hide. */
+  excludeFilteredOnExport: boolean;
   /** Opacity of markups the list's filter dims, in percent. */
   filteredDim: number;
   // Interface › Layers
-  hideChildLayers: boolean; // stored: layers are not nested
-  layersOnPageOnly: boolean; // stored
-  layerDial: 'isolate' | 'fade'; // stored
+  /** Hiding a PDF layer hides the layers nested in it too (and showing it shows them). */
+  hideChildLayers: boolean;
+  /** The Layers panel lists only the layers the current page uses. */
+  layersOnPageOnly: boolean;
+  /** The Layers Dial shows one layer alone (Isolate) or draws the other markup layers faintly (Fade). */
+  layerDial: 'isolate' | 'fade';
   // Tools › Markup
-  dynamicDefaults: boolean; // stored
-  selectionCycle: boolean; // stored
-  autoSizeText: boolean; // stored
-  scaleGroupAppearance: boolean; // stored
-  retainLayerOnCopy: boolean; // stored
-  embedFonts: boolean; // stored
-  popupAuthorDate: boolean; // stored
-  printPopups: boolean; // stored
-  popupOpacity: number; // stored
-  copyHighlightedText: boolean; // stored
-  imageEncoding: 'auto' | 'jpeg' | 'flate'; // stored
-  dragBehaviour: 'rectangle' | 'center'; // stored
-  vectorSnapshots: boolean; // stored
-  // Tools › Measure
-  autoSplitCounts: boolean; // stored
-  dynamicFillDpi: number; // stored
-  hideMarkupsDuringFill: boolean; // stored
-  fillSize: number; // stored
-  fillSpeed: number; // stored
-  fillColour: string; // stored
-  boundarySize: number; // stored
-  boundaryColour: string; // stored
-  edgeSensitivity: 'low' | 'medium' | 'high'; // stored
-  legacySubjectLabel: boolean; // stored
+  /** Text boxes and callouts are fitted to their text whenever it is edited. */
+  autoSizeText: boolean;
+  /** Pasted markups stay on the layer they were copied from (else they go on no layer). */
+  retainLayerOnCopy: boolean;
+  /** Saved documents embed the font files markup text uses, instead of only naming standard fonts. */
+  embedFonts: boolean;
+  /** Comment pop-ups (shown when the pointer rests on a markup) start with its author and date. */
+  popupAuthorDate: boolean;
+  /** Opacity of comment pop-ups, in percent. */
+  popupOpacity: number;
+  /** Highlight, underline and strikeout markups get the text they mark as their comment. */
+  copyHighlightedText: boolean;
+  /** How placed pictures are stored: Auto (photos JPEG, others lossless), JPEG, or Flate (lossless PNG). */
+  imageEncoding: 'auto' | 'jpeg' | 'flate';
   // Tools › Sketch
-  rotationInput: 'absolute' | 'relative'; // stored
+  /** Draw to Scale angles: from east (Absolute) or from the previous segment's direction (Relative). */
+  rotationInput: 'absolute' | 'relative';
   // Tools › Forms
-  formHighlightColour: string; // stored
-  formHighlightOpacity: number; // stored
-  formSingleKeys: boolean; // stored
+  /** How fillable form fields are tinted on the page. */
+  formHighlightColour: string;
+  formHighlightOpacity: number;
+  /** With the Forms panel open, T, C, R, D, L, B and S start drawing that kind of field. */
+  formSingleKeys: boolean;
   // Tools › Signature
-  signaturePasswordTimeout: number; // stored
-  signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512'; // stored
-  restrictSignedChanges: boolean; // stored
-  // Sets › Set Options (stored)
+  /** Minutes a Digital ID stays unlocked after its password is typed (0: ask every time). */
+  signaturePasswordTimeout: number;
+  /** Digest new signatures are made over. */
+  signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512';
+  /** Refuse changes to a signed document that rewrite it (and so invalidate its signatures). */
+  restrictSignedChanges: boolean;
+  // Sets › Set Options (the Sets panel)
   setOpenDocuments: 'inPlace' | 'newTab';
   setOpenEdited: 'inPlace' | 'newTab';
-  setRelativePaths: boolean;
-  setShowPaths: boolean;
   setShow: 'fileAndLabel' | 'fileName' | 'pageLabel';
   setPreview: boolean;
   setCategories: 'auto' | 'manual' | 'none';
   setDefaultTemplate: string;
   setPromptTemplate: boolean;
-  // Sets › Sorting (stored)
+  // Sets › Sorting
   setSortBy: 'fileAndLabel' | 'fileName' | 'pageLabel' | 'sheetNumber';
   setSortTagged: boolean;
   setSortOrder: 'asc' | 'desc';
@@ -264,24 +240,14 @@ export interface Settings {
   setUnflatten: boolean;
   setFlattenAfter: boolean;
   setStampSuperseded: boolean;
-  // Sets › Categories and Tags (stored)
+  // Sets › Categories and Tags
   setTemplates: Record<string, SetTemplate>;
   setTags: SetTag[];
   setAutoTagRevision: boolean;
   setAutoTagDiscipline: boolean;
   setAutoTagSheetType: boolean;
-  // Import/Export (stored: RedColumn does not convert to Office formats)
-  wordMode: 'flowing' | 'continuous' | 'exact';
-  wordHeaders: 'retain' | 'text' | 'remove';
-  wordDetectLists: boolean;
-  wordMarkups: boolean;
-  excelWorkbook: 'single' | 'perPage';
-  excelNonTable: boolean;
-  excelCombineTables: boolean;
-  excelDetectNumbers: boolean;
-  excelThousands: 'comma' | 'fullStop' | 'space' | 'none';
-  excelDecimal: 'fullStop' | 'comma';
-  pptDetectLists: boolean;
+  // Import/Export › Images: the camera (File › Create › From Camera), pictures placed or dropped on a
+  // page, pictures made into PDFs, and File › Export › Page Images.
   photoResolution: 'low' | 'medium' | 'high';
   videoResolution: 'low' | 'medium' | 'high';
   cameraOrientation: 'none' | 'rotate90' | 'rotate180' | 'rotate270';
@@ -303,7 +269,7 @@ export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'gridUnit'>): n
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  unitSystem: 'imperial',
+  unitSystem: 'metric',
   ctrlWheelZoomStep: 5,
   wheelZoomStep: 10,
   invertWheelZoom: false,
@@ -337,83 +303,38 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreTabs: false,
   snapshotDpi: 200,
 
-  language: 'en-GB',
-  saveLanguageInDocs: false,
-  theme: 'dark',
   tabTruncation: 'end',
   startupFile: '',
-  openHomePage: false,
-  showRecentOnStartup: false,
   documentRecovery: true,
-  saveMode: 'publish',
   pageLayout: 'auto',
-  singleDisplay: 'fitPage',
-  continuousDisplay: 'fitWidth',
   maxZoom: 6400,
-  rotateAllPages: true,
-  autoReorderBookmarks: true,
-  redirectLinksOnSlipSheet: true,
-  promptIfLocked: true,
-  findHyperlinks: true,
-  rememberLastPage: true,
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',
   wheelSensitivity: 4,
-  horizontalScrollbar: false,
-  horizontalMouseWheel: false,
-  verticalScrollbar: true,
-  scrollbarOnLeft: false,
-  lockPanFitWidth: true,
-  synchroniseViews: false,
-  syncMode: 'document',
-  enable3DMouse: true,
-  keyboardAccelerators: false,
   snapLines: true,
   snapCurves: true,
   snapMidpoints: true,
   snapEndpoints: true,
   snapIntersections: true,
-  snapPageBounds: true,
-  ignoreTinySegments: true,
   snapSensitivity: 10,
   snapColour: '#d946ef',
-  autoComplete: true,
   spellCheck: true,
   spellUpperCase: false,
-  spellColour: '#ff0000',
   dictionary: 'en-AU',
   zoomFitSelected: true,
-  dominantMeasureOnly: false,
   richTextComments: false,
-  wrapCommentText: true,
   excludeFilteredOnExport: false,
   filteredDim: 20,
   hideChildLayers: true,
   layersOnPageOnly: false,
   layerDial: 'isolate',
-  dynamicDefaults: false,
-  selectionCycle: true,
   autoSizeText: false,
-  scaleGroupAppearance: true,
   retainLayerOnCopy: true,
   embedFonts: true,
   popupAuthorDate: false,
-  printPopups: true,
   popupOpacity: 70,
   copyHighlightedText: true,
   imageEncoding: 'auto',
-  dragBehaviour: 'rectangle',
-  vectorSnapshots: true,
-  autoSplitCounts: true,
-  dynamicFillDpi: 300,
-  hideMarkupsDuringFill: true,
-  fillSize: 100,
-  fillSpeed: 20,
-  fillColour: '#22a33a',
-  boundarySize: 100,
-  boundaryColour: '#2a2a9a',
-  edgeSensitivity: 'high',
-  legacySubjectLabel: false,
   rotationInput: 'absolute',
   formHighlightColour: '#c0c0ff',
   formHighlightOpacity: 25,
@@ -423,8 +344,6 @@ export const DEFAULT_SETTINGS: Settings = {
   restrictSignedChanges: true,
   setOpenDocuments: 'inPlace',
   setOpenEdited: 'newTab',
-  setRelativePaths: true,
-  setShowPaths: false,
   setShow: 'fileAndLabel',
   setPreview: true,
   setCategories: 'auto',
@@ -451,17 +370,6 @@ export const DEFAULT_SETTINGS: Settings = {
   setAutoTagRevision: true,
   setAutoTagDiscipline: false,
   setAutoTagSheetType: false,
-  wordMode: 'flowing',
-  wordHeaders: 'retain',
-  wordDetectLists: true,
-  wordMarkups: true,
-  excelWorkbook: 'single',
-  excelNonTable: true,
-  excelCombineTables: true,
-  excelDetectNumbers: true,
-  excelThousands: 'comma',
-  excelDecimal: 'fullStop',
-  pptDetectLists: true,
   photoResolution: 'medium',
   videoResolution: 'low',
   cameraOrientation: 'none',
@@ -481,7 +389,10 @@ const KEY = 'nb.settings';
 
 function load(): Settings {
   try {
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>) };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
+    // Settings since removed are dropped, so they are not written back.
+    const known = Object.entries(saved).filter(([k]) => k in DEFAULT_SETTINGS);
+    return { ...DEFAULT_SETTINGS, ...(Object.fromEntries(known) as Partial<Settings>) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

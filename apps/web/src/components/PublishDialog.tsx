@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { parsePageRange } from '../documents/printPdf';
+import type { Colourspace } from '../documents/imagePdf';
+import { settings } from '../settings/settings';
 
 export type PublishRequest =
   | { kind: 'pdf'; flatten: boolean; reduce: boolean; quality: number; clean: boolean }
-  | { kind: 'images'; format: 'png' | 'jpeg'; dpi: number; pages: number[]; markups: boolean };
+  | { kind: 'images'; format: 'png' | 'jpeg' | 'tiff'; dpi: number; colour: Colourspace; pages: number[]; markups: boolean };
 
 interface Props {
   mode: 'pdf' | 'images';
@@ -16,15 +18,17 @@ interface Props {
 
 /**
  * File › Publish (a copy to hand out: markups flattened, smaller, cleanly rewritten) and File ›
- * Export › Page Images (PNG or JPEG, with or without markups).
+ * Export › Page Images (PNG, JPEG or TIFF, with or without markups). The image settings start from
+ * Preferences › Images.
  */
 export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClose }: Props) {
   const [flatten, setFlatten] = useState(true);
   const [reduce, setReduce] = useState(false);
   const [quality, setQuality] = useState(70);
   const [clean, setClean] = useState(true);
-  const [format, setFormat] = useState<'png' | 'jpeg'>('png');
-  const [dpi, setDpi] = useState(150);
+  const [format, setFormat] = useState<'png' | 'jpeg' | 'tiff'>('png');
+  const [dpi, setDpi] = useState(() => (settings.get().exportResolution === 'auto' ? 150 : Number(settings.get().exportResolution)));
+  const [colour, setColour] = useState<Colourspace>(() => settings.get().exportColourspace);
   const [range, setRange] = useState<'all' | 'current' | 'range'>('current');
   const [rangeText, setRangeText] = useState(`1-${pageCount}`);
   const [markups, setMarkups] = useState(true);
@@ -44,7 +48,7 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
           e.preventDefault();
           if (!valid || busy) return;
           if (mode === 'pdf') onRun({ kind: 'pdf', flatten, reduce, quality: quality / 100, clean });
-          else onRun({ kind: 'images', format, dpi, pages: pages!, markups });
+          else onRun({ kind: 'images', format, dpi, colour, pages: pages!, markups });
         }}
       >
         {mode === 'pdf' ? (
@@ -76,13 +80,21 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
             <h3>Export Page Images</h3>
             <div className="form-grid">
               <label>Format</label>
-              <select value={format} onChange={(e) => setFormat(e.target.value as 'png' | 'jpeg')}>
+              <select value={format} onChange={(e) => setFormat(e.target.value as 'png' | 'jpeg' | 'tiff')}>
                 <option value="png">PNG (sharp lines)</option>
                 <option value="jpeg">JPEG (smaller)</option>
+                <option value="tiff">TIFF</option>
+              </select>
+              <label>Colour</label>
+              <select value={colour} onChange={(e) => setColour(e.target.value as Colourspace)} disabled={format === 'tiff' && settings.get().tiffCompression === 'ccittG4'}>
+                <option value="auto">As drawn</option>
+                <option value="colour">Colour</option>
+                <option value="grey">Greyscale</option>
+                <option value="mono">Black and white</option>
               </select>
               <label>Resolution</label>
               <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
-                {[72, 96, 150, 200, 300, 400].map((d) => (
+                {[...new Set([72, 96, 150, 200, 300, 400, 600, dpi])].sort((a, b) => a - b).map((d) => (
                   <option key={d} value={d}>
                     {d} dpi
                   </option>
@@ -106,7 +118,10 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
               <input type="checkbox" checked={markups} onChange={(e) => setMarkups(e.target.checked)} />
               Include markups
             </label>
-            <p className="pref-hint">Several pages are saved together in a .zip.</p>
+            <p className="pref-hint">
+              {format === 'tiff' && settings.get().tiffCompression === 'ccittG4' ? 'TIFFs use CCITT Group 4 compression, which is black and white (Preferences › Images). ' : ''}
+              {format === 'tiff' && settings.get().multiPageTiff ? 'All the pages go into one multi-page TIFF.' : 'Several pages are saved together in a .zip.'}
+            </p>
           </>
         )}
         <div className="actions">

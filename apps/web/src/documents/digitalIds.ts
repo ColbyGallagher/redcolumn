@@ -225,4 +225,30 @@ export const digitalIds = {
   trust(fingerprint: string) {
     write(TRUST_KEY, [...new Set([...read<string[]>(TRUST_KEY, []), fingerprint])]);
   },
+  /** The certificates trusted by hand (not counting your own IDs), for backing up. */
+  trustedByHand: (): string[] => read<string[]>(TRUST_KEY, []),
 };
+
+/** A backup of this device's Digital IDs (each still locked by its own password) and trusted certificates. */
+export interface IdBackup {
+  app: 'RedColumn';
+  kind: 'digital-ids' | 'trusted-identities';
+  ids?: DigitalIdRecord[];
+  trusted?: string[];
+}
+
+/** Restores a backup into this device's IDs or trusted certificates; returns how many were added. */
+export function restoreIdBackup(json: string, kind: IdBackup['kind']): number {
+  const b = JSON.parse(json) as Partial<IdBackup>;
+  if (b.app !== 'RedColumn' || b.kind !== kind) throw new Error(kind === 'digital-ids' ? 'This is not a Digital IDs backup.' : 'This is not a trusted identities backup.');
+  if (kind === 'digital-ids') {
+    const have = new Set(digitalIds.list().map((r) => r.fingerprint));
+    const add = (b.ids ?? []).filter((r) => r && typeof r.p12 === 'string' && typeof r.fingerprint === 'string' && !have.has(r.fingerprint));
+    for (const r of add) digitalIds.add(r);
+    return add.length;
+  }
+  const have = new Set(digitalIds.trustedByHand());
+  const add = (b.trusted ?? []).filter((f) => typeof f === 'string' && /^[0-9a-f:]+$/i.test(f) && !have.has(f));
+  for (const f of add) digitalIds.trust(f);
+  return add.length;
+}

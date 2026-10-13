@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { settings } from '../settings/settings';
 
 /** Picture types Open accepts and turns into PDFs. */
 export const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp'];
@@ -60,25 +61,61 @@ export function imagePageSize(w: number, h: number, dpi: [number, number] | null
   return { width: (w / dx) * 72, height: (h / dy) * 72 };
 }
 
+export type Colourspace = 'auto' | 'colour' | 'grey' | 'mono';
+
+/** Pixels turned grey, or black and white (at half brightness), in place. */
+export function convertColourspace(data: Uint8ClampedArray, to: Colourspace) {
+  if (to !== 'grey' && to !== 'mono') return;
+  for (let i = 0; i < data.length; i += 4) {
+    let v = 0.299 * data[i]! + 0.587 * data[i + 1]! + 0.114 * data[i + 2]!;
+    if (to === 'mono') v = v < 128 ? 0 : 255;
+    data[i] = data[i + 1] = data[i + 2] = v;
+  }
+}
+
+/** The scale (at most 1) that brings a picture of `dpi` down to `target` dots per inch; 'auto' keeps it. */
+export function resolutionScale(dpi: [number, number] | null, target: 'auto' | 'original' | '72' | '150' | '300' | '600'): number {
+  if (target === 'auto' || target === 'original') return 1;
+  const [dx, dy] = dpi && dpi[0] >= 10 && dpi[1] >= 10 ? dpi : [DEFAULT_DPI, DEFAULT_DPI];
+  return Math.min(1, Number(target) / Math.max(dx, dy));
+}
+
 /**
- * A one-page PDF showing a picture at its real size. PNG and JPEG are embedded as they are;
- * other formats are converted to PNG first.
+ * A one-page PDF showing a picture at its real size, per Preferences › Images › Import Image as
+ * PDF Colourspace and Resolution. PNG and JPEG are embedded as they are when neither changes them;
+ * otherwise (and for other formats) the picture is redrawn and stored as PNG (JPEG for photos).
  */
 export async function imageToPdf(file: Blob & { type: string }): Promise<ArrayBuffer> {
   let bytes = new Uint8Array(await file.arrayBuffer());
   let kind = file.type === 'image/jpeg' ? 'jpeg' : file.type === 'image/png' ? 'png' : null;
   const dpi = kind ? imageDpi(bytes) : null;
-  if (!kind) {
+  const { importColourspace: colour, importResolution } = settings.get();
+  const scale = resolutionScale(dpi, importResolution);
+  const recolour = colour === 'grey' || colour === 'mono';
+  let natural: { width: number; height: number } | null = null;
+  if (!kind || scale < 1 || recolour) {
     const bitmap = await createImageBitmap(file);
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
-    canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+    natural = { width: bitmap.width, height: bitmap.height };
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = new OffscreenCanvas(w, h);
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(bitmap, 0, 0, w, h);
     bitmap.close();
-    bytes = new Uint8Array(await (await canvas.convertToBlob({ type: 'image/png' })).arrayBuffer());
-    kind = 'png';
+    if (recolour) {
+      const px = ctx.getImageData(0, 0, w, h);
+      convertColourspace(px.data, colour);
+      ctx.putImageData(px, 0, 0);
+    }
+    // Photos stay JPEG unless made black and white, which compresses far better losslessly.
+    const jpeg = kind === 'jpeg' && colour !== 'mono';
+    bytes = new Uint8Array(await (await canvas.convertToBlob(jpeg ? { type: 'image/jpeg', quality: 0.9 } : { type: 'image/png' })).arrayBuffer());
+    kind = jpeg ? 'jpeg' : 'png';
   }
   const doc = await PDFDocument.create();
   const image = kind === 'jpeg' ? await doc.embedJpg(bytes) : await doc.embedPng(bytes);
-  const size = imagePageSize(image.width, image.height, dpi);
+  // The page keeps the picture's real size, whatever resolution it is stored at.
+  const size = imagePageSize(natural?.width ?? image.width, natural?.height ?? image.height, dpi);
   doc.addPage([size.width, size.height]).drawImage(image, { x: 0, y: 0, width: size.width, height: size.height });
   const out = await doc.save();
   return out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength) as ArrayBuffer;

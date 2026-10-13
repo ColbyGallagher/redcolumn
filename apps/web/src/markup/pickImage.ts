@@ -1,4 +1,6 @@
 import type { Attachment } from '@nb/markup';
+import { settings } from '../settings/settings';
+import { imageDpi, resolutionScale } from '../documents/imagePdf';
 
 /** Longest side, in pixels, of pictures stored in markups (they are synced and saved inline). */
 const MAX_SIDE = 2048;
@@ -27,10 +29,15 @@ export function pickImage(): Promise<{ image: string; aspect: number } | null> {
   });
 }
 
-/** Decodes an image file and re-encodes it (PNG keeps transparency; photos become JPEG). */
+/**
+ * Decodes an image file and re-encodes it per Preferences › Markup › Default Image Encoding: JPEG,
+ * Flate (PNG, lossless, keeps transparency), or Auto (photos JPEG, everything else PNG).
+ */
 export async function imageToDataUrl(file: Blob): Promise<{ image: string; aspect: number }> {
   const bitmap = await createImageBitmap(file);
-  const k = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height));
+  // Preferences › Images › Import Image Resolution: pictures stored at no more than that many dpi.
+  const dpi = file.type === 'image/png' || file.type === 'image/jpeg' ? imageDpi(new Uint8Array(await file.arrayBuffer())) : null;
+  const k = Math.min(1, MAX_SIDE / Math.max(bitmap.width, bitmap.height), resolutionScale(dpi, settings.get().importImageResolution));
   const w = Math.max(1, Math.round(bitmap.width * k));
   const h = Math.max(1, Math.round(bitmap.height * k));
   const canvas = document.createElement('canvas');
@@ -38,7 +45,8 @@ export async function imageToDataUrl(file: Blob): Promise<{ image: string; aspec
   canvas.height = h;
   canvas.getContext('2d')!.drawImage(bitmap, 0, 0, w, h);
   bitmap.close();
-  const photo = file.type === 'image/jpeg' || file.type === 'image/webp';
+  const encoding = settings.get().imageEncoding;
+  const photo = encoding === 'jpeg' || (encoding === 'auto' && (file.type === 'image/jpeg' || file.type === 'image/webp'));
   return { image: canvas.toDataURL(photo ? 'image/jpeg' : 'image/png', 0.9), aspect: w / h };
 }
 

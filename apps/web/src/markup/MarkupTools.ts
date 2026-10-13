@@ -426,10 +426,14 @@ export class MarkupTools implements ViewerOverlay {
   private filterMode: 'show' | 'dim' | 'hide' = 'show';
   /** Markup layers switched off in the Layers panel ('' is markups on no layer). */
   private hiddenLayers: ReadonlySet<string> = new Set();
+  /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
+  private fadedLayers: ReadonlySet<string> = new Set();
   private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
   private hoveredLink: string | null = null;
+  /** The markup whose comment pop-up shows (after the pointer rests on it for a moment). */
+  private popup: { id: string; timer: ReturnType<typeof setTimeout> | null; shown: boolean } | null = null;
   private regions: readonly PageRect[] = [];
   private flashing: { pageIndex: number; rect: PageRect; until: number } | null = null;
   /** Search matches to highlight, and which one is current. */
@@ -526,6 +530,12 @@ export class MarkupTools implements ViewerOverlay {
     return a ? { mode: 'box', type: a.type, pageIndex: a.pageIndex, from: a.at } : null;
   }
 
+  /** What typed angles are measured from: east, or with Relative rotation input the last segment's direction. */
+  private sketchBaseAngle(points: readonly Point[]): number {
+    if (settings.get().rotationInput !== 'relative' || points.length < 2) return 0;
+    return segmentPolar(points.at(-2)!, points.at(-1)!).angle;
+  }
+
   private refreshSketch() {
     const sketch = this.sketchState();
     if (!sameSketch(sketch, this.state.sketch)) this.setState({ sketch });
@@ -534,7 +544,8 @@ export class MarkupTools implements ViewerOverlay {
 
   /**
    * Draw to Size: places the next point `length` points from the last one, at `angle` degrees
-   * (counter-clockwise from east, as on paper), or toward the pointer when no angle is given.
+   * (counter-clockwise from east, as on paper; with Preferences › Sketch › Rotation Input set to
+   * Relative, from the direction of the segment before), or toward the pointer when no angle is given.
    */
   sketchSegment(length: number, angle: number | null) {
     const g = this.gesture;
@@ -542,7 +553,7 @@ export class MarkupTools implements ViewerOverlay {
     const from = g.markup.points.at(-1)!;
     const h = g.hover;
     const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
-    const p = polarPoint(from, length, angle ?? toward);
+    const p = polarPoint(from, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points));
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -790,6 +801,35 @@ export class MarkupTools implements ViewerOverlay {
   /** Hides the markups on these layers ('' for markups on no layer). */
   setHiddenLayers(layers: ReadonlySet<string>) {
     this.hiddenLayers = layers;
+    this.viewer.invalidate();
+  }
+
+  /** Shows the comment pop-up of markup `id` once the pointer has rested on it; null hides it. */
+  private hoverPopup(id: string | null) {
+    if (this.popup?.id === id) return;
+    this.hidePopup();
+    if (!id) return;
+    const popup: NonNullable<typeof this.popup> = { id, timer: null, shown: false };
+    popup.timer = setTimeout(() => {
+      popup.timer = null;
+      popup.shown = true;
+      this.viewer.invalidate();
+    }, POPUP_DELAY_MS);
+    this.popup = popup;
+  }
+
+  private hidePopup() {
+    if (!this.popup) return;
+    if (this.popup.timer) clearTimeout(this.popup.timer);
+    const shown = this.popup.shown;
+    this.popup = null;
+    if (shown) this.viewer.invalidate();
+  }
+
+  /** Draws the markups on these layers faintly ('' for markups on no layer). */
+  setFadedLayers(layers: ReadonlySet<string>) {
+    if (layers.size === this.fadedLayers.size && [...layers].every((l) => this.fadedLayers.has(l))) return;
+    this.fadedLayers = layers;
     this.viewer.invalidate();
   }
 
@@ -1129,6 +1169,8 @@ export class MarkupTools implements ViewerOverlay {
         pageIndex,
         groupId,
         locked: undefined,
+        // Preferences › Markup › Retain Layer Information when copying Markups.
+        layer: settings.get().retainLayerOnCopy ? m.layer : undefined,
         ...moved(m, dx, dy),
         status: 'none',
         author: this.options.author(),
@@ -1404,7 +1446,7 @@ export class MarkupTools implements ViewerOverlay {
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
-      const faint = this.filterMode === 'dim' && this.filteredOut?.(m) && !this.state.selected.has(m.id);
+      const faint = ((this.filterMode === 'dim' && this.filteredOut?.(m)) || this.fadedLayers.has(m.layer ?? '')) && !this.state.selected.has(m.id);
       if (faint) {
         ctx.save();
         ctx.globalAlpha = settings.get().filteredDim / 100;
@@ -1418,6 +1460,8 @@ export class MarkupTools implements ViewerOverlay {
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
+    const popup = this.popup?.shown ? store.get(this.popup.id) : undefined;
+    if (popup?.pageIndex === pageIndex && popup.comment?.trim()) drawPopup(ctx, popup, zoom);
     this.drawFormWidgets(ctx, pageIndex);
     this.drawLinks(ctx, pageIndex, zoom);
     this.drawRegions(ctx, zoom);
@@ -1437,7 +1481,9 @@ export class MarkupTools implements ViewerOverlay {
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
-        const { length, angle } = segmentPolar(from, hover);
+        const { length, angle: absolute } = segmentPolar(from, hover);
+        // The readout shows angles as they are typed: relative to the last segment when set so.
+        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
         if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }
@@ -2040,6 +2086,8 @@ export class MarkupTools implements ViewerOverlay {
         if (g.markup.comment) this.options.onTextSelected?.(g.markup.comment);
         return;
       }
+      // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
+      if (!settings.get().copyHighlightedText) g.markup.comment = undefined;
       this.store.checkpoint();
       this.store.add({ ...g.markup, createdAt: Date.now(), modifiedAt: Date.now() });
       this.options.onCreated?.(g.markup);
@@ -2131,6 +2179,7 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     const { tool } = this.state;
     if (!pt) {
+      this.hidePopup();
       this.snapHit = null;
       this.ghost = null;
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
@@ -2159,6 +2208,7 @@ export class MarkupTools implements ViewerOverlay {
       const words = hit || widget || link ? null : this.wordsFor(pageIndex);
       const overText = !!words && wordAt(words, p, TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0;
       const hyper = hit?.link && !this.state.selected.has(hit.id) ? hit : null;
+      this.hoverPopup(hit && !this.gesture && hit.comment?.trim() ? hit.id : null);
       const hovered = link?.id ?? hyper?.id ?? null;
       if (this.snapHit || hovered !== this.hoveredLink) {
         this.snapHit = null;
@@ -2206,9 +2256,12 @@ export class MarkupTools implements ViewerOverlay {
   private drawFormWidgets(ctx: CanvasRenderingContext2D, pageIndex: number) {
     const list = this.formWidgets.filter((w) => w.pageIndex === pageIndex);
     if (!list.length) return;
+    // Fillable fields in Preferences › Forms › Highlight Colour and Opacity; read-only ones faintly grey.
+    const { formHighlightColour, formHighlightOpacity } = settings.get();
     ctx.save();
     for (const w of list) {
-      ctx.fillStyle = w.readOnly ? 'rgba(100, 116, 139, 0.08)' : 'rgba(37, 99, 235, 0.1)';
+      ctx.fillStyle = w.readOnly ? 'rgba(100, 116, 139, 0.08)' : formHighlightColour;
+      ctx.globalAlpha = w.readOnly ? 1 : formHighlightOpacity / 100;
       ctx.fillRect(w.rect.x, w.rect.y, w.rect.w, w.rect.h);
     }
     ctx.restore();
@@ -2353,7 +2406,7 @@ export class MarkupTools implements ViewerOverlay {
     // close on its start.
     if (g?.kind === 'multi') for (const q of g.markup.points) extra.push(this.viewer.mapPoint(g.markup.pageIndex, pageIndex, q));
     const radius = snapPx() / this.viewer.zoomFor(pageIndex);
-    return index ? index.snap(p, radius, extra, snapKinds()) : nearestPoint(p, extra, radius);
+    return index ? index.snap(p, radius, extra, snapKinds(), settings.get().snapCurves) : nearestPoint(p, extra, radius);
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */
@@ -2618,6 +2671,66 @@ function drawReplyIndicator(ctx: CanvasRenderingContext2D, m: Markup, zoom: numb
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(m.replies!.length), x + w / 2, y + h / 2 + 0.5 * px);
+  ctx.restore();
+}
+
+/** How long the pointer rests on a markup before its comment pops up. */
+const POPUP_DELAY_MS = 500;
+/** A pop-up's width and its most lines of comment, on screen. */
+const POPUP_W_PX = 240;
+const POPUP_MAX_LINES = 10;
+
+/**
+ * A markup's comment in a pop-up beside it, at Preferences › Markup › Pop-Up Opacity, headed by
+ * its author and date when Show Author and Date in Pop-Ups is on.
+ */
+function drawPopup(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+  const prefs = settings.get();
+  const b = markupBounds(m);
+  const px = 1 / zoom;
+  const pad = 8 * px;
+  const lineH = 16 * px;
+  const width = POPUP_W_PX * px;
+  ctx.save();
+  ctx.font = `${12 * px}px system-ui, sans-serif`;
+  const lines: string[] = [];
+  for (const para of m.comment!.split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/)) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(next).width > width - 2 * pad) {
+        lines.push(line);
+        line = word;
+      } else line = next;
+    }
+    lines.push(line);
+  }
+  if (lines.length > POPUP_MAX_LINES) lines.splice(POPUP_MAX_LINES - 1, Infinity, '…');
+  const head = prefs.popupAuthorDate ? `${m.author || 'Unknown'} · ${new Date(m.modifiedAt || m.createdAt).toLocaleString()}` : null;
+  const h = pad * 2 + lines.length * lineH + (head ? lineH + 4 * px : 0);
+  const x = b.x + b.w + 6 * px;
+  const y = b.y;
+  ctx.globalAlpha = prefs.popupOpacity / 100;
+  ctx.fillStyle = '#fffbea';
+  ctx.strokeStyle = '#b8a24a';
+  ctx.lineWidth = px;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, h, 4 * px);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#1f2937';
+  ctx.textBaseline = 'top';
+  let ty = y + pad;
+  if (head) {
+    ctx.font = `bold ${11 * px}px system-ui, sans-serif`;
+    ctx.fillText(head, x + pad, ty, width - 2 * pad);
+    ty += lineH + 4 * px;
+    ctx.font = `${12 * px}px system-ui, sans-serif`;
+  }
+  for (const line of lines) {
+    ctx.fillText(line, x + pad, ty);
+    ty += lineH;
+  }
   ctx.restore();
 }
 

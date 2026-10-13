@@ -70,6 +70,12 @@ importers:
       dictionary-en:
         specifier: ^4.0.0
         version: 4.0.0
+      dictionary-en-au:
+        specifier: ^3.0.0
+        version: 3.0.0
+      dictionary-en-gb:
+        specifier: ^3.0.0
+        version: 3.0.0
       node-forge:
         specifier: ^1.4.0
         version: 1.4.0
@@ -1517,6 +1523,12 @@ packages:
 
   detect-node@2.1.0:
     resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
+
+  dictionary-en-au@3.0.0:
+    resolution: {integrity: sha512-whC8mFW7Crmoe2wH7cbBJwF6SFy3PGaExgZ1tU3J+qCUQdzJ3gdcD/PAXeWBBwAlsPA/Su0GGDxqp7uRM5lDVg==}
+
+  dictionary-en-gb@3.0.0:
+    resolution: {integrity: sha512-gU/dwC9xGYPh/0CCcmGNXO8OwSgOySAqevcSXxADCsgUD+tr6OJ52u7XaC7No7dNssvdUSfVjkzcqLrRZq3kPA==}
 
   dictionary-en@4.0.0:
     resolution: {integrity: sha512-3NHnE1uq33ZE/CIwaZ6gqxa4BnglHnxeAcTM0GJ7cmtRGcvX9InMK/IqLtYcUMFCUpUNgybH+DzkqdgAo3F1zg==}
@@ -4464,6 +4476,10 @@ snapshots:
 
   detect-node@2.1.0:
     optional: true
+
+  dictionary-en-au@3.0.0: {}
+
+  dictionary-en-gb@3.0.0: {}
 
   dictionary-en@4.0.0: {}
 
