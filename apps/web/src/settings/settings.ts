@@ -168,7 +168,8 @@ export interface Settings {
   spellCheck: boolean;
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
-  dictionary: 'en-AU' | 'en-GB' | 'en-US'; // stored: one English dictionary is bundled
+  /** Dictionary Check Spelling uses. */
+  dictionary: 'en-AU' | 'en-GB' | 'en-US';
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;

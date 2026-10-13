@@ -86,7 +86,6 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 const STORED = new Set<keyof Settings>([
   'startupFile',
   'documentRecovery', 'pageLayout',
-  'dictionary',
   'richTextComments', 'wrapCommentText', 'excludeFilteredOnExport',
   'hideChildLayers', 'layersOnPageOnly', 'layerDial',
   'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding',

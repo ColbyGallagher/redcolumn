@@ -46,10 +46,14 @@ function ocrAssets(): Plugin {
   };
 }
 
-/** Spell checking's English dictionary (Hunspell files from npm), served at spell/en.aff and spell/en.dic. */
+/** Spell checking's English dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/en-GB.dic and so on. */
 function spellAssets(): Plugin {
-  const dir = dirname(require.resolve('dictionary-en'));
-  const files: Record<string, string> = { 'en.aff': `${dir}/index.aff`, 'en.dic': `${dir}/index.dic` };
+  const files: Record<string, string> = {};
+  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au']]) {
+    const dir = dirname(require.resolve(pkg!));
+    files[`${code}.aff`] = `${dir}/index.aff`;
+    files[`${code}.dic`] = `${dir}/index.dic`;
+  }
   return {
     name: 'spell-assets',
     configureServer(server) {
@@ -139,7 +143,7 @@ export default defineConfig({
       registerType: 'prompt',
       manifest: buildManifest(base, SCREENSHOTS) as Partial<ManifestOptions>,
       workbox: {
-        // Precache the whole app shell, including the PDFium wasm, the spelling dictionary, the
+        // Precache the whole app shell, including the PDFium wasm, the spelling dictionaries, the
         // icons and the help pages, so every menu, command and help page works offline.
         globPatterns: ['**/*.{js,css,html,svg,wasm,png,aff,dic}', 'help/pages/*.md'],
         // OCR's engine and data (about 11 MB) load when OCR is first used, not with the app; they

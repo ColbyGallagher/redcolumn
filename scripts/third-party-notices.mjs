@@ -39,6 +39,8 @@ const NOTES = {
     'Bundles PDFium (BSD-3-Clause and Apache-2.0, in LICENSE.pdfium below) compiled to WebAssembly, with the libraries a standard PDFium build includes. Their licences follow, from scripts/notices/pdfium/.',
   'node-forge': 'Dual-licensed BSD-3-Clause or GPL-2.0; redcolumn uses it under BSD-3-Clause.',
   'dictionary-en': 'The English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-en-gb': 'The British English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-en-au': 'The Australian English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
 };
 for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])
   NOTES[`@tesseract.js-data/${lang}`] =
