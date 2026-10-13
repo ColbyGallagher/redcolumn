@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { flatSize, guessCorners, warpQuad, type Pt } from '../documents/perspective';
+import { settings } from '../settings/settings';
 
 interface Shot {
   id: string;
@@ -9,13 +10,25 @@ interface Shot {
 }
 
 interface Props {
-  /** The straightened pages, as JPEG images with their pixel sizes. */
-  onDone: (pages: { jpeg: Uint8Array; width: number; height: number }[]) => void;
+  /**
+   * The straightened pages with their pixel sizes: JPEG, or PNG when Preferences › Images ›
+   * Scanned Colour Images as JPEG is off.
+   */
+  onDone: (pages: { jpeg?: Uint8Array; png?: Uint8Array; width: number; height: number }[]) => void;
   onCancel: () => void;
 }
 
-/** Longest side of a straightened page, in pixels (about 200 dpi on letter or A4 paper). */
-const MAX_SIDE = 2400;
+/**
+ * Preferences › Images › Photo Resolution: the camera resolution asked for, and the longest side of
+ * a straightened page in pixels (medium is about 200 dpi on letter or A4 paper).
+ */
+const PHOTO = {
+  low: { width: 1920, height: 1080, maxSide: 1600 },
+  medium: { width: 3840, height: 2160, maxSide: 2400 },
+  high: { width: 4096, height: 3072, maxSide: 3600 },
+} as const;
+/** Clockwise quarter turns for Preferences › Images › Camera Portrait Orientation. */
+const TURNS = { none: 0, rotate90: 1, rotate180: 2, rotate270: 3 } as const;
 
 /**
  * File › Create › From Camera: photograph pages with the device camera, adjust each page's four
@@ -32,7 +45,7 @@ export function CameraDialog({ onDone, onCancel }: Props) {
   useEffect(() => {
     let live: MediaStream | null = null;
     navigator.mediaDevices
-      ?.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 3840 }, height: { ideal: 2160 } } })
+      ?.getUserMedia({ video: { facingMode: 'environment', width: { ideal: PHOTO[settings.get().photoResolution].width }, height: { ideal: PHOTO[settings.get().photoResolution].height } } })
       .then((s) => {
         live = s;
         setStream(s);
@@ -46,11 +59,16 @@ export function CameraDialog({ onDone, onCancel }: Props) {
   const capture = () => {
     const v = video.current;
     if (!v || !v.videoWidth) return;
+    // A portrait photo (taller than wide) is turned as Camera Portrait Orientation says.
+    const turns = v.videoHeight > v.videoWidth ? TURNS[settings.get().cameraOrientation] : 0;
     const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth;
-    canvas.height = v.videoHeight;
+    canvas.width = turns % 2 ? v.videoHeight : v.videoWidth;
+    canvas.height = turns % 2 ? v.videoWidth : v.videoHeight;
     const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(v, 0, 0);
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((turns * Math.PI) / 2);
+    ctx.drawImage(v, -v.videoWidth / 2, -v.videoHeight / 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const shot: Shot = { id: crypto.randomUUID(), image, preview: canvas.toDataURL('image/jpeg', 0.6), corners: guessCorners(image) };
     setShots((s) => [...s, shot]);
@@ -60,17 +78,19 @@ export function CameraDialog({ onDone, onCancel }: Props) {
   const finish = async () => {
     setBusy(true);
     try {
-      const pages: { jpeg: Uint8Array; width: number; height: number }[] = [];
+      const pages: { jpeg?: Uint8Array; png?: Uint8Array; width: number; height: number }[] = [];
+      const { photoResolution, scannedJpeg } = settings.get();
       for (const s of shots) {
         let { width, height } = flatSize(s.corners);
-        const k = Math.min(1, MAX_SIDE / Math.max(width, height));
+        const k = Math.min(1, PHOTO[photoResolution].maxSide / Math.max(width, height));
         width = Math.max(1, Math.round(width * k));
         height = Math.max(1, Math.round(height * k));
         const flat = warpQuad(s.image, s.corners, width, height);
         const canvas = new OffscreenCanvas(width, height);
         canvas.getContext('2d')!.putImageData(flat, 0, 0);
-        const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
-        pages.push({ jpeg: new Uint8Array(await blob.arrayBuffer()), width, height });
+        const blob = await canvas.convertToBlob(scannedJpeg ? { type: 'image/jpeg', quality: 0.85 } : { type: 'image/png' });
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        pages.push({ ...(scannedJpeg ? { jpeg: bytes } : { png: bytes }), width, height });
       }
       onDone(pages);
     } catch (err) {

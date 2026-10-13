@@ -250,9 +250,10 @@ export interface Settings {
   setAutoTagRevision: boolean;
   setAutoTagDiscipline: boolean;
   setAutoTagSheetType: boolean;
-  // Import/Export › Images (stored)
+  // Import/Export › Images: the camera (File › Create › From Camera), pictures placed or dropped on a
+  // page, pictures made into PDFs, and File › Export › Page Images.
   photoResolution: 'low' | 'medium' | 'high';
-  videoResolution: 'low' | 'medium' | 'high';
+  videoResolution: 'low' | 'medium' | 'high'; // stored: there is no video capture yet
   cameraOrientation: 'none' | 'rotate90' | 'rotate180' | 'rotate270';
   importImageResolution: 'original' | '300' | '150' | '72';
   imageDrop: 'attachPhoto' | 'image' | 'newPage';

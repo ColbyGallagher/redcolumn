@@ -902,7 +902,9 @@ export function App() {
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
-  const pasteImageRef = useRef<(file: Blob) => void>(() => {});
+  const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
+  /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
+  const dropImagesRef = useRef<(pane: Pane, files: File[], x: number, y: number) => void>(() => {});
   /** The markups the Markups list's filter keeps (null: not filtering). */
   const [listKept, setListKept] = useState<ReadonlySet<string> | null>(null);
   /** The Markups list's Hide All: no markup is drawn on the page (they stay in the list and the file). */
@@ -4449,13 +4451,13 @@ export function App() {
     })().catch((err) => setError(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`));
   };
   // An image pasted from another app becomes an image markup at the pointer (or the view's centre).
-  pasteImageRef.current = (file) => {
-    const pane: Pane = activePaneRef.current;
+  pasteImageRef.current = (file, dropped) => {
+    const pane: Pane = dropped?.pane ?? activePaneRef.current;
     const { c, o } = paneParts(pane);
     if (!c || !o || o.store.readOnly) return;
     void imageToDataUrl(file).then(({ image, aspect }) => {
       const viewer = c.viewer;
-      const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
+      const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
       const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
       const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
       const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
@@ -4472,6 +4474,35 @@ export function App() {
       const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
       c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
     });
+  };
+  dropImagesRef.current = (pane, files, x, y) => {
+    const { c, o } = paneParts(pane);
+    if (!c || !o) return;
+    const mode = settings.get().imageDrop;
+    if (mode === 'newPage') {
+      // Pages after the one they were dropped on, in the order dropped.
+      const at = c.viewer.pageNearClient(x, y) + 1;
+      void Promise.all(files.map((f) => imageToPdf(f)))
+        .then((pages) => applyPageOps(pages.map((_, i) => ({ type: 'insert', source: i, at: at + i })), pages))
+        .catch((err) => setError(`Adding the pictures failed: ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+    if (o.store.readOnly) return;
+    if (mode === 'image') {
+      files.forEach((f, i) => pasteImageRef.current(f, { pane, x: x + i * 24, y: y + i * 24 }));
+      return;
+    }
+    // Attach Photo: each picture kept whole in a file attachment markup where it was dropped.
+    const page = c.viewer.pageNearClient(x, y);
+    const p = c.viewer.clientToPage(x, y, page);
+    const s = 22 / c.viewer.zoomFor(page);
+    void Promise.all(files.map((f) => fileToAttachment(f))).then((attachments) => {
+      const now = Date.now();
+      const ms = attachments.map(
+        (attachment, i): Markup => ({ id: `photo${i}`, type: 'attachment', pageIndex: page, points: [[i * s * 1.2, 0], [i * s * 1.2 + s, s]], style: { ...DEFAULT_STYLES.attachment }, attachment, subject: 'Photo', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now }),
+      );
+      c.tools.paste(ms, page, [p[0] - s / 2, p[1] - s / 2]);
+    }, (err) => setError(err instanceof Error ? err.message : String(err)));
   };
   viewportRef.current = (pageIndex, rect) => {
     const store = (paneB ? openB : open)?.store;
@@ -6636,12 +6667,15 @@ Open the download page? Run the new installer to update; your documents and mark
         }
         download(`${base} (published).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
       } else {
-        const { renderPageImages } = await import('./documents/pageImages');
+        const { renderPageImages, pageNumberLabel } = await import('./documents/pageImages');
         const store = cur.store;
         const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
+        const { tiffCompression, multiPageTiff, imagePageNumber } = settings.get();
         const images = await renderPageImages(cur.doc, req.pages, {
           dpi: req.dpi,
           format: req.format,
+          colour: req.colour,
+          tiff: { compression: tiffCompression, multiPage: multiPageTiff },
           ...(req.markups
             ? {
                 drawMarkups: (ctx: OffscreenCanvasRenderingContext2D, pageIndex: number, zoom: number) => {
@@ -6650,12 +6684,14 @@ Open the download page? Run the new installer to update; your documents and mark
               }
             : {}),
         });
-        const ext = req.format === 'png' ? 'png' : 'jpg';
+        const ext = req.format === 'png' ? 'png' : req.format === 'tiff' ? 'tif' : 'jpg';
+        // Preferences › Images › Page Number: e.g. "Page 001", its digits replaced by the page number.
         const label = (i: number) => {
           const p = req.pages[i]!;
-          return (cur.store.allSheets()[p]?.number || `page ${p + 1}`).replace(/[\\/:*?"<>|]+/g, '_');
+          return (cur.store.allSheets()[p]?.number || pageNumberLabel(imagePageNumber, p + 1)).replace(/[\\/:*?"<>|]+/g, '_');
         };
-        if (images.length === 1) download(`${base} ${label(0)}.${ext}`, new Blob([images[0] as BlobPart], { type: `image/${req.format}` }));
+        if (req.format === 'tiff' && multiPageTiff && req.pages.length > 1) download(`${base}.tif`, new Blob([images[0] as BlobPart], { type: 'image/tiff' }));
+        else if (images.length === 1) download(`${base} ${label(0)}.${ext}`, new Blob([images[0] as BlobPart], { type: `image/${req.format}` }));
         else {
           const { zipFiles } = await import('./documents/zip');
           download(`${base} images.zip`, new Blob([zipFiles(images.map((data, i) => ({ name: `${base} ${label(i)}.${ext}`, data }))) as BlobPart], { type: 'application/zip' }));
@@ -7319,6 +7355,8 @@ Open the download page? Run the new installer to update; your documents and mark
                   if (dropTool(e, 'a')) return;
                   e.preventDefault();
                   setDragOver(false);
+                  const images = open ? [...e.dataTransfer.files].filter(isImageFile) : [];
+                  if (images.length) dropImagesRef.current('a', images, e.clientX, e.clientY);
                   void droppedPdfs(e.dataTransfer).then((files) => {
                     if (files.length) void openNewFile(files, 'a');
                   });
@@ -7390,6 +7428,8 @@ Open the download page? Run the new installer to update; your documents and mark
                       if (dropTool(e, 'b')) return;
                       e.preventDefault();
                       setDragOver(false);
+                      const images = openB ? [...e.dataTransfer.files].filter(isImageFile) : [];
+                      if (images.length) dropImagesRef.current('b', images, e.clientX, e.clientY);
                       void droppedPdfs(e.dataTransfer).then((files) => {
                         if (files.length) void openNewFile(files, 'b');
                       });
@@ -7554,7 +7594,7 @@ Open the download page? Run the new installer to update; your documents and mark
               const pdf = await PDFDocument.create();
               for (const p of pages) {
                 // Letter width; the height follows the page's shape.
-                const img = await pdf.embedJpg(p.jpeg);
+                const img = p.png ? await pdf.embedPng(p.png) : await pdf.embedJpg(p.jpeg!);
                 const w = 612;
                 const h = (w * p.height) / p.width;
                 pdf.addPage([w, h]).drawImage(img, { x: 0, y: 0, width: w, height: h });
