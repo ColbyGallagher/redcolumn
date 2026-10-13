@@ -6071,7 +6071,11 @@ export function App() {
     importBax: () => void importMarkupsBax(),
     save: () => void saveDocument(false),
     saveAs: () => void saveDocument(true),
-    exportCsv: () => downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), cellContext), visibleListColumns, true)),
+    exportCsv: () => {
+      // Preferences › Markups List › Exclude Filtered Markups on Export: else every markup is exported.
+      const only = prefs.excludeFilteredOnExport;
+      downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
+    },
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -8316,7 +8320,7 @@ Open the download page? Run the new installer to update; your documents and mark
           openFiles={[...tabsA, ...tabsB].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
           library={library.map((f) => ({ id: f.id, name: f.name }))}
           busy={exportBusy}
-          initialFilters={listFilters}
+          initialFilters={prefs.excludeFilteredOnExport ? listFilters : {}}
           initialSort={listSort}
           onExport={(req) => void runExport(req)}
           onDownload={download}

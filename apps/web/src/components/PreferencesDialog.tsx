@@ -7,6 +7,7 @@ import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
 import { McpPrefs } from './McpPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
 import { desktop } from '../desktop/host';
+import { profiles, updateWorkspace } from '../workspace/profiles';
 import { listFiles, saveFile as saveToLibrary, type StoredFile } from '../storage/fileStore';
 import { pickFilesToOpen } from '../storage/diskHandles';
 
@@ -86,7 +87,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
-  'richTextComments', 'wrapCommentText', 'excludeFilteredOnExport',
+  'richTextComments',
   'hideChildLayers', 'layersOnPageOnly', 'layerDial',
   'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding',
   'rotationInput', 'formHighlightColour', 'formHighlightOpacity', 'formSingleKeys', 'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
@@ -201,6 +202,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
   const [message, setMessage] = useState<string | null>(null);
   const [pickedWord, setPickedWord] = useState<string | null>(null);
   const [libraryFiles, setLibraryFiles] = useState<StoredFile[]>([]);
+  /** Markups List › Wrap Comment Text is the list's own setting (also in its menu), kept with the profile. */
+  const [wrapComments, setWrapComments] = useState(() => profiles.active().state.list.wrapComments !== false);
   useEffect(() => {
     if (!onIndex) void listFiles().then(setLibraryFiles, () => undefined);
   }, [onIndex]);
@@ -418,7 +421,12 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       <Grid>
         <C>{check('zoomFitSelected', 'Zoom Fit Markups when selected')}</C>
         <C>{check('richTextComments', 'Use Rich Text for Comments')}</C>
-        <C>{check('wrapCommentText', 'Wrap Comment Text')}</C>
+        <C>
+          <label className="pref-check">
+            <input type="checkbox" checked={wrapComments} onChange={(e) => setWrapComments(e.target.checked)} />
+            <span className={hit('Wrap Comment Text') ? 'pref-match' : undefined}>{label('Wrap Comment Text')}</span>
+          </label>
+        </C>
         <C>{check('excludeFilteredOnExport', 'Exclude Filtered Markups on Export')}</C>
         {select('filteredMarkups', 'Filtered Markups', [
           ['show', 'Show'],
@@ -863,6 +871,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
 
   const apply = async () => {
     settings.set(d);
+    if (wrapComments !== (profiles.active().state.list.wrapComments !== false)) updateWorkspace((s) => ({ ...s, list: { ...s.list, wrapComments } }));
     const n = name.trim();
     if (n && n !== author) onAuthor(n);
     const before = personalWords();
@@ -891,7 +900,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     }
   };
 
-  const changed = !same(d, settings.get()) || name.trim() !== author || !same(words, personalWords());
+  const changed = !same(d, settings.get()) || name.trim() !== author || !same(words, personalWords()) || wrapComments !== (profiles.active().state.list.wrapComments !== false);
 
   if (onIndex) return null;
 
@@ -947,8 +956,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             type="button"
             className="btn"
             title="Put every preference back to its default (press OK to keep)"
-            disabled={same(d, DEFAULT_SETTINGS)}
-            onClick={() => setD({ ...DEFAULT_SETTINGS, setTemplates: structuredClone(DEFAULT_SETTINGS.setTemplates), setTags: structuredClone(DEFAULT_SETTINGS.setTags) })}
+            disabled={same(d, DEFAULT_SETTINGS) && wrapComments}
+            onClick={() => {
+              setD({ ...DEFAULT_SETTINGS, setTemplates: structuredClone(DEFAULT_SETTINGS.setTemplates), setTags: structuredClone(DEFAULT_SETTINGS.setTags) });
+              setWrapComments(true);
+            }}
           >
             Defaults
           </button>

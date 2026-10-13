@@ -177,8 +177,8 @@ export interface Settings {
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
   richTextComments: boolean; // stored
-  wrapCommentText: boolean; // stored
-  excludeFilteredOnExport: boolean; // stored
+  /** Markup exports (CSV, Markup Summary) leave out the markups the list's filters hide. */
+  excludeFilteredOnExport: boolean;
   /** Opacity of markups the list's filter dims, in percent. */
   filteredDim: number;
   // Interface › Layers
@@ -310,7 +310,6 @@ export const DEFAULT_SETTINGS: Settings = {
   dictionary: 'en-AU',
   zoomFitSelected: true,
   richTextComments: false,
-  wrapCommentText: true,
   excludeFilteredOnExport: false,
   filteredDim: 20,
   hideChildLayers: true,
