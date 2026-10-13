@@ -1140,9 +1140,17 @@ body,
   min-width: 0;
 }
 
-.thumb-zoom {
+/* The page and scale buttons stay in view while the thumbnails scroll under them. */
+.pages-head {
   position: sticky;
   top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
+.thumb-zoom {
+  position: sticky;
+  bottom: 0;
   left: 0;
   z-index: 1;
   display: flex;
@@ -1151,8 +1159,9 @@ body,
   box-sizing: border-box;
   width: 100%;
   margin: 0;
+  margin-top: auto;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -1757,6 +1766,22 @@ body,
 
 .panel-split {
   background: transparent;
+}
+
+/* The collapsed side panel's edge: click it to open the panel again. */
+.panel-edge {
+  flex: none;
+  width: 6px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  cursor: e-resize;
+}
+
+.panel-edge:hover,
+.panel-edge:focus-visible {
+  background: var(--accent);
 }
 
 .pagenav {
@@ -3336,6 +3361,19 @@ body,
 .lr-range {
   width: 90px;
   padding: 0 4px;
+}
+
+.lr-typed {
+  box-sizing: border-box;
+  width: 100%;
+  height: 26px;
+  margin-top: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #131d2f;
+  color: var(--text);
+  font: inherit;
 }
 
 .lr-preview {
