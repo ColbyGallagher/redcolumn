@@ -1441,6 +1441,21 @@ body,
   white-space: nowrap;
 }
 
+/* The name shrinks; the unsaved-changes * after it never does. */
+.doc-tab .tab-title {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-tab .tab-title > .name {
+  flex: 0 1 auto;
+}
+
+.doc-tab .tab-title > .dirty {
+  flex: none;
+}
+
 /* Preferences › Tab Truncation: cut long names at the start, or in the middle. */
 .doc-tab .name.cut-start {
   direction: rtl;

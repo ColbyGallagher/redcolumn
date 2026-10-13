@@ -144,6 +144,7 @@ import { desktop } from './desktop/host';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
+import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import type { AssistantDocument } from './desktop/assistant';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
@@ -184,18 +185,26 @@ function TabName({ t, saved }: { t: OpenFile; saved: number }) {
     () => t.store.editCount,
   );
   const cut = useSettings().tabTruncation;
-  const name = `${t.file.name}${!studioDocOf(t.file.id) && hasUnsavedChanges(t) ? '*' : ''}`;
+  const name = t.file.name;
+  const dirty = !studioDocOf(t.file.id) && hasUnsavedChanges(t);
   // Long names are cut short at the end, the start or the middle (Preferences › General › Options).
-  if (cut === 'start') return <span className="name cut-start"><bdi>{name}</bdi></span>;
-  if (cut === 'middle' && name.length > 16) {
-    return (
+  let shown = <span className="name">{name}</span>;
+  if (cut === 'start') shown = <span className="name cut-start"><bdi>{name}</bdi></span>;
+  else if (cut === 'middle' && name.length > 16) {
+    shown = (
       <span className="name cut-middle">
         <span>{name.slice(0, -10)}</span>
         <span>{name.slice(-10)}</span>
       </span>
     );
   }
-  return <span className="name">{name}</span>;
+  // The * sits outside the name, so cutting a long name never hides it.
+  return (
+    <span className="tab-title">
+      {shown}
+      {dirty && <span className="dirty" title="Unsaved changes">*</span>}
+    </span>
+  );
 }
 
 const AUTHOR_KEY = 'nb.author';
@@ -3151,10 +3160,10 @@ export function App() {
    * (asking once for permission). Documents with no file on disk, and Save As, ask where to put it.
    */
   const [savedTick, setSavedTick] = useState(0);
-  const saveDocument = useCallback(async (saveAs: boolean) => {
-    const intoB = activePaneRef.current === 'b';
-    const cur = intoB ? openBRef.current : openRef.current;
-    if (!cur) return;
+  const saveDocument = useCallback(async (saveAs: boolean, target?: { pane: Pane; t: OpenFile }): Promise<boolean> => {
+    const intoB = target ? target.pane === 'b' : activePaneRef.current === 'b';
+    const cur = target?.t ?? (intoB ? openBRef.current : openRef.current);
+    if (!cur) return false;
     const pane: Pane = intoB ? 'b' : 'a';
     // Marks the document saved and gives its tab the name of the file it was saved to.
     const saved = async (fileName: string) => {
@@ -3176,20 +3185,27 @@ export function App() {
     try {
       const out = await annotatedBytes(cur);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
-      const target = saveAs ? null : await recallHandle(cur.file.id);
-      if (target) {
-        if (await writeToHandle(target, blob)) await saved(target.name);
-        else setError(`${target.name} was not saved: the browser did not allow writing to it.`);
-        return;
+      const handle = saveAs ? null : await recallHandle(cur.file.id);
+      if (handle) {
+        if (await writeToHandle(handle, blob)) {
+          await saved(handle.name);
+          return true;
+        }
+        setError(`${handle.name} was not saved: the browser did not allow writing to it.`);
+        return false;
       }
       const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
-      if (picked === 'unsupported') anchorDownload(cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', blob);
-      else if (picked) {
-        await rememberHandle(cur.file.id, picked);
-        await saved(picked.name);
+      if (picked === 'unsupported') {
+        anchorDownload(cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', blob);
+        return true;
       }
+      if (!picked) return false;
+      await rememberHandle(cur.file.id, picked);
+      await saved(picked.name);
+      return true;
     } catch (err) {
       setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }, [setTabs, setFront, refreshLibrary]);
   const exportPdf = useCallback(() => saveDocument(false), [saveDocument]);
@@ -3234,6 +3250,84 @@ export function App() {
     [setTabs, showInPane],
   );
 
+  /**
+   * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
+   * false on Cancel or when the save does not happen; true when the document can go.
+   */
+  const settleUnsaved = useCallback(
+    async (pane: Pane, fileId: string): Promise<boolean> => {
+      const find = () => (pane === 'b' ? tabsBRef.current : tabsARef.current).find((x) => x.file.id === fileId);
+      const t = find();
+      if (!t || studioDocOf(fileId) || !hasUnsavedChanges(t)) return true;
+      const choice = await askSaveChanges(t.file.name);
+      if (choice === 'cancel') return false;
+      if (choice === 'discard') return true;
+      const now = find();
+      return !now || saveDocument(false, { pane, t: now });
+    },
+    [saveDocument],
+  );
+
+  /**
+   * Closes a tab the person asked to close. A document with unsaved changes asks first whether to
+   * save them; the tab stays open on Cancel or when the save does not happen. Resolves to whether it closed.
+   */
+  const requestCloseTab = useCallback(
+    async (pane: Pane, fileId: string): Promise<boolean> => {
+      if (!(await settleUnsaved(pane, fileId))) return false;
+      closeTab(pane, fileId);
+      return true;
+    },
+    [closeTab, settleUnsaved],
+  );
+
+  // The desktop app asks before its window closes while documents have unsaved changes: the page
+  // reports whether any do, and on a close request asks about each one, showing it first.
+  useEffect(() => {
+    const host = desktop();
+    if (!host?.setUnsavedChanges) return;
+    const stores = [...tabsA, ...tabsB];
+    let last: boolean | null = null;
+    const report = () => {
+      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t));
+      if (on !== last) host.setUnsavedChanges!((last = on));
+    };
+    report();
+    const offs = stores.map((t) => t.store.subscribe(report));
+    return () => offs.forEach((off) => off());
+  }, [tabsA, tabsB, savedTick]);
+  useEffect(() => {
+    const host = desktop();
+    if (!host?.onCloseRequest) return;
+    let asking = false;
+    return host.onCloseRequest(() => {
+      if (asking) return;
+      asking = true;
+      void (async () => {
+        try {
+          for (const pane of ['a', 'b'] as const) {
+            for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
+              if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
+              activateTab(pane, t);
+              if (!(await settleUnsaved(pane, t.file.id))) return;
+            }
+          }
+          host.closeWindow?.();
+        } finally {
+          asking = false;
+        }
+      })();
+    });
+  }, [activateTab, settleUnsaved]);
+
+  /** Closes tabs one after another, stopping when the person cancels one. */
+  const requestCloseTabs = useCallback(
+    async (which: { pane: Pane; fileId: string }[]) => {
+      for (const { pane, fileId } of which) if (!(await requestCloseTab(pane, fileId))) return;
+    },
+    [requestCloseTab],
+  );
+
   /** Closes the split; the right pane's tabs join the left pane's. */
   const unsplit = useCallback(() => {
     const moved = tabsBRef.current;
@@ -3250,9 +3344,9 @@ export function App() {
   const closeDocument = useCallback(() => {
     const pane: Pane = activePaneRef.current === 'b' && openBRef.current ? 'b' : 'a';
     const front = pane === 'b' ? openBRef.current : openRef.current;
-    if (front) closeTab(pane, front.file.id);
+    if (front) void requestCloseTab(pane, front.file.id);
     else if (pane === 'a' && split) unsplit();
-  }, [closeTab, unsplit, split]);
+  }, [requestCloseTab, unsplit, split]);
 
   /** Closes the tabs showing documents from one Live Session (all of them, or one document). */
   const closeStudioDocs = useCallback(
@@ -4839,7 +4933,7 @@ export function App() {
                 if (e.button === 1) e.preventDefault();
               }}
               onAuxClick={(e) => {
-                if (e.button === 1) closeTab(pane, t.file.id);
+                if (e.button === 1) void requestCloseTab(pane, t.file.id);
               }}
             >
               {session && (
@@ -4854,7 +4948,7 @@ export function App() {
                 title="Close"
                 onClick={(e) => {
                   e.stopPropagation();
-                  closeTab(pane, t.file.id);
+                  void requestCloseTab(pane, t.file.id);
                 }}
               >
                 ×
@@ -5487,14 +5581,14 @@ export function App() {
     const idx = tabs.indexOf(t);
     const sessionDoc = studioDocOf(t.file.id);
     const snap = sessionDoc ? snapshots.find((s) => s.meta.id === sessionDoc.sessionId) : null;
-    const closeMany = (which: OpenFile[]) => which.forEach((x) => closeTab(pane, x.file.id));
+    const closeMany = (which: OpenFile[]) => void requestCloseTabs(which.map((x) => ({ pane, fileId: x.file.id })));
     const withTab = (fn: () => void) => () => {
       activateTab(pane, t);
       fn();
     };
     const addable = sessions.filter((s) => s.canAddDocuments);
     return [
-      { label: 'Close', onClick: () => closeTab(pane, t.file.id) },
+      { label: 'Close', onClick: () => void requestCloseTab(pane, t.file.id) },
       { label: 'Close All', onClick: () => closeMany(tabs) },
       { label: 'Close All But This', disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: 'Close Tabs to the Right', disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
@@ -5871,9 +5965,8 @@ export function App() {
     newPdf: () => setBlankPdf('new'),
     combine: () => setCombineOpen(true),
     close: closeDocument,
-    closeAll: () => {
-      for (const pane of ['b', 'a'] as const) for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) closeTab(pane, t.file.id);
-    },
+    closeAll: () =>
+      void requestCloseTabs((['b', 'a'] as const).flatMap((pane) => (pane === 'b' ? tabsBRef.current : tabsARef.current).map((t) => ({ pane, fileId: t.file.id })))),
     saveAll: () =>
       void (async () => {
         for (const t of [...tabsARef.current, ...tabsBRef.current]) {
@@ -8178,6 +8271,7 @@ Open the download page? Run the new installer to update; your documents and mark
       {ctxMenu && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
       <AskTextHost />
       <AssistantConfirmDialog />
+      <UnsavedChangesDialog />
       <StepUpHost />
       <FirstUseHost />
       {editing && activeOpen && v && activeTools && (
