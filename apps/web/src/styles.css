@@ -1142,7 +1142,7 @@ body,
 
 .thumb-zoom {
   position: sticky;
-  top: 0;
+  bottom: 0;
   left: 0;
   z-index: 1;
   display: flex;
@@ -1151,8 +1151,9 @@ body,
   box-sizing: border-box;
   width: 100%;
   margin: 0;
+  margin-top: auto;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 
@@ -3336,6 +3337,19 @@ body,
 .lr-range {
   width: 90px;
   padding: 0 4px;
+}
+
+.lr-typed {
+  box-sizing: border-box;
+  width: 100%;
+  height: 26px;
+  margin-top: 8px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #131d2f;
+  color: var(--text);
+  font: inherit;
 }
 
 .lr-preview {

@@ -9,12 +9,16 @@ interface Props {
   onPreset: (scale: Scale) => void;
   onApplyAll: () => void;
   showAllPages?: boolean;
+  /** Opens the custom scale dialog. When set, a Custom button takes the place of the typed scale. */
+  onCustom?: () => void;
+  /** Opens the Bulk Scales dialog. */
+  onBulk?: () => void;
 }
 
 const CURRENT = '__current__';
 
 /** Page scale picker: presets, the current (e.g. calibrated) scale, and apply-to-all. */
-export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll, showAllPages = true }: Props) {
+export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll, showAllPages = true, onCustom, onBulk }: Props) {
   const [typed, setTyped] = useState('');
   const [bad, setBad] = useState(false);
   const groups = SCALE_GROUPS[useSettings().unitSystem];
@@ -46,28 +50,39 @@ export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll,
           </optgroup>
         ))}
       </select>
-      <input
-        type="text"
-        className={bad ? 'scale-typed invalid' : 'scale-typed'}
-        disabled={disabled}
-        value={typed}
-        placeholder={'Type a scale'}
-        aria-label="Type a custom scale, such as 1/4 = 1' or 1:75"
-        aria-invalid={bad}
-        title={`Type a scale, such as 1/4" = 1'-0", 1" = 20' or 1:75, then press Enter`}
-        onChange={(e) => {
-          setTyped(e.target.value);
-          setBad(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter' || !typed.trim()) return;
-          const parsed = parseTypedScale(typed);
-          if (parsed) {
-            onPreset(parsed);
-            setTyped('');
-          } else setBad(true);
-        }}
-      />
+      {onCustom ? (
+        <button type="button" className="btn small" disabled={disabled} onClick={onCustom} title="Set a custom scale, a separate Y scale or the pages it applies to">
+          Custom
+        </button>
+      ) : (
+        <input
+          type="text"
+          className={bad ? 'scale-typed invalid' : 'scale-typed'}
+          disabled={disabled}
+          value={typed}
+          placeholder={'Type a scale'}
+          aria-label="Type a custom scale, such as 1/4 = 1' or 1:75"
+          aria-invalid={bad}
+          title={`Type a scale, such as 1/4" = 1'-0", 1" = 20' or 1:75, then press Enter`}
+          onChange={(e) => {
+            setTyped(e.target.value);
+            setBad(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !typed.trim()) return;
+            const parsed = parseTypedScale(typed);
+            if (parsed) {
+              onPreset(parsed);
+              setTyped('');
+            } else setBad(true);
+          }}
+        />
+      )}
+      {onBulk && (
+        <button type="button" className="btn small" disabled={disabled} onClick={onBulk} title="Review and set the scale of many pages at once">
+          Bulk Scales
+        </button>
+      )}
       {showAllPages && pageCount > 1 && (
         <button type="button" className="btn small" disabled={disabled || !scale} onClick={onApplyAll} title="Use this scale on every page">
           All pages

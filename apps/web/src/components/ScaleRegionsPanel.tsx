@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { PageText } from '@nb/sheets';
 import type { Scale } from '@nb/measure';
 import { parsePageRange, scaleFromRegions, textInRegion, type Region } from '../sheets/regions';
+import { rangeText } from '../measure/scalePresets';
 
 interface Props {
   regions: Region[];
@@ -11,6 +12,8 @@ interface Props {
   /** Every page's text, once loaded. */
   texts: PageText[] | null;
   readOnly: boolean;
+  /** Pages to start with (e.g. those selected in the thumbnails) instead of all pages. */
+  initialPages?: readonly number[];
   onDraw: () => void;
   onChange: (regions: Region[]) => void;
   onApply: (scales: { page: number; scale: Scale | null }[]) => void;
@@ -21,9 +24,10 @@ interface Props {
  * Bulk page scales from a page region: draw a box around the scale note in the title block; every
  * chosen page gets the scale read from the same box.
  */
-export function ScaleRegionsPanel({ regions, drawing, pageCount, currentPage, texts, readOnly, onDraw, onChange, onApply, onClose }: Props) {
-  const [scope, setScope] = useState<'all' | 'current' | 'range'>('all');
-  const [range, setRange] = useState('');
+export function ScaleRegionsPanel({ regions, drawing, pageCount, currentPage, texts, readOnly, initialPages, onDraw, onChange, onApply, onClose }: Props) {
+  const single = initialPages?.length === 1 && initialPages[0] === currentPage;
+  const [scope, setScope] = useState<'all' | 'current' | 'range'>(initialPages?.length ? (single ? 'current' : 'range') : 'all');
+  const [range, setRange] = useState(initialPages?.length && !single ? rangeText(initialPages) : '');
   const words = texts?.[currentPage]?.words ?? [];
   const preview = texts ? scaleFromRegions(words, regions) : null;
   const pages = scope === 'all' ? Array.from({ length: pageCount }, (_, i) => i) : scope === 'current' ? [currentPage] : parsePageRange(range, pageCount);

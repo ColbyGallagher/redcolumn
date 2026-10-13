@@ -27,69 +27,11 @@ import {
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { shortcutLabel } from '../commands/shortcuts';
 import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
-
-const PRESETS_KEY = 'nb.scalePresets';
-const PAPER_UNITS: PaperUnit[] = ['in', 'mm', 'cm'];
+import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
 
 export interface MeasureDefaults {
   subject: string;
   label: string;
-}
-
-interface SavedPreset {
-  label: string;
-  scale: Scale;
-}
-
-function loadPresets(): SavedPreset[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(PRESETS_KEY) ?? '[]') as unknown;
-    if (!Array.isArray(raw)) return [];
-    return raw.flatMap((item) => {
-      if (!item || typeof item !== 'object') return [];
-      const { label, scale } = item as { label?: unknown; scale?: Scale };
-      if (typeof label !== 'string' || !scale || typeof scale.metersPerPoint !== 'number' || typeof scale.unit !== 'string') return [];
-      return [{ label, scale }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function writePresets(list: SavedPreset[]) {
-  try {
-    localStorage.setItem(PRESETS_KEY, JSON.stringify(list));
-  } catch {
-    // The preset still applies for this visit.
-  }
-}
-
-function closeScale(a: Scale, b: Scale): boolean {
-  return a.unit === b.unit && b.metersPerPoint > 0 && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-4;
-}
-
-function pagesOf(mode: 'all' | 'range', text: string, count: number): number[] | null {
-  if (count < 1) return null;
-  if (mode === 'all') return Array.from({ length: count }, (_, i) => i);
-  const pages = new Set<number>();
-  if (!text.trim()) return null;
-  for (const part of text.split(',')) {
-    const t = part.trim();
-    if (!t) continue;
-    const range = /^(\d+)\s*-\s*(\d+)$/.exec(t);
-    if (range) {
-      let a = Number(range[1]);
-      let b = Number(range[2]);
-      if (a > b) [a, b] = [b, a];
-      if (a < 1 || b > count) return null;
-      for (let i = a; i <= b; i++) pages.add(i - 1);
-    } else if (/^\d+$/.test(t)) {
-      const n = Number(t);
-      if (n < 1 || n > count) return null;
-      pages.add(n - 1);
-    } else return null;
-  }
-  return pages.size ? [...pages] : null;
 }
 
 function tip(tool: Tool, label = toolLabel(tool)): string {
@@ -284,18 +226,6 @@ function ToolStrip({ tool, onTool }: { tool: Tool; onTool: ((tool: Tool) => void
       {button('dynamicFill', <FillIcon />)}
     </div>
   );
-}
-
-function precisionValue(scale: Scale | null, pending: string): string {
-  if (!scale) return pending;
-  const frac = scale.feetInches && (scale.unit === 'ft' || scale.unit === 'in');
-  return `${frac ? 'f' : 'd'}${scale.precision}`;
-}
-
-function precisionText(value: string): string {
-  const p = Number(value.slice(1));
-  if (value[0] === 'f') return p === 1 ? 'Whole inches' : `1/${p}"`;
-  return p ? `0.${'0'.repeat(p - 1)}1` : '1';
 }
 
 function PageScale({
@@ -689,13 +619,6 @@ function PageScale({
       </div>
     </div>
   );
-}
-
-function matchPreset(scale: Scale, saved: readonly SavedPreset[]): { kind: 'saved' | 'builtin'; label: string } | null {
-  const savedHit = saved.find((s) => closeScale(s.scale, scale));
-  if (savedHit) return { kind: 'saved', label: savedHit.label };
-  const builtin = SCALE_PRESETS.find((p) => closeScale(p.scale, scale));
-  return builtin ? { kind: 'builtin', label: builtin.label } : null;
 }
 
 function Properties({

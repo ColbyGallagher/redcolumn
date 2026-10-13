@@ -892,7 +892,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const [searchFocus, setSearchFocus] = useState(0);
@@ -5865,12 +5865,14 @@ export function App() {
   ];
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label') => {
+  /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     setActivePane(pane);
-    setLabelMode((m) => (m?.pane === pane && m.kind === kind ? m : { pane, regions: [], kind }));
-    c.tools.setTool('labelRegion');
+    // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
+    setLabelMode((m) => (m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed ? m : { pane, regions: m?.pane === pane ? m.regions : [], kind, ...opts }));
+    c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
     void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
@@ -6845,11 +6847,13 @@ Open the download page? Run the new installer to update; your documents and mark
                 busy={busyPages || indexing}
                 onGoTo={(i) => v?.goToPage(i)}
                 onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
-                onExtract={(pages) => void extractPages(pages)}
                 onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, scale)}
+                onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
                 onSetLabel={(pages, label) => {
                   for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
                 }}
+                onBulkScales={(pages) => startLabelRegions(undefined, 'scale', { pages })}
+                onPageLabels={(pages) => startLabelRegions(undefined, 'label', { pages, typed: true })}
                 onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
               />
             ) : leftTab === 'forms' ? (
@@ -7304,7 +7308,8 @@ Open the download page? Run the new installer to update; your documents and mark
           </div>
           {labelMode?.kind === 'scale' && labelPaneParts?.o && (
             <ScaleRegionsPanel
-              key={labelPaneParts.o.file.id}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}`}
+              initialPages={labelMode.pages}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
               pageCount={labelPaneParts.o.doc.pages.length}
@@ -7330,7 +7335,11 @@ Open the download page? Run the new installer to update; your documents and mark
           )}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
-              key={labelPaneParts.o.file.id}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
+              initialPages={labelMode.pages}
+              initialSource={labelMode.typed ? 'typed' : 'regions'}
+              labelOf={(page, target) => (target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
+              onSource={(source) => labelPaneParts.c?.tools.setTool(source === 'typed' ? 'select' : 'labelRegion')}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
               pageCount={labelPaneParts.o.doc.pages.length}
