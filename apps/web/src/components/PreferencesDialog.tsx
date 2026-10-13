@@ -7,6 +7,8 @@ import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
 import { McpPrefs } from './McpPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
 import { desktop } from '../desktop/host';
+import { listFiles, saveFile as saveToLibrary, type StoredFile } from '../storage/fileStore';
+import { pickFilesToOpen } from '../storage/diskHandles';
 
 /**
  * File › Preferences (Ctrl+K), laid out after Bluebeam Revu's: categories down the left with a
@@ -84,8 +86,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
-  'startupFile',
-  'documentRecovery', 'pageLayout',
+  'pageLayout',
   'richTextComments', 'wrapCommentText', 'excludeFilteredOnExport',
   'hideChildLayers', 'layersOnPageOnly', 'layerDial',
   'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding',
@@ -160,6 +161,20 @@ function saveFile(name: string, text: string) {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
+/** A PDF from disk: the native or browser file picker, or a plain file input where there is neither. */
+async function pickPdf(): Promise<File | null> {
+  const picked = await pickFilesToOpen();
+  if (picked) return picked[0] ?? null;
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.pdf,application/pdf';
+    input.addEventListener('change', () => resolve(input.files?.[0] ?? null));
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+
 function pickFile(): Promise<string | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -186,6 +201,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
   const [query, setQuery] = useState(initialQuery ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [pickedWord, setPickedWord] = useState<string | null>(null);
+  const [libraryFiles, setLibraryFiles] = useState<StoredFile[]>([]);
+  useEffect(() => {
+    if (!onIndex) void listFiles().then(setLibraryFiles, () => undefined);
+  }, [onIndex]);
   const indexed = useRef<PrefEntry[]>([]);
   useEffect(() => {
     if (onIndex) onIndex(indexed.current);
@@ -300,9 +319,34 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('crosshair', 'Show Full-Screen Crosshair')}</C>
         {L('Open PDF on Startup', 'startupFile')}
         <span className="pref-row">
-          <input aria-label="Open PDF on Startup" value={d.startupFile} placeholder="A file in your Library" onChange={(e) => set({ startupFile: e.target.value })} />
-          <button type="button" className="btn" disabled title="A web page cannot open a file on disk by itself">
-            Browse
+          <select aria-label="Open PDF on Startup" value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>
+            <option value="">None</option>
+            {[...libraryFiles]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                </option>
+              ))}
+            {d.startupFile && !libraryFiles.some((f) => f.id === d.startupFile) && <option value={d.startupFile}>(Not in the Library)</option>}
+          </select>
+          <button
+            type="button"
+            className="btn"
+            title="Pick a PDF; it is added to your Library"
+            onClick={async () => {
+              const f = await pickPdf();
+              if (!f) return;
+              try {
+                const stored = await saveToLibrary(f.name, await f.arrayBuffer());
+                setLibraryFiles((x) => [...x.filter((e) => e.id !== stored.id), stored]);
+                set({ startupFile: stored.id });
+              } catch (err) {
+                setMessage(`That file could not be added: ${(err as Error).message}`);
+              }
+            }}
+          >
+            Browse…
           </button>
         </span>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>

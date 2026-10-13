@@ -138,9 +138,11 @@ export interface Settings {
   // General › Options
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
-  startupFile: string; // stored: a web page cannot open a path on disk by itself
+  /** Library id of a document opened (in front) every time the app starts; '' for none. */
+  startupFile: string;
   // General › Document
-  documentRecovery: boolean; // stored
+  /** Changes not saved to a document's file survive closing it and restarting (it stays marked unsaved); off, Don't Save discards them. */
+  documentRecovery: boolean;
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide'; // stored
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;

@@ -171,10 +171,39 @@ function markSaved(t: OpenFile) {
 function hasUnsavedChanges(t: OpenFile) {
   let base = savedState.get(t.store);
   if (!base) {
-    markSaved(t);
+    // Document Recovery: changes kept from an earlier session that never reached the file.
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
+    else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
+}
+
+/**
+ * Preferences › Document › Enable Document Recovery: Library documents whose markups have changes
+ * not saved to their file, remembered across sessions so they still show as unsaved after the app
+ * is closed or crashes.
+ */
+const RECOVERY_KEY = 'nb.unsavedDocs';
+function recoveredDocs(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function rememberUnsaved(changes: Map<string, boolean>) {
+  const ids = recoveredDocs();
+  for (const [id, unsaved] of changes) {
+    if (unsaved) ids.add(id);
+    else ids.delete(id);
+  }
+  try {
+    if (ids.size) localStorage.setItem(RECOVERY_KEY, JSON.stringify([...ids]));
+    else localStorage.removeItem(RECOVERY_KEY);
+  } catch {
+    // Not remembered; the documents look saved next time.
+  }
 }
 
 /** A tab's file name, followed by * when the document has changes that are not saved to its file. */
@@ -1553,10 +1582,17 @@ export function App() {
       if (openRef.current) return;
       const saved = savedTabs();
       const tabs = saved.ids.map((id) => files.find((f) => f.id === id)).filter((f): f is StoredFile => !!f);
-      if (!tabs.length && files[0]) tabs.push(files[0]);
+      // Preferences › Options › Open PDF on Startup opens in front of the restored tabs.
+      const startup = files.find((f) => f.id === settings.get().startupFile);
+      if (!tabs.length && !startup && files[0]) tabs.push(files[0]);
       for (const f of tabs) await openFromLibrary(f, 'a');
-      const front = tabs.find((f) => f.id === saved.active);
-      if (front && tabs.length > 1) await openFromLibrary(front, 'a');
+      const front = startup ?? tabs.find((f) => f.id === saved.active);
+      if (front && (startup || tabs.length > 1)) await openFromLibrary(front, 'a');
+      if (settings.get().documentRecovery) {
+        const recovered = recoveredDocs();
+        const names = [...tabs, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
+        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
+      }
     });
   }, [ctl, openFromLibrary]);
 
@@ -3267,7 +3303,15 @@ export function App() {
       if (!t || studioDocOf(fileId) || !hasUnsavedChanges(t)) return true;
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
-      if (choice === 'discard') return true;
+      if (choice === 'discard') {
+        // Without Document Recovery, changes that are not saved are not kept either.
+        if (!settings.get().documentRecovery) {
+          t.store.undoSteps(t.store.undoHistory().length);
+          markSaved(t);
+          rememberUnsaved(new Map([[fileId, false]]));
+        }
+        return true;
+      }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
@@ -3302,6 +3346,23 @@ export function App() {
     const offs = stores.map((t) => t.store.subscribe(report));
     return () => offs.forEach((off) => off());
   }, [tabsA, tabsB, savedTick]);
+  // Document Recovery: remember which open documents have changes not saved to their file.
+  const recovery = prefs.documentRecovery;
+  useEffect(() => {
+    if (!recovery) {
+      try {
+        localStorage.removeItem(RECOVERY_KEY);
+      } catch {
+        // Nothing kept.
+      }
+      return;
+    }
+    const docs = [...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id));
+    const report = () => rememberUnsaved(new Map(docs.map((t) => [t.file.id, hasUnsavedChanges(t)])));
+    report();
+    const offs = docs.map((t) => t.store.subscribe(report));
+    return () => offs.forEach((off) => off());
+  }, [tabsA, tabsB, savedTick, recovery]);
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
