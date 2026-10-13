@@ -179,6 +179,18 @@ function hasUnsavedChanges(t: OpenFile) {
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
 }
 
+/** Pages longer than tabloid (17 in) are drawings, shown a sheet at a time; smaller ones scroll. */
+const DRAWING_PAGE_PT = 17 * 72;
+
+/** Preferences › Document › Page Layout, for a document shown for the first time this session. */
+function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
+  const layout = settings.get().pageLayout;
+  const drawings = doc.pages.some((p) => Math.max(p.width, p.height) > DRAWING_PAGE_PT);
+  const continuous = layout === 'continuous' || layout === 'continuousSideBySide' || (layout === 'auto' && !drawings);
+  viewer.setSpread(layout === 'sideBySide' || layout === 'continuousSideBySide' ? 2 : 1, viewer.spread.cover);
+  viewer.setPageMode(continuous ? 'continuous' : 'single');
+}
+
 /**
  * Preferences › Document › Enable Document Recovery: Library documents whose markups have changes
  * not saved to their file, remembered across sessions so they still show as unsaved after the app
@@ -1136,6 +1148,7 @@ export function App() {
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
+      else applyPageLayout(c.viewer, packed.doc);
     },
     [ctl, ctlB],
   );
