@@ -46,3 +46,12 @@ export async function embedFontFile(doc: PDFDocument, name: StandardFonts): Prom
   doc.registerFontkit(fontkit);
   return doc.embedFont(await fontFile(file));
 }
+
+/** Embeds the font file where it can be loaded, else names the standard font (offline, before the file is cached). */
+export async function embedFontOrStandard(doc: PDFDocument, name: StandardFonts): Promise<PDFFont> {
+  try {
+    return await embedFontFile(doc, name);
+  } catch {
+    return doc.embedFont(name);
+  }
+}

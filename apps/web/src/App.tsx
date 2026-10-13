@@ -576,8 +576,10 @@ async function annotatedBytes(
 ): Promise<Uint8Array> {
   // pdf-lib is only needed here; load it on demand (the service worker still precaches it).
   const { exportWithAnnotations } = await import('@nb/markup/export');
+  // Preferences › Markup › Embed Fonts: markup text carries its font files, so every reader shows it alike.
+  const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
   return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
-    ...(options.embedFont ? { embedFont: options.embedFont } : {}),
+    ...(embedFont ? { embedFont } : {}),
     scaleFor: (i) => cur.store.scaleFor(i),
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),

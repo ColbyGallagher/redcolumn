@@ -432,6 +432,8 @@ export class MarkupTools implements ViewerOverlay {
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
   private hoveredLink: string | null = null;
+  /** The markup whose comment pop-up shows (after the pointer rests on it for a moment). */
+  private popup: { id: string; timer: ReturnType<typeof setTimeout> | null; shown: boolean } | null = null;
   private regions: readonly PageRect[] = [];
   private flashing: { pageIndex: number; rect: PageRect; until: number } | null = null;
   /** Search matches to highlight, and which one is current. */
@@ -795,6 +797,28 @@ export class MarkupTools implements ViewerOverlay {
     this.viewer.invalidate();
   }
 
+  /** Shows the comment pop-up of markup `id` once the pointer has rested on it; null hides it. */
+  private hoverPopup(id: string | null) {
+    if (this.popup?.id === id) return;
+    this.hidePopup();
+    if (!id) return;
+    const popup: NonNullable<typeof this.popup> = { id, timer: null, shown: false };
+    popup.timer = setTimeout(() => {
+      popup.timer = null;
+      popup.shown = true;
+      this.viewer.invalidate();
+    }, POPUP_DELAY_MS);
+    this.popup = popup;
+  }
+
+  private hidePopup() {
+    if (!this.popup) return;
+    if (this.popup.timer) clearTimeout(this.popup.timer);
+    const shown = this.popup.shown;
+    this.popup = null;
+    if (shown) this.viewer.invalidate();
+  }
+
   /** Draws the markups on these layers faintly ('' for markups on no layer). */
   setFadedLayers(layers: ReadonlySet<string>) {
     if (layers.size === this.fadedLayers.size && [...layers].every((l) => this.fadedLayers.has(l))) return;
@@ -1138,6 +1162,8 @@ export class MarkupTools implements ViewerOverlay {
         pageIndex,
         groupId,
         locked: undefined,
+        // Preferences › Markup › Retain Layer Information when copying Markups.
+        layer: settings.get().retainLayerOnCopy ? m.layer : undefined,
         ...moved(m, dx, dy),
         status: 'none',
         author: this.options.author(),
@@ -1427,6 +1453,8 @@ export class MarkupTools implements ViewerOverlay {
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
+    const popup = this.popup?.shown ? store.get(this.popup.id) : undefined;
+    if (popup?.pageIndex === pageIndex && popup.comment?.trim()) drawPopup(ctx, popup, zoom);
     this.drawFormWidgets(ctx, pageIndex);
     this.drawLinks(ctx, pageIndex, zoom);
     this.drawRegions(ctx, zoom);
@@ -2140,6 +2168,7 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     const { tool } = this.state;
     if (!pt) {
+      this.hidePopup();
       this.snapHit = null;
       this.ghost = null;
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
@@ -2168,6 +2197,7 @@ export class MarkupTools implements ViewerOverlay {
       const words = hit || widget || link ? null : this.wordsFor(pageIndex);
       const overText = !!words && wordAt(words, p, TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0;
       const hyper = hit?.link && !this.state.selected.has(hit.id) ? hit : null;
+      this.hoverPopup(hit && !this.gesture && hit.comment?.trim() ? hit.id : null);
       const hovered = link?.id ?? hyper?.id ?? null;
       if (this.snapHit || hovered !== this.hoveredLink) {
         this.snapHit = null;
@@ -2627,6 +2657,66 @@ function drawReplyIndicator(ctx: CanvasRenderingContext2D, m: Markup, zoom: numb
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(m.replies!.length), x + w / 2, y + h / 2 + 0.5 * px);
+  ctx.restore();
+}
+
+/** How long the pointer rests on a markup before its comment pops up. */
+const POPUP_DELAY_MS = 500;
+/** A pop-up's width and its most lines of comment, on screen. */
+const POPUP_W_PX = 240;
+const POPUP_MAX_LINES = 10;
+
+/**
+ * A markup's comment in a pop-up beside it, at Preferences › Markup › Pop-Up Opacity, headed by
+ * its author and date when Show Author and Date in Pop-Ups is on.
+ */
+function drawPopup(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+  const prefs = settings.get();
+  const b = markupBounds(m);
+  const px = 1 / zoom;
+  const pad = 8 * px;
+  const lineH = 16 * px;
+  const width = POPUP_W_PX * px;
+  ctx.save();
+  ctx.font = `${12 * px}px system-ui, sans-serif`;
+  const lines: string[] = [];
+  for (const para of m.comment!.split('\n')) {
+    let line = '';
+    for (const word of para.split(/\s+/)) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && ctx.measureText(next).width > width - 2 * pad) {
+        lines.push(line);
+        line = word;
+      } else line = next;
+    }
+    lines.push(line);
+  }
+  if (lines.length > POPUP_MAX_LINES) lines.splice(POPUP_MAX_LINES - 1, Infinity, '…');
+  const head = prefs.popupAuthorDate ? `${m.author || 'Unknown'} · ${new Date(m.modifiedAt || m.createdAt).toLocaleString()}` : null;
+  const h = pad * 2 + lines.length * lineH + (head ? lineH + 4 * px : 0);
+  const x = b.x + b.w + 6 * px;
+  const y = b.y;
+  ctx.globalAlpha = prefs.popupOpacity / 100;
+  ctx.fillStyle = '#fffbea';
+  ctx.strokeStyle = '#b8a24a';
+  ctx.lineWidth = px;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, h, 4 * px);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#1f2937';
+  ctx.textBaseline = 'top';
+  let ty = y + pad;
+  if (head) {
+    ctx.font = `bold ${11 * px}px system-ui, sans-serif`;
+    ctx.fillText(head, x + pad, ty, width - 2 * pad);
+    ty += lineH + 4 * px;
+    ctx.font = `${12 * px}px system-ui, sans-serif`;
+  }
+  for (const line of lines) {
+    ctx.fillText(line, x + pad, ty);
+    ty += lineH;
+  }
   ctx.restore();
 }
 

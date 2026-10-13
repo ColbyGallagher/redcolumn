@@ -191,11 +191,15 @@ export interface Settings {
   // Tools › Markup
   autoSizeText: boolean; // stored
   scaleGroupAppearance: boolean; // stored
-  retainLayerOnCopy: boolean; // stored
-  embedFonts: boolean; // stored
-  popupAuthorDate: boolean; // stored
+  /** Pasted markups stay on the layer they were copied from (else they go on no layer). */
+  retainLayerOnCopy: boolean;
+  /** Saved documents embed the font files markup text uses, instead of only naming standard fonts. */
+  embedFonts: boolean;
+  /** Comment pop-ups (shown when the pointer rests on a markup) start with its author and date. */
+  popupAuthorDate: boolean;
   printPopups: boolean; // stored
-  popupOpacity: number; // stored
+  /** Opacity of comment pop-ups, in percent. */
+  popupOpacity: number;
   copyHighlightedText: boolean; // stored
   imageEncoding: 'auto' | 'jpeg' | 'flate'; // stored
   // Tools › Sketch
