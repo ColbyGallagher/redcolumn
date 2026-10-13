@@ -1,6 +1,6 @@
 # Install the app and work offline
 
-redcolumn is a desktop app for Windows. Installed, it:
+redcolumn is a desktop app for Windows and macOS. Installed, it:
 
 - opens from its own icon, in its own window
 - opens PDFs straight from your file manager, and saves back to the same file
@@ -15,6 +15,14 @@ redcolumn is a desktop app for Windows. Installed, it:
 
 Windows may warn that the publisher is unknown, because the installer is not signed. Choose **More info**, then **Run anyway**.
 
+## Install on a Mac
+
+1. Click **Install app** at the top right of the screen, or choose {{Help > Install App…}}.
+2. Click **Apple Silicon** for a Mac with an M-series chip, or **Intel** for an older Mac. Apple menu › **About This Mac** shows which you have.
+3. Open the downloaded **.dmg** and drag **redcolumn** into **Applications**.
+
+The app is not signed, so macOS blocks it the first time. Open it once, then go to **System Settings** › **Privacy & Security** and choose **Open Anyway**.
+
 The button is not shown once you are using the desktop app. Other systems are not supported yet.
 
 ## Working offline
@@ -26,4 +34,4 @@ The button is not shown once you are using the desktop app. Other systems are no
 
 ## Updates
 
-Choose {{Help > Check for Updates}}. If a newer version has been published, redcolumn offers to open its download page. Run the new installer over the old one. Your documents and markups are kept.
+Choose {{Help > Check for Updates}}. If a newer version has been published, redcolumn offers to open its download page. On Windows, run the new installer over the old one. On a Mac, drag the new version into Applications and replace the old one. Your documents and markups are kept.

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
 import { crc32, drawIcon, encodePng, ICON_FILES, iconPngs } from './icons.ts';
 import { buildManifest } from './manifest.ts';
-import { INSTALLER_URL, installerSupported, INSTALL_STEPS } from './install.ts';
+import { INSTALLER_URL, installerPlatform, INSTALL_STEPS, MAC_ARM64_URL, MAC_X64_URL } from './install.ts';
 import { describeStorage, formatBytes } from './storage.ts';
 import { UpdateGate } from './updates.ts';
 import { isPdf, parseLaunch } from './launch.ts';
@@ -88,12 +88,17 @@ test('the manifest is installable: id, scope, PNG and maskable icons, shortcuts,
   assert.deepEqual(m.share_target.params.files[0]!.accept, ['application/pdf', '.pdf']);
 });
 
-test('the installer link is the latest release and only Windows is offered it', () => {
+test('the installer links are the latest release and Windows and macOS are offered them', () => {
   assert.equal(INSTALLER_URL, 'https://github.com/ColbyGallagher/redcolumn/releases/latest/download/redcolumn-Setup.exe');
-  assert.equal(installerSupported('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36'), true);
-  assert.equal(installerSupported('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15'), false);
-  assert.equal(installerSupported('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36'), false);
-  assert.match(INSTALL_STEPS.join(' '), /redcolumn-Setup\.exe/);
+  assert.equal(MAC_ARM64_URL, 'https://github.com/ColbyGallagher/redcolumn/releases/latest/download/redcolumn-arm64.dmg');
+  assert.equal(MAC_X64_URL, 'https://github.com/ColbyGallagher/redcolumn/releases/latest/download/redcolumn-x64.dmg');
+  assert.equal(installerPlatform('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36'), 'windows');
+  assert.equal(installerPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15'), 'mac');
+  // iPadOS Safari reports itself as a Mac; its touch screen gives it away.
+  assert.equal(installerPlatform('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15', 5), null);
+  assert.equal(installerPlatform('Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0 Mobile Safari/537.36'), null);
+  assert.match(INSTALL_STEPS.windows.join(' '), /redcolumn-Setup\.exe/);
+  assert.match(INSTALL_STEPS.mac.join(' '), /Open Anyway/);
 });
 
 test('formatBytes and describeStorage', () => {

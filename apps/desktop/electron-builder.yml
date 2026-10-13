@@ -1,7 +1,8 @@
-# Unsigned NSIS installer. The Release workflow attaches it to a GitHub release when a v* tag is
-# pushed (see README), and the app's Help › Check for Updates compares its version with the latest
-# release and links to it.
-# The fixed file name keeps releases/latest/download/redcolumn-Setup.exe a stable download link.
+# Unsigned installers: an NSIS setup for Windows and a DMG per architecture for macOS. The Release
+# workflow attaches them to a GitHub release when a v* tag is pushed (see README), and the app's
+# Help › Check for Updates compares its version with the latest release and links to it.
+# The fixed file names keep releases/latest/download/redcolumn-Setup.exe, redcolumn-arm64.dmg and
+# redcolumn-x64.dmg stable download links.
 appId: app.redcolumn.desktop
 productName: redcolumn
 copyright: Copyright © redcolumn contributors
@@ -49,9 +50,18 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: redcolumn-Setup.${ext}
+# Not signed with a Developer ID or notarized. identity "-" ad-hoc signs it instead: Apple Silicon
+# will not run an unsigned app, and signing re-seals it after the fuses above are flipped.
 mac:
   target: dmg
+  identity: '-'
+  # Hardened runtime is for notarization. With an ad-hoc signature it makes library validation
+  # refuse Electron's frameworks (no Team ID), and the app fails to launch.
+  hardenedRuntime: false
+  icon: ../web/dist/icon-512.png
   category: public.app-category.productivity
+dmg:
+  artifactName: redcolumn-${arch}.${ext}
 linux:
   target: AppImage
   category: Office

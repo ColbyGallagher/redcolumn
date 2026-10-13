@@ -4,7 +4,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { chmod, copyFile, mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -59,6 +59,10 @@ const ASSETS = {
   },
 };
 
+// --arch=x64 or --arch=arm64 packages for another architecture than this machine's (the macOS
+// release job builds both DMGs on one runner). Defaults to this machine's.
+const arch = process.argv.find((a) => a.startsWith('--arch='))?.slice('--arch='.length) ?? process.arch;
+
 const desktopRoot = path.join(import.meta.dirname, '..');
 const outDir = path.join(desktopRoot, 'dist', 'assistant');
 const cacheDir = path.join(desktopRoot, 'dist', '.node-cache');
@@ -99,14 +103,16 @@ async function archivePath(asset) {
 }
 
 async function main() {
-  const asset = ASSETS[`${process.platform}-${process.arch}`];
-  if (!asset) throw new Error(`No assistant Node binary is pinned for ${process.platform}-${process.arch}.`);
+  const asset = ASSETS[`${process.platform}-${arch}`];
+  if (!asset) throw new Error(`No assistant Node binary is pinned for ${process.platform}-${arch}.`);
   await mkdir(outDir, { recursive: true });
   await mkdir(cacheDir, { recursive: true });
   const binary = path.join(outDir, asset.binaryName);
   const license = path.join(outDir, 'LICENSE-node.txt');
-  const stamp = path.join(cacheDir, `${asset.sha256}.ok`);
-  if (await stat(stamp).then(() => true, () => false) && await stat(binary).then(() => true, () => false) && await stat(license).then(() => true, () => false)) {
+  // Records which archive dist/assistant was extracted from, so switching --arch re-extracts.
+  const stamp = path.join(cacheDir, 'extracted.ok');
+  const extracted = await readFile(stamp, 'utf8').catch(() => '');
+  if (extracted.trim() === asset.sha256 && await stat(binary).then(() => true, () => false) && await stat(license).then(() => true, () => false)) {
     const size = await stat(binary);
     console.log(`assistant node ${VERSION} already present (${size.size} bytes)`);
     return;
@@ -121,9 +127,9 @@ async function main() {
   await copyFile(path.join(extractDir, asset.node), binary);
   await copyFile(path.join(extractDir, asset.license), license);
   if (process.platform !== 'win32') await chmod(binary, 0o755);
-  await writeFile(stamp, `${VERSION}\n`);
+  await writeFile(stamp, `${asset.sha256}\n`);
   const size = await stat(binary);
-  console.log(`assistant node ${VERSION} (${process.platform}-${process.arch}, ${size.size} bytes)`);
+  console.log(`assistant node ${VERSION} (${process.platform}-${arch}, ${size.size} bytes)`);
 }
 
 main().catch((err) => {
