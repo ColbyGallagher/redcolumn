@@ -4,7 +4,7 @@ Preferences change how redcolumn behaves on this device.
 
 Open them with {{File > Preferences…}} (or press [[Ctrl+K]]). Pick a category on the left, then a tab along the top. Type in **Search** to find a setting: only the categories and tabs that have it are left, and the matching words are highlighted.
 
-Click **OK** to keep your changes, or **Cancel** to forget them. **Defaults** puts every setting back as it came (press **OK** to keep that too). **Export** saves your preferences, name and custom words to a file; **Import** reads such a file back, for example on another computer.
+Click **OK** to keep your changes, or **Close** to forget them. **Defaults** puts every setting back as it came (press **OK** to keep that too). **Export** saves your preferences, name and custom words to a file; **Import** reads such a file back, for example on another computer.
 
 Settings marked with a small circle (○) are saved, imported and exported with the rest, but redcolumn does not use them yet.
 
@@ -33,7 +33,7 @@ Settings marked with a small circle (○) are saved, imported and exported with 
 ![Preferences: Tools › Markup](img/prefs-tools-markup.png)
 
 - **Markup** — **Reuse Tools** (see [Reuse a tool](#reuse)), **Always Show Reply Indicators**, **Snapshot Resolution** (of the pictures [Snapshot](#tool-snapshot) copies), **Confirm before Deleting Markups**, and **Drag on the Page to Select Markups** (with Select, dragging on an empty part of the page draws a selection box instead of panning).
-- **Measure** — **Measurement System**: **Imperial** (feet, inches) or **Metric**. Scale and unit lists only offer this system.
+- **Measure** — **Measurement System**: **Metric** (the default) or **Imperial** (feet, inches). Scale and unit lists only offer this system.
 - **Sketch** — **Ellipse Mode** and **Draw to Scale**. See [Draw to Scale](#draw-to-scale).
 - **Eraser** — its size, and **Erase Whole Markups**. See [Eraser](#tool-eraser).
 - **Tool Library** — how clicking a saved tool works. See [Use the Tool Library](#tool-library).
@@ -46,7 +46,7 @@ Options, sorting, categories and tags for drawing [Sets](#sets). **Categories** 
 
 ## Import/Export
 
-Settings for converting to Word, Excel and PowerPoint, and for photos and image files.
+Settings for photos and image files.
 
 ## Advanced
 

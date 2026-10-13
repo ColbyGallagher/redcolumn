@@ -11,7 +11,7 @@ import { desktop } from '../desktop/host';
 /**
  * File › Preferences (Ctrl+K), laid out after Bluebeam Revu's: categories down the left with a
  * search box, tabs along the top of each, and labelled settings in a column. Changes are made to a
- * draft and applied with OK; Cancel discards them.
+ * draft and applied with OK; Close discards them.
  */
 
 export type Category = 'general' | 'account' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations' | 'mcp';
@@ -66,12 +66,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
   {
     id: 'importExport',
     label: 'Import/Export',
-    tabs: [
-      { id: 'word', label: 'Word' },
-      { id: 'excel', label: 'Excel' },
-      { id: 'powerpoint', label: 'PowerPoint' },
-      { id: 'images', label: 'Images' },
-    ],
+    tabs: [{ id: 'images', label: 'Images' }],
   },
   { id: 'advanced', label: 'Advanced', tabs: [{ id: 'offline', label: 'Offline' }] },
   {
@@ -89,20 +84,18 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
-  'language', 'saveLanguageInDocs', 'theme', 'startupFile', 'openHomePage', 'showRecentOnStartup',
-  'documentRecovery', 'saveMode', 'pageLayout', 'singleDisplay', 'continuousDisplay', 'rotateAllPages', 'autoReorderBookmarks', 'redirectLinksOnSlipSheet', 'promptIfLocked', 'findHyperlinks', 'rememberLastPage',
-  'wheelSensitivity', 'horizontalScrollbar', 'horizontalMouseWheel', 'verticalScrollbar', 'scrollbarOnLeft', 'lockPanFitWidth', 'synchroniseViews', 'syncMode', 'enable3DMouse', 'keyboardAccelerators',
-  'snapCurves', 'snapPageBounds', 'ignoreTinySegments',
-  'autoComplete', 'spellColour', 'dictionary',
-  'dominantMeasureOnly', 'richTextComments', 'wrapCommentText', 'excludeFilteredOnExport',
+  'startupFile',
+  'documentRecovery', 'pageLayout',
+  'wheelSensitivity',
+  'snapCurves',
+  'dictionary',
+  'richTextComments', 'wrapCommentText', 'excludeFilteredOnExport',
   'hideChildLayers', 'layersOnPageOnly', 'layerDial',
-  'dynamicDefaults', 'selectionCycle', 'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding', 'dragBehaviour', 'vectorSnapshots',
-  'autoSplitCounts', 'dynamicFillDpi', 'hideMarkupsDuringFill', 'fillSize', 'fillSpeed', 'fillColour', 'boundarySize', 'boundaryColour', 'edgeSensitivity', 'legacySubjectLabel',
+  'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding',
   'rotationInput', 'formHighlightColour', 'formHighlightOpacity', 'formSingleKeys', 'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
   'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',
   'setSortBy', 'setSortTagged', 'setSortOrder', 'setStackMultiPage', 'setRevisionFilter', 'setWildcard', 'setPreviousRevisions', 'setCurrentRevisions', 'setCopyMarkups', 'setUnflatten', 'setFlattenAfter', 'setStampSuperseded',
   'setTemplates', 'setTags', 'setAutoTagRevision', 'setAutoTagDiscipline', 'setAutoTagSheetType',
-  'wordMode', 'wordHeaders', 'wordDetectLists', 'wordMarkups', 'excelWorkbook', 'excelNonTable', 'excelCombineTables', 'excelDetectNumbers', 'excelThousands', 'excelDecimal', 'pptDetectLists',
   'photoResolution', 'videoResolution', 'cameraOrientation', 'importImageResolution', 'imageDrop', 'importColourspace', 'importResolution', 'scannedJpeg', 'exportColourspace', 'exportResolution', 'tiffCompression', 'multiPageTiff', 'imagePageNumber',
 ]);
 const STORED_TIP = 'Saved with your preferences; RedColumn does not use this yet.';
@@ -113,12 +106,6 @@ type NumKey = KeysOf<number>;
 type StrKey = KeysOf<string>;
 
 const GRID_UNITS: Record<Settings['gridUnit'], string> = { in: 'Inches', cm: 'Centimetres', mm: 'Millimetres', pt: 'Points' };
-const DISPLAY_FIT = [
-  ['fitPage', 'Fit Page'],
-  ['fitWidth', 'Fit Width'],
-  ['actual', 'Actual Size'],
-  ['last', 'Last View'],
-] as const;
 const COLOURSPACE = [
   ['auto', 'Auto-Detect'],
   ['colour', 'Colour'],
@@ -308,16 +295,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       <Grid>
         {L('User')}
         <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
-        {select('language', 'Language', [
-          ['en-GB', 'English (UK)'],
-          ['en-US', 'English (US)'],
-          ['en-AU', 'English (Australia)'],
-        ])}
-        <C>{check('saveLanguageInDocs', 'Save Language Setting into Documents')}</C>
-        {select('theme', 'Theme', [
-          ['dark', 'Dark'],
-          ['light', 'Light', true],
-        ])}
         {select('tabTruncation', 'Tab Truncation', [
           ['start', 'Start'],
           ['middle', 'Middle'],
@@ -332,23 +309,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </button>
         </span>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
-        <C>{check('openHomePage', 'Open Home Page in WebTab on Startup')}</C>
-        <C>{check('showRecentOnStartup', 'Show Recent Files on Startup')}</C>
-        <C>
-          <button type="button" className="btn" disabled title="RedColumn has no messages that can be hidden">
-            {label('Reset Hidden Messages')}
-          </button>
-        </C>
       </Grid>
     ),
     document: () => (
       <Grid>
         <C>{check('documentRecovery', 'Enable Document Recovery')}</C>
-        {select('saveMode', 'Save Mode', [
-          ['publish', 'Publish Without Revisions'],
-          ['incremental', 'Incremental'],
-          ['full', 'Full Save'],
-        ])}
         {select('pageLayout', 'Page Layout', [
           ['auto', 'Auto-Detect by page size'],
           ['single', 'Single Page'],
@@ -356,15 +321,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['sideBySide', 'Side by Side'],
           ['continuousSideBySide', 'Continuous Side by Side'],
         ])}
-        {select('singleDisplay', 'Single Display', DISPLAY_FIT)}
-        {select('continuousDisplay', 'Continuous Display', DISPLAY_FIT)}
         {num('maxZoom', 'Maximum Zoom', { min: 400, max: 12800, step: 100, unit: '%' })}
-        <C>{check('rotateAllPages', 'Rotate all pages by default')}</C>
-        <C>{check('autoReorderBookmarks', 'Automatically Reorder Bookmarks')}</C>
-        <C>{check('redirectLinksOnSlipSheet', 'Redirect Links and Bookmarks when Inserting Pages with Slip Sheet')}</C>
-        <C>{check('promptIfLocked', 'Prompt user if file is locked')}</C>
-        <C>{check('findHyperlinks', 'Find Hyperlinks in PDF Content')}</C>
-        <C>{check('rememberLastPage', 'Remember Last Page')}</C>
       </Grid>
     ),
     navigation: () => (
@@ -379,19 +336,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         ])}
         <C>{check('invertWheelZoom', 'Reverse Mouse Wheel when Zooming')}</C>
         {num('wheelSensitivity', 'Sensitivity', { min: 1, max: 10 })}
-        <C>{check('horizontalScrollbar', 'Enable Horizontal Scrollbar')}</C>
-        <C>{check('horizontalMouseWheel', 'Enable Horizontal Mouse Wheel', { indent: true, disabled: !d.horizontalScrollbar })}</C>
-        <C>{check('verticalScrollbar', 'Enable Vertical Scrollbar')}</C>
-        <C>{check('scrollbarOnLeft', 'Show Vertical Scrollbar on Left', { indent: true, disabled: !d.verticalScrollbar })}</C>
-        <C>{check('lockPanFitWidth', 'Lock Panning in Fit Width')}</C>
-        <C>{check('synchroniseViews', 'Synchronise Views')}</C>
-        {select('syncMode', 'Synchronisation Mode', [
-          ['document', 'Document'],
-          ['page', 'Page'],
-          ['location', 'Location'],
-        ])}
-        <C>{check('enable3DMouse', 'Enable 3D Mouse')}</C>
-        <C>{check('keyboardAccelerators', 'Access menus via Keyboard Accelerators')}</C>
         {head('Zoom Steps')}
         {num('ctrlWheelZoomStep', 'Ctrl + Wheel', { min: 1, max: 50, unit: '%' })}
         {num('wheelZoomStep', 'Wheel', { min: 1, max: 50, unit: '%' })}
@@ -418,8 +362,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('snapMidpoints', 'Snap to Mid-Points', { disabled: !snapping })}</C>
         <C>{check('snapEndpoints', 'Snap to End-Points', { disabled: !snapping })}</C>
         <C>{check('snapIntersections', 'Snap to Intersections', { disabled: !snapping })}</C>
-        <C>{check('snapPageBounds', 'Snap to Page Boundaries', { disabled: !snapping })}</C>
-        <C>{check('ignoreTinySegments', 'Ignore Tiny Line Segments', { disabled: !snapping })}</C>
         {num('snapSensitivity', 'Sensitivity', { min: 2, max: 30, disabled: !snapping && !d.snapToMarkup })}
         {colour('snapColour', 'Snap Colour', { disabled: !snapping && !d.snapToMarkup && !d.snapToGrid })}
       </Grid>
@@ -435,7 +377,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     markupsList: () => (
       <Grid>
         <C>{check('zoomFitSelected', 'Zoom Fit Markups when selected')}</C>
-        <C>{check('dominantMeasureOnly', 'Show Measurement Value for Dominant Markup Only')}</C>
         <C>{check('richTextComments', 'Use Rich Text for Comments')}</C>
         <C>{check('wrapCommentText', 'Wrap Comment Text')}</C>
         <C>{check('excludeFilteredOnExport', 'Exclude Filtered Markups on Export')}</C>
@@ -473,9 +414,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     // Tools
     markup: () => (
       <Grid>
-        <C>{check('dynamicDefaults', 'Dynamically Set as Default Properties')}</C>
         <C>{check('reuseTool', 'Reuse Tools')}</C>
-        <C>{check('selectionCycle', 'Enable Selection Cycle')}</C>
         <C>{check('autoSizeText', 'Auto-size Text Box and Call-out Markups')}</C>
         <C>{check('scaleGroupAppearance', 'Scale Appearance Properties for Grouped Markups')}</C>
         <C>{check('retainLayerOnCopy', 'Retain Layer Information when copying Markups')}</C>
@@ -490,10 +429,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['jpeg', 'JPEG'],
           ['flate', 'Flate (lossless)'],
         ])}
-        {select('dragBehaviour', 'Drag Behaviour for Shapes', [
-          ['rectangle', 'Drag Rectangle'],
-          ['center', 'Drag from Centre'],
-        ])}
         {L('Snapshot Resolution', 'snapshotDpi')}
         <select aria-label="Snapshot Resolution" value={d.snapshotDpi} onChange={(e) => set({ snapshotDpi: Number(e.target.value) })}>
           {[...new Set([72, 96, 150, 200, 300, 600, d.snapshotDpi])].sort((a, b) => a - b).map((v) => (
@@ -502,37 +437,15 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             </option>
           ))}
         </select>
-        <C>{check('vectorSnapshots', 'Take Vector Snapshots')}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
         <C>{check('dragToSelect', 'Drag on the Page to Select Markups', { title: 'With Select, dragging on an empty part of the page draws a selection box instead of panning' })}</C>
       </Grid>
     ),
     measure: () => (
       <Grid>
-        <C>{check('autoSplitCounts', 'Automatically split count measurements by Space')}</C>
-        {L('Dynamic Fill Input', 'dynamicFillDpi')}
-        <select aria-label="Dynamic Fill Input" value={d.dynamicFillDpi} onChange={(e) => set({ dynamicFillDpi: Number(e.target.value) })}>
-          {[150, 200, 300, 400].map((v) => (
-            <option key={v} value={v}>
-              {v} dpi
-            </option>
-          ))}
-        </select>
-        <C>{check('hideMarkupsDuringFill', 'Momentarily Hide Markups')}</C>
-        {num('fillSize', 'Fill Size', { min: 10, max: 400, unit: '%' })}
-        {num('fillSpeed', 'Fill Speed', { min: 1, max: 100, unit: '%' })}
-        {colour('fillColour', 'Fill Colour')}
-        {num('boundarySize', 'Boundary Size', { min: 10, max: 400, unit: '%' })}
-        {colour('boundaryColour', 'Boundary Colour')}
-        {select('edgeSensitivity', 'Edge Sensitivity', [
-          ['low', 'Low'],
-          ['medium', 'Medium'],
-          ['high', 'High'],
-        ])}
-        <C>{check('legacySubjectLabel', 'Use legacy persist behaviour for Subject and Label')}</C>
         {select('unitSystem', 'Measurement System', [
-          ['imperial', 'Imperial (feet, inches)'],
           ['metric', 'Metric (metres, millimetres)'],
+          ['imperial', 'Imperial (feet, inches)'],
         ])}
       </Grid>
     ),
@@ -763,37 +676,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       </>
     ),
     // Import/Export
-    word: () => (
-      <Grid>
-        {radios('wordMode', 'Reconstruction Mode', [['flowing', 'Flowing'], ['continuous', 'Continuous'], ['exact', 'Exact']])}
-        {radios('wordHeaders', 'Headers & Footers', [['retain', 'Retain'], ['text', 'Add as Text'], ['remove', 'Remove']], true)}
-        <C>{check('wordDetectLists', 'Detect Lists and Tables')}</C>
-        <C>{check('wordMarkups', 'Include Markups')}</C>
-      </Grid>
-    ),
-    excel: () => (
-      <Grid>
-        {radios('excelWorkbook', 'Workbook Settings', [['single', 'Single Worksheet'], ['perPage', 'Worksheet per Page']])}
-        <C>{check('excelNonTable', 'Include non-Table Content')}</C>
-        <C>{check('excelCombineTables', 'Combine Tables', { disabled: d.excelWorkbook === 'single' })}</C>
-        <C>{check('excelDetectNumbers', 'Automatically Detect Numbers')}</C>
-        {select('excelThousands', 'Thousands Separator', [
-          ['comma', 'Comma'],
-          ['fullStop', 'Full stop'],
-          ['space', 'Space'],
-          ['none', 'None'],
-        ])}
-        {select('excelDecimal', 'Decimal Symbol', [
-          ['fullStop', 'Full stop'],
-          ['comma', 'Comma'],
-        ])}
-      </Grid>
-    ),
-    powerpoint: () => (
-      <Grid>
-        <C>{check('pptDetectLists', 'Detect Lists and Tables')}</C>
-      </Grid>
-    ),
     images: () => (
       <Grid>
         {select('photoResolution', 'Photo Resolution', [
@@ -867,17 +749,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     return (
       <>
         <Grid>
-          <C>
-            <span className="pref-row">
-              {check('autoComplete', 'Enable Auto-Complete')}
-              <button type="button" className="btn" disabled title="Auto-complete is not available yet">
-                Manage…
-              </button>
-            </span>
-          </C>
           <C>{check('spellCheck', 'Enable Spell Check')}</C>
           <C>{check('spellUpperCase', 'Include Upper Case Words', { indent: true, disabled: !d.spellCheck })}</C>
-          {colour('spellColour', 'Spell Check Colour')}
           {select('dictionary', 'Active Dictionary', [
             ['en-AU', 'English (Australia)'],
             ['en-GB', 'English (UK)'],
@@ -911,22 +784,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           <button type="button" className="pref-icon" title="Remove the selected word" disabled={!picked} onClick={() => setWords(words.filter((w) => w !== picked))}>
             ×
           </button>
-        </div>
-      </>
-    );
-  }
-
-  function radios(k: StrKey, t: string, options: readonly (readonly [string, string])[], boxed = false) {
-    return (
-      <>
-        {L(t, k)}
-        <div className={`pref-radios${boxed ? ' boxed' : ''}`} role="radiogroup" aria-label={t}>
-          {options.map(([v, optionLabel]) => (
-            <label key={v} className="pref-check">
-              <input type="radio" name={k} checked={d[k] === v} onChange={() => set({ [k]: v } as Partial<Settings>)} />
-              <span>{optionLabel}</span>
-            </label>
-          ))}
         </div>
       </>
     );
@@ -1060,7 +917,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             OK
           </button>
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            Close
           </button>
         </div>
       </div>

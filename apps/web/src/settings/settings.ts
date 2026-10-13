@@ -136,67 +136,40 @@ export interface Settings {
   // exported with the rest, but nothing in RedColumn reads them yet.
 
   // General › Options
-  language: 'en-GB' | 'en-US' | 'en-AU'; // stored: the interface is English only
-  saveLanguageInDocs: boolean; // stored
-  theme: 'dark' | 'light'; // stored: the app has one (dark) theme
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
   startupFile: string; // stored: a web page cannot open a path on disk by itself
-  openHomePage: boolean; // stored: there is no WebTab
-  showRecentOnStartup: boolean; // stored
   // General › Document
   documentRecovery: boolean; // stored
-  saveMode: 'publish' | 'incremental' | 'full'; // stored
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide'; // stored
-  singleDisplay: 'fitPage' | 'fitWidth' | 'actual' | 'last'; // stored
-  continuousDisplay: 'fitPage' | 'fitWidth' | 'actual' | 'last'; // stored
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
-  rotateAllPages: boolean; // stored
-  autoReorderBookmarks: boolean; // stored
-  redirectLinksOnSlipSheet: boolean; // stored
-  promptIfLocked: boolean; // stored
-  findHyperlinks: boolean; // stored
-  rememberLastPage: boolean; // stored
   // General › Navigation
   /** What the plain mouse wheel does in single page view and in continuous view. */
   singlePageWheel: 'zoom' | 'scroll';
   continuousWheel: 'zoom' | 'scroll';
   wheelSensitivity: number; // stored: the zoom steps set the wheel's rate
-  horizontalScrollbar: boolean; // stored: the view is drawn on a canvas, without scrollbars
-  horizontalMouseWheel: boolean; // stored
-  verticalScrollbar: boolean; // stored
-  scrollbarOnLeft: boolean; // stored
-  lockPanFitWidth: boolean; // stored
-  synchroniseViews: boolean; // stored
-  syncMode: 'document' | 'page' | 'location'; // stored
-  enable3DMouse: boolean; // stored: browsers do not expose 3D mice
-  keyboardAccelerators: boolean; // stored
   // General › Grid & Snap
-  snapLines: boolean; // stored: the snap index does not tell lines from curves
+  /** Snap to Content: nearest point on straight lines and on curves. */
+  snapLines: boolean;
   snapCurves: boolean; // stored
   /** Which kinds of drawing geometry Snap to Content snaps to. */
   snapMidpoints: boolean;
   snapEndpoints: boolean;
   snapIntersections: boolean;
-  snapPageBounds: boolean; // stored
-  ignoreTinySegments: boolean; // stored
   /** How near (screen pixels) the pointer must come to a point to snap to it. */
   snapSensitivity: number;
   /** Colour of the snap marker. */
   snapColour: string;
   // General › Spelling
-  autoComplete: boolean; // stored
   /** Browser spell check (underlines) while typing markup text and comments. */
   spellCheck: boolean;
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
-  spellColour: string; // stored: the browser draws its own underline
   dictionary: 'en-AU' | 'en-GB' | 'en-US'; // stored: one English dictionary is bundled
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
-  dominantMeasureOnly: boolean; // stored
   richTextComments: boolean; // stored
   wrapCommentText: boolean; // stored
   excludeFilteredOnExport: boolean; // stored
@@ -207,8 +180,6 @@ export interface Settings {
   layersOnPageOnly: boolean; // stored
   layerDial: 'isolate' | 'fade'; // stored
   // Tools › Markup
-  dynamicDefaults: boolean; // stored
-  selectionCycle: boolean; // stored
   autoSizeText: boolean; // stored
   scaleGroupAppearance: boolean; // stored
   retainLayerOnCopy: boolean; // stored
@@ -218,19 +189,6 @@ export interface Settings {
   popupOpacity: number; // stored
   copyHighlightedText: boolean; // stored
   imageEncoding: 'auto' | 'jpeg' | 'flate'; // stored
-  dragBehaviour: 'rectangle' | 'center'; // stored
-  vectorSnapshots: boolean; // stored
-  // Tools › Measure
-  autoSplitCounts: boolean; // stored
-  dynamicFillDpi: number; // stored
-  hideMarkupsDuringFill: boolean; // stored
-  fillSize: number; // stored
-  fillSpeed: number; // stored
-  fillColour: string; // stored
-  boundarySize: number; // stored
-  boundaryColour: string; // stored
-  edgeSensitivity: 'low' | 'medium' | 'high'; // stored
-  legacySubjectLabel: boolean; // stored
   // Tools › Sketch
   rotationInput: 'absolute' | 'relative'; // stored
   // Tools › Forms
@@ -270,18 +228,7 @@ export interface Settings {
   setAutoTagRevision: boolean;
   setAutoTagDiscipline: boolean;
   setAutoTagSheetType: boolean;
-  // Import/Export (stored: RedColumn does not convert to Office formats)
-  wordMode: 'flowing' | 'continuous' | 'exact';
-  wordHeaders: 'retain' | 'text' | 'remove';
-  wordDetectLists: boolean;
-  wordMarkups: boolean;
-  excelWorkbook: 'single' | 'perPage';
-  excelNonTable: boolean;
-  excelCombineTables: boolean;
-  excelDetectNumbers: boolean;
-  excelThousands: 'comma' | 'fullStop' | 'space' | 'none';
-  excelDecimal: 'fullStop' | 'comma';
-  pptDetectLists: boolean;
+  // Import/Export › Images (stored)
   photoResolution: 'low' | 'medium' | 'high';
   videoResolution: 'low' | 'medium' | 'high';
   cameraOrientation: 'none' | 'rotate90' | 'rotate180' | 'rotate270';
@@ -303,7 +250,7 @@ export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'gridUnit'>): n
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  unitSystem: 'imperial',
+  unitSystem: 'metric',
   ctrlWheelZoomStep: 5,
   wheelZoomStep: 10,
   invertWheelZoom: false,
@@ -337,53 +284,25 @@ export const DEFAULT_SETTINGS: Settings = {
   restoreTabs: false,
   snapshotDpi: 200,
 
-  language: 'en-GB',
-  saveLanguageInDocs: false,
-  theme: 'dark',
   tabTruncation: 'end',
   startupFile: '',
-  openHomePage: false,
-  showRecentOnStartup: false,
   documentRecovery: true,
-  saveMode: 'publish',
   pageLayout: 'auto',
-  singleDisplay: 'fitPage',
-  continuousDisplay: 'fitWidth',
   maxZoom: 6400,
-  rotateAllPages: true,
-  autoReorderBookmarks: true,
-  redirectLinksOnSlipSheet: true,
-  promptIfLocked: true,
-  findHyperlinks: true,
-  rememberLastPage: true,
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',
   wheelSensitivity: 4,
-  horizontalScrollbar: false,
-  horizontalMouseWheel: false,
-  verticalScrollbar: true,
-  scrollbarOnLeft: false,
-  lockPanFitWidth: true,
-  synchroniseViews: false,
-  syncMode: 'document',
-  enable3DMouse: true,
-  keyboardAccelerators: false,
   snapLines: true,
   snapCurves: true,
   snapMidpoints: true,
   snapEndpoints: true,
   snapIntersections: true,
-  snapPageBounds: true,
-  ignoreTinySegments: true,
   snapSensitivity: 10,
   snapColour: '#d946ef',
-  autoComplete: true,
   spellCheck: true,
   spellUpperCase: false,
-  spellColour: '#ff0000',
   dictionary: 'en-AU',
   zoomFitSelected: true,
-  dominantMeasureOnly: false,
   richTextComments: false,
   wrapCommentText: true,
   excludeFilteredOnExport: false,
@@ -391,8 +310,6 @@ export const DEFAULT_SETTINGS: Settings = {
   hideChildLayers: true,
   layersOnPageOnly: false,
   layerDial: 'isolate',
-  dynamicDefaults: false,
-  selectionCycle: true,
   autoSizeText: false,
   scaleGroupAppearance: true,
   retainLayerOnCopy: true,
@@ -402,18 +319,6 @@ export const DEFAULT_SETTINGS: Settings = {
   popupOpacity: 70,
   copyHighlightedText: true,
   imageEncoding: 'auto',
-  dragBehaviour: 'rectangle',
-  vectorSnapshots: true,
-  autoSplitCounts: true,
-  dynamicFillDpi: 300,
-  hideMarkupsDuringFill: true,
-  fillSize: 100,
-  fillSpeed: 20,
-  fillColour: '#22a33a',
-  boundarySize: 100,
-  boundaryColour: '#2a2a9a',
-  edgeSensitivity: 'high',
-  legacySubjectLabel: false,
   rotationInput: 'absolute',
   formHighlightColour: '#c0c0ff',
   formHighlightOpacity: 25,
@@ -451,17 +356,6 @@ export const DEFAULT_SETTINGS: Settings = {
   setAutoTagRevision: true,
   setAutoTagDiscipline: false,
   setAutoTagSheetType: false,
-  wordMode: 'flowing',
-  wordHeaders: 'retain',
-  wordDetectLists: true,
-  wordMarkups: true,
-  excelWorkbook: 'single',
-  excelNonTable: true,
-  excelCombineTables: true,
-  excelDetectNumbers: true,
-  excelThousands: 'comma',
-  excelDecimal: 'fullStop',
-  pptDetectLists: true,
   photoResolution: 'medium',
   videoResolution: 'low',
   cameraOrientation: 'none',
@@ -481,7 +375,10 @@ const KEY = 'nb.settings';
 
 function load(): Settings {
   try {
-    return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>) };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
+    // Settings since removed are dropped, so they are not written back.
+    const known = Object.entries(saved).filter(([k]) => k in DEFAULT_SETTINGS);
+    return { ...DEFAULT_SETTINGS, ...(Object.fromEntries(known) as Partial<Settings>) };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
