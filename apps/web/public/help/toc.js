@@ -228,13 +228,13 @@ window.HELP_TOC = [
     ],
   },
   {
-    title: 'Batch Processing',
+    title: 'Bulk Processing',
     children: [
-      { id: 'batch', title: 'Batch: run a task on many files' },
-      { id: 'batch-link', title: 'Batch Auto-Link Sheets' },
-      { id: 'batch-page-labels', title: 'Batch Page Labels (AutoMark)' },
-      { id: 'batch-sign', title: 'Batch Sign & Seal' },
-      { id: 'batch-summary-print', title: 'Batch Summary and Print' },
+      { id: 'batch', title: 'Bulk: run a task on many files' },
+      { id: 'batch-link', title: 'Bulk Auto-Link Sheets' },
+      { id: 'batch-page-labels', title: 'Bulk Page Labels (AutoMark)' },
+      { id: 'batch-sign', title: 'Bulk Sign & Seal' },
+      { id: 'batch-summary-print', title: 'Bulk Summary and Print' },
     ],
   },
   {

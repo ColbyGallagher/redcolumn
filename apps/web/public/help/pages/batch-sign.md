@@ -1,11 +1,11 @@
-# Batch Sign & Seal
+# Bulk Sign & Seal
 
 Signs many files with your Digital ID in one go, optionally with a seal or signature picture on each.
 
 1. [Make or import a Digital ID](#digital-ids) first.
-2. Choose {{Batch > Sign & Seal…}}.
+2. Choose {{Bulk > Sign & Seal…}}.
 
-   ![The Batch Sign & Seal window](img/batch-sign.png)
+   ![The Bulk Sign & Seal window](img/batch-sign.png)
 3. Choose the **Digital ID** and type its **Password**.
 4. Type a **Reason** (for example *I am approving this document*) and a **Location** if you want.
 5. Choose **Approve (sign)** or one of the **Certify** options.

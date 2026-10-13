@@ -16,4 +16,4 @@
 
 > **Tip:** For a quick CSV of everything, choose {{File > Export > Markups CSV}}.
 
-See also [Markup Summary report](#summary) and, for many files at once, [Batch Summary](#batch-summary-print).
+See also [Markup Summary report](#summary) and, for many files at once, [Bulk Summary](#batch-summary-print).

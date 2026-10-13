@@ -51,7 +51,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
       { id: 'toolLibrary', label: 'Tool Library' },
     ],
   },
-  { id: 'studio', label: 'Studio', tabs: [] },
+  { id: 'studio', label: 'Collaboration', tabs: [] },
   { id: 'window', label: 'Window', tabs: [] },
   {
     id: 'sets',

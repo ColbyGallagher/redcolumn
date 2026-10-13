@@ -4,7 +4,7 @@ import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
 
-export type CommandCategory = 'File' | 'Edit' | 'View' | 'Document' | 'Batch' | 'Tools' | 'Window' | 'Help';
+export type CommandCategory = 'File' | 'Edit' | 'View' | 'Document' | 'Bulk' | 'Tools' | 'Window' | 'Help';
 
 /**
  * Something the user can do from a menu, a shortcut or the command palette. Commands are rebuilt
@@ -149,7 +149,7 @@ export interface CommandState {
   hasDocument: boolean;
   /** The document can take markup edits (it is open and not read-only). */
   editable: boolean;
-  /** Pages can be changed now (open, not busy, not a shared Studio document). */
+  /** Pages can be changed now (open, not busy, not a shared collaboration document). */
   pagesEditable: boolean;
   pageCount: number;
   pageIndex: number;
@@ -157,7 +157,7 @@ export interface CommandState {
   libraryCount: number;
   /** Library documents marked as templates. */
   templateCount: number;
-  /** Copies may be saved (downloaded, exported, printed); a Studio host can forbid it for attendees. */
+  /** Copies may be saved (downloaded, exported, printed); a collaboration host can forbid it for attendees. */
   canSaveCopy: boolean;
   selectionCount: number;
   /** Markups in the document that are hidden. */
@@ -359,7 +359,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.ocr', 'Document', 'OCR…', a.ocr, s.pagesEditable),
     cmd('document.slipSheet', 'Document', 'Slip Sheet…', a.slipSheet, s.pagesEditable),
     cmd('document.revisions', 'Document', 'Revisions…', a.revisions, doc),
-    ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Batch', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
+    ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Bulk', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
     cmd('document.security', 'Document', 'Security…', a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
     cmd('document.compare', 'Document', 'Compare Documents…', a.compare, s.libraryCount > 1),

@@ -69,7 +69,7 @@ export function ProjectsPanel(props: Props) {
   const project = projectId ? projectById(projectId) : null;
   const [browsing, setBrowsing] = useState(!!project);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
-  useEffect(() => setSlot(document.getElementById('bb-project-slot')), []);
+  useEffect(() => setSlot(document.getElementById('rc-project-slot')), []);
   useEffect(() => {
     if (projectId) setBrowsing(true);
   }, [projectId]);
@@ -151,7 +151,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
     });
 
   return (
-    <div className="sessions bb-studio projects">
+    <div className="sessions rc-studio projects">
       <StudioHeader
         title="All Projects"
         onRefresh={() => setRefresh((n) => n + 1)}
@@ -182,11 +182,11 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
         ]}
       />
       {selectedId && !showFiles && (
-        <button type="button" className="bb-text-btn" style={{ margin: '0 10px 6px' }} onClick={onShowFiles}>
+        <button type="button" className="rc-text-btn" style={{ margin: '0 10px 6px' }} onClick={onShowFiles}>
           Show files
         </button>
       )}
-      <div className="bb-scroll">
+      <div className="rc-scroll">
         {error && (
           <p className="session-error" role="alert">
             {error}
@@ -207,9 +207,9 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
           </div>
         )}
         {shown.length === 0 ? (
-          <p className="bb-empty">{rows.length === 0 && why ? why : tab === 'joined' ? 'Projects you have open are listed here.' : 'Projects you have not opened are listed here.'}</p>
+          <p className="rc-empty">{rows.length === 0 && why ? why : tab === 'joined' ? 'Projects you have open are listed here.' : 'Projects you have not opened are listed here.'}</p>
         ) : (
-          <ul className="bb-list">
+          <ul className="rc-list">
             {shown.map((r) => {
               const p = projectById(r.id);
               const snap = p?.getSnapshot();
@@ -234,7 +234,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
                     r.removed && !r.open ? (
                       <button
                         type="button"
-                        className="bb-join"
+                        className="rc-join"
                         onClick={() => {
                           restoreProject(r.id);
                           setRefresh((n) => n + 1);
@@ -245,7 +245,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
                     ) : (
                       <button
                         type="button"
-                        className="bb-x"
+                        className="rc-x"
                         title="Remove from your projects. The project is not deleted."
                         aria-label="Remove from list"
                         onClick={() => {
@@ -344,8 +344,8 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
   const bytes = snap.files.reduce((sum, f) => sum + (f.revisions[f.revisions.length - 1]?.size ?? 0), 0);
 
   return (
-    <div className="bb-project-stage">
-      <header className="bb-project-bar">
+    <div className="rc-project-stage">
+      <header className="rc-project-bar">
         <span className="name">{snap.manifest.name}</span>
         <span className="meta" title={project.id}>
           ID: {studioIdText(project.id)}
@@ -354,10 +354,10 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
         <span className="meta">Created: {new Date(snap.manifest.createdAt).toLocaleString()}</span>
         <span className="meta">Upload status: {uploadStatus}</span>
         <span className="spacer" />
-        <button type="button" className="bb-linkish" disabled={busy || !online} title={net('Refreshing') ?? 'Check OneDrive for changes now'} onClick={() => void run(() => project.poll())}>
+        <button type="button" className="rc-linkish" disabled={busy || !online} title={net('Refreshing') ?? 'Check OneDrive for changes now'} onClick={() => void run(() => project.poll())}>
           Refresh
         </button>
-        <button type="button" className="bb-linkish" onClick={() => setManaging(true)}>
+        <button type="button" className="rc-linkish" onClick={() => setManaging(true)}>
           Settings
         </button>
       </header>
@@ -384,18 +384,18 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
           <progress max={upload.total} value={upload.done} aria-label="Upload progress" />
         </div>
       )}
-      <div className="bb-project-panes">
-        <aside className="bb-tree" aria-label="Project files">
-          <div className="bb-tree-scroll">
-            <button type="button" className={current === null && !selected ? 'bb-tree-row on' : 'bb-tree-row'} onClick={() => go(null)}>
+      <div className="rc-project-panes">
+        <aside className="rc-tree" aria-label="Project files">
+          <div className="rc-tree-scroll">
+            <button type="button" className={current === null && !selected ? 'rc-tree-row on' : 'rc-tree-row'} onClick={() => go(null)}>
               <FolderIcon />
-              <span className="bb-name">{snap.manifest.name}</span>
+              <span className="rc-name">{snap.manifest.name}</span>
             </button>
             {nodes.map((node) => (
               <button
                 key={`${node.kind}-${node.id}`}
                 type="button"
-                className={(node.kind === 'file' ? selected === node.id : current === node.id) ? 'bb-tree-row on' : 'bb-tree-row'}
+                className={(node.kind === 'file' ? selected === node.id : current === node.id) ? 'rc-tree-row on' : 'rc-tree-row'}
                 style={{ paddingLeft: 8 + node.depth * 14 }}
                 aria-busy={opening === node.id}
                 onClick={() => {
@@ -418,45 +418,45 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
                 }}
               >
                 {node.kind === 'folder' ? <FolderIcon /> : <DocIcon />}
-                <span className="bb-name">{node.name}</span>
+                <span className="rc-name">{node.name}</span>
               </button>
             ))}
           </div>
           {(queued.length > 0 || snap.record.length > 0) && (
-            <div className="bb-pending">
+            <div className="rc-pending">
               {queued.length > 0 && (
                 <>
                   <h3>Pending</h3>
-                  <ul className="bb-people">
+                  <ul className="rc-people">
                     {queued.map((c) => (
-                      <li key={c.id} className="bb-person">
-                        <span className="bb-name">
+                      <li key={c.id} className="rc-person">
+                        <span className="rc-name">
                           {describeQueued(c)}
                           {c.error ? ` — ${c.error}` : ''}
                         </span>
                         {c.error && (
-                          <button type="button" className="bb-mini" onClick={() => projectQueue().retry(c.id)}>
+                          <button type="button" className="rc-mini" onClick={() => projectQueue().retry(c.id)}>
                             Retry
                           </button>
                         )}
-                        <button type="button" className="bb-mini" onClick={() => projectQueue().discard(c.id)}>
+                        <button type="button" className="rc-mini" onClick={() => projectQueue().discard(c.id)}>
                           Discard
                         </button>
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="bb-linkish" disabled={!online} onClick={onSendQueued}>
+                  <button type="button" className="rc-linkish" disabled={!online} onClick={onSendQueued}>
                     Send now
                   </button>
                 </>
               )}
               {snap.record.length > 0 && (
                 <details>
-                  <summary className="bb-group">Record ({snap.record.length})</summary>
-                  <ul className="bb-people">
+                  <summary className="rc-group">Record ({snap.record.length})</summary>
+                  <ul className="rc-people">
                     {[...snap.record].reverse().map((e) => (
-                      <li key={e.id} className="bb-person">
-                        <span className="bb-name">
+                      <li key={e.id} className="rc-person">
+                        <span className="rc-name">
                           {e.who}: {e.text}
                         </span>
                       </li>
@@ -467,8 +467,8 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
             </div>
           )}
         </aside>
-        <section className="bb-thumbs">
-          <div className="bb-stage-tools">
+        <section className="rc-thumbs">
+          <div className="rc-stage-tools">
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search with a keyword" aria-label="Search files" />
             <StudioMenu
               label="Add"
@@ -487,7 +487,7 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
                 },
               ]}
             />
-            <button type="button" className="bb-linkish" aria-expanded={actionsOpen} onClick={() => setActionsOpen((v) => !v)}>
+            <button type="button" className="rc-linkish" aria-expanded={actionsOpen} onClick={() => setActionsOpen((v) => !v)}>
               Actions
             </button>
             <input
@@ -503,13 +503,13 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
               }}
             />
           </div>
-          <div className="bb-path">{[snap.manifest.name, ...crumbs.map((c) => c.name)].join(' / ')}</div>
+          <div className="rc-path">{[snap.manifest.name, ...crumbs.map((c) => c.name)].join(' / ')}</div>
           {actionsOpen && (
-            <div className="bb-actions-pop">
+            <div className="rc-actions-pop">
               {sel ? (
                 <FileActions project={project} file={sel} busy={busy} online={online} run={run} onOpenFile={async (p, file, rev) => openFile(file, rev)} onCheckIn={onCheckIn} queuedCheckIn={queued.some((c) => c.kind === 'checkin' && c.fileId === sel.id)} />
               ) : (
-                <p className="bb-empty">Select a file to check it out, rename it, or open it.</p>
+                <p className="rc-empty">Select a file to check it out, rename it, or open it.</p>
               )}
               {current && (
                 <div className="row">
@@ -560,13 +560,13 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
               )}
             </div>
           )}
-          <div className="bb-thumb-grid">
+          <div className="rc-thumb-grid">
             {gridFolders.map((f) => (
-              <button key={f.id} type="button" className={current === f.id ? 'bb-tile on' : 'bb-tile'} onClick={() => go(f.id)} onDoubleClick={() => go(f.id)}>
-                <span className="bb-tile-face folder">
+              <button key={f.id} type="button" className={current === f.id ? 'rc-tile on' : 'rc-tile'} onClick={() => go(f.id)} onDoubleClick={() => go(f.id)}>
+                <span className="rc-tile-face folder">
                   <FolderIcon />
                 </span>
-                <span className="bb-tile-name">{f.name}</span>
+                <span className="rc-tile-name">{f.name}</span>
               </button>
             ))}
             {gridFiles.map((f) => {
@@ -575,7 +575,7 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
                 <button
                   key={f.id}
                   type="button"
-                  className={selected === f.id ? 'bb-tile on' : 'bb-tile'}
+                  className={selected === f.id ? 'rc-tile on' : 'rc-tile'}
                   aria-busy={opening === f.id}
                   onClick={() => setSelected(f.id)}
                   onDoubleClick={() => {
@@ -583,12 +583,12 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
                     void run(() => openFile(f)).finally(() => setOpening(null));
                   }}
                 >
-                  <span className={`bb-tile-face ${kind}`}>{tileLabel(kind)}</span>
-                  <span className="bb-tile-name">{f.name}</span>
+                  <span className={`rc-tile-face ${kind}`}>{tileLabel(kind)}</span>
+                  <span className="rc-tile-name">{f.name}</span>
                 </button>
               );
             })}
-            {gridFolders.length === 0 && gridFiles.length === 0 && <p className="bb-empty">{q ? 'No files match.' : current ? 'This folder is empty.' : 'No files yet.'}</p>}
+            {gridFolders.length === 0 && gridFiles.length === 0 && <p className="rc-empty">{q ? 'No files match.' : current ? 'This folder is empty.' : 'No files yet.'}</p>}
           </div>
         </section>
       </div>
@@ -618,7 +618,7 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
     });
   };
   return (
-    <Dialog title="Project Settings" className="wide bb-light" onClose={onClose}>
+    <Dialog title="Project Settings" className="wide rc-light" onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
@@ -642,7 +642,7 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
         <div className="dialog-pane">
           {tab === 'general' && (
             <>
-              <dl className="bb-set-grid">
+              <dl className="rc-set-grid">
                 <dt>Project Name</dt>
                 <dd>
                   <input aria-label="Project Name" value={name} readOnly={!owner} onChange={(e) => setName(e.target.value)} maxLength={200} />
@@ -662,16 +662,16 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
                 <dt>Project Size</dt>
                 <dd>{space}</dd>
               </dl>
-              <div className="bb-set-links">
+              <div className="rc-set-links">
                 {isLocalFolderId(project.id) ? (
                   // Shared by the sync client: people open the synced folder with "Open a project folder on this computer…".
-                  <button type="button" className="bb-set-link" title="Share this folder from the app that syncs it (OneDrive, Dropbox…)" onClick={() => void desktop()?.folder.show(project.id)}>
+                  <button type="button" className="rc-set-link" title="Share this folder from the app that syncs it (OneDrive, Dropbox…)" onClick={() => void desktop()?.folder.show(project.id)}>
                     Show folder
                   </button>
                 ) : (
                 <button
                   type="button"
-                  className="bb-set-link"
+                  className="rc-set-link"
                   onClick={() =>
                     void navigator.clipboard.writeText(projectInviteLink(project.id)).then(() => {
                       setCopied(true);
@@ -683,7 +683,7 @@ function ManageProject({ project, online, bytes, me, onClose }: { project: Proje
                 </button>
                 )}
                 {url && (
-                  <a className="bb-set-link" href={url} target="_blank" rel="noreferrer">
+                  <a className="rc-set-link" href={url} target="_blank" rel="noreferrer">
                     Open in OneDrive
                   </a>
                 )}

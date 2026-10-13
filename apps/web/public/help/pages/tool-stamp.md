@@ -21,4 +21,4 @@ Approved · Approved as Noted · Reviewed · Revise and Resubmit · Rejected · 
 
 Stamps with a second line show **By** *your name* **on** *today's date*. Your name comes from the **Author** box in the Edit menu (see [Preferences](#preferences)).
 
-> **Tip:** Want your own wording or company stamp? See [Make your own stamps](#stamps-manage). To stamp many files at once, see [Batch](#batch).
+> **Tip:** Want your own wording or company stamp? See [Make your own stamps](#stamps-manage). To stamp many files at once, see [Bulk](#batch).

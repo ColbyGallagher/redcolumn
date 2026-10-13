@@ -10,7 +10,7 @@ export type StudioSort = 'recent' | 'name' | 'id';
 
 function svg(paths: ReactNode) {
   return (
-    <svg className="bb-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <svg className="rc-ico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
       {paths}
     </svg>
   );
@@ -67,7 +67,7 @@ export function KebabIcon() {
 
 export function Caret({ open }: { open: boolean }) {
   return (
-    <svg className={open ? 'bb-caret open' : 'bb-caret'} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+    <svg className={open ? 'rc-caret open' : 'rc-caret'} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
       <path fill="currentColor" d="M6 3.5 11.5 8 6 12.5z" />
     </svg>
   );
@@ -75,12 +75,12 @@ export function Caret({ open }: { open: boolean }) {
 
 export function StudioHeader({ title, onRefresh, plus, filter }: { title: string; onRefresh: () => void; plus?: ReactNode; filter?: ReactNode }) {
   return (
-    <div className="bb-head">
-      <h2 className="bb-title">{title}</h2>
-      <span className="bb-head-actions">
+    <div className="rc-head">
+      <h2 className="rc-title">{title}</h2>
+      <span className="rc-head-actions">
         {plus}
         {filter}
-        <button type="button" className="bb-icon-btn" onClick={onRefresh} title="Refresh" aria-label="Refresh">
+        <button type="button" className="rc-icon-btn" onClick={onRefresh} title="Refresh" aria-label="Refresh">
           <RefreshIcon />
         </button>
       </span>
@@ -90,7 +90,7 @@ export function StudioHeader({ title, onRefresh, plus, filter }: { title: string
 
 export function StudioTabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string; count?: number }[]; value: T; onChange: (id: T) => void }) {
   return (
-    <div className="bb-tabs" role="tablist">
+    <div className="rc-tabs" role="tablist">
       {tabs.map((t) => (
         <button key={t.id} type="button" role="tab" aria-selected={value === t.id} className={value === t.id ? 'on' : ''} onClick={() => onChange(t.id)}>
           {t.label}
@@ -123,11 +123,11 @@ export function StudioRow({
   const label = id ? studioIdText(id) : '';
   return (
     <li className={selected ? 'selected' : ''}>
-      <button type="button" className="bb-row" disabled={disabled} title={title ?? (id ? `${name} (${id})` : name)} onClick={onClick}>
-        <span className="bb-row-ico">{icon}</span>
-        <span className="bb-name">{name}</span>
+      <button type="button" className="rc-row" disabled={disabled} title={title ?? (id ? `${name} (${id})` : name)} onClick={onClick}>
+        <span className="rc-row-ico">{icon}</span>
+        <span className="rc-name">{name}</span>
         {label && (
-          <span className="bb-id" title={id ?? undefined}>
+          <span className="rc-id" title={id ?? undefined}>
             {label}
           </span>
         )}
@@ -161,18 +161,18 @@ export function StudioMenu({ label, icon, items }: { label: string; icon?: React
   useDismiss(open, ref, () => setOpen(false));
   if (!items.length) return null;
   return (
-    <span className="bb-pop" ref={ref}>
-      <button type="button" className="bb-icon-btn" aria-label={label} title={label} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
+    <span className="rc-pop" ref={ref}>
+      <button type="button" className="rc-icon-btn" aria-label={label} title={label} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
         {icon ?? <PlusIcon />}
       </button>
       {open && (
-        <div className="bb-menu" role="menu">
+        <div className="rc-menu" role="menu">
           {items.map((item) => (
             <button
               key={item.label}
               type="button"
               role="menuitem"
-              className={item.danger ? 'bb-menu-item danger' : 'bb-menu-item'}
+              className={item.danger ? 'rc-menu-item danger' : 'rc-menu-item'}
               disabled={item.disabled}
               onClick={() => {
                 setOpen(false);
@@ -199,20 +199,20 @@ export function FilterButton({ sort, desc, onChange }: { sort: StudioSort; desc:
     setOpen(false);
   };
   const item = (key: StudioSort, label: string) => (
-    <button key={key} type="button" className="bb-menu-item" role="menuitemradio" aria-checked={sort === key} onClick={() => pick(key)}>
-      <span className="bb-check">{sort === key ? '✓' : ''}</span>
-      <span className="bb-menu-label-text">{label}</span>
-      {sort === key && <span className="bb-sort-arrow">{desc ? '↓' : '↑'}</span>}
+    <button key={key} type="button" className="rc-menu-item" role="menuitemradio" aria-checked={sort === key} onClick={() => pick(key)}>
+      <span className="rc-check">{sort === key ? '✓' : ''}</span>
+      <span className="rc-menu-label-text">{label}</span>
+      {sort === key && <span className="rc-sort-arrow">{desc ? '↓' : '↑'}</span>}
     </button>
   );
   return (
-    <span className="bb-pop" ref={ref}>
-      <button type="button" className={open ? 'bb-icon-btn on' : 'bb-icon-btn'} aria-label="Sort" title="Sort" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
+    <span className="rc-pop" ref={ref}>
+      <button type="button" className={open ? 'rc-icon-btn on' : 'rc-icon-btn'} aria-label="Sort" title="Sort" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
         <FilterIcon />
       </button>
       {open && (
-        <div className="bb-menu" role="menu" aria-label="Sort">
-          <div className="bb-menu-label">Sort By</div>
+        <div className="rc-menu" role="menu" aria-label="Sort">
+          <div className="rc-menu-label">Sort By</div>
           {item('recent', 'Recently Accessed')}
           {item('name', 'Name')}
           {item('id', 'ID')}

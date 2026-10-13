@@ -34,8 +34,8 @@ export function buildManifest(base: string, screenshots: ManifestScreenshot[] = 
     display: 'standalone',
     // Desktop: drop the title bar strip and draw the menu bar there (see the overlay rules in styles.css).
     display_override: ['window-controls-overlay', 'standalone'],
-    theme_color: '#2a2d31',
-    background_color: '#1f2124',
+    theme_color: '#15213a',
+    background_color: '#0e1729',
     categories: ['productivity', 'business', 'utilities'],
     icons: [
       { src: at('icon.svg'), sizes: 'any', type: 'image/svg+xml', purpose: 'any' },

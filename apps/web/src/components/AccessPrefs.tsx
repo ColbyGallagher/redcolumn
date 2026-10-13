@@ -203,7 +203,7 @@ function LocalDataSection() {
       </label>
       <p className="access-note">
         {busy ??
-          "Seals the library's PDFs, its list and every document's markups on this computer, with a key the system key store protects (Windows: your account's DPAPI). Someone who copies the files, or uses another account here, cannot read them. Preferences and Studio lists are not encrypted."}
+          "Seals the library's PDFs, its list and every document's markups on this computer, with a key the system key store protects (Windows: your account's DPAPI). Someone who copies the files, or uses another account here, cannot read them. Preferences and collaboration lists are not encrypted."}
       </p>
     </section>
   );

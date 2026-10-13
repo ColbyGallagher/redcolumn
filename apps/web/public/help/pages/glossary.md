@@ -3,7 +3,7 @@
 | Word | Meaning |
 |---|---|
 | **Author** | The name recorded on each markup you make. Set it in the Edit menu or [Preferences](#preferences). |
-| **Batch** | Doing one task to many files at once. See [Batch](#batch). |
+| **Bulk** | Doing one task to many files at once. See [Bulk](#batch). |
 | **BAX** | Bluebeam's markup file. See [Exchange markups](#markup-exchange). |
 | **Calibrate** | Working out a page's scale from a length you know. See [Calibrate](#calibrate). |
 | **Callout** | Text in a box with an arrow pointing at something. See [Callout](#tool-callout). |

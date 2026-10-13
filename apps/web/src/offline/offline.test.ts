@@ -15,14 +15,14 @@ test('crc32 matches the standard check value', () => {
   assert.equal(crc32(new TextEncoder().encode('123456789')), 0xcbf43926);
 });
 
-test('the icon has transparent rounded corners, a blue background, the white sheet and the blue mark', () => {
+test('the icon has transparent rounded corners, a navy background, the white sheet and the crimson mark', () => {
   const size = 64;
   const px = drawIcon(size);
   assert.equal(pixel(px, size, 0, 0)[3], 0, 'corner is outside the rounded square');
-  assert.deepEqual(pixel(px, size, 4, 32), [0x1e, 0x3a, 0x8a, 255]);
+  assert.deepEqual(pixel(px, size, 4, 32), [0x15, 0x21, 0x3a, 255]);
   assert.deepEqual(pixel(px, size, 20, 45), [255, 255, 255, 255]);
-  assert.deepEqual(pixel(px, size, 32, 28), [0x3b, 0x82, 0xf6, 255]);
-  assert.deepEqual(pixel(px, size, 46, 17), [0x1e, 0x3a, 0x8a, 255], 'the folded corner is cut away');
+  assert.deepEqual(pixel(px, size, 32, 28), [0xc8, 0x10, 0x2e, 255]);
+  assert.deepEqual(pixel(px, size, 46, 17), [0x15, 0x21, 0x3a, 255], 'the folded corner is cut away');
 });
 
 test('maskable icons fill the square and keep the drawing inside the safe zone', () => {
@@ -33,7 +33,7 @@ test('maskable icons fill the square and keep the drawing inside the safe zone',
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       const [r] = pixel(px, size, x, y);
-      if (r !== 0x1e) assert.ok(Math.hypot(x + 0.5 - 50, y + 0.5 - 50) <= 40, `drawing at ${x},${y} is outside the safe zone`);
+      if (r !== 0x15) assert.ok(Math.hypot(x + 0.5 - 50, y + 0.5 - 50) <= 40, `drawing at ${x},${y} is outside the safe zone`);
     }
   }
 });

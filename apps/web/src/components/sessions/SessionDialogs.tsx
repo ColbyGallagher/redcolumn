@@ -77,9 +77,9 @@ export function Dialog({ title, className, onClose, children }: { title: string;
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className={`modal session-dialog ${className ?? ''}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="bb-dialog-h">
+        <div className="rc-dialog-h">
           <h3>{title}</h3>
-          <button type="button" className="bb-dialog-x" aria-label="Close" onClick={onClose}>
+          <button type="button" className="rc-dialog-x" aria-label="Close" onClick={onClose}>
             ×
           </button>
         </div>
@@ -466,7 +466,7 @@ export function SessionSettingsDialog({
     );
   };
   return (
-    <Dialog title="Session Settings" className="wide bb-light" onClose={onClose}>
+    <Dialog title="Session Settings" className="wide rc-light" onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
@@ -490,7 +490,7 @@ export function SessionSettingsDialog({
         <div className="dialog-pane">
           {tab === 'general' && (
             <>
-              <dl className="bb-set-grid">
+              <dl className="rc-set-grid">
                 <dt>Session Name</dt>
                 <dd>
                   <input aria-label="Session Name" value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
@@ -509,7 +509,7 @@ export function SessionSettingsDialog({
                 <dd>{new Date(createdAt).toLocaleString()}</dd>
                 <dt>Expiry</dt>
                 <dd>
-                  <span className="bb-expiry">
+                  <span className="rc-expiry">
                     <label className="check">
                       <input type="checkbox" checked={expiryOn} onChange={(e) => setExpiryOn(e.target.checked)} />
                       Enabled

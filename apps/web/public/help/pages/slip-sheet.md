@@ -17,4 +17,4 @@ When new revisions of some sheets arrive, **Slip Sheet** puts them into your set
 
 > **Tip:** Afterwards, [Compare](#compare) the old revision with the new one to see what changed under your markups.
 
-To slip sheet many sets, use {{Batch > Slip Sheet…}}.
+To slip sheet many sets, use {{Bulk > Slip Sheet…}}.

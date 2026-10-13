@@ -1,10 +1,10 @@
-# Batch Auto-Link Sheets
+# Bulk Auto-Link Sheets
 
-When a project is issued as several files (one per discipline, say), references like *SEE S-201* point at sheets in **other** files. Batch Auto-Link links them all, so clicking a reference opens the right file at the right sheet.
+When a project is issued as several files (one per discipline, say), references like *SEE S-201* point at sheets in **other** files. Bulk Auto-Link links them all, so clicking a reference opens the right file at the right sheet.
 
-1. Choose {{Batch > Auto-Link Sheets…}}.
+1. Choose {{Bulk > Auto-Link Sheets…}}.
 
-   ![The Batch Auto-Link Sheets window](img/batch-link.png)
+   ![The Bulk Auto-Link Sheets window](img/batch-link.png)
 2. Tick every file in the project (or **Choose… ›** a [Set](#sets)).
 3. Click **Run on *n* files**.
 

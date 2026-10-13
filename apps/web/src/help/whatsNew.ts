@@ -44,7 +44,7 @@ export const WHATS_NEW: WhatsNewRelease[] = [
       },
       {
         title: 'Revisions and sets',
-        items: ['Compare Documents, Overlay Pages, Slip Sheet, Sets and the Batch menu with Auto-Link Sheets.'],
+        items: ['Compare Documents, Overlay Pages, Slip Sheet, Sets and the Bulk menu with Auto-Link Sheets.'],
       },
     ],
   },

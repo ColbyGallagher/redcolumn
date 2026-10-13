@@ -4,7 +4,7 @@ module.exports = async function (h) {
   await h.open('sample-form.pdf');
   await h.open('sample-plans-rev1.pdf');
   await h.open('sample-plans.pdf');
-  await h.menu('Batch');
+  await h.menu('Bulk');
   await h.shot('menu-batch', { around: ['.menu-drop'], pad: 12 });
   await h.closeMenus();
   const kinds = [
@@ -16,7 +16,7 @@ module.exports = async function (h) {
     ['Print…', 'batch-print'],
   ];
   for (const [label, name] of kinds) {
-    await h.run('Batch', label);
+    await h.run('Bulk', label);
     await h.wait(600);
     await h.shot(name, { around: ['.modal'], pad: 20 });
     await h.closeModal();

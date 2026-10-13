@@ -249,7 +249,7 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
             <input type="radio" checked={!batch} onChange={() => setSource('files')} />
             Two documents
           </label>
-          <label className="check" title={sets.length ? 'Batch: every sheet of one set against the same sheet in another' : 'Make Sets in the Sets panel first'}>
+          <label className="check" title={sets.length ? 'Bulk: every sheet of one set against the same sheet in another' : 'Make Sets in the Sets panel first'}>
             <input type="radio" checked={batch} disabled={!sets.length} onChange={() => setSource('sets')} />
             Two sets (batch)
           </label>

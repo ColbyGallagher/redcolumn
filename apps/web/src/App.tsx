@@ -1937,7 +1937,7 @@ export function App() {
       if (spec.batch) {
         const batch = spec.batch;
         try {
-          const done = await runJob('Batch Compare', async (ctx) => {
+          const done = await runJob('Bulk Compare', async (ctx) => {
             const groups = await pairBatch(batch, spec.pairing.kind !== 'order', ctx);
             const results = [];
             for (let g = 0; g < groups.length; g++) {
@@ -1953,13 +1953,13 @@ export function App() {
             setNotice('No sheets in the two sets matched.');
             return;
           }
-          setNotice(`Batch Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
+          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
           const most = done.reduce((a, b) => (b.pages.reduce((m, p) => m + p.differences.length, 0) > a.pages.reduce((m, p) => m + p.differences.length, 0) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
-          if (isAbort(err)) setNotice('Batch Compare cancelled.');
-          else setError(`Batch Compare failed: ${err instanceof Error ? err.message : String(err)}`);
+          if (isAbort(err)) setNotice('Bulk Compare cancelled.');
+          else setError(`Bulk Compare failed: ${err instanceof Error ? err.message : String(err)}`);
         }
         return;
       }
@@ -2018,7 +2018,7 @@ export function App() {
   const runOverlay = useCallback(
     async (spec: CompareSpec) => {
       try {
-        const made = await runJob(spec.batch ? 'Batch Overlay' : 'Overlay Pages', async (ctx) => {
+        const made = await runJob(spec.batch ? 'Bulk Overlay' : 'Overlay Pages', async (ctx) => {
           const { overlayPages, rgbOf } = await import('./documents/overlay');
           if (spec.batch) {
             // Every pair of files stacked into one PDF.
@@ -2034,7 +2034,7 @@ export function App() {
             }
             ctx.progress(1, 1, 'Making the overlay');
             const bytes = await overlayPages(sources, pages);
-            return { name: `Batch Overlay ${new Date().toISOString().slice(0, 10)}.pdf`, bytes, count: pages.length };
+            return { name: `Bulk Overlay ${new Date().toISOString().slice(0, 10)}.pdf`, bytes, count: pages.length };
           }
           const plan = await overlayPlan(spec, ctx);
           ctx.progress(1, 1, 'Making the overlay');
@@ -2425,11 +2425,11 @@ export function App() {
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
       const label = BATCH_LABELS[spec.command.kind];
-      const note = spec.keepRevisions ? `Before Batch ${label}` : undefined;
+      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Batch ${label}`, async (ctx) => {
+        await runJob(`Bulk ${label}`, async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -2810,8 +2810,8 @@ export function App() {
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Batch ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
-        else setNotice(`Batch ${label} cancelled; files already done keep their changes.`);
+        if (!isAbort(err)) setError(`Bulk ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
+        else setNotice(`Bulk ${label} cancelled; files already done keep their changes.`);
       }
       void refreshLibrary();
     },
@@ -6659,7 +6659,7 @@ Open the download page? Run the new installer to update; your documents and mark
           ))}
         </nav>
         {leftOpen && (
-          <aside className={`panel left${leftTab === 'sessions' || leftTab === 'projects' ? ' bb-chrome' : ''}`} style={{ width: leftTab === 'layers' ? Math.max(leftWidth, 380) : leftWidth }}>
+          <aside className={`panel left${leftTab === 'sessions' || leftTab === 'projects' ? ' rc-chrome' : ''}`} style={{ width: leftTab === 'layers' ? Math.max(leftWidth, 380) : leftWidth }}>
             <h2 style={leftTab === 'layers' ? { display: 'none' } : undefined}>
               {LEFT_TITLES[leftTab]}
               <button className="drawer-close" aria-label="Close the panel" title="Close" onClick={() => setLeftOpen(false)}>
@@ -7065,7 +7065,7 @@ Open the download page? Run the new installer to update; your documents and mark
           </aside>
         )}
         <div className="workspace">
-          <div id="bb-project-slot" className="bb-project-slot" />
+          <div id="rc-project-slot" className="rc-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
             <div
               className={`pane${activePane === 'a' ? ' active' : ''}`}

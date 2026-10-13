@@ -8,7 +8,7 @@ interface Props {
   doc: PdfDocument;
   /** File size in bytes, if known. */
   bytes?: number;
-  /** Why the fields cannot be edited (e.g. a shared Studio document), or null if they can. */
+  /** Why the fields cannot be edited (e.g. a shared collaboration document), or null if they can. */
   readOnlyReason: string | null;
   onSave: (info: EditableInfo) => void;
   onClose: () => void;

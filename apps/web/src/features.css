@@ -110,7 +110,7 @@
 
 .file-group.drop {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(20, 163, 154, 0.1);
 }
 
 .group-head {
@@ -119,7 +119,7 @@
   min-height: 28px;
   padding: 0 2px;
   border-radius: 3px;
-  background: #33373c;
+  background: #20304f;
 }
 
 .group-toggle,
@@ -255,7 +255,7 @@
 .toolset-head {
   display: flex;
   align-items: center;
-  background: linear-gradient(#3a3e44, #33373c);
+  background: linear-gradient(#243659, #20304f);
   border-bottom: 1px solid var(--border);
 }
 
@@ -275,12 +275,12 @@
 
 .toolset-menu:hover {
   color: var(--text);
-  background: #44494f;
+  background: #2b3f68;
 }
 
 .toolset-items {
   padding: 4px;
-  background: #25282c;
+  background: #172339;
 }
 
 .toolset-items.icons {
@@ -312,12 +312,12 @@
 
 .tool-item:hover:not(:disabled) {
   border-color: var(--border);
-  background: #33373c;
+  background: #20304f;
 }
 
 .tool-item.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(20, 163, 154, 0.2);
 }
 
 .tool-item:disabled {
@@ -405,7 +405,7 @@
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #33373c;
+  background: #20304f;
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -806,7 +806,7 @@
   padding: 2px 4px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  background: #1f2124;
+  background: #131d2f;
   color: var(--text);
   font: inherit;
   resize: none;
@@ -842,7 +842,7 @@
 .markups input.bare:hover:not(:disabled),
 .markups input.bare:focus {
   border-color: var(--border);
-  background: #1f2124;
+  background: #131d2f;
 }
 
 .subject-cell,
@@ -942,7 +942,7 @@
   margin: 0 0 8px !important;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(20, 163, 154, 0.12);
   color: var(--text) !important;
   font-size: 12px;
 }
@@ -962,7 +962,7 @@
   min-height: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #25282c;
+  background: #172339;
 }
 
 .columns-list ul {
@@ -994,12 +994,12 @@
 }
 
 .col-row:hover {
-  background: #33373c;
+  background: #20304f;
 }
 
 .col-row.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(20, 163, 154, 0.18);
 }
 
 .col-row.invalid .col-name {
@@ -1094,7 +1094,7 @@
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1f2124;
+  background: #131d2f;
   color: var(--text);
   font: inherit;
 }
@@ -1124,7 +1124,7 @@
   padding: 6px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #33373c;
+  background: #20304f;
   color: var(--text);
   font: inherit;
   cursor: pointer;
@@ -1132,7 +1132,7 @@
 
 .col-type.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(20, 163, 154, 0.2);
 }
 
 .col-toggle {
@@ -1187,7 +1187,7 @@
   padding: 0 7px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #33373c;
+  background: #20304f;
   color: var(--text);
   font: inherit;
   font-size: 11px;
@@ -1300,7 +1300,7 @@
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #33373c;
+  background: #20304f;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -1314,7 +1314,7 @@
 
 .choice-card.active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(20, 163, 154, 0.2);
 }
 
 .radio {
@@ -1360,7 +1360,7 @@
   flex-direction: column;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #25282c;
+  background: #172339;
 }
 
 .profiles-list ul {
@@ -1390,11 +1390,11 @@
 }
 
 .profile-row:hover {
-  background: #33373c;
+  background: #20304f;
 }
 
 .profile-row.active {
-  background: rgba(59, 130, 246, 0.2);
+  background: rgba(20, 163, 154, 0.2);
 }
 
 .radio-dot {
@@ -1554,13 +1554,13 @@
   margin: 0 0 6px;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(20, 163, 154, 0.12);
   font-size: 11px;
   cursor: pointer;
 }
 
 /* Preferences: categories and search on the left, tabs along the top of a framed panel, labels
-   right-aligned against their controls (laid out after Bluebeam Revu's dialog). */
+   right-aligned against their controls. */
 .modal.prefs-dialog {
   display: flex;
   flex-direction: column;
@@ -1615,7 +1615,7 @@
 
 .prefs-nav button.active {
   border-left-color: var(--accent);
-  background: rgba(59, 130, 246, 0.22);
+  background: rgba(20, 163, 154, 0.22);
 }
 
 .prefs-frame {
@@ -1649,7 +1649,7 @@
   padding: 0 14px;
   border: 0;
   border-left: 1px solid var(--border);
-  background: #33373c;
+  background: #20304f;
   color: var(--text);
   font: inherit;
   white-space: nowrap;
@@ -1661,11 +1661,11 @@
 }
 
 .prefs-tabs button:hover:not(.active) {
-  background: #3b4046;
+  background: #25375b;
 }
 
 .prefs-tabs button.active {
-  background: rgba(59, 130, 246, 0.45);
+  background: rgba(20, 163, 154, 0.45);
 }
 
 .prefs-section {
@@ -1778,7 +1778,7 @@
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1f2124;
+  background: #131d2f;
   cursor: pointer;
 }
 
@@ -1833,7 +1833,7 @@
   min-height: 140px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1f2124;
+  background: #131d2f;
 }
 
 .pref-table-head,
@@ -1851,7 +1851,7 @@
 
 .pref-table-head {
   border-bottom: 1px solid var(--border);
-  background: #2f3237;
+  background: #1d2c48;
 }
 
 .pref-table-head span {
@@ -1880,7 +1880,7 @@
 }
 
 .pref-table-row.selected {
-  background: rgba(59, 130, 246, 0.22);
+  background: rgba(20, 163, 154, 0.22);
 }
 
 .modal .pref-table-row input:not([type='checkbox']):not([type='radio']):not([type='color']),
@@ -1934,7 +1934,7 @@
   margin: 8px 0 0;
   padding: 6px 8px;
   border-radius: 4px;
-  background: rgba(59, 130, 246, 0.14);
+  background: rgba(20, 163, 154, 0.14);
   color: var(--text);
   cursor: pointer;
 }
@@ -2026,7 +2026,7 @@
   gap: 12px;
   height: 22px;
   padding: 0 6px;
-  background: #1e2023;
+  background: #131c2e;
   border-top: 1px solid var(--border);
   font-size: 11px;
   user-select: none;
@@ -2062,8 +2062,8 @@
 }
 
 .status-toggle.on {
-  color: #e6e8eb;
-  background: rgba(59, 130, 246, 0.28);
+  color: #e3e7ed;
+  background: rgba(20, 163, 154, 0.28);
 }
 
 .status-toggle:disabled {
@@ -2081,7 +2081,7 @@
 .status-coords {
   font-variant-numeric: tabular-nums;
   white-space: pre;
-  color: #c9cdd2;
+  color: #c2cbd8;
 }
 
 @media (max-width: 720px) {
@@ -2126,7 +2126,7 @@
 }
 
 .combine-list li.picked {
-  background: rgba(59, 130, 246, 0.25);
+  background: rgba(20, 163, 154, 0.25);
 }
 
 .combine-list .name {
@@ -2199,7 +2199,7 @@
 }
 
 .modal.palette li.active {
-  background: rgba(59, 130, 246, 0.28);
+  background: rgba(20, 163, 154, 0.28);
 }
 
 .modal.palette li.disabled {
@@ -2277,7 +2277,7 @@
 
 .shortcut-row.custom .name::after {
   content: ' •';
-  color: #60a5fa;
+  color: var(--accent-hi);
 }
 
 .shortcut-row .keys {
@@ -2309,15 +2309,15 @@
   padding: 1px 6px;
   border: 1px solid var(--border);
   border-radius: 3px;
-  background: #1f2124;
+  background: #131d2f;
   color: var(--text);
   font: 11px system-ui, sans-serif;
   white-space: nowrap;
 }
 
 .add-key.recording {
-  border-color: #3b82f6;
-  color: #93c5fd;
+  border-color: var(--accent);
+  color: var(--accent-hi);
 }
 
 .modal .actions .spacer {
@@ -2325,13 +2325,13 @@
 }
 
 .pref-hint.note {
-  color: #93c5fd;
+  color: var(--accent-hi);
 }
 
 /* Markups list: group headers and reply rows. */
 .markups tr.group-row td {
   padding: 4px 8px;
-  background: #26292e;
+  background: #18243b;
   color: var(--text);
   font-weight: 600;
   cursor: pointer;
@@ -2473,7 +2473,7 @@
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1f2124;
+  background: #131d2f;
   color: var(--text);
   font: inherit;
   resize: vertical;
@@ -2711,7 +2711,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: #c5c8cc;
+  color: #c0c6d1;
   cursor: pointer;
 }
 
@@ -2719,7 +2719,7 @@
   width: 1px;
   height: 18px;
   margin: 0 4px;
-  background: #6d7178;
+  background: #606d84;
 }
 
 .ms-twist {
@@ -2798,7 +2798,7 @@
   gap: 6px;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid #8e939a;
+  border: 1px solid #828fa5;
   border-radius: 2px;
   background: transparent;
   color: var(--text);
@@ -2829,7 +2829,7 @@
 }
 
 .ms-check input {
-  accent-color: #d7dbe0;
+  accent-color: #d3dae3;
 }
 
 .ms-eq {
@@ -2855,9 +2855,9 @@
 .measure-panel select {
   height: 22px;
   padding: 0 6px;
-  border: 1px solid #8e939a;
+  border: 1px solid #828fa5;
   border-radius: 2px;
-  background: #1c1e22;
+  background: #121a2c;
   color: var(--text);
   font: inherit;
   font-size: 12px;
@@ -2880,9 +2880,9 @@
   z-index: 6;
   min-width: 160px;
   padding: 4px 0;
-  border: 1px solid #8e939a;
+  border: 1px solid #828fa5;
   border-radius: 2px;
-  background: #2a2d31;
+  background: #1a2740;
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
 }
 
@@ -2943,9 +2943,9 @@
   min-height: 108px;
   max-height: 180px;
   overflow: auto;
-  border: 1px solid #8e939a;
+  border: 1px solid #828fa5;
   border-radius: 2px;
-  background: #23262a;
+  background: #162136;
 }
 
 .ms-vp-row {
@@ -2956,7 +2956,7 @@
 }
 
 .ms-vp-row.on {
-  background: rgba(59, 130, 246, 0.28);
+  background: rgba(20, 163, 154, 0.28);
 }
 
 .ms-vp-row input,
@@ -2984,7 +2984,7 @@
   padding: 0 4px;
   border: 0;
   background: none;
-  color: #e8eaed;
+  color: #e6e9ef;
   font: inherit;
   font-size: 16px;
   cursor: pointer;
@@ -3049,7 +3049,7 @@
   padding: 6px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--panel, #26292e);
+  background: var(--panel, #18243b);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   transform: translateX(-50%);
   font-size: 12px;
@@ -3083,7 +3083,7 @@
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--panel, #26292e);
+  background: var(--panel, #18243b);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   font-size: 12px;
 }
@@ -3187,7 +3187,7 @@
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--panel, #26292e);
+  background: var(--panel, #18243b);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   font-size: 12px;
 }
@@ -3249,7 +3249,7 @@
 }
 
 .compare-results .compare-item.active {
-  background: var(--accent, #3b82f6);
+  background: var(--accent, var(--accent));
   color: #fff;
 }
 
@@ -3402,10 +3402,10 @@
   z-index: 30;
   box-sizing: border-box;
   padding: 1px 4px;
-  border: 2px solid var(--accent, #3b82f6);
+  border: 2px solid var(--accent, var(--accent));
   border-radius: 2px;
   background: #fff;
-  color: #111;
+  color: #0a0f18;
   font-family: Helvetica, Arial, sans-serif;
   resize: none;
 }
@@ -3421,7 +3421,7 @@
 }
 
 .forms-panel .form-fields li.active {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(20, 163, 154, 0.12);
 }
 
 .forms-panel .field-row {
@@ -3587,7 +3587,7 @@
   border: 1px solid #e0a030;
   border-left-width: 4px;
   border-radius: 8px;
-  background: var(--panel, #26292e);
+  background: var(--panel, #18243b);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   font-size: 12px;
 }
@@ -3711,7 +3711,7 @@ tr.hidden-markup td {
 
 .spell-context mark {
   background: #fca5a5;
-  color: #111;
+  color: #0a0f18;
 }
 
 .spell-where {
@@ -3766,7 +3766,7 @@ tr.hidden-markup td {
 .camera-body {
   display: flex;
   justify-content: center;
-  background: #111;
+  background: #0a0f18;
   border-radius: 4px;
   max-height: 60vh;
 }
@@ -3792,8 +3792,8 @@ tr.hidden-markup td {
 }
 
 .corner-editor polygon {
-  fill: rgba(59, 130, 246, 0.15);
-  stroke: #3b82f6;
+  fill: rgba(20, 163, 154, 0.15);
+  stroke: var(--accent);
   stroke-width: 0.4%;
   vector-effect: non-scaling-stroke;
 }
@@ -3805,7 +3805,7 @@ tr.hidden-markup td {
   margin: -9px 0 0 -9px;
   border: 2px solid #fff;
   border-radius: 50%;
-  background: #3b82f6;
+  background: var(--accent);
   cursor: grab;
 }
 
@@ -4115,8 +4115,8 @@ tr.hidden-markup td {
 }
 .compare-pick-region {
   position: absolute;
-  border: 2px dashed #1a6cff;
-  background: rgba(26, 108, 255, 0.12);
+  border: 2px dashed var(--accent);
+  background: rgba(20, 163, 154, 0.12);
   pointer-events: none;
 }
 
@@ -4187,7 +4187,7 @@ tr.hidden-markup td {
   gap: 6px;
 }
 
-/* Markup Summary (Bluebeam's columns / filter / output dialog) */
+/* Markup Summary (columns / filter / output dialog) */
 
 .modal.markup-summary {
   position: absolute;
@@ -4246,12 +4246,12 @@ tr.hidden-markup td {
 .markup-summary th {
   position: sticky;
   top: 0;
-  background: #2a2d31;
+  background: #1a2740;
   font-weight: 600;
 }
 
 .markup-summary tr.selected td {
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(20, 163, 154, 0.18);
 }
 
 .markup-summary .ms-empty {
@@ -4324,7 +4324,7 @@ tr.hidden-markup td {
 .markup-summary .ms-menu button:hover,
 .markup-summary .ms-library label:hover,
 .markup-summary .ms-filter-pop label:hover {
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(20, 163, 154, 0.18);
 }
 
 .markup-summary .ms-tabs {
@@ -4434,7 +4434,7 @@ tr.hidden-markup td {
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: #1f2124;
+  background: #131d2f;
   color: var(--text);
   font: inherit;
   text-align: left;
