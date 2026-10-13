@@ -23,6 +23,12 @@ const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
 const launches = new LaunchQueue(allowlist);
 let mainWindow: BrowserWindow | null = null;
+/** The page has documents with unsaved changes (it reports this as they change). */
+let unsavedChanges = false;
+/** The page dealt with its unsaved changes, so the next close goes ahead. */
+let closeConfirmed = false;
+/** A quit is under way, so confirming the close quits rather than only closing the window. */
+let quitting = false;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -191,9 +197,26 @@ async function start() {
     return { enabled: current.enabled, ...launch() };
   });
   await assistant.restore();
-  app.on('before-quit', () => {
+  // will-quit, not before-quit: a quit stopped by the unsaved-changes question must leave the assistant running.
+  app.on('will-quit', () => {
     cancelAssistantCalls();
     assistant.suspend();
+  });
+  app.on('before-quit', () => {
+    quitting = true;
+  });
+
+  // Unsaved changes: the page says whether it has any; closing the window then asks the page first.
+  ipcMain.on('window:unsaved', (event, on) => {
+    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
+    unsavedChanges = on === true;
+  });
+  ipcMain.on('window:close', (event) => {
+    const win = mainWindow;
+    if (!win || event.sender !== win.webContents || !fromApp(event)) return;
+    closeConfirmed = true;
+    if (quitting) app.quit();
+    else win.close();
   });
 
   app.on('web-contents-created', (_event, contents) => harden(contents));
@@ -223,8 +246,21 @@ function createWindow() {
     },
   });
   mainWindow = win;
+  unsavedChanges = false;
+  closeConfirmed = false;
   launches.attach(win);
   win.once('ready-to-show', () => win.show());
+  // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
+  // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
+  let hung = false;
+  win.on('unresponsive', () => (hung = true));
+  win.on('responsive', () => (hung = false));
+  win.webContents.on('render-process-gone', () => (unsavedChanges = false));
+  win.on('close', (event) => {
+    if (closeConfirmed || !unsavedChanges || hung || win.webContents.isCrashed()) return;
+    event.preventDefault();
+    win.webContents.send('window:close-request');
+  });
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });

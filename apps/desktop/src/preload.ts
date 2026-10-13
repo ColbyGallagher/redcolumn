@@ -74,4 +74,11 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return () => unsubscribe('assistant:call', listener as (...args: unknown[]) => void);
   },
   replyAssistant: (id: string, body: { result?: unknown; error?: string }) => ipcRenderer.send('assistant:result', { id, ...body }),
+  setUnsavedChanges: (on: boolean) => ipcRenderer.send('window:unsaved', on === true),
+  onCloseRequest(cb: () => void) {
+    const listener = () => cb();
+    ipcRenderer.on('window:close-request', listener);
+    return () => unsubscribe('window:close-request', listener);
+  },
+  closeWindow: () => ipcRenderer.send('window:close'),
 });
