@@ -2256,9 +2256,12 @@ export class MarkupTools implements ViewerOverlay {
   private drawFormWidgets(ctx: CanvasRenderingContext2D, pageIndex: number) {
     const list = this.formWidgets.filter((w) => w.pageIndex === pageIndex);
     if (!list.length) return;
+    // Fillable fields in Preferences › Forms › Highlight Colour and Opacity; read-only ones faintly grey.
+    const { formHighlightColour, formHighlightOpacity } = settings.get();
     ctx.save();
     for (const w of list) {
-      ctx.fillStyle = w.readOnly ? 'rgba(100, 116, 139, 0.08)' : 'rgba(37, 99, 235, 0.1)';
+      ctx.fillStyle = w.readOnly ? 'rgba(100, 116, 139, 0.08)' : formHighlightColour;
+      ctx.globalAlpha = w.readOnly ? 1 : formHighlightOpacity / 100;
       ctx.fillRect(w.rect.x, w.rect.y, w.rect.w, w.rect.h);
     }
     ctx.restore();

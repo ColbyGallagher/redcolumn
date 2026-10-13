@@ -209,9 +209,11 @@ export interface Settings {
   /** Draw to Scale angles: from east (Absolute) or from the previous segment's direction (Relative). */
   rotationInput: 'absolute' | 'relative';
   // Tools › Forms
-  formHighlightColour: string; // stored
-  formHighlightOpacity: number; // stored
-  formSingleKeys: boolean; // stored
+  /** How fillable form fields are tinted on the page. */
+  formHighlightColour: string;
+  formHighlightOpacity: number;
+  /** With the Forms panel open, T, C, R, D, L, B and S start drawing that kind of field. */
+  formSingleKeys: boolean;
   // Tools › Signature
   signaturePasswordTimeout: number; // stored
   signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512'; // stored
