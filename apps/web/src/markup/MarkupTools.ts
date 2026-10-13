@@ -2353,7 +2353,7 @@ export class MarkupTools implements ViewerOverlay {
     // close on its start.
     if (g?.kind === 'multi') for (const q of g.markup.points) extra.push(this.viewer.mapPoint(g.markup.pageIndex, pageIndex, q));
     const radius = snapPx() / this.viewer.zoomFor(pageIndex);
-    return index ? index.snap(p, radius, extra, snapKinds()) : nearestPoint(p, extra, radius);
+    return index ? index.snap(p, radius, extra, snapKinds(), settings.get().snapCurves) : nearestPoint(p, extra, radius);
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */

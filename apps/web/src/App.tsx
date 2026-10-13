@@ -1097,7 +1097,10 @@ export function App() {
         return;
       }
       c.tools.setStore(packed.store);
-      c.tools.setSnapSource(async (pageIndex) => new SnapIndex((await packed.doc.geometry(pageIndex)).segments));
+      c.tools.setSnapSource(async (pageIndex) => {
+        const g = await packed.doc.geometry(pageIndex);
+        return new SnapIndex(g.segments, undefined, g.curves);
+      });
       c.tools.setTextSource((pageIndex) => packed.doc.text(pageIndex));
       c.viewer.setDocument(packed.doc);
       const view = savedViews.current.get(packed.file.id);
@@ -1607,7 +1610,10 @@ export function App() {
       setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
       setFront(pane, next);
       const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => new SnapIndex((await next.doc.geometry(pageIndex)).segments));
+      tools.setSnapSource(async (pageIndex) => {
+        const g = await next.doc.geometry(pageIndex);
+        return new SnapIndex(g.segments, undefined, g.curves);
+      });
       tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
       const view = viewer.getView();
       viewer.setDocument(next.doc);

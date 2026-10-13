@@ -148,11 +148,13 @@ export interface Settings {
   /** What the plain mouse wheel does in single page view and in continuous view. */
   singlePageWheel: 'zoom' | 'scroll';
   continuousWheel: 'zoom' | 'scroll';
-  wheelSensitivity: number; // stored: the zoom steps set the wheel's rate
+  /** How far a wheel notch scrolls, and how fast a trackpad zooms (1–10; 4 is the browser's rate). */
+  wheelSensitivity: number;
   // General › Grid & Snap
-  /** Snap to Content: nearest point on straight lines and on curves. */
+  /** Snap to Content: nearest point on straight lines. */
   snapLines: boolean;
-  snapCurves: boolean; // stored
+  /** Snap to Content also snaps onto curves (arcs, circles, splines) in the drawing. */
+  snapCurves: boolean;
   /** Which kinds of drawing geometry Snap to Content snaps to. */
   snapMidpoints: boolean;
   snapEndpoints: boolean;
