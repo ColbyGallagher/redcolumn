@@ -1,6 +1,6 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { autoFormatList, backspaceList, contentBox, continueList, cssFont, shiftList, TEXT_LINE_HEIGHT, TEXT_PADDING, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
-import { useSettings } from '../settings/settings';
+import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, TEXT_LINE_HEIGHT, TEXT_PADDING, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
+import { settings, useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
 const MIN_EDIT_FONT_PX = 13;
@@ -10,6 +10,15 @@ interface Props {
   store: MarkupStore;
   viewer: TileViewer;
   onDone: () => void;
+}
+
+/** Preferences › Markup › Auto-size Text Box and Call-out Markups: the box fitted to the new text. */
+function fittedBox(m: Markup, text: string): { points?: Point[] } {
+  if (!settings.get().autoSizeText || (m.type !== 'text' && m.type !== 'callout')) return {};
+  const ctx = document.createElement('canvas').getContext('2d')!;
+  ctx.font = cssFont(m.style, m.style.fontSize ?? 12);
+  const points = autoSizedPoints({ ...m, text }, (s) => ctx.measureText(s).width);
+  return points ? { points } : {};
 }
 
 /** Typewriter text has no box to wrap in: the box is sized to fit the typed lines. */
@@ -95,7 +104,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
 
   const finish = () => {
     const text = ref.current?.value ?? '';
-    if (!cancelled.current && text !== (markup.text ?? '')) store.update(markup.id, typewriter ? { text, points: typewriterBox(markup, text) } : { text });
+    if (!cancelled.current && text !== (markup.text ?? '')) store.update(markup.id, typewriter ? { text, points: typewriterBox(markup, text) } : { text, ...fittedBox(markup, text) });
     // A text box that never received text is removed rather than left empty.
     if ((cancelled.current ? markup.text ?? '' : text).trim() === '') store.remove([markup.id]);
     onDone();

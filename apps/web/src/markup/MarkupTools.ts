@@ -2077,6 +2077,8 @@ export class MarkupTools implements ViewerOverlay {
         if (g.markup.comment) this.options.onTextSelected?.(g.markup.comment);
         return;
       }
+      // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
+      if (!settings.get().copyHighlightedText) g.markup.comment = undefined;
       this.store.checkpoint();
       this.store.add({ ...g.markup, createdAt: Date.now(), modifiedAt: Date.now() });
       this.options.onCreated?.(g.markup);

@@ -189,7 +189,8 @@ export interface Settings {
   /** The Layers Dial shows one layer alone (Isolate) or draws the other markup layers faintly (Fade). */
   layerDial: 'isolate' | 'fade';
   // Tools › Markup
-  autoSizeText: boolean; // stored
+  /** Text boxes and callouts are fitted to their text whenever it is edited. */
+  autoSizeText: boolean;
   scaleGroupAppearance: boolean; // stored
   /** Pasted markups stay on the layer they were copied from (else they go on no layer). */
   retainLayerOnCopy: boolean;
@@ -200,8 +201,10 @@ export interface Settings {
   printPopups: boolean; // stored
   /** Opacity of comment pop-ups, in percent. */
   popupOpacity: number;
-  copyHighlightedText: boolean; // stored
-  imageEncoding: 'auto' | 'jpeg' | 'flate'; // stored
+  /** Highlight, underline and strikeout markups get the text they mark as their comment. */
+  copyHighlightedText: boolean;
+  /** How placed pictures are stored: Auto (photos JPEG, others lossless), JPEG, or Flate (lossless PNG). */
+  imageEncoding: 'auto' | 'jpeg' | 'flate';
   // Tools › Sketch
   rotationInput: 'absolute' | 'relative'; // stored
   // Tools › Forms
