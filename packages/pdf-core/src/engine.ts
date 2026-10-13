@@ -150,10 +150,10 @@ export class PdfEngine {
   }
 
   /** @internal */
-  async pageGeometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; ms: number }> {
+  async pageGeometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; ms: number }> {
     const res = await this.call({ type: 'geometry', docId, pageIndex });
     if (res.type !== 'geometry') throw new Error('Unexpected response');
-    return { segments: res.segments, ms: res.ms };
+    return { segments: res.segments, curves: res.curves, ms: res.ms };
   }
 
   /** @internal */
@@ -213,7 +213,8 @@ export class PdfDocument {
 
   /**
    * Vector line work on a page as flat [x1, y1, x2, y2, ...] segments in page space (points,
-   * top-left origin, rotation applied). Curves are flattened. Used for snapping and vector compare.
+   * top-left origin, rotation applied). Curves are flattened; `curves` flags (1 per segment) the
+   * segments that came from one. Used for snapping and vector compare.
    */
   geometry(pageIndex: number) {
     return this.engine.pageGeometry(this.id, pageIndex);

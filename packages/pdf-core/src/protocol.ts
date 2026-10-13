@@ -209,7 +209,7 @@ export type WorkerResponse =
   | { id: number; ok: true; type: 'open'; docId: number; pages: PageSize[] }
   | { id: number; ok: true; type: 'close' }
   | { id: number; ok: true; type: 'render'; bitmap: ImageBitmap; ms: number }
-  | { id: number; ok: true; type: 'geometry'; segments: Float32Array; ms: number }
+  | { id: number; ok: true; type: 'geometry'; segments: Float32Array; curves: Uint8Array; ms: number }
   | { id: number; ok: true; type: 'text'; words: TextWord[] }
   | { id: number; ok: true; type: 'annotations'; annotations: PdfAnnotation[] }
   | { id: number; ok: true; type: 'hideAnnots' }

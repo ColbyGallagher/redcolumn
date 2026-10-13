@@ -492,6 +492,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.hyperlink" />
             <Cmd id="tool.attachment" />
             <Cmd id="tools.sound" />
+            <Cmd id="tools.video" />
             <Submenu label="Eraser">
               <Cmd id="tool.eraser" label="Eraser" />
               <Cmd id="tools.eraserSmall" label="Small" />

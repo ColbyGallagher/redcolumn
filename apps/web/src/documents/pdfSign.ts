@@ -30,6 +30,8 @@ export interface SignRequest {
   date?: Date;
   /** Gets a trusted time stamp token (RFC 3161) over the signature value, added to the signature. */
   timestamp?: (signatureValue: Uint8Array) => Promise<Uint8Array>;
+  /** The digest the signature is made over (SHA-256 unless given). */
+  digest?: 'SHA-256' | 'SHA-384' | 'SHA-512';
 }
 
 function pdfDate(d: Date): string {
@@ -166,7 +168,7 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId, req: SignReques
   const signed = new Uint8Array(a + (out.length - b));
   signed.set(out.subarray(0, a), 0);
   signed.set(out.subarray(b), a);
-  let der = externalCms ? await externalCms(signed) : cmsSign(signed, id, date);
+  let der = externalCms ? await externalCms(signed) : cmsSign(signed, id, date, req.digest ?? 'SHA-256');
   if (req.timestamp) der = withTimestamp(der, await req.timestamp(signatureValueOf(der)));
   const hexSig = [...der].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
   if (hexSig.length > zeros.length) throw new Error('The signature is larger than the space for it');
@@ -174,15 +176,17 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId, req: SignReques
   return out;
 }
 
+const DIGEST_OIDS = { 'SHA-256': forge.pki.oids.sha256!, 'SHA-384': forge.pki.oids.sha384!, 'SHA-512': forge.pki.oids.sha512! } as const;
+
 /** CMS SignedData (detached) over `data`: signing time, content type and digest signed with the key. */
-function cmsSign(data: Uint8Array, id: UnlockedId, date: Date): Uint8Array {
+function cmsSign(data: Uint8Array, id: UnlockedId, date: Date, digest: keyof typeof DIGEST_OIDS): Uint8Array {
   const p7 = forge.pkcs7.createSignedData();
   p7.content = forge.util.createBuffer(bytesToBinary(data));
   for (const c of id.chain) p7.addCertificate(c);
   p7.addSigner({
     key: id.key,
     certificate: id.chain[0]!,
-    digestAlgorithm: forge.pki.oids.sha256!,
+    digestAlgorithm: DIGEST_OIDS[digest],
     authenticatedAttributes: [
       { type: forge.pki.oids.contentType!, value: forge.pki.oids.data! },
       { type: forge.pki.oids.messageDigest! },

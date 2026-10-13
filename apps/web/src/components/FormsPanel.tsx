@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FieldChanges, FieldType, FieldVisibility, FormField, FormModel } from '../documents/forms';
 import { CALC_LABELS, type CalcOp, type FieldFormat } from '../documents/formScripts';
+import { useSettings } from '../settings/settings';
 
 export type NewFieldType = Exclude<FieldType, 'button'> | 'button';
 
@@ -13,6 +14,9 @@ const TYPE_LABELS: Record<FieldType, string> = {
   button: 'Button',
   signature: 'Signature',
 };
+
+/** Preferences › Forms › Enable Single Key Shortcuts: a letter picks a field type to draw. */
+const SINGLE_KEYS: Record<string, FieldType> = { t: 'text', c: 'checkbox', r: 'radio', d: 'dropdown', l: 'list', b: 'button', s: 'signature' };
 
 interface Props {
   model: FormModel | null;
@@ -376,6 +380,23 @@ export function FormsPanel(p: Props) {
     p.onReorder(names);
   };
   const required = fields.filter((f) => f.required && (!f.value || f.value === 'Off'));
+  const { formSingleKeys } = useSettings();
+  const { editable, drawing, onNewType, onDraw } = p;
+  useEffect(() => {
+    if (!formSingleKeys || !editable) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.ctrlKey || e.metaKey || e.altKey || t?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const type = SINGLE_KEYS[e.key.toLowerCase()];
+      if (!type) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onNewType(type);
+      if (!drawing) onDraw();
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [formSingleKeys, editable, drawing, onNewType, onDraw]);
 
   return (
     <div className="forms-panel">

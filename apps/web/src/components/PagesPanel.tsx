@@ -3,6 +3,7 @@ import type { PageOp, PdfDocument } from '@nb/pdf-core';
 import type { SheetInfo } from '@nb/sheets';
 import type { Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
+import { SetScaleDialog } from './SetScaleDialog';
 
 /** Thumbnail width in CSS px. The slider moves between these; 150 is the default. */
 const THUMB_MIN = 64;
@@ -228,15 +229,20 @@ interface Props {
   onGoTo: (pageIndex: number) => void;
   /** Applies page operations to the document (and everything attached to its pages). */
   onPageOps: (ops: PageOp[], inserts?: ArrayBuffer[]) => void;
-  onExtract: (pages: number[]) => void;
   onSetScale: (pages: number[], scale: Scale) => void;
   onSetLabel: (pages: number[], label: string) => void;
+  /** Starts the Calibrate tool; null when the document cannot take a scale. */
+  onCalibrate: (() => void) | null;
+  /** Opens Bulk Apply Page Scale for these pages. */
+  onBulkScales: (pages: number[]) => void;
+  /** Opens Page Labels (typed, or from regions) for these pages. */
+  onPageLabels: (pages: number[]) => void;
   /** Right-click on a thumbnail: `pages` are the pages it acts on; `rename` opens that page's label editor. */
   onThumbMenu: (e: React.MouseEvent, pages: number[], rename: () => void) => void;
 }
 
 /** Page thumbnails with selection, reordering by drag, and page operations. */
-export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onPageOps, onExtract, onSetScale, onSetLabel, onThumbMenu }: Props) {
+export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onPageOps, onSetScale, onSetLabel, onCalibrate, onBulkScales, onPageLabels, onThumbMenu }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [anchor, setAnchor] = useState(0);
   const [dropAt, setDropAt] = useState<number | null>(null);
@@ -247,6 +253,7 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
   const dragging = useRef<number[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const [rename, setRename] = useState<{ page: number; tick: number } | null>(null);
+  const [scaleOpen, setScaleOpen] = useState(false);
 
   // Selection refers to page numbers of the current document; reset when it changes.
   useEffect(() => setSelected([]), [doc]);
@@ -303,68 +310,57 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
 
   return (
     <div className="pages-panel">
-      <div className="sheet-actions">
-        <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
-          ⟲
-        </button>
-        <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
-          ⟳
-        </button>
-        <button
-          className="btn small"
-          disabled={busy || chosen.length >= count}
-          title={`Delete ${plural}`}
-          onClick={() => {
-            if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
-              onPageOps([{ type: 'delete', pages: chosen }]);
-            }
-          }}
-        >
-          Delete
-        </button>
-        <button className="btn small" disabled={busy} title={`Save ${plural} as a new PDF`} onClick={() => onExtract(chosen)}>
-          Extract
-        </button>
-        <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
-          Insert PDF…
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          hidden
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) onPageOps([{ type: 'insert', source: 0, at: chosen.at(-1)! + 1 }], [await file.arrayBuffer()]);
-          }}
-        />
+      <div className="pages-head">
+        <div className="sheet-actions">
+          <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
+            ⟲
+          </button>
+          <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
+            ⟳
+          </button>
+          <button
+            className="btn small"
+            disabled={busy || chosen.length >= count}
+            title={`Delete ${plural}`}
+            onClick={() => {
+              if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
+                onPageOps([{ type: 'delete', pages: chosen }]);
+              }
+            }}
+          >
+            Delete
+          </button>
+          <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
+            Page Label
+          </button>
+          <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
+            Insert PDF…
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/pdf"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) onPageOps([{ type: 'insert', source: 0, at: chosen.at(-1)! + 1 }], [await file.arrayBuffer()]);
+            }}
+          />
+        </div>
+        <div className="sheet-actions">
+          <ScaleControl
+            scale={chosen.length === 1 ? (scales[chosen[0]!] ?? null) : null}
+            pageCount={chosen.length}
+            disabled={busy}
+            showAllPages={false}
+            onPreset={(s) => onSetScale(chosen, s)}
+            onApplyAll={() => {}}
+            onCustom={() => setScaleOpen(true)}
+            onBulk={() => onBulkScales(selected.length > 1 ? chosen : [])}
+          />
+        </div>
       </div>
-      <div className="sheet-actions">
-        <ScaleControl
-          scale={chosen.length === 1 ? (scales[chosen[0]!] ?? null) : null}
-          pageCount={chosen.length}
-          disabled={busy}
-          showAllPages={false}
-          onPreset={(s) => onSetScale(chosen, s)}
-          onApplyAll={() => {}}
-        />
-      </div>
-      <p className="empty">{selected.length > 1 ? `${selected.length} pages selected · ` : ''}Drag to reorder. Ctrl/Shift+click to select several. Double-click a label to rename it.</p>
-      <label className="thumb-zoom">
-        <span aria-hidden="true">−</span>
-        <input
-          type="range"
-          min={THUMB_MIN}
-          max={THUMB_MAX}
-          step={1}
-          value={thumbW}
-          aria-label="Thumbnail size"
-          title="Thumbnail size"
-          onChange={(e) => setThumbW(clampThumbWidth(Number(e.target.value)))}
-        />
-        <span aria-hidden="true">+</span>
-      </label>
       <div
         className="thumbs"
         onDragLeave={() => setDropAt(null)}
@@ -413,6 +409,40 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
           />
         ))}
       </div>
+      <label className="thumb-zoom">
+        <span aria-hidden="true">−</span>
+        <input
+          type="range"
+          min={THUMB_MIN}
+          max={THUMB_MAX}
+          step={1}
+          value={thumbW}
+          aria-label="Thumbnail size"
+          title="Thumbnail size"
+          onChange={(e) => setThumbW(clampThumbWidth(Number(e.target.value)))}
+        />
+        <span aria-hidden="true">+</span>
+      </label>
+      {scaleOpen && (
+        <SetScaleDialog
+          scale={scales[chosen[0]!] ?? null}
+          pageCount={count}
+          currentPage={currentPage}
+          selected={selected}
+          onCalibrate={
+            onCalibrate &&
+            (() => {
+              setScaleOpen(false);
+              onCalibrate();
+            })
+          }
+          onApply={(pages, scale) => {
+            onSetScale(pages, scale);
+            setScaleOpen(false);
+          }}
+          onCancel={() => setScaleOpen(false)}
+        />
+      )}
     </div>
   );
 }

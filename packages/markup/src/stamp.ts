@@ -71,6 +71,7 @@ export const DEFAULT_STAMPS: readonly StampDef[] = [
   stamp('preliminary', 'Preliminary', '#b45309', ''),
   stamp('draft', 'Draft', '#6b7280', ''),
   stamp('void', 'Void', '#b91c1c', ''),
+  stamp('superseded', 'Superseded', '#b91c1c'),
   stamp('confidential', 'Confidential', '#b91c1c', ''),
 ];
 

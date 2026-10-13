@@ -27,6 +27,8 @@
     "@tesseract.js-data/por": "^1.0.0",
     "@tesseract.js-data/spa": "^1.0.0",
     "dictionary-en": "^4.0.0",
+    "dictionary-en-au": "^3.0.0",
+    "dictionary-en-gb": "^3.0.0",
     "node-forge": "^1.4.0",
     "nspell": "^2.1.5",
     "pdf-lib": "^1.17.1",

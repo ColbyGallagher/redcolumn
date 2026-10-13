@@ -21,6 +21,8 @@ const MAX_INTERSECT_CANDIDATES = 48;
  */
 export class SnapIndex {
   readonly segments: Float32Array;
+  /** 1 for each segment flattened from a curve, when known. */
+  private curves: Uint8Array | undefined;
   private cellSize: number;
   private grid = new Map<number, number[]>();
   private stamp: Uint32Array;
@@ -29,9 +31,11 @@ export class SnapIndex {
   /**
    * @param segments flat [x1, y1, x2, y2, ...] in page space
    * @param cellSize grid cell edge in points; a few times the typical snap radius works well
+   * @param curves 1 for each segment flattened from a curve
    */
-  constructor(segments: Float32Array, cellSize = 24) {
+  constructor(segments: Float32Array, cellSize = 24, curves?: Uint8Array) {
     this.segments = segments;
+    this.curves = curves;
     this.cellSize = cellSize;
     this.stamp = new Uint32Array(segments.length / 4);
     for (let i = 0; i < segments.length / 4; i++) this.insert(i);
@@ -89,8 +93,10 @@ export class SnapIndex {
   /**
    * Best snap target within `radius` of `p`, or null. `extraPoints` (e.g. vertices of existing
    * markups) snap as endpoints. `kinds`, when given, limits the drawing geometry snapped to.
+   * Without `curves`, line work flattened from curves is ignored; with it, the nearest point on a
+   * curve is snapped to whether or not `kinds` has 'nearest' (which then means straight lines).
    */
-  snap(p: Pt, radius: number, extraPoints: readonly Pt[] = [], kinds?: ReadonlySet<SnapKind>): Snap | null {
+  snap(p: Pt, radius: number, extraPoints: readonly Pt[] = [], kinds?: ReadonlySet<SnapKind>, curves = true): Snap | null {
     const [px, py] = p;
     const s = this.segments;
     let best: Snap | null = null;
@@ -111,6 +117,8 @@ export class SnapIndex {
 
     const near: { i: number; d: number }[] = [];
     for (const i of this.candidates(px - radius, py - radius, px + radius, py + radius)) {
+      const curve = this.curves?.[i] === 1;
+      if (curve && !curves) continue;
       const x1 = s[i * 4]!;
       const y1 = s[i * 4 + 1]!;
       const x2 = s[i * 4 + 2]!;
@@ -127,7 +135,7 @@ export class SnapIndex {
       consider(x1, y1, 'endpoint');
       consider(x2, y2, 'endpoint');
       consider((x1 + x2) / 2, (y1 + y2) / 2, 'midpoint');
-      consider(nx, ny, 'nearest');
+      consider(nx, ny, 'nearest', curve);
     }
 
     near.sort((a, b) => a.d - b.d);

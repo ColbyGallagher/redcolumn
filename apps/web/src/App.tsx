@@ -79,7 +79,7 @@ import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
 import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
-import { drawingSets } from './storage/sets';
+import { drawingSets, type SetSheet } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
@@ -104,6 +104,8 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
+import { assertKeepsSignatures } from './documents/signedBytes';
+import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -171,10 +173,51 @@ function markSaved(t: OpenFile) {
 function hasUnsavedChanges(t: OpenFile) {
   let base = savedState.get(t.store);
   if (!base) {
-    markSaved(t);
+    // Document Recovery: changes kept from an earlier session that never reached the file.
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
+    else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
+}
+
+/** Pages longer than tabloid (17 in) are drawings, shown a sheet at a time; smaller ones scroll. */
+const DRAWING_PAGE_PT = 17 * 72;
+
+/** Preferences › Document › Page Layout, for a document shown for the first time this session. */
+function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
+  const layout = settings.get().pageLayout;
+  const drawings = doc.pages.some((p) => Math.max(p.width, p.height) > DRAWING_PAGE_PT);
+  const continuous = layout === 'continuous' || layout === 'continuousSideBySide' || (layout === 'auto' && !drawings);
+  viewer.setSpread(layout === 'sideBySide' || layout === 'continuousSideBySide' ? 2 : 1, viewer.spread.cover);
+  viewer.setPageMode(continuous ? 'continuous' : 'single');
+}
+
+/**
+ * Preferences › Document › Enable Document Recovery: Library documents whose markups have changes
+ * not saved to their file, remembered across sessions so they still show as unsaved after the app
+ * is closed or crashes.
+ */
+const RECOVERY_KEY = 'nb.unsavedDocs';
+function recoveredDocs(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function rememberUnsaved(changes: Map<string, boolean>) {
+  const ids = recoveredDocs();
+  for (const [id, unsaved] of changes) {
+    if (unsaved) ids.add(id);
+    else ids.delete(id);
+  }
+  try {
+    if (ids.size) localStorage.setItem(RECOVERY_KEY, JSON.stringify([...ids]));
+    else localStorage.removeItem(RECOVERY_KEY);
+  } catch {
+    // Not remembered; the documents look saved next time.
+  }
 }
 
 /** A tab's file name, followed by * when the document has changes that are not saved to its file. */
@@ -535,8 +578,10 @@ async function annotatedBytes(
 ): Promise<Uint8Array> {
   // pdf-lib is only needed here; load it on demand (the service worker still precaches it).
   const { exportWithAnnotations } = await import('@nb/markup/export');
+  // Preferences › Markup › Embed Fonts: markup text carries its font files, so every reader shows it alike.
+  const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
   return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
-    ...(options.embedFont ? { embedFont: options.embedFont } : {}),
+    ...(embedFont ? { embedFont } : {}),
     scaleFor: (i) => cur.store.scaleFor(i),
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),
@@ -731,7 +776,7 @@ export function App() {
   /** Side-by-Side (two pages per row) and Show Cover Page, in both panes. */
   const [spread, setSpread] = useState<{ columns: 1 | 2; cover: boolean }>({ columns: 1, cover: false });
   const [magnifier, setMagnifier] = useState(false);
-  const [soundOpen, setSoundOpen] = useState(false);
+  const [soundOpen, setSoundOpen] = useState<false | 'sound' | 'video'>(false);
   const [undoHistoryOpen, setUndoHistoryOpen] = useState(false);
   const [spellOpen, setSpellOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
@@ -744,6 +789,8 @@ export function App() {
   const [hiddenPdfLayers, setHiddenPdfLayers] = useState<Record<string, string[]>>({});
   /** Markup layers switched off, by document id ('' is markups on no layer). */
   const [hiddenMarkupLayers, setHiddenMarkupLayers] = useState<Record<string, string[]>>({});
+  /** Markup layers drawn faintly by the Layers Dial in Fade mode, by document. */
+  const [fadedMarkupLayers, setFadedMarkupLayers] = useState<Record<string, string[]>>({});
   const [publishFor, setPublishFor] = useState<'pdf' | 'images' | null>(null);
   const publishing = useJobRunning('publish');
   const [locationTick, setLocationTick] = useState(0);
@@ -809,6 +856,8 @@ export function App() {
   /** Library files being opened, so a double click opens them once. */
   const openingFiles = useRef(new Map<string, Promise<void>>());
   const openSetSheetRef = useRef<(fileId: string, page: number) => Promise<void>>(async () => {});
+  /** Closes a tab, asking first about unsaved changes (set after it is defined, for the Sets panel). */
+  const closeTabRef = useRef<(pane: Pane, fileId: string) => Promise<boolean>>(async () => false);
   const sideBySideRef = useRef<(oldId: string, newId: string) => Promise<void>>(async () => {});
   /** An open page tool dialog; crop keeps a rectangle drawn on the page. */
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
@@ -855,7 +904,9 @@ export function App() {
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
-  const pasteImageRef = useRef<(file: Blob) => void>(() => {});
+  const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
+  /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
+  const dropImagesRef = useRef<(pane: Pane, files: File[], x: number, y: number) => void>(() => {});
   /** The markups the Markups list's filter keeps (null: not filtering). */
   const [listKept, setListKept] = useState<ReadonlySet<string> | null>(null);
   /** The Markups list's Hide All: no markup is drawn on the page (they stay in the list and the file). */
@@ -892,7 +943,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const [searchFocus, setSearchFocus] = useState(0);
@@ -1097,13 +1148,17 @@ export function App() {
         return;
       }
       c.tools.setStore(packed.store);
-      c.tools.setSnapSource(async (pageIndex) => new SnapIndex((await packed.doc.geometry(pageIndex)).segments));
+      c.tools.setSnapSource(async (pageIndex) => {
+        const g = await packed.doc.geometry(pageIndex);
+        return new SnapIndex(g.segments, undefined, g.curves);
+      });
       c.tools.setTextSource((pageIndex) => packed.doc.text(pageIndex));
       c.viewer.setDocument(packed.doc);
       const view = savedViews.current.get(packed.file.id);
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
+      else applyPageLayout(c.viewer, packed.doc);
     },
     [ctl, ctlB],
   );
@@ -1506,22 +1561,40 @@ export function App() {
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
     restoredTabs.current = true;
-    if (!settings.get().restoreTabs) return;
+    // A document opened by the launch (a file, a share, a link) is all that opens.
+    if (openRef.current) return;
     let saved: { a?: string[]; b?: string[] } = {};
-    try {
-      saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
-    } catch {
-      // Nothing to reopen.
+    if (settings.get().restoreTabs) {
+      try {
+        saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
+      } catch {
+        // Nothing to reopen.
+      }
     }
+    const find = (id: string) => library.find((f) => f.id === id);
+    // Preferences › Options › Open PDF on Startup opens in front of the reopened tabs.
+    const startup = find(settings.get().startupFile);
+    // Read before reopening, which records each tab as it comes to the front.
+    const active = savedTabs().active;
     void (async () => {
+      const reopened: StoredFile[] = [];
       for (const [pane, ids] of [
         ['a', saved.a ?? []],
         ['b', saved.b ?? []],
       ] as const)
         for (const id of ids) {
-          const file = library.find((f) => f.id === id);
-          if (file) await openFromLibrary(file, pane);
+          const file = find(id);
+          if (!file) continue;
+          await openFromLibrary(file, pane);
+          reopened.push(file);
         }
+      const front = startup ?? (reopened.find((f) => f.id === active));
+      if (front && (startup || reopened.length > 1)) await openFromLibrary(front, 'a');
+      if (settings.get().documentRecovery) {
+        const recovered = recoveredDocs();
+        const names = [...reopened, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
+        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
+      }
     })();
   }, [ctl, libraryReady, library, openFromLibrary]);
 
@@ -1539,23 +1612,13 @@ export function App() {
     void openNewFile(f, 'b');
   }, [ctlB, openNewFile, openStored]);
 
-  // Load the library and reopen the tabs from last time (or the most recent file), so the app
-  // resumes where it left off offline.
+  // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
   useEffect(() => {
     if (!ctl || restored.current) return;
     restored.current = true;
-    void listFiles().then(async (files) => {
-      setLibrary(files);
-      if (openRef.current) return;
-      const saved = savedTabs();
-      const tabs = saved.ids.map((id) => files.find((f) => f.id === id)).filter((f): f is StoredFile => !!f);
-      if (!tabs.length && files[0]) tabs.push(files[0]);
-      for (const f of tabs) await openFromLibrary(f, 'a');
-      const front = tabs.find((f) => f.id === saved.active);
-      if (front && tabs.length > 1) await openFromLibrary(front, 'a');
-    });
-  }, [ctl, openFromLibrary]);
+    void refreshLibrary();
+  }, [ctl, refreshLibrary]);
 
   // Remember the library documents open in tabs for next time.
   useEffect(() => {
@@ -1607,7 +1670,10 @@ export function App() {
       setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
       setFront(pane, next);
       const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => new SnapIndex((await next.doc.geometry(pageIndex)).segments));
+      tools.setSnapSource(async (pageIndex) => {
+        const g = await next.doc.geometry(pageIndex);
+        return new SnapIndex(g.segments, undefined, g.curves);
+      });
       tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
       const view = viewer.getView();
       viewer.setDocument(next.doc);
@@ -1628,6 +1694,7 @@ export function App() {
     async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was) => {
       const pane: Pane = intoB ? 'b' : 'a';
       if (!ctl || !ctlOf(pane)) return;
+      if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       // Session documents live in the session, not the library: only cached on this device.
       const file = studioDocOf(cur.file.id)
         ? await (async () => {
@@ -1673,6 +1740,7 @@ export function App() {
       if (revisionNote) await keepRevision(cur.file.id, revisionNote);
       if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap);
       if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap);
+      if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       remap?.(await replaceFileContent(cur.file.id, edited));
       forgetText(cur.file.id);
     },
@@ -2399,13 +2467,164 @@ export function App() {
         setError('That file is no longer in the library.');
         return;
       }
+      // Preferences › Sets › Open Documents (Open Edited Documents, when the one in front has unsaved
+      // changes): in place, a sheet of the same set opens instead of the document in front.
+      const pane = activePaneRef.current;
+      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const prefs = settings.get();
+      const alreadyOpen = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === fileId);
+      const sameSet = !!front && drawingSets.get().some((s) => s.entries.some((e) => e.fileId === front.file.id) && s.entries.some((e) => e.fileId === fileId));
+      const edited = !!front && !studioDocOf(front.file.id) && hasUnsavedChanges(front);
+      const replace = !alreadyOpen && sameSet && front!.file.id !== fileId && (edited ? prefs.setOpenEdited : prefs.setOpenDocuments) === 'inPlace' ? front : null;
       await openFromLibrary(file);
       const viewer = openBRef.current?.file.id === fileId && activePaneRef.current === 'b' ? ctlB?.viewer : openRef.current?.file.id === fileId ? ctl?.viewer : ctlB?.viewer;
       viewer?.goToPage(page);
+      if (replace) await closeTabRef.current(pane, replace.file.id);
     },
     [library, openFromLibrary, ctl, ctlB],
   );
   openSetSheetRef.current = openSetSheet;
+
+  /** Sets › Show preview of PDF: a small picture of a sheet, made once per sheet and kept for the visit. */
+  const setPreviews = useRef(new Map<string, Promise<string | null>>());
+  const setSheetPreview = useCallback(
+    (fileId: string, page: number): Promise<string | null> => {
+      const key = `${fileId}:${page}`;
+      let p = setPreviews.current.get(key);
+      if (!p) {
+        p = (async () => {
+          const held = await acquireDocument(fileId);
+          try {
+            const size = held.open.doc.pages[page];
+            if (!size) return null;
+            const scale = 220 / Math.max(size.width, size.height);
+            const w = Math.max(1, Math.round(size.width * scale));
+            const h = Math.max(1, Math.round(size.height * scale));
+            const { bitmap } = await held.open.doc.renderTile(page, scale, 0, 0, w, h);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            return canvas.toDataURL('image/png');
+          } finally {
+            held.release();
+          }
+        })().catch(() => null);
+        setPreviews.current.set(key, p);
+      }
+      return p;
+    },
+    [acquireDocument],
+  );
+
+  /**
+   * Sets: follows up new revisions (Preferences › Sets › Sorting): the earlier sheet's markups copied
+   * to the later one (with flattened ones recovered first, and burned into the page after if asked),
+   * and the earlier one stamped Superseded.
+   */
+  const followUpRevisions = useCallback(
+    async (setId: string, pairs: { key: string; earlier: SetSheet; later: SetSheet }[]) => {
+      const prefs = settings.get();
+      if (!prefs.setCopyMarkups && !prefs.setStampSuperseded) {
+        drawingSets.markRevised(setId, pairs.map((p) => p.key));
+        return;
+      }
+      const done: string[] = [];
+      let copied = 0;
+      let stamped = 0;
+      try {
+        await runJob('Revisions', async ({ progress }) => {
+          for (const [k, { key, earlier, later }] of pairs.entries()) {
+            progress(k, pairs.length, later.fileName);
+            const a = await acquireDocument(earlier.fileId);
+            const b = await acquireDocument(later.fileId);
+            try {
+              if (prefs.setCopyMarkups && !b.open.store.readOnly) {
+                let source = a.open.store.forPage(earlier.page);
+                if (prefs.setUnflatten) {
+                  const { unflatten } = await import('./documents/process');
+                  const { recovery } = await unflatten(await readFile(a.open.file.hash));
+                  const flattened = recovery ? (JSON.parse(recovery) as Markup[]).filter((m) => m.pageIndex === earlier.page && !source.some((s) => s.id === m.id)) : [];
+                  source = [...source, ...flattened];
+                }
+                source = source.filter((m) => m.type !== 'hyperlink' && !(m.type === 'stamp' && m.subject === 'Superseded'));
+                if (source.length) {
+                  const from = a.open.doc.pages[earlier.page]!;
+                  const to = b.open.doc.pages[later.page]!;
+                  const sx = to.width / from.width;
+                  const sy = to.height / from.height;
+                  const now = Date.now();
+                  const groups = new Map<string, string>();
+                  const copies: Markup[] = source.map(({ pdfAnnot: _link, ...m }, i) => ({
+                    ...structuredClone(m),
+                    id: crypto.randomUUID(),
+                    pageIndex: later.page,
+                    points: m.points.map(([x, y]) => [x * sx, y * sy] as [number, number]),
+                    groupId: m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined,
+                    locked: undefined,
+                    createdAt: now + i,
+                    modifiedAt: now + i,
+                  }));
+                  const store = b.open.store;
+                  store.checkpoint();
+                  store.batch(() => copies.forEach((m) => store.add(m)));
+                  copied += copies.length;
+                  if (prefs.setFlattenAfter) {
+                    const fresh = copies.map(({ replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' as const }));
+                    const { exportWithAnnotations } = await import('@nb/markup/export');
+                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+                    const { flattenSelection } = await import('./documents/process');
+                    const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
+                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
+                  }
+                }
+              }
+              if (prefs.setStampSuperseded && !a.open.store.readOnly) {
+                const def = stampLibrary(profiles.active().state).find((s) => s.id === 'builtin-superseded')!;
+                const size = a.open.doc.pages[earlier.page]!;
+                const now = Date.now();
+                const content = resolveStamp(def, { user: authorRef.current, now: new Date(now), ...stampValuesFor(a.open, earlier.page) });
+                const w = Math.min(216, size.width - 72);
+                const h = w / stampAspect(content);
+                a.open.store.add({
+                  id: crypto.randomUUID(),
+                  type: 'stamp',
+                  pageIndex: earlier.page,
+                  points: [
+                    [size.width - 36 - w, 36],
+                    [size.width - 36, 36 + h],
+                  ],
+                  style: { ...DEFAULT_STYLES.stamp, stroke: def.color, width: 2 },
+                  stamp: content,
+                  subject: def.name,
+                  status: 'none',
+                  author: authorRef.current,
+                  createdAt: now,
+                  modifiedAt: now,
+                });
+                stamped++;
+              }
+              done.push(key);
+            } finally {
+              a.release();
+              b.release();
+            }
+          }
+        });
+      } catch (err) {
+        if (!isAbort(err)) setError(`Following up revisions failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        drawingSets.markRevised(setId, done);
+      }
+      const parts = [copied ? `copied ${copied} markup${copied === 1 ? '' : 's'} to the new revision${done.length === 1 ? '' : 's'}` : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
+      if (parts.length) setNotice(`Sets: ${parts.join('; ')}.`);
+    },
+    [acquireDocument, commitDocument],
+  );
 
   /** What the Search panel had found, kept while it is closed. */
   const searchMemory = useRef<SearchMemory | null>(null);
@@ -2524,6 +2743,7 @@ export function App() {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
             const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
+            rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -2725,6 +2945,7 @@ export function App() {
                     ...(c.location ? { location: c.location } : {}),
                     ...(c.certify ? { certify: c.certify } : {}),
                     ...(signer!.image ? { image: signer!.image } : {}),
+                    digest: settings.get().signatureAlgorithm,
                     ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
                   });
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
@@ -3048,6 +3269,7 @@ export function App() {
             ...(c.location ? { location: c.location } : {}),
             ...(c.certify ? { certify: c.certify } : {}),
             ...(image ? { image } : {}),
+            digest: settings.get().signatureAlgorithm,
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
@@ -3184,6 +3406,7 @@ export function App() {
     };
     try {
       const out = await annotatedBytes(cur);
+      assertKeepsSignatures(await readFile(cur.file.hash), out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const handle = saveAs ? null : await recallHandle(cur.file.id);
       if (handle) {
@@ -3261,7 +3484,15 @@ export function App() {
       if (!t || studioDocOf(fileId) || !hasUnsavedChanges(t)) return true;
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
-      if (choice === 'discard') return true;
+      if (choice === 'discard') {
+        // Without Document Recovery, changes that are not saved are not kept either.
+        if (!settings.get().documentRecovery) {
+          t.store.undoSteps(t.store.undoHistory().length);
+          markSaved(t);
+          rememberUnsaved(new Map([[fileId, false]]));
+        }
+        return true;
+      }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
@@ -3280,6 +3511,7 @@ export function App() {
     },
     [closeTab, settleUnsaved],
   );
+  closeTabRef.current = requestCloseTab;
 
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
@@ -3296,6 +3528,23 @@ export function App() {
     const offs = stores.map((t) => t.store.subscribe(report));
     return () => offs.forEach((off) => off());
   }, [tabsA, tabsB, savedTick]);
+  // Document Recovery: remember which open documents have changes not saved to their file.
+  const recovery = prefs.documentRecovery;
+  useEffect(() => {
+    if (!recovery) {
+      try {
+        localStorage.removeItem(RECOVERY_KEY);
+      } catch {
+        // Nothing kept.
+      }
+      return;
+    }
+    const docs = [...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id));
+    const report = () => rememberUnsaved(new Map(docs.map((t) => [t.file.id, hasUnsavedChanges(t)])));
+    report();
+    const offs = docs.map((t) => t.store.subscribe(report));
+    return () => offs.forEach((off) => off());
+  }, [tabsA, tabsB, savedTick, recovery]);
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
@@ -4358,13 +4607,13 @@ export function App() {
     })().catch((err) => setError(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`));
   };
   // An image pasted from another app becomes an image markup at the pointer (or the view's centre).
-  pasteImageRef.current = (file) => {
-    const pane: Pane = activePaneRef.current;
+  pasteImageRef.current = (file, dropped) => {
+    const pane: Pane = dropped?.pane ?? activePaneRef.current;
     const { c, o } = paneParts(pane);
     if (!c || !o || o.store.readOnly) return;
     void imageToDataUrl(file).then(({ image, aspect }) => {
       const viewer = c.viewer;
-      const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
+      const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
       const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
       const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
       const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
@@ -4381,6 +4630,35 @@ export function App() {
       const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
       c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
     });
+  };
+  dropImagesRef.current = (pane, files, x, y) => {
+    const { c, o } = paneParts(pane);
+    if (!c || !o) return;
+    const mode = settings.get().imageDrop;
+    if (mode === 'newPage') {
+      // Pages after the one they were dropped on, in the order dropped.
+      const at = c.viewer.pageNearClient(x, y) + 1;
+      void Promise.all(files.map((f) => imageToPdf(f)))
+        .then((pages) => applyPageOps(pages.map((_, i) => ({ type: 'insert', source: i, at: at + i })), pages))
+        .catch((err) => setError(`Adding the pictures failed: ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+    if (o.store.readOnly) return;
+    if (mode === 'image') {
+      files.forEach((f, i) => pasteImageRef.current(f, { pane, x: x + i * 24, y: y + i * 24 }));
+      return;
+    }
+    // Attach Photo: each picture kept whole in a file attachment markup where it was dropped.
+    const page = c.viewer.pageNearClient(x, y);
+    const p = c.viewer.clientToPage(x, y, page);
+    const s = 22 / c.viewer.zoomFor(page);
+    void Promise.all(files.map((f) => fileToAttachment(f))).then((attachments) => {
+      const now = Date.now();
+      const ms = attachments.map(
+        (attachment, i): Markup => ({ id: `photo${i}`, type: 'attachment', pageIndex: page, points: [[i * s * 1.2, 0], [i * s * 1.2 + s, s]], style: { ...DEFAULT_STYLES.attachment }, attachment, subject: 'Photo', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now }),
+      );
+      c.tools.paste(ms, page, [p[0] - s / 2, p[1] - s / 2]);
+    }, (err) => setError(err instanceof Error ? err.message : String(err)));
   };
   viewportRef.current = (pageIndex, rect) => {
     const store = (paneB ? openB : open)?.store;
@@ -4487,7 +4765,9 @@ export function App() {
   useEffect(() => {
     ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, open, openB, ctl, ctlB]);
+    ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
+    ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
+  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
@@ -4833,16 +5113,20 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /** Dragging the side panel's edge resizes it; clicking the edge without dragging collapses it. */
   const onLeftResize = (e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = leftWidth;
+    let dragged = false;
     const move = (ev: PointerEvent) => {
-      setLeftWidth(Math.max(180, Math.min(480, startW + (ev.clientX - startX))));
+      if (Math.abs(ev.clientX - startX) > 3) dragged = true;
+      if (dragged) setLeftWidth(Math.max(180, Math.min(480, startW + (ev.clientX - startX))));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      if (!dragged) setLeftOpen(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -5865,12 +6149,14 @@ export function App() {
   ];
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label') => {
+  /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     setActivePane(pane);
-    setLabelMode((m) => (m?.pane === pane && m.kind === kind ? m : { pane, regions: [], kind }));
-    c.tools.setTool('labelRegion');
+    // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
+    setLabelMode((m) => (m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed ? m : { pane, regions: m?.pane === pane ? m.regions : [], kind, ...opts }));
+    c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
     void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
@@ -5991,7 +6277,11 @@ export function App() {
     importBax: () => void importMarkupsBax(),
     save: () => void saveDocument(false),
     saveAs: () => void saveDocument(true),
-    exportCsv: () => downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, listFilters, listSort, ws.list.advanced), cellContext), visibleListColumns, true)),
+    exportCsv: () => {
+      // Preferences › Markups List › Exclude Filtered Markups on Export: else every markup is exported.
+      const only = prefs.excludeFilteredOnExport;
+      downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
+    },
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -6029,7 +6319,8 @@ export function App() {
       if (n && (!settings.get().confirmDelete || confirm(`Delete ${n} markup${n === 1 ? '' : 's'}?`))) activeTools?.deleteSelected();
     },
     selectAll: () => activeTools?.select(markups.map((m) => m.id)),
-    sound: () => setSoundOpen(true),
+    sound: () => setSoundOpen('sound'),
+    video: () => setSoundOpen('video'),
     undoHistory: () => setUndoHistoryOpen(true),
     checkSpelling: () => setSpellOpen(true),
     autoFields: () =>
@@ -6539,12 +6830,15 @@ Open the download page? Run the new installer to update; your documents and mark
         }
         download(`${base} (published).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
       } else {
-        const { renderPageImages } = await import('./documents/pageImages');
+        const { renderPageImages, pageNumberLabel } = await import('./documents/pageImages');
         const store = cur.store;
         const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
+        const { tiffCompression, multiPageTiff, imagePageNumber } = settings.get();
         const images = await renderPageImages(cur.doc, req.pages, {
           dpi: req.dpi,
           format: req.format,
+          colour: req.colour,
+          tiff: { compression: tiffCompression, multiPage: multiPageTiff },
           ...(req.markups
             ? {
                 drawMarkups: (ctx: OffscreenCanvasRenderingContext2D, pageIndex: number, zoom: number) => {
@@ -6553,12 +6847,14 @@ Open the download page? Run the new installer to update; your documents and mark
               }
             : {}),
         });
-        const ext = req.format === 'png' ? 'png' : 'jpg';
+        const ext = req.format === 'png' ? 'png' : req.format === 'tiff' ? 'tif' : 'jpg';
+        // Preferences › Images › Page Number: e.g. "Page 001", its digits replaced by the page number.
         const label = (i: number) => {
           const p = req.pages[i]!;
-          return (cur.store.allSheets()[p]?.number || `page ${p + 1}`).replace(/[\\/:*?"<>|]+/g, '_');
+          return (cur.store.allSheets()[p]?.number || pageNumberLabel(imagePageNumber, p + 1)).replace(/[\\/:*?"<>|]+/g, '_');
         };
-        if (images.length === 1) download(`${base} ${label(0)}.${ext}`, new Blob([images[0] as BlobPart], { type: `image/${req.format}` }));
+        if (req.format === 'tiff' && multiPageTiff && req.pages.length > 1) download(`${base}.tif`, new Blob([images[0] as BlobPart], { type: 'image/tiff' }));
+        else if (images.length === 1) download(`${base} ${label(0)}.${ext}`, new Blob([images[0] as BlobPart], { type: `image/${req.format}` }));
         else {
           const { zipFiles } = await import('./documents/zip');
           download(`${base} images.zip`, new Blob([zipFiles(images.map((data, i) => ({ name: `${base} ${label(i)}.${ext}`, data }))) as BlobPart], { type: 'application/zip' }));
@@ -6845,11 +7141,13 @@ Open the download page? Run the new installer to update; your documents and mark
                 busy={busyPages || indexing}
                 onGoTo={(i) => v?.goToPage(i)}
                 onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
-                onExtract={(pages) => void extractPages(pages)}
                 onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, scale)}
+                onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
                 onSetLabel={(pages, label) => {
                   for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
                 }}
+                onBulkScales={(pages) => startLabelRegions(undefined, 'scale', { pages })}
+                onPageLabels={(pages) => startLabelRegions(undefined, 'label', { pages, typed: true })}
                 onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
               />
             ) : leftTab === 'forms' ? (
@@ -6920,6 +7218,8 @@ Open the download page? Run the new installer to update; your documents and mark
                 indexing={indexingSets}
                 onIndex={(ids) => void indexSetFiles(ids)}
                 onOpenSheet={(fileId, page) => void openSetSheet(fileId, page)}
+                onRevisions={(setId, pairs) => void followUpRevisions(setId, pairs)}
+                onPreview={setSheetPreview}
               />
             ) : leftTab === 'properties' ? (
               <PropertiesPanel
@@ -6968,6 +7268,11 @@ Open the download page? Run the new installer to update; your documents and mark
                   if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
                   setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
                   void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
+                }}
+                onFaded={(markup) => {
+                  const id = activeOpen?.file.id;
+                  if (!id || (!markup.length && !fadedMarkupLayers[id]?.length)) return;
+                  setFadedMarkupLayers((all) => ({ ...all, [id]: markup }));
                 }}
                 onPage={
                   activeOpen && pdfLayerPages[activeOpen.file.hash]
@@ -7189,9 +7494,10 @@ Open the download page? Run the new installer to update; your documents and mark
                 onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
               />
             )}
-            <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" onPointerDown={onLeftResize} />
+            <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={onLeftResize} />
           </aside>
         )}
+        {!leftOpen && <button type="button" className="panel-edge" aria-label="Open the side panel" title="Open the side panel" onClick={() => setLeftOpen(true)} />}
         <div className="workspace">
           <div id="rc-project-slot" className="rc-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
@@ -7217,6 +7523,8 @@ Open the download page? Run the new installer to update; your documents and mark
                   if (dropTool(e, 'a')) return;
                   e.preventDefault();
                   setDragOver(false);
+                  const images = open ? [...e.dataTransfer.files].filter(isImageFile) : [];
+                  if (images.length) dropImagesRef.current('a', images, e.clientX, e.clientY);
                   void droppedPdfs(e.dataTransfer).then((files) => {
                     if (files.length) void openNewFile(files, 'a');
                   });
@@ -7288,6 +7596,8 @@ Open the download page? Run the new installer to update; your documents and mark
                       if (dropTool(e, 'b')) return;
                       e.preventDefault();
                       setDragOver(false);
+                      const images = openB ? [...e.dataTransfer.files].filter(isImageFile) : [];
+                      if (images.length) dropImagesRef.current('b', images, e.clientX, e.clientY);
                       void droppedPdfs(e.dataTransfer).then((files) => {
                         if (files.length) void openNewFile(files, 'b');
                       });
@@ -7304,7 +7614,8 @@ Open the download page? Run the new installer to update; your documents and mark
           </div>
           {labelMode?.kind === 'scale' && labelPaneParts?.o && (
             <ScaleRegionsPanel
-              key={labelPaneParts.o.file.id}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}`}
+              initialPages={labelMode.pages}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
               pageCount={labelPaneParts.o.doc.pages.length}
@@ -7330,7 +7641,11 @@ Open the download page? Run the new installer to update; your documents and mark
           )}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
-              key={labelPaneParts.o.file.id}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
+              initialPages={labelMode.pages}
+              initialSource={labelMode.typed ? 'typed' : 'regions'}
+              labelOf={(page, target) => (target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
+              onSource={(source) => labelPaneParts.c?.tools.setTool(source === 'typed' ? 'select' : 'labelRegion')}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
               pageCount={labelPaneParts.o.doc.pages.length}
@@ -7452,7 +7767,7 @@ Open the download page? Run the new installer to update; your documents and mark
               const pdf = await PDFDocument.create();
               for (const p of pages) {
                 // Letter width; the height follows the page's shape.
-                const img = await pdf.embedJpg(p.jpeg);
+                const img = p.png ? await pdf.embedPng(p.png) : await pdf.embedJpg(p.jpeg!);
                 const w = 612;
                 const h = (w * p.height) / p.width;
                 pdf.addPage([w, h]).drawImage(img, { x: 0, y: 0, width: w, height: h });
@@ -7488,13 +7803,15 @@ Open the download page? Run the new installer to update; your documents and mark
       {undoHistoryOpen && activeOpen && <UndoHistoryDialog store={activeOpen.store} onClose={() => setUndoHistoryOpen(false)} />}
       {soundOpen && (
         <SoundDialog
+          kind={soundOpen}
           onCancel={() => setSoundOpen(false)}
           onDone={(file) => {
+            const kind = soundOpen;
             setSoundOpen(false);
             void fileToAttachment(file).then((attachment) => {
-              activeTools?.setTool('attachment', { attachment, subject: 'Sound', once: true });
-              setNotice('Click where the sound note goes.');
-            });
+              activeTools?.setTool('attachment', { attachment, subject: kind === 'video' ? 'Video' : 'Sound', once: true });
+              setNotice(`Click where the ${kind === 'video' ? 'video' : 'sound'} note goes.`);
+            }, (err) => setError(err instanceof Error ? err.message : String(err)));
           }}
         />
       )}
@@ -7705,6 +8022,7 @@ Open the download page? Run the new installer to update; your documents and mark
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
             (await import('./documents/digitalIds')).unlockId(record, c.password);
+            rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
@@ -8236,7 +8554,7 @@ Open the download page? Run the new installer to update; your documents and mark
           openFiles={[...tabsA, ...tabsB].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
           library={library.map((f) => ({ id: f.id, name: f.name }))}
           busy={exportBusy}
-          initialFilters={listFilters}
+          initialFilters={prefs.excludeFilteredOnExport ? listFilters : {}}
           initialSort={listSort}
           onExport={(req) => void runExport(req)}
           onDownload={download}

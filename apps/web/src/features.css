@@ -3369,6 +3369,80 @@
   list-style: none;
 }
 
+.sets-panel {
+  position: relative;
+}
+
+.sets-panel .set-sheet-row {
+  display: flex;
+  align-items: center;
+}
+
+.sets-panel .set-sheet-row .sheet {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Tags: shown on hover, and while a sheet's tags are open. */
+.sets-panel .set-tag-btn {
+  visibility: hidden;
+  color: var(--muted);
+}
+
+.sets-panel .set-sheet-row:hover .set-tag-btn,
+.sets-panel .set-sheet-row:focus-within .set-tag-btn {
+  visibility: visible;
+}
+
+/* Earlier revisions crossed out (Preferences › Sets › Previous Revisions). */
+.sets-panel .sheet.superseded .num,
+.sets-panel .sheet.superseded .name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.sets-panel li.nested {
+  padding-left: 14px;
+}
+
+.sets-panel .set-stack {
+  margin-left: 14px;
+  color: var(--muted);
+}
+
+.sets-panel .set-tags {
+  display: grid;
+  gap: 4px;
+  margin: 4px 10px 8px 14px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.sets-panel .set-tags .row {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.sets-panel .set-tags .row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sets-panel .set-preview {
+  position: absolute;
+  right: 8px;
+  z-index: 5;
+  max-width: 220px;
+  max-height: 220px;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+  background: #fff;
+  pointer-events: none;
+}
+
 /* Batch dialog */
 .batch-dialog .batch-files {
   max-height: 200px;
@@ -4721,5 +4795,84 @@ tr.hidden-markup td {
   .menubar .menu-search {
     -webkit-app-region: no-drag;
     app-region: no-drag;
+  }
+}
+
+/* Apply Scale to Pages (thumbnails Custom button). */
+.modal.scale-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.scale-dialog .scale-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 12px;
+}
+
+.scale-dialog .scale-k {
+  justify-self: end;
+}
+
+.scale-dialog .check {
+  margin-top: 0;
+}
+
+.scale-dialog .scale-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scale-dialog .scale-pages select {
+  flex: 1;
+  min-width: 0;
+}
+
+.scale-dialog .scale-pages small {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.scale-dialog .scale-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.scale-dialog .scale-mode .spacer {
+  flex: 1;
+}
+
+.scale-dialog .scale-eq {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.scale-dialog .scale-eq input:not([type='checkbox']):not([type='radio']) {
+  min-width: 0;
+}
+
+.scale-dialog .scale-eq-sign {
+  color: var(--muted);
+}
+
+.scale-dialog select.scale-preset {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .scale-dialog .scale-eq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .scale-dialog .scale-eq-sign {
+    display: none;
   }
 }

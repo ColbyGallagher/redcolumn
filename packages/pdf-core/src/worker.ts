@@ -469,11 +469,13 @@ function userToPageMatrix(m: WrappedPdfiumModule, page: number): Matrix {
   return [(ex[0] - o[0]) / 1000, (ex[1] - o[1]) / 1000, (ey[0] - o[0]) / 1000, (ey[1] - o[1]) / 1000, o[0], o[1]];
 }
 
-function extractSegments(m: WrappedPdfiumModule, page: number): Float32Array {
+/** A page's line work as segments, and which of them were flattened from curves (1) rather than drawn straight (0). */
+function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Float32Array; curves: Uint8Array } {
   const { malloc, free } = m.pdfium.wasmExports;
   const matPtr = malloc(24);
   const ptPtr = malloc(8);
   const out: number[] = [];
+  const curve: number[] = [];
   const f32 = () => m.pdfium.HEAPF32;
 
   const objMatrix = (obj: number): Matrix => {
@@ -490,8 +492,10 @@ function extractSegments(m: WrappedPdfiumModule, page: number): Float32Array {
     let sx = 0;
     let sy = 0;
     const bez: number[] = [];
-    const push = (x1: number, y1: number, x2: number, y2: number) => {
-      if (x1 !== x2 || y1 !== y2) out.push(x1, y1, x2, y2);
+    const push = (x1: number, y1: number, x2: number, y2: number, isCurve = 0) => {
+      if (x1 === x2 && y1 === y2) return;
+      out.push(x1, y1, x2, y2);
+      curve.push(isCurve);
     };
     for (let i = 0; i < n && out.length < MAX_SEGMENTS * 4; i++) {
       const seg = m.FPDFPath_GetPathSegment(path, i);
@@ -521,7 +525,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): Float32Array {
             const v = 1 - u;
             const bx = v * v * v * cx + 3 * v * v * u * x1 + 3 * v * u * u * x2 + u * u * u * x3;
             const by = v * v * v * cy + 3 * v * v * u * y1 + 3 * v * u * u * y2 + u * u * u * y3;
-            push(lx, ly, bx, by);
+            push(lx, ly, bx, by, 1);
             lx = bx;
             ly = by;
           }
@@ -558,7 +562,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): Float32Array {
     free(matPtr);
     free(ptPtr);
   }
-  return new Float32Array(out);
+  return { segments: new Float32Array(out), curves: new Uint8Array(curve) };
 }
 
 function applyHidden(m: WrappedPdfiumModule, page: number, indices: Set<number> | undefined) {
@@ -1613,11 +1617,11 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
   return [...words, ...shxWords(m, page, t)];
 }
 
-async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; ms: number }> {
+async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; ms: number }> {
   const t0 = performance.now();
   const m = await lib();
-  const segments = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
-  return { segments, ms: performance.now() - t0 };
+  const { segments, curves } = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
+  return { segments, curves, ms: performance.now() - t0 };
 }
 
 /** Full page size in device pixels at `scale`; must match the viewer's `ceil(points * scale)`. */
@@ -1718,7 +1722,7 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       }
       case 'geometry': {
         const res = await geometry(req.docId, req.pageIndex);
-        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer]);
+        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer, res.curves.buffer]);
         break;
       }
     }

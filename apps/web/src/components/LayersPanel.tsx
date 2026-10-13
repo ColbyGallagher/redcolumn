@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import type { PdfLayer } from "../documents/layers";
+import { settings, useSettings } from "../settings/settings";
 import { askText } from "./AskText";
 import {
   ContextMenu,
@@ -38,10 +39,9 @@ interface LayerPrefs {
   config: string;
 }
 
-/** How the list is shown, for every document. */
+/** How the list is shown, for every document (Show Layers On Page Only is a preference). */
 interface LayerView {
   sort: boolean;
-  pageOnly: boolean;
 }
 
 const DEFAULT_CONFIG = "Default";
@@ -119,6 +119,8 @@ export interface LayersPanelProps {
   hiddenMarkup: ReadonlySet<string>;
   /** Shows exactly the layers not listed. */
   onHidden: (pdf: string[], markup: string[]) => void;
+  /** Markup layers drawn faintly (the Dial in Fade mode); any other change of layers clears it. */
+  onFaded: (markup: string[]) => void;
   /** The PDF layers and markup layers the current page uses; null while unknown. */
   onPage: { pdf: ReadonlySet<string>; markup: ReadonlySet<string> } | null;
   showLinks: boolean;
@@ -139,6 +141,7 @@ export function LayersPanel({
   markupLayers,
   hiddenMarkup,
   onHidden,
+  onFaded,
   onPage,
   showLinks,
   onShowLinks,
@@ -147,12 +150,12 @@ export function LayersPanel({
     PREFS_KEY + (docKey ?? ""),
     EMPTY_PREFS,
   );
-  const [view, setView] = useStored<LayerView>(VIEW_KEY, {
-    sort: false,
-    pageOnly: false,
-  });
+  const [view, setView] = useStored<LayerView>(VIEW_KEY, { sort: false });
+  const { layersOnPageOnly: pageOnly, hideChildLayers } = useSettings();
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
+  /** The layer the Dial is on in Fade mode, where every layer stays visible. */
+  const [dialed, setDialed] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
   const flagsOf = (r: Row, flags = prefs.flags): Required<LayerFlags> => ({
@@ -210,7 +213,7 @@ export function LayersPanel({
 
   const shown = useMemo(() => {
     const onThisPage = (r: Row): boolean =>
-      !view.pageOnly ||
+      !pageOnly ||
       !onPage ||
       (r.key.startsWith("pdf:")
         ? onPage.pdf.has(r.key.slice(4))
@@ -237,8 +240,9 @@ export function LayersPanel({
     ...[...hiddenPdf].map(pdfKey),
     ...[...hiddenMarkup].map(mkKey),
   ]);
-  const setHidden = (keys: Iterable<string>) => {
+  const setHidden = (keys: Iterable<string>, faded: string[] = []) => {
     const list = [...keys];
+    onFaded(faded);
     onHidden(
       list.filter((k) => k.startsWith("pdf:")).map((k) => k.slice(4)),
       list.filter((k) => k.startsWith("mk:")).map((k) => k.slice(3)),
@@ -270,11 +274,19 @@ export function LayersPanel({
         [r.key]: { ...prefs.flags[r.key], [flag]: value },
       },
     });
+  const descendants = (r: Row): Row[] =>
+    r.children.flatMap((c) => [c, ...descendants(c)]);
   const toggle = (r: Row) => {
     if (flagsOf(r).lock) return;
     const next = new Set(hiddenKeys);
-    if (next.has(r.key)) next.delete(r.key);
-    else next.add(r.key);
+    const hide = !next.has(r.key);
+    // Preferences › Layers › Hide Child Layers: a parent's children go (and come back) with it.
+    const family = hideChildLayers ? [r, ...descendants(r)] : [r];
+    for (const x of family) {
+      if (x !== r && flagsOf(x).lock) continue;
+      if (hide) next.add(x.key);
+      else next.delete(x.key);
+    }
     setHidden(next);
   };
 
@@ -289,9 +301,27 @@ export function LayersPanel({
     const rows = shown.map((s) => s.row).filter((r) => !flagsOf(r).lock);
     if (!rows.length) return;
     const visible = rows.filter((r) => !hiddenKeys.has(r.key));
+    const fade = settings.get().layerDial === "fade";
+    const dialedAt = fade && dialed ? rows.findIndex((r) => r.key === dialed) : -1;
     const at =
-      visible.length === 1 ? rows.indexOf(visible[0]!) : step === 1 ? -1 : 0;
+      dialedAt >= 0 ? dialedAt : visible.length === 1 ? rows.indexOf(visible[0]!) : step === 1 ? -1 : 0;
     const next = rows[(at + step + rows.length) % rows.length]!;
+    // Preferences › Layers › Dial: Fade draws the other markup layers faintly instead of hiding
+    // them. A PDF's own layers cannot be drawn faintly, so they are still hidden.
+    if (fade) {
+      setDialed(next.key);
+      const isPdf = (r: Row) => r.key.startsWith("pdf:");
+      // Dialing to a markup layer leaves the PDF's layers as they are; to a PDF layer, isolates it.
+      const hidden = all.filter((r) =>
+        flagsOf(r).lock ? hiddenKeys.has(r.key) : isPdf(r) && (isPdf(next) ? r !== next : hiddenKeys.has(r.key)),
+      );
+      const faded = rows.filter((r) => r !== next && !isPdf(r));
+      setHidden(
+        hidden.map((r) => r.key),
+        faded.map((r) => r.key.slice(3)),
+      );
+      return;
+    }
     showWhere((r) => r !== next);
   };
 
@@ -350,8 +380,8 @@ export function LayersPanel({
     SEP,
     {
       label: "Show Layers On Page Only",
-      checked: view.pageOnly,
-      onClick: () => setView({ ...view, pageOnly: !view.pageOnly }),
+      checked: pageOnly,
+      onClick: () => settings.set({ layersOnPageOnly: !pageOnly }),
     },
     {
       label: "Sort Layers Alphabetically",
@@ -638,7 +668,7 @@ export function LayersPanel({
           <p className="empty">
             {!docKey
               ? "Open a document to see its layers."
-              : view.pageOnly && all.length
+              : pageOnly && all.length
                 ? "No layers on this page."
                 : "This document has no layers. Add one, or right-click markups › Layer."}
           </p>

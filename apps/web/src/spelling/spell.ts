@@ -1,4 +1,5 @@
 import nspell from 'nspell';
+import { settings } from '../settings/settings';
 
 /** A Hunspell checker: whether a word is spelled right, and suggestions when not. */
 export interface Speller {
@@ -25,12 +26,19 @@ export function personalWords(): string[] {
 }
 
 let loading: Promise<Speller> | null = null;
+let loaded = '';
 
-/** The English checker, loaded once (its dictionary is fetched on first use), with the user's own words. */
+/**
+ * The checker for the Active Dictionary (Preferences › Spelling), loaded once (its dictionary is
+ * fetched on first use) and again when the dictionary changes, with the user's own words.
+ */
 export function speller(): Promise<Speller> {
+  const lang = settings.get().dictionary;
+  if (lang !== loaded) loading = null;
+  loaded = lang;
   loading ??= (async () => {
     const base = import.meta.env.BASE_URL;
-    const [aff, dic] = await Promise.all(['aff', 'dic'].map((ext) => fetch(`${base}spell/en.${ext}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`The spelling dictionary could not be loaded (${r.status})`))))));
+    const [aff, dic] = await Promise.all(['aff', 'dic'].map((ext) => fetch(`${base}spell/${lang}.${ext}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`The spelling dictionary could not be loaded (${r.status})`))))));
     const s = nspell(aff!, dic!) as Speller;
     for (const w of personalWords()) s.add(w);
     return s;

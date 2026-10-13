@@ -4,9 +4,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
-const byLicence = JSON.parse(execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { cwd: root, encoding: 'utf8' }));
+const root = fileURLToPath(new URL('..', import.meta.url));
+// pnpm is a .cmd script on Windows, which needs a shell to start.
+const byLicence = JSON.parse(execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' }));
 
 const packages = Object.entries(byLicence)
   .flatMap(([licence, list]) => list.map((p) => ({ ...p, licence })))
@@ -39,6 +41,8 @@ const NOTES = {
     'Bundles PDFium (BSD-3-Clause and Apache-2.0, in LICENSE.pdfium below) compiled to WebAssembly, with the libraries a standard PDFium build includes. Their licences follow, from scripts/notices/pdfium/.',
   'node-forge': 'Dual-licensed BSD-3-Clause or GPL-2.0; redcolumn uses it under BSD-3-Clause.',
   'dictionary-en': 'The English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-en-gb': 'The British English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-en-au': 'The Australian English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
 };
 for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])
   NOTES[`@tesseract.js-data/${lang}`] =

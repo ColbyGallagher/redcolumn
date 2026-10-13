@@ -13,4 +13,8 @@ Records a spoken note with your microphone and places it on the page. Handy on s
 
 The note appears as a [File Attachment](#tool-attachment) icon. Double-click it to play it back.
 
+## Record a video note
+
+{{Tools > Video…}} works the same way with the camera and microphone, for showing a problem on site. Its resolution is set in [Preferences](#preferences) › Import/Export › Images › **Video Resolution**; video notes are limited to two minutes.
+
 > **Note:** Recordings are kept short because they are saved inside the PDF.

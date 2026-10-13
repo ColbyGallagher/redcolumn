@@ -1378,8 +1378,10 @@ export class TileViewer {
     // markup tools (Preferences › Navigation). Ctrl+wheel (and trackpad pinch, which arrives as
     // ctrl+wheel) always zooms.
     const wheel = settings.get()[this.mode === 'continuous' ? 'continuousWheel' : 'singlePageWheel'];
+    // Preferences › Navigation › Sensitivity: 4 is the browser's own rate.
+    const sensitivity = settings.get().wheelSensitivity / 4;
     if (wheel === 'scroll' && !e.ctrlKey) {
-      const k = e.deltaMode === 1 ? 32 : 1;
+      const k = (e.deltaMode === 1 ? 32 : 1) * sensitivity;
       this.panX -= (e.shiftKey ? e.deltaY : e.deltaX) * k;
       this.panY -= (e.shiftKey ? 0 : e.deltaY) * k;
       this.invalidate();
@@ -1397,7 +1399,7 @@ export class TileViewer {
       this.zoomSteps(e.ctrlKey ? prefs.ctrlWheelZoomStep : prefs.wheelZoomStep, dir * notches, x, y);
       return;
     }
-    this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), x, y);
+    this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015 * sensitivity)), x, y);
   };
 
   private onPointerDown = (e: PointerEvent) => {
