@@ -104,6 +104,8 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
+import { assertKeepsSignatures } from './documents/signedBytes';
+import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -1687,6 +1689,7 @@ export function App() {
     async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was) => {
       const pane: Pane = intoB ? 'b' : 'a';
       if (!ctl || !ctlOf(pane)) return;
+      if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       // Session documents live in the session, not the library: only cached on this device.
       const file = studioDocOf(cur.file.id)
         ? await (async () => {
@@ -2583,6 +2586,7 @@ export function App() {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
             const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
+            rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -2784,6 +2788,7 @@ export function App() {
                     ...(c.location ? { location: c.location } : {}),
                     ...(c.certify ? { certify: c.certify } : {}),
                     ...(signer!.image ? { image: signer!.image } : {}),
+                    digest: settings.get().signatureAlgorithm,
                     ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
                   });
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
@@ -3107,6 +3112,7 @@ export function App() {
             ...(c.location ? { location: c.location } : {}),
             ...(c.certify ? { certify: c.certify } : {}),
             ...(image ? { image } : {}),
+            digest: settings.get().signatureAlgorithm,
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
@@ -3243,6 +3249,7 @@ export function App() {
     };
     try {
       const out = await annotatedBytes(cur);
+      assertKeepsSignatures(await readFile(cur.file.hash), out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const handle = saveAs ? null : await recallHandle(cur.file.id);
       if (handle) {
@@ -7800,6 +7807,7 @@ Open the download page? Run the new installer to update; your documents and mark
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
             (await import('./documents/digitalIds')).unlockId(record, c.password);
+            rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');

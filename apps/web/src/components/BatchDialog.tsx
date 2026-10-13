@@ -10,6 +10,7 @@ import type { StampDef } from '@nb/markup';
 import { PAGE_SIZES } from '../documents/pageSizes';
 import { HeaderFooterDialog } from './HeaderFooterDialog';
 import { savedTsa, saveTsa, TimestampOption } from './DigitalSignatures';
+import { recalledPassword } from '../documents/idPasswords';
 
 export type Corner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
@@ -150,7 +151,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   const [paper, setPaper] = useState(PAGE_SIZES.find((p) => p.id === 'tabloid')!.id);
   const [fit, setFit] = useState(true);
   const [split, setSplit] = useState<{ parts: 'pages' | 'bookmarks'; count: number }>({ parts: 'pages', count: 1 });
-  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
+  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
   const [tsa, setTsa] = useState(savedTsa);
   const [keepRevisions, setKeepRevisions] = useState(true);
   const [results, setResults] = useState<BatchResult[] | null>(null);

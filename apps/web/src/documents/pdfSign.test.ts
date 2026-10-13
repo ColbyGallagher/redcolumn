@@ -56,6 +56,15 @@ for (const streams of [false, true]) {
   });
 }
 
+for (const digest of ['SHA-384', 'SHA-512'] as const) {
+  test(`signing with ${digest} checks out`, async () => {
+    const signed = await signPdf(await sample(), unlockId(await idPromise, 'pw'), { digest });
+    const [check] = await checkSignatures(signed);
+    assert.equal(check?.intact, true);
+    assert.equal(check?.problem, null);
+  });
+}
+
 test('changing a signed byte breaks the signature; appending keeps it but not the whole file', async () => {
   const unlocked = unlockId(await idPromise, 'pw');
   const signed = await signPdf(await sample(), unlocked, {});

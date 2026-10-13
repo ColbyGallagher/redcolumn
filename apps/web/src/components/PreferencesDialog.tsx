@@ -10,6 +10,7 @@ import { desktop } from '../desktop/host';
 import { profiles, updateWorkspace } from '../workspace/profiles';
 import { listFiles, saveFile as saveToLibrary, type StoredFile } from '../storage/fileStore';
 import { pickFilesToOpen } from '../storage/diskHandles';
+import { digitalIds, restoreIdBackup, type IdBackup } from '../documents/digitalIds';
 
 /**
  * File › Preferences (Ctrl+K), laid out after Bluebeam Revu's: categories down the left with a
@@ -89,7 +90,6 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 const STORED = new Set<keyof Settings>([
   'richTextComments',
   'scaleGroupAppearance', 'printPopups',
-  'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
   'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',
   'setSortBy', 'setSortTagged', 'setSortOrder', 'setStackMultiPage', 'setRevisionFilter', 'setWildcard', 'setPreviousRevisions', 'setCurrentRevisions', 'setCopyMarkups', 'setUnflatten', 'setFlattenAfter', 'setStampSuperseded',
   'setTemplates', 'setTags', 'setAutoTagRevision', 'setAutoTagDiscipline', 'setAutoTagSheetType',
@@ -522,17 +522,13 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         {num('signaturePasswordTimeout', 'Password Time-out', { min: 0, max: 120, unit: 'Minutes' })}
         {L('Digital ID Location')}
         <span className="pref-row">
-          <input aria-label="Digital ID Location" value="This browser" readOnly title="Digital IDs are kept in this browser's storage" />
-          <button type="button" className="btn" disabled>
-            …
-          </button>
+          <input aria-label="Digital ID Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Digital IDs are kept on this device, each locked by its password" />
+          {backupButtons('digital-ids')}
         </span>
         {L('Trusted Identity Location')}
         <span className="pref-row">
-          <input aria-label="Trusted Identity Location" value="This browser" readOnly title="Trusted identities are kept in this browser's storage" />
-          <button type="button" className="btn" disabled>
-            …
-          </button>
+          <input aria-label="Trusted Identity Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Certificates you trust to identify signers are kept on this device" />
+          {backupButtons('trusted-identities')}
         </span>
         {select('signatureAlgorithm', 'Algorithm', [
           ['SHA-256', 'SHA-256'],
@@ -788,6 +784,43 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     ),
     mcp: () => <McpPrefs />,
   };
+
+  /** Back Up… and Restore… for the Digital IDs or trusted certificates kept on this device (applied at once). */
+  function backupButtons(kind: IdBackup['kind']) {
+    const ids = kind === 'digital-ids';
+    return (
+      <>
+        <button
+          type="button"
+          className="btn"
+          title={ids ? 'Save your Digital IDs to a file (each stays locked by its password)' : 'Save the certificates you trust to a file'}
+          onClick={() => {
+            const backup: IdBackup = ids ? { app: 'RedColumn', kind, ids: digitalIds.list() } : { app: 'RedColumn', kind, trusted: digitalIds.trustedByHand() };
+            saveFile(ids ? 'RedColumn Digital IDs.json' : 'RedColumn Trusted Identities.json', JSON.stringify(backup, null, 2));
+          }}
+        >
+          Back Up…
+        </button>
+        <button
+          type="button"
+          className="btn"
+          title="Add the ones in a backup file to this device"
+          onClick={async () => {
+            const raw = await pickFile();
+            if (!raw) return;
+            try {
+              const n = restoreIdBackup(raw, kind);
+              setMessage(`${n} ${ids ? `Digital ID${n === 1 ? '' : 's'}` : `trusted certificate${n === 1 ? '' : 's'}`} added.`);
+            } catch (err) {
+              setMessage(err instanceof SyntaxError ? 'That file is not a backup.' : (err as Error).message);
+            }
+          }}
+        >
+          Restore…
+        </button>
+      </>
+    );
+  }
 
   // The Spelling tab's custom words are part of the draft, applied with OK.
   function spellingTab() {

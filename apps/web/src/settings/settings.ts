@@ -215,9 +215,12 @@ export interface Settings {
   /** With the Forms panel open, T, C, R, D, L, B and S start drawing that kind of field. */
   formSingleKeys: boolean;
   // Tools › Signature
-  signaturePasswordTimeout: number; // stored
-  signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512'; // stored
-  restrictSignedChanges: boolean; // stored
+  /** Minutes a Digital ID stays unlocked after its password is typed (0: ask every time). */
+  signaturePasswordTimeout: number;
+  /** Digest new signatures are made over. */
+  signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512';
+  /** Refuse changes to a signed document that rewrite it (and so invalidate its signatures). */
+  restrictSignedChanges: boolean;
   // Sets › Set Options (stored)
   setOpenDocuments: 'inPlace' | 'newTab';
   setOpenEdited: 'inPlace' | 'newTab';
