@@ -191,14 +191,12 @@ export interface Settings {
   // Tools › Markup
   /** Text boxes and callouts are fitted to their text whenever it is edited. */
   autoSizeText: boolean;
-  scaleGroupAppearance: boolean; // stored
   /** Pasted markups stay on the layer they were copied from (else they go on no layer). */
   retainLayerOnCopy: boolean;
   /** Saved documents embed the font files markup text uses, instead of only naming standard fonts. */
   embedFonts: boolean;
   /** Comment pop-ups (shown when the pointer rests on a markup) start with its author and date. */
   popupAuthorDate: boolean;
-  printPopups: boolean; // stored
   /** Opacity of comment pop-ups, in percent. */
   popupOpacity: number;
   /** Highlight, underline and strikeout markups get the text they mark as their comment. */
@@ -224,8 +222,6 @@ export interface Settings {
   // Sets › Set Options (the Sets panel)
   setOpenDocuments: 'inPlace' | 'newTab';
   setOpenEdited: 'inPlace' | 'newTab';
-  setRelativePaths: boolean;
-  setShowPaths: boolean;
   setShow: 'fileAndLabel' | 'fileName' | 'pageLabel';
   setPreview: boolean;
   setCategories: 'auto' | 'manual' | 'none';
@@ -333,11 +329,9 @@ export const DEFAULT_SETTINGS: Settings = {
   layersOnPageOnly: false,
   layerDial: 'isolate',
   autoSizeText: false,
-  scaleGroupAppearance: true,
   retainLayerOnCopy: true,
   embedFonts: true,
   popupAuthorDate: false,
-  printPopups: true,
   popupOpacity: 70,
   copyHighlightedText: true,
   imageEncoding: 'auto',
@@ -350,8 +344,6 @@ export const DEFAULT_SETTINGS: Settings = {
   restrictSignedChanges: true,
   setOpenDocuments: 'inPlace',
   setOpenEdited: 'newTab',
-  setRelativePaths: true,
-  setShowPaths: false,
   setShow: 'fileAndLabel',
   setPreview: true,
   setCategories: 'auto',

@@ -18,7 +18,7 @@ import { digitalIds, restoreIdBackup, type IdBackup } from '../documents/digital
  * draft and applied with OK; Close discards them.
  */
 
-export type Category = 'general' | 'account' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations' | 'mcp';
+export type Category = 'general' | 'account' | 'interface' | 'tools' | 'sets' | 'importExport' | 'advanced' | 'mcp';
 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
@@ -55,8 +55,6 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
       { id: 'toolLibrary', label: 'Tool Library' },
     ],
   },
-  { id: 'studio', label: 'Collaboration', tabs: [] },
-  { id: 'window', label: 'Window', tabs: [] },
   {
     id: 'sets',
     label: 'Sets',
@@ -81,16 +79,12 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
       { id: 'activity', label: 'Activity' },
     ],
   },
-  { id: 'admin', label: 'Admin', tabs: [] },
-  { id: 'integrations', label: 'Integrations', tabs: [] },
   { id: 'mcp', label: 'MCP', tabs: [{ id: 'mcp', label: 'Enable MCP server' }] },
 ];
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
   'richTextComments',
-  'scaleGroupAppearance', 'printPopups',
-  'setRelativePaths', 'setShowPaths',
 ]);
 const STORED_TIP = 'Saved with your preferences; RedColumn does not use this yet.';
 
@@ -460,12 +454,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       <Grid>
         <C>{check('reuseTool', 'Reuse Tools')}</C>
         <C>{check('autoSizeText', 'Auto-size Text Box and Call-out Markups')}</C>
-        <C>{check('scaleGroupAppearance', 'Scale Appearance Properties for Grouped Markups')}</C>
         <C>{check('retainLayerOnCopy', 'Retain Layer Information when copying Markups')}</C>
         <C>{check('replyIndicators', 'Always Show Reply Indicators')}</C>
         <C>{check('embedFonts', 'Embed Fonts')}</C>
         <C>{check('popupAuthorDate', 'Show Author and Date in Pop-Ups')}</C>
-        <C>{check('printPopups', 'Print Pop-Ups')}</C>
         {num('popupOpacity', 'Pop-Up Opacity', { min: 10, max: 100, unit: '%' })}
         <C>{check('copyHighlightedText', 'Copy Highlighted Text into Markup Comment')}</C>
         {select('imageEncoding', 'Default Image Encoding', [
@@ -568,8 +560,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['inPlace', 'Open in Place'],
           ['newTab', 'New Tab'],
         ])}
-        <C>{check('setRelativePaths', 'Use Relative Paths')}</C>
-        <C>{check('setShowPaths', 'Show File Paths')}</C>
         {select('setShow', 'Show', [
           ['fileAndLabel', 'File Name and Page Label'],
           ['fileName', 'File Name'],
