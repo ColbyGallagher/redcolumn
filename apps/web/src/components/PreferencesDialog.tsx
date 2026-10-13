@@ -88,7 +88,6 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
   'richTextComments',
-  'hideChildLayers', 'layersOnPageOnly', 'layerDial',
   'autoSizeText', 'scaleGroupAppearance', 'retainLayerOnCopy', 'embedFonts', 'popupAuthorDate', 'printPopups', 'popupOpacity', 'copyHighlightedText', 'imageEncoding',
   'rotationInput', 'formHighlightColour', 'formHighlightOpacity', 'formSingleKeys', 'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
   'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',

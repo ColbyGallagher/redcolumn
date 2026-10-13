@@ -182,9 +182,12 @@ export interface Settings {
   /** Opacity of markups the list's filter dims, in percent. */
   filteredDim: number;
   // Interface › Layers
-  hideChildLayers: boolean; // stored: layers are not nested
-  layersOnPageOnly: boolean; // stored
-  layerDial: 'isolate' | 'fade'; // stored
+  /** Hiding a PDF layer hides the layers nested in it too (and showing it shows them). */
+  hideChildLayers: boolean;
+  /** The Layers panel lists only the layers the current page uses. */
+  layersOnPageOnly: boolean;
+  /** The Layers Dial shows one layer alone (Isolate) or draws the other markup layers faintly (Fade). */
+  layerDial: 'isolate' | 'fade';
   // Tools › Markup
   autoSizeText: boolean; // stored
   scaleGroupAppearance: boolean; // stored

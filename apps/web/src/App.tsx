@@ -785,6 +785,8 @@ export function App() {
   const [hiddenPdfLayers, setHiddenPdfLayers] = useState<Record<string, string[]>>({});
   /** Markup layers switched off, by document id ('' is markups on no layer). */
   const [hiddenMarkupLayers, setHiddenMarkupLayers] = useState<Record<string, string[]>>({});
+  /** Markup layers drawn faintly by the Layers Dial in Fade mode, by document. */
+  const [fadedMarkupLayers, setFadedMarkupLayers] = useState<Record<string, string[]>>({});
   const [publishFor, setPublishFor] = useState<'pdf' | 'images' | null>(null);
   const publishing = useJobRunning('publish');
   const [locationTick, setLocationTick] = useState(0);
@@ -4567,7 +4569,9 @@ export function App() {
   useEffect(() => {
     ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, open, openB, ctl, ctlB]);
+    ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
+    ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
+  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
@@ -7052,6 +7056,11 @@ Open the download page? Run the new installer to update; your documents and mark
                   if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
                   setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
                   void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
+                }}
+                onFaded={(markup) => {
+                  const id = activeOpen?.file.id;
+                  if (!id || (!markup.length && !fadedMarkupLayers[id]?.length)) return;
+                  setFadedMarkupLayers((all) => ({ ...all, [id]: markup }));
                 }}
                 onPage={
                   activeOpen && pdfLayerPages[activeOpen.file.hash]

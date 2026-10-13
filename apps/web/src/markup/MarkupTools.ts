@@ -426,6 +426,8 @@ export class MarkupTools implements ViewerOverlay {
   private filterMode: 'show' | 'dim' | 'hide' = 'show';
   /** Markup layers switched off in the Layers panel ('' is markups on no layer). */
   private hiddenLayers: ReadonlySet<string> = new Set();
+  /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
+  private fadedLayers: ReadonlySet<string> = new Set();
   private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
@@ -790,6 +792,13 @@ export class MarkupTools implements ViewerOverlay {
   /** Hides the markups on these layers ('' for markups on no layer). */
   setHiddenLayers(layers: ReadonlySet<string>) {
     this.hiddenLayers = layers;
+    this.viewer.invalidate();
+  }
+
+  /** Draws the markups on these layers faintly ('' for markups on no layer). */
+  setFadedLayers(layers: ReadonlySet<string>) {
+    if (layers.size === this.fadedLayers.size && [...layers].every((l) => this.fadedLayers.has(l))) return;
+    this.fadedLayers = layers;
     this.viewer.invalidate();
   }
 
@@ -1404,7 +1413,7 @@ export class MarkupTools implements ViewerOverlay {
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
-      const faint = this.filterMode === 'dim' && this.filteredOut?.(m) && !this.state.selected.has(m.id);
+      const faint = ((this.filterMode === 'dim' && this.filteredOut?.(m)) || this.fadedLayers.has(m.layer ?? '')) && !this.state.selected.has(m.id);
       if (faint) {
         ctx.save();
         ctx.globalAlpha = settings.get().filteredDim / 100;
