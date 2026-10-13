@@ -78,3 +78,17 @@ export function scaleFromRegions(words: readonly Word[], regions: readonly Regio
   }
   return null;
 }
+
+/**
+ * A typed label for each page. With `consecutive`, the number at the end of the label counts up
+ * page by page (A-101, A-102, ...), keeping its leading zeros; without a number every page gets
+ * the same label.
+ */
+export function numberedLabels(pages: readonly number[], first: string, consecutive: boolean): { page: number; label: string }[] {
+  const m = /^(.*?)(\d+)(\D*)$/.exec(first);
+  return pages.map((page, k) => {
+    if (!consecutive || !m) return { page, label: first };
+    const [, prefix, digits, suffix] = m;
+    return { page, label: `${prefix}${String(Number(digits) + k).padStart(digits!.length, '0')}${suffix}` };
+  });
+}

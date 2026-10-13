@@ -4797,3 +4797,82 @@ tr.hidden-markup td {
     app-region: no-drag;
   }
 }
+
+/* Apply Scale to Pages (thumbnails Custom button). */
+.modal.scale-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.scale-dialog .scale-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 12px;
+}
+
+.scale-dialog .scale-k {
+  justify-self: end;
+}
+
+.scale-dialog .check {
+  margin-top: 0;
+}
+
+.scale-dialog .scale-pages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scale-dialog .scale-pages select {
+  flex: 1;
+  min-width: 0;
+}
+
+.scale-dialog .scale-pages small {
+  color: var(--muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.scale-dialog .scale-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+.scale-dialog .scale-mode .spacer {
+  flex: 1;
+}
+
+.scale-dialog .scale-eq {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.scale-dialog .scale-eq input:not([type='checkbox']):not([type='radio']) {
+  min-width: 0;
+}
+
+.scale-dialog .scale-eq-sign {
+  color: var(--muted);
+}
+
+.scale-dialog select.scale-preset {
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .scale-dialog .scale-eq {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .scale-dialog .scale-eq-sign {
+    display: none;
+  }
+}
