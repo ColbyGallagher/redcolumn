@@ -79,7 +79,7 @@ import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
 import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
-import { drawingSets } from './storage/sets';
+import { drawingSets, type SetSheet } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
@@ -856,6 +856,8 @@ export function App() {
   /** Library files being opened, so a double click opens them once. */
   const openingFiles = useRef(new Map<string, Promise<void>>());
   const openSetSheetRef = useRef<(fileId: string, page: number) => Promise<void>>(async () => {});
+  /** Closes a tab, asking first about unsaved changes (set after it is defined, for the Sets panel). */
+  const closeTabRef = useRef<(pane: Pane, fileId: string) => Promise<boolean>>(async () => false);
   const sideBySideRef = useRef<(oldId: string, newId: string) => Promise<void>>(async () => {});
   /** An open page tool dialog; crop keeps a rectangle drawn on the page. */
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
@@ -1737,6 +1739,7 @@ export function App() {
       if (revisionNote) await keepRevision(cur.file.id, revisionNote);
       if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap);
       if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap);
+      if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       remap?.(await replaceFileContent(cur.file.id, edited));
       forgetText(cur.file.id);
     },
@@ -2463,13 +2466,164 @@ export function App() {
         setError('That file is no longer in the library.');
         return;
       }
+      // Preferences › Sets › Open Documents (Open Edited Documents, when the one in front has unsaved
+      // changes): in place, a sheet of the same set opens instead of the document in front.
+      const pane = activePaneRef.current;
+      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const prefs = settings.get();
+      const alreadyOpen = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === fileId);
+      const sameSet = !!front && drawingSets.get().some((s) => s.entries.some((e) => e.fileId === front.file.id) && s.entries.some((e) => e.fileId === fileId));
+      const edited = !!front && !studioDocOf(front.file.id) && hasUnsavedChanges(front);
+      const replace = !alreadyOpen && sameSet && front!.file.id !== fileId && (edited ? prefs.setOpenEdited : prefs.setOpenDocuments) === 'inPlace' ? front : null;
       await openFromLibrary(file);
       const viewer = openBRef.current?.file.id === fileId && activePaneRef.current === 'b' ? ctlB?.viewer : openRef.current?.file.id === fileId ? ctl?.viewer : ctlB?.viewer;
       viewer?.goToPage(page);
+      if (replace) await closeTabRef.current(pane, replace.file.id);
     },
     [library, openFromLibrary, ctl, ctlB],
   );
   openSetSheetRef.current = openSetSheet;
+
+  /** Sets › Show preview of PDF: a small picture of a sheet, made once per sheet and kept for the visit. */
+  const setPreviews = useRef(new Map<string, Promise<string | null>>());
+  const setSheetPreview = useCallback(
+    (fileId: string, page: number): Promise<string | null> => {
+      const key = `${fileId}:${page}`;
+      let p = setPreviews.current.get(key);
+      if (!p) {
+        p = (async () => {
+          const held = await acquireDocument(fileId);
+          try {
+            const size = held.open.doc.pages[page];
+            if (!size) return null;
+            const scale = 220 / Math.max(size.width, size.height);
+            const w = Math.max(1, Math.round(size.width * scale));
+            const h = Math.max(1, Math.round(size.height * scale));
+            const { bitmap } = await held.open.doc.renderTile(page, scale, 0, 0, w, h);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d')!;
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, w, h);
+            ctx.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            return canvas.toDataURL('image/png');
+          } finally {
+            held.release();
+          }
+        })().catch(() => null);
+        setPreviews.current.set(key, p);
+      }
+      return p;
+    },
+    [acquireDocument],
+  );
+
+  /**
+   * Sets: follows up new revisions (Preferences › Sets › Sorting): the earlier sheet's markups copied
+   * to the later one (with flattened ones recovered first, and burned into the page after if asked),
+   * and the earlier one stamped Superseded.
+   */
+  const followUpRevisions = useCallback(
+    async (setId: string, pairs: { key: string; earlier: SetSheet; later: SetSheet }[]) => {
+      const prefs = settings.get();
+      if (!prefs.setCopyMarkups && !prefs.setStampSuperseded) {
+        drawingSets.markRevised(setId, pairs.map((p) => p.key));
+        return;
+      }
+      const done: string[] = [];
+      let copied = 0;
+      let stamped = 0;
+      try {
+        await runJob('Revisions', async ({ progress }) => {
+          for (const [k, { key, earlier, later }] of pairs.entries()) {
+            progress(k, pairs.length, later.fileName);
+            const a = await acquireDocument(earlier.fileId);
+            const b = await acquireDocument(later.fileId);
+            try {
+              if (prefs.setCopyMarkups && !b.open.store.readOnly) {
+                let source = a.open.store.forPage(earlier.page);
+                if (prefs.setUnflatten) {
+                  const { unflatten } = await import('./documents/process');
+                  const { recovery } = await unflatten(await readFile(a.open.file.hash));
+                  const flattened = recovery ? (JSON.parse(recovery) as Markup[]).filter((m) => m.pageIndex === earlier.page && !source.some((s) => s.id === m.id)) : [];
+                  source = [...source, ...flattened];
+                }
+                source = source.filter((m) => m.type !== 'hyperlink' && !(m.type === 'stamp' && m.subject === 'Superseded'));
+                if (source.length) {
+                  const from = a.open.doc.pages[earlier.page]!;
+                  const to = b.open.doc.pages[later.page]!;
+                  const sx = to.width / from.width;
+                  const sy = to.height / from.height;
+                  const now = Date.now();
+                  const groups = new Map<string, string>();
+                  const copies: Markup[] = source.map(({ pdfAnnot: _link, ...m }, i) => ({
+                    ...structuredClone(m),
+                    id: crypto.randomUUID(),
+                    pageIndex: later.page,
+                    points: m.points.map(([x, y]) => [x * sx, y * sy] as [number, number]),
+                    groupId: m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined,
+                    locked: undefined,
+                    createdAt: now + i,
+                    modifiedAt: now + i,
+                  }));
+                  const store = b.open.store;
+                  store.checkpoint();
+                  store.batch(() => copies.forEach((m) => store.add(m)));
+                  copied += copies.length;
+                  if (prefs.setFlattenAfter) {
+                    const fresh = copies.map(({ replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' as const }));
+                    const { exportWithAnnotations } = await import('@nb/markup/export');
+                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+                    const { flattenSelection } = await import('./documents/process');
+                    const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
+                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
+                  }
+                }
+              }
+              if (prefs.setStampSuperseded && !a.open.store.readOnly) {
+                const def = stampLibrary(profiles.active().state).find((s) => s.id === 'builtin-superseded')!;
+                const size = a.open.doc.pages[earlier.page]!;
+                const now = Date.now();
+                const content = resolveStamp(def, { user: authorRef.current, now: new Date(now), ...stampValuesFor(a.open, earlier.page) });
+                const w = Math.min(216, size.width - 72);
+                const h = w / stampAspect(content);
+                a.open.store.add({
+                  id: crypto.randomUUID(),
+                  type: 'stamp',
+                  pageIndex: earlier.page,
+                  points: [
+                    [size.width - 36 - w, 36],
+                    [size.width - 36, 36 + h],
+                  ],
+                  style: { ...DEFAULT_STYLES.stamp, stroke: def.color, width: 2 },
+                  stamp: content,
+                  subject: def.name,
+                  status: 'none',
+                  author: authorRef.current,
+                  createdAt: now,
+                  modifiedAt: now,
+                });
+                stamped++;
+              }
+              done.push(key);
+            } finally {
+              a.release();
+              b.release();
+            }
+          }
+        });
+      } catch (err) {
+        if (!isAbort(err)) setError(`Following up revisions failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        drawingSets.markRevised(setId, done);
+      }
+      const parts = [copied ? `copied ${copied} markup${copied === 1 ? '' : 's'} to the new revision${done.length === 1 ? '' : 's'}` : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
+      if (parts.length) setNotice(`Sets: ${parts.join('; ')}.`);
+    },
+    [acquireDocument, commitDocument],
+  );
 
   /** What the Search panel had found, kept while it is closed. */
   const searchMemory = useRef<SearchMemory | null>(null);
@@ -3356,6 +3510,7 @@ export function App() {
     },
     [closeTab, settleUnsaved],
   );
+  closeTabRef.current = requestCloseTab;
 
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
@@ -7054,6 +7209,8 @@ Open the download page? Run the new installer to update; your documents and mark
                 indexing={indexingSets}
                 onIndex={(ids) => void indexSetFiles(ids)}
                 onOpenSheet={(fileId, page) => void openSetSheet(fileId, page)}
+                onRevisions={(setId, pairs) => void followUpRevisions(setId, pairs)}
+                onPreview={setSheetPreview}
               />
             ) : leftTab === 'properties' ? (
               <PropertiesPanel

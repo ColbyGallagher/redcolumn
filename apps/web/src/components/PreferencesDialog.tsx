@@ -90,9 +90,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 const STORED = new Set<keyof Settings>([
   'richTextComments',
   'scaleGroupAppearance', 'printPopups',
-  'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',
-  'setSortBy', 'setSortTagged', 'setSortOrder', 'setStackMultiPage', 'setRevisionFilter', 'setWildcard', 'setPreviousRevisions', 'setCurrentRevisions', 'setCopyMarkups', 'setUnflatten', 'setFlattenAfter', 'setStampSuperseded',
-  'setTemplates', 'setTags', 'setAutoTagRevision', 'setAutoTagDiscipline', 'setAutoTagSheetType',
+  'setRelativePaths', 'setShowPaths',
 ]);
 const STORED_TIP = 'Saved with your preferences; RedColumn does not use this yet.';
 
@@ -611,10 +609,17 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['none', 'None'],
         ])}
         {L('Stack Revisions By')}
-        <select aria-label="Stack Revisions By" value="sheet" disabled>
-          <option value="sheet">Sheet Number, Revision Number</option>
+        <select
+          aria-label="Stack Revisions By"
+          value={d.setRevisionFilter === 'wildcard' ? 'wildcard' : 'auto'}
+          disabled={d.setRevisionFilter === 'none'}
+          title="What makes two sheets revisions of each other"
+          onChange={(e) => set({ setRevisionFilter: e.target.value as Settings['setRevisionFilter'] })}
+        >
+          <option value="auto">Sheet Number, Revision Number</option>
+          <option value="wildcard">File Name (Wildcard Syntax)</option>
         </select>
-        {text('setWildcard', 'Wildcard Syntax')}
+        {text('setWildcard', 'Wildcard Syntax', { placeholder: '*_Rev#  (* the sheet, # its revision)' })}
         {select('setPreviousRevisions', 'Previous Revisions', [
           ['crossOut', 'Cross Out'],
           ['hide', 'Hide'],
@@ -1090,7 +1095,14 @@ function TagsTable({ tags, onChange }: { tags: SetTag[]; onChange: (tags: SetTag
           {tags.map((t, i) => (
             <div key={i} className={`pref-table-row${picked === i ? ' selected' : ''}`} onFocus={() => setPicked(i)} onClick={() => setPicked(i)}>
               <span>
-                <input type="checkbox" checked={t.autoMark} aria-label={`AutoMark ${t.name}`} onChange={(e) => edit(i, { autoMark: e.target.checked })} />
+                <input
+                  type="checkbox"
+                  checked={t.autoMark}
+                  aria-label={`AutoMark ${t.name}`}
+                  disabled={t.name !== 'Sheet Number' && t.name !== 'Sheet Name'}
+                  title={t.name === 'Sheet Number' || t.name === 'Sheet Name' ? 'Read it off each page automatically' : 'Only sheet numbers and names are read off the pages; type this tag on each sheet (Sets panel › #)'}
+                  onChange={(e) => edit(i, { autoMark: e.target.checked })}
+                />
               </span>
               <input value={t.name} aria-label="Tag name" onChange={(e) => edit(i, { name: e.target.value })} />
               <select value={t.type} aria-label="Tag type" onChange={(e) => edit(i, { type: e.target.value as SetTag['type'] })}>

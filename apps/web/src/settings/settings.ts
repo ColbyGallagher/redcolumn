@@ -221,7 +221,7 @@ export interface Settings {
   signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512';
   /** Refuse changes to a signed document that rewrite it (and so invalidate its signatures). */
   restrictSignedChanges: boolean;
-  // Sets › Set Options (stored)
+  // Sets › Set Options (the Sets panel)
   setOpenDocuments: 'inPlace' | 'newTab';
   setOpenEdited: 'inPlace' | 'newTab';
   setRelativePaths: boolean;
@@ -231,7 +231,7 @@ export interface Settings {
   setCategories: 'auto' | 'manual' | 'none';
   setDefaultTemplate: string;
   setPromptTemplate: boolean;
-  // Sets › Sorting (stored)
+  // Sets › Sorting
   setSortBy: 'fileAndLabel' | 'fileName' | 'pageLabel' | 'sheetNumber';
   setSortTagged: boolean;
   setSortOrder: 'asc' | 'desc';
@@ -244,7 +244,7 @@ export interface Settings {
   setUnflatten: boolean;
   setFlattenAfter: boolean;
   setStampSuperseded: boolean;
-  // Sets › Categories and Tags (stored)
+  // Sets › Categories and Tags
   setTemplates: Record<string, SetTemplate>;
   setTags: SetTag[];
   setAutoTagRevision: boolean;
