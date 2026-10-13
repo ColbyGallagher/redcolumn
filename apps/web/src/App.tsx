@@ -1561,22 +1561,40 @@ export function App() {
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
     restoredTabs.current = true;
-    if (!settings.get().restoreTabs) return;
+    // A document opened by the launch (a file, a share, a link) is all that opens.
+    if (openRef.current) return;
     let saved: { a?: string[]; b?: string[] } = {};
-    try {
-      saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
-    } catch {
-      // Nothing to reopen.
+    if (settings.get().restoreTabs) {
+      try {
+        saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
+      } catch {
+        // Nothing to reopen.
+      }
     }
+    const find = (id: string) => library.find((f) => f.id === id);
+    // Preferences › Options › Open PDF on Startup opens in front of the reopened tabs.
+    const startup = find(settings.get().startupFile);
+    // Read before reopening, which records each tab as it comes to the front.
+    const active = savedTabs().active;
     void (async () => {
+      const reopened: StoredFile[] = [];
       for (const [pane, ids] of [
         ['a', saved.a ?? []],
         ['b', saved.b ?? []],
       ] as const)
         for (const id of ids) {
-          const file = library.find((f) => f.id === id);
-          if (file) await openFromLibrary(file, pane);
+          const file = find(id);
+          if (!file) continue;
+          await openFromLibrary(file, pane);
+          reopened.push(file);
         }
+      const front = startup ?? (reopened.find((f) => f.id === active));
+      if (front && (startup || reopened.length > 1)) await openFromLibrary(front, 'a');
+      if (settings.get().documentRecovery) {
+        const recovered = recoveredDocs();
+        const names = [...reopened, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
+        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
+      }
     })();
   }, [ctl, libraryReady, library, openFromLibrary]);
 
@@ -1594,30 +1612,13 @@ export function App() {
     void openNewFile(f, 'b');
   }, [ctlB, openNewFile, openStored]);
 
-  // Load the library and reopen the tabs from last time (or the most recent file), so the app
-  // resumes where it left off offline.
+  // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
   useEffect(() => {
     if (!ctl || restored.current) return;
     restored.current = true;
-    void listFiles().then(async (files) => {
-      setLibrary(files);
-      if (openRef.current) return;
-      const saved = savedTabs();
-      const tabs = saved.ids.map((id) => files.find((f) => f.id === id)).filter((f): f is StoredFile => !!f);
-      // Preferences › Options › Open PDF on Startup opens in front of the restored tabs.
-      const startup = files.find((f) => f.id === settings.get().startupFile);
-      if (!tabs.length && !startup && files[0]) tabs.push(files[0]);
-      for (const f of tabs) await openFromLibrary(f, 'a');
-      const front = startup ?? tabs.find((f) => f.id === saved.active);
-      if (front && (startup || tabs.length > 1)) await openFromLibrary(front, 'a');
-      if (settings.get().documentRecovery) {
-        const recovered = recoveredDocs();
-        const names = [...tabs, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
-        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
-      }
-    });
-  }, [ctl, openFromLibrary]);
+    void refreshLibrary();
+  }, [ctl, refreshLibrary]);
 
   // Remember the library documents open in tabs for next time.
   useEffect(() => {
