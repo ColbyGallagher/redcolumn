@@ -4,9 +4,11 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = new URL('..', import.meta.url).pathname;
-const byLicence = JSON.parse(execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { cwd: root, encoding: 'utf8' }));
+const root = fileURLToPath(new URL('..', import.meta.url));
+// pnpm is a .cmd script on Windows, which needs a shell to start.
+const byLicence = JSON.parse(execFileSync('pnpm', ['licenses', 'list', '--prod', '--json'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' }));
 
 const packages = Object.entries(byLicence)
   .flatMap(([licence, list]) => list.map((p) => ({ ...p, licence })))
