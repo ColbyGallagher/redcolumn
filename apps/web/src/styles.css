@@ -1768,6 +1768,22 @@ body,
   background: transparent;
 }
 
+/* The collapsed side panel's edge: click it to open the panel again. */
+.panel-edge {
+  flex: none;
+  width: 6px;
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  cursor: e-resize;
+}
+
+.panel-edge:hover,
+.panel-edge:focus-visible {
+  background: var(--accent);
+}
+
 .pagenav {
   display: flex;
   flex: none;

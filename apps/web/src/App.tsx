@@ -4833,16 +4833,20 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /** Dragging the side panel's edge resizes it; clicking the edge without dragging collapses it. */
   const onLeftResize = (e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
     const startW = leftWidth;
+    let dragged = false;
     const move = (ev: PointerEvent) => {
-      setLeftWidth(Math.max(180, Math.min(480, startW + (ev.clientX - startX))));
+      if (Math.abs(ev.clientX - startX) > 3) dragged = true;
+      if (dragged) setLeftWidth(Math.max(180, Math.min(480, startW + (ev.clientX - startX))));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      if (!dragged) setLeftOpen(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -7193,9 +7197,10 @@ Open the download page? Run the new installer to update; your documents and mark
                 onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
               />
             )}
-            <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" onPointerDown={onLeftResize} />
+            <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={onLeftResize} />
           </aside>
         )}
+        {!leftOpen && <button type="button" className="panel-edge" aria-label="Open the side panel" title="Open the side panel" onClick={() => setLeftOpen(true)} />}
         <div className="workspace">
           <div id="rc-project-slot" className="rc-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
