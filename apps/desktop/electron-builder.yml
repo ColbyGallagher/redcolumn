@@ -55,6 +55,9 @@ nsis:
 mac:
   target: dmg
   identity: '-'
+  # Hardened runtime is for notarization. With an ad-hoc signature it makes library validation
+  # refuse Electron's frameworks (no Team ID), and the app fails to launch.
+  hardenedRuntime: false
   icon: ../web/dist/icon-512.png
   category: public.app-category.productivity
 dmg:
