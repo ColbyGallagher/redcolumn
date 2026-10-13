@@ -206,7 +206,8 @@ export interface Settings {
   /** How placed pictures are stored: Auto (photos JPEG, others lossless), JPEG, or Flate (lossless PNG). */
   imageEncoding: 'auto' | 'jpeg' | 'flate';
   // Tools › Sketch
-  rotationInput: 'absolute' | 'relative'; // stored
+  /** Draw to Scale angles: from east (Absolute) or from the previous segment's direction (Relative). */
+  rotationInput: 'absolute' | 'relative';
   // Tools › Forms
   formHighlightColour: string; // stored
   formHighlightOpacity: number; // stored

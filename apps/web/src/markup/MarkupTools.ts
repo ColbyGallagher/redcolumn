@@ -530,6 +530,12 @@ export class MarkupTools implements ViewerOverlay {
     return a ? { mode: 'box', type: a.type, pageIndex: a.pageIndex, from: a.at } : null;
   }
 
+  /** What typed angles are measured from: east, or with Relative rotation input the last segment's direction. */
+  private sketchBaseAngle(points: readonly Point[]): number {
+    if (settings.get().rotationInput !== 'relative' || points.length < 2) return 0;
+    return segmentPolar(points.at(-2)!, points.at(-1)!).angle;
+  }
+
   private refreshSketch() {
     const sketch = this.sketchState();
     if (!sameSketch(sketch, this.state.sketch)) this.setState({ sketch });
@@ -538,7 +544,8 @@ export class MarkupTools implements ViewerOverlay {
 
   /**
    * Draw to Size: places the next point `length` points from the last one, at `angle` degrees
-   * (counter-clockwise from east, as on paper), or toward the pointer when no angle is given.
+   * (counter-clockwise from east, as on paper; with Preferences › Sketch › Rotation Input set to
+   * Relative, from the direction of the segment before), or toward the pointer when no angle is given.
    */
   sketchSegment(length: number, angle: number | null) {
     const g = this.gesture;
@@ -546,7 +553,7 @@ export class MarkupTools implements ViewerOverlay {
     const from = g.markup.points.at(-1)!;
     const h = g.hover;
     const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
-    const p = polarPoint(from, length, angle ?? toward);
+    const p = polarPoint(from, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points));
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -1474,7 +1481,9 @@ export class MarkupTools implements ViewerOverlay {
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
-        const { length, angle } = segmentPolar(from, hover);
+        const { length, angle: absolute } = segmentPolar(from, hover);
+        // The readout shows angles as they are typed: relative to the last segment when set so.
+        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
         if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }

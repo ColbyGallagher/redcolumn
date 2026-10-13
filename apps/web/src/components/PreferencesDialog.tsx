@@ -89,7 +89,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
 const STORED = new Set<keyof Settings>([
   'richTextComments',
   'scaleGroupAppearance', 'printPopups',
-  'rotationInput', 'formHighlightColour', 'formHighlightOpacity', 'formSingleKeys', 'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
+  'formHighlightColour', 'formHighlightOpacity', 'formSingleKeys', 'signaturePasswordTimeout', 'signatureAlgorithm', 'restrictSignedChanges',
   'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',
   'setSortBy', 'setSortTagged', 'setSortOrder', 'setStackMultiPage', 'setRevisionFilter', 'setWildcard', 'setPreviousRevisions', 'setCurrentRevisions', 'setCopyMarkups', 'setUnflatten', 'setFlattenAfter', 'setStampSuperseded',
   'setTemplates', 'setTags', 'setAutoTagRevision', 'setAutoTagDiscipline', 'setAutoTagSheetType',
