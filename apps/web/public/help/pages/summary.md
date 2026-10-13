@@ -14,4 +14,4 @@ A report of every markup: a table you can print, file or send, with comments, st
 
 > **Tip:** Filter the list first (for example status *Open*, or one trade) to make a focused report. See [Search, filter and sort](#list-filter).
 
-For many files at once, use [Batch Summary](#batch-summary-print).
+For many files at once, use [Bulk Summary](#batch-summary-print).

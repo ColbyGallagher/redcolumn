@@ -16,7 +16,7 @@ const TYPE_LABELS: Record<FieldType, string> = {
 
 interface Props {
   model: FormModel | null;
-  /** The form can be changed (not a shared Studio document, not busy). */
+  /** The form can be changed (not a shared collaboration document, not busy). */
   editable: boolean;
   selected: string | null;
   onSelect: (name: string | null) => void;

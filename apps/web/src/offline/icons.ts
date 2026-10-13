@@ -12,11 +12,11 @@ const hex = (h: string): Rgba => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(
 
 /** The icon in its 64 unit viewBox (see public/icon.svg). */
 export const ICON = {
-  background: hex('#1e3a8a'),
+  background: hex('#15213a'),
   radius: 12,
   sheet: { fill: hex('#ffffff'), points: [[18, 14], [38, 14], [48, 24], [48, 50], [18, 50]] as Pt[] },
-  fold: { fill: hex('#bfdbfe'), points: [[38, 14], [38, 24], [48, 24]] as Pt[] },
-  mark: { stroke: hex('#3b82f6'), width: 3, points: [[24, 40], [32, 28], [40, 40]] as Pt[] },
+  fold: { fill: hex('#c9d3e6'), points: [[38, 14], [38, 24], [48, 24]] as Pt[] },
+  mark: { stroke: hex('#c8102e'), width: 3, points: [[24, 40], [32, 28], [40, 40]] as Pt[] },
 };
 
 export interface IconOptions {

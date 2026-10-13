@@ -2,7 +2,7 @@
 
 Join several PDFs into one.
 
-1. Choose {{File > Combine…}} (also {{Batch > Combine PDFs…}}).
+1. Choose {{File > Combine…}} (also {{Bulk > Combine PDFs…}}).
 
    ![The Combine window](img/combine.png)
 2. Click **Add Files…** and pick the PDFs. The open document is already in the list.

@@ -19,4 +19,4 @@
 
 Open the [Signatures panel](#signatures). Under **Digital Signatures**, each signature is listed with who signed, when, and whether the document has changed since. Click the check button to ask the certificate authority whether the certificate was revoked.
 
-> **Warning:** After signing, don't change the document (markups, page changes, Reduce File Size) unless the signature allows it, or the signature will show as broken. To sign many files at once, use [Batch Sign & Seal](#batch-sign).
+> **Warning:** After signing, don't change the document (markups, page changes, Reduce File Size) unless the signature allows it, or the signature will show as broken. To sign many files at once, use [Bulk Sign & Seal](#batch-sign).

@@ -18,4 +18,4 @@ If a PDF opens slowly, shows errors, or other programs complain about it, choose
 
 > **Note:** Reducing or repairing a digitally **signed** PDF breaks the signature. redcolumn asks before it does this.
 
-To do this to many files, use {{Batch > Reduce File Size…}} or {{Batch > Repair…}}.
+To do this to many files, use {{Bulk > Reduce File Size…}} or {{Bulk > Repair…}}.

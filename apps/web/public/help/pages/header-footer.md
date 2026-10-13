@@ -31,4 +31,4 @@ Choose {{Document > Number Pages…}}. It is the same window, ready with *Page &
 
 ## Remove headers and footers
 
-Open {{Document > Headers & Footers…}} again. When the document already has headers and footers added by redcolumn, the window has a **Remove existing** button. To remove them from many files, use {{Batch > Remove Headers & Footers…}}.
+Open {{Document > Headers & Footers…}} again. When the document already has headers and footers added by redcolumn, the window has a **Remove existing** button. To remove them from many files, use {{Bulk > Remove Headers & Footers…}}.

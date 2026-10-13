@@ -228,7 +228,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
           void onRun({ command: command(), fileIds: ordered, keepRevisions }, (r) => setResults((list) => [...(list ?? []), r])).finally(() => setRunning(false));
         }}
       >
-        <h3>Batch · {BATCH_LABELS[kind]}</h3>
+        <h3>Bulk · {BATCH_LABELS[kind]}</h3>
         {results ? (
           <>
             <p>

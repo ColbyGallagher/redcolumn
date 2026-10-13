@@ -23,4 +23,4 @@ When you open a drawing set, redcolumn finds the sheet numbers by itself from th
 
 Each page gets the text found in the same place on that page.
 
-> **Tip:** Doing this to many files? Use [Batch Page Labels](#batch-page-labels).
+> **Tip:** Doing this to many files? Use [Bulk Page Labels](#batch-page-labels).

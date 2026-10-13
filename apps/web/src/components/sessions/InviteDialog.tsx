@@ -41,7 +41,7 @@ export function InviteDialog({
   return (
     <div className="modal-backdrop" onMouseDown={busy ? undefined : onCancel}>
       <form
-        className="modal session-dialog bb-share"
+        className="modal session-dialog rc-share"
         role="dialog"
         aria-modal="true"
         aria-label="Share Session Invitations"
@@ -61,27 +61,27 @@ export function InviteDialog({
           });
         }}
       >
-        <div className="bb-share-top">
+        <div className="rc-share-top">
           <h3>Share Session Invitations</h3>
           <span>
-            <button type="button" className="bb-share-copy" onClick={copy}>
+            <button type="button" className="rc-share-copy" onClick={copy}>
               {copied ? 'Copied' : 'Copy Session Invitation Link'}
             </button>
-            <button type="button" className="bb-dialog-x" aria-label="Close" disabled={busy} onClick={onCancel}>
+            <button type="button" className="rc-dialog-x" aria-label="Close" disabled={busy} onClick={onCancel}>
               ×
             </button>
           </span>
         </div>
-        <div className="bb-share-body">
+        <div className="rc-share-body">
           {mode === 'pick' ? (
             <>
-              <p className="bb-share-lead">Get Started with one of these options:</p>
-              <button type="button" className="bb-share-opt" onClick={() => setMode('emails')}>
+              <p className="rc-share-lead">Get Started with one of these options:</p>
+              <button type="button" className="rc-share-opt" onClick={() => setMode('emails')}>
                 Type or Paste Emails <span aria-hidden="true">Ab</span>
               </button>
               <button
                 type="button"
-                className="bb-share-opt"
+                className="rc-share-opt"
                 onClick={() => {
                   if (!groupEmails.length) {
                     setNote(groups.length ? 'Those groups have no email addresses yet.' : 'This session has no groups yet. Add them in Session Settings → Attendees.');
@@ -97,12 +97,12 @@ export function InviteDialog({
               {note && <p className="print-hint">{note}</p>}
             </>
           ) : (
-            <div className="bb-share-form">
+            <div className="rc-share-form">
               <label>
                 Email addresses
                 <textarea rows={4} value={text} autoFocus onChange={(e) => setText(e.target.value)} placeholder="ann@example.com, bob@example.com" />
               </label>
-              <button type="button" className="bb-set-link" onClick={() => setMode('pick')}>
+              <button type="button" className="rc-set-link" onClick={() => setMode('pick')}>
                 Other options
               </button>
             </div>

@@ -205,7 +205,7 @@ function SessionList({
     });
 
   return (
-    <div className="sessions bb-studio">
+    <div className="sessions rc-studio">
       <StudioHeader
         title="All Sessions"
         onRefresh={() => setRefresh((n) => n + 1)}
@@ -253,13 +253,13 @@ function SessionList({
         </div>
       )}
 
-      <div className="bb-scroll">
+      <div className="rc-scroll">
       {shown.length === 0 ? (
-        <p className="bb-empty">
+        <p className="rc-empty">
           {tab === 'deleted' ? 'No deleted sessions.' : tab === 'not' ? 'Sessions you have not joined are listed here.' : recent.length ? 'You are not in a session right now.' : 'Sessions you start or join appear here.'}
         </p>
       ) : (
-        <ul className="bb-list">
+        <ul className="rc-list">
           {shown.map(({ ref, joined: j, meta, status, usable, access }) => {
             const blocked = busy || !usable || (!j && ((ref.backend === 'drive' && !driveAvailable) || (ref.backend === 'onedrive' && !oneDriveAvailable)));
             const name = meta?.name ?? ref.name;
@@ -280,7 +280,7 @@ function SessionList({
                   j ? null : ref.removed ? (
                     <button
                       type="button"
-                      className="bb-join"
+                      className="rc-join"
                       onClick={() => {
                         restoreRecentSession(ref.id);
                         setRefresh((n) => n + 1);
@@ -290,12 +290,12 @@ function SessionList({
                     </button>
                   ) : (
                     <>
-                      <button type="button" className="bb-join" disabled={blocked} onClick={() => void onJoin(ref).then((ok) => ok && onFocus(ref.id))}>
+                      <button type="button" className="rc-join" disabled={blocked} onClick={() => void onJoin(ref).then((ok) => ok && onFocus(ref.id))}>
                         Join
                       </button>
                       <button
                         type="button"
-                        className="bb-x"
+                        className="rc-x"
                         title="Remove from your sessions. Restore it from Deleted."
                         aria-label="Remove"
                         onClick={() => {
@@ -314,9 +314,9 @@ function SessionList({
           })}
         </ul>
       )}
-      {busy && <p className="bb-empty">Connecting…</p>}
+      {busy && <p className="rc-empty">Connecting…</p>}
       {error && <p className="session-error">{error}</p>}
-      <p className="bb-note">
+      <p className="rc-note">
         You appear as <b>{me}</b>.
       </p>
       <GoogleIdentity onChanged={() => setRefresh((n) => n + 1)} />
@@ -413,9 +413,9 @@ function InSession({
   const offlinePeople = joinedPeople.filter((p) => !p.here);
 
   return (
-    <div className="sessions bb-studio in-session">
-      <div className="bb-session-top">
-        <div className="bb-session-switch">
+    <div className="sessions rc-studio in-session">
+      <div className="rc-session-top">
+        <div className="rc-session-switch">
           <select aria-label="Session" value={session.id} onChange={(e) => onFocus(e.target.value || null)} title={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline: changes sync when you reconnect'}>
             <option value="">All Sessions</option>
             {joined.map((j) => (
@@ -438,25 +438,25 @@ function InSession({
             ]}
           />
         </div>
-        {snapshot.email && <p className="bb-banner">You are {snapshot.email}</p>}
-        {!finished && meta.expiresAt ? <p className="bb-banner">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
+        {snapshot.email && <p className="rc-banner">You are {snapshot.email}</p>}
+        {!finished && meta.expiresAt ? <p className="rc-banner">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
         {denied && <p className="session-error">The host has removed your access to this session.</p>}
         {needsAuth && (
-          <div className="bb-banner">
+          <div className="rc-banner">
             {`Signed out of ${backend === 'onedrive' ? 'Microsoft' : 'Google'}. Your edits are kept here and saved when you reconnect.`}{' '}
-            <button className="bb-text-btn" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
+            <button className="rc-text-btn" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
               Reconnect
             </button>
           </div>
         )}
-        {viewOnly && <p className="bb-banner">View only: the session folder is shared with you read-only.</p>}
-        {!isHost && access === 'view' && !finished && !denied && <p className="bb-banner">You can view documents and chat. The host has not given you comment access.</p>}
-        {finished && !ended && <p className="bb-banner">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
+        {viewOnly && <p className="rc-banner">View only: the session folder is shared with you read-only.</p>}
+        {!isHost && access === 'view' && !finished && !denied && <p className="rc-banner">You can view documents and chat. The host has not given you comment access.</p>}
+        {finished && !ended && <p className="rc-banner">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
         {ended && <p className="session-error">The host ended this session and removed its files. Documents you have open stay read-only until you close them.</p>}
-        {status === 'offline' && !finished && !denied && !ended && <p className="bb-banner">Offline. Keep working: markups sync when the connection returns.</p>}
+        {status === 'offline' && !finished && !denied && !ended && <p className="rc-banner">Offline. Keep working: markups sync when the connection returns.</p>}
 
         <section>
-          <button type="button" className="bb-sec-h" aria-expanded={open.people} onClick={() => toggle('people')}>
+          <button type="button" className="rc-sec-h" aria-expanded={open.people} onClick={() => toggle('people')}>
             <Caret open={open.people} /> Attendees
           </button>
           {open.people && (
@@ -471,13 +471,13 @@ function InSession({
               />
               {who === 'joined' ? (
                 <>
-                  <div className="bb-group">Online ({onlinePeople.length})</div>
-                  <ul className="bb-people">
+                  <div className="rc-group">Online ({onlinePeople.length})</div>
+                  <ul className="rc-people">
                     {onlinePeople.map((p) => (
                       <li key={p.email ?? p.name}>
-                        <button type="button" className="bb-person" disabled={!p.here?.docId || p.here.self} title={p.email && p.email !== p.name ? p.email : undefined} onClick={() => p.here?.docId && onGoTo(session.id, p.here.docId, p.here.page)}>
+                        <button type="button" className="rc-person" disabled={!p.here?.docId || p.here.self} title={p.email && p.email !== p.name ? p.email : undefined} onClick={() => p.here?.docId && onGoTo(session.id, p.here.docId, p.here.page)}>
                           <PersonIcon />
-                          <span className="bb-name">
+                          <span className="rc-name">
                             {p.name}
                             {p.here?.self ? ' (you)' : ''}
                           </span>
@@ -485,23 +485,23 @@ function InSession({
                       </li>
                     ))}
                   </ul>
-                  <div className="bb-group dim">Offline ({offlinePeople.length})</div>
-                  <ul className="bb-people dim">
+                  <div className="rc-group dim">Offline ({offlinePeople.length})</div>
+                  <ul className="rc-people dim">
                     {offlinePeople.map((p) => (
-                      <li key={p.email ?? p.name} className="bb-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
+                      <li key={p.email ?? p.name} className="rc-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
                         <PersonIcon />
-                        <span className="bb-name">{p.name}</span>
+                        <span className="rc-name">{p.name}</span>
                       </li>
                     ))}
                   </ul>
                 </>
               ) : (
-                <ul className="bb-people dim">
-                  {pendingPeople.length === 0 && <li className="bb-empty">No one is waiting to join.</li>}
+                <ul className="rc-people dim">
+                  {pendingPeople.length === 0 && <li className="rc-empty">No one is waiting to join.</li>}
                   {pendingPeople.map((p) => (
-                    <li key={p.email ?? p.name} className="bb-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
+                    <li key={p.email ?? p.name} className="rc-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
                       <PersonIcon />
-                      <span className="bb-name">{p.name}</span>
+                      <span className="rc-name">{p.name}</span>
                     </li>
                   ))}
                 </ul>
@@ -511,8 +511,8 @@ function InSession({
         </section>
 
         <section>
-          <div className="bb-sec-bar">
-            <button type="button" className="bb-sec-h" aria-expanded={open.docs} onClick={() => toggle('docs')}>
+          <div className="rc-sec-bar">
+            <button type="button" className="rc-sec-h" aria-expanded={open.docs} onClick={() => toggle('docs')}>
               <Caret open={open.docs} /> Documents
             </button>
             {session.canAddDocuments && (
@@ -540,20 +540,20 @@ function InSession({
             />
           )}
           {open.docs && (
-            <ul className="bb-docs">
-              {meta.documents.length === 0 && <li className="bb-empty">{session.canAddDocuments ? 'Add a PDF to share it.' : 'No documents yet.'}</li>}
+            <ul className="rc-docs">
+              {meta.documents.length === 0 && <li className="rc-empty">{session.canAddDocuments ? 'Add a PDF to share it.' : 'No documents yet.'}</li>}
               {meta.documents.map((d) => {
                 const key = `${session.id}:${d.id}`;
                 const active = activeDoc?.sessionId === session.id && activeDoc.docId === d.id;
                 return (
-                  <li key={d.id} className={active ? 'bb-doc on' : 'bb-doc'}>
-                    <button type="button" className="bb-doc-main" disabled={denied} onClick={() => onOpenDocument(session.id, d.id)} title={`Added by ${d.addedBy}${openDocs.has(key) ? ' · open in a tab' : ''}`}>
+                  <li key={d.id} className={active ? 'rc-doc on' : 'rc-doc'}>
+                    <button type="button" className="rc-doc-main" disabled={denied} onClick={() => onOpenDocument(session.id, d.id)} title={`Added by ${d.addedBy}${openDocs.has(key) ? ' · open in a tab' : ''}`}>
                       <DocIcon />
-                      <span className="bb-name">{d.name}</span>
+                      <span className="rc-name">{d.name}</span>
                     </button>
-                    <span className="bb-doc-actions">
+                    <span className="rc-doc-actions">
                         {isHost && !finished && (
-                          <label className="bb-mini" title="Update to a new revision">
+                          <label className="rc-mini" title="Update to a new revision">
                             Update
                             <input
                               type="file"
@@ -570,7 +570,7 @@ function InSession({
                         {isHost && !finished && (
                           <button
                             type="button"
-                            className="bb-mini"
+                            className="rc-mini"
                             title="Remove from session"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -623,7 +623,7 @@ function RecordView({
   }, [shown.length, tab]);
 
   return (
-    <section className="bb-dock">
+    <section className="rc-dock">
       <StudioTabs
         value={tab}
         onChange={setTab}
@@ -634,14 +634,14 @@ function RecordView({
         ]}
       />
       <ol
-        className="bb-log"
+        className="rc-log"
         ref={listRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
       >
-        {tab === 'pending' && pending.length === 0 && <li className="bb-empty">No pending invitations.</li>}
+        {tab === 'pending' && pending.length === 0 && <li className="rc-empty">No pending invitations.</li>}
         {tab === 'pending' &&
           pending.map((p) => (
             <li key={p.email ?? p.name}>
@@ -651,7 +651,7 @@ function RecordView({
               </span>
             </li>
           ))}
-        {tab !== 'pending' && shown.length === 0 && <li className="bb-empty">{tab === 'alerts' ? 'No notifications.' : 'Nothing yet.'}</li>}
+        {tab !== 'pending' && shown.length === 0 && <li className="rc-empty">{tab === 'alerts' ? 'No notifications.' : 'Nothing yet.'}</li>}
         {tab !== 'pending' &&
           shown.map((e) => {
             const target = e.docId && docName(e.docId) ? e.docId : null;
@@ -674,7 +674,7 @@ function RecordView({
       </ol>
       {!readOnly && (
         <form
-          className="bb-chat"
+          className="rc-chat"
           onSubmit={(ev) => {
             ev.preventDefault();
             if (!draft.trim()) return;

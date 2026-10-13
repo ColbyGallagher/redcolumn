@@ -26,4 +26,4 @@ Click the **Links** tab at the bottom of the screen.
 
 Click a row to see that callout. **Re-detect** finds links again, for example after you change [page labels](#page-labels).
 
-> **Tip:** To link a whole folder of files at once, use [Batch Auto-Link Sheets](#batch-link).
+> **Tip:** To link a whole folder of files at once, use [Bulk Auto-Link Sheets](#batch-link).

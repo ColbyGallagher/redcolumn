@@ -16,4 +16,4 @@
 
 > **Tip:** To print to scale, choose **Actual size** (or 100%) in the computer's print window, on paper the same size as the drawing.
 
-To print many files, use [Batch Print](#batch-summary-print).
+To print many files, use [Bulk Print](#batch-summary-print).

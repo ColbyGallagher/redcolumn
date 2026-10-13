@@ -90,7 +90,7 @@ const MENUS: { id: MenuId; label: string }[] = [
   { id: 'edit', label: 'Edit' },
   { id: 'view', label: 'View' },
   { id: 'document', label: 'Document' },
-  { id: 'batch', label: 'Batch' },
+  { id: 'batch', label: 'Bulk' },
   { id: 'tools', label: 'Tools' },
   { id: 'window', label: 'Window' },
   { id: 'help', label: 'Help' },
@@ -548,6 +548,12 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
 
   return (
     <div className="menubar" ref={root} role="menubar">
+      <span className="brand-mark" aria-hidden="true">
+        <span className="brand-col" />
+        <span className="brand-word">
+          <b>red</b>column
+        </span>
+      </span>
       {MENUS.map(({ id, label }) => (
         <div key={id} className={`menu${open === id ? ' open' : ''}`}>
           <button

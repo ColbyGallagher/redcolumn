@@ -6,7 +6,7 @@ Learn the names of the areas on the screen. The rest of this help uses these nam
 
 | # | Area | What it is for |
 |---|---|---|
-| 1 | **Menu bar** | Every command, sorted into File, Edit, View, Document, Batch, Tools, Window and Help. |
+| 1 | **Menu bar** | Every command, sorted into File, Edit, View, Document, Bulk, Tools, Window and Help. |
 | 2 | **Toolbar** | Your most-used markup tools, plus colour, line width and other settings for the tool you are using. |
 | 3 | **Tabs** | One tab per open document. Click a tab to switch documents. |
 | 4 | **Panel rail** | Buttons that open the side panels (Thumbnails, Properties, Measurements and more). |

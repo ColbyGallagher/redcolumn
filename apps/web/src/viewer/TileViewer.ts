@@ -897,7 +897,7 @@ export class TileViewer {
     const { ctx, canvas } = this;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#3a3d42';
+    ctx.fillStyle = '#1f2d4a';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (!this.doc) {
       this.scrollTrack.hidden = true;
@@ -1016,8 +1016,8 @@ export class TileViewer {
       const b = this.zoomBox;
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.strokeStyle = '#4ea1ff';
-      ctx.fillStyle = 'rgba(78, 161, 255, 0.12)';
+      ctx.strokeStyle = '#2ec4b6';
+      ctx.fillStyle = 'rgba(46, 196, 182, 0.12)';
       ctx.setLineDash([4, 3]);
       const x = Math.min(b.x0, b.x1);
       const y = Math.min(b.y0, b.y1);
@@ -1074,7 +1074,7 @@ export class TileViewer {
     // A spinner arc, turning with the clock; the view redraws on each tile, and the app keeps
     // animating while tiles are pending.
     const a = (performance.now() / 250) % (Math.PI * 2);
-    ctx.strokeStyle = '#4ea1ff';
+    ctx.strokeStyle = '#2ec4b6';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(x + 14, y + h / 2, 5, a, a + Math.PI * 1.4);
@@ -1137,7 +1137,7 @@ export class TileViewer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.beginPath();
     ctx.arc(pointer.x, pointer.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#3a3d42';
+    ctx.fillStyle = '#1f2d4a';
     ctx.fill();
     ctx.clip();
     ctx.translate(pointer.x, pointer.y);

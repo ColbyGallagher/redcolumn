@@ -75,7 +75,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        category: { type: 'string', description: 'File, Edit, View, Document, Batch, Tools, Window, or Help. Every category when omitted.' },
+        category: { type: 'string', description: 'File, Edit, View, Document, Bulk, Tools, Window, or Help. Every category when omitted.' },
       },
     },
   },

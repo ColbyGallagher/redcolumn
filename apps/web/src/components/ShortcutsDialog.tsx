@@ -9,7 +9,7 @@ interface Props {
   onClose: () => void;
 }
 
-const CATEGORIES: CommandCategory[] = ['File', 'Edit', 'View', 'Document', 'Batch', 'Tools', 'Window', 'Help'];
+const CATEGORIES: CommandCategory[] = ['File', 'Edit', 'View', 'Document', 'Bulk', 'Tools', 'Window', 'Help'];
 
 /** Keys that cannot be shortcuts: they work the page and the dialog itself. */
 const RESERVED = new Set(['Escape', 'Enter', 'Tab', 'Shift+Tab']);
