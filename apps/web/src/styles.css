@@ -1140,6 +1140,14 @@ body,
   min-width: 0;
 }
 
+/* The page and scale buttons stay in view while the thumbnails scroll under them. */
+.pages-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+
 .thumb-zoom {
   position: sticky;
   bottom: 0;

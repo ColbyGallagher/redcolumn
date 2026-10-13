@@ -310,54 +310,56 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
 
   return (
     <div className="pages-panel">
-      <div className="sheet-actions">
-        <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
-          ⟲
-        </button>
-        <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
-          ⟳
-        </button>
-        <button
-          className="btn small"
-          disabled={busy || chosen.length >= count}
-          title={`Delete ${plural}`}
-          onClick={() => {
-            if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
-              onPageOps([{ type: 'delete', pages: chosen }]);
-            }
-          }}
-        >
-          Delete
-        </button>
-        <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
-          Page Label
-        </button>
-        <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
-          Insert PDF…
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          hidden
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            e.target.value = '';
-            if (file) onPageOps([{ type: 'insert', source: 0, at: chosen.at(-1)! + 1 }], [await file.arrayBuffer()]);
-          }}
-        />
-      </div>
-      <div className="sheet-actions">
-        <ScaleControl
-          scale={chosen.length === 1 ? (scales[chosen[0]!] ?? null) : null}
-          pageCount={chosen.length}
-          disabled={busy}
-          showAllPages={false}
-          onPreset={(s) => onSetScale(chosen, s)}
-          onApplyAll={() => {}}
-          onCustom={() => setScaleOpen(true)}
-          onBulk={() => onBulkScales(selected.length > 1 ? chosen : [])}
-        />
+      <div className="pages-head">
+        <div className="sheet-actions">
+          <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
+            ⟲
+          </button>
+          <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
+            ⟳
+          </button>
+          <button
+            className="btn small"
+            disabled={busy || chosen.length >= count}
+            title={`Delete ${plural}`}
+            onClick={() => {
+              if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
+                onPageOps([{ type: 'delete', pages: chosen }]);
+              }
+            }}
+          >
+            Delete
+          </button>
+          <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
+            Page Label
+          </button>
+          <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
+            Insert PDF…
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/pdf"
+            hidden
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) onPageOps([{ type: 'insert', source: 0, at: chosen.at(-1)! + 1 }], [await file.arrayBuffer()]);
+            }}
+          />
+        </div>
+        <div className="sheet-actions">
+          <ScaleControl
+            scale={chosen.length === 1 ? (scales[chosen[0]!] ?? null) : null}
+            pageCount={chosen.length}
+            disabled={busy}
+            showAllPages={false}
+            onPreset={(s) => onSetScale(chosen, s)}
+            onApplyAll={() => {}}
+            onCustom={() => setScaleOpen(true)}
+            onBulk={() => onBulkScales(selected.length > 1 ? chosen : [])}
+          />
+        </div>
       </div>
       <div
         className="thumbs"
