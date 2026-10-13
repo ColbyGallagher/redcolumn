@@ -58,6 +58,7 @@ export interface CommandActions {
   undoHistory: () => void;
   checkSpelling: () => void;
   sound: () => void;
+  video: () => void;
   showHidden: () => void;
   selectAll: () => void;
   formatPainter: () => void;
@@ -370,6 +371,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
 
     ...tools,
     cmd('tools.sound', 'Tools', 'Sound…', a.sound, s.editable),
+    cmd('tools.video', 'Tools', 'Video…', a.video, s.editable),
     cmd('tools.eraserSmall', 'Tools', 'Eraser Size: Small', () => a.setSettings({ eraserSize: 'small' }), true, s.settings.eraserSize === 'small'),
     cmd('tools.eraserMedium', 'Tools', 'Eraser Size: Medium', () => a.setSettings({ eraserSize: 'medium' }), true, s.settings.eraserSize === 'medium'),
     cmd('tools.eraserLarge', 'Tools', 'Eraser Size: Large', () => a.setSettings({ eraserSize: 'large' }), true, s.settings.eraserSize === 'large'),

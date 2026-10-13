@@ -93,7 +93,6 @@ const STORED = new Set<keyof Settings>([
   'setOpenDocuments', 'setOpenEdited', 'setRelativePaths', 'setShowPaths', 'setShow', 'setPreview', 'setCategories', 'setDefaultTemplate', 'setPromptTemplate',
   'setSortBy', 'setSortTagged', 'setSortOrder', 'setStackMultiPage', 'setRevisionFilter', 'setWildcard', 'setPreviousRevisions', 'setCurrentRevisions', 'setCopyMarkups', 'setUnflatten', 'setFlattenAfter', 'setStampSuperseded',
   'setTemplates', 'setTags', 'setAutoTagRevision', 'setAutoTagDiscipline', 'setAutoTagSheetType',
-  'videoResolution',
 ]);
 const STORED_TIP = 'Saved with your preferences; RedColumn does not use this yet.';
 

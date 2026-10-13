@@ -776,7 +776,7 @@ export function App() {
   /** Side-by-Side (two pages per row) and Show Cover Page, in both panes. */
   const [spread, setSpread] = useState<{ columns: 1 | 2; cover: boolean }>({ columns: 1, cover: false });
   const [magnifier, setMagnifier] = useState(false);
-  const [soundOpen, setSoundOpen] = useState(false);
+  const [soundOpen, setSoundOpen] = useState<false | 'sound' | 'video'>(false);
   const [undoHistoryOpen, setUndoHistoryOpen] = useState(false);
   const [spellOpen, setSpellOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
@@ -6157,7 +6157,8 @@ export function App() {
       if (n && (!settings.get().confirmDelete || confirm(`Delete ${n} markup${n === 1 ? '' : 's'}?`))) activeTools?.deleteSelected();
     },
     selectAll: () => activeTools?.select(markups.map((m) => m.id)),
-    sound: () => setSoundOpen(true),
+    sound: () => setSoundOpen('sound'),
+    video: () => setSoundOpen('video'),
     undoHistory: () => setUndoHistoryOpen(true),
     checkSpelling: () => setSpellOpen(true),
     autoFields: () =>
@@ -7630,13 +7631,15 @@ Open the download page? Run the new installer to update; your documents and mark
       {undoHistoryOpen && activeOpen && <UndoHistoryDialog store={activeOpen.store} onClose={() => setUndoHistoryOpen(false)} />}
       {soundOpen && (
         <SoundDialog
+          kind={soundOpen}
           onCancel={() => setSoundOpen(false)}
           onDone={(file) => {
+            const kind = soundOpen;
             setSoundOpen(false);
             void fileToAttachment(file).then((attachment) => {
-              activeTools?.setTool('attachment', { attachment, subject: 'Sound', once: true });
-              setNotice('Click where the sound note goes.');
-            });
+              activeTools?.setTool('attachment', { attachment, subject: kind === 'video' ? 'Video' : 'Sound', once: true });
+              setNotice(`Click where the ${kind === 'video' ? 'video' : 'sound'} note goes.`);
+            }, (err) => setError(err instanceof Error ? err.message : String(err)));
           }}
         />
       )}
