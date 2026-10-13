@@ -14,7 +14,7 @@ import { desktop } from '../desktop/host';
  * draft and applied with OK; Cancel discards them.
  */
 
-type Category = 'general' | 'account' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations' | 'mcp';
+export type Category = 'general' | 'account' | 'interface' | 'tools' | 'studio' | 'window' | 'sets' | 'importExport' | 'advanced' | 'admin' | 'integrations' | 'mcp';
 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
@@ -140,6 +140,21 @@ interface Props {
   onClose: () => void;
   /** Open on this category. MCP is the desktop assistant. */
   initialCategory?: Category;
+  /** Open on this tab of the category. */
+  initialTab?: string;
+  /** Start with this in the search box (its matches are highlighted). */
+  initialQuery?: string;
+  /** Render nothing: report every preference's label and where it lives, for the menu bar search. */
+  onIndex?: (entries: PrefEntry[]) => void;
+}
+
+/** One searchable preference: its label and the category and tab that show it. */
+export interface PrefEntry {
+  label: string;
+  category: Category;
+  categoryLabel: string;
+  tab: string;
+  tabLabel: string;
 }
 
 /** What Export writes and Import reads. */
@@ -178,24 +193,29 @@ function pickFile(): Promise<string | null> {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }: Props) {
+export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, initialTab, initialQuery, onIndex }: Props) {
   const [d, setD] = useState<Settings>(settings.get);
   const [name, setName] = useState(author);
   const [words, setWords] = useState(personalWords);
   const [category, setCategory] = useState<Category>(initialCategory ?? 'general');
-  const [tabs, setTabs] = useState<Partial<Record<Category, string>>>({});
-  const [query, setQuery] = useState('');
+  const [tabs, setTabs] = useState<Partial<Record<Category, string>>>(initialCategory && initialTab ? { [initialCategory]: initialTab } : {});
+  const [query, setQuery] = useState(initialQuery ?? '');
   const [message, setMessage] = useState<string | null>(null);
   const [pickedWord, setPickedWord] = useState<string | null>(null);
+  const indexed = useRef<PrefEntry[]>([]);
+  useEffect(() => {
+    if (onIndex) onIndex(indexed.current);
+  }, [onIndex]);
   const set = (patch: Partial<Settings>) => setD((x) => ({ ...x, ...patch }));
 
   useEffect(() => {
+    if (onIndex) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, onIndex]);
 
   // Labels shown on each tab, collected as the tabs are rendered, for the search box.
   const q = query.trim().toLowerCase();
@@ -914,6 +934,20 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }
 
   // Which tabs match the search: render every tab's labels once.
   const listed = desktop() ? CATEGORIES : CATEGORIES.filter((c) => c.id !== 'mcp');
+  if (onIndex) {
+    const entries: PrefEntry[] = [];
+    for (const c of listed) {
+      for (const t of c.tabs) {
+        collecting = t.id;
+        labels[t.id] = [];
+        body[t.id]?.();
+        const base = { category: c.id, categoryLabel: c.label, tab: t.id, tabLabel: t.label };
+        entries.push({ label: t.label, ...base });
+        for (const l of new Set(labels[t.id])) if (l.trim() && l !== t.label) entries.push({ label: l, ...base });
+      }
+    }
+    indexed.current = entries;
+  }
   const matches = new Set<string>();
   if (q) {
     for (const c of listed) {
@@ -961,6 +995,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory }
   };
 
   const changed = !same(d, settings.get()) || name.trim() !== author || !same(words, personalWords());
+
+  if (onIndex) return null;
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>

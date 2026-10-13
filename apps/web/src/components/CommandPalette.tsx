@@ -8,7 +8,7 @@ interface Props {
 }
 
 /** How well a command matches the query: every word must appear; earlier and label matches rank first. */
-function score(c: Command, words: string[]): number {
+export function score(c: Pick<Command, 'label' | 'category' | 'id'>, words: string[]): number {
   const label = c.label.toLowerCase();
   const hay = `${label} ${c.category.toLowerCase()} ${c.id.toLowerCase()}`;
   let total = 0;

@@ -97,7 +97,6 @@ window.HELP_TOC = [
       {
         title: 'Other markups',
         children: [
-          { id: 'tool-flag', title: 'Flag' },
           { id: 'tool-legend', title: 'Legend' },
           { id: 'tool-hyperlink', title: 'Hyperlink' },
           { id: 'tool-redaction', title: 'Redaction' },

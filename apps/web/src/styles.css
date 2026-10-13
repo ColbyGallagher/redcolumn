@@ -181,6 +181,22 @@ body,
   color: #fff;
 }
 
+/* Related tools sit together; a hairline between groups keeps the long row scannable. */
+.toolbar.tools .tool-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toolbar.tools .tool-group + .tool-group {
+  padding-left: 6px;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.btn.tool .tool-svg {
+  display: block;
+}
+
 .toolbar.tools .sep {
   height: 22px;
   margin: 0 6px;
@@ -3352,6 +3368,14 @@ body,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.menu-item .label .lead {
+  display: inline-flex;
+  justify-content: center;
+  width: 18px;
+  margin-right: 6px;
+  vertical-align: -3px;
 }
 
 .menu-item .sc {

@@ -144,7 +144,6 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Note | [[N]] |
 | Image | [[I]] |
 | File Attachment | [[F]] |
-| Flag | [[Shift]]+[[F]] |
 | Stamp | [[S]] |
 | Hyperlink | [[Shift]]+[[H]] |
 | Mark for Redaction | [[Shift]]+[[R]] |

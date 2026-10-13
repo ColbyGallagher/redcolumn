@@ -193,7 +193,6 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'tool.note': ['N'],
   'tool.image': ['I'],
   'tool.attachment': ['F'],
-  'tool.flag': ['Shift+F'],
   'tool.stamp': ['S'],
   'tool.hyperlink': ['Shift+H'],
   'tool.redaction': ['Shift+R'],

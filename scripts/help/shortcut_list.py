@@ -18,7 +18,7 @@ TOOL_LABELS = {
     'rect': 'Rectangle', 'ellipse': 'Ellipse', 'polygon': 'Polygon', 'cloud': 'Cloud', 'pen': 'Pen',
     'highlighter': 'Highlight', 'textHighlight': 'Text Highlight', 'eraser': 'Eraser', 'underline': 'Underline', 'strikeout': 'Strikethrough',
     'squiggly': 'Squiggly', 'text': 'Text Box', 'callout': 'Callout', 'typewriter': 'Typewriter', 'note': 'Note',
-    'image': 'Image', 'flag': 'Flag', 'stamp': 'Stamp', 'snapshot': 'Snapshot', 'redaction': 'Mark for Redaction',
+    'image': 'Image', 'stamp': 'Stamp', 'snapshot': 'Snapshot', 'redaction': 'Mark for Redaction',
     'dimension': 'Dimension', 'cloudPlus': 'Cloud+', 'calibrate': 'Calibrate',
     'length': 'Length', 'polylength': 'Polylength', 'area': 'Area', 'perimeter': 'Perimeter', 'count': 'Count',
     'angle': 'Angle', 'diameter': 'Diameter', 'radius': 'Radius', 'volume': 'Volume', 'dynamicFill': 'Dynamic Fill',
