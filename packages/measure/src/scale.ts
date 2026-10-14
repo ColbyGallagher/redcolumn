@@ -392,3 +392,15 @@ export function scaleEquation(scale: Scale): string {
   const p = scaleParts(scale);
   return scalePartsLabel(p.paper, p.paperUnit, p.real, p.realUnit);
 }
+
+/**
+ * Wording of the vertical scale when the page is scaled differently in Y than in X: the matching
+ * preset's label, else the custom equation. Null when Y follows X.
+ */
+export function yScaleLabel(scale: Scale): string | null {
+  const y = scale.yMetersPerPoint;
+  if (y == null || !(y > 0) || Math.abs(y / scale.metersPerPoint - 1) < 1e-4) return null;
+  const yScale: Scale = { ...scale, metersPerPoint: y };
+  const preset = SCALE_PRESETS.find((p) => p.scale.unit === yScale.unit && Math.abs(p.scale.metersPerPoint / y - 1) < 1e-4);
+  return preset ? preset.label : scaleEquation(yScale);
+}
