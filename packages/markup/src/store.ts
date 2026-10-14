@@ -47,6 +47,14 @@ export interface ImportedExtras {
   spaces?: Record<number, number[]>;
 }
 const NO_STITCH: StoredStitchGroup[] = [];
+
+/** The file contents markups belong to, as recorded for undo. */
+export interface FileState {
+  /** The contents' hash. */
+  hash: string;
+  /** What changed the file to these contents (empty for the contents first recorded). */
+  label: string;
+}
 const NO_BOOKMARKS: Bookmark[] = [];
 const NO_PLACES: Place[] = [];
 
@@ -86,6 +94,11 @@ export class MarkupStore {
   static author = '';
   /** Called after a new markup is added here (not on an edit, an import or a remote change). */
   static onAdded: ((store: MarkupStore, markup: Markup) => void) | null = null;
+  /**
+   * Called when undo or redo steps over a change to the document's file (page operations, Page
+   * Setup, flattening...): the file's contents should become those stored under `hash` again.
+   */
+  static onFileRestored: ((store: MarkupStore, hash: string) => void) | null = null;
 
   readonly doc = new Y.Doc();
   readonly map: Y.Map<Markup>;
@@ -101,6 +114,11 @@ export class MarkupStore {
   readonly outline: Y.Map<unknown>;
   /** Small document-level flags (e.g. whether link detection has run). */
   readonly meta: Y.Map<unknown>;
+  /** The file contents the markups belong to (`current`: a {@link FileState}), so undo can step over file changes. */
+  readonly files: Y.Map<FileState>;
+  private fileStepping = false;
+  /** The highest markup ID this store has seen handed out (undo may take `meta.seq` below it). */
+  private seqHigh = 0;
   readonly undoManager: Y.UndoManager;
   private persistence: MarkupPersistence | null;
   private listeners = new Set<() => void>();
@@ -128,10 +146,11 @@ export class MarkupStore {
     this.meta = this.doc.getMap('meta');
     this.outline = this.doc.getMap('outline');
     this.viewports = this.doc.getMap<Viewport>('viewports');
-    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports], { trackedOrigins: new Set([LOCAL]), captureTimeout: 300 });
+    this.files = this.doc.getMap<FileState>('files');
+    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta], { trackedOrigins: new Set([LOCAL]), captureTimeout: 300 });
     // Each undo step is labelled with what it did, for the Undo History list.
     const label = (event: { stackItem: { meta: Map<unknown, unknown> }; changedParentTypes: Map<Y.AbstractType<Y.YEvent<never>>, Y.YEvent<never>[]> }) => {
-      const text = describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline);
+      const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta);
       const had = event.stackItem.meta.get('label') as string | undefined;
       // Changes merged into one step (typing, dragging) keep the first description unless it said less.
       if (!had || had === 'Edit') event.stackItem.meta.set('label', text);
@@ -139,11 +158,20 @@ export class MarkupStore {
     };
     this.undoManager.on('stack-item-added', label as never);
     this.undoManager.on('stack-item-updated', label as never);
+    this.undoManager.on('stack-item-popped', ((event: { changedParentTypes: Map<unknown, unknown> }) => {
+      // Undo does not take markup IDs back: a number handed out is never handed out again.
+      if (((this.meta.get('seq') as number | undefined) ?? 0) < this.seqHigh) this.doc.transact(() => this.meta.set('seq', this.seqHigh), NUMBERING);
+      // Undoing or redoing a file change: the app is asked to bring the file's contents back.
+      const now = event.changedParentTypes.has(this.files) ? this.files.get('current') : undefined;
+      if (now) MarkupStore.onFileRestored?.(this, now.hash);
+    }) as never);
     this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
       if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;
       if (tr.changed.size) this.refresh(tr.changed);
+      const seq = (this.meta.get('seq') as number | undefined) ?? 0;
+      if (seq > this.seqHigh) this.seqHigh = seq;
       // Markups that arrive without an ID (stored before IDs, or from an older version in a Live
       // Session), or with one someone else handed out at the same time, are numbered once the
       // change has landed.
@@ -587,7 +615,7 @@ export class MarkupStore {
           return n === null ? [] : [{ ...p, pageIndex: n, rect: p.rect ? turnRect(p.pageIndex, p.rect) : null }];
         }));
     }, DETECTION);
-    this.undoManager.clear();
+    this.forgetHistory();
   }
 
   /**
@@ -632,7 +660,7 @@ export class MarkupStore {
       }
       if (this.outline.has('places')) this.outline.set('places', this.placeSnapshot.map((p) => ({ ...p, rect: rectOrNull(p.pageIndex, p.rect) })));
     }, DETECTION);
-    this.undoManager.clear();
+    this.forgetHistory();
   }
 
   /**
@@ -680,7 +708,7 @@ export class MarkupStore {
       }
       this.meta.set('importedAnnotations', imported);
     }, DETECTION);
-    this.undoManager.clear();
+    this.forgetHistory();
   }
 
   /**
@@ -696,7 +724,7 @@ export class MarkupStore {
       this.meta.set('importedAnnotations', {});
       this.meta.set('importedSpaces', {});
     }, DETECTION);
-    this.undoManager.clear();
+    this.forgetHistory();
   }
 
   /** A user's correction; always wins over detection. */
@@ -825,6 +853,34 @@ export class MarkupStore {
     this.doc.transact(fn, LOCAL);
   }
 
+  /**
+   * Records a change to the document's file (its contents went from `before` to `after`, both
+   * still readable by hash) as one undo step, together with `remap`: the markups, scales, links...
+   * following the change. Undoing it brings the markups back as they were and calls
+   * {@link MarkupStore.onFileRestored} with `before`; redoing it, with `after`.
+   */
+  fileStep(label: string, before: string, after: string, remap?: () => void) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    // What the file was: undoing the step brings this back.
+    if (this.files.get('current')?.hash !== before) this.doc.transact(() => this.files.set('current', { hash: before, label: '' }), DETECTION);
+    this.fileStepping = true;
+    try {
+      this.doc.transact(() => {
+        remap?.();
+        this.files.set('current', { hash: after, label });
+      }, LOCAL);
+    } finally {
+      this.fileStepping = false;
+    }
+    this.undoManager.stopCapturing();
+  }
+
+  /** Clears undo history (the file changed in a way it cannot follow), unless a file step is recording it. */
+  private forgetHistory() {
+    if (!this.fileStepping) this.undoManager.clear();
+  }
+
   /** Ends the current undo step so the next edit is undone separately. */
   checkpoint() {
     this.undoManager.stopCapturing();
@@ -869,6 +925,7 @@ function describeChange(
   scales: Y.Map<Scale>,
   viewports: Y.Map<Viewport>,
   outline: Y.Map<unknown>,
+  meta: Y.Map<unknown>,
 ): string {
   const ev = changed.get(markups as never)?.[0] as Y.YMapEvent<Markup> | undefined;
   if (ev) {
@@ -899,6 +956,7 @@ function describeChange(
   if (changed.has(scales as never)) return 'Set scale';
   if (changed.has(viewports as never)) return 'Change viewports';
   if (changed.has(outline as never)) return 'Edit bookmarks';
+  if (changed.has(meta as never)) return 'Edit columns';
   return 'Edit';
 }
 
