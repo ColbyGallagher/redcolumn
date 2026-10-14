@@ -351,11 +351,8 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
         <div className="sheet-actions">
           <ScaleControl
             scale={chosen.length === 1 ? (scales[chosen[0]!] ?? null) : null}
-            pageCount={chosen.length}
             disabled={busy}
-            showAllPages={false}
             onPreset={(s) => onSetScale(chosen, s)}
-            onApplyAll={() => {}}
             onCustom={() => setScaleOpen(true)}
             onBulk={() => onBulkScales(selected.length > 1 ? chosen : [])}
           />

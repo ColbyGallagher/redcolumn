@@ -1,26 +1,21 @@
-import { useState } from 'react';
-import { parseTypedScale, SCALE_PRESETS, type Scale } from '@nb/measure';
+import { SCALE_PRESETS, type Scale } from '@nb/measure';
 import { SCALE_GROUPS, useSettings } from '../settings/settings';
 
 interface Props {
   scale: Scale | null;
-  pageCount: number;
   disabled: boolean;
   onPreset: (scale: Scale) => void;
-  onApplyAll: () => void;
-  showAllPages?: boolean;
-  /** Opens the custom scale dialog. When set, a Custom button takes the place of the typed scale. */
-  onCustom?: () => void;
+  /** Opens the custom scale dialog, from the Custom option at the end of the dropdown. */
+  onCustom: () => void;
   /** Opens the Bulk Scales dialog. */
   onBulk?: () => void;
 }
 
 const CURRENT = '__current__';
+const CUSTOM = '__custom__';
 
-/** Page scale picker: presets, the current (e.g. calibrated) scale, and apply-to-all. */
-export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll, showAllPages = true, onCustom, onBulk }: Props) {
-  const [typed, setTyped] = useState('');
-  const [bad, setBad] = useState(false);
+/** Page scale picker: presets, the current (e.g. calibrated) scale, and a Custom option. */
+export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk }: Props) {
   const groups = SCALE_GROUPS[useSettings().unitSystem];
   // A preset from the other measurement system (e.g. 1:500 read from a title block while working in
   // imperial) has no option in the list, so it is shown like a custom scale.
@@ -33,7 +28,8 @@ export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll,
         value={scale ? (isPreset ? scale.label : CURRENT) : ''}
         onChange={(e) => {
           const preset = SCALE_PRESETS.find((p) => p.label === e.target.value);
-          if (preset) onPreset(preset.scale);
+          if (e.target.value === CUSTOM) onCustom();
+          else if (preset) onPreset(preset.scale);
         }}
       >
         <option value="" disabled>
@@ -49,43 +45,11 @@ export function ScaleControl({ scale, pageCount, disabled, onPreset, onApplyAll,
             ))}
           </optgroup>
         ))}
+        <option value={CUSTOM}>Custom…</option>
       </select>
-      {onCustom ? (
-        <button type="button" className="btn small" disabled={disabled} onClick={onCustom} title="Set a custom scale, a separate Y scale or the pages it applies to">
-          Custom
-        </button>
-      ) : (
-        <input
-          type="text"
-          className={bad ? 'scale-typed invalid' : 'scale-typed'}
-          disabled={disabled}
-          value={typed}
-          placeholder={'Type a scale'}
-          aria-label="Type a custom scale, such as 1/4 = 1' or 1:75"
-          aria-invalid={bad}
-          title={`Type a scale, such as 1/4" = 1'-0", 1" = 20' or 1:75, then press Enter`}
-          onChange={(e) => {
-            setTyped(e.target.value);
-            setBad(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' || !typed.trim()) return;
-            const parsed = parseTypedScale(typed);
-            if (parsed) {
-              onPreset(parsed);
-              setTyped('');
-            } else setBad(true);
-          }}
-        />
-      )}
       {onBulk && (
         <button type="button" className="btn small" disabled={disabled} onClick={onBulk} title="Review and set the scale of many pages at once">
           Bulk Scales
-        </button>
-      )}
-      {showAllPages && pageCount > 1 && (
-        <button type="button" className="btn small" disabled={disabled || !scale} onClick={onApplyAll} title="Use this scale on every page">
-          All pages
         </button>
       )}
     </label>

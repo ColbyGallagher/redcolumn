@@ -112,6 +112,7 @@ import type { PageText, SheetInfo } from '@nb/sheets';
 import type { IncomingPage } from './documents/slipSheet';
 import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
+import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -753,6 +754,8 @@ export function App() {
   }, [notice]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
+  /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
+  const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Subject and label the Measurements panel gives the next measurement. */
   const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
@@ -6262,13 +6265,9 @@ export function App() {
         scaleControl={
           <ScaleControl
             scale={sc[idx] ?? null}
-            pageCount={count}
             disabled={!o}
             onPreset={(scale) => o?.store.setScale([idx], scale)}
-            onApplyAll={() => {
-              const cur = sc[idx];
-              if (cur) o?.store.setScale(Array.from({ length: count }, (_, i) => i), cur);
-            }}
+            onCustom={() => setCustomScalePane(which)}
           />
         }
         onFirst={() => viewer?.goToPage(0)}
@@ -8595,6 +8594,27 @@ Open the download page? Run the new installer to update; your documents and mark
             setStampsCreating(false);
             placeStamp(s);
           }}
+        />
+      )}
+      {customScalePane && (customScalePane === 'b' ? openB : open) && (
+        <SetScaleDialog
+          scale={(customScalePane === 'b' ? scalesB : scalesA)[(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+          pageCount={(customScalePane === 'b' ? statsB : stats)?.pageCount ?? 0}
+          currentPage={(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+          selected={[]}
+          onCalibrate={
+            activeOpen && !activeReadOnly
+              ? () => {
+                  setCustomScalePane(null);
+                  activeTools?.setTool('calibrate');
+                }
+              : null
+          }
+          onApply={(pages, scale) => {
+            (customScalePane === 'b' ? openB : open)?.store.setScale(pages, scale);
+            setCustomScalePane(null);
+          }}
+          onCancel={() => setCustomScalePane(null)}
         />
       )}
       {calibration && activeOpen && (
