@@ -6,7 +6,7 @@ import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBou
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
-import { stampLayout } from './stamp';
+import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
@@ -383,11 +383,24 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       return ctx.measureText(text).width / 100;
     };
     ctx.fillStyle = style.stroke;
-    ctx.textAlign = 'center';
+    ctx.strokeStyle = style.stroke;
     ctx.textBaseline = 'middle';
     for (const line of stampLayout(b, m.stamp, measure)) {
       ctx.font = `${line.bold ? 'bold ' : ''}${line.size}px ${TEXT_FONT_FAMILY}`;
+      ctx.textAlign = line.align;
       ctx.fillText(line.text, line.x, line.y);
+      if (line.box) {
+        const { x, y, size, ticked } = line.box;
+        ctx.setLineDash([]);
+        ctx.lineWidth = size * 0.1;
+        ctx.strokeRect(x, y, size, size);
+        if (ticked) {
+          ctx.lineWidth = size * 0.16;
+          ctx.beginPath();
+          for (const [i, [px, py]] of stampTick(line.box).entries()) i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+          ctx.stroke();
+        }
+      }
     }
   }
   ctx.restore();

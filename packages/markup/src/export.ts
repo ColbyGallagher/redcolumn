@@ -10,7 +10,7 @@ import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
-import { stampLayout } from './stamp';
+import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
@@ -435,10 +435,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const font = line.bold ? bold : regular;
       const t = safeText(font, line.text);
       const w = font.widthOfTextAtSize(t, line.size);
-      // Centred on its point; the baseline sits about a third of the size below the middle.
-      ops.push(`/${line.bold ? 'F1' : 'F0'} ${fmt(line.size)} Tf`, `1 0 0 -1 ${fmt(line.x - w / 2)} ${fmt(line.y + line.size * 0.35)} Tm`, `${font.encodeText(t).toString()} Tj`);
+      // Centred on its point (or starting at it); the baseline sits about a third of the size below the middle.
+      const x = line.align === 'left' ? line.x : line.x - w / 2;
+      ops.push(`/${line.bold ? 'F1' : 'F0'} ${fmt(line.size)} Tf`, `1 0 0 -1 ${fmt(x)} ${fmt(line.y + line.size * 0.35)} Tm`, `${font.encodeText(t).toString()} Tj`);
     }
     ops.push('ET');
+    // Tick boxes, outlined in the stamp's colour.
+    const boxes = lines.filter((l) => l.box);
+    if (boxes.length) ops.push('q');
+    for (const { box } of boxes) {
+      if (!box) continue;
+      ops.push(`${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG`, '[] 0 d', `${fmt(box.size * 0.1)} w`, `${fmt(box.x)} ${fmt(box.y)} ${fmt(box.size)} ${fmt(box.size)} re S`);
+      if (box.ticked) {
+        const [[ax, ay], [bx, by], [cx, cy]] = stampTick(box) as [[number, number], [number, number], [number, number]];
+        ops.push(`${fmt(box.size * 0.16)} w`, '1 J 1 j', `${fmt(ax)} ${fmt(ay)} m ${fmt(bx)} ${fmt(by)} l ${fmt(cx)} ${fmt(cy)} l S`, '0 J 0 j');
+      }
+    }
+    if (boxes.length) ops.push('Q');
     resources.Font = { F0: regular.ref, F1: bold.ref };
   }
 

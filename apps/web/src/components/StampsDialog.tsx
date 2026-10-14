@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { DEFAULT_STYLES, drawMarkup, onImageLoad, resolveStamp, STAMP_FIELDS, stampAspect, type Markup, type StampDef } from '@nb/markup';
+import { DEFAULT_STYLES, drawMarkup, fillStampFieldsNow, onImageLoad, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampDef, type StampField, type StampOption } from '@nb/markup';
 import { importRevuStamps } from '../stamps/revuStamps';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
@@ -16,13 +16,14 @@ function blankStamp(): StampDef {
   return { id: crypto.randomUUID(), name: 'New Stamp', lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' };
 }
 
-/** A stamp drawn as it would be placed now (fields filled in with sample values). */
-export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<StampDef, 'lines' | 'frame' | 'color' | 'art'>; author: string; width?: number }) {
+/** A stamp drawn as it would be placed now (fields filled in with sample values, or `values`). */
+export function StampPreview({ stamp, author, width = 180, values }: { stamp: Pick<StampDef, 'lines' | 'frame' | 'color' | 'art' | 'fields'>; author: string; width?: number; values?: Record<string, string> }) {
   const ref = useRef<HTMLCanvasElement>(null);
   // A stamp's picture loads after the first draw.
   const [, setLoaded] = useState(0);
   useEffect(() => onImageLoad(() => setLoaded((n) => n + 1)), []);
-  const content = resolveStamp(stamp, { user: author, file: 'Drawing.pdf', page: 'A-101', now: new Date() });
+  const content = resolveStamp(stamp, { user: author, file: 'Drawing.pdf', page: 'A-101', now: new Date() }, values);
+  const color = content.form ? stampFormColor(content.form.fields, content.form.values, stamp.color) : stamp.color;
   const height = Math.max(24, Math.round(width / stampAspect(content)));
   useEffect(() => {
     const canvas = ref.current;
@@ -41,7 +42,7 @@ export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<Stamp
         [2, 2],
         [width - 2, height - 2],
       ],
-      style: { ...DEFAULT_STYLES.stamp, stroke: stamp.color, width: 2 },
+      style: { ...DEFAULT_STYLES.stamp, stroke: color, width: 2 },
       stamp: content,
       status: 'none',
       author: '',
@@ -51,6 +52,260 @@ export function StampPreview({ stamp, author, width = 180 }: { stamp: Pick<Stamp
     drawMarkup(ctx, m, 1);
   });
   return <canvas ref={ref} className="stamp-preview" style={{ width, height }} />;
+}
+
+/**
+ * A stamp's fields to fill in: each list of boxes as checkboxes (one ticked at a time), each blank
+ * as a text box. Ticking a box fills in whatever it is set to fill in, straight away.
+ */
+export function StampFieldsForm({ fields, values, disabled, onChange }: { fields: StampField[]; values: Record<string, string>; disabled?: boolean; onChange: (values: Record<string, string>) => void }) {
+  const set = (id: string, value: string) => onChange(setStampField(fields, values, id, value));
+  return (
+    <div className="stamp-fields-form">
+      {fields
+        .filter((f) => f.label.trim())
+        .map((f) =>
+          f.kind === 'choice' ? (
+            <fieldset key={f.id} className="stamp-choice">
+              <legend>{f.label}</legend>
+              {(f.options ?? [])
+                .filter((o) => o.label.trim())
+                .map((o) => (
+                  <label key={o.label} className="stamp-option" title={optionHint(fields, o)}>
+                    <input type="checkbox" checked={values[f.id] === o.label} disabled={disabled} onChange={() => set(f.id, o.label)} />
+                    {o.color && <span className="stamp-option-swatch" style={{ background: o.color }} aria-hidden="true" />}
+                    <span>{o.label}</span>
+                  </label>
+                ))}
+            </fieldset>
+          ) : (
+            <label key={f.id} className="stamp-text-field">
+              <span>{f.label}</span>
+              <input value={values[f.id] ?? ''} disabled={disabled} onChange={(e) => set(f.id, e.target.value)} />
+            </label>
+          ),
+        )}
+    </div>
+  );
+}
+
+/** What ticking a box also does, in words, for its tooltip. */
+function optionHint(fields: StampField[], o: StampOption): string | undefined {
+  const parts = Object.entries(o.sets ?? {})
+    .map(([id, v]) => {
+      const f = fields.find((x) => x.id === id);
+      if (!f) return '';
+      if (f.kind === 'choice') return v ? `ticks “${v}”` : `clears ${f.label}`;
+      return v ? `sets ${f.label} to “${v}”` : `clears ${f.label}`;
+    })
+    .filter(Boolean);
+  return parts.length ? `Also ${parts.join(', ')}` : undefined;
+}
+
+/**
+ * Fill in a stamp's fields, before it is placed or (on a placed stamp) to change them. The preview
+ * follows every tick.
+ */
+export function FillStampDialog({
+  stamp,
+  author,
+  initial,
+  title,
+  applyLabel,
+  onApply,
+  onCancel,
+}: {
+  stamp: Pick<StampDef, 'name' | 'lines' | 'frame' | 'color' | 'fields'>;
+  author: string;
+  initial?: Record<string, string>;
+  title: string;
+  applyLabel: string;
+  onApply: (values: Record<string, string>) => void;
+  onCancel: () => void;
+}) {
+  const fields = stamp.fields ?? [];
+  // Before placing, {User} and {Date} show as what they will be.
+  const [values, setValues] = useState<Record<string, string>>(() => (initial ? { ...stampFieldValues(fields), ...initial } : fillStampFieldsNow(fields, stampFieldValues(fields), author)));
+  return (
+    <div className="modal-backdrop" onMouseDown={onCancel}>
+      <form
+        className="modal stamps-dialog fill-stamp"
+        role="dialog"
+        aria-label={title}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.key === 'Escape' && onCancel()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onApply(values);
+        }}
+      >
+        <h3>{title}</h3>
+        <div className="fill-stamp-body">
+          <StampFieldsForm fields={fields} values={values} onChange={setValues} />
+          <div className="stamp-preview-row">
+            <StampPreview stamp={stamp} author={author} width={260} values={values} />
+          </div>
+        </div>
+        <div className="actions">
+          <span className="spacer" />
+          <button type="button" className="btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="btn primary" autoFocus>
+            {applyLabel}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+/** For the editor's preview: lists of boxes with none ticked to start show their first ticked. */
+function sampleValues(fields: StampField[] | undefined): Record<string, string> | undefined {
+  if (!fields?.length) return undefined;
+  let values = stampFieldValues(fields);
+  for (const f of fields) if (f.kind === 'choice' && !values[f.id] && f.options?.[0]?.label) values = setStampField(fields, values, f.id, f.options[0].label);
+  return values;
+}
+
+const OPTION_COLOURS = ['#15803d', '#1d4ed8', '#b45309', '#b91c1c', '#6b7280'];
+
+/**
+ * The editor's Fields section: lists of boxes and blanks, and for each box what ticking it does
+ * (the stamp's colour, other fields' values). No scripting: every rule is a row in a table.
+ */
+function StampFieldsBuilder({ fields, onChange, onInsert }: { fields: StampField[]; onChange: (fields: StampField[]) => void; onInsert: (token: string) => void }) {
+  const update = (i: number, patch: Partial<StampField>) => onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const setOption = (i: number, k: number, patch: Partial<StampOption>) => update(i, { options: (fields[i]!.options ?? []).map((o, j) => (j === k ? { ...o, ...patch } : o)) });
+  const move = (i: number, by: number) => {
+    const next = [...fields];
+    const [f] = next.splice(i, 1);
+    next.splice(Math.max(0, Math.min(next.length, i + by)), 0, f!);
+    onChange(next);
+  };
+  const add = (kind: StampField['kind']) =>
+    onChange([
+      ...fields,
+      kind === 'choice'
+        ? { id: crypto.randomUUID(), label: fields.some((f) => f.label === 'Action') ? `Boxes ${fields.length + 1}` : 'Action', kind, options: [{ label: 'Approved', color: '#15803d' }, { label: 'Rejected', color: '#b91c1c' }] }
+        : { id: crypto.randomUUID(), label: `Field ${fields.length + 1}`, kind, value: '' },
+    ]);
+  return (
+    <div className="stamp-fields-builder">
+      {fields.map((f, i) => {
+        const others = fields.filter((o) => o.id !== f.id && o.label.trim());
+        return (
+          <div key={f.id} className="stamp-field-card">
+            <div className="stamp-field-head">
+              <span className="stamp-field-kind">{f.kind === 'choice' ? 'Tick boxes' : 'Text'}</span>
+              <input aria-label="Field name" value={f.label} placeholder="Field name" onChange={(e) => update(i, { label: e.target.value })} />
+              <button type="button" className="btn small" title={`Use this field in the wording as {${f.label}}`} onClick={() => onInsert(`{${f.label.trim()}}`)}>
+                In wording
+              </button>
+              <button type="button" className="btn small" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+                ↑
+              </button>
+              <button type="button" className="btn small" aria-label="Move down" disabled={i === fields.length - 1} onClick={() => move(i, 1)}>
+                ↓
+              </button>
+              <button type="button" className="btn small" aria-label={`Remove ${f.label}`} onClick={() => onChange(fields.filter((_, j) => j !== i))}>
+                ✕
+              </button>
+            </div>
+            {f.kind === 'text' ? (
+              <label className="stamp-field-row">
+                <span>Starts as</span>
+                <input value={f.value ?? ''} placeholder="Blank, or e.g. {User} or {Date}" onChange={(e) => update(i, { value: e.target.value })} />
+              </label>
+            ) : (
+              <table className="stamp-options">
+                <thead>
+                  <tr>
+                    <th title="Ticked when the stamp is placed">Start</th>
+                    <th>Box</th>
+                    <th title="Ticking it turns the stamp this colour">Colour</th>
+                    {others.map((o) => (
+                      <th key={o.id} title={`What ticking the box puts in ${o.label} (left alone when blank)`}>
+                        Sets {o.label}
+                      </th>
+                    ))}
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(f.options ?? []).map((o, k) => (
+                    <tr key={k}>
+                      <td>
+                        <input type="radio" name={`start-${f.id}`} aria-label={`Start with ${o.label} ticked`} checked={!!o.label && f.value === o.label} onChange={() => update(i, { value: o.label })} onClick={() => f.value === o.label && update(i, { value: '' })} />
+                      </td>
+                      <td>
+                        <input
+                          aria-label="Box label"
+                          value={o.label}
+                          onChange={(e) => {
+                            const label = e.target.value;
+                            update(i, { value: f.value === o.label ? label : f.value, options: (f.options ?? []).map((x, j) => (j === k ? { ...x, label } : x)) });
+                          }}
+                        />
+                      </td>
+                      <td className="stamp-option-colour">
+                        <input type="checkbox" aria-label="Recolour the stamp" checked={!!o.color} onChange={(e) => setOption(i, k, { color: e.target.checked ? OPTION_COLOURS[k % OPTION_COLOURS.length] : undefined })} />
+                        {o.color && <input type="color" aria-label="Colour" value={o.color} onChange={(e) => setOption(i, k, { color: e.target.value })} />}
+                      </td>
+                      {others.map((other) => {
+                        const v = o.sets?.[other.id];
+                        const setTo = (value: string | undefined) => {
+                          const sets = { ...o.sets };
+                          if (value === undefined) delete sets[other.id];
+                          else sets[other.id] = value;
+                          setOption(i, k, { sets: Object.keys(sets).length ? sets : undefined });
+                        };
+                        return (
+                          <td key={other.id}>
+                            {other.kind === 'choice' ? (
+                              <select aria-label={`Sets ${other.label}`} value={v === undefined ? '\u0000' : v} onChange={(e) => setTo(e.target.value === '\u0000' ? undefined : e.target.value)}>
+                                <option value={'\u0000'}>—</option>
+                                <option value="">Untick all</option>
+                                {(other.options ?? []).filter((x) => x.label.trim()).map((x) => (
+                                  <option key={x.label} value={x.label}>
+                                    Tick {x.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input aria-label={`Sets ${other.label}`} value={v ?? ''} placeholder="—" onChange={(e) => setTo(e.target.value || undefined)} />
+                            )}
+                          </td>
+                        );
+                      })}
+                      <td>
+                        <button type="button" className="btn small" aria-label={`Remove ${o.label}`} disabled={(f.options ?? []).length < 2} onClick={() => update(i, { options: (f.options ?? []).filter((_, j) => j !== k), value: f.value === o.label ? '' : f.value })}>
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {f.kind === 'choice' && (
+              <button type="button" className="btn small" onClick={() => update(i, { options: [...(f.options ?? []), { label: `Option ${(f.options ?? []).length + 1}` }] })}>
+                Add Box
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <div className="stamp-fields-add">
+        <button type="button" className="btn small" onClick={() => add('choice')}>
+          Add Tick Boxes
+        </button>
+        <button type="button" className="btn small" onClick={() => add('text')}>
+          Add Text Field
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Tools › Stamp › Manage Stamps: the stamp library, with an editor for your own stamps. */
@@ -188,14 +443,18 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                     <option value="box">Square</option>
                     <option value="none">None</option>
                   </select>
+                  <label>Fields</label>
+                  <StampFieldsBuilder fields={draft.fields ?? []} onChange={(fields) => setDraft({ ...draft, fields: fields.length ? fields : undefined })} onInsert={insertField} />
                 </>
               )}
             </div>
             <p className="pref-hint">
-              {draft.art ? 'This stamp is a picture with text on it. Change the text here; fields such as {Date} are filled in when it is placed.' : 'The first line is the headline. Fields such as {Date} are filled in when the stamp is placed.'}
+              {draft.art
+                ? 'This stamp is a picture with text on it. Change the text here; fields such as {Date} are filled in when it is placed.'
+                : 'The first line is the headline. Fields such as {Date} are filled in when the stamp is placed. Tick boxes and text fields are filled in when you place the stamp, and can be changed later by double-clicking it.'}
             </p>
             <div className="stamp-preview-row">
-              <StampPreview stamp={draft} author={author} width={240} />
+              <StampPreview stamp={draft} author={author} width={240} values={sampleValues(draft.fields)} />
             </div>
             <div className="actions">
               <button type="button" className="btn" onClick={() => setDraft(null)}>

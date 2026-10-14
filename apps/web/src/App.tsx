@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, resolveStamp, stampAspect, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -98,7 +98,7 @@ import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
-import { StampsDialog } from './components/StampsDialog';
+import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { NewPdfDialog } from './components/NewPdfDialog';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
@@ -893,6 +893,10 @@ export function App() {
   const [clipboardCount, setClipboardCount] = useState(0);
   const [commentEdit, setCommentEdit] = useState<{ pane: Pane; id: string } | null>(null);
   const [hyperlinkEdit, setHyperlinkEdit] = useState<{ pane: Pane; id: string } | null>(null);
+  /** A stamp with fields, being filled in before it is placed. */
+  const [stampToFill, setStampToFill] = useState<StampDef | null>(null);
+  /** A placed stamp whose fields are being changed. */
+  const [stampEdit, setStampEdit] = useState<{ pane: Pane; id: string } | null>(null);
   // A table just drawn, waiting for its rows and columns; and the table cell being typed in.
   const [tableDraft, setTableDraft] = useState<{ pane: Pane; draft: TableDraft } | null>(null);
   const [editingCell, setEditingCell] = useState<{ id: string; row: number; col: number; text?: string } | null>(null);
@@ -1044,6 +1048,7 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onEditComment: (id) => setCommentEdit({ pane, id }),
       onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
+      onEditStamp: (id) => setStampEdit({ pane, id }),
       onNewTable: (draft) => setTableDraft({ pane, draft }),
       onEditTableCell: (id, row, col, text) => setEditingCell({ id, row, col, text }),
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
@@ -2598,7 +2603,7 @@ export function App() {
                     [size.width - 36 - w, 36],
                     [size.width - 36, 36 + h],
                   ],
-                  style: { ...DEFAULT_STYLES.stamp, stroke: def.color, width: 2 },
+                  style: { ...DEFAULT_STYLES.stamp, stroke: stampColor(def), width: 2 },
                   stamp: content,
                   subject: def.name,
                   status: 'none',
@@ -2856,7 +2861,7 @@ export function App() {
                         [x, y],
                         [x + w, y + h],
                       ],
-                      style: { ...DEFAULT_STYLES.stamp, stroke: def.color, width: 2 },
+                      style: { ...DEFAULT_STYLES.stamp, stroke: stampColor(def), width: 2 },
                       stamp: content,
                       subject: def.name,
                       status: 'none',
@@ -4903,8 +4908,11 @@ export function App() {
     const carried = item.markups?.find((m) => m.image || m.stamp || m.attachment);
     const [p0, p1] = carried?.points ?? [];
     const aspect = p0 && p1 ? Math.abs(p1[0] - p0[0]) / Math.max(1e-6, Math.abs(p1[1] - p0[1])) : undefined;
+    const form = carried?.stamp?.form;
     const stamp = carried?.stamp
-      ? { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
+      ? form
+        ? withFieldValues({ id: item.id, name: item.subject || item.label, lines: form.lines, color: form.color, frame: carried.stamp.frame, fields: form.fields }, form.values)
+        : { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
       : undefined;
     tools.setTool(item.tool ?? item.type, {
       id: item.id,
@@ -6239,8 +6247,10 @@ export function App() {
   const pane: Pane = paneB ? 'b' : 'a';
   const selectedMarkups = activeOpen ? [...toolsState.selected].map((id) => activeOpen.store.get(id)).filter((m): m is Markup => !!m) : [];
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
-  const placeStamp = (s: StampDef) => {
+  const placeStamp = (s: StampDef, filled = false) => {
     updateWorkspace((w) => ({ ...w, lastStampId: s.id }));
+    // A stamp with fields is filled in first, then placed as filled in.
+    if (s.fields?.length && !filled) return setStampToFill(s);
     activeTools?.setTool('stamp', { stamp: s, once: !settings.get().toolChestSticky });
   };
 
@@ -7010,7 +7020,7 @@ Open the download page? Run the new installer to update; your documents and mark
           enabled={!!activeOpen && !activeReadOnly}
           visibleTools={ws.toolbarTools}
           author={author}
-          onPlaceStamp={placeStamp}
+          onPlaceStamp={(s) => placeStamp(s)}
           onNewStamp={() => {
             setStampsCreating(true);
             setStampsOpen(true);
@@ -8433,6 +8443,43 @@ Open the download page? Run the new installer to update; your documents and mark
           }}
         />
       )}
+      {stampToFill && (
+        <FillStampDialog
+          stamp={stampToFill}
+          author={author}
+          title={stampToFill.name}
+          applyLabel="Place"
+          onCancel={() => setStampToFill(null)}
+          onApply={(values) => {
+            setStampToFill(null);
+            placeStamp(withFieldValues(stampToFill, values), true);
+          }}
+        />
+      )}
+      {stampEdit &&
+        (() => {
+          const { o } = paneParts(stampEdit.pane);
+          const m = o?.store.get(stampEdit.id);
+          const form = m?.stamp?.form;
+          if (!o || !m?.stamp || !form) return null;
+          return (
+            <FillStampDialog
+              stamp={{ name: m.subject ?? 'Stamp', lines: form.lines, frame: m.stamp.frame, color: form.color, fields: form.fields }}
+              author={form.placed.user}
+              initial={form.values}
+              title={m.subject ?? 'Stamp'}
+              applyLabel="Update"
+              onCancel={() => setStampEdit(null)}
+              onApply={(values) => {
+                setStampEdit(null);
+                const next = refillStamp(m.stamp!, values);
+                if (!next) return;
+                o.store.checkpoint();
+                o.store.update(m.id, { stamp: next.stamp, style: { ...m.style, stroke: next.color } });
+              }}
+            />
+          );
+        })()}
       {hyperlinkEdit &&
         (() => {
           const { o } = paneParts(hyperlinkEdit.pane);

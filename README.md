@@ -7,7 +7,8 @@ stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](
 
 ## Features
 
-- **Markup:** lines, arrows, clouds, callouts, text, stamps, highlights, a Tool Library of saved
+- **Markup:** lines, arrows, clouds, callouts, text, stamps (with tick boxes that fill in other
+  fields and recolour the stamp, editable after placing), highlights, a Tool Library of saved
   tools, and a Markups list with custom columns, statuses, filters and summaries.
 - **Measurement and takeoff:** calibrated scales and viewports, length, area, perimeter, volume,
   count and angle, snapping to drawing content, Smart Fill and Symbol Search.
