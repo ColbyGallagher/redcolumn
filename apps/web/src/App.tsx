@@ -3004,17 +3004,10 @@ export function App() {
                 }
                 case 'split': {
                   const tools = await import('./documents/pageTools');
-                  const count = cur.doc.pages.length;
-                  const marks = cur.store.bookmarks().sort((a, b) => a.pageIndex - b.pageIndex);
-                  if (command.parts === 'bookmarks' && !marks.length) throw new Error('No bookmarks to split at');
-                  const ranges = command.parts === 'bookmarks' ? tools.rangesFromStarts(count, marks.map((b) => b.pageIndex)) : tools.chunkPages(count, command.count);
-                  const parts = await tools.splitPdf(await annotatedBytes(cur), ranges);
                   const base = cur.file.name.replace(/\.pdf$/i, '');
-                  const safe = (t: string) => t.replace(/[\\/:*?"<>|]+/g, '-').trim();
-                  parts.forEach((data, i) => {
-                    const title = command.parts === 'bookmarks' ? marks.find((b) => b.pageIndex === ranges[i]![0])?.title : undefined;
-                    splitParts.push({ name: `${safe(base)}/${safe(base)} ${String(i + 1).padStart(2, '0')}${title ? ` ${safe(title)}` : ` p${ranges[i]![0]! + 1}-${ranges[i]!.at(-1)! + 1}`}.pdf`, data });
-                  });
+                  const folder = base.replace(/[\\/:*?"<>|]+/g, '-').trim();
+                  const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), command);
+                  for (const p of parts) splitParts.push({ name: `${folder}/${p.name}`, data: p.data });
                   message = `${parts.length} part${parts.length === 1 ? '' : 's'}`;
                   break;
                 }
@@ -3406,15 +3399,8 @@ export function App() {
           return;
         }
         case 'split': {
-          const count = cur.doc.pages.length;
-          const ranges = spec.parts === 'bookmarks' ? tools.rangesFromStarts(count, cur.store.bookmarks().map((b) => b.pageIndex)) : tools.chunkPages(count, spec.count);
-          const titles = spec.parts === 'bookmarks' ? cur.store.bookmarks().sort((a, b) => a.pageIndex - b.pageIndex) : [];
-          const parts = await tools.splitPdf(await annotatedBytes(cur), ranges);
-          const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
-          await zipDownload(`${base} (split).zip`, parts, (i) => {
-            const title = titles.find((b) => b.pageIndex === ranges[i]![0])?.title;
-            return `${base} ${String(i + 1).padStart(2, '0')}${title ? ` ${safe(title)}` : ` p${ranges[i]![0]! + 1}-${ranges[i]!.at(-1)! + 1}`}.pdf`;
-          });
+          const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), spec);
+          await zipDownload(`${base} (split).zip`, parts.map((p) => p.data), (i) => parts[i]!.name);
           setNotice(`Split into ${parts.length} files.`);
           return;
         }
@@ -8313,6 +8299,7 @@ Open the download page? Run the new installer to update; your documents and mark
           kind={pageTool.kind}
           pageCount={activeOpen.doc.pages.length}
           currentPage={pageIndex}
+          fileName={activeOpen.file.name.replace(/\.pdf$/i, '')}
           bookmarkStarts={activeOpen.store.bookmarks().map((b) => b.pageIndex)}
           drawnRect={pageTool.drawnRect}
           onDraw={() => {

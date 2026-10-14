@@ -2,11 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import { parsePageRange } from '../documents/printPdf';
 import { PAGE_SIZES } from '../documents/pageSizes';
-import type { PageRect } from '../documents/pageTools';
+import type { PageRect, SplitSpec } from '../documents/pageTools';
+import { DEFAULT_SPLIT, SplitOptions } from './SplitOptions';
 
 export type PageToolSpec =
   | { kind: 'extract'; pages: number[]; oneFilePerPage: boolean; deleteAfter: boolean }
-  | { kind: 'split'; parts: 'count' | 'bookmarks'; count: number }
+  | ({ kind: 'split' } & SplitSpec)
   | { kind: 'replace'; file: File; targetPages: number[]; sourcePages: number[] }
   | { kind: 'crop'; pages: number[]; margins: { top: number; right: number; bottom: number; left: number } | null; rect: PageRect | null }
   | { kind: 'setup'; pages: number[]; size: { width: number; height: number }; fit: boolean };
@@ -17,6 +18,8 @@ interface Props {
   kind: PageToolKind;
   pageCount: number;
   currentPage: number;
+  /** The document's name without `.pdf`, for the split naming example. */
+  fileName?: string;
   /** Pages where top-level bookmarks start, for splitting by bookmark. */
   bookmarkStarts: number[];
   /** Crop: a rectangle drawn on the page (page space), if the user drew one. */
@@ -65,10 +68,10 @@ export function usePageChoice(pageCount: number, currentPage: number, initial: '
 
 /**
  * The Document menu's page tools: Extract (one file per page, delete afterwards), Split (every N
- * pages or at top-level bookmarks), Replace (with pages of another PDF, one for one), Crop (margins
+ * pages, by file size or at top-level bookmarks, with numbered names), Replace (with pages of another PDF, one for one), Crop (margins
  * or a drawn rectangle) and Page Setup (a new paper size, content centred, scaled to fit or not).
  */
-export function PageToolsDialog({ kind, pageCount, currentPage, bookmarkStarts, drawnRect, onDraw, onApply, onCancel }: Props) {
+export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookmarkStarts, drawnRect, onDraw, onApply, onCancel }: Props) {
   const choice = usePageChoice(pageCount, currentPage, kind === 'setup' ? 'all' : 'current');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,8 +79,9 @@ export function PageToolsDialog({ kind, pageCount, currentPage, bookmarkStarts, 
   const [oneFile, setOneFile] = useState(false);
   const [deleteAfter, setDeleteAfter] = useState(false);
   // Split
-  const [splitBy, setSplitBy] = useState<'count' | 'bookmarks'>(bookmarkStarts.length > 1 ? 'bookmarks' : 'count');
-  const [count, setCount] = useState(1);
+  const [split, setSplit] = useState<SplitSpec>(() =>
+    bookmarkStarts.length > 1 ? { ...DEFAULT_SPLIT, by: 'bookmarks', naming: { ...DEFAULT_SPLIT.naming, mode: 'bookmarks' } } : DEFAULT_SPLIT,
+  );
   // Replace
   const [file, setFile] = useState<File | null>(null);
   const [sourceCount, setSourceCount] = useState(0);
@@ -120,7 +124,7 @@ export function PageToolsDialog({ kind, pageCount, currentPage, bookmarkStarts, 
   const pages = choice.pages;
   if (kind !== 'split' && !pages?.length) problem = `Enter pages between 1 and ${pageCount}.`;
   else if (kind === 'extract') spec = { kind, pages: pages!, oneFilePerPage: oneFile, deleteAfter };
-  else if (kind === 'split') spec = count >= 1 || splitBy === 'bookmarks' ? { kind, parts: splitBy, count } : null;
+  else if (kind === 'split') spec = { kind, ...split };
   else if (kind === 'replace') {
     if (!file) problem = 'Choose the PDF with the new pages.';
     else if (!sourcePages) problem = sourceCount ? `Enter pages of the new PDF between 1 and ${sourceCount}.` : null;
@@ -150,22 +154,7 @@ export function PageToolsDialog({ kind, pageCount, currentPage, bookmarkStarts, 
         </label>
       </>
     );
-  else if (kind === 'split')
-    body = (
-      <fieldset>
-        <legend>Split into</legend>
-        <label className="row">
-          <input type="radio" checked={splitBy === 'count'} onChange={() => setSplitBy('count')} />
-          Files of
-          <input type="number" min={1} max={pageCount} value={count} style={{ width: 64 }} onFocus={() => setSplitBy('count')} onChange={(e) => setCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
-          page{count === 1 ? '' : 's'} ({Math.ceil(pageCount / Math.max(1, count))} files)
-        </label>
-        <label className="row">
-          <input type="radio" checked={splitBy === 'bookmarks'} disabled={bookmarkStarts.length < 2} onChange={() => setSplitBy('bookmarks')} />
-          One file per top-level bookmark ({bookmarkStarts.length})
-        </label>
-      </fieldset>
-    );
+  else if (kind === 'split') body = <SplitOptions value={split} onChange={setSplit} pageCount={pageCount} bookmarkCount={bookmarkStarts.length} exampleBase={fileName} />;
   else if (kind === 'replace')
     body = (
       <>
