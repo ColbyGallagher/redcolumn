@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
 
 /**
  * App preferences (File → Preferences…), kept per browser. Unlike profiles they are not about the
@@ -22,7 +23,65 @@ export function unitsFor<U extends string>(system: UnitSystem, units: readonly U
   return units.filter((u) => u === keep || SYSTEM_UNITS[system].includes(u));
 }
 
-export type GridUnit = 'in' | 'cm' | 'mm' | 'pt';
+/** The system a length unit belongs to. */
+export const systemOf = (unit: LengthUnit): UnitSystem => (SYSTEM_UNITS.metric.includes(unit) ? 'metric' : 'imperial');
+
+/** Units offered as defaults (Preferences › Units) for lengths, areas (their square) and volumes (their cube). */
+export const DEFAULT_UNIT_CHOICES: Record<UnitSystem, Record<'length' | 'area' | 'volume', readonly LengthUnit[]>> = {
+  metric: { length: ['mm', 'cm', 'm', 'km'], area: ['mm', 'cm', 'm', 'km'], volume: ['mm', 'cm', 'm'] },
+  imperial: { length: ['in', 'ft', 'yd', 'mi'], area: ['in', 'ft', 'yd', 'mi'], volume: ['in', 'ft', 'yd'] },
+};
+
+const SYSTEM_DEFAULTS: Record<UnitSystem, Pick<Settings, 'lengthUnit' | 'areaUnit' | 'volumeUnit'>> = {
+  metric: { lengthUnit: 'm', areaUnit: 'm', volumeUnit: 'm' },
+  imperial: { lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' },
+};
+
+/** Decimal places lengths get in a unit when the app picks the unit itself. */
+const UNIT_PRECISION: Record<LengthUnit, number> = { mm: 0, cm: 1, m: 2, km: 3, in: 2, ft: 2, yd: 2, mi: 3 };
+
+/** The unit the grid is spaced in on paper: millimetres for metric, inches for imperial. */
+export const gridUnitOf = (system: UnitSystem): 'mm' | 'in' => (system === 'metric' ? 'mm' : 'in');
+
+/** A grid spacing of `mm` millimetres, rounded to a whole millimetre or a sixteenth of an inch. */
+function roundGrid(mm: number, system: UnitSystem): number {
+  return system === 'metric' ? Math.max(1, Math.round(mm)) : Math.max(1 / 16, Math.round((mm / 25.4) * 16) / 16);
+}
+
+/**
+ * The settings that change with the unit system: default units not in it go back to the system's
+ * own, and the grid spacing is converted to the new system's paper unit.
+ */
+export function switchUnitSystem(s: Settings, system: UnitSystem): Partial<Settings> {
+  if (s.unitSystem === system) return {};
+  const choices = DEFAULT_UNIT_CHOICES[system];
+  const own = SYSTEM_DEFAULTS[system];
+  return {
+    unitSystem: system,
+    lengthUnit: choices.length.includes(s.lengthUnit) ? s.lengthUnit : own.lengthUnit,
+    areaUnit: choices.area.includes(s.areaUnit) ? s.areaUnit : own.areaUnit,
+    volumeUnit: choices.volume.includes(s.volumeUnit) ? s.volumeUnit : own.volumeUnit,
+    gridSize: roundGrid(s.gridSize * (gridUnitOf(s.unitSystem) === 'mm' ? 1 : 25.4), system),
+  };
+}
+
+/**
+ * A page scale with the default units (Preferences › Units) filled in: areas and volumes in the
+ * default units unless the scale already names its own, and a built-in preset's lengths in the
+ * default length unit. Scales in the other unit system are left as they are.
+ */
+export function withDefaultUnits(scale: Scale, s: Settings = current): Scale {
+  if (systemOf(scale.unit) !== s.unitSystem) return scale;
+  const next: Scale = { ...scale, areaUnit: scale.areaUnit ?? s.areaUnit, volumeUnit: scale.volumeUnit ?? s.volumeUnit };
+  const preset = SCALE_PRESETS.find((p) => p.label === scale.label)?.scale;
+  if (preset && scale.unit === preset.unit && s.lengthUnit !== scale.unit) {
+    next.unit = s.lengthUnit;
+    next.feetInches = next.feetInches && (next.unit === 'ft' || next.unit === 'in');
+    // The preset's own precision follows the unit; one picked in a dialog is kept.
+    if (!next.feetInches && (scale.feetInches || scale.precision === preset.precision)) next.precision = UNIT_PRECISION[next.unit];
+  }
+  return next;
+}
 
 /** A Sets category: sheets whose tag value starts with `filter` belong to it. */
 export interface SetCategory {
@@ -65,8 +124,12 @@ export const CONSTRUCTION_TEMPLATE: SetTemplate = {
 };
 
 export interface Settings {
-  /** Measurement system: only its scales and units are offered in scale and unit pickers. */
+  /** Units, metric or imperial: only its scales and units are offered in scale and unit pickers. */
   unitSystem: UnitSystem;
+  /** Default units within the system: lengths, areas (the unit squared) and volumes (the unit cubed). */
+  lengthUnit: LengthUnit;
+  areaUnit: LengthUnit;
+  volumeUnit: LengthUnit;
   /** Ctrl + mouse wheel: zoom step per wheel notch (each step scales the zoom by 1 + 2 × this). */
   ctrlWheelZoomStep: number;
   /** Plain mouse wheel where it zooms (single page view): percentage points per notch. */
@@ -93,9 +156,8 @@ export interface Settings {
   snapToGrid: boolean;
   /** Drawing tools snap to the corners and vertices of other markups. */
   snapToMarkup: boolean;
-  /** Grid spacing on the page (paper), in `gridUnit`s. */
+  /** Grid spacing on the page (paper): millimetres with metric units, inches with imperial. */
   gridSize: number;
-  gridUnit: GridUnit;
   /** Rulers along the top and left of the view (View → Rulers). */
   showRulers: boolean;
   /** Full-screen crosshair cursor (View → Full-Screen Crosshair). */
@@ -264,12 +326,15 @@ export interface Settings {
 }
 
 /** Grid spacing in PDF points. */
-export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'gridUnit'>): number {
-  return s.gridSize * { in: 72, cm: 72 / 2.54, mm: 72 / 25.4, pt: 1 }[s.gridUnit];
+export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'unitSystem'>): number {
+  return s.gridSize * (gridUnitOf(s.unitSystem) === 'mm' ? 72 / 25.4 : 72);
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   unitSystem: 'metric',
+  lengthUnit: 'm',
+  areaUnit: 'm',
+  volumeUnit: 'm',
   ctrlWheelZoomStep: 5,
   wheelZoomStep: 10,
   invertWheelZoom: false,
@@ -283,8 +348,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showGrid: false,
   snapToGrid: false,
   snapToMarkup: true,
-  gridSize: 0.25,
-  gridUnit: 'in',
+  gridSize: 5,
   showRulers: false,
   crosshair: false,
   showSpaces: true,
@@ -392,7 +456,11 @@ function load(): Settings {
     const saved = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, unknown>;
     // Settings since removed are dropped, so they are not written back.
     const known = Object.entries(saved).filter(([k]) => k in DEFAULT_SETTINGS);
-    return { ...DEFAULT_SETTINGS, ...(Object.fromEntries(known) as Partial<Settings>) };
+    const loaded: Settings = { ...DEFAULT_SETTINGS, ...(Object.fromEntries(known) as Partial<Settings>) };
+    // Grid spacing once had a unit of its own; it now follows the unit system.
+    const oldUnit = saved.gridUnit as 'in' | 'cm' | 'mm' | 'pt' | undefined;
+    if (oldUnit && typeof saved.gridSize === 'number') loaded.gridSize = roundGrid(saved.gridSize * { in: 25.4, cm: 10, mm: 1, pt: 25.4 / 72 }[oldUnit], loaded.unitSystem);
+    return loaded;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
@@ -401,6 +469,12 @@ function load(): Settings {
 let current = load();
 const listeners = new Set<() => void>();
 
+/** Pages with no scale set measure at full size, shown in the default units. */
+function applyDefaultScale(s: Settings) {
+  Object.assign(DEFAULT_SCALE, { unit: s.lengthUnit, areaUnit: s.areaUnit, volumeUnit: s.volumeUnit, feetInches: false, precision: UNIT_PRECISION[s.lengthUnit] });
+}
+applyDefaultScale(current);
+
 export const settings = {
   get: (): Settings => current,
   subscribe(l: () => void) {
@@ -408,7 +482,8 @@ export const settings = {
     return () => listeners.delete(l);
   },
   set(patch: Partial<Settings>) {
-    current = { ...current, ...patch };
+    current = { ...current, ...(patch.unitSystem ? switchUnitSystem(current, patch.unitSystem) : {}), ...patch };
+    applyDefaultScale(current);
     try {
       localStorage.setItem(KEY, JSON.stringify(current));
     } catch {

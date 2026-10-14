@@ -528,14 +528,6 @@ select[size] {
   max-width: 130px;
 }
 
-.scale .scale-typed {
-  width: 96px;
-}
-
-.scale .scale-typed.invalid {
-  border-color: var(--danger, #c0392b);
-}
-
 .modal-backdrop {
   position: fixed;
   inset: 0;
