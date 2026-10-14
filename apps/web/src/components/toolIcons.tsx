@@ -60,3 +60,60 @@ export const TOOL_ICONS = {
     </>,
   ),
 };
+
+/** Icons that name the style controls on the markup toolbar (fill, width, line style, …). */
+export const STYLE_ICONS = {
+  // A tipped paint bucket pouring a drop.
+  fill: icon(
+    <>
+      <path d="M2.5 7.5 7.5 2.5l5 5-5 5z" />
+      <path d="M2.5 7.5h10" />
+      <path d="M13.6 10.2c.7 1 1 1.6 1 2.1a1 1 0 0 1-2 0c0-.5.3-1.1 1-2.1z" fill="currentColor" />
+    </>,
+  ),
+  // Three strokes, thin to thick.
+  width: icon(
+    <>
+      <path d="M2 3.5h12" strokeWidth="0.8" />
+      <path d="M2 7.5h12" strokeWidth="1.8" />
+      <path d="M2 12.5h12" strokeWidth="3.2" strokeLinecap="butt" />
+    </>,
+  ),
+  // Solid, dashed and dotted strokes.
+  lineStyle: icon(
+    <>
+      <path d="M2 3.5h12" />
+      <path d="M2 8h12" strokeDasharray="3 2" strokeLinecap="butt" />
+      <path d="M2.5 12.5h11" strokeDasharray="0 2.75" strokeWidth="1.8" />
+    </>,
+  ),
+  // A circle, one half solid and the other see-through.
+  opacity: icon(
+    <>
+      <path d="M8 2.5a5.5 5.5 0 0 0 0 11z" fill="currentColor" />
+      <path d="M8 2.5a5.5 5.5 0 0 1 0 11z" fill="currentColor" fillOpacity="0.3" />
+      <circle cx="8" cy="8" r="5.5" />
+    </>,
+  ),
+  // A square filled with diagonal hatching.
+  hatch: icon(
+    <>
+      <rect x="2" y="2" width="12" height="12" rx="1" />
+      <path d="M2 6.5 6.5 2M2 11 11 2M3.5 14 14 3.5M8 14l6-6" strokeWidth="1" />
+    </>,
+  ),
+  // A serif capital T: the typeface.
+  font: icon(
+    <>
+      <path d="M3 4V2.5h10V4M8 2.5v11M6 13.5h4" />
+    </>,
+  ),
+  // A small and a large A with an up/down size arrow.
+  fontSize: icon(
+    <>
+      <path d="M1.5 14 4 8l2.5 6M2.4 12h3.2" strokeWidth="1.1" />
+      <path d="M6.8 14 10.4 4.5 14 14M8.1 11h4.6" />
+      <path d="M13.5 1.5v2M12.6 2.4l.9-.9.9.9" strokeWidth="1" />
+    </>,
+  ),
+};
