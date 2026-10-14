@@ -6,7 +6,7 @@ import { ComboField } from './ComboField';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
-import { TOOL_ICONS } from './toolIcons';
+import { STYLE_ICONS, TOOL_ICONS } from './toolIcons';
 import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 
@@ -305,6 +305,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
             />
           </label>
           <label className="field" title="Fill">
+            <FieldTag icon={STYLE_ICONS.fill} />
             <input
               type="checkbox"
               disabled={!styleCapabilities(styleType).fill}
@@ -313,7 +314,8 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
             />
             Fill
           </label>
-          <label className="field">
+          <label className="field" title="Line width">
+            <FieldTag icon={STYLE_ICONS.width} label="Width" />
             <ComboField
               title="Line width"
               value={style.width}
@@ -326,6 +328,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           </label>
           {styleCapabilities(styleType).dash && (
             <label className="field" title="Line style">
+              <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
               <select
                 value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
                 onChange={(e) => {
@@ -355,7 +358,8 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
               </select>
             </label>
           )}
-          <label className="field">
+          <label className="field" title="Opacity">
+            <FieldTag icon={STYLE_ICONS.opacity} label="Opacity" />
             <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
           </label>
           {styleCapabilities(styleType).hatch && <HatchMenu style={style} disabled={!enabled} onChange={(patch) => tools.setStyle(styleType, patch)} />}
@@ -404,6 +408,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       )}
       {textStyle && textType && styleCapabilities(textType).font && (
         <label className="field" title="Font">
+          <FieldTag icon={STYLE_ICONS.font} label="Font" />
           <select className="font-family" value={textStyle.fontFamily ?? 'sans'} onChange={(e) => tools.setStyle(textType, { fontFamily: e.target.value as FontFamily })}>
             {FONT_FAMILIES.map((f) => (
               <option key={f.value} value={f.value} style={{ fontFamily: f.css }}>
@@ -415,6 +420,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
       )}
       {textStyle && textType && styleCapabilities(textType).font && (
         <label className="field" title="Font size (pt)">
+          <FieldTag icon={STYLE_ICONS.fontSize} label="Size" />
           <input
             className="font-size"
             type="number"
@@ -438,6 +444,22 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
         🗑
       </button>
     </div>
+  );
+}
+
+/**
+ * Whether the style controls carry a short text label beside their icon ("Width", "Opacity", …).
+ * On trial: turn off if the toolbar reads as cluttered.
+ */
+const SHOW_FIELD_LABELS = true;
+
+/** The icon (and, with SHOW_FIELD_LABELS, the short label) that names a toolbar style control. */
+function FieldTag({ icon, label }: { icon: ReactNode; label?: string }) {
+  return (
+    <>
+      <span className="field-icon">{icon}</span>
+      {SHOW_FIELD_LABELS && label && <span className="field-label">{label}</span>}
+    </>
   );
 }
 
@@ -473,6 +495,7 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
   return (
     <div className="hatch-menu" ref={root}>
       <button type="button" className={`btn hatch-btn${active ? ' on' : ''}`} disabled={disabled} title="Hatch pattern, color and scale" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
+        <span className="field-icon">{STYLE_ICONS.hatch}</span>
         {name}
         {active && current && <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={36} height={18} />}
       </button>

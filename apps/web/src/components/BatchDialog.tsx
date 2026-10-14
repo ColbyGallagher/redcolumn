@@ -11,6 +11,8 @@ import { PAGE_SIZES } from '../documents/pageSizes';
 import { HeaderFooterDialog } from './HeaderFooterDialog';
 import { savedTsa, saveTsa, TimestampOption } from './DigitalSignatures';
 import { recalledPassword } from '../documents/idPasswords';
+import type { SplitSpec } from '../documents/pageTools';
+import { DEFAULT_SPLIT, SplitOptions } from './SplitOptions';
 
 export type Corner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
@@ -43,7 +45,7 @@ export type BatchCommand =
   | { kind: 'headerFooter'; spec: HeaderFooterSpec }
   | { kind: 'crop'; margins: { top: number; right: number; bottom: number; left: number } }
   | { kind: 'pageSetup'; size: { width: number; height: number }; fit: boolean }
-  | { kind: 'split'; parts: 'pages' | 'bookmarks'; count: number }
+  | ({ kind: 'split' } & SplitSpec)
   | { kind: 'sign'; sign: BatchSign }
   | { kind: 'pageLabels' };
 
@@ -150,7 +152,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   const [margins, setMargins] = useState({ top: 0.5, right: 0.5, bottom: 0.5, left: 0.5 });
   const [paper, setPaper] = useState(PAGE_SIZES.find((p) => p.id === 'tabloid')!.id);
   const [fit, setFit] = useState(true);
-  const [split, setSplit] = useState<{ parts: 'pages' | 'bookmarks'; count: number }>({ parts: 'pages', count: 1 });
+  const [split, setSplit] = useState<SplitSpec>(DEFAULT_SPLIT);
   const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
   const [tsa, setTsa] = useState(savedTsa);
   const [keepRevisions, setKeepRevisions] = useState(true);
@@ -394,20 +396,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                 </label>
               </>
             )}
-            {kind === 'split' && (
-              <label className="row">
-                <select value={split.parts} onChange={(e) => setSplit({ ...split, parts: e.target.value as 'pages' | 'bookmarks' })}>
-                  <option value="pages">Every</option>
-                  <option value="bookmarks">At each top-level bookmark</option>
-                </select>
-                {split.parts === 'pages' && (
-                  <>
-                    <input type="number" min={1} value={split.count} style={{ width: 56 }} onChange={(e) => setSplit({ ...split, count: Math.max(1, Math.round(Number(e.target.value)) || 1) })} />
-                    page{split.count === 1 ? '' : 's'}
-                  </>
-                )}
-              </label>
-            )}
+            {kind === 'split' && <SplitOptions value={split} onChange={setSplit} />}
             {kind === 'sign' && (
               <fieldset>
                 <legend>Signature</legend>
