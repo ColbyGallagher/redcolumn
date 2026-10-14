@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
-import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, settings, type SetTag, type SetTemplate, type Settings } from '../settings/settings';
+import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
+import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
 import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
@@ -27,6 +28,7 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
     tabs: [
       { id: 'options', label: 'Options' },
       { id: 'document', label: 'Document' },
+      { id: 'units', label: 'Units' },
       { id: 'navigation', label: 'Navigation' },
       { id: 'grid', label: 'Grid & Snap' },
       { id: 'spelling', label: 'Spelling' },
@@ -47,7 +49,6 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
     label: 'Tools',
     tabs: [
       { id: 'markup', label: 'Markup' },
-      { id: 'measure', label: 'Measure' },
       { id: 'sketch', label: 'Sketch' },
       { id: 'forms', label: 'Forms' },
       { id: 'signature', label: 'Signature' },
@@ -93,7 +94,7 @@ type BoolKey = KeysOf<boolean>;
 type NumKey = KeysOf<number>;
 type StrKey = KeysOf<string>;
 
-const GRID_UNITS: Record<Settings['gridUnit'], string> = { in: 'Inches', cm: 'Centimetres', mm: 'Millimetres', pt: 'Points' };
+const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
 const COLOURSPACE = [
   ['auto', 'Auto-Detect'],
   ['colour', 'Colour'],
@@ -357,6 +358,33 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         {num('maxZoom', 'Maximum Zoom', { min: 400, max: 12800, step: 100, unit: '%' })}
       </Grid>
     ),
+    units: () => {
+      const choices = DEFAULT_UNIT_CHOICES[d.unitSystem];
+      const unitSelect = (k: 'lengthUnit' | 'areaUnit' | 'volumeUnit', t: string, units: readonly LengthUnit[], name: (u: LengthUnit) => string) => (
+        <>
+          {L(t, k)}
+          <select aria-label={t} value={d[k]} onChange={(e) => set({ [k]: e.target.value as LengthUnit })}>
+            {units.map((u) => (
+              <option key={u} value={u}>
+                {name(u)}
+              </option>
+            ))}
+          </select>
+        </>
+      );
+      return (
+        <Grid>
+          {L('Units', 'unitSystem')}
+          <select aria-label="Units" value={d.unitSystem} onChange={(e) => set(switchUnitSystem(d, e.target.value as UnitSystem))}>
+            <option value="metric">Metric</option>
+            <option value="imperial">Imperial</option>
+          </select>
+          {unitSelect('lengthUnit', 'Length', choices.length, (u) => LENGTH_NAMES[u])}
+          {unitSelect('areaUnit', 'Area', choices.area, (u) => AREA_LABELS[u])}
+          {unitSelect('volumeUnit', 'Volume', choices.volume, (u) => VOLUME_LABELS[u])}
+        </Grid>
+      );
+    },
     navigation: () => (
       <Grid>
         {select('singlePageWheel', 'Single Page Mode', [
@@ -377,17 +405,9 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     ),
     grid: () => (
       <Grid>
-        {L('Units', 'gridUnit')}
-        <select aria-label="Units" value={d.gridUnit} onChange={(e) => set({ gridUnit: e.target.value as Settings['gridUnit'] })}>
-          {Object.entries(GRID_UNITS).map(([v, t]) => (
-            <option key={v} value={v}>
-              {t}
-            </option>
-          ))}
-        </select>
         <C>{check('showGrid', 'Show Grid')}</C>
         <C>{check('snapToGrid', 'Snap to Grid')}</C>
-        {num('gridSize', 'Grid Spacing', { min: 0.01, max: 1000, step: d.gridUnit === 'in' ? 0.125 : d.gridUnit === 'cm' ? 0.25 : 1, unit: GRID_UNITS[d.gridUnit] })}
+        {num('gridSize', 'Grid Spacing', { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? 'in (set by Units)' : 'mm (set by Units)' })}
         <C>{check('snapToGeometry', 'Snap to Content', { title: 'Lines, ends and intersections in the PDF (hold Alt to bypass)' })}</C>
         <C>{check('snapToMarkup', 'Snap to Markup')}</C>
         <C>{check('snapLines', 'Snap to Lines', { disabled: !snapping })}</C>
@@ -475,14 +495,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         </select>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
         <C>{check('dragToSelect', 'Drag on the Page to Select Markups', { title: 'With Select, dragging on an empty part of the page draws a selection box instead of panning' })}</C>
-      </Grid>
-    ),
-    measure: () => (
-      <Grid>
-        {select('unitSystem', 'Measurement System', [
-          ['metric', 'Metric (metres, millimetres)'],
-          ['imperial', 'Imperial (feet, inches)'],
-        ])}
       </Grid>
     ),
     sketch: () => (

@@ -33,7 +33,7 @@ import { ColumnsDialog } from './components/ColumnsDialog';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, useSettings } from './settings/settings';
+import { settings, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
@@ -900,6 +900,8 @@ export function App() {
   const editTextRef = useRef<(pageIndex: number, at: [number, number]) => void>(() => {});
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
+  /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
+  const lastSnapshot = useRef<{ width: number; height: number; markup: Markup } | null>(null);
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
   /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
@@ -4553,10 +4555,12 @@ export function App() {
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
       const now = Date.now();
+      const markup: Markup = { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
       // Also on the app's own clipboard, so pasting works where the system clipboard is off limits.
-      clipboard.current = [
-        { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now },
-      ];
+      clipboard.current = [markup];
+      // Pasted back from the system clipboard, the picture is recognised by its pixel size and placed
+      // at the size it was captured, not at a size that depends on the zoom.
+      lastSnapshot.current = { width: canvas.width, height: canvas.height, markup };
       setClipboardCount(1);
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
@@ -4571,25 +4575,43 @@ export function App() {
     const pane: Pane = dropped?.pane ?? activePaneRef.current;
     const { c, o } = paneParts(pane);
     if (!c || !o || o.store.readOnly) return;
-    void imageToDataUrl(file).then(({ image, aspect }) => {
+    const snap = dropped ? null : lastSnapshot.current;
+    void (async () => {
+      if (!snap) return false;
+      const bitmap = await createImageBitmap(file);
+      const ours = bitmap.width === snap.width && bitmap.height === snap.height;
+      bitmap.close();
+      if (!ours) return false;
+      // Our own snapshot: placed at its captured size, like pasting it from the app's clipboard.
       const viewer = c.viewer;
-      const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
+      const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
       const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
-      const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
-      const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
-      const size = o.doc.pages[page];
-      // A comfortable on-screen size, no larger than the page, kept on it.
-      const w = Math.min(240 / viewer.zoomFor(page), size ? size.width : Infinity, size ? size.height * aspect : Infinity);
-      const h = w / aspect;
-      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-      if (size) {
-        centre[0] = clamp(centre[0], w / 2, size.width - w / 2);
-        centre[1] = clamp(centre[1], h / 2, size.height - h / 2);
-      }
-      const now = Date.now();
-      const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
-      c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
-    });
+      c.tools.paste([snap.markup], page, at ? viewer.clientToPage(at.x, at.y, page) : null);
+      return true;
+    })()
+      .catch(() => false)
+      .then((done) => (done ? null : imageToDataUrl(file)))
+      .then((pasted) => {
+        if (!pasted) return;
+        const { image, aspect } = pasted;
+        const viewer = c.viewer;
+        const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
+        const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
+        const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
+        const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
+        const size = o.doc.pages[page];
+        // A comfortable on-screen size, no larger than the page, kept on it.
+        const w = Math.min(240 / viewer.zoomFor(page), size ? size.width : Infinity, size ? size.height * aspect : Infinity);
+        const h = w / aspect;
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+        if (size) {
+          centre[0] = clamp(centre[0], w / 2, size.width - w / 2);
+          centre[1] = clamp(centre[1], h / 2, size.height - h / 2);
+        }
+        const now = Date.now();
+        const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
+        c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
+      });
   };
   dropImagesRef.current = (pane, files, x, y) => {
     const { c, o } = paneParts(pane);
@@ -4637,7 +4659,7 @@ export function App() {
   };
   const setPageScale = (scale: Scale, allPages: boolean) => {
     const dest = paneB ? openB : open;
-    dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], scale);
+    dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], withDefaultUnits(scale));
   };
   // Title-block scales that can fill pages nobody has scaled yet (never overriding a set scale).
   const detectedScales = Object.entries(sheets)
@@ -6177,7 +6199,7 @@ export function App() {
             scale={sc[idx] ?? null}
             pageCount={count}
             disabled={!o}
-            onPreset={(scale) => o?.store.setScale([idx], scale)}
+            onPreset={(scale) => o?.store.setScale([idx], withDefaultUnits(scale))}
             onApplyAll={() => {
               const cur = sc[idx];
               if (cur) o?.store.setScale(Array.from({ length: count }, (_, i) => i), cur);
@@ -7106,7 +7128,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 busy={busyPages || indexing}
                 onGoTo={(i) => v?.goToPage(i)}
                 onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
-                onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, scale)}
+                onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
                 onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
                 onSetLabel={(pages, label) => {
                   for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
@@ -7288,7 +7310,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 pageIndex={pageIndex}
                 pageCount={pageCount}
                 pageName={activeOpen ? (pageLabelFor(activeOpen, pageIndex).startsWith('Page ') ? activeOpen.file.name.replace(/\.pdf$/i, '') : pageLabelFor(activeOpen, pageIndex)) : ''}
-                onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], scale) : null}
+                onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
                 onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
                 tool={toolsState.tool}
                 onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
@@ -7594,7 +7616,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 let done = 0;
                 for (const { page, scale } of scales) {
                   if (!scale) continue;
-                  store.setScale([page], scale);
+                  store.setScale([page], withDefaultUnits(scale));
                   done++;
                 }
                 const missed = scales.length - done;
