@@ -7791,6 +7791,10 @@ Open the download page? Run the new installer to update; your documents and mark
         scaleFor={(pageIndex) => activeOpen?.store.scaleFor(pageIndex) ?? null}
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
+        onOpenSettings={(category, tab) => {
+          setPrefsCategory({ category, tab });
+          setPrefsOpen(true);
+        }}
         disabled={!activeOpen}
         {...(split ? { sync, onSync: setSync } : {})}
       />

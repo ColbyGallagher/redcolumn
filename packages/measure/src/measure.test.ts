@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts } from './scale.ts';
+import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, bulgeThrough, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
@@ -234,4 +234,14 @@ test('parseTypedScale accepts loosely typed scales', () => {
   assert.equal(parseTypedScale('1:75')?.label, '1:75');
   assert.equal(parseTypedScale('NTS'), null);
   assert.equal(parseTypedScale('hello'), null);
+});
+
+test('yScaleLabel names the vertical scale only when it differs', () => {
+  const x = SCALE_PRESETS.find((p) => p.label === '1/8" = 1\'-0"')!.scale;
+  assert.equal(yScaleLabel(x), null);
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: x.metersPerPoint }), null);
+  const quarter = SCALE_PRESETS.find((p) => p.label === '1/4" = 1\'-0"')!.scale;
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: quarter.metersPerPoint }), '1/4" = 1\'-0"');
+  const custom = scaleFromParts(1, 'in', 15, 'ft')!;
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: custom.metersPerPoint }), '1" = 15\'');
 });

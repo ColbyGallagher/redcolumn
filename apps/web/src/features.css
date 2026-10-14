@@ -58,12 +58,6 @@
 
 .pagenav .scale select {
   max-width: 140px;
-  height: 22px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
 }
 
 @media (max-width: 900px) {
@@ -1085,7 +1079,6 @@
 }
 
 .col-field input,
-.col-field select,
 .col-formula,
 .col-options input,
 .status-rows input:not([type='color']),
@@ -1883,8 +1876,7 @@
   background: rgba(20, 163, 154, 0.22);
 }
 
-.modal .pref-table-row input:not([type='checkbox']):not([type='radio']):not([type='color']),
-.modal .pref-table-row select {
+.modal .pref-table-row input:not([type='checkbox']):not([type='radio']):not([type='color']) {
   min-width: 0;
   height: 26px;
   border-color: transparent;
@@ -1892,8 +1884,11 @@
   background: transparent;
 }
 
-.modal .pref-table-row input:not([type='checkbox']):not([type='radio']):not([type='color']):focus,
-.modal .pref-table-row select:focus {
+.modal .pref-table-row select {
+  min-width: 0;
+}
+
+.modal .pref-table-row input:not([type='checkbox']):not([type='radio']):not([type='color']):focus {
   border-color: var(--accent);
   outline: none;
 }
@@ -2042,6 +2037,10 @@
 
 .status-group.right {
   gap: 10px;
+}
+
+.status-toggle-wrap {
+  display: contents;
 }
 
 .status-toggle {
@@ -3018,8 +3017,7 @@
   color: var(--muted);
 }
 
-.measure-panel input:not([type='checkbox']):not([type='radio']),
-.measure-panel select {
+.measure-panel input:not([type='checkbox']):not([type='radio']) {
   height: 22px;
   padding: 0 6px;
   border: 1px solid #828fa5;
