@@ -99,7 +99,9 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
         <Toggle label="Grid" title="Show Grid (Shift+F9)" on={prefs.showGrid} onChange={(v) => settings.set({ showGrid: v })} disabled={disabled} {...at('general', 'grid')} />
         <Toggle label="Snap Grid" title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
         <Toggle label="Snap Content" title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
-        <Toggle label="Snap Markup" title="Snap to Markup (Ctrl+Shift+F7): corners and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
+        <Toggle label="Snap Markup" title="Snap to Markup (Ctrl+Shift+F7): corners, sides, centres and vertices of other markups" on={prefs.snapToMarkup} onChange={(v) => settings.set({ snapToMarkup: v })} disabled={disabled} {...at('general', 'grid')} />
+        <Toggle label="Polar" title={`Polar Tracking (Ctrl+Shift+F10): line up at multiples of ${prefs.polarAngle}° from the last point`} on={prefs.polarTracking} onChange={(v) => settings.set({ polarTracking: v })} disabled={disabled} {...at('general', 'grid')} />
+        <Toggle label="Track" title="Object Snap Tracking (Ctrl+Shift+F11): rest on a snap point to pick it up, then line up with it" on={prefs.objectSnapTracking} onChange={(v) => settings.set({ objectSnapTracking: v })} disabled={disabled} {...at('general', 'grid')} />
         <span className="status-sep" />
         <Toggle label="Rulers" title="Rulers (Ctrl+R)" on={prefs.showRulers} onChange={(v) => settings.set({ showRulers: v })} disabled={disabled} {...at('interface', 'display')} />
         <Toggle label="Crosshair" title="Full-Screen Crosshair" on={prefs.crosshair} onChange={(v) => settings.set({ crosshair: v })} disabled={disabled} {...at('general', 'options')} />

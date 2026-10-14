@@ -1,5 +1,5 @@
 import { arcPoints } from './arc';
-import { boundsOf, mapGeometry, type Geometry, type Markup, type Point, type Rect } from './model';
+import { boundsOf, isTextType, mapGeometry, type Geometry, type Markup, type Point, type Rect } from './model';
 
 export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 export type Axis = 'horizontal' | 'vertical';
@@ -158,4 +158,26 @@ export function paintedStyle(source: Markup, target: Markup): Markup['style'] {
     else style[k] = v;
   }
   return style as unknown as Markup['style'];
+}
+
+/**
+ * A markup grown or shrunk by `factor` about `base` (AutoCAD's Scale): its points and cutouts,
+ * the text size of text boxes, and a dimension's offsets. Line widths stay as they are.
+ */
+export function scaledAbout(m: Markup, base: Point, factor: number): Partial<Markup> {
+  const [bx, by] = base;
+  const out: Partial<Markup> = mapGeometry(m, ([x, y]) => [bx + (x - bx) * factor, by + (y - by) * factor]);
+  const style = { ...m.style };
+  let restyled = false;
+  for (const key of ['leader', 'labelOffset'] as const) {
+    if (style[key]) {
+      style[key] = style[key]! * factor;
+      restyled = true;
+    }
+  }
+  if (isTextType(m.type) && style.fontSize) {
+    style.fontSize = Math.round(style.fontSize * factor * 100) / 100;
+    restyled = true;
+  }
+  return restyled ? { ...out, style } : out;
 }

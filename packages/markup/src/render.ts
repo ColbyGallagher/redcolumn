@@ -1,8 +1,8 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
-import { dimensionNormal, markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
@@ -186,17 +186,17 @@ function paintHatch(ctx: CanvasRenderingContext2D, clip: PathCmd[], evenOdd: boo
   ctx.restore();
 }
 
-/** Text and position of a measurement's value label, or null for other markups or hidden labels. */
-export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { text: string; at: [number, number] } | null {
+/**
+ * Text and position of a measurement's value label, or null for other markups or hidden labels.
+ * `angle` is its turn in radians, clockwise in page space (a Length's text can be turned).
+ */
+export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { text: string; at: [number, number]; angle: number } | null {
   if (!isMeasureKind(m.type) || m.points.length === 0 || m.style.showLabel === false) return null;
-  let at = labelAnchor(m.type, m.points);
-  if (m.type === 'length' && m.style.leader && m.points.length >= 2) {
-    const [nx, ny] = dimensionNormal(m.points[0]!, m.points[m.points.length - 1]!);
-    at = [at[0] + nx * m.style.leader, at[1] + ny * m.style.leader];
-  }
+  const line = dimensionLine(m);
+  const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
   const caption = m.text?.trim();
-  return { text: caption ? `${caption} ${value}` : value, at };
+  return { text: caption ? `${caption} ${value}` : value, at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
 
 /**
@@ -210,14 +210,11 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
   if (angle > Math.PI / 2) angle -= Math.PI;
   else if (angle < -Math.PI / 2) angle += Math.PI;
   const size = m.style.fontSize ?? 10;
-  // On the dimension line, moved off its points by any leader offset.
-  const d = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-  const lead = m.style.leader ?? 0;
-  const mx = (a[0] + b[0]) / 2 - ((b[1] - a[1]) / d) * lead;
-  const my = (a[1] + b[1]) / 2 + ((b[0] - a[0]) / d) * lead;
-  // Above the line: the left-hand normal of the reading direction.
+  // On the dimension line (moved off its points by any leader offset, slid along by any label offset).
+  const [mx, my] = dimensionLine(m)!.text;
+  // Above the line: the left-hand normal of the reading direction. A turned text turns about there.
   const off = size * 0.35 + m.style.width;
-  return { text: m.text, at: [mx + Math.sin(angle) * off, my - Math.cos(angle) * off], angle, size };
+  return { text: m.text, at: [mx + Math.sin(angle) * off, my - Math.cos(angle) * off], angle: angle + ((m.style.labelRotation ?? 0) * Math.PI) / 180, size };
 }
 
 /**
@@ -309,7 +306,13 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.textBaseline = 'middle';
     const w = ctx.measureText(label.text).width + size * 0.6;
     const h = size * 1.4;
-    const [x, y] = label.at;
+    let [x, y] = label.at;
+    ctx.save();
+    if (label.angle) {
+      ctx.translate(x, y);
+      ctx.rotate(label.angle);
+      x = y = 0;
+    }
     if (background) {
       ctx.globalAlpha = 0.85 * style.opacity;
       ctx.fillStyle = background;
@@ -319,6 +322,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillStyle = textColor(style);
     ctx.fillText(label.text, x, y);
     if (style.underline) underline(ctx, x - w / 2 + size * 0.3, y + size * 0.45, w - size * 0.6, size);
+    ctx.restore();
   }
   const dim = dimensionText(m);
   if (dim) {
@@ -524,6 +528,28 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
     ctx.strokeRect(x - h / 2, y - h / 2, h, h);
   });
   ctx.restore();
+  const text = labelHandles(m, zoom);
+  if (text) {
+    // The text's own knobs: a round one on it to drag it, and one beyond it to turn it.
+    ctx.save();
+    ctx.lineWidth = px;
+    ctx.strokeStyle = '#3b82f6';
+    ctx.beginPath();
+    ctx.moveTo(text.rotate.stem[0], text.rotate.stem[1]);
+    ctx.lineTo(text.rotate.at[0], text.rotate.at[1]);
+    ctx.stroke();
+    ctx.fillStyle = '#facc15';
+    ctx.beginPath();
+    ctx.arc(text.move[0], text.move[1], h / 2 + px, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(text.rotate.at[0], text.rotate.at[1], 4 * px, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
   const knob = rotateHandle(m, zoom);
   if (knob) {
     ctx.save();
@@ -550,6 +576,26 @@ export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; s
   const top: [number, number] = [b.x + b.w / 2, b.y];
   const at: [number, number] = [b.x + b.w / 2, b.y - 18 / zoom];
   return { stem: rotatePoint(top, c, m.rotation ?? 0), at: rotatePoint(at, c, m.rotation ?? 0) };
+}
+
+/**
+ * A selected Length or Dimension's text knobs: `move` on the text (drag it along or off the line)
+ * and `rotate` beyond its top (turn it), with the text's current turn in degrees clockwise.
+ */
+export function labelHandles(m: Markup, zoom: number): { move: Point; rotate: { at: Point; stem: Point }; angle: number } | null {
+  if (m.locked) return null;
+  const line = dimensionLine(m);
+  if (!line || (m.type === 'length' ? m.style.showLabel === false : !m.text)) return null;
+  const dim = dimensionText(m);
+  const angle = dim ? dim.angle : ((m.style.labelRotation ?? 0) * Math.PI) / 180;
+  const size = m.style.fontSize ?? 10;
+  // Up the text: its left-hand normal in page space (y down).
+  const up: Point = [Math.sin(angle), -Math.cos(angle)];
+  const move: Point = dim ? [dim.at[0] + up[0] * size * 0.4, dim.at[1] + up[1] * size * 0.4] : line.text;
+  const reach = size * (dim ? 0.8 : 0.7);
+  const stem: Point = [move[0] + up[0] * reach, move[1] + up[1] * reach];
+  const at: Point = [stem[0] + up[0] * (14 / zoom), stem[1] + up[1] * (14 / zoom)];
+  return { move, rotate: { at, stem }, angle: (angle * 180) / Math.PI };
 }
 
 /** A box's handles by index: its two defining corners, the other two corners, then the middles of its four edges. */

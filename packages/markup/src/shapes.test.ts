@@ -5,6 +5,7 @@ import { arcPoints, circleThrough } from './arc.ts';
 import { exportWithAnnotations } from './export.ts';
 import { circleBox, hitTest, markupShape, polarPoint, resizedBox, segmentPolar, withSegment } from './geometry.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
+import { dimensionText, measurementLabel } from './render.ts';
 import { DEFAULT_STYLES, markupBounds, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
 function markup(type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
@@ -292,4 +293,24 @@ test('a Cloud+ is grouped for Bluebeam: the callout leads, the cloud points at i
   assert.equal(out.context.lookup(cloud.get(PDFName.of('IRT')), PDFDict), callout);
   assert.equal(cloud.get(PDFName.of('RT'))?.toString(), '/Group');
   assert.equal(callout.has(PDFName.of('IRT')), false);
+});
+
+test('dimension text slid past an end runs the dimension line out to it', () => {
+  const m = markup('length', [[0, 0], [100, 0]], { style: { ...DEFAULT_STYLES.length, labelOffset: 80 } });
+  const parts = markupShape(m);
+  const runout = parts.find((p) => p.path.length === 2 && p.path[0]![1] === 100 && p.path[1]![1] === 130);
+  assert.ok(runout, 'a segment from the end out to the text');
+  assert.ok(markupBounds(m).x + markupBounds(m).w >= 130);
+  // Text still between the ends: no run-out.
+  const inside = markupShape({ ...m, style: { ...m.style, labelOffset: 20 } });
+  assert.equal(inside.length, parts.length - 1);
+});
+
+test('dimension text follows its offsets and turns', () => {
+  const m = markup('length', [[0, 0], [100, 0]], { style: { ...DEFAULT_STYLES.length, leader: 20, labelOffset: 10, labelRotation: 90 } });
+  const label = measurementLabel(m)!;
+  assert.deepEqual(label.at, [60, 20]);
+  assert.ok(Math.abs(label.angle - Math.PI / 2) < 1e-9);
+  const d = markup('dimension', [[0, 0], [100, 0]], { text: 'A', style: { ...DEFAULT_STYLES.dimension, labelRotation: 30 } });
+  assert.ok(Math.abs(dimensionText(d)!.angle - Math.PI / 6) < 1e-9);
 });

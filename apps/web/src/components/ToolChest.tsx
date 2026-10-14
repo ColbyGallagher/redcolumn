@@ -123,6 +123,8 @@ export function ToolPreview({ item, size = 40 }: { item: Pick<ToolChestItem, 'ty
         fontSize: isTextType(item.type) ? 11 : item.style.fontSize,
         showLabel: false,
         leader: undefined,
+        labelOffset: undefined,
+        labelRotation: undefined,
       };
       const m: Markup = {
         id: 'preview',

@@ -18,6 +18,6 @@ Copy a picture in another program (or take a screenshot), then click on the draw
 
 ## Resize it
 
-Select it and drag a corner handle.
+Select it and drag a corner handle. To bring a map or photo to the drawing's scale, use [Scale to Length](#scale-to-length).
 
 > **Tip:** To copy part of the drawing itself as a picture, use [Snapshot](#tool-snapshot).

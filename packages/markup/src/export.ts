@@ -335,7 +335,13 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const textW = font.widthOfTextAtSize(text, size);
     const w = textW + size * 0.6;
     const h = size * 1.4;
-    const [x, y] = label.at;
+    let [x, y] = label.at;
+    // A turned label is drawn about its own centre.
+    if (label.angle) {
+      const [cos, sin] = [Math.cos(label.angle), Math.sin(label.angle)];
+      ops.push('q', `${[cos, sin, -sin, cos, x, y].map(fmt).join(' ')} cm`);
+      x = y = 0;
+    }
     if (background) {
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
@@ -352,6 +358,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       'ET',
     );
     if (style.underline) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, y + size * 0.45, textW, size));
+    if (label.angle) ops.push('Q');
     resources.Font = { F0: font.ref };
   }
 
@@ -601,7 +608,10 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   const labelFont = ctx.fonts.get(standardFont(m.style, true));
   if (label && labelFont) {
     const { size } = labelStyle(m);
-    take(label.at[0], label.at[1], (labelFont.widthOfTextAtSize(safeText(labelFont, label.text), size) + size * 0.6) / 2, size * 0.7);
+    const rx = (labelFont.widthOfTextAtSize(safeText(labelFont, label.text), size) + size * 0.6) / 2;
+    // A turned label reaches as far as its corners do.
+    const [cos, sin] = [Math.abs(Math.cos(label.angle)), Math.abs(Math.sin(label.angle))];
+    take(label.at[0], label.at[1], rx * cos + size * 0.7 * sin, rx * sin + size * 0.7 * cos);
   }
   const dim = dimensionText(m);
   const dimFont = ctx.fonts.get(standardFont(m.style, false));

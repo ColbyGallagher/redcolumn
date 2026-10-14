@@ -5041,3 +5041,9 @@ tr.hidden-markup td {
     display: none;
   }
 }
+
+/* Scale to Length: what the typed length scales by. */
+.modal .scale-note {
+  font-size: 12px;
+  opacity: 0.75;
+}

@@ -3,7 +3,7 @@ import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -270,6 +270,19 @@ export function ellipticalArcPoints(m: Pick<Markup, 'points' | 'arcAngles'>): Po
  * small gap off the object and run just past the line.
  */
 function offsetLine(m: Markup, a: Point, b: Point): ShapePart[] {
+  return [...leaderLines(m, a, b), ...textRunout(m)];
+}
+
+/** The dimension line run on past an end out to text slid beyond it. */
+function textRunout(m: Markup): ShapePart[] {
+  const line = dimensionLine(m);
+  const along = m.style.labelOffset ?? 0;
+  if (!line || Math.abs(along) <= Math.hypot(line.b[0] - line.a[0], line.b[1] - line.a[1]) / 2) return [];
+  const end = along > 0 ? line.b : line.a;
+  return [{ path: [['M', end[0], end[1]], ['L', line.text[0], line.text[1]]], stroke: true, fill: null }];
+}
+
+function leaderLines(m: Markup, a: Point, b: Point): ShapePart[] {
   const offset = m.style.leader ?? 0;
   if (!offset) return withEnds(m, [a, b]);
   const [nx, ny] = dimensionNormal(a, b);
