@@ -71,6 +71,9 @@ function cms(): Uint8Array {
   return binaryToBytes(toDer(p7.toAsn1()));
 }
 
+/** Alters a signature for sure: replacing a byte with a fixed one is a no-op when the byte already matches. */
+const flipLastBit = (s: string) => s.slice(0, -1) + String.fromCharCode(s.charCodeAt(s.length - 1) ^ 1);
+
 /** What a TSA answers: a token over `hash`, signed by the TSA, echoing the nonce. */
 function tsaResponse(request: Uint8Array, when: Date, tamper = false): Uint8Array {
   const req = asn1.fromDer(bytesToBinary(request)).value as Node[];
@@ -79,7 +82,7 @@ function tsaResponse(request: Uint8Array, when: Date, tamper = false): Uint8Arra
   const tst = toDer(seq(int(1), oid('1.2.3.4'), imprint, int(99), gtime(when), nonce));
   const attrs = [seq(oid(forge.pki.oids.contentType!), set(oid('1.2.840.113549.1.9.16.1.4'))), seq(oid(forge.pki.oids.messageDigest!), set(octets(sha256(tst).digest().getBytes())))];
   const signature = tsa.key.privateKey.sign(sha256(toDer(set(...attrs))));
-  const signerInfo = seq(int(1), seq(forge.pki.distinguishedNameToAsn1(root.cert.subject), intHex('7f')), alg(SHA256), ctx(0, true, attrs), alg('1.2.840.113549.1.1.1'), octets(tamper ? signature.replace(/^./, 'x') : signature));
+  const signerInfo = seq(int(1), seq(forge.pki.distinguishedNameToAsn1(root.cert.subject), intHex('7f')), alg(SHA256), ctx(0, true, attrs), alg('1.2.840.113549.1.1.1'), octets(tamper ? flipLastBit(signature) : signature));
   const signedData = seq(int(3), set(alg(SHA256)), seq(oid('1.2.840.113549.1.9.16.1.4'), ctx(0, true, [octets(tst)])), ctx(0, true, [forge.pki.certificateToAsn1(tsa.cert)]), set(signerInfo));
   const token = seq(oid('1.2.840.113549.1.7.2'), ctx(0, true, [signedData]));
   return binaryToBytes(toDer(seq(seq(int(0)), token)));
