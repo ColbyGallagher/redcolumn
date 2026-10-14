@@ -218,6 +218,16 @@ body,
   color: var(--muted);
 }
 
+.field-icon {
+  display: inline-flex;
+  color: var(--text);
+  opacity: 0.8;
+}
+
+.field-label {
+  font-size: 11px;
+}
+
 .field input[type='color'] {
   width: 28px;
   height: 24px;
