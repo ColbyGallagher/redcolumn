@@ -11,6 +11,7 @@ import { isLocalFolderId } from '../studio/drive/folder';
 import { closeProject, createLocalProject, createProject, localFoldersAvailable, openLocalProject, openProject, openProjects, projectById, projectView, projectsVersion, setProjectView, subscribeProjects } from '../studio/projects/store';
 import { askText } from './AskText';
 import { Dialog } from './sessions/SessionDialogs';
+import { StudioHelp } from './studio/StudioHelp';
 import { DocIcon, FilterButton, FolderIcon, StudioHeader, StudioMenu, StudioRow, StudioTabs, studioIdText, type StudioSort } from './studio/chrome';
 import { offlineReason, useOnline } from '../offline/network';
 
@@ -181,6 +182,31 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
           { id: 'not', label: 'Not Joined', count: notJoinedCount },
         ]}
       />
+      <StudioHelp id="projects" title="How projects work">
+        <p>
+          <b>Your PDFs stay in your own OneDrive.</b> They are never uploaded to a redcolumn server or database, because redcolumn does not have one. This app opens and saves the files directly in the OneDrive folder, from your device.
+        </p>
+        <p>A project is a shared folder of PDFs for a team, such as all the drawings for one job. Everyone with access sees the same files and the same markups, and the project remembers every version of each file.</p>
+        <h4>Where it lives</h4>
+        <p>Projects are stored in a OneDrive folder, or in a folder on your computer that a sync app (OneDrive, Dropbox or a company file server) shares. Either way, the files stay in storage you control.</p>
+        <h4>Accounts you need</h4>
+        <ul>
+          <li>A Microsoft account (personal, work or school) for a OneDrive project. Opening a project link signs you in.</li>
+          <li>No account is needed for a project in a folder on your computer. The desktop app can open these. Your sync app does the sharing.</li>
+          <li>The project owner decides who can edit and who can only view. OneDrive enforces this, so it cannot be bypassed from inside redcolumn.</li>
+        </ul>
+        <h4>What the app can reach</h4>
+        <ul>
+          <li>The project folder, and nothing else you own. It asks your permission before it needs more, such as sharing the folder.</li>
+          <li>Your name and email, so versions, notes and markups show who did them.</li>
+          <li>You can choose to encrypt a project when you create it. The files are then scrambled in OneDrive and open only in redcolumn. The key is in the project link, so keep that link safe: a lost link cannot be recovered.</li>
+        </ul>
+        <h4>Working on files</h4>
+        <ul>
+          <li>Double-click a PDF to open it. Markups are shared live and need no check-out.</li>
+          <li>Check Out reserves a PDF so only you can replace it with a new version. Check In uploads your version, and the old ones stay available under Revisions.</li>
+        </ul>
+      </StudioHelp>
       {selectedId && !showFiles && (
         <button type="button" className="rc-text-btn" style={{ margin: '0 10px 6px' }} onClick={onShowFiles}>
           Show files
