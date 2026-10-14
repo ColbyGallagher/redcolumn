@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PageOp, PdfDocument } from '@nb/pdf-core';
 import type { SheetInfo } from '@nb/sheets';
-import type { Scale } from '@nb/measure';
+import { yScaleLabel, type Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
 import { SetScaleDialog } from './SetScaleDialog';
 
@@ -113,6 +113,8 @@ interface ThumbProps {
   /** Printed sheet number, edited by double-clicking the label. */
   sheet: string;
   scale?: string;
+  /** Vertical scale, shown under `scale` when the page is scaled differently in Y. */
+  yScale?: string;
   editable: boolean;
   active: boolean;
   selected: boolean;
@@ -127,7 +129,7 @@ interface ThumbProps {
   renameTick: number;
 }
 
-function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename, onContextMenu, renameTick }: ThumbProps) {
+function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, yScale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename, onContextMenu, renameTick }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [editing, setEditing] = useState(false);
   const size = doc.pages[page]!;
@@ -215,7 +217,14 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, editable, 
           {label}
         </span>
       )}
-      {scale && <span className="thumb-scale">{scale}</span>}
+      {scale && (yScale ? (
+        <>
+          <span className="thumb-scale">X: {scale}</span>
+          <span className="thumb-scale">Y: {yScale}</span>
+        </>
+      ) : (
+        <span className="thumb-scale">{scale}</span>
+      ))}
     </button>
   );
 }
@@ -379,6 +388,7 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
             label={sheets[i]?.number ? `${sheets[i]!.number} · ${i + 1}` : String(i + 1)}
             sheet={sheets[i]?.number ?? ''}
             scale={scales[i]?.label}
+            yScale={scales[i] ? yScaleLabel(scales[i]!) ?? undefined : undefined}
             editable={!busy}
             onRename={(v) => onSetLabel([i], v)}
             active={i === currentPage}

@@ -306,6 +306,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.lasso" />
             <Cmd id="tool.snapshot" />
             <Cmd id="edit.formatPainter" />
+            <Cmd id="edit.scaleToLength" />
             <Cmd id="edit.group" />
             <Cmd id="edit.ungroup" />
             <Cmd id="edit.lock" />
@@ -358,6 +359,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.snapGrid" />
             <Cmd id="view.snapContent" />
             <Cmd id="view.snapMarkup" />
+            <Cmd id="view.polarTracking" />
+            <Cmd id="view.objectSnapTracking" />
             <Cmd id="view.showLinks" />
             <Sep />
             <Cmd id="view.darkPages" />

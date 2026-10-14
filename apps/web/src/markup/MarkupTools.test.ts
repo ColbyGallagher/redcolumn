@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
+import { settings } from '../settings/settings';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
@@ -633,5 +634,117 @@ test('cells of a locked table cannot be formatted', async () => {
   h.store.update(h.id, { locked: true });
   h.tools.applyCellStyle({ bold: true });
   assert.equal(h.table().formats, undefined);
+  await h.store.destroy();
+});
+
+test('drawing snaps to every corner and side middle of a box, and to a circle centre', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  arm(h, 'ellipse');
+  drag(h.tools, [300, 200], [400, 300]); // centre (350, 250)
+  h.tools.setTool('line');
+  // Pressed a little off the top-right corner, the right side's middle and the circle's centre.
+  drag(h.tools, [262, 198], [258, 252]);
+  drag(h.tools, [180, 302], [352, 248]);
+  const lines = h.store.all().filter((m) => m.type === 'line');
+  assert.deepEqual(lines[0]!.points, [[260, 200], [260, 250]]);
+  assert.deepEqual(lines[1]!.points, [[180, 300], [350, 250]]);
+  await h.store.destroy();
+});
+
+test("a length's text drags off the line (taking the line with it), along it, and turns", async () => {
+  const h = await setup();
+  arm(h, 'length');
+  click(h.tools, [100, 200]);
+  click(h.tools, [260, 200]);
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  // The text sits on the middle of the line; drag it 30 up and 100 right, past the end.
+  drag(h.tools, [180, 200], [280, 170]);
+  let style = h.store.get(m!.id)!.style;
+  assert.equal(style.leader, -30, 'the dimension line moved out with the text');
+  assert.equal(style.labelOffset, 100, 'slid along past the end');
+  // Its turn knob sits above it; pointing right turns it a quarter.
+  const knob: Point = [280, 170 - 7 - 14];
+  drag(h.tools, knob, [320, 170]);
+  style = h.store.get(m!.id)!.style;
+  assert.equal(style.labelRotation, 90);
+  h.store.undo();
+  assert.equal(h.store.get(m!.id)!.style.labelRotation, undefined, 'turn undone');
+  await h.store.destroy();
+});
+
+const rest = () => new Promise((r) => setTimeout(r, 450));
+
+test('object snap tracking: rest on a corner, move away, and the point lines up with it', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  h.tools.setTool('line');
+  // Rest on the top-right corner until it is picked up.
+  h.tools.hover([261, 201], 0);
+  await rest();
+  // Well below it, a little to the side: the line starts straight under the corner.
+  drag(h.tools, [263, 420], [400, 420]);
+  const line = h.store.all().find((m) => m.type === 'line')!;
+  assert.deepEqual(line.points[0], [260, 420]);
+  await h.store.destroy();
+});
+
+test('two picked-up points line the pointer up with both at once, and polar tracking follows angles', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  arm(h, 'line');
+  drag(h.tools, [400, 100], [450, 150]);
+  arm(h, 'length');
+  h.tools.hover([100, 200], 0);
+  await rest();
+  h.tools.hover([450, 150], 0);
+  await rest();
+  // Under the line's end and level with the box's corner.
+  click(h.tools, [447, 204]);
+  const g = h.tools.getState().measuring;
+  assert.ok(g, 'measuring');
+  // Polar tracking (45° steps) from that point: up and to the right.
+  settings.set({ polarTracking: true, polarAngle: 45 });
+  try {
+    click(h.tools, [530, 122]);
+  } finally {
+    settings.set({ polarTracking: false });
+  }
+  const length = h.store.all().find((m) => m.type === 'length')!;
+  assert.deepEqual(length.points[0], [450, 200]);
+  const [a, b] = length.points as [Point, Point];
+  assert.ok(Math.abs(b[0] - a[0] + (b[1] - a[1])) < 1e-6, `at 45°: ${JSON.stringify(b)}`);
+  await h.store.destroy();
+});
+
+test('Scale to Length: two points on a markup are made a typed length, or the length between two picked points', async () => {
+  const asked: Point[][] = [];
+  const h = await setup({ onScaleToLength: (_page, points) => asked.push(points) });
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  const [m] = h.store.all();
+  h.tools.setTool('scaleLength');
+  // Nothing selected: the first click picks the markup.
+  click(h.tools, [100, 250]);
+  assert.deepEqual(h.tools.getState().selected, new Set([m!.id]));
+  // The reference: the box's top edge, from its left end (which stays put).
+  click(h.tools, [101, 201]);
+  click(h.tools, [259, 199]);
+  assert.deepEqual(asked, [[[100, 200], [260, 200]]], 'asked for the new length');
+  h.tools.scaleSelectionBy(0.5);
+  assert.deepEqual(h.store.get(m!.id)!.points, [[100, 200], [180, 250]]);
+  assert.equal(h.tools.getState().tool, 'select');
+  h.store.undo();
+  assert.deepEqual(h.store.get(m!.id)!.points, [[100, 200], [260, 300]], 'one undo step');
+
+  // Picking the new length on the page: twice as long as the reference.
+  h.tools.setTool('scaleLength');
+  click(h.tools, [101, 201]);
+  click(h.tools, [259, 199]);
+  h.tools.pickScaleTarget();
+  click(h.tools, [0, 500]);
+  click(h.tools, [320, 500]);
+  assert.deepEqual(h.store.get(m!.id)!.points, [[100, 200], [420, 400]]);
   await h.store.destroy();
 });

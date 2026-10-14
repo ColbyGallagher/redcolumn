@@ -77,11 +77,12 @@ export {
   type TableRegion,
 } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
-export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, shapeBounds, type Alignment, type Axis } from './arrange';
-export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
+export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, shapeBounds, type Alignment, type Axis } from './arrange';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';
 export { bluebeamColumnId, importColumns, importStatuses, statusIdOf, type PdfExtras } from './bluebeam';
 export { planPageOps, rotatePagePoint, type PageOperation, type PagePlan } from './pages';
 export { parseBtx, parsePdfObject, pdfColor, toolStyle, toolType, type ToolChestItem, type ToolSet } from './toolchest';
+export { markupSnapPoints } from './snapPoints';

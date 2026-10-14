@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts } from './scale.ts';
+import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, bulgeThrough, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
@@ -89,7 +89,7 @@ test('snap prefers endpoints, then intersections, then midpoints, then nearest',
   // A plus sign: horizontal 0..100 at y=50, vertical 0..100 at x=50.
   const idx = new SnapIndex(new Float32Array([0, 50, 100, 50, 50, 0, 50, 100]), 16);
   assert.deepEqual(idx.snap([52, 49], 5), { point: [50, 50], kind: 'intersection' });
-  assert.deepEqual(idx.snap([98, 51], 5), { point: [100, 50], kind: 'endpoint' });
+  assert.deepEqual(idx.snap([98, 51], 5), { point: [100, 50], kind: 'endpoint', dir: [1, 0] });
   assert.deepEqual(idx.snap([25, 52], 5)?.kind, 'nearest');
   assert.equal(idx.snap([80, 80], 5), null);
   // Extra points (existing markup vertices) snap as endpoints.
@@ -234,4 +234,14 @@ test('parseTypedScale accepts loosely typed scales', () => {
   assert.equal(parseTypedScale('1:75')?.label, '1:75');
   assert.equal(parseTypedScale('NTS'), null);
   assert.equal(parseTypedScale('hello'), null);
+});
+
+test('yScaleLabel names the vertical scale only when it differs', () => {
+  const x = SCALE_PRESETS.find((p) => p.label === '1/8" = 1\'-0"')!.scale;
+  assert.equal(yScaleLabel(x), null);
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: x.metersPerPoint }), null);
+  const quarter = SCALE_PRESETS.find((p) => p.label === '1/4" = 1\'-0"')!.scale;
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: quarter.metersPerPoint }), '1/4" = 1\'-0"');
+  const custom = scaleFromParts(1, 'in', 15, 'ft')!;
+  assert.equal(yScaleLabel({ ...x, yMetersPerPoint: custom.metersPerPoint }), '1" = 15\'');
 });

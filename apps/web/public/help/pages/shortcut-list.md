@@ -82,6 +82,8 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Snap to Grid | [[Ctrl]]+[[Shift]]+[[F9]] |
 | Snap to Content | [[Ctrl]]+[[Shift]]+[[F8]] |
 | Snap to Markup | [[Ctrl]]+[[Shift]]+[[F7]] |
+| Polar Tracking | [[Ctrl]]+[[Shift]]+[[F10]] |
+| Object Snap Tracking | [[Ctrl]]+[[Shift]]+[[F11]] |
 | Dimmer | [[Ctrl]]+[[F5]] |
 | Previous View | [[Alt]]+[[Left]] |
 | Next View | [[Alt]]+[[Right]] |
@@ -110,6 +112,7 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Delete Pages | [[Ctrl]]+[[Shift]]+[[D]] |
 | Insert Pages from PDF | [[Ctrl]]+[[Shift]]+[[I]] |
 | Insert Blank Pages | [[Ctrl]]+[[Shift]]+[[N]] |
+| Copy Page to Snapshot | [[Ctrl]]+[[Alt]]+[[C]] |
 | Reduce File Size | [[Ctrl]]+[[Shift]]+[[P]] |
 
 ## Tools

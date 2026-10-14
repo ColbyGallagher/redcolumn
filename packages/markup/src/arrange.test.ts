@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack } from './arrange.ts';
+import { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout } from './arrange.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 
 function box(id: string, x: number, y: number, w: number, h: number, type: MarkupType = 'rect', createdAt = 0): Markup {
@@ -67,4 +67,13 @@ test('format painter copies appearance but keeps zoom-sized details across types
   assert.deepEqual(paintedStyle(src, cloud), { stroke: '#00ff00', fill: '#ff0000', width: 3, opacity: 0.5, dash: 'dashed', arcRadius: 7 });
   const rect2 = box('r', 0, 0, 1, 1, 'rect');
   assert.deepEqual(paintedStyle(src, rect2), src.style);
+});
+
+test('scaledAbout grows a markup about a point, keeping that point still', () => {
+  const m = { id: 'a', type: 'image', pageIndex: 0, points: [[10, 10], [30, 20]], style: { stroke: '#000', fill: null, width: 2, opacity: 1 }, status: 'none', author: '', createdAt: 0, modifiedAt: 0 } as unknown as Markup;
+  const out = scaledAbout(m, [10, 10], 3);
+  assert.deepEqual(out.points, [[10, 10], [70, 40]]);
+  assert.equal(out.style, undefined, 'line width left alone');
+  const text = scaledAbout({ ...m, type: 'text', style: { ...m.style, fontSize: 10 } }, [0, 0], 0.5);
+  assert.equal(text.style?.fontSize, 5);
 });

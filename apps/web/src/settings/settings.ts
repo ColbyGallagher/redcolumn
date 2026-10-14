@@ -224,6 +224,27 @@ export interface Settings {
   snapMidpoints: boolean;
   snapEndpoints: boolean;
   snapIntersections: boolean;
+  /** Centres of circles and arcs, and their quadrants (top, bottom, left and right). */
+  snapCenters: boolean;
+  snapQuadrants: boolean;
+  /** Geometric centres of closed markups (rectangles, polygons, areas). */
+  snapGeoCenters: boolean;
+  /** From the point being drawn from: the foot of a perpendicular to a line or circle, or a tangent to a circle. */
+  snapPerpendicular: boolean;
+  snapTangent: boolean;
+  /** Where two lines near the pointer would cross if they were extended. */
+  snapApparent: boolean;
+  /** Extension: an acquired line end gives a path on past it. */
+  snapExtension: boolean;
+  /** Parallel: resting on a line acquires its direction, giving a path that way from the point being drawn from. */
+  snapParallel: boolean;
+  /** Object Snap Tracking: resting on a snap acquires it, giving paths straight across and up and down from it. */
+  objectSnapTracking: boolean;
+  /** Polar Tracking: paths from the point being drawn from at multiples of `polarAngle` degrees. */
+  polarTracking: boolean;
+  polarAngle: number;
+  /** Object Snap Tracking follows every polar angle, not only straight across and up and down. */
+  polarForObjects: boolean;
   /** How near (screen pixels) the pointer must come to a point to snap to it. */
   snapSensitivity: number;
   /** Colour of the snap marker. */
@@ -380,6 +401,18 @@ export const DEFAULT_SETTINGS: Settings = {
   snapMidpoints: true,
   snapEndpoints: true,
   snapIntersections: true,
+  snapCenters: true,
+  snapQuadrants: true,
+  snapGeoCenters: true,
+  snapPerpendicular: true,
+  snapTangent: false,
+  snapApparent: false,
+  snapExtension: true,
+  snapParallel: false,
+  objectSnapTracking: true,
+  polarTracking: false,
+  polarAngle: 45,
+  polarForObjects: false,
   snapSensitivity: 10,
   snapColour: '#d946ef',
   spellCheck: true,

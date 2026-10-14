@@ -130,6 +130,13 @@ export interface MarkupStyle {
   labelBackground?: string | null;
   /** Length dimensions: offset of the dimension line from the measured points, with extension lines. */
   leader?: number;
+  /**
+   * Length and Dimension: how far the text is slid along the dimension line from its middle, in
+   * points toward the end point. Past an end, the dimension line runs on out to it.
+   */
+  labelOffset?: number;
+  /** Length and Dimension: the text's turn in degrees, clockwise, from where it would sit. */
+  labelRotation?: number;
 }
 
 /** A file embedded in the PDF (File Attachment markups, sound notes). */
@@ -479,7 +486,33 @@ function unrotatedBounds(m: Markup): Rect {
     (m.type === 'cloud' || m.type === 'polygonCloud' ? cloudReach(m) : 0) +
     (isMeasureKind(m.type) ? markerSize(m) * (m.type === 'angle' ? 3 : 1) : 0) +
     (m.type === 'length' || m.type === 'dimension' ? Math.abs(m.style.leader ?? 0) : 0);
-  return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  const out = { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  // Text slid past an end takes the dimension line out with it.
+  const line = dimensionLine(m);
+  if (!line) return out;
+  const [tx, ty] = line.text;
+  const x0 = Math.min(out.x, tx - pad);
+  const y0 = Math.min(out.y, ty - pad);
+  return { x: x0, y: y0, w: Math.max(out.x + out.w, tx + pad) - x0, h: Math.max(out.y + out.h, ty + pad) - y0 };
+}
+
+/**
+ * A Length or Dimension's dimension line: its ends (the measured points moved off by any leader
+ * offset), its unit direction and normal (the way a positive leader goes), and where its text is
+ * anchored: the line's middle, slid along it by `labelOffset`.
+ */
+export function dimensionLine(m: Pick<Markup, 'type' | 'points' | 'style'>): { a: Point; b: Point; dir: Point; normal: Point; text: Point } | null {
+  if ((m.type !== 'length' && m.type !== 'dimension') || m.points.length < 2) return null;
+  const p = m.points[0]!;
+  const q = m.points[m.points.length - 1]!;
+  const d = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+  const dir: Point = [(q[0] - p[0]) / d, (q[1] - p[1]) / d];
+  const normal: Point = [-dir[1], dir[0]];
+  const lead = m.style.leader ?? 0;
+  const a: Point = [p[0] + normal[0] * lead, p[1] + normal[1] * lead];
+  const b: Point = [q[0] + normal[0] * lead, q[1] + normal[1] * lead];
+  const along = m.style.labelOffset ?? 0;
+  return { a, b, dir, normal, text: [(a[0] + b[0]) / 2 + dir[0] * along, (a[1] + b[1]) / 2 + dir[1] * along] };
 }
 
 /** Count marker radius, dimension tick half-length, and angle arc unit, in points. */

@@ -236,9 +236,7 @@ body,
   background: none;
 }
 
-.field select,
 .field input:not([type]),
-.markups select,
 .markups input {
   height: 24px;
   border: 1px solid var(--border);
@@ -246,6 +244,55 @@ body,
   background: #131d2f;
   color: var(--text);
   font: inherit;
+}
+
+/* One look for every dropdown. Places that sit beside fixed-height inputs set --select-h to match. */
+select {
+  height: var(--select-h, 24px);
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background-color: #131d2f;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a3bc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  color: var(--text);
+  font: inherit;
+  text-overflow: ellipsis;
+  appearance: none;
+  cursor: pointer;
+}
+
+select:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+select[multiple],
+select[size] {
+  height: auto;
+  padding: 2px 4px;
+  background-image: none;
+}
+
+.modal {
+  --select-h: 30px;
+}
+
+.measure-panel,
+.lr-row,
+.session-nav,
+.pagenav {
+  --select-h: 22px;
+}
+
+.col-field {
+  --select-h: 28px;
 }
 
 .field .geometry-length {
@@ -529,8 +576,7 @@ body,
   gap: 8px;
 }
 
-.modal input:not([type='checkbox']):not([type='radio']):not([type='color']),
-.modal select {
+.modal input:not([type='checkbox']):not([type='radio']):not([type='color']) {
   height: 30px;
   padding: 0 8px;
   border: 1px solid var(--border);
@@ -981,12 +1027,6 @@ body,
 
 .search-scope select {
   width: 100%;
-  height: 26px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: #131d2f;
-  color: var(--text);
-  font: inherit;
 }
 
 .search-folder {
@@ -1910,7 +1950,6 @@ body,
   min-width: 0;
 }
 
-.prop-control select,
 .prop-control input:not([type]),
 .prop-control input[type='number'] {
   flex: 1;
@@ -2739,12 +2778,6 @@ body,
 .session-nav select {
   flex: 1;
   min-width: 0;
-  height: 22px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: #131d2f;
-  color: var(--text);
-  font: inherit;
 }
 
 .access-badge {
@@ -3350,7 +3383,6 @@ body,
   gap: 4px;
 }
 
-.lr-row select,
 .lr-range {
   height: 22px;
   border: 1px solid var(--border);
@@ -3949,14 +3981,7 @@ body,
 .rc-session-switch select {
   width: 100%;
   min-width: 0;
-  height: 28px;
-  padding: 0 4px;
-  border: 0;
-  background: transparent;
-  color: #f0f2f6;
-  font: inherit;
   font-weight: 600;
-  text-overflow: ellipsis;
 }
 
 .rc-banner {
