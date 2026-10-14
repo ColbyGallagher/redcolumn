@@ -2469,6 +2469,173 @@
   gap: 4px;
 }
 
+/* Stamps with fields: the editor's field builder and the fill-in form. */
+.modal.stamps-dialog:has(.stamp-fields-builder) {
+  width: min(760px, calc(100vw - 32px));
+}
+
+.modal.stamps-dialog {
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.stamps-dialog .form-grid > label:has(+ .stamp-fields-builder) {
+  align-self: start;
+  padding-top: 8px;
+}
+
+.stamp-fields-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stamp-field-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.stamp-field-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.stamp-field-head input {
+  flex: 1;
+  min-width: 80px;
+}
+
+.stamp-field-kind {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.stamp-field-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.stamp-field-row input {
+  flex: 1;
+}
+
+.stamp-options {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.stamp-options th {
+  padding: 2px 4px;
+  color: var(--muted);
+  font-weight: normal;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.stamp-options td {
+  padding: 2px 4px;
+}
+
+.stamp-options input:not([type]),
+.stamp-options select {
+  width: 9em;
+}
+
+.stamp-options td:nth-child(2) input {
+  width: 14em;
+}
+
+.stamp-option-colour {
+  white-space: nowrap;
+}
+
+.stamp-option-colour input[type='color'] {
+  width: 28px;
+  height: 20px;
+  padding: 0;
+  vertical-align: middle;
+}
+
+.stamp-fields-add {
+  display: flex;
+  gap: 4px;
+}
+
+.fill-stamp-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+@media (max-width: 600px) {
+  .fill-stamp-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.stamp-fields-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stamp-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.stamp-choice legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stamp-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.stamp-option-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.stamp-text-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.stamp-text-field span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .stamps-dialog textarea {
   padding: 6px 8px;
   border: 1px solid var(--border);

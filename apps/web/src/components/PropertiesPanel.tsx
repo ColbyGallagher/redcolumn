@@ -12,6 +12,7 @@ import {
   resolveHatch,
   MARKUP_LABELS,
   measureProps,
+  refillStamp,
   styleCapabilities,
   type FontFamily,
   type LineDash,
@@ -30,6 +31,7 @@ import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/Marku
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
+import { StampFieldsForm } from './StampsDialog';
 
 interface Props {
   markups: Markup[];
@@ -174,6 +176,21 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           />
         </Row>
       </Section>
+      {chosen.length === 1 && m.stamp?.form && (
+        <Section title="Stamp Fields">
+          <StampFieldsForm
+            fields={m.stamp.form.fields}
+            values={m.stamp.form.values}
+            disabled={readOnly || !!m.locked}
+            onChange={(values) => {
+              const next = refillStamp(m.stamp!, values);
+              if (!next || !store) return;
+              store.checkpoint();
+              store.update(m.id, { stamp: next.stamp, style: { ...m.style, stroke: next.color } });
+            }}
+          />
+        </Section>
+      )}
       {chosen.length === 1 && m.type === 'ellipticalArc' && (
         <Section title="Arc">
           {(['Start', 'End'] as const).map((label, k) => {

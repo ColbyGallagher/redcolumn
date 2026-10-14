@@ -15,7 +15,7 @@ export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseLis
 export { arcPoints, circleThrough } from './arc';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetDistance, offsetPath, offsetPoints } from './offset';
-export { DEFAULT_STAMPS, resolveStamp, STAMP_FIELDS, stampAspect, type StampArt, type StampArtText, type StampContent, type StampDef, type StampValues } from './stamp';
+export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
   actionTarget,

@@ -35,6 +35,7 @@ import {
   restack,
   selectRange,
   stampAspect,
+  stampColor,
   shapeBounds,
   translated,
   moved,
@@ -354,6 +355,8 @@ export interface MarkupToolsOptions {
   onFollowHyperlink?: (m: Markup) => void;
   /** A hyperlink was drawn or double-clicked: choose its action. */
   onEditHyperlink?: (id: string) => void;
+  /** Double-click on a stamp with fields: fill them in again. */
+  onEditStamp?: (id: string) => void;
   /** A table was drawn: ask how many rows and columns, then place it with `addTable`. */
   onNewTable?: (draft: TableDraft) => void;
   /** A table's cell was double-clicked: edit its text. */
@@ -2134,7 +2137,7 @@ export class MarkupTools implements ViewerOverlay {
     this.snapHit = null;
   }
 
-  /** Double-click finishes a measurement, or edits the text box under the pointer. */
+  /** Double-click finishes a measurement, or edits the text box (or stamp's fields) under the pointer. */
   doubleClick(pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
     if (this.gesture?.kind === 'multi') {
@@ -2147,6 +2150,7 @@ export class MarkupTools implements ViewerOverlay {
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
     else if ((hit?.type === 'dimension' || hit?.type === 'replaceText') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
     else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
+    else if (hit?.type === 'stamp' && hit.stamp?.form && !this.frozen(hit)) this.options.onEditStamp?.(hit.id);
     else if (hit?.type === 'table' && !this.frozen(hit)) {
       const cell = tableCellAt(hit, toPoint(pt));
       if (cell) {
@@ -2325,7 +2329,7 @@ export class MarkupTools implements ViewerOverlay {
     const style = { ...(preset?.style ?? this.state.styles[type]) };
     // Size decorations for the current zoom so they look consistent on screen when drawn.
     // Sizes the user set explicitly in the tool's defaults are kept as they are.
-    if (preset?.stamp) style.stroke = preset.stamp.color;
+    if (preset?.stamp) style.stroke = stampColor(preset.stamp);
     if (type === 'cloud' || type === 'polygonCloud') style.arcRadius ??= CLOUD_ARC_PX / zoom;
     if (type === 'legend' || type === 'table') style.fontSize ??= LABEL_PX / zoom;
     if (type === 'space') style.fontSize ??= (LABEL_PX * 1.4) / zoom;
