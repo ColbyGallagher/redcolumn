@@ -1,4 +1,5 @@
 import { SCALE_PRESETS, type PaperUnit, type Scale } from '@nb/measure';
+import { systemOf } from '../settings/settings';
 
 const PRESETS_KEY = 'nb.scalePresets';
 export const PAPER_UNITS: PaperUnit[] = ['in', 'mm', 'cm'];
@@ -33,7 +34,8 @@ export function writePresets(list: SavedPreset[]) {
 }
 
 export function closeScale(a: Scale, b: Scale): boolean {
-  return a.unit === b.unit && b.metersPerPoint > 0 && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-4;
+  // Same system, any unit: a preset shown in the default length unit (Preferences › Units) is still that preset.
+  return systemOf(a.unit) === systemOf(b.unit) && b.metersPerPoint > 0 && Math.abs(a.metersPerPoint / b.metersPerPoint - 1) < 1e-4;
 }
 
 export function matchPreset(scale: Scale, saved: readonly SavedPreset[]): { kind: 'saved' | 'builtin'; label: string } | null {
