@@ -6,9 +6,7 @@ The scale controls are at the right of the navigation bar:
 
 ![The scale controls](img/scale-nav.png)
 
-1. **Scale list** — pick a standard scale.
-2. **Type a scale** — type any scale and press [[Enter]].
-3. **All pages** — use this page's scale on every page.
+1. **Scale list** — pick a standard scale, or choose **Custom…** to open the custom scale dialog.
 
 ## Pick a standard scale
 
@@ -17,22 +15,14 @@ The scale controls are at the right of the navigation bar:
 
 The list offers imperial (Architectural and Engineering) or metric scales, depending on **Units** in [Preferences](#preferences) › **General** › **Units**, and preset scales show lengths, areas and volumes in the default units chosen there.
 
-## Type a scale
+## Set a custom scale
 
-1. Click **Type a scale**.
-2. Type the scale as it is written on the drawing. Any of these work:
-   - `1/4" = 1'-0"`
-   - `1" = 20'`
-   - `1:75`
-
-   ![Typing a scale](img/scale-typed.png)
-3. Press [[Enter]].
+1. Click the **Scale** list and choose **Custom…**.
+2. Enter the scale as it is written on the drawing, for example `1/4" = 1'-0"`, `1" = 20'` or `1:75`.
+3. Under **Pages**, choose **All** to use the scale on every page, or the current page or a range.
+4. Click **Apply**.
 
 ![The scale is set](img/scale-set.png)
-
-## Use the same scale on every page
-
-After setting the scale, click **All pages**.
 
 > **Tip:** Not sure the drawing is printed to scale (for example a PDF of a scan)? [Calibrate](#calibrate) instead. It works out the scale from a dimension you know.
 

@@ -34,7 +34,7 @@ module.exports = async function (h) {
 
   // No scale yet.
   const right = '.pagenav-side.right';
-  await h.mark([`${right} select`, `${right} input`, page.locator(`${right} button`, { hasText: 'All pages' })]);
+  await h.mark([`${right} select`]);
   await h.shot('scale-nav', { around: [right], pad: 26 });
   await h.menu('Tools', 'Measure');
   await h.shot('menu-measure', { around: ['.menu-drop', '.menu-flyout'], pad: 12 });
@@ -51,12 +51,8 @@ module.exports = async function (h) {
   await h.wait(500);
   await home();
 
-  // Typed scale.
-  const typed = page.locator(`${right} input`);
-  await typed.fill(`1/4" = 1'-0"`);
-  await h.mark(typed);
-  await h.shot('scale-typed', { around: [right], pad: 26 });
-  await typed.press('Enter');
+  // Pick a preset scale.
+  await page.locator(`${right} select`).selectOption({ label: `1/4" = 1'-0"` });
   await h.wait(400);
   await h.mark(`${right} select`);
   await h.shot('scale-set', { around: [right], pad: 26 });

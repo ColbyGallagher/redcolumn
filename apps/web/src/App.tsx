@@ -10,7 +10,7 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
-import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
@@ -112,6 +112,7 @@ import type { PageText, SheetInfo } from '@nb/sheets';
 import type { IncomingPage } from './documents/slipSheet';
 import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
+import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -166,6 +167,41 @@ interface OpenFile {
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
 const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+/** File contents an open document's undo history can bring back, kept stored until it closes. */
+const heldContents = new WeakMap<MarkupStore, string[]>();
+function holdFor(store: MarkupStore, hashes: string[]) {
+  holdContents(hashes);
+  heldContents.set(store, [...(heldContents.get(store) ?? []), ...hashes]);
+}
+function releaseFor(store: MarkupStore) {
+  const hashes = heldContents.get(store);
+  heldContents.delete(store);
+  if (hashes) void releaseContents(hashes);
+}
+/** A short description of page operations for the Undo History, e.g. "Delete 3 pages". */
+function pageOpsLabel(ops: readonly PageOp[]): string {
+  const n = (k: number) => (k === 1 ? '1 page' : `${k} pages`);
+  if (ops.length !== 1) return 'Change pages';
+  const op = ops[0]!;
+  switch (op.type) {
+    case 'rotate':
+      return `Rotate ${n(op.pages.length)}`;
+    case 'delete':
+      return `Delete ${n(op.pages.length)}`;
+    case 'move':
+      return `Move ${n(op.pages.length)}`;
+    case 'insert':
+      return 'Insert pages';
+    case 'blank':
+      return `Insert ${op.count === 1 ? 'a blank page' : `${op.count} blank pages`}`;
+  }
+}
+
+/** What a revision note ("Before flattening 3 markups") says the change was, for the Undo History. */
+function stepLabel(revisionNote: string | undefined): string | undefined {
+  const what = revisionNote?.replace(/^Before /, '');
+  return what ? what[0]!.toUpperCase() + what.slice(1) : undefined;
+}
 function markSaved(t: OpenFile) {
   savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
 }
@@ -718,6 +754,8 @@ export function App() {
   }, [notice]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
+  /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
+  const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Subject and label the Measurements panel gives the next measurement. */
   const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
@@ -1177,6 +1215,7 @@ export function App() {
     savedViews.current.delete(o.file.id);
     void o.doc.close();
     void o.store.destroy();
+    releaseFor(o.store);
   };
 
   /** Opens bytes already in the library (or just added to it) in a new tab; `target` is the split pane. */
@@ -1688,13 +1727,16 @@ export function App() {
    * Replaces an open document's file with `edited` and reopens it in place; its markups stay.
    * `remap` runs once the new file is stored (to move markups with their pages, or to note what is
    * already known about the new contents), and `pageFor` says which page to show given the one
-   * that was showing. `edited` is transferred to the PDF engine.
+   * that was showing. `edited` is transferred to the PDF engine. The change is one undo step,
+   * `label` in the Undo History (a Live Session's shared file is not undone here).
    */
   const swapDocument = useCallback(
-    async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was) => {
+    async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was, label = 'Change document') => {
       const pane: Pane = intoB ? 'b' : 'a';
       if (!ctl || !ctlOf(pane)) return;
       if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
+      // The contents before stay stored while undo can return to them.
+      if (!studioDocOf(cur.file.id)) holdFor(cur.store, [cur.file.hash]);
       // Session documents live in the session, not the library: only cached on this device.
       const file = studioDocOf(cur.file.id)
         ? await (async () => {
@@ -1703,7 +1745,11 @@ export function App() {
             return { ...cur.file, hash, size: edited.byteLength };
           })()
         : await replaceFileContent(cur.file.id, edited);
-      remap?.(file);
+      if (studioDocOf(cur.file.id)) remap?.(file);
+      else {
+        holdFor(cur.store, [file.hash]);
+        cur.store.fileStep(label, cur.file.hash, file.hash, () => remap?.(file));
+      }
       forgetText(cur.file.id);
 
       // Both writes above have finished with `edited`, so the engine can take it.
@@ -1713,6 +1759,49 @@ export function App() {
     },
     [ctl, ctlB, refreshLibrary, reopenInPane],
   );
+
+  /**
+   * Undo or redo stepped over a change to a document's file: its contents become those stored under
+   * `hash` again and the tab reopens on them. Steps in quick succession (Undo History) settle on the
+   * last one.
+   */
+  const fileWanted = useRef(new Map<MarkupStore, string>());
+  const restoreFile = useCallback(
+    async (store: MarkupStore, hash: string) => {
+      const wanted = fileWanted.current;
+      const busy = wanted.has(store);
+      wanted.set(store, hash);
+      if (busy || !ctl) return;
+      try {
+        for (;;) {
+          const want = wanted.get(store)!;
+          const inA = tabsARef.current.find((t) => t.store === store);
+          const tab = inA ?? tabsBRef.current.find((t) => t.store === store);
+          if (!tab || tab.file.hash === want) break;
+          const bytes = await readFile(want);
+          const file = await replaceFileContent(tab.file.id, bytes);
+          forgetText(tab.file.id);
+          // The write above has finished with `bytes`, so the engine can take them.
+          const doc = await ctl.engine.open(bytes);
+          await reopenInPane(tab, inA ? 'a' : 'b', { file, doc, store }, (was) => Math.min(was, doc.pages.length - 1));
+        }
+      } catch (err) {
+        setError(`Could not bring the document back as it was: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        wanted.delete(store);
+        void refreshLibrary();
+      }
+    },
+    [ctl, refreshLibrary, reopenInPane],
+  );
+  const restoreFileRef = useRef(restoreFile);
+  restoreFileRef.current = restoreFile;
+  useEffect(() => {
+    MarkupStore.onFileRestored = (store, hash) => void restoreFileRef.current(store, hash);
+    return () => {
+      MarkupStore.onFileRestored = null;
+    };
+  }, []);
 
   /**
    * Shows a document with some of its PDF layers hidden: the view is reopened from a copy whose
@@ -1738,8 +1827,8 @@ export function App() {
   const commitDocument = useCallback(
     async (cur: OpenFile, edited: ArrayBuffer, remap?: (file: StoredFile) => void, revisionNote?: string) => {
       if (revisionNote) await keepRevision(cur.file.id, revisionNote);
-      if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap);
-      if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap);
+      if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap, undefined, stepLabel(revisionNote));
+      if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap, undefined, stepLabel(revisionNote));
       if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       remap?.(await replaceFileContent(cur.file.id, edited));
       forgetText(cur.file.id);
@@ -1776,6 +1865,7 @@ export function App() {
           edited,
           () => cur.store.remapPages(plan, oldSizes),
           (was) => plan.oldToNew[was] ?? 0,
+          pageOpsLabel(ops),
         );
         // Inserted pages have no sheet information yet; the tab now holds the new file.
         if (ops.some((op) => op.type === 'insert')) void detectSheetsOffline(openRefOf(intoB ? 'b' : 'a').current);
@@ -2168,7 +2258,7 @@ export function App() {
         return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
       };
       const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : [];
-      await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)));
+      await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
       // Search matches that were redacted no longer exist.
       if (redacting) {
         searchHits.current = [];
@@ -2211,14 +2301,14 @@ export function App() {
         const text = await askText('Add Text', '', { label: 'New text for the page (Helvetica, 10 pt; Enter a line break as \\n). It becomes part of the PDF, not a markup.', confirm: 'Add' });
         if (!text) return;
         const bytes = await ctl.engine.addText(await readFile(cur.file.hash), pageIndex, at[0], at[1], text.replace(/\\n/g, '\n'));
-        await swapDocument(cur, paneB, bytes);
+        await swapDocument(cur, paneB, bytes, undefined, undefined, 'Add text');
         return;
       }
       c.tools.flash(pageIndex, obj.rect);
       const text = await askText('Edit text', obj.text, { label: 'Text', confirm: 'Replace' });
       if (text === null || text === obj.text) return;
       const { bytes, keptFont } = await ctl.engine.replaceText(await readFile(cur.file.hash), pageIndex, obj.index, text);
-      await swapDocument(cur, paneB, bytes);
+      await swapDocument(cur, paneB, bytes, undefined, undefined, 'Edit text');
       if (!keptFont) setNotice("The text's own font does not have all the new characters, so it is set in Helvetica.");
     })().catch((err) => setError(`Edit text failed: ${err instanceof Error ? err.message : String(err)}`));
   };
@@ -2360,7 +2450,7 @@ export function App() {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
               cur.store.transformPages(moves);
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
-            });
+            }, undefined, 'Slip Sheet');
             return { plan, labelOf };
           } finally {
             for (const o of opened) void o.doc.close();
@@ -2397,7 +2487,7 @@ export function App() {
         if (tab) {
           await swapDocument(tab, !inA, bytes, () => {
             tab.store.forgetImported(tab.doc.pages.map((_, i) => i));
-          });
+          }, undefined, 'Restore revision');
         } else {
           await replaceFileContent(fileId, bytes);
           forgetText(fileId);
@@ -3330,7 +3420,7 @@ export function App() {
         }
         case 'replace': {
           const bytes = await tools.replacePages(await readFile(cur.file.hash), await spec.file.arrayBuffer(), spec.targetPages, spec.sourcePages);
-          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.forgetImported(spec.targetPages));
+          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.forgetImported(spec.targetPages), undefined, `Replace ${spec.targetPages.length === 1 ? 'page' : 'pages'}`);
           return;
         }
         case 'crop': {
@@ -3348,12 +3438,12 @@ export function App() {
           }
           if (!crops.size) throw new Error('Nothing would be left of the pages: use smaller margins.');
           const { bytes, transforms } = await tools.cropPages(await readFile(cur.file.hash), crops);
-          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms));
+          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms), undefined, 'Crop pages');
           return;
         }
         case 'setup': {
           const { bytes, transforms } = await tools.resizePages(await readFile(cur.file.hash), spec.pages, spec.size, spec.fit);
-          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms));
+          await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms), undefined, 'Page Setup');
           return;
         }
       }
@@ -6197,13 +6287,9 @@ export function App() {
         scaleControl={
           <ScaleControl
             scale={sc[idx] ?? null}
-            pageCount={count}
             disabled={!o}
             onPreset={(scale) => o?.store.setScale([idx], withDefaultUnits(scale))}
-            onApplyAll={() => {
-              const cur = sc[idx];
-              if (cur) o?.store.setScale(Array.from({ length: count }, (_, i) => i), cur);
-            }}
+            onCustom={() => setCustomScalePane(which)}
           />
         }
         onFirst={() => viewer?.goToPage(0)}
@@ -7841,7 +7927,7 @@ Open the download page? Run the new installer to update; your documents and mark
             setDocPropsOpen(false);
             void readFile(cur.file.hash)
               .then((bytes) => setDocumentInfo(bytes, info))
-              .then((bytes) => swapDocument(cur, paneB, bytes))
+              .then((bytes) => swapDocument(cur, paneB, bytes, undefined, undefined, 'Change document properties'))
               .catch((err) => setError(`Saving document properties failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
         />
@@ -7928,13 +8014,13 @@ Open the download page? Run the new installer to update; your documents and mark
             const { addHeaderFooter } = await import('./documents/headerFooter');
             const date = new Date().toLocaleDateString();
             const bytes = await addHeaderFooter(await readFile(cur.file.hash), pages, spec, (i) => ({ label: cur.store.allSheets()[i]?.number || String(i + 1), file: cur.file.name, date }));
-            await swapDocument(cur, paneB, bytes.slice().buffer);
+            await swapDocument(cur, paneB, bytes.slice().buffer, undefined, undefined, 'Add header and footer');
             setHeaderFooter(null);
           }}
           onRemove={async () => {
             const cur = activeOpen;
             const { removeHeaderFooter } = await import('./documents/headerFooter');
-            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer);
+            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer, undefined, undefined, 'Remove header and footer');
             setHeaderFooter(null);
           }}
         />
@@ -8530,6 +8616,27 @@ Open the download page? Run the new installer to update; your documents and mark
             setStampsCreating(false);
             placeStamp(s);
           }}
+        />
+      )}
+      {customScalePane && (customScalePane === 'b' ? openB : open) && (
+        <SetScaleDialog
+          scale={(customScalePane === 'b' ? scalesB : scalesA)[(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+          pageCount={(customScalePane === 'b' ? statsB : stats)?.pageCount ?? 0}
+          currentPage={(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+          selected={[]}
+          onCalibrate={
+            activeOpen && !activeReadOnly
+              ? () => {
+                  setCustomScalePane(null);
+                  activeTools?.setTool('calibrate');
+                }
+              : null
+          }
+          onApply={(pages, scale) => {
+            (customScalePane === 'b' ? openB : open)?.store.setScale(pages, withDefaultUnits(scale));
+            setCustomScalePane(null);
+          }}
+          onCancel={() => setCustomScalePane(null)}
         />
       )}
       {calibration && activeOpen && (
