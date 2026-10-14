@@ -18,18 +18,16 @@ test('the help page carries the help policy', () => {
 });
 
 test('the app policy lists cloud hosts only for the providers that are configured', () => {
-  const none = appCsp({ google: false, microsoft: false });
-  assert.ok(!/google|microsoft|sharepoint/.test(none), none);
+  const none = appCsp({ microsoft: false });
+  assert.ok(!/microsoft|sharepoint/.test(none), none);
   assert.deepEqual(directives(none).get('frame-src'), ["'none'"]);
-  const ms = directives(appCsp({ google: false, microsoft: true }));
+  const ms = directives(appCsp({ microsoft: true }));
   assert.ok(ms.get('connect-src')!.includes('https://graph.microsoft.com'));
-  assert.ok(!ms.get('script-src')!.some((s) => s.includes('google')));
-  const g = directives(appCsp({ google: true, microsoft: false }));
-  assert.ok(g.get('script-src')!.includes('https://accounts.google.com/gsi/client'));
+  assert.deepEqual(ms.get('frame-src'), ["'none'"]);
 });
 
 test('no policy allows inline script or eval', () => {
-  for (const csp of [appCsp({ google: true, microsoft: true }), redirectCsp(), helpCsp()]) {
+  for (const csp of [appCsp({ microsoft: true }), redirectCsp(), helpCsp()]) {
     const script = directives(csp).get('script-src')!;
     assert.ok(!script.includes("'unsafe-inline'") && !script.includes("'unsafe-eval'"), csp);
     assert.deepEqual(directives(csp).get('object-src'), ["'none'"]);

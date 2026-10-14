@@ -37,7 +37,8 @@ export interface RecentSession extends SessionRef {
 
 /** Sessions this browser has created or joined, newest first: the Sessions list. */
 export function recentSessions(): RecentSession[] {
-  // Older builds also kept redcolumn server sessions (no backend, or 'server'): they are dropped.
+  // Older builds also kept redcolumn server sessions (no backend, or 'server') and Google Drive
+  // sessions ('drive'): they are dropped.
   return readLocal<(Omit<RecentSession, 'backend'> & { backend?: string })[]>(RECENT_KEY, []).filter((r): r is RecentSession => isBackend(r.backend));
 }
 
@@ -49,7 +50,7 @@ export function currentSessions(): SessionRef[] {
   return (Array.isArray(cur) ? cur : [cur]).filter((r): r is SessionRef => isBackend(r.backend));
 }
 
-const isBackend = (b: string | undefined): b is Backend => b === 'drive' || b === 'onedrive';
+const isBackend = (b: string | undefined): b is Backend => b === 'onedrive';
 
 export function rememberSession(ref: SessionRef, name: string) {
   const recent = recentSessions().filter((r) => r.id !== ref.id);
@@ -79,11 +80,11 @@ export function restoreRecentSession(id: string) {
   writeLocal(RECENT_KEY, recentSessions().map((r) => (r.id === id ? { ...r, removed: undefined } : r)));
 }
 
-/** A link that opens the app and joins a session: `?gdrive=` (Google Drive) or `?onedrive=`. */
+/** A link that opens the app and joins a session: `?onedrive=<share id>`. */
 export function inviteLink(ref: SessionRef): string {
   const url = new URL(typeof window === 'undefined' ? 'http://localhost/' : window.location.href);
   url.search = '';
   url.hash = '';
-  url.searchParams.set(ref.backend === 'drive' ? 'gdrive' : 'onedrive', ref.id);
+  url.searchParams.set('onedrive', ref.id);
   return url.href;
 }

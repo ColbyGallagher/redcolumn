@@ -48,7 +48,6 @@ contextBridge.exposeInMainWorld('redcolumn', {
   finishPrint: (job: string) => call('print:finish', job),
   cancelPrint: (job: string) => call('print:cancel', job),
   checkForUpdates: () => call('update:check'),
-  googleToken: (clientId: string, clientSecret: string, interactive: boolean) => call('auth:google', clientId, clientSecret, interactive),
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
   localDataKey: async () => new Uint8Array(await call<Uint8Array>('local:key')),
@@ -65,7 +64,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     show: (id: string) => call('folder:show', id),
   },
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
-  signOut: (provider: 'google' | 'microsoft') => call('auth:sign-out', provider),
+  signOut: (provider: 'microsoft') => call('auth:sign-out', provider),
   assistantInfo: () => call('assistant:get'),
   setAssistantEnabled: (on: boolean) => call('assistant:set', on),
   onAssistantCall(cb: (call: { id: string; method: string; params: unknown }) => void) {

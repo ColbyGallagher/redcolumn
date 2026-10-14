@@ -1,4 +1,4 @@
-// Live Sessions in Google Drive and OneDrive have no server, so each attendee's app writes Record
+// Live Sessions in OneDrive have no server, so each attendee's app writes Record
 // lines for its own edits.
 import * as Y from 'yjs';
 import { isTextType, MARKUP_LABELS, type Markup, type MarkupType } from '@nb/markup';

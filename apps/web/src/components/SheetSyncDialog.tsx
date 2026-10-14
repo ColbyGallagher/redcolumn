@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { SheetProvider, SyncLink } from '../sheetsync/targets';
+import type { SyncLink } from '../sheetsync/targets';
 import type { SyncStatus } from '../sheetsync/useSheetSync';
 
 interface Props {
@@ -7,15 +7,12 @@ interface Props {
   link: SyncLink | null;
   status: SyncStatus;
   rowCount: number;
-  googleAvailable: boolean;
   oneDriveAvailable: boolean;
-  onConnect: (provider: SheetProvider, title: string) => void;
+  onConnect: (title: string) => void;
   onSyncNow: () => void;
   onStop: () => void;
   onClose: () => void;
 }
-
-const WHERE: Record<SheetProvider, string> = { google: 'Google Sheets', onedrive: 'Excel in OneDrive' };
 
 function statusText(s: SyncStatus): string {
   if (s.kind === 'syncing') return 'Updating…';
@@ -24,8 +21,8 @@ function statusText(s: SyncStatus): string {
   return 'Waiting for the next change';
 }
 
-/** Keep the Markups list in a Google Sheet or an Excel workbook in OneDrive, updated as markups change. */
-export function SheetSyncDialog({ docName, link, status, rowCount, googleAvailable, oneDriveAvailable, onConnect, onSyncNow, onStop, onClose }: Props) {
+/** Keep the Markups list in an Excel workbook in OneDrive, updated as markups change. */
+export function SheetSyncDialog({ docName, link, status, rowCount, oneDriveAvailable, onConnect, onSyncNow, onStop, onClose }: Props) {
   const [title, setTitle] = useState(`${docName.replace(/\.pdf$/i, '')} markups`);
   const busy = status.kind === 'syncing';
   return (
@@ -39,13 +36,12 @@ export function SheetSyncDialog({ docName, link, status, rowCount, googleAvailab
               <a href={link.url} target="_blank" rel="noreferrer">
                 {link.title}
               </a>{' '}
-              in {WHERE[link.provider]}. It updates a moment after each change while this document is open.
+              in Excel in OneDrive. It updates a moment after each change while this document is open.
             </p>
             <p className={status.kind === 'error' ? 'form-error' : 'hint-text'} role="status">
               {statusText(status)}
             </p>
-            {link.provider === 'onedrive' && <p className="hint-text">Excel for the web reloads the workbook when it changes. Edits you make in the spreadsheet are replaced by the next update, so put your own formulas in another sheet.</p>}
-            {link.provider === 'google' && <p className="hint-text">Edits you make in the sheet's Markups tab are replaced by the next update, so put your own formulas in another tab.</p>}
+            <p className="hint-text">Excel for the web reloads the workbook when it changes. Edits you make in the spreadsheet are replaced by the next update, so put your own formulas in another sheet.</p>
             <div className="actions">
               <button className="btn" onClick={onStop}>
                 Stop syncing
@@ -71,11 +67,7 @@ export function SheetSyncDialog({ docName, link, status, rowCount, googleAvailab
               </p>
             )}
             <div className="choice-cards">
-              <button className="choice-card" disabled={!googleAvailable || busy || !title.trim()} onClick={() => onConnect('google', title.trim())}>
-                <b>Google Sheets</b>
-                <span>{googleAvailable ? 'Updates live for everyone who has it open' : 'Google sign-in is not set up for this site'}</span>
-              </button>
-              <button className="choice-card" disabled={!oneDriveAvailable || busy || !title.trim()} onClick={() => onConnect('onedrive', title.trim())}>
+              <button className="choice-card" disabled={!oneDriveAvailable || busy || !title.trim()} onClick={() => onConnect(title.trim())}>
                 <b>Excel in OneDrive</b>
                 <span>{oneDriveAvailable ? 'An .xlsx in Apps/redcolumn that Excel opens' : 'Microsoft sign-in is not set up for this site'}</span>
               </button>

@@ -73,45 +73,7 @@ test('toTable puts numbers in as numbers and keeps measurement text', () => {
   assert.deepEqual(toTable(rows, cols), [['Subject', 'Length', 'Measurement', 'Date'], ['Wall', 12.5, '12.5 m', '2026-01-02 03:04:05']]);
 });
 
-import { GoogleSheetTarget, OneDriveWorkbookTarget } from './targets.ts';
-
-function fakeFetch(calls: { url: string; method: string; body: unknown; auth: string | null }[], respond: (url: string, method: string) => Response) {
-  return (async (url: string, init: RequestInit = {}) => {
-    calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(String(init.body)) : undefined, auth: new Headers(init.headers).get('authorization') });
-    return respond(url, init.method ?? 'GET');
-  }) as typeof fetch;
-}
-
-test('GoogleSheetTarget creates a spreadsheet, formats it and writes the table', async () => {
-  const calls: Parameters<typeof fakeFetch>[0] = [];
-  const f = fakeFetch(calls, (url) =>
-    url.endsWith('/spreadsheets')
-      ? Response.json({ spreadsheetId: 'S1', spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/S1', sheets: [{ properties: { sheetId: 7 } }] })
-      : Response.json({}),
-  );
-  const { link } = await GoogleSheetTarget.create('Plan markups', [['A', 'B'], ['x', 2]], async () => 'tok', f);
-  assert.deepEqual(link, { provider: 'google', id: 'S1', url: 'https://docs.google.com/spreadsheets/d/S1', title: 'Plan markups' });
-  assert.deepEqual(calls.map((c) => c.method), ['POST', 'POST', 'POST', 'PUT']);
-  assert.ok(calls.every((c) => c.auth === 'Bearer tok'));
-  assert.match(calls[1]!.url, /S1:batchUpdate$/);
-  assert.match(calls[2]!.url, /values\/Markups:clear$/);
-  assert.match(calls[3]!.url, /values\/Markups!A1\?valueInputOption=RAW$/);
-  assert.deepEqual((calls[3]!.body as { values: unknown }).values, [['A', 'B'], ['x', 2]]);
-  assert.equal((calls[3]!.body as { range: string }).range, 'Markups!A1:B2');
-});
-
-test('GoogleSheetTarget explains a disabled API, an expired sign-in and a deleted sheet', async () => {
-  const run = async (status: number, message: string) => {
-    const t = new GoogleSheetTarget('S1', async () => 'tok', fakeFetch([], () => Response.json({ error: { message } }, { status })));
-    return t.push([['A']]).then(
-      () => null,
-      (e: Error) => e,
-    );
-  };
-  assert.match((await run(403, 'Google Sheets API has not been used in project 1'))!.message, /Turn on the Google Sheets API/);
-  assert.equal((await run(401, ''))!.constructor.name, 'DriveAuthError');
-  assert.equal((await run(404, 'Requested entity was not found.'))!.constructor.name, 'DriveForbiddenError');
-});
+import { OneDriveWorkbookTarget } from './targets.ts';
 
 test('OneDriveWorkbookTarget saves an .xlsx over the same file each time', async () => {
   const saved: { name: string; size: number; type: string }[] = [];

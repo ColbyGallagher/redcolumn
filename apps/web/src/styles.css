@@ -3391,7 +3391,7 @@ body,
   margin-top: 10px;
 }
 
-.google-identity {
+.cloud-identity {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -3400,7 +3400,7 @@ body,
   color: var(--muted);
 }
 
-.google-identity b {
+.cloud-identity b {
   color: var(--text);
   font-weight: 500;
 }
@@ -3895,8 +3895,36 @@ body,
   font-size: 12px;
 }
 
+.rc-help {
+  margin: 6px 10px;
+  color: #bfc6d1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rc-help summary {
+  cursor: pointer;
+  color: #f0f2f6;
+  font-weight: 600;
+}
+
+.rc-help-body h4 {
+  margin: 10px 0 2px;
+  color: #f0f2f6;
+  font-size: 12px;
+}
+
+.rc-help-body p,
+.rc-help-body ul {
+  margin: 2px 0;
+}
+
+.rc-help-body ul {
+  padding-left: 16px;
+}
+
 .sessions.rc-studio .session-invite,
-.sessions.rc-studio .google-identity {
+.sessions.rc-studio .cloud-identity {
   margin: 6px 10px;
   padding: 6px 0;
   border: 0;

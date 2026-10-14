@@ -1,11 +1,11 @@
 /**
- * What the app did in Google Drive and OneDrive, kept in this browser only and never sent anywhere,
+ * What the app did in OneDrive, kept in this browser only and never sent anywhere,
  * so a careful person can check it touched only what it said (Preferences › Account › Activity;
  * docs/SECURITY-HARDENING.md, 1.4). A repeat of a recent action on the same item is counted on its
  * line, so a Live Session's steady saves do not push older actions out.
  */
 
-export type CloudProvider = 'onedrive' | 'google';
+export type CloudProvider = 'onedrive';
 export type CloudAction = 'create folder' | 'upload' | 'replace' | 'share by link' | 'invite' | 'change access' | 'stop sharing' | 'delete' | 'delete folder' | 'save app file';
 
 export interface CloudLogEntry {
@@ -31,7 +31,8 @@ function load(): CloudLogEntry[] {
   if (entries) return entries;
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) ?? '[]') as unknown;
-    entries = Array.isArray(raw) ? (raw as CloudLogEntry[]).filter((e) => e && typeof e.at === 'number' && typeof e.name === 'string') : [];
+    // Older builds also logged Google Drive actions; only OneDrive ones are kept.
+    entries = Array.isArray(raw) ? (raw as CloudLogEntry[]).filter((e) => e && e.provider === 'onedrive' && typeof e.at === 'number' && typeof e.name === 'string') : [];
   } catch {
     entries = [];
   }

@@ -1,5 +1,5 @@
-// Working Together: the Sessions and Projects panels and their start dialogs. Signing in to Google
-// or Microsoft is not possible here, so these show the panels before a session or Project exists.
+// Working Together: the Sessions and Projects panels and their start dialogs. Signing in to
+// Microsoft is not possible here, so these show the panels before a session or Project exists.
 module.exports = async function (h) {
   const { page } = h;
   await h.open('sample-plans.pdf');

@@ -3,7 +3,7 @@ import type { DriveApi, DriveFile, DriveProps } from './DriveApi';
 
 /**
  * A Project on a folder of this computer that the person's own sync client keeps in step
- * (OneDrive, Dropbox, Google Drive, a network share), through the desktop app's main process
+ * (OneDrive, Dropbox, a network share), through the desktop app's main process
  * (docs/SECURITY-HARDENING.md, E3). No sign-in and no token: the sync client moves the files.
  * Sharing is the sync client's too: this drive cannot share, and says so.
  */

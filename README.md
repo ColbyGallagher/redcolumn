@@ -2,7 +2,7 @@
 
 Open-source PDF markup and takeoff for construction drawings, in the browser. Mark up and measure
 drawings, run takeoffs, compare revisions, manage drawing sets, and review together in live
-sessions over Google Drive or OneDrive and shared Projects in OneDrive. It is also a Windows desktop app that opens and saves real file paths, and works offline. Your documents
+sessions and shared Projects in OneDrive. It is also a Windows desktop app that opens and saves real file paths, and works offline. Your documents
 stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](PRIVACY.md)).
 
 ## Features
@@ -16,11 +16,11 @@ stay in your browser: there is no redcolumn server or account (see [PRIVACY.md](
   revisions, slip sheets, batch processing.
 - **Documents:** page tools, headers and footers, OCR, forms, redaction, digital signatures,
   encryption and PDF/A.
-- **Working together:** Live Sessions in the host's Google Drive or OneDrive, with access levels,
+- **Working together:** Live Sessions in the host's OneDrive, with access levels,
   chat, markup alerts and session reports; and Projects, shared OneDrive folders of PDFs with check
   out and check in, revisions and a Project Record.
-- **Spreadsheets:** export the Markups list as CSV or PDF, or keep it in a Google Sheet or an
-  Excel workbook in OneDrive that updates as markups change.
+- **Spreadsheets:** export the Markups list as CSV or PDF, or keep it in an Excel workbook
+  in OneDrive that updates as markups change.
 - **Compatibility:** reads and writes standard PDF annotations and XFDF, and imports Bluebeam®
   Revu® tool sets (`.btx`).
 
@@ -70,7 +70,7 @@ The user help (Help › Help, F1) is in `apps/web/public/help`: Markdown pages i
 contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample drawings (see the
 header of `scripts/help/shots.cjs`); re-run it after changing the interface.
 
-`apps/web/.env.example` lists the optional settings for Google Drive and OneDrive; setting them up
+`apps/web/.env.example` lists the optional settings for OneDrive; setting them up
 is described in `docs/CLOUD-SETUP.md`. Planned work is in `docs/ROADMAP.md`.
 
 ## Repository

@@ -1,16 +1,15 @@
-# Live Sessions and Projects: Google Drive and OneDrive
+# Live Sessions and Projects: OneDrive
 
 Several people mark up the same PDFs together in a Live Session. A session lives in a folder in
-the host's Google Drive or OneDrive. There is no redcolumn server: each person's browser reads and
-writes the shared folder directly, and Google or Microsoft holds the files. [Projects](#projects-onedrive)
-(shared folders of PDFs with check out and revisions) work the same way, in OneDrive only.
+the host's OneDrive. There is no redcolumn server: each person's browser reads and writes the
+shared folder directly, and Microsoft holds the files. [Projects](#projects-onedrive) (shared
+folders of PDFs with check out and revisions) work the same way.
 
 ## Sessions panel
 
 - **My Sessions** lists the sessions this browser has started or joined. **+ Start** opens the
-  Start a New Session dialog (name, Google Drive or OneDrive, documents from open tabs, the library
-  or disk, and attendees with their access); **Join…** picks a Drive session folder or takes a
-  OneDrive session link. Most people join from the invite link the host sends.
+  Start a New Session dialog (name, documents from open tabs, the library or disk, and attendees
+  with their access); **Join…** takes a OneDrive session link. Most people join from the invite link the host sends.
 - You can be in several sessions at once. Each session's documents open as tabs across the top,
   marked Live; the panel shows one session's documents, attendees and Record at a time.
 - **Leave session** closes that session's tabs; the others carry on.
@@ -23,22 +22,22 @@ own level, and groups of people sharing a level. The levels are **No access**, *
 the most generous of their groups; otherwise the default. The host always has full control and
 edits the policy under Attendees → Permissions….
 
-People are matched by their Google or Microsoft email, or by the name they join with (Edit →
+People are matched by their Microsoft email, or by the name they join with (Edit →
 Author). The app respects the policy, but what actually protects the files is the folder's sharing
-in Google Drive or OneDrive.
+in OneDrive.
 
 ## Security policy and hosting
 
 Each built page carries a Content Security Policy (`apps/web/src/security/csp.ts`): only the app's
-own scripts run, and the page connects only to Microsoft Graph and sign-in, and to Google's APIs,
-for the providers whose client ID the build has. The help also requires Trusted Types. GitHub Pages
+own scripts run, and the page connects only to Microsoft Graph and sign-in,
+when the build has a Microsoft client ID. The help also requires Trusted Types. GitHub Pages
 cannot send headers, so the policy is a `<meta>`, and the app refuses to run inside another page.
 Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`, `no-referrer`,
 `nosniff`, a `Permissions-Policy`).
 
 - **Vercel preview deployments** are built from branches that may not have been reviewed. Do not
-  register preview addresses as Microsoft redirect URIs or Google JavaScript origins, and leave
-  `VITE_MICROSOFT_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID` unset for the Preview environment. To test
+  register preview addresses as Microsoft redirect URIs, and leave `VITE_MICROSOFT_CLIENT_ID` unset
+  for the Preview environment. To test
   sign-in on previews, use a separate test app registration with its own client IDs.
 - **Certificate services** (time stamps, OCSP, revocation lists) and **form submit addresses** in
   PDFs are not in the policy, so those requests are refused with a message and signing carries on
@@ -50,7 +49,7 @@ New Live Sessions are encrypted end to end unless the host unticks it (`apps/web
 
 - **The key is in the invite link** after `#rk=`, which browsers never send to a server. The
   session's PDFs, markups, chat, the Record and the manifest are sealed with AES-GCM in the browser
-  before upload, so Google and Microsoft store only ciphertext, and a forwarded sharing link without
+  before upload, so Microsoft stores only ciphertext, and a forwarded sharing link without
   the `#` part opens nothing. File names, seat names and presence (which page someone is on) are
   file properties and stay readable to anyone the folder is shared with.
 - **Signing.** Each browser has its own ECDSA key (kept in IndexedDB, not extractable) and signs
@@ -66,7 +65,7 @@ New Live Sessions are encrypted end to end unless the host unticks it (`apps/web
   open the PDFs in OneDrive). Their key is in the Project link after `#pk=`; every file's content
   is sealed before upload. File names and properties stay readable, and there is no signing or key
   change on removal: removing someone from the folder in OneDrive is what keeps them out.
-- **Costs:** PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be
+- **Costs:** PDFs cannot be previewed in OneDrive, and a lost invite link cannot be
   recovered. The host manages the session from any browser signed in to the same account, since the
   host keys are in its app folder.
 
@@ -83,7 +82,7 @@ app's own lock files and session folders. The page never receives a Microsoft to
 ### Projects on a folder on this computer (desktop app)
 
 In the desktop app, Projects can live in a folder that the person's own sync client keeps in step
-(OneDrive, Dropbox, Google Drive, a file server): **New project in a folder on this computer…** and
+(OneDrive, Dropbox, a file server): **New project in a folder on this computer…** and
 **Open a project folder on this computer…** in the Projects panel. redcolumn signs in to nothing and
 holds no token; the sync client moves the files, and sharing is done in that client (**Show
 folder** opens it). The main process (`apps/desktop/src/folderDrive.ts`) gives the page opaque IDs,
@@ -104,75 +103,21 @@ another account, are unreadable. Turning it on or off converts what is stored as
 before anything opens; reading always accepts both forms. Preferences, Studio lists and saved
 sign-in details are not covered.
 
-## Google Drive
+## OneDrive
 
 ### How it works
 
-Starting a session creates `Apps/redcolumn/<name> (redcolumn session)/` in the host's Drive, shared
-"Anyone with the link" (as editor, or as viewer with editors invited by email). In it:
+Starting a session creates `Apps/redcolumn/<name> (redcolumn session)/` in the host's OneDrive,
+shared by link (view-only, or editable when the host chooses). In it:
 
 - `session.json`: the name, host, status and permissions. Only the host writes it.
 - the session's PDFs.
 - one `*.nbseat` file per attendee browser, holding that attendee's merged Yjs state (markups for
-  every document, plus the Record and chat), with presence in its file properties.
+  every document, plus the Record and chat), with presence alongside.
 
 Each attendee writes only their own seat, so writes never collide. Everyone reads the others'
-seats, using the API key because the folder is public by link, and merges them, every few seconds.
-The app uses the `drive.file` scope only: it can reach only files it created or that the person
-picked, so Google's security review is not needed. Joining asks the attendee to select the session
-folder once in Google's Picker; that grants the app access to add their seat.
+seats every few seconds, over Microsoft Graph, and merges them. Code: `apps/web/src/studio/drive/`.
 
-Code: `apps/web/src/studio/drive/`.
-
-### Google Cloud setup (once, by whoever deploys the app)
-
-1. **Project**: at https://console.cloud.google.com, create a project. Note its **Project number**
-   (Dashboard → Project info); this is `VITE_GOOGLE_APP_ID`.
-2. **APIs**: go to APIs & Services → Library and enable **Google Drive API** and **Google Picker API**.
-3. **OAuth consent screen** (Google Auth Platform):
-   - Branding: app name, support email, developer contact, and a link to the privacy policy
-     (`PRIVACY.md` in the repository).
-   - Audience: **External**. While in **Testing**, add each user under **Test users**.
-   - Data access: add the scope `https://www.googleapis.com/auth/drive.file`. This scope is
-     non-sensitive, so **Publish app** needs no verification review.
-4. **OAuth client**: go to Clients → Create client → **Web application**.
-   - Authorized JavaScript origins: `http://localhost:5173`, `http://localhost:4173`,
-     `https://colbygallagher.github.io`, and any other address the app is served from.
-   - No redirect URIs are needed.
-   - The Client ID is `VITE_GOOGLE_CLIENT_ID`.
-5. **Desktop client** (the Electron app only): Clients → Create client → **Desktop app**.
-   No JavaScript origin can be registered for `app://redcolumn`, and Google refuses sign-in inside
-   an embedded browser, so the desktop app opens the system browser and listens on
-   `http://127.0.0.1:<port>` (PKCE and `state`). Put the client ID in
-   `VITE_GOOGLE_DESKTOP_CLIENT_ID` and the client secret in `VITE_GOOGLE_DESKTOP_CLIENT_SECRET`:
-   Google requires the secret on the token request for Desktop clients even with PKCE, and treats
-   it as non-confidential for installed apps. The desktop app uses this client in dev too.
-   Test sign-in from a packaged build.
-6. **API key**: go to Credentials → Create credentials → API key, then edit it.
-   - Application restrictions → Websites: `http://localhost:5173/*`, `http://localhost:4173/*`,
-     `https://colbygallagher.github.io/*`, `https://docs.google.com/*` (the Picker runs there),
-     and any other address the app is served from (for example your Vercel domain).
-   - API restrictions: Google Drive API and Google Picker API.
-   - The key is `VITE_GOOGLE_API_KEY`.
-   - The desktop app loads from `app://redcolumn`, which is not a website a key can be restricted
-     to. For Drive sessions in the desktop app, create a second key with API restrictions only
-     (Google Drive API and Google Picker API) and put it in `VITE_GOOGLE_DESKTOP_API_KEY`. Test
-     the Picker from a packaged build.
-7. **Configure the app**:
-   - Local: copy `apps/web/.env.example` to `apps/web/.env.local` and fill it in.
-   - GitHub Pages: add the same names under the repository's Settings → Secrets and variables →
-     Actions → **Variables**.
-
-None of these values is secret: browser apps ship them publicly, and the key only works from the
-listed sites.
-
-Note: Google Workspace domains that block "Anyone with the link" sharing cannot host Drive sessions.
-
-## OneDrive
-
-OneDrive sessions work like Google Drive ones (same folder layout: `session.json`, the PDFs, and
-one `.nbseat` file per attendee, read every few seconds), over Microsoft Graph, with these
-differences:
 
 - **Everyone signs in with Microsoft** (personal, work or school account). Graph has no key-based
   reads, so attendees read the shared folder as themselves.
@@ -225,23 +170,18 @@ differences:
 4. Put the **Application (client) ID** in `VITE_MICROSOFT_CLIENT_ID` (`apps/web/.env.local`
    locally, an Actions variable for GitHub Pages).
 
-## Markups to a spreadsheet (Google Sheets or Excel in OneDrive)
+## Markups to a spreadsheet (Excel in OneDrive)
 
 In the Markups list, **Sync…** keeps the list (its visible columns, filter and sort) in a
 spreadsheet and rewrites it about a second and a half after each change. Measurements go in as
 numbers, so the sheet can total them. Each document has its own link, remembered by file name in
 this browser.
 
-- **Google Sheets:** creates a spreadsheet in the person's Drive and writes it through the Sheets
-  API, so everyone with it open sees cells change as they land. It uses the same `drive.file`
-  scope as sessions (the app reaches only spreadsheets it created), so no new consent screen
-  entry is needed. In the Cloud project, enable the **Google Sheets API** (APIs & Services →
-  Library) and add it to the API key's restrictions.
 - **Excel in OneDrive:** writes an `.xlsx` to `Apps/redcolumn`, replacing the same file each
   time, with the app-folder permission sessions already use. Excel for the web reloads a workbook
   that changed; the desktop app picks it up when the file syncs. It is a file replace, not a
   cell-by-cell edit, so changes you make in that sheet are overwritten by the next update.
-- A token that has expired (Google's last an hour) is renewed with a click on **Reconnect**: the
+- A sign-in that has expired is renewed with a click on **Reconnect**: the
   browser will not open a sign-in popup on its own. Sync runs only while the document is open.
 
 Code: `apps/web/src/sheetsync/`.

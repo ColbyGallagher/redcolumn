@@ -109,7 +109,7 @@ export function InviteDialog({
           )}
         </div>
         {bad.length > 0 && <p className="print-error">Not an email address: {bad.join(', ')}</p>}
-        {mode === 'emails' && <p className="print-hint">The session folder is shared with them, and Google Drive or OneDrive emails them the link.</p>}
+        {mode === 'emails' && <p className="print-hint">The session folder is shared with them, and OneDrive emails them the link.</p>}
         {error && <p className="print-error">{error}</p>}
         <div className="actions">
           <span className="spacer" />

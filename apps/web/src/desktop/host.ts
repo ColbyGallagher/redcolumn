@@ -89,7 +89,6 @@ export interface RedcolumnDesktop {
   cancelPrint(job: string): Promise<void>;
   checkForUpdates(): Promise<UpdateCheck>;
   /** null when `interactive` is false and the person has to sign in. */
-  googleToken(clientId: string, clientSecret: string, interactive: boolean): Promise<DesktopAuth | null>;
   /** Signs in, or checks the sign-in covers these scopes; null when a sign-in window is needed and `interactive` is false. */
   microsoftToken(clientId: string, tenant: string, scopes: string[], interactive: boolean): Promise<DesktopAccount | null>;
   graphRequest(clientId: string, tenant: string, request: GraphRequest): Promise<GraphReply>;
@@ -98,7 +97,7 @@ export interface RedcolumnDesktop {
   /** The key for "Encrypt local data": made once, kept encrypted by the system key store. Absent where there is none. */
   localDataKey?: () => Promise<Uint8Array>;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
-  signOut(provider: 'google' | 'microsoft'): Promise<void>;
+  signOut(provider: 'microsoft'): Promise<void>;
   /** Whether the local assistant is listening, and the command an AI client should run. */
   assistantInfo(): Promise<AssistantInfo>;
   setAssistantEnabled(on: boolean): Promise<AssistantInfo>;

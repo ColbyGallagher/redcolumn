@@ -1,5 +1,8 @@
 # Security hardening: Live Sessions and Projects
 
+> **Note (14 October 2026):** Google Drive, Google sign-in and Google Sheets sync have been removed;
+> Live Sessions, Projects and spreadsheet sync are OneDrive only. Google items below are historical.
+
 A plan for tightening how redcolumn uses Google Drive and OneDrive, without adding a redcolumn
 server. It covers four things:
 

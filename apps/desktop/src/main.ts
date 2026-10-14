@@ -95,10 +95,6 @@ async function start() {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
   handle('update:check', () => checkForUpdates());
-  handle('auth:google', (clientId, clientSecret, interactive) => {
-    if (typeof clientId !== 'string' || !clientId) throw new Error('Google sign-in for the desktop app needs a desktop OAuth client.');
-    return auth.google(clientId, typeof clientSecret === 'string' ? clientSecret : '', interactive === true);
-  });
   // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
   handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
@@ -177,7 +173,7 @@ async function start() {
 
   handle('auth:sign-out', (provider) => {
     if (provider === 'microsoft') for (const broker of brokers.values()) broker.reset();
-    if (provider === 'google' || provider === 'microsoft') return auth.signOut(provider);
+    if (provider === 'microsoft') return auth.signOut(provider);
   });
 
   const assistant = new AssistantService(endpointFile(), (method, params) => askPage(() => mainWindow, method, params));

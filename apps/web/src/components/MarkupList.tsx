@@ -41,7 +41,7 @@ interface Props {
   onRowMenu: (m: Markup, x: number, y: number) => void;
   onManageColumns: () => void;
   onExport: (rows: ListRowData[], columns: ListColumn[]) => void;
-  /** Opens the dialog that keeps this list in a Google Sheet or an Excel workbook. */
+  /** Opens the dialog that keeps this list in an Excel workbook. */
   onSync?: () => void;
   /** Whether it is already syncing, shown on the button. */
   syncing?: boolean;
@@ -805,7 +805,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           Export…
         </button>
         {onSync && (
-          <button className="btn small" disabled={!markups.length && !syncing} onClick={onSync} title="Keep this list in a Google Sheet or an Excel workbook, updated as markups change">
+          <button className="btn small" disabled={!markups.length && !syncing} onClick={onSync} title="Keep this list in an Excel workbook in OneDrive, updated as markups change">
             {syncing ? 'Syncing ✓' : 'Sync…'}
           </button>
         )}

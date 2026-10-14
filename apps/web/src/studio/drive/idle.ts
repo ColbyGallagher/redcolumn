@@ -10,7 +10,7 @@ export const IDLE_SIGN_OUT_MS = 30 * 60 * 1000;
 
 let last = Date.now();
 
-/** Called on every cloud call (Microsoft Graph, Google APIs). */
+/** Called on every cloud call (Microsoft Graph). */
 export function noteCloudActivity(now = Date.now()) {
   last = now;
 }

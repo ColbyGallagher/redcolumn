@@ -502,7 +502,7 @@ test('a failed join frees its seat, so trying again rejoins it', async () => {
 
     const flaky = new FakeDrive(drive, 'sam');
     flaky.ownedByMe = async () => {
-      throw new Error('Google Drive could not check the session host (500).');
+      throw new Error('OneDrive could not check the session host (500).');
     };
     await assert.rejects(remembering(hana.id, seatId, () => DriveSession.join(flaky, hana.id, 'Sam', { ...opts, interactive: true })), /500/);
 

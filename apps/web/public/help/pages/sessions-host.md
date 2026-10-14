@@ -8,7 +8,7 @@
 
    ![Start a New Session](img/session-start.png)
    - Type a **Session name**, for example *Level 2 coordination*.
-   - Choose where to **Host the session in**: **My Google Drive** or **My OneDrive**. Sign in when asked.
+   - The session is a shared folder in your OneDrive. Sign in with Microsoft when asked.
    - Choose the **Options**: whether attendees who can comment may add documents, may save copies, and may invite others.
    - Optional: set when the session **Closes**.
 4. Click **Next**. On the **Documents** tab, tick the PDFs to share.
@@ -28,7 +28,7 @@ Set a level for **Anyone else with the invite link**, for each person, and for *
 
 ## Invite people
 
-- Click **Invite**, type email addresses, and send. Their folder access is shared for you by Google Drive or OneDrive.
+- Click **Invite**, type email addresses, and send. Their folder access is shared for you by OneDrive.
 - Or click the link button to copy the invite link and send it any way you like.
 
 ## Manage the session

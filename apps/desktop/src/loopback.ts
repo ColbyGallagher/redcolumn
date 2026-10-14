@@ -57,8 +57,7 @@ export function listenForCode(state: string, timeoutMs = 180_000): Promise<CodeL
       const port = typeof address === 'object' && address ? address.port : 0;
       resolve({
         code: codePromise.promise,
-        // No path: Entra matches the registered http://127.0.0.1 with any port, and Google
-        // accepts any loopback port for a Desktop client.
+        // No path: Entra matches the registered http://127.0.0.1 with any port.
         redirectUri: `http://127.0.0.1:${port}`,
         close: (reason) => finish(reason ?? new SignInClosed()),
       });

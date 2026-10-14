@@ -3,7 +3,7 @@
  * (docs/SECURITY-HARDENING.md, phase 5). Nothing here talks to a server.
  *
  * - A session key (AES-GCM, 256 bits) travels in the invite link's #fragment, which browsers do not
- *   send to any server. Files are sealed with it before upload, so Google and Microsoft store only
+ *   send to any server. Files are sealed with it before upload, so Microsoft stores only
  *   ciphertext. Later keys ("epochs", after someone is removed) are wrapped for each attendee.
  * - Each person has an identity: an ECDSA P-256 key that signs what they write, and an ECDH P-256
  *   key that later session keys are wrapped for. The host's signing key's fingerprint is in the

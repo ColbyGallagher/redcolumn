@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 /**
- * Projects on a folder on this computer, which the person's own sync client (OneDrive, Dropbox,
- * Google Drive, a network share) keeps in step with everyone else's (docs/SECURITY-HARDENING.md,
+ * Projects on a folder on this computer, which the person's own sync client (OneDrive, Dropbox, a
+ * network share) keeps in step with everyone else's (docs/SECURITY-HARDENING.md,
  * E3). redcolumn signs in to nothing and holds no token: the sync client moves the files.
  *
  * The page sees opaque IDs, never paths: `lf:<root>:<path in the root, base64url>`. Every path is

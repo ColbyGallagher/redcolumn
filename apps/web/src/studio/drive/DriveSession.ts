@@ -11,7 +11,7 @@ import { SessionCrypto, type AdmittedSeat, type EncManifest } from '../crypto/se
 import { appFolderHostKeys, forgetSessionKeys, myIdentity, rememberSessionKeys, sessionKeys, type HostKeyStore } from '../crypto/store';
 
 /**
- * A Live Session kept in a Google Drive or OneDrive folder, with no server of ours in between:
+ * A Live Session kept in a OneDrive folder, with no server of ours in between:
  *
  *   Apps/redcolumn/<name> (redcolumn session)/     shared "anyone with the link"
  *     session.json                     name, host, status, permissions (written by the host only)
@@ -148,14 +148,14 @@ const binary = (bytes: Uint8Array) => new Blob([bytes as Uint8Array<ArrayBuffer>
 const roomFileName = (seatId: string, room: string, kind: typeof SNAPSHOT | typeof DELTA) => `${seatId}.${room}.${kind}`;
 
 export interface DriveSessionOptions {
-  /** Signs the user in (Google's popup); only succeeds from a click. */
+  /** Signs the user in (Microsoft's popup); only succeeds from a click. */
   authorize: () => Promise<void>;
   /** Poll interval while visible; 0 disables the timers (tests drive `poll`/`flush` directly). */
   pollMs?: number;
   onRemoved: (docId: string) => void;
-  /** The attendee's Google email, which identifies them for access (Drive sessions are all signed in). */
+  /** The attendee's Microsoft email, which identifies them for access (Drive sessions are all signed in). */
   email?: string | null;
-  /** The signed-in Google email now (after a reconnect signs in again). */
+  /** The signed-in Microsoft email now (after a reconnect signs in again). */
   identify?: () => string | null;
   /** An encrypted session's link secret (otherwise the one this browser remembers for it). */
   secret?: SessionSecret | null;
@@ -184,7 +184,7 @@ interface Init {
 const MISSING_KEY = 'This session is end-to-end encrypted, and the link you opened is missing its key (the part after #). Ask for the full invite link.';
 
 export class DriveSession implements CollabSession {
-  readonly backend: 'drive' | 'onedrive';
+  readonly backend: 'onedrive';
   private api: DriveApi;
   private opts: DriveSessionOptions;
   private folderId: string;
@@ -229,7 +229,7 @@ export class DriveSession implements CollabSession {
 
   private constructor(api: DriveApi, me: string, init: Init, opts: DriveSessionOptions) {
     this.api = api;
-    this.backend = api.backend ?? 'drive';
+    this.backend = api.backend ?? 'onedrive';
     this.opts = opts;
     this.folderId = init.folderId;
     this.manifestId = init.manifestId;
@@ -254,7 +254,7 @@ export class DriveSession implements CollabSession {
       needsAuth: init.needsAuth,
       viewOnly: init.viewOnly,
       email: opts.email ?? null,
-      folderUrl: api.folderUrl?.(init.folderId) ?? `https://drive.google.com/drive/folders/${init.folderId}`,
+      folderUrl: api.folderUrl?.(init.folderId),
     };
     const record = this.room(SESSION_ROOM).getArray<RecordEntry>('record');
     record.observe(() => this.set({ record: record.toArray() }));

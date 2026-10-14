@@ -104,13 +104,12 @@ function appIcons(): Plugin {
  * build: the dev server needs inline scripts for hot reload. See src/security/csp.ts.
  */
 function securityMeta(): Plugin {
-  let options = { google: false, microsoft: false };
+  let options = { microsoft: false };
   return {
     name: 'security-meta',
     apply: 'build',
     configResolved(config) {
-      // The desktop app signs in to Google with its own client, but its pages still call Google's APIs.
-      options = { google: !!(config.env.VITE_GOOGLE_CLIENT_ID || config.env.VITE_GOOGLE_DESKTOP_CLIENT_ID), microsoft: !!config.env.VITE_MICROSOFT_CLIENT_ID };
+      options = { microsoft: !!config.env.VITE_MICROSOFT_CLIENT_ID };
     },
     transformIndexHtml(html, ctx) {
       const csp = /msal-redirect\.html$/.test(ctx.filename) ? redirectCsp() : appCsp(options);

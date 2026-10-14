@@ -1,4 +1,4 @@
-// A Live Session's shared data: kept in a Google Drive or OneDrive folder that attendees sync.
+// A Live Session's shared data: kept in a OneDrive folder that attendees sync.
 
 export const SESSION_ROOM = 'session';
 
@@ -24,7 +24,7 @@ export interface SessionDocument {
 
 export interface Attendee {
   name: string;
-  /** Their Google email, when they joined signed in (verified by the server). */
+  /** Their Microsoft email, when they joined signed in (verified by the server). */
   email?: string;
   firstJoined: number;
   lastSeen: number;
@@ -44,7 +44,7 @@ export interface SessionMeta {
   attendees: Attendee[];
   /** Who may view or markup; missing on sessions from before access control. */
   access?: AccessPolicy;
-  /** The host's Google email: signed in with it, the host has host rights on any device. */
+  /** The host's Microsoft email: signed in with it, the host has host rights on any device. */
   hostEmail?: string;
   /** When the session ends by itself (ms since epoch); null or missing for never. */
   expiresAt?: number | null;
@@ -113,8 +113,8 @@ export function policyOf(meta: Pick<SessionMeta, 'access' | 'permissions'>): Acc
 
 /**
  * What someone may do: their own setting, else the most generous of their groups, else the default.
- * People and group members are matched by Google email when `email` is given (verified), and by the
- * typed name unless the session requires Google sign-in.
+ * People and group members are matched by Microsoft email when `email` is given (verified), and by the
+ * typed name unless the session requires Microsoft sign-in.
  */
 export function accessFor(
   meta: Pick<SessionMeta, 'access' | 'permissions' | 'hostEmail'>,

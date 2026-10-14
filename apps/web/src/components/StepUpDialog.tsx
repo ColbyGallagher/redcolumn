@@ -65,8 +65,8 @@ export function FirstUseHost() {
     setReq(null);
     req.resolve(ok);
   };
-  const name = req.provider === 'microsoft' ? 'Microsoft' : 'Google';
-  const drive = req.provider === 'microsoft' ? 'OneDrive' : 'Google Drive';
+  const name = 'Microsoft';
+  const drive = 'OneDrive';
   return (
     <div className="modal-backdrop" onMouseDown={() => done(false)}>
       <div className="modal" role="dialog" aria-label={`Before you sign in to ${name}`} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>

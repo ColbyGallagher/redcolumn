@@ -1,10 +1,10 @@
 import { DriveAuthError } from './DriveApi';
 
 /**
- * A one-screen summary before the first Microsoft or Google sign-in on this browser: what goes to
+ * A one-screen summary before the first Microsoft sign-in on this browser: what goes to
  * the provider, and that nothing goes to redcolumn (docs/SECURITY-HARDENING.md, 1.5).
  */
-export type CloudProviderName = 'microsoft' | 'google';
+export type CloudProviderName = 'microsoft';
 export type FirstUseConfirm = (provider: CloudProviderName) => Promise<boolean>;
 
 const KEY = 'nb.cloud.firstUseSeen';
@@ -31,7 +31,7 @@ function seen(): CloudProviderName[] {
 export async function firstUse(provider: CloudProviderName): Promise<void> {
   const before = seen();
   if (before.includes(provider) || !confirm) return;
-  if (!(await confirm(provider))) throw new DriveAuthError(`${provider === 'microsoft' ? 'Microsoft' : 'Google'} sign-in was cancelled.`);
+  if (!(await confirm(provider))) throw new DriveAuthError('Microsoft sign-in was cancelled.');
   try {
     localStorage.setItem(KEY, JSON.stringify([...before, provider]));
   } catch {

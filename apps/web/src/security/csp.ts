@@ -6,8 +6,6 @@
  */
 
 export interface CspOptions {
-  /** Google sign-in, Picker and Sheets are configured (VITE_GOOGLE_CLIENT_ID). */
-  google: boolean;
   /** Microsoft sign-in and OneDrive are configured (VITE_MICROSOFT_CLIENT_ID). */
   microsoft: boolean;
 }
@@ -22,36 +20,23 @@ const MICROSOFT_CONNECT = [
   'https://my.microsoftpersonalcontent.com',
 ];
 
-const GOOGLE_SCRIPT = ['https://accounts.google.com/gsi/client', 'https://apis.google.com'];
-const GOOGLE_CONNECT = [
-  'https://accounts.google.com/gsi/',
-  'https://www.googleapis.com',
-  'https://sheets.googleapis.com',
-  'https://openidconnect.googleapis.com',
-  'https://oauth2.googleapis.com',
-  'https://content.googleapis.com',
-];
-const GOOGLE_FRAME = ['https://accounts.google.com/gsi/', 'https://accounts.google.com', 'https://docs.google.com', 'https://content.googleapis.com', 'https://drive.google.com'];
-const GOOGLE_STYLE = ['https://accounts.google.com/gsi/style'];
-const GOOGLE_IMG = ['https://*.googleusercontent.com', 'https://ssl.gstatic.com', 'https://www.gstatic.com'];
-
 /** Directives in order, as `name value…`, joined with `; `. */
 function join(directives: [string, string[]][]): string {
   return directives.map(([name, values]) => [name, ...values].join(' ')).join('; ');
 }
 
 /** The policy for the app itself (index.html). */
-export function appCsp({ google, microsoft }: CspOptions): string {
+export function appCsp({ microsoft }: CspOptions): string {
   return join([
     ['default-src', ["'self'"]],
     // PDFium and Tesseract compile WebAssembly; nothing uses eval or new Function.
-    ['script-src', ["'self'", "'wasm-unsafe-eval'", ...(google ? GOOGLE_SCRIPT : [])]],
+    ['script-src', ["'self'", "'wasm-unsafe-eval'"]],
     // Tesseract starts its worker from a blob: URL it makes itself.
     ['worker-src', ["'self'", 'blob:']],
-    ['connect-src', ["'self'", ...(microsoft ? MICROSOFT_CONNECT : []), ...(google ? GOOGLE_CONNECT : [])]],
-    ['frame-src', google ? GOOGLE_FRAME : ["'none'"]],
-    ['img-src', ["'self'", 'blob:', 'data:', ...(google ? GOOGLE_IMG : [])]],
-    ['style-src', ["'self'", ...(google ? GOOGLE_STYLE : [])]],
+    ['connect-src', ["'self'", ...(microsoft ? MICROSOFT_CONNECT : [])]],
+    ['frame-src', ["'none'"]],
+    ['img-src', ["'self'", 'blob:', 'data:']],
+    ['style-src', ["'self'"]],
     ['font-src', ["'self'", 'data:']],
     ['media-src', ["'self'", 'blob:']],
     ['object-src', ["'none'"]],

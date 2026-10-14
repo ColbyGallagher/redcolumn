@@ -482,7 +482,7 @@ async function failure(res: Response, what: string): Promise<Error> {
 
 /**
  * OneDrive (personal or work) over Microsoft Graph, as a DriveApi so Drive sessions run on it
- * unchanged. Differences from Google Drive that this papers over:
+ * unchanged. What it papers over:
  *
  * - Everyone signs in: Graph has no API-key reads, so attendees read the shared folder as themselves.
  * - The session folder's ID is its sharing link as a share ID (`u!…`), which works for anyone the

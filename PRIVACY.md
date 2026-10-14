@@ -16,8 +16,8 @@ someone else runs their own copy, their policy applies to it.
 - **The local assistant stays on your computer.** The desktop app can let an AI client you already
   run read the open drawing. That is off until you turn it on, and the redcolumn project never
   sees it.
-- **Live Sessions and Projects use your own Google Drive or OneDrive.** When you share documents
-  with others, they go to Google or Microsoft under your account, not to us.
+- **Live Sessions and Projects use your own OneDrive.** When you share documents with others,
+  they go to Microsoft under your account, not to us.
 
 ## What stays on your device
 
@@ -48,21 +48,18 @@ GitHub receives your IP address and the request's standard headers, and handles 
 privacy policy. Nothing from your documents is sent. Nothing is downloaded until you open the
 release page and choose to.
 
-## Live Sessions (Google Drive and OneDrive)
+## Live Sessions (OneDrive)
 
 Live Sessions let several people mark up the same PDFs. They are optional and only start when you
-sign in to Google or Microsoft.
+sign in to Microsoft.
 
 - **Where the files go:** the session's PDFs, markups, chat and activity record are saved in a
-  folder in the host's Google Drive or OneDrive, and shared with the people the host invites.
-  Your browser talks to Google or Microsoft directly.
-- **Sign-in:** you sign in with Google or Microsoft in a pop-up from them. The app receives
-  permission to use your Drive or OneDrive, and your name and email, so others in the session
+  folder in the host's OneDrive, and shared with the people the host invites. Your browser talks
+  to Microsoft directly.
+- **Sign-in:** you sign in with Microsoft in a pop-up from them. The app receives permission to
+  use your OneDrive, and your name and email, so others in the session
   can see who made each markup. These sign-in details stay in your browser and are never sent to
   us.
-- **Google Drive access:** the app asks for the narrowest Drive permission Google offers
-  (`drive.file`). It can only open files and folders the app created or that you choose in
-  Google's file picker. It cannot see the rest of your Drive.
 - **OneDrive access:** Microsoft offers three levels of access. redcolumn asks for the smallest
   first, and for more only when sharing a folder or opening someone else's needs it. Before
   Microsoft's window opens for more, the app says why in its own dialog, and you can cancel.
@@ -88,27 +85,26 @@ sign in to Google or Microsoft.
   The sign-in token is only ever sent to Microsoft Graph.
 - **Seeing what was allowed and done:** **Preferences › Account › Access** shows who is signed in,
   the access in use and where the sign-in is kept. **Activity** lists what the app created, saved,
-  shared and deleted in Google Drive and OneDrive from this browser. That list stays in your
-  browser and is never sent anywhere. Before the first sign-in to each provider, the app shows a
+  shared and deleted in OneDrive from this browser. That list stays in your
+  browser and is never sent anywhere. Before the first sign-in, the app shows a
   short summary of what goes where.
 - **Encryption:** new sessions are encrypted end to end unless the host turns it off. The key is
-  in the invite link after `#`, which is never sent to Google, Microsoft or us, so they store only
+  in the invite link after `#`, which is never sent to Microsoft or us, so Microsoft stores only
   scrambled files. File names and attendee names are still visible to people the folder is shared
   with.
 - **What other attendees see:** your name or email, your markups, chat messages, and which page
   you are viewing while you are in the session.
-- **Removing it:** delete the session folder in your Google Drive or OneDrive. You can withdraw the
-  app's access at any time from your Google Account (Security → Third-party apps) or Microsoft
-  account (Privacy → Apps and services).
+- **Removing it:** delete the session folder in your OneDrive. You can withdraw the app's access
+  at any time from your Microsoft account (Privacy → Apps and services).
 
-Google and Microsoft handle these files under their own terms and privacy policies.
+Microsoft handles these files under its own terms and privacy policies.
 
-## Spreadsheet sync (Google Sheets and OneDrive)
+## Spreadsheet sync (OneDrive)
 
 If you turn on **Sync** in the Markups list, redcolumn writes that list (the columns, filter and
-sort you see: subjects, comments, authors, dates, measurements) to a Google Sheet or an Excel
+sort you see: subjects, comments, authors, dates, measurements) to an Excel
 workbook in `Apps/redcolumn` in your OneDrive, under your own account, and rewrites it when markups
-change. Nothing goes to us. The spreadsheet is yours: share or delete it in Google or Microsoft.
+change. Nothing goes to us. The spreadsheet is yours: share or delete it in OneDrive.
 Stopping the sync, or clearing site data, does not delete it. The app keeps the spreadsheet's link
 in your browser's storage so it can carry on after a reload.
 
@@ -143,7 +139,7 @@ These only run when you use them:
   been revoked, your browser contacts the certificate service named in your settings or in the
   certificate (for example DigiCert). It sends a fingerprint of the signature or certificate, not
   the document.
-- **Email invitations** to a Live Session or Project are sent by Google Drive or OneDrive when the
+- **Email invitations** to a Live Session or Project are sent by OneDrive when the
   host shares the folder.
 - **Help → Send Log Files** saves a file of recent app messages to your device. Nothing is sent
   unless you choose to send that file to someone.

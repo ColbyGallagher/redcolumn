@@ -30,7 +30,7 @@ interface Props {
   onClose: () => void;
 }
 
-/** Profiles are kept in this browser; this copies them to Google Drive or OneDrive and brings them back. */
+/** Profiles are kept in this browser; this copies them to OneDrive and brings them back. */
 function CloudBackup({ onMessage }: { onMessage: (m: string) => void }) {
   const { link, failed } = useProfileBackup();
   const [busy, setBusy] = useState(false);

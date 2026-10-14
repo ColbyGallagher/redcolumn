@@ -1,19 +1,18 @@
 import { useSyncExternalStore } from 'react';
-import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, signInWithGoogle } from '../studio/drive/google';
 import { OneDrive, microsoftUser, oneDriveConfigured, signInWithMicrosoft } from '../studio/drive/onedrive';
 import type { DriveApi } from '../studio/drive/DriveApi';
 import { profiles } from './profiles';
 
 /**
  * Profiles live in this browser's storage, which a person can clear and a browser can evict. This
- * keeps a copy in the signed-in Google Drive or OneDrive (Apps/redcolumn/profiles.json) that can be
+ * keeps a copy in the signed-in OneDrive (Apps/redcolumn/profiles.json) that can be
  * restored on this or another computer.
  *
  * Once a device has backed up or restored, later changes are copied up on their own. Before that,
  * nothing is written, so a new computer's empty default profile never replaces a real backup.
  */
 
-export type Backend = 'drive' | 'onedrive';
+export type Backend = 'onedrive';
 
 const FILE = 'profiles.json';
 const KEY = 'nb.profiles.cloud';
@@ -33,7 +32,8 @@ const changed = () => listeners.forEach((l) => l());
 function readLink(): Link | null {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Link | null;
-    return v && (v.backend === 'drive' || v.backend === 'onedrive') ? v : null;
+    // Older builds could also back up to Google Drive; that link is no longer followed.
+    return v && v.backend === 'onedrive' ? v : null;
   } catch {
     return null;
   }
@@ -51,25 +51,23 @@ function setLink(next: Link | null) {
   changed();
 }
 
-const apis: { drive?: DriveApi; onedrive?: DriveApi } = {};
-const api = (b: Backend): DriveApi => (apis[b] ??= b === 'drive' ? new GoogleDrive() : new OneDrive());
+const apis: Partial<Record<Backend, DriveApi>> = {};
+const api = (b: Backend): DriveApi => (apis[b] ??= new OneDrive());
 
-export const backendLabel = (b: Backend) => (b === 'drive' ? 'Google Drive' : 'OneDrive');
+export const backendLabel = (_b: Backend) => 'OneDrive';
 
 /** The cloud drives this build can use. */
 export function availableBackends(): Backend[] {
   const out: Backend[] = [];
-  if (googleConfigured && googleSignInConfigured) out.push('drive');
   if (oneDriveConfigured) out.push('onedrive');
   return out;
 }
 
-const signedIn = (b: Backend) => (b === 'drive' ? !!googleUser() : !!microsoftUser());
+const signedIn = (_b: Backend) => !!microsoftUser();
 
 async function ensureSignedIn(b: Backend) {
   if (signedIn(b)) return;
-  if (b === 'drive') await signInWithGoogle();
-  else await signInWithMicrosoft();
+  await signInWithMicrosoft();
 }
 
 /** Copies every profile up to the drive and remembers to keep doing so. */

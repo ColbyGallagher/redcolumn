@@ -1,7 +1,7 @@
 # Security policy
 
-redcolumn opens drawings from anyone, holds signing keys, and signs in to Google Drive and
-OneDrive, so security reports are welcome and taken seriously.
+redcolumn opens drawings from anyone, holds signing keys, and signs in to OneDrive, so security
+reports are welcome and taken seriously.
 
 ## Supported versions
 
@@ -35,23 +35,23 @@ redcolumn is maintained by one person, so these are aims rather than guarantees:
 - a fix for serious problems as soon as one can be made safely, usually within 30 days;
 - a published GitHub Security Advisory once a fix is live, crediting you if you wish.
 
-If a report turns out to be in Google's, Microsoft's or another project's code rather than
+If a report turns out to be in Microsoft's or another project's code rather than
 redcolumn's, we will help you get it to them.
 
 ## Scope
 
 In scope: this repository and the app it publishes, including how the app handles files you open,
 links, Live Sessions, Projects, digital signatures, encryption and redaction, what it stores in
-your browser, and how it uses Google and Microsoft sign-in.
+your browser, and how it uses Microsoft sign-in.
 
-Out of scope: Google's, Microsoft's, GitHub's and Vercel's own services; attacks that need a
+Out of scope: Microsoft's, GitHub's and Vercel's own services; attacks that need a
 compromised device or browser; denial of service against any hosted service; and social
 engineering.
 
 ## Testing safely
 
 Use your own test accounts and test files. Do not access other people's data or sessions, do not
-attack Google's, Microsoft's or any other provider's infrastructure, and stop and report as soon
+attack Microsoft's or any other provider's infrastructure, and stop and report as soon
 as you find something. Research done in good faith within these rules will not be pursued.
 
 ## How redcolumn is kept secure

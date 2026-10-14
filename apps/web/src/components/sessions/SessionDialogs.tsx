@@ -94,27 +94,22 @@ type Step = 'general' | 'documents' | 'people';
 /** Start New Session: name and options, the documents to share, and who may do what. */
 export function StartSessionDialog({
   me,
-  driveAvailable,
   oneDriveAvailable,
   openFiles,
   library,
   initialDocs,
-  googleEmail,
   microsoftEmail,
   busy,
   onStart,
   onClose,
 }: {
   me: string;
-  driveAvailable: boolean;
   oneDriveAvailable: boolean;
   /** Documents open in tabs (local ones, not already in a session). */
   openFiles: { id: string; name: string }[];
   library: { id: string; name: string }[];
   /** Documents to start with instead of every open one. */
   initialDocs?: string[] | null;
-  /** The signed-in Google email, if any. */
-  googleEmail?: string | null;
   /** The signed-in Microsoft email, if any. */
   microsoftEmail?: string | null;
   busy: boolean;
@@ -123,7 +118,6 @@ export function StartSessionDialog({
 }) {
   const [step, setStep] = useState<Step>('general');
   const [name, setName] = useState('');
-  const [backend, setBackend] = useState<Backend>(driveAvailable || !oneDriveAvailable ? 'drive' : 'onedrive');
   const [addDocuments, setAddDocuments] = useState(true);
   const [linkCanEdit, setLinkCanEdit] = useState(false);
   const [encrypt, setEncrypt] = useState(true);
@@ -171,8 +165,8 @@ export function StartSessionDialog({
             nameRef.current?.focus();
             return;
           }
-          if (!sessionEndIsValid(ends) || !(backend === 'drive' ? driveAvailable : oneDriveAvailable)) return;
-          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends), encrypt });
+          if (!sessionEndIsValid(ends) || !oneDriveAvailable) return;
+          onStart({ name: name.trim(), backend: 'onedrive', addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends), encrypt });
         }}
       >
         {step === 'general' && (
@@ -181,17 +175,7 @@ export function StartSessionDialog({
               Session name
               <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="Level 2 coordination" maxLength={120} required />
             </label>
-            <fieldset className="stack">
-              <legend>Host the session in</legend>
-              <label className="check">
-                <input type="radio" name="backend" checked={backend === 'drive'} disabled={!driveAvailable} onChange={() => setBackend('drive')} />
-                My Google Drive <span className="hint">{driveAvailable ? 'a shared folder; syncs within seconds' : 'not set up in this build'}</span>
-              </label>
-              <label className="check">
-                <input type="radio" name="backend" checked={backend === 'onedrive'} disabled={!oneDriveAvailable} onChange={() => setBackend('onedrive')} />
-                My OneDrive <span className="hint">{oneDriveAvailable ? 'a shared folder; everyone signs in with Microsoft' : 'not set up in this build'}</span>
-              </label>
-            </fieldset>
+            <p className="hint">{oneDriveAvailable ? 'The session is a shared folder in your OneDrive; everyone signs in with Microsoft.' : 'Live Sessions need OneDrive, which is not set up in this build.'}</p>
             <fieldset className="stack">
               <legend>Options</legend>
               <label className="check">
@@ -201,17 +185,16 @@ export function StartSessionDialog({
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
               <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
                 <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
-                Anyone with the link can edit the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder
+                Anyone with the link can edit the OneDrive folder
               </label>
-              <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft, Google or anyone else. The PDFs cannot be previewed in OneDrive or Google Drive, and a lost invite link cannot be recovered.">
+              <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft or anyone else. The PDFs cannot be previewed in OneDrive, and a lost invite link cannot be recovered.">
                 <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
-                Encrypt end to end ({backend === 'onedrive' ? 'Microsoft' : 'Google'} stores only scrambled files)
+                Encrypt end to end (Microsoft stores only scrambled files)
               </label>
             </fieldset>
             <p className="hint">
               You host as <b>{me}</b>
-              {backend === 'onedrive' ? (microsoftEmail ? ` (${microsoftEmail})` : '') : googleEmail ? ` (${googleEmail})` : ''}.{' '}
-              {backend === 'onedrive' ? 'Add people by their Microsoft account email.' : 'Add people by their Google email.'}
+              {microsoftEmail ? ` (${microsoftEmail})` : ''}. Add people by their Microsoft account email.
             </p>
           </div>
         )}
@@ -281,9 +264,7 @@ export function StartSessionDialog({
         {step === 'people' && (
           <div className="dialog-pane">
             <AccessEditor policy={policy} onChange={setPolicy} host={me} />
-            {(backend === 'drive' || backend === 'onedrive') && (
-              <p className="hint">People entered as email addresses are also invited to the {backend === 'onedrive' ? 'OneDrive' : 'Drive'} folder by email.</p>
-            )}
+            <p className="hint">People entered as email addresses are also invited to the OneDrive folder by email.</p>
           </div>
         )}
 
@@ -302,7 +283,7 @@ export function StartSessionDialog({
               Next
             </button>
           )}
-          <button type="submit" className="btn primary" disabled={busy || !name.trim() || !(backend === 'drive' ? driveAvailable : oneDriveAvailable)}>
+          <button type="submit" className="btn primary" disabled={busy || !name.trim() || !oneDriveAvailable}>
             {busy ? 'Starting…' : 'Start session'}
           </button>
         </div>
@@ -311,21 +292,17 @@ export function StartSessionDialog({
   );
 }
 
-/** Join by picking a shared session folder (Google Drive) or by pasting a session link (OneDrive). */
+/** Join by pasting a session link. */
 export function JoinSessionDialog({
   me,
-  driveAvailable,
   oneDriveAvailable,
   busy,
-  onJoinDrive,
   onJoinOneDrive,
   onClose,
 }: {
   me: string;
-  driveAvailable: boolean;
   oneDriveAvailable: boolean;
   busy: boolean;
-  onJoinDrive: () => void;
   onJoinOneDrive: (shareId: string) => void;
   onClose: () => void;
 }) {
@@ -344,14 +321,7 @@ export function JoinSessionDialog({
         }}
       >
         <p>You join as {me}. The easiest way in is the invite link from the host.</p>
-        {!driveAvailable && !oneDriveAvailable && <p className="hint">Live Sessions need Google Drive or OneDrive, and neither is set up in this build.</p>}
-        {driveAvailable && (
-          <p>
-            <button type="button" className="btn" disabled={busy} onClick={onJoinDrive}>
-              Choose a session folder in Google Drive…
-            </button>
-          </p>
-        )}
+        {!oneDriveAvailable && <p className="hint">Live Sessions need OneDrive, which is not set up in this build.</p>}
         {oneDriveAvailable && (
           <div className="row">
             <input
@@ -641,7 +611,6 @@ export interface EndSessionChoice {
  */
 export function EndSessionDialog({
   name,
-  backend,
   documents,
   authors,
   projects,
@@ -654,7 +623,6 @@ export function EndSessionDialog({
   sendBack = [],
 }: {
   name: string;
-  backend: Backend;
   documents: number;
   /** Everyone who made markups in the session. */
   authors: string[];
@@ -680,7 +648,6 @@ export function EndSessionDialog({
   const [projectId, setProjectId] = useState(projects[0]?.id ?? '');
   const [typed, setTyped] = useState('');
   const [back, setBack] = useState<string[]>(sendBack.map((d) => d.docId));
-  const drive = backend === 'onedrive' ? 'OneDrive' : 'Google Drive';
   const saving = pdfs || markupsCsv || recordCsv || reportPdf;
   const confirmed = typed.trim().toLowerCase() === name.trim().toLowerCase();
   const ready = confirmed && !busy && (!saving || destination !== 'project' || !!projectId);
@@ -697,7 +664,7 @@ export function EndSessionDialog({
         <div className="end-warning" role="alert">
           <b>Ending removes this session’s files for everyone.</b>
           <p>
-            The session folder in {drive} goes to the {backend === 'onedrive' ? 'recycle bin' : 'trash'}, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
+            The session folder in OneDrive goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
             session straight away and it leaves your Sessions list. Save what you need below first.
           </p>
         </div>

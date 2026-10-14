@@ -11,9 +11,8 @@ import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, keepRevision, listFiles, readFile, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
-import { DriveSession, rememberedSeat } from './studio/drive/DriveSession';
+import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
-import { GoogleDrive, googleConfigured, googleSignInConfigured, googleUser, pickSessionFolder, signInWithGoogle } from './studio/drive/google';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
 import { allows, canAddMarkups, policyOf, type RecordEntry } from './studio/protocol';
@@ -633,12 +632,6 @@ function useSnapshots(sessions: CollabSession[]): StudioSnapshot[] {
   return sessions.map((s) => s.getSnapshot());
 }
 
-const driveApi = new GoogleDrive();
-/** Signs in with Google: Drive access plus who the person is (their email identifies them in sessions). */
-const authorizeGoogle = async () => {
-  await signInWithGoogle();
-};
-const googleEmail = () => googleUser()?.email ?? null;
 const oneDriveApi = new OneDrive();
 /** Signs in with Microsoft: OneDrive access plus who the person is. */
 const authorizeMicrosoft = async () => {
@@ -980,7 +973,7 @@ export function App() {
   const sessionById = (id: string) => sessionsRef.current.find((s) => s.id === id) ?? null;
   /** The session shown in detail on the Sessions panel (null: the list of sessions). */
   const [focusedSession, setFocusedSession] = useState<string | null>(null);
-  /** A Google Drive invite from the URL; joining opens Google's popups, so it waits for a click. */
+  /** A OneDrive session invite from the URL; joining opens Microsoft's sign-in, so it waits for a click. */
   const [studioInvite, setStudioInvite] = useState<SessionRef | null>(null);
   /** A Project from a `?project=` link, waiting for a click to open (it signs in). */
   const [projectInvite, setProjectInvite] = useState<string | null>(null);
@@ -3682,56 +3675,37 @@ export function App() {
   };
 
   /**
-   * Joins a session (as well as any already joined). For Google Drive, `interactive` (from a
-   * click) signs in and, the first time, asks the user to pick the session folder in Google's
-   * Picker, which is what grants this app access to it. Without a click (rejoining on page load)
-   * it reads at once and asks to reconnect.
+   * Joins a session (as well as any already joined). `interactive` (from a click) signs in first and
+   * asks for more access when opening the shared folder needs it. Without a click (rejoining on page
+   * load) it reads at once and asks to reconnect.
    */
   const joinStudio = useCallback(
-    (ref: SessionRef | { backend: 'drive'; id: null }, interactive = true) =>
+    (ref: SessionRef, interactive = true) =>
       runStudio(async () => {
-        if (ref.id && sessionById(ref.id)) {
+        if (sessionById(ref.id)) {
           setFocusedSession(ref.id);
           return;
         }
         const { holder, onRemoved } = removedHandler();
-        if (ref.backend === 'onedrive') {
-          holder.id = ref.id;
-          if (interactive) await signInWithMicrosoft();
-          const join = () => DriveSession.join(oneDriveApi, ref.id, authorRef.current, { authorize: authorizeMicrosoft, onRemoved, interactive, email: microsoftEmail(), identify: microsoftEmail });
-          let session: DriveSession;
+        holder.id = ref.id;
+        if (interactive) await signInWithMicrosoft();
+        const join = () => DriveSession.join(oneDriveApi, ref.id, authorRef.current, { authorize: authorizeMicrosoft, onRemoved, interactive, email: microsoftEmail(), identify: microsoftEmail });
+        let session: DriveSession;
+        try {
+          session = await join();
+        } catch (err) {
+          // Opening someone else's folder can need more access (once or twice): ask, and try again.
+          if (!(err instanceof DriveAuthError) || !interactive) throw err;
+          await signInWithMicrosoft();
           try {
             session = await join();
-          } catch (err) {
-            // Opening someone else's folder can need more access (once or twice): ask, and try again.
-            if (!(err instanceof DriveAuthError) || !interactive) throw err;
+          } catch (again) {
+            if (!(again instanceof DriveAuthError)) throw again;
             await signInWithMicrosoft();
-            try {
-              session = await join();
-            } catch (again) {
-              if (!(again instanceof DriveAuthError)) throw again;
-              await signInWithMicrosoft();
-              session = await join();
-            }
+            session = await join();
           }
-          enterStudio(session);
-          setStudioInvite(null);
-          return;
         }
-        let folderId = ref.id;
-        if (interactive && (!folderId || !rememberedSeat(folderId))) {
-          const picked = await pickSessionFolder(folderId ?? undefined);
-          if (!picked) throw new Error('No session folder was chosen.');
-          folderId = picked.id;
-        }
-        if (!folderId) return;
-        if (sessionById(folderId)) {
-          setFocusedSession(folderId);
-          return;
-        }
-        holder.id = folderId;
-        if (interactive) await signInWithGoogle();
-        enterStudio(await DriveSession.join(driveApi, folderId, authorRef.current, { authorize: authorizeGoogle, onRemoved, interactive, email: googleEmail(), identify: googleEmail }));
+        enterStudio(session);
         setStudioInvite(null);
       }),
     [runStudio, enterStudio],
@@ -3793,43 +3767,27 @@ export function App() {
       runStudio(async () => {
         const { holder, onRemoved } = removedHandler();
         const permissions = { markup: canAddMarkups(req.access.default), addDocuments: req.addDocuments, saveCopy: req.saveCopy, invite: req.invite };
-        const session: CollabSession =
-          req.backend === 'onedrive'
-            ? await (async () => {
-                await signInWithMicrosoft();
-                const create = () =>
-                  DriveSession.create(oneDriveApi, req.name, authorRef.current, permissions, {
-                    authorize: authorizeMicrosoft,
-                    onRemoved,
-                    linkCanEdit: req.linkCanEdit,
-                    access: req.access,
-                    expiresAt: req.expiresAt,
-                    encrypt: req.encrypt,
-                    email: microsoftEmail(),
-                    identify: microsoftEmail,
-                  });
-                try {
-                  return await create();
-                } catch (err) {
-                  // Sharing the folder can need more than the app folder: ask, and try again.
-                  if (!(err instanceof DriveAuthError)) throw err;
-                  await signInWithMicrosoft();
-                  return await create();
-                }
-              })()
-            : await (async () => {
-                await signInWithGoogle();
-                return DriveSession.create(driveApi, req.name, authorRef.current, permissions, {
-                  authorize: authorizeGoogle,
-                  onRemoved,
-                  linkCanEdit: req.linkCanEdit,
-                  access: req.access,
-                  expiresAt: req.expiresAt,
-                  encrypt: req.encrypt,
-                  email: googleEmail(),
-                  identify: googleEmail,
-                });
-              })();
+        await signInWithMicrosoft();
+        const create = () =>
+          DriveSession.create(oneDriveApi, req.name, authorRef.current, permissions, {
+            authorize: authorizeMicrosoft,
+            onRemoved,
+            linkCanEdit: req.linkCanEdit,
+            access: req.access,
+            expiresAt: req.expiresAt,
+            encrypt: req.encrypt,
+            email: microsoftEmail(),
+            identify: microsoftEmail,
+          });
+        let session: CollabSession;
+        try {
+          session = await create();
+        } catch (err) {
+          // Sharing the folder can need more than the app folder: ask, and try again.
+          if (!(err instanceof DriveAuthError)) throw err;
+          await signInWithMicrosoft();
+          session = await create();
+        }
         holder.id = session.id;
         enterStudio(session);
         const emails = req.access.people.map((p) => p.name).filter(isEmail);
@@ -4269,15 +4227,12 @@ export function App() {
   }, []);
 
   // Rejoin the sessions this browser was in, or offer to join one from an invite link:
-  // `?gdrive=<folder id>` (Google Drive) or `?onedrive=<share id>` (OneDrive), which wait for a click
-  // to sign in. Links to redcolumn server sessions (`?studio=`) are dropped.
+  // `?onedrive=<share id>`, which waits for a click to sign in. Links to redcolumn server sessions
+  // (`?studio=`) and Google Drive sessions (`?gdrive=`) from older builds are dropped.
   useEffect(() => {
     if (!ctl) return;
     const params = new URLSearchParams(window.location.search);
-    const gdrive = params.get('gdrive')?.match(/^[\w-]{10,}$/)?.[0] ?? null;
-    const onedrive = parseOneDriveInvite(params.get('onedrive') ?? '');
-    const driveInvite = gdrive ?? onedrive;
-    const inviteBackend = gdrive ? 'drive' : 'onedrive';
+    const driveInvite = parseOneDriveInvite(params.get('onedrive') ?? '');
     // An encrypted session's key comes after # (never sent to any server): keep it, and take it out of the address bar.
     const secret = driveInvite ? parseSecret(window.location.hash) : null;
     if (driveInvite && secret) {
@@ -4300,7 +4255,7 @@ export function App() {
         setLeftOpen(true);
       }
     }
-    if (params.has('studio') || driveInvite) {
+    if (params.has('studio') || params.has('gdrive') || driveInvite) {
       params.delete('studio');
       params.delete('gdrive');
       params.delete('onedrive');
@@ -4312,7 +4267,7 @@ export function App() {
     const current = currentSessions();
     void (async () => {
       for (const ref of current) await joinStudio(ref, false);
-      if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: inviteBackend, id: driveInvite });
+      if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: 'onedrive', id: driveInvite });
       else if (driveInvite) setFocusedSession(driveInvite);
       // After rejoining several, start on the list rather than whichever joined last.
       if (!driveInvite && current.length > 1) setFocusedSession(null);
@@ -5915,7 +5870,7 @@ export function App() {
             ],
           },
       sessionDoc
-        ? { label: snap?.backend === 'onedrive' ? 'Open in OneDrive' : 'Open in Google Drive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
+        ? { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
         : { label: 'Show in File Access', onClick: () => { showLeft('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
@@ -7400,7 +7355,6 @@ Open the download page? Run the new installer to update; your documents and mark
                 localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
                 openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
                 library={library.map((f) => ({ id: f.id, name: f.name }))}
-                driveAvailable={googleConfigured}
                 oneDriveAvailable={oneDriveConfigured}
                 invite={studioInvite}
                 onDismissInvite={() => setStudioInvite(null)}
@@ -8059,7 +8013,7 @@ Open the download page? Run the new installer to update; your documents and mark
               }))}
               onCancel={() => setInviteSession(null)}
               onSend={async (emails) => {
-                // Google Drive or OneDrive shares the session folder and emails the link.
+                // OneDrive shares the session folder and emails the link.
                 await session.invite?.(emails);
                 setInviteSession(null);
                 setNotice(`Shared the session with ${emails.join(', ')}.`);
@@ -8074,7 +8028,6 @@ Open the download page? Run the new installer to update; your documents and mark
           return (
             <EndSessionDialog
               name={session.meta.name}
-              backend={session.backend}
               documents={session.meta.documents.length}
               authors={endFor.authors}
               projects={knownProjects()
@@ -8614,9 +8567,8 @@ Open the download page? Run the new installer to update; your documents and mark
           link={sheetSync.link}
           status={sheetSync.status}
           rowCount={Math.max(0, syncTable.length - 1)}
-          googleAvailable={googleSignInConfigured}
           oneDriveAvailable={oneDriveConfigured}
-          onConnect={(provider, title) => void sheetSync.connect(provider, title, syncTable)}
+          onConnect={(title) => void sheetSync.connect(title, syncTable)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}

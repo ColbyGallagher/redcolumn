@@ -1,6 +1,5 @@
 import { useState, useSyncExternalStore } from 'react';
 import { clearCloudLog, cloudLog, subscribeCloudLog, type CloudLogEntry } from '../studio/drive/cloudLog';
-import { googleAuth, googleConfigured, googleUser, signOutOfGoogle, subscribeGoogleUser } from '../studio/drive/google';
 import {
   dropMicrosoftStepUps,
   microsoftAccess,
@@ -46,12 +45,10 @@ const when = (ms: number) =>
 export function AccessPrefs() {
   const ms = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
   const access = useSyncExternalStore(subscribeMicrosoftAccess, microsoftAccess);
-  const google = useSyncExternalStore(subscribeGoogleUser, googleUser);
   const [stay, setStay] = useState(staySignedInToMicrosoft);
   const [, refresh] = useState(0);
   const onDesktop = !!desktop();
   const since = ms ? microsoftSignedInSince() : null;
-  const expires = google ? googleAuth.expires() : null;
 
   return (
     <div className="access-prefs">
@@ -136,41 +133,6 @@ export function AccessPrefs() {
         )}
       </section>
 
-      <section>
-        <h4>Google (Drive and Sheets)</h4>
-        {!googleConfigured && !onDesktop ? (
-          <p className="access-note">Google sign-in is not set up for this site.</p>
-        ) : google ? (
-          <>
-            <p>
-              Signed in as <b>{google.email}</b>.
-            </p>
-            <p>
-              <b>Access in use:</b> only files and folders redcolumn made, or that you picked in Google's file picker (<code>drive.file</code>). It cannot see the rest of your Drive.
-            </p>
-            <p>
-              <b>Where the sign-in is kept:</b> {onDesktop ? "In the desktop app's own storage, encrypted by the system key store." : 'In this tab only, with no refresh token.'}
-              {expires ? ` It runs out at ${when(expires)}.` : ''}
-            </p>
-            <div className="pref-row">
-              <button type="button" className="btn" onClick={() => (signOutOfGoogle(), refresh((n) => n + 1))} title="Revokes the token with Google">
-                Sign out
-              </button>
-            </div>
-          </>
-        ) : (
-          <p className="access-note">Not signed in.</p>
-        )}
-        {(googleConfigured || onDesktop) && (
-          <p className="access-note">
-            Withdraw the app's access in your{' '}
-            <a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">
-              Google Account
-            </a>
-            .
-          </p>
-        )}
-      </section>
       {localEncryptionAvailable() && <LocalDataSection />}
     </div>
   );
@@ -228,7 +190,7 @@ export function ActivityPrefs() {
   return (
     <div className="access-prefs">
       <p className="access-note">
-        What redcolumn did in your Google Drive and OneDrive from this browser, newest first. This list stays in this browser and is never sent anywhere. Saves to the same file are counted on one
+        What redcolumn did in your OneDrive from this browser, newest first. This list stays in this browser and is never sent anywhere. Saves to the same file are counted on one
         line.
       </p>
       {entries.length === 0 ? (
@@ -241,7 +203,7 @@ export function ActivityPrefs() {
                 {when(e.at)}
               </span>
               <span role="cell">
-                {e.provider === 'onedrive' ? 'OneDrive' : 'Google'}: {ACTION_WORDS[e.action]} {e.name}
+                OneDrive: {ACTION_WORDS[e.action]} {e.name}
                 {e.count > 1 ? ` (${e.count} times since ${when(e.first ?? e.at)})` : ''}
               </span>
             </div>

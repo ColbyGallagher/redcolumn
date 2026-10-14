@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DriveAuthError } from '../studio/drive/DriveApi';
-import { signInWithGoogle } from '../studio/drive/google';
 import { signInWithMicrosoft } from '../studio/drive/onedrive';
-import { GoogleSheetTarget, OneDriveWorkbookTarget, targetFor, type SheetProvider, type SyncLink, type SyncTarget } from './targets';
+import { OneDriveWorkbookTarget, targetFor, type SyncLink, type SyncTarget } from './targets';
 import { tableKey, type TableCell } from './table';
 
 export type SyncStatus = { kind: 'idle' } | { kind: 'syncing' } | { kind: 'synced'; at: number } | { kind: 'error'; message: string; reconnect: boolean };
@@ -15,7 +14,9 @@ const DEBOUNCE_MS = 1500;
 
 function load(): Record<string, SyncLink> {
   try {
-    return JSON.parse(localStorage.getItem(STORE) ?? '{}') as Record<string, SyncLink>;
+    const all = JSON.parse(localStorage.getItem(STORE) ?? '{}') as Record<string, SyncLink>;
+    // Older builds could also sync to Google Sheets; those links are no longer followed.
+    return Object.fromEntries(Object.entries(all).filter(([, l]) => l?.provider === 'onedrive'));
   } catch {
     return {};
   }
@@ -101,13 +102,12 @@ export function useSheetSync(docKey: string | null) {
 
   /** Creates the spreadsheet and starts syncing. Call from a click: it may open a sign-in popup. */
   const connect = useCallback(
-    async (provider: SheetProvider, title: string, table: Table) => {
+    async (title: string, table: Table) => {
       if (!docKey) return;
       setStatus({ kind: 'syncing' });
       try {
-        if (provider === 'google') await signInWithGoogle();
-        else await signInWithMicrosoft();
-        const made = provider === 'google' ? await GoogleSheetTarget.create(title, table) : await OneDriveWorkbookTarget.create(title, table);
+        await signInWithMicrosoft();
+        const made = await OneDriveWorkbookTarget.create(title, table);
         target.current = made.target;
         latest.current = table;
         written.current = tableKey(table);
@@ -125,8 +125,7 @@ export function useSheetSync(docKey: string | null) {
   const syncNow = useCallback(async () => {
     if (!docKey || !link) return;
     try {
-      if (link.provider === 'google') await signInWithGoogle();
-      else await signInWithMicrosoft();
+      await signInWithMicrosoft();
     } catch (err) {
       setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Sign-in failed.', reconnect: true });
       return;

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { googleSignInConfigured, googleUser, signInWithGoogle, signOutOfGoogle, subscribeGoogleUser } from '../studio/drive/google';
 import { microsoftUser, oneDriveConfigured, setStaySignedInToMicrosoft, signInWithMicrosoft, signOutOfMicrosoft, staySignedInToMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
 import { forgetRecentSession, recentSessions, restoreRecentSession, type SessionRef } from '../studio/local';
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
 import { ACCESS_SHORT } from './sessions/AccessEditor';
+import { StudioHelp } from './studio/StudioHelp';
 import { Caret, DocIcon, FilterButton, KebabIcon, PersonIcon, StudioHeader, StudioMenu, StudioRow, StudioTabs, studioIdText, type StudioSort } from './studio/chrome';
 import { desktop } from '../desktop/host';
 import { offlineReason, useOnline } from '../offline/network';
@@ -34,19 +34,17 @@ interface Props {
   /** Local documents open in tabs and the library, offered when starting a session. */
   openFiles: { id: string; name: string }[];
   library: { id: string; name: string }[];
-  /** Whether this build has Google credentials (see VITE_GOOGLE_* in apps/web/.env.local). */
-  driveAvailable: boolean;
   /** Whether this build has a Microsoft client ID (VITE_MICROSOFT_CLIENT_ID) for OneDrive sessions. */
   oneDriveAvailable: boolean;
-  /** A Google Drive or OneDrive session from an invite link, waiting for a click to join. */
+  /** A OneDrive session from an invite link, waiting for a click to join. */
   invite: SessionRef | null;
   onDismissInvite: () => void;
   /** Opens the Start dialog with these documents (a tab's Add to Session → Start New Session). */
   startRequest?: { token: number; fileIds: string[] } | null;
   /** Resolve true on success so the dialog closes. */
   onStart: (req: StartRequest) => Promise<boolean>;
-  /** Joins a session; a Drive ref with no id opens Google's Picker to choose the folder. */
-  onJoin: (ref: SessionRef | { backend: 'drive'; id: null }) => Promise<boolean>;
+  /** Joins a session. */
+  onJoin: (ref: SessionRef) => Promise<boolean>;
   onLeave: (sessionId: string) => void;
   onAddCurrent: (sessionId: string) => void;
   onAddFiles: (sessionId: string, files: File[]) => void;
@@ -73,7 +71,6 @@ type Dialog = 'start' | 'join' | 'settings' | null;
 export function SessionsPanel(props: Props) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [startDocs, setStartDocs] = useState<string[] | null>(null);
-  const google = useSyncExternalStore(subscribeGoogleUser, googleUser);
   const microsoft = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
   useEffect(() => {
     if (!props.startRequest) return;
@@ -90,9 +87,7 @@ export function SessionsPanel(props: Props) {
       {dialog === 'start' && (
         <StartSessionDialog
           me={props.me}
-          googleEmail={google?.email ?? null}
           microsoftEmail={microsoft?.email ?? null}
-          driveAvailable={props.driveAvailable}
           oneDriveAvailable={props.oneDriveAvailable}
           openFiles={props.openFiles}
           library={props.library}
@@ -108,12 +103,10 @@ export function SessionsPanel(props: Props) {
       {dialog === 'join' && (
         <JoinSessionDialog
           me={props.me}
-          driveAvailable={props.driveAvailable}
           oneDriveAvailable={props.oneDriveAvailable}
           busy={props.busy}
           onClose={() => setDialog(null)}
           onJoinOneDrive={(id) => void props.onJoin({ backend: 'onedrive', id }).then((ok) => ok && setDialog(null))}
-          onJoinDrive={() => void props.onJoin({ backend: 'drive', id: null }).then((ok) => ok && setDialog(null))}
         />
       )}
       {dialog === 'settings' && focused && (
@@ -170,7 +163,6 @@ function SessionList({
   me,
   busy,
   error,
-  driveAvailable,
   oneDriveAvailable,
   invite,
   onDismissInvite,
@@ -184,13 +176,13 @@ function SessionList({
   const [tab, setTab] = useState<'joined' | 'not' | 'deleted'>('joined');
   const [sort, setSort] = useState<StudioSort>('recent');
   const [sortDesc, setSortDesc] = useState(true);
-  // Sessions in Drive and OneDrive show their details once joined (reading them needs a sign-in).
+  // Sessions in OneDrive show their details once joined (reading them needs a sign-in).
   const recent = useMemo(recentSessions, [refresh, joined.length]);
 
   const rows = recent.map((r) => {
     const j = joined.find((x) => x.session.id === r.id);
     const meta = j?.snapshot.meta ?? null;
-    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'drive' ? 'Google Drive' : 'OneDrive';
+    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : 'OneDrive';
     const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
     return { ref: r, joined: j, meta, status, usable: true, access };
   });
@@ -230,20 +222,37 @@ function SessionList({
         ]}
       />
 
+      <StudioHelp id="sessions" title="How sessions work">
+        <p>A session lets several people look at the same PDFs and mark them up together at the same time, from different places. Everyone sees the others' markups and chat within seconds.</p>
+        <h4>Where it lives</h4>
+        <p>
+          The person who starts the session (the host) signs in to their OneDrive. redcolumn makes one shared folder there and puts the PDFs in it. Your documents are kept in that folder, not on a redcolumn server, and when the host ends the session the folder's files
+          are removed.
+        </p>
+        <h4>Accounts you need</h4>
+        <ul>
+          <li>A Microsoft account (personal, work or school). The host and guests all sign in with one.</li>
+          <li>Guests join with a link or an email invitation from the host. They do not need to pay for anything.</li>
+          <li>The sign-in button is at the bottom of this list. Your email is shown to others so they know who made which markup.</li>
+        </ul>
+        <h4>What the app can reach</h4>
+        <ul>
+          <li>Microsoft: it asks your permission each time it needs more, such as opening a shared folder. You can sign out whenever you like.</li>
+          <li>Your name and email, so markups and chat show who wrote them.</li>
+        </ul>
+        <p>If you lose your internet connection, keep working. Your markups are saved on this device and sent when you are back online.</p>
+      </StudioHelp>
+
       {invite && (
         <div className="session-invite">
-          <b>You're invited to a Live Session in {invite.backend === 'onedrive' ? 'OneDrive' : 'Google Drive'}.</b>
+          <b>You're invited to a Live Session in OneDrive.</b>
           <p>
-            {invite.backend === 'onedrive'
-              ? oneDriveAvailable
-                ? 'Joining signs you in to Microsoft (a personal, work or school account).'
-                : 'This copy of the app is not set up for OneDrive, so it cannot join. Open the link on the site the host uses.'
-              : driveAvailable
-                ? 'Joining signs you in to Google and asks you to select the session folder once.'
-                : 'This copy of the app is not set up for Google Drive, so it cannot join. Open the link on the site the host uses.'}
+            {oneDriveAvailable
+              ? 'Joining signs you in to Microsoft (a personal, work or school account).'
+              : 'This copy of the app is not set up for OneDrive, so it cannot join. Open the link on the site the host uses.'}
           </p>
           <div className="row">
-            <button className="btn primary" disabled={busy || !(invite.backend === 'onedrive' ? oneDriveAvailable : driveAvailable)} onClick={() => void onJoin(invite)}>
+            <button className="btn primary" disabled={busy || !oneDriveAvailable} onClick={() => void onJoin(invite)}>
               Join session
             </button>
             <button className="btn small flat" onClick={onDismissInvite}>
@@ -261,7 +270,7 @@ function SessionList({
       ) : (
         <ul className="rc-list">
           {shown.map(({ ref, joined: j, meta, status, usable, access }) => {
-            const blocked = busy || !usable || (!j && ((ref.backend === 'drive' && !driveAvailable) || (ref.backend === 'onedrive' && !oneDriveAvailable)));
+            const blocked = busy || !usable || (!j && !oneDriveAvailable);
             const name = meta?.name ?? ref.name;
             return (
               <StudioRow
@@ -319,7 +328,6 @@ function SessionList({
       <p className="rc-note">
         You appear as <b>{me}</b>.
       </p>
-      <GoogleIdentity onChanged={() => setRefresh((n) => n + 1)} />
       <MicrosoftIdentity onChanged={() => setRefresh((n) => n + 1)} />
       </div>
     </div>
@@ -349,7 +357,7 @@ function InSession({
   onInviteEmail,
 }: Props & JoinedSession & { onSettings: () => void }) {
   const online = useOnline();
-  const { meta, isHost, status, record, presence, backend, needsAuth, viewOnly, denied } = snapshot;
+  const { meta, isHost, status, record, presence, needsAuth, viewOnly, denied } = snapshot;
   const finished = meta.status === 'finished';
   // Ended: the host removed the session's files (seen just before, or found gone).
   const ended = !!meta.ended || !!snapshot.removed;
@@ -368,7 +376,7 @@ function InSession({
 
   // Host, invited people and everyone who has joined; online first, and online people show where they are.
   const people = useMemo(() => {
-    // One row per person: known by Google email when they have one, else by name.
+    // One row per person: known by Microsoft email when they have one, else by name.
     type Row = { name: string; email: string | null };
     const rows: Row[] = [];
     const same = (a: Row, b: Row) => (a.email && b.email ? sameName(a.email, b.email) : sameName(a.name, b.name) || (!!a.email && sameName(a.email, b.name)) || (!!b.email && sameName(b.email, a.name)));
@@ -443,7 +451,7 @@ function InSession({
         {denied && <p className="session-error">The host has removed your access to this session.</p>}
         {needsAuth && (
           <div className="rc-banner">
-            {`Signed out of ${backend === 'onedrive' ? 'Microsoft' : 'Google'}. Your edits are kept here and saved when you reconnect.`}{' '}
+            {`Signed out of Microsoft. Your edits are kept here and saved when you reconnect.`}{' '}
             <button className="rc-text-btn" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
               Reconnect
             </button>
@@ -693,45 +701,6 @@ function RecordView({
   );
 }
 
-/** Who you are signed in to Google as (used to identify you in sessions), with sign in and out. */
-function GoogleIdentity({ onChanged }: { onChanged: () => void }) {
-  const user = useSyncExternalStore(subscribeGoogleUser, googleUser);
-  const [error, setError] = useState<string | null>(null);
-  if (!googleSignInConfigured) return null;
-  return (
-    <div className="google-identity">
-      {user ? (
-        <>
-          <span title={user.name}>
-            Google: <b>{user.email}</b>
-          </span>
-          <button
-            className="btn small flat"
-            onClick={() => {
-              signOutOfGoogle();
-              onChanged();
-            }}
-          >
-            Sign out
-          </button>
-        </>
-      ) : (
-        <button
-          className="btn small"
-          onClick={() => {
-            setError(null);
-            signInWithGoogle().then(onChanged, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
-          }}
-          title="Sessions can then identify you by your Google account's email"
-        >
-          Sign in with Google
-        </button>
-      )}
-      {error && <p className="session-error">{error}</p>}
-    </div>
-  );
-}
-
 /** Who you are signed in to Microsoft as (OneDrive sessions), with sign in and out. */
 function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
   const user = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
@@ -739,7 +708,7 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
   const [stay, setStay] = useState(staySignedInToMicrosoft);
   if (!oneDriveConfigured) return null;
   return (
-    <div className="google-identity">
+    <div className="cloud-identity">
       {user ? (
         <>
           <span title={`${user.name}. ${stay ? 'Kept signed in on this device.' : 'Signed in for this tab only; closing it signs you out.'}`}>

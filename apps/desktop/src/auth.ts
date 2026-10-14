@@ -6,8 +6,6 @@ import { writeAtomic } from './atomic';
 import { listenForCode, SignInClosed, validTenant } from './loopback';
 import { pkcePair } from './pkce';
 
-const GOOGLE_SCOPE = 'openid email profile https://www.googleapis.com/auth/drive.file';
-
 export interface AuthResult {
   accessToken: string;
   expiresAt: number;
@@ -78,97 +76,18 @@ export class DesktopAuth {
    */
   private msTokens = new Map<string, AuthResult>();
 
-  constructor(private dir: string) {}
+  constructor(private dir: string) {
+    // Older builds could sign in to Google; that sign-in is no longer used, so its saved token goes.
+    void fs.unlink(this.file('google-auth.json')).catch(() => undefined);
+  }
 
   private file(name: string) {
     return path.join(this.dir, name);
   }
 
-  async signOut(provider: 'google' | 'microsoft') {
-    if (provider === 'microsoft') this.msTokens.clear();
-    const file = this.file(provider === 'google' ? 'google-auth.json' : 'microsoft-auth.json');
-    if (provider === 'google') {
-      // Revoke the grant too, so the refresh token stops working wherever a copy might be.
-      try {
-        const raw = await fs.readFile(file);
-        const text = raw.subarray(0, 4).toString() === 'enc:' ? safeStorage.decryptString(raw.subarray(4)) : raw.toString('utf8');
-        const saved = JSON.parse(text) as Partial<SavedAuth>;
-        if (saved.refreshToken) {
-          await fetch('https://oauth2.googleapis.com/revoke', {
-            method: 'POST',
-            headers: { 'content-type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({ token: saved.refreshToken }),
-          }).catch(() => undefined);
-        }
-      } catch {
-        // Nothing saved.
-      }
-    }
-    await fs.unlink(file).catch(() => undefined);
-  }
-
-  /**
-   * A Google token. Google's Desktop OAuth clients come with a client secret that Google requires
-   * on the token request even with PKCE; it is not confidential in an installed app.
-   */
-  async google(clientId: string, clientSecret: string, interactive: boolean): Promise<AuthResult | null> {
-    const saved = await readSaved(this.file('google-auth.json'), clientId);
-    if (saved && saved.expiresAt > Date.now() + 60_000) return publicResult(saved);
-    if (saved) {
-      try {
-        return await this.refreshGoogle(clientId, clientSecret, saved);
-      } catch {
-        // The refresh token was refused: ask again.
-      }
-    }
-    if (!interactive) return null;
-    return this.interactive(async (redirectUri, state) => {
-      const { verifier, challenge } = pkcePair();
-      const auth = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-      auth.searchParams.set('client_id', clientId);
-      auth.searchParams.set('redirect_uri', redirectUri);
-      auth.searchParams.set('response_type', 'code');
-      auth.searchParams.set('scope', GOOGLE_SCOPE);
-      auth.searchParams.set('state', state);
-      auth.searchParams.set('code_challenge', challenge);
-      auth.searchParams.set('code_challenge_method', 'S256');
-      auth.searchParams.set('access_type', 'offline');
-      auth.searchParams.set('prompt', 'consent');
-      await shell.openExternal(auth.href);
-      return verifier;
-    }, async (code, redirectUri, verifier) => {
-      const body = new URLSearchParams({
-        client_id: clientId,
-        code,
-        code_verifier: verifier,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-      });
-      if (clientSecret) body.set('client_secret', clientSecret);
-      const json = await postForm('https://oauth2.googleapis.com/token', body);
-      const who = await googleUser(String(json.access_token));
-      const result = tokenResult(json, who.email, who.name);
-      await writeSaved(this.file('google-auth.json'), {
-        ...result,
-        clientId,
-        refreshToken: typeof json.refresh_token === 'string' ? json.refresh_token : saved?.refreshToken ?? '',
-        scopes: GOOGLE_SCOPE.split(' '),
-      });
-      return result;
-    });
-  }
-
-  private async refreshGoogle(clientId: string, clientSecret: string, saved: SavedAuth): Promise<AuthResult> {
-    const body = new URLSearchParams({
-      client_id: clientId,
-      refresh_token: saved.refreshToken,
-      grant_type: 'refresh_token',
-    });
-    if (clientSecret) body.set('client_secret', clientSecret);
-    const json = await postForm('https://oauth2.googleapis.com/token', body);
-    const result = tokenResult(json, saved.email, saved.name);
-    await writeSaved(this.file('google-auth.json'), { ...saved, ...result, refreshToken: typeof json.refresh_token === 'string' ? json.refresh_token : saved.refreshToken });
-    return result;
+  async signOut(provider: 'microsoft') {
+    this.msTokens.clear();
+    await fs.unlink(this.file(`${provider}-auth.json`)).catch(() => undefined);
   }
 
   async microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null> {
@@ -269,13 +188,6 @@ export class DesktopAuth {
       if (this.flow === flow) this.flow = null;
     }
   }
-}
-
-async function googleUser(token: string): Promise<{ email: string; name: string }> {
-  const res = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { authorization: `Bearer ${token}` } });
-  const info = (await res.json().catch(() => null)) as { email?: string; name?: string } | null;
-  if (!res.ok || !info?.email) throw new Error('Google did not share this account\'s email address.');
-  return { email: info.email.toLowerCase(), name: info.name || info.email };
 }
 
 async function microsoftUser(token: string): Promise<{ email: string; name: string }> {

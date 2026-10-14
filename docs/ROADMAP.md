@@ -7,8 +7,8 @@ two), **M** (about a week), **L** (several weeks).
 
 | Work | Notes | Size |
 |---|---|---|
-| Spreadsheet links for quantities, more | Done: Sync to Google Sheets or Excel in OneDrive. Next: a local `.xlsx`/CSV through the File System Access API, named cells and a Totals sheet | M |
-| Account settings | A settings page for the Google and Microsoft sign-ins used by Live Sessions, with the Access section in [SECURITY-HARDENING.md](SECURITY-HARDENING.md) | S |
+| Spreadsheet links for quantities, more | Done: Sync to Excel in OneDrive. Next: a local `.xlsx`/CSV through the File System Access API, named cells and a Totals sheet | M |
+| Account settings | A settings page for the Microsoft sign-in used by Live Sessions, with the Access section in [SECURITY-HARDENING.md](SECURITY-HARDENING.md) | S |
 | Security hardening | Plain account of cloud access, a Content Security Policy, shorter-lived tokens, tighter sharing, and a local folder option in the Electron version: [SECURITY-HARDENING.md](SECURITY-HARDENING.md) | M–L |
 | More storage providers | Dropbox and SharePoint, through the same provider interface as `apps/web/src/studio/drive/` | M |
 | Customisable toolbars | Show, hide and arrange toolbar groups per profile | M |

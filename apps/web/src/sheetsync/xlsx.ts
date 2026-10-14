@@ -2,8 +2,8 @@ import type { TableCell } from './table';
 
 /**
  * A small .xlsx writer: one sheet with a bold, frozen header row, an AutoFilter and sized columns.
- * An .xlsx is a zip of XML parts; this stores them uncompressed, which Excel, Google Sheets and
- * LibreOffice all open.
+ * An .xlsx is a zip of XML parts; this stores them uncompressed, which Excel and
+ * LibreOffice both open.
  */
 
 const enc = new TextEncoder();

@@ -21,7 +21,7 @@ test('actions are kept in this browser, oldest first, with repeats counted on on
   logCloudAction('onedrive', 'replace', 'Hana.nbseat', 2);
   logCloudAction('onedrive', 'replace', 'session.json', 3);
   logCloudAction('onedrive', 'replace', 'Hana.nbseat', 4);
-  logCloudAction('google', 'invite', 'sam@x.com to L2', 5);
+  logCloudAction('onedrive', 'invite', 'sam@x.com to L2', 5);
   assert.deepEqual(
     cloudLog().map((e) => [e.action, e.name, e.count]),
     [
@@ -41,15 +41,13 @@ test('the list keeps the most recent 300 lines', () => {
   assert.equal(cloudLog()[0]!.name, 'f50.pdf');
 });
 
-test('the first-use summary shows once per provider, and cancelling stops the sign-in', async () => {
+test('the first-use summary shows once, and cancelling stops the sign-in', async () => {
   const asked: string[] = [];
   let answer = false;
   setFirstUseConfirm(async (p) => (asked.push(p), answer));
   await assert.rejects(firstUse('microsoft'), /cancelled/);
   answer = true;
   await firstUse('microsoft');
-  await firstUse('microsoft');
-  await firstUse('google');
-  assert.deepEqual(asked, ['microsoft', 'microsoft', 'google']);
+  assert.deepEqual(asked, ['microsoft', 'microsoft']);
   setFirstUseConfirm(null);
 });

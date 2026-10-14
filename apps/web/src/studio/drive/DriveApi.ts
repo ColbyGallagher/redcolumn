@@ -1,10 +1,9 @@
 /**
- * The cloud-drive operations a Drive session needs. `GoogleDrive` implements them over the Google
- * Drive REST API and `OneDrive` over Microsoft Graph; tests use an in-memory fake.
+ * The cloud-drive operations a Drive session needs. `OneDrive` implements them over Microsoft
+ * Graph; tests use an in-memory fake.
  *
- * Access model (the `drive.file` scope): this app may write only files it created and folders the
- * user picked. Everything in a session folder is shared "anyone with the link", so every attendee
- * reads it with the API key, without needing per-file access.
+ * Access model: everything in a session folder is shared through one sharing link, so every
+ * attendee reads it as themselves without needing per-file access.
  */
 
 /** Custom properties on a file; each key plus value must fit in 124 bytes. */
@@ -24,9 +23,9 @@ export interface DriveFile {
 }
 
 export interface DriveApi {
-  /** Which drive this is (Google Drive when absent). */
-  readonly backend?: 'drive' | 'onedrive';
-  /** A web link that opens the session folder (Google Drive's folder page when absent). */
+  /** Which drive this is (OneDrive when absent). */
+  readonly backend?: 'onedrive';
+  /** A web link that opens the session folder. */
   folderUrl?(folderId: string): string;
   /** Lists a public folder's files (read with the API key). */
   list(folderId: string): Promise<DriveFile[]>;

@@ -6,8 +6,8 @@ A **Live Session** lets several people mark up the same drawings at the same tim
 
 ## How it works
 
-- The **host** starts the session in **their own** Google Drive or OneDrive. The documents and markups live in a folder there. There is no redcolumn server.
-- **Attendees** join from an invite link or email, and sign in with their Google or Microsoft account.
+- The **host** starts the session in **their own** OneDrive. The documents and markups live in a folder there. There is no redcolumn server.
+- **Attendees** join from an invite link or email, and sign in with their Microsoft account.
 - The host decides who can view, who can comment, and who can edit everyone's markups.
 
 ![The Sessions panel](img/sessions-panel.png)
@@ -41,4 +41,4 @@ If your connection drops, keep working. The panel says **Offline**, and your mar
 - [Host a session](#sessions-host)
 - [Join a session](#sessions-join)
 
-> **Note:** Sessions need the site to be set up for Google Drive and/or OneDrive sign-in. If **My Google Drive** or **My OneDrive** says *not set up in this build*, ask whoever runs your redcolumn site (see `docs/CLOUD-SETUP.md`).
+> **Note:** Sessions need the site to be set up for OneDrive sign-in. If the Start dialog says OneDrive is *not set up in this build*, ask whoever runs your redcolumn site (see `docs/CLOUD-SETUP.md`).

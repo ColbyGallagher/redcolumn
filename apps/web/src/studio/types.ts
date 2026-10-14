@@ -1,15 +1,15 @@
 import type { MarkupStore } from '@nb/markup';
 import { accessFor, type Access, type AccessPolicy, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from './protocol';
 
-/** Where a session lives: a folder in the host's Google Drive or OneDrive. */
-export type Backend = 'drive' | 'onedrive';
+/** Where a session lives: a folder in the host's OneDrive. */
+export type Backend = 'onedrive';
 
 export type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
 export interface Presence {
   clientId: number;
   name: string;
-  /** Google email, when signed in. */
+  /** Microsoft email, when signed in. */
   email?: string | null;
   color: string;
   docId: string | null;
@@ -22,18 +22,18 @@ export interface StudioSnapshot {
   meta: SessionMeta;
   isHost: boolean;
   me: string;
-  /** This attendee's Google or Microsoft email, when signed in. */
+  /** This attendee's Microsoft email, when signed in. */
   email?: string | null;
   status: ConnectionStatus;
   record: RecordEntry[];
   presence: Presence[];
   /** A link that opens this session in the app. */
   inviteLink: string;
-  /** Google Drive: sign-in has lapsed; edits are kept and saved once the user reconnects. */
+  /** Sign-in has lapsed; edits are kept and saved once the user reconnects. */
   needsAuth?: boolean;
-  /** Google Drive: this attendee may view but not write (the folder is shared view-only with them). */
+  /** This attendee may view but not write (the folder is shared view-only with them). */
   viewOnly?: boolean;
-  /** Google Drive: the session folder, for "Open in Drive". */
+  /** The session folder, for "Open in OneDrive". */
   folderUrl?: string;
   /** The host has taken this attendee's access away; the session no longer syncs. */
   denied?: boolean;
@@ -82,9 +82,9 @@ export interface CollabSession {
    * its folder and every file in it go to the drive's trash. Save anything wanted first.
    */
   end?(): Promise<void>;
-  /** Invites people by email (Google Drive sessions). */
+  /** Invites people by email (OneDrive sessions). */
   invite?(emails: string[]): Promise<void>;
-  /** Signs in again after it lapsed (Google Drive sessions); must run from a click. */
+  /** Signs in again after it lapsed (OneDrive sessions); must run from a click. */
   reconnect?(): Promise<void>;
   retry(): void;
   leave(): void;

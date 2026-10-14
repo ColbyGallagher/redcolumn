@@ -4,15 +4,14 @@
 
 1. Click the link the host sent. redcolumn opens and says **You're invited to a Live Session**.
 2. Click **Join session**.
-3. Sign in with your Google or Microsoft account when asked.
-   - For **Google Drive** sessions, you are also asked to choose the session folder once. Pick the folder the host shared with you.
+3. Sign in with your Microsoft account (personal, work or school) when asked.
 
 ## From the Sessions panel
 
 1. Click **Sessions** on the panel rail, then **Join…**.
 
    ![Join a session](img/session-join.png)
-2. Choose the shared session folder (Google Drive), or paste the session link (OneDrive).
+2. Paste the session link the host sent.
 
 ## Before you start
 

@@ -766,13 +766,13 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     // Account
     access: () => (
       <div className="pref-free">
-        <span className="pref-search-words">{label('Access sign in sign out Microsoft OneDrive Google permission token stay signed in')}</span>
+        <span className="pref-search-words">{label('Access sign in sign out Microsoft OneDrive permission token stay signed in')}</span>
         <AccessPrefs />
       </div>
     ),
     activity: () => (
       <div className="pref-free">
-        <span className="pref-search-words">{label('Activity cloud actions log OneDrive Google uploaded shared deleted')}</span>
+        <span className="pref-search-words">{label('Activity cloud actions log OneDrive uploaded shared deleted')}</span>
         <ActivityPrefs />
       </div>
     ),
