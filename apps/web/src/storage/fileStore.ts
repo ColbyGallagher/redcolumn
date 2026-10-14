@@ -130,8 +130,29 @@ export async function replaceFileContent(id: string, bytes: ArrayBuffer): Promis
   return entry;
 }
 
+/** Contents held while an open document's undo history can bring them back, with how many hold each. */
+const held = new Map<string, number>();
+
+/** Keeps contents stored while something (undo history) may need them, even once no entry uses them. */
+export function holdContents(hashes: Iterable<string>) {
+  for (const h of hashes) held.set(h, (held.get(h) ?? 0) + 1);
+}
+
+/** Lets go of contents held by {@link holdContents}; any no longer used are deleted. */
+export async function releaseContents(hashes: Iterable<string>): Promise<void> {
+  for (const h of hashes) {
+    const n = (held.get(h) ?? 0) - 1;
+    if (n > 0) held.set(h, n);
+    else {
+      held.delete(h);
+      await dropIfUnused(h);
+    }
+  }
+}
+
 /** Deletes stored contents that no entry or kept revision uses any more. */
 async function dropIfUnused(hash: string) {
+  if (held.has(hash)) return;
   const used = (await readIndex()).some((e) => e.hash === hash || e.revisions?.some((r) => r.hash === hash));
   if (used) return;
   try {

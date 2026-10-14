@@ -131,3 +131,66 @@ test('a hook hears each new markup, not an edit of one already there', async () 
   assert.deepEqual(heard, ['a', 'b']);
   await store.destroy();
 });
+
+test('a page operation is one undo step: undo brings the markups and the file back, redo repeats it', async () => {
+  const { planPageOps } = await import('./pages.ts');
+  const store = await MarkupStore.open('test', { persist: false });
+  store.batch(() => {
+    store.add(rect('a', 0));
+    store.add({ ...rect('b', 0), pageIndex: 1 });
+  });
+  store.checkpoint();
+  const restored: string[] = [];
+  MarkupStore.onFileRestored = (s, hash) => s === store && restored.push(hash);
+  try {
+    const sizes = [{ width: 100, height: 100 }, { width: 100, height: 100 }];
+    store.fileStep('Delete page 1', 'old', 'new', () => store.remapPages(planPageOps(2, [{ type: 'delete', pages: [0] }]), sizes));
+    assert.deepEqual(store.all().map((m) => [m.id, m.pageIndex]), [['b', 0]]);
+    assert.equal(store.undoHistory()[0]?.label, 'Delete page 1');
+    // The markup added before the page operation is still undoable after it.
+    assert.equal(store.undoHistory().length, 2);
+    store.undo();
+    assert.deepEqual(restored, ['old']);
+    assert.deepEqual(store.all().map((m) => [m.id, m.pageIndex]).sort(), [['a', 0], ['b', 1]]);
+    store.redo();
+    assert.deepEqual(restored, ['old', 'new']);
+    assert.deepEqual(store.all().map((m) => [m.id, m.pageIndex]), [['b', 0]]);
+  } finally {
+    MarkupStore.onFileRestored = null;
+    await store.destroy();
+  }
+});
+
+test('a file change with nothing to remap is still undoable, and a markup edit after it undoes first', async () => {
+  const store = await storeWith(1);
+  const restored: string[] = [];
+  MarkupStore.onFileRestored = (s, hash) => s === store && restored.push(hash);
+  try {
+    store.fileStep('Page Setup', 'h1', 'h2');
+    store.update('m0', { comment: 'after' });
+    store.checkpoint();
+    assert.deepEqual(store.undoHistory().map((s) => s.label).slice(0, 2), ['Comment on Rectangle', 'Page Setup']);
+    store.undo();
+    assert.deepEqual(restored, []);
+    store.undo();
+    assert.deepEqual(restored, ['h1']);
+    // A second file change starts from where the file is now.
+    store.fileStep('Rotate pages', 'h1', 'h3');
+    store.undo();
+    assert.deepEqual(restored, ['h1', 'h1']);
+  } finally {
+    MarkupStore.onFileRestored = null;
+    await store.destroy();
+  }
+});
+
+test('changing the custom columns is undoable', async () => {
+  const store = await storeWith(1);
+  const before = store.columnSet();
+  store.setColumnSet({ columns: [{ id: 'c1', name: 'Trade', type: 'text' } as never], statuses: before.statuses });
+  assert.equal(store.columnSet().columns.length, 1);
+  assert.equal(store.undoHistory()[0]?.label, 'Edit columns');
+  store.undo();
+  assert.deepEqual(store.columnSet().columns, before.columns);
+  await store.destroy();
+});
