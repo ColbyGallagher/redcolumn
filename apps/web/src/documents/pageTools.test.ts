@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { degrees, PDFDocument } from 'pdf-lib';
-import { chunkPages, cropPages, marginRect, rangesFromStarts, replacePages, resizePages, splitPdf } from './pageTools.ts';
+import { chunkPages, cropPages, marginRect, rangesFromStarts, replacePages, resizePages, splitDocument, splitPartName, splitPdf, splitPdfBySize } from './pageTools.ts';
 import { crc32, zipFiles } from './zip.ts';
 
 async function pdf(sizes: [number, number][], rotate = 0) {
@@ -60,4 +60,33 @@ test('split into chunks or at bookmarks; zip archives them', async () => {
   // End of central directory lists two entries.
   const end = zip.length - 22;
   assert.equal(zip[end + 10], 2);
+});
+
+test('split by file size keeps each part under the limit, pages whole', async () => {
+  const doc = await PDFDocument.create();
+  // Pages heavy enough (~20 kB of drawing each) that the per-file overhead does not dominate.
+  for (let i = 0; i < 6; i++) {
+    const page = doc.addPage([100, 100]);
+    for (let k = 0; k < 400; k++) page.drawLine({ start: { x: k % 100, y: i }, end: { x: 5, y: (k * 7) % 100 } });
+  }
+  const bytes = await doc.save({ useObjectStreams: false });
+  const one = (await splitPdfBySize(bytes, 1e9)).ranges;
+  assert.deepEqual(one, [[0, 1, 2, 3, 4, 5]]);
+  const single = (await splitPdf(bytes, [[0]]))[0]!.length;
+  const { parts, ranges } = await splitPdfBySize(bytes, single * 2.2);
+  assert.ok(ranges.length > 1);
+  assert.deepEqual(ranges.flat(), [0, 1, 2, 3, 4, 5]);
+  for (const p of parts) assert.ok(p.length <= single * 2.2);
+  // A limit smaller than any page: one page per file.
+  assert.equal((await splitPdfBySize(bytes, 10)).parts.length, 6);
+});
+
+test('split part names: number pattern before or after, or bookmark titles', async () => {
+  assert.equal(splitPartName('Plans', 0, 12, { mode: 'suffix', pattern: 'Part-#' }), 'Plans Part-01');
+  assert.equal(splitPartName('Plans', 2, 3, { mode: 'prefix', pattern: '#_' }), '3_ Plans');
+  assert.equal(splitPartName('Plans', 4, 9, { mode: 'suffix', pattern: 'Vol ' }), 'Plans Vol5');
+  assert.equal(splitPartName('Plans', 0, 2, { mode: 'bookmarks', pattern: 'Part-#' }, 'A/B Civil'), '1 A-B Civil');
+  assert.equal(splitPartName('Plans', 0, 2, { mode: 'bookmarks', pattern: 'Part-#' }), 'Plans Part-1');
+  const parts = await splitDocument(await pdf([[10, 10], [20, 20], [30, 30]]), 'Doc', [{ pageIndex: 1, title: 'Two' }], { by: 'bookmarks', count: 1, maxMb: 1, naming: { mode: 'bookmarks', pattern: 'Part-#' } });
+  assert.deepEqual(parts.map((p) => p.name), ['Doc Part-1.pdf', '2 Two.pdf']);
 });

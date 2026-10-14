@@ -137,3 +137,89 @@ export function rangesFromStarts(count: number, starts: readonly number[]): numb
   if (!s.length || s[0] !== 0) s.unshift(0);
   return s.map((from, i) => Array.from({ length: (s[i + 1] ?? count) - from }, (_, k) => from + k));
 }
+
+/**
+ * Splits into files of at most `maxBytes` each, taking pages in order: a part grows a page at a time
+ * until the next page would push it over. A single page larger than the limit gets a file of its own.
+ */
+export async function splitPdfBySize(bytes: ArrayBuffer | Uint8Array, maxBytes: number): Promise<{ parts: Uint8Array[]; ranges: number[][] }> {
+  const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  const parts: Uint8Array[] = [];
+  const ranges: number[][] = [];
+  let doc: PDFDocument | null = null;
+  let pages: number[] = [];
+  let saved: Uint8Array | null = null;
+  for (let p = 0; p < src.getPageCount(); p++) {
+    doc ??= await PDFDocument.create();
+    const [copy] = await doc.copyPages(src, [p]);
+    doc.addPage(copy!);
+    const next = await doc.save();
+    if (next.length > maxBytes && saved) {
+      // Close the part without this page (the saved copy from before it), and start the next with it.
+      parts.push(saved);
+      ranges.push(pages);
+      doc = await PDFDocument.create();
+      const [again] = await doc.copyPages(src, [p]);
+      doc.addPage(again!);
+      saved = await doc.save();
+      pages = [p];
+    } else {
+      saved = next;
+      pages.push(p);
+    }
+  }
+  if (saved) {
+    parts.push(saved);
+    ranges.push(pages);
+  }
+  return { parts, ranges };
+}
+
+/** How split parts are named: the number (`#`) pattern before or after the file name, or bookmark titles. */
+export interface SplitNaming {
+  mode: 'prefix' | 'suffix' | 'bookmarks';
+  /** `#` marks where the part number goes; without one, the number goes at the end. */
+  pattern: string;
+}
+
+/** A split part's file name (without `.pdf`), numbered from 1 and zero-padded so the files sort in order. */
+export function splitPartName(base: string, index: number, total: number, naming: SplitNaming, bookmarkTitle?: string): string {
+  const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
+  const num = String(index + 1).padStart(String(total).length, '0');
+  if (naming.mode === 'bookmarks' && bookmarkTitle?.trim()) return `${num} ${safe(bookmarkTitle)}`;
+  const raw = naming.pattern.trim() || '#';
+  const label = safe(raw.includes('#') ? raw.replace(/#/g, num) : `${raw}${num}`);
+  return naming.mode === 'prefix' ? `${label} ${safe(base)}` : `${safe(base)} ${label}`;
+}
+
+/** Split Document's choices: every N pages, files up to a size, or at top-level bookmarks. */
+export interface SplitSpec {
+  by: 'count' | 'size' | 'bookmarks';
+  count: number;
+  /** Largest file, in megabytes, when splitting by size. */
+  maxMb: number;
+  naming: SplitNaming;
+}
+
+/** Splits a document as `spec` says, returning each part with its file name. */
+export async function splitDocument(
+  bytes: ArrayBuffer | Uint8Array,
+  base: string,
+  bookmarks: readonly { pageIndex: number; title: string }[],
+  spec: SplitSpec,
+): Promise<{ name: string; data: Uint8Array }[]> {
+  const count = (await PDFDocument.load(bytes, { ignoreEncryption: true })).getPageCount();
+  const marks = [...bookmarks].sort((a, b) => a.pageIndex - b.pageIndex);
+  if (spec.by === 'bookmarks' && !marks.length) throw new Error('No bookmarks to split at');
+  let parts: Uint8Array[];
+  let ranges: number[][];
+  if (spec.by === 'size') ({ parts, ranges } = await splitPdfBySize(bytes, Math.max(0.01, spec.maxMb) * 1024 * 1024));
+  else {
+    ranges = spec.by === 'bookmarks' ? rangesFromStarts(count, marks.map((b) => b.pageIndex)) : chunkPages(count, spec.count);
+    parts = await splitPdf(bytes, ranges);
+  }
+  return parts.map((data, i) => {
+    const title = spec.by === 'bookmarks' ? marks.find((b) => b.pageIndex === ranges[i]![0])?.title : undefined;
+    return { name: `${splitPartName(base, i, parts.length, spec.naming, title)}.pdf`, data };
+  });
+}
