@@ -112,6 +112,7 @@ import type { PageText, SheetInfo } from '@nb/sheets';
 import type { IncomingPage } from './documents/slipSheet';
 import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
+import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -754,6 +755,8 @@ export function App() {
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
+  /** Scale to Length: the reference points picked, waiting for the length they should be. */
+  const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
   /** Subject and label the Measurements panel gives the next measurement. */
   const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
@@ -1068,6 +1071,7 @@ export function App() {
       author: () => authorRef.current,
       onEditText: setEditingText,
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
+      onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
       measureDefaults: () => measureDefaultsRef.current,
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
@@ -5618,6 +5622,8 @@ export function App() {
           SEP,
           { label: 'Flip Horizontal', shortcut: shortcutLabel('edit.flipHorizontal'), onClick: () => c.tools.flipSelected('horizontal') },
           { label: 'Flip Vertical', shortcut: shortcutLabel('edit.flipVertical'), onClick: () => c.tools.flipSelected('vertical') },
+          SEP,
+          { label: 'Scale to Length…', onClick: () => c.tools.setTool('scaleLength') },
         ],
       },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
@@ -6592,6 +6598,7 @@ Open the download page? Run the new installer to update; your documents and mark
     },
     align: (how) => activeTools?.alignSelected(how),
     flip: (axis) => activeTools?.flipSelected(axis),
+    scaleToLength: () => activeTools?.setTool('scaleLength'),
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showLeft('signatures');
@@ -8594,6 +8601,24 @@ Open the download page? Run the new installer to update; your documents and mark
             setStampsOpen(false);
             setStampsCreating(false);
             placeStamp(s);
+          }}
+        />
+      )}
+      {scaleAsk && activeOpen && (
+        <ScaleToLengthDialog
+          points={scaleAsk.points}
+          scale={activeOpen.store.scaleAt(scaleAsk.pageIndex, scaleAsk.points[0])}
+          onCancel={() => {
+            setScaleAsk(null);
+            (scaleAsk.pane === 'b' ? ctlB : ctl)?.tools.cancel();
+          }}
+          onPick={() => {
+            setScaleAsk(null);
+            (scaleAsk.pane === 'b' ? ctlB : ctl)?.tools.pickScaleTarget();
+          }}
+          onScale={(factor) => {
+            setScaleAsk(null);
+            (scaleAsk.pane === 'b' ? ctlB : ctl)?.tools.scaleSelectionBy(factor);
           }}
         />
       )}

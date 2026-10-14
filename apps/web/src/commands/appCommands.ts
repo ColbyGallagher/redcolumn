@@ -117,6 +117,7 @@ export interface CommandActions {
   cycleDocument: (dir: 1 | -1) => void;
   align: (how: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
   flip: (axis: 'horizontal' | 'vertical') => void;
+  scaleToLength: () => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
@@ -226,7 +227,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     enabled,
     ...(checked === undefined ? {} : { checked }),
   });
-  const toggle = (key: 'showGrid' | 'snapToGrid' | 'snapToMarkup' | 'showRulers' | 'crosshair') => () => a.setSettings({ [key]: !s.settings[key] });
+  const toggle = (key: 'showGrid' | 'snapToGrid' | 'snapToMarkup' | 'showRulers' | 'crosshair' | 'polarTracking' | 'objectSnapTracking') => () => a.setSettings({ [key]: !s.settings[key] });
   const tools = [...MARKUP_TOOLS, ...MEASURE_TOOLS].map(({ tool }) => cmd(`tool.${tool}`, 'Tools', toolLabel(tool), () => a.setTool(tool), doc && (tool === 'select' || tool === 'lasso' || tool === 'snapshot' || s.editable), s.tool === tool));
 
   return [
@@ -282,6 +283,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.alignBottom', 'Edit', 'Align Bottom', () => a.align('bottom'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.flipHorizontal', 'Edit', 'Flip Horizontal', () => a.flip('horizontal'), sel && s.editable && !s.selectionLocked),
     cmd('edit.flipVertical', 'Edit', 'Flip Vertical', () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
+    cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
     cmd('edit.sendBackward', 'Edit', 'Send Backward', () => a.arrange('backward'), sel && s.editable),
@@ -317,6 +319,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.snapGrid', 'View', 'Snap to Grid', toggle('snapToGrid'), true, s.settings.snapToGrid),
     cmd('view.snapContent', 'View', 'Snap to Content', () => a.snapContent(!s.snap), true, s.snap),
     cmd('view.snapMarkup', 'View', 'Snap to Markup', toggle('snapToMarkup'), true, s.settings.snapToMarkup),
+    cmd('view.polarTracking', 'View', 'Polar Tracking', toggle('polarTracking'), true, s.settings.polarTracking),
+    cmd('view.objectSnapTracking', 'View', 'Object Snap Tracking', toggle('objectSnapTracking'), true, s.settings.objectSnapTracking),
     cmd('view.showLinks', 'View', 'Show Links', () => a.showLinks(!s.showLinks), doc, s.showLinks),
     cmd('view.darkPages', 'View', 'Dark Mode (Pages)', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dark' ? 'none' : 'dark' }), true, s.settings.pageFilter === 'dark'),
     cmd('view.dimmer', 'View', 'Dimmer', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dim' ? 'none' : 'dim' }), true, s.settings.pageFilter === 'dim'),

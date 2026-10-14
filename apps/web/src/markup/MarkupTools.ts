@@ -56,7 +56,11 @@ import {
   type WordBox,
   type StoredLink,
   markupBounds,
+  dimensionLine,
+  labelHandles,
+  markupSnapPoints,
   rotateHandle,
+  scaledAbout,
   rotatePoint,
   rotationCentre,
   type Attachment,
@@ -77,7 +81,7 @@ import {
   tableRegionRect,
   type TableLine,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, formatLength, pathLength, type Snap, type SnapIndex, type SnapKind } from '@nb/measure';
+import { bulgeThrough, dynamicFill, formatLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 
@@ -87,7 +91,7 @@ import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer'
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent';
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength';
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -112,6 +116,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   formField: 'Form Field',
   snapshot: 'Snapshot',
   cutContent: 'Cut Content',
+  scaleLength: 'Scale to Length',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
@@ -149,6 +154,12 @@ function snapKinds(): Set<SnapKind> {
   if (s.snapIntersections) kinds.add('intersection');
   if (s.snapMidpoints) kinds.add('midpoint');
   if (s.snapLines) kinds.add('nearest');
+  if (s.snapCenters) kinds.add('center');
+  if (s.snapQuadrants) kinds.add('quadrant');
+  if (s.snapGeoCenters) kinds.add('geocenter');
+  if (s.snapPerpendicular) kinds.add('perpendicular');
+  if (s.snapTangent) kinds.add('tangent');
+  if (s.snapApparent) kinds.add('apparent');
   return kinds;
 }
 /** On-screen radius of cloud arcs when the cloud is drawn. */
@@ -195,6 +206,16 @@ type Gesture =
   | { kind: 'bend'; id: string; segment: number; bulge: number }
   /** Turning a selected markup by its rotate handle; `angle` in degrees. */
   | { kind: 'rotate'; id: string; angle: number }
+  /**
+   * Scale to Length (AutoCAD's Scale › Reference): two points on the selected markups give the
+   * length they have now (`ref`, the first staying put); then either a typed length (`ask`, the
+   * app asks for it) or two more points (`target`) give the length they should have.
+   */
+  | { kind: 'scaleRef'; ids: string[]; pageIndex: number; ref: Point[]; target: Point[]; stage: 'ref' | 'ask' | 'target'; hover: Point | null }
+  /** Dragging a Length or Dimension's text: off the line moves the line (`leader`), along it slides the text (`along`). */
+  | { kind: 'label'; id: string; start: Point; from: { leader: number; along: number }; leader: number; along: number }
+  /** Turning a Length or Dimension's text by its knob; `angle` in degrees from where it would sit. */
+  | { kind: 'labelRotate'; id: string; centre: Point; base: number; angle: number }
   /** Press on a hyperlink; followed on release unless the pointer moved. */
   | { kind: 'link'; link: StoredLink; start: Point }
   | { kind: 'formField'; widget: FormWidgetHit; start: Point }
@@ -333,6 +354,11 @@ export interface MarkupToolsOptions {
   onEditText: (id: string) => void;
   /** The user drew a calibration line `lengthPoints` long on `pageIndex`, starting at `at`. */
   onCalibrate: (pageIndex: number, lengthPoints: number, at: Point) => void;
+  /**
+   * Scale to Length: the reference points are picked; ask what length they should be, then call
+   * `scaleSelectionBy`, `pickScaleTarget` (pick two points on the page instead) or `cancel`.
+   */
+  onScaleToLength?: (pageIndex: number, ref: [Point, Point]) => void;
   /** The user clicked PDF text with the `editText` tool. */
   onEditPdfText?: (pageIndex: number, at: Point) => void;
   /** The user selected PDF text with the `selectText` tool. */
@@ -405,6 +431,11 @@ function snapTarget(type: MarkupType): boolean {
   return info.draw !== 'freehand' && info.draw !== 'place' && info.content !== 'text';
 }
 
+/** How long the pointer rests on a snap before tracking picks it up, in milliseconds. */
+const ACQUIRE_MS = 400;
+/** An empty index, for snapping to markups alone when Snap to Content is off. */
+const NO_LINES = new SnapIndex(new Float32Array(0));
+
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
@@ -448,7 +479,20 @@ export class MarkupTools implements ViewerOverlay {
   private snapIndexes = new Map<number, SnapIndex | 'loading'>();
   /** Snap target under the cursor, drawn as an indicator. */
   private snapHit: Snap | null = null;
+  /** The snap target is a grid point (no name shown beside it). */
+  private snapIsGrid = false;
   private snapPage = -1;
+  /**
+   * Object snap tracking: points picked up by resting the pointer on a snap (with the directions
+   * of the lines they end, for extensions), and line directions picked up for parallel, on `page`.
+   */
+  private tracking: { page: number; points: TrackPoint[]; parallels: { at: Point; dir: Point }[] } = { page: -1, points: [], parallels: [] };
+  /** The alignment the pointer is locked onto (no snap under it), drawn as dotted paths. */
+  private tracked: Tracked | null = null;
+  /** The snap the pointer is resting on, and the timer that picks it up. */
+  private dwell: { key: string; timer: ReturnType<typeof setTimeout> } | null = null;
+  /** Markup outlines as snap lines, worked out once per markup version. */
+  private outlineCache = new WeakMap<Markup, number[]>();
   /** Page the current pointer event is on (pages differ across a stitched view). */
   private page = 0;
 
@@ -513,6 +557,8 @@ export class MarkupTools implements ViewerOverlay {
 
   private setGesture(g: Gesture | null) {
     this.gesture = g;
+    // Finishing or dropping a shape lets go of what tracking had picked up.
+    if (!g) this.clearTracking();
     if (g) this.sketchAnchor = null;
     const measuring = g?.kind === 'multi';
     const sketch = this.sketchState();
@@ -788,7 +834,7 @@ export class MarkupTools implements ViewerOverlay {
     // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
-    this.setState({ tool, selected: tool === 'select' || tool === 'lasso' ? this.state.selected : new Set(), preset: armed, painterSource: null });
+    this.setState({ tool, selected: tool === 'select' || tool === 'lasso' || tool === 'scaleLength' ? this.state.selected : new Set(), preset: armed, painterSource: null });
     // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
     if (tool === 'highlighter') this.wordsFor(this.page);
     this.viewer.refreshPointerCursor();
@@ -1515,7 +1561,33 @@ export class MarkupTools implements ViewerOverlay {
         } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
       }
     }
-    if (this.snapHit && this.snapPage === pageIndex) drawSnapIndicator(ctx, this.snapHit, zoom);
+    if (g?.kind === 'scaleRef' && g.pageIndex === pageIndex) {
+      const scale = store.scaleAt(pageIndex, g.ref[0]!);
+      const size = (a: Point, b: Point) => formatLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * scale.metersPerPoint, scale);
+      const ref = g.ref.length === 2 ? g.ref : g.stage === 'ref' && g.hover ? [g.ref[0]!, g.hover] : g.ref;
+      drawScaleLine(ctx, ref, '#2563eb', zoom);
+      if (ref.length === 2 && g.stage === 'ref') drawSketchReadout(ctx, `Reference ${size(ref[0]!, ref[1]!)}`, ref[1]!, zoom);
+      if (g.stage === 'target') {
+        const target = g.target.length === 1 && g.hover ? [g.target[0]!, g.hover] : g.target;
+        drawScaleLine(ctx, target, '#ea580c', zoom);
+        const factor = scaleFactor(g);
+        if (target.length === 2 && factor) drawSketchReadout(ctx, `${size(target[0]!, target[1]!)}  ×${+factor.toFixed(4)}`, target[1]!, zoom);
+      }
+    }
+    if (this.tracking.page === pageIndex) drawAcquired(ctx, this.tracking.points, this.tracking.parallels, zoom);
+    if (this.tracked && this.snapPage === pageIndex) {
+      const tracked = this.tracked;
+      drawTracked(ctx, tracked, zoom);
+      const scale = store.scaleAt(pageIndex, tracked.point);
+      const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
+      const distance = one ? `: ${formatLength(Math.hypot(tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]) * scale.metersPerPoint, scale)}` : '';
+      const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
+      drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
+    }
+    if (this.snapHit && this.snapPage === pageIndex) {
+      drawSnapIndicator(ctx, this.snapHit, zoom);
+      if (!this.snapIsGrid) drawSnapTip(ctx, SNAP_NAMES[this.snapHit.kind], this.snapHit.point, zoom);
+    }
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
       const [x, y] = this.ghost.at;
       ctx.save();
@@ -1763,6 +1835,11 @@ export class MarkupTools implements ViewerOverlay {
       return true;
     }
 
+    if (tool === 'scaleLength') {
+      if (e.button === 0) this.scaleClick(pt, e, pageIndex);
+      return true;
+    }
+
     const spec = clickSpec(tool);
     if (spec) {
       const g = this.gesture;
@@ -1777,6 +1854,7 @@ export class MarkupTools implements ViewerOverlay {
         }
         markup.points = [...markup.points, p];
         g.down = p;
+        this.clearTracking();
         this.completeIfFixed();
         this.refreshSketch();
         return true;
@@ -1827,6 +1905,17 @@ export class MarkupTools implements ViewerOverlay {
     const zoom = this.viewer.zoomFor(this.page);
     const tol = this.hitPx / zoom;
     for (const m of this.handleTargets()) {
+      const text = m && !this.frozen(m) && !this.store.readOnly ? labelHandles(m, zoom) : null;
+      if (m && text && Math.hypot(text.rotate.at[0] - p[0], text.rotate.at[1] - p[1]) <= tol * 1.5) {
+        const rotation = m.style.labelRotation ?? 0;
+        this.setGesture({ kind: 'labelRotate', id: m.id, centre: text.move, base: text.angle - rotation, angle: rotation });
+        return true;
+      }
+      if (m && text && Math.hypot(text.move[0] - p[0], text.move[1] - p[1]) <= tol * 1.5) {
+        const from = { leader: m.style.leader ?? 0, along: m.style.labelOffset ?? 0 };
+        this.setGesture({ kind: 'label', id: m.id, start: p, from, ...from });
+        return true;
+      }
       const knob = m ? rotateHandle(m, zoom) : null;
       if (m && knob && Math.hypot(knob.at[0] - p[0], knob.at[1] - p[1]) <= tol * 1.5 && !this.store.readOnly) {
         this.setGesture({ kind: 'rotate', id: m.id, angle: m.rotation ?? 0 });
@@ -2030,6 +2119,22 @@ export class MarkupTools implements ViewerOverlay {
         const now = this.state.tableCells;
         if (cell && (now?.focus.row !== cell.row || now.focus.col !== cell.col)) this.setState({ tableCells: { id: g.id, anchor: g.from, focus: cell } });
       }
+    } else if (g.kind === 'label') {
+      const m = this.store?.get(g.id);
+      const line = m ? dimensionLine(m) : null;
+      if (line) {
+        const dx = pt[0] - g.start[0];
+        const dy = pt[1] - g.start[1];
+        // Shift keeps the text on its line; near the middle it settles there.
+        const along = g.from.along + dx * line.dir[0] + dy * line.dir[1];
+        g.along = Math.abs(along) * this.viewer.zoomFor(this.page) < this.hitPx ? 0 : along;
+        g.leader = e.shiftKey ? g.from.leader : g.from.leader + dx * line.normal[0] + dy * line.normal[1];
+      }
+    } else if (g.kind === 'labelRotate') {
+      // The knob sits above the text, so pointing straight up is no turn; Shift snaps to 15°.
+      let angle = (Math.atan2(pt[1] - g.centre[1], pt[0] - g.centre[0]) * 180) / Math.PI + 90 - g.base;
+      angle = ((((angle + 180) % 360) + 360) % 360) - 180;
+      g.angle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.abs(angle) < 2 ? 0 : Math.round(angle * 10) / 10;
     } else if (g.kind === 'rotate') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -2039,6 +2144,8 @@ export class MarkupTools implements ViewerOverlay {
         angle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle * 10) / 10;
         g.angle = ((angle % 360) + 360) % 360;
       }
+    } else if (g.kind === 'scaleRef') {
+      if (g.stage !== 'ask' && g.pageIndex === pageIndex) g.hover = this.resolve(pt, e, (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null);
     } else {
       const m = this.store?.get(g.id);
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
@@ -2070,6 +2177,8 @@ export class MarkupTools implements ViewerOverlay {
       }
       return;
     }
+    // Scale to Length goes click by click.
+    if (g.kind === 'scaleRef') return;
     this.setGesture(null);
     if (g.kind === 'link') {
       if (Math.hypot(pt[0] - g.start[0], pt[1] - g.start[1]) * this.viewer.zoomFor(this.page) < this.dragPx) this.options.onFollowLink(g.link);
@@ -2129,6 +2238,9 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g.kind === 'rotate') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { rotation: g.angle || undefined });
+    } else if (g.kind === 'label' || g.kind === 'labelRotate') {
+      const m = this.store.get(g.id);
+      if (m) this.store.update(g.id, { style: labelStyled(m, g) });
     } else if (g.kind === 'tableLine') {
       const m = this.store.get(g.id);
       const table = m && moveTableLine(m, g.line, g.to);
@@ -2236,7 +2348,17 @@ export class MarkupTools implements ViewerOverlay {
     const mods = lastModifiers;
     const anchor = this.sketchAnchor;
     if (g?.kind === 'multi') g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!);
-    else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
+    else if (g?.kind === 'scaleRef') {
+      if (g.stage !== 'ask' && g.pageIndex === pageIndex) g.hover = this.resolve(pt, mods, (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null);
+    } else if (tool === 'scaleLength') {
+      // Before the first point: pointing at a markup picks it when nothing is selected.
+      if (!this.scaleTargets(pageIndex).length) {
+        this.snapHit = null;
+        this.viewer.invalidate();
+        return this.hitAt(toPoint(pt)) ? 'pointer' : 'crosshair';
+      }
+      this.resolve(pt, mods, null);
+    } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
     else if (tool === 'calibrate' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
@@ -2371,38 +2493,222 @@ export class MarkupTools implements ViewerOverlay {
    * Final position for a pointer location: Shift constrains to 45° steps from `anchor`; otherwise
    * the point snaps to nearby drawing geometry and markup vertices (hold Alt to bypass snapping).
    */
+  /** The selected markups Scale to Length works on, on a page. */
+  private scaleTargets(pageIndex: number): Markup[] {
+    return this.editable().filter((m) => m.pageIndex === pageIndex && !this.frozen(m));
+  }
+
+  /** A Scale to Length click: picks the markup, then the reference points, then the new length's points. */
+  private scaleClick(pt: PagePoint, e: Modifiers, pageIndex: number) {
+    const g = this.gesture;
+    if (g?.kind !== 'scaleRef') {
+      const targets = this.scaleTargets(pageIndex);
+      if (!targets.length) {
+        // Nothing selected: the click picks what to scale.
+        const hit = this.hitAt(toPoint(pt));
+        if (hit && !this.frozen(hit)) this.setState({ selected: new Set(hit.groupId ? this.pageMarkups(pageIndex).filter((m) => m.groupId === hit.groupId).map((m) => m.id) : [hit.id]) });
+        return;
+      }
+      const p = this.resolve(pt, e, null);
+      this.setGesture({ kind: 'scaleRef', ids: targets.map((m) => m.id), pageIndex, ref: [p], target: [], stage: 'ref', hover: p });
+      return;
+    }
+    if (g.pageIndex !== pageIndex || g.stage === 'ask') return;
+    const from = (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null;
+    const p = this.resolve(pt, e, from);
+    const zoom = this.viewer.zoomFor(pageIndex);
+    // The two points of a length must be apart.
+    if (from && Math.hypot(p[0] - from[0], p[1] - from[1]) * zoom < 2) return;
+    this.clearTracking();
+    if (g.stage === 'ref') {
+      g.ref.push(p);
+      g.stage = 'ask';
+      g.hover = null;
+      this.viewer.invalidate();
+      this.options.onScaleToLength?.(pageIndex, [g.ref[0]!, g.ref[1]!]);
+      return;
+    }
+    g.target.push(p);
+    if (g.target.length === 2) this.scaleSelectionBy(scaleFactor(g)!);
+    else this.viewer.invalidate();
+  }
+
+  /** Scale to Length: grows the markups by `factor` about the first reference point, as one undo step. */
+  scaleSelectionBy(factor: number) {
+    const g = this.gesture;
+    if (g?.kind !== 'scaleRef' || !this.store || !Number.isFinite(factor) || factor <= 0) return;
+    const store = this.store;
+    const base = g.ref[0]!;
+    store.checkpoint();
+    store.batch(() => {
+      for (const id of g.ids) {
+        const m = store.get(id);
+        if (m && !this.frozen(m)) store.update(id, scaledAbout(m, base, factor));
+      }
+    });
+    this.setGesture(null);
+    this.setState({ tool: 'select', selected: new Set(g.ids) });
+  }
+
+  /** Scale to Length: the new length is to be picked as two points on the page rather than typed. */
+  pickScaleTarget() {
+    const g = this.gesture;
+    if (g?.kind !== 'scaleRef' || g.stage !== 'ask') return;
+    g.stage = 'target';
+    this.viewer.invalidate();
+  }
+
   private resolve(pt: PagePoint, mods: Modifiers, anchor: Point | null, excludeId?: string): Point {
     const p = toPoint(pt);
     this.snapHit = null;
+    this.snapIsGrid = false;
+    this.tracked = null;
     if (mods.shiftKey && anchor) return constrain('line', anchor, p);
     const prefs = settings.get();
-    if (mods.altKey || (!this.state.snap && !prefs.snapToGrid && !prefs.snapToMarkup)) return p;
+    const tracks = prefs.objectSnapTracking || prefs.polarTracking || prefs.snapExtension || prefs.snapParallel;
+    if (mods.altKey || (!this.state.snap && !prefs.snapToGrid && !prefs.snapToMarkup && !tracks)) {
+      this.rest(null);
+      return p;
+    }
+    // Perpendicular, tangent, polar and parallel are taken from the point the shape is drawn from.
+    const from = anchor ?? this.drawnFrom();
     // In a stitched view the pointer can be over a neighbouring sheet: snap to that sheet's
     // geometry, then map the result back into the gesture's page.
     const under = this.viewer.pageUnder(this.page, p) ?? this.page;
-    const hit = this.snapOnPage(under, this.viewer.mapPoint(this.page, under, p), excludeId);
-    if (!hit) {
-      if (!prefs.snapToGrid) return p;
-      // No drawing geometry nearby: the nearest grid point.
-      const g = gridSpacingPoints(prefs);
-      const q: Point = [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g];
-      this.snapHit = { point: q, kind: 'endpoint' };
+    const hit = this.snapOnPage(under, this.viewer.mapPoint(this.page, under, p), excludeId, from && this.viewer.mapPoint(this.page, under, from));
+    if (hit) {
+      const back = this.viewer.mapPoint(under, this.page, hit.point);
+      this.snapHit = { ...hit, point: [back[0], back[1]] };
       this.snapPage = this.page;
-      return q;
+      this.rest(this.snapHit);
+      return [back[0], back[1]];
     }
-    const back = this.viewer.mapPoint(under, this.page, hit.point);
-    this.snapHit = { ...hit, point: [back[0], back[1]] };
+    this.rest(null);
+    const tracked = tracks ? this.trackAt(p, from, excludeId) : null;
+    if (tracked) {
+      this.tracked = tracked;
+      this.snapPage = this.page;
+      return tracked.point;
+    }
+    if (!prefs.snapToGrid) return p;
+    // No drawing geometry nearby: the nearest grid point.
+    const g = gridSpacingPoints(prefs);
+    const q: Point = [Math.round(p[0] / g) * g, Math.round(p[1] / g) * g];
+    this.snapHit = { point: q, kind: 'endpoint' };
+    this.snapIsGrid = true;
     this.snapPage = this.page;
-    return [back[0], back[1]];
+    return q;
   }
 
-  private snapOnPage(pageIndex: number, p: Point, excludeId?: string): Snap | null {
-    const index = this.state.snap ? this.snapIndexFor(pageIndex) : null;
-    const extra: Point[] = [];
-    if (settings.get().snapToMarkup) {
+  /** The point the shape being drawn starts from (its last point), if any. */
+  private drawnFrom(): Point | null {
+    const g = this.gesture;
+    if (g?.kind === 'multi') return g.markup.points.at(-1) ?? null;
+    if (g?.kind === 'draw' && TYPE_INFO[g.markup.type].draw === 'drag') return g.markup.points[0] ?? null;
+    return this.sketchAnchor?.pageIndex === this.page ? this.sketchAnchor.at : null;
+  }
+
+  /** Lets go of the points and directions tracking had picked up. */
+  private clearTracking() {
+    if (this.dwell) clearTimeout(this.dwell.timer);
+    this.dwell = null;
+    this.tracked = null;
+    if (this.tracking.points.length || this.tracking.parallels.length) this.viewer.invalidate();
+    this.tracking = { page: -1, points: [], parallels: [] };
+  }
+
+  /**
+   * The pointer is resting on `hit` (or on nothing): after a moment there, the point is picked up
+   * for tracking (or put down again if it already was), as AutoCAD does. Resting on a line picks
+   * up its direction for parallel tracking.
+   */
+  private rest(hit: Snap | null) {
+    const prefs = settings.get();
+    const point = !!hit && hit.kind !== 'nearest' && (prefs.objectSnapTracking || (prefs.snapExtension && !!hit.dir));
+    const parallel = hit?.kind === 'nearest' && !!hit.dir && prefs.snapParallel;
+    const key = hit && (point || parallel) ? `${this.page}:${hit.kind}:${hit.point[0].toFixed(2)},${hit.point[1].toFixed(2)}` : null;
+    if (key === (this.dwell?.key ?? null)) return;
+    if (this.dwell) clearTimeout(this.dwell.timer);
+    this.dwell = null;
+    if (!key || !hit) return;
+    const page = this.page;
+    const timer = setTimeout(() => {
+      this.dwell = null;
+      if (this.tracking.page !== page) this.tracking = { page, points: [], parallels: [] };
+      const t = this.tracking;
+      const at: Point = [hit.point[0], hit.point[1]];
+      const dir = hit.dir;
+      if (parallel && dir) {
+        // A line already picked up is put down; at most two directions are kept.
+        const same = t.parallels.findIndex((q) => Math.abs(q.dir[0] * dir[1] - q.dir[1] * dir[0]) < 1e-6);
+        if (same >= 0) t.parallels.splice(same, 1);
+        else t.parallels = [...t.parallels, { at, dir }].slice(-2);
+      } else {
+        const same = t.points.findIndex((q) => Math.hypot(q.point[0] - at[0], q.point[1] - at[1]) < 1e-6);
+        if (same >= 0) t.points.splice(same, 1);
+        // AutoCAD keeps the last seven.
+        else t.points = [...t.points, { point: at, ...(dir ? { extensions: [dir] } : {}) }].slice(-7);
+      }
+      this.viewer.invalidate();
+    }, ACQUIRE_MS);
+    this.dwell = { key, timer };
+  }
+
+  /** Where tracking lines the pointer up, from the picked-up points and the point drawn from. */
+  private trackAt(p: Point, from: Point | null, excludeId?: string): Tracked | null {
+    const prefs = settings.get();
+    const t = this.tracking.page === this.page ? this.tracking : { points: [], parallels: [] };
+    const radius = snapPx() / this.viewer.zoomFor(this.page);
+    const index = this.state.snap ? this.snapIndexFor(this.page) : null;
+    // Paths stop where they cross the drawing's lines or the markups' outlines.
+    const lines = [...(index?.linesNear(p, radius, prefs.snapCurves) ?? []), ...(prefs.snapToMarkup ? this.outlines(this.page, excludeId) : [])];
+    return track(
+      p,
+      radius,
+      {
+        acquired: t.points,
+        from,
+        objectTracking: prefs.objectSnapTracking,
+        polarStep: prefs.polarTracking ? prefs.polarAngle : null,
+        polarForObjects: prefs.polarForObjects,
+        extensions: prefs.snapExtension,
+        parallels: prefs.snapParallel ? t.parallels.map((q) => q.dir) : [],
+      },
+      lines,
+    );
+  }
+
+  /** Other markups' outlines on a page as flat snap lines (turned with any rotation). */
+  private outlines(pageIndex: number, excludeId?: string): number[] {
+    const out: number[] = [];
+    for (const m of this.pageMarkups(pageIndex)) {
+      if (m.id === excludeId || !snapTarget(m.type)) continue;
+      let lines = this.outlineCache.get(m);
+      if (!lines) {
+        lines = markupSegments(m);
+        if (m.rotation) {
+          const c = rotationCentre(m);
+          for (let i = 0; i + 1 < lines.length; i += 2) [lines[i], lines[i + 1]] = rotatePoint([lines[i]!, lines[i + 1]!], c, m.rotation);
+        }
+        this.outlineCache.set(m, lines);
+      }
+      for (const v of lines) out.push(v);
+    }
+    return out;
+  }
+
+  private snapOnPage(pageIndex: number, p: Point, excludeId?: string, from?: Point | null): Snap | null {
+    const prefs = settings.get();
+    const index = (this.state.snap ? this.snapIndexFor(pageIndex) : null) ?? NO_LINES;
+    const extra: (Point | Snap)[] = [];
+    if (prefs.snapToMarkup) {
+      const off = new Set<SnapKind>();
+      if (!prefs.snapCenters) off.add('center');
+      if (!prefs.snapQuadrants) off.add('quadrant');
+      if (!prefs.snapGeoCenters) off.add('geocenter');
       for (const m of this.pageMarkups(pageIndex)) {
         if (m.id === excludeId || !snapTarget(m.type)) continue;
-        extra.push(...m.points);
+        for (const q of markupSnapPoints(m)) if (!off.has(q.kind)) extra.push(q);
       }
     }
     const g = this.gesture;
@@ -2410,7 +2716,9 @@ export class MarkupTools implements ViewerOverlay {
     // close on its start.
     if (g?.kind === 'multi') for (const q of g.markup.points) extra.push(this.viewer.mapPoint(g.markup.pageIndex, pageIndex, q));
     const radius = snapPx() / this.viewer.zoomFor(pageIndex);
-    return index ? index.snap(p, radius, extra, snapKinds(), settings.get().snapCurves) : nearestPoint(p, extra, radius);
+    // Markup outlines are snapped onto and crossed (nearest, perpendicular), not at their own ends.
+    const lines = prefs.snapToMarkup ? this.outlines(pageIndex, excludeId) : undefined;
+    return index.snap(p, radius, extra, snapKinds(), prefs.snapCurves, { from, lines });
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */
@@ -2636,6 +2944,11 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'handle' && g.id === m.id) return { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
+    if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
+      const factor = scaleFactor(g);
+      if (factor) return { ...m, ...scaledAbout(m, g.ref[0]!, factor) };
+    }
+    if ((g?.kind === 'label' || g?.kind === 'labelRotate') && g.id === m.id) return { ...m, style: labelStyled(m, g) };
     if (g?.kind === 'tableLine' && g.id === m.id) return { ...m, table: moveTableLine(m, g.line, g.to) ?? m.table };
     return m;
   }
@@ -2821,21 +3134,17 @@ function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Poin
   return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
 }
 
-function toPoint(pt: PagePoint): Point {
-  return [pt[0], pt[1]];
+/** A Length or Dimension's style with its text dragged or turned (zero offsets and turns left unset). */
+function labelStyled(m: Markup, g: Extract<Gesture, { kind: 'label' | 'labelRotate' }>): MarkupStyle {
+  const { leader: _l, labelOffset: _o, labelRotation: _r, ...rest } = m.style;
+  const leader = g.kind === 'label' ? g.leader : m.style.leader;
+  const along = g.kind === 'label' ? g.along : m.style.labelOffset;
+  const turn = g.kind === 'labelRotate' ? g.angle : m.style.labelRotation;
+  return { ...rest, ...(leader ? { leader } : {}), ...(along ? { labelOffset: along } : {}), ...(turn ? { labelRotation: turn } : {}) };
 }
 
-function nearestPoint(p: Point, points: readonly Point[], radius: number): Snap | null {
-  let best: Snap | null = null;
-  let bestD = radius;
-  for (const [x, y] of points) {
-    const d = Math.hypot(x - p[0], y - p[1]);
-    if (d <= bestD) {
-      bestD = d;
-      best = { point: [x, y], kind: 'endpoint' };
-    }
-  }
-  return best;
+function toPoint(pt: PagePoint): Point {
+  return [pt[0], pt[1]];
 }
 
 /** Second corner of a box from `a` toward `b` with width / height = `aspect`. */
@@ -2962,7 +3271,129 @@ function drawSketchReadout(ctx: CanvasRenderingContext2D, text: string, to: Poin
   ctx.restore();
 }
 
-/** CAD-style snap glyphs: square = endpoint, X = intersection, triangle = midpoint, ◇ = on line. */
+/** Scale to Length: the factor its points give (the new length over the reference), or null before there is one. */
+function scaleFactor(g: Extract<Gesture, { kind: 'scaleRef' }>): number | null {
+  const [a, b] = g.ref;
+  const target = g.target.length === 2 ? g.target : g.target.length === 1 && g.hover ? [g.target[0]!, g.hover] : null;
+  if (g.stage !== 'target' || !a || !b || !target) return null;
+  const ref = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  const len = Math.hypot(target[1]![0] - target[0]![0], target[1]![1] - target[0]![1]);
+  return ref > 0 && len > 0 ? len / ref : null;
+}
+
+/** A Scale to Length line: dashed between its points, with a dot on each. */
+function drawScaleLine(ctx: CanvasRenderingContext2D, points: readonly Point[], colour: string, zoom: number) {
+  if (!points.length) return;
+  ctx.save();
+  ctx.strokeStyle = colour;
+  ctx.fillStyle = colour;
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.setLineDash([6 / zoom, 4 / zoom]);
+  ctx.beginPath();
+  points.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.stroke();
+  for (const [x, y] of points) {
+    ctx.beginPath();
+    ctx.arc(x, y, 3 / zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+/** Names of the snaps, shown beside the marker as AutoCAD does. */
+const SNAP_NAMES: Record<SnapKind, string> = {
+  endpoint: 'Endpoint',
+  center: 'Centre',
+  geocenter: 'Geometric Centre',
+  intersection: 'Intersection',
+  apparent: 'Apparent Intersection',
+  midpoint: 'Midpoint',
+  quadrant: 'Quadrant',
+  perpendicular: 'Perpendicular',
+  tangent: 'Tangent',
+  nearest: 'Nearest',
+};
+
+const PATH_NAMES: Record<TrackPathKind, string> = { tracking: 'Tracking', polar: 'Polar', extension: 'Extension', parallel: 'Parallel' };
+
+/** A snap's or tracking path's name in a small tag above and to the right of `at`. */
+function drawSnapTip(ctx: CanvasRenderingContext2D, text: string, at: readonly number[], zoom: number) {
+  const px = 1 / zoom;
+  ctx.save();
+  ctx.font = `${11 * px}px system-ui, sans-serif`;
+  ctx.textBaseline = 'middle';
+  const w = ctx.measureText(text).width + 10 * px;
+  const h = 18 * px;
+  const x = at[0]! + 12 * px;
+  const y = at[1]! - 16 * px;
+  ctx.fillStyle = 'rgba(17, 24, 39, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect(x, y - h / 2, w, h, 3 * px);
+  ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(text, x + 5 * px, y);
+  ctx.restore();
+}
+
+/** Points picked up for tracking (a small +) and lines picked up for parallel (a // on the line). */
+function drawAcquired(ctx: CanvasRenderingContext2D, points: readonly TrackPoint[], parallels: readonly { at: Point; dir: Point }[], zoom: number) {
+  const s = 5 / zoom;
+  ctx.save();
+  ctx.strokeStyle = settings.get().snapColour;
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.beginPath();
+  for (const { point: [x, y] } of points) {
+    ctx.moveTo(x - s, y);
+    ctx.lineTo(x + s, y);
+    ctx.moveTo(x, y - s);
+    ctx.lineTo(x, y + s);
+  }
+  for (const { at, dir } of parallels) {
+    for (const k of [-1, 1]) {
+      // Two short strokes along the line, side by side across it.
+      const ox = -dir[1] * k * s * 0.6;
+      const oy = dir[0] * k * s * 0.6;
+      ctx.moveTo(at[0] + ox - dir[0] * s, at[1] + oy - dir[1] * s);
+      ctx.lineTo(at[0] + ox + dir[0] * s, at[1] + oy + dir[1] * s);
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** The tracking paths the pointer is locked onto, dotted from their origins out past it, and an × where it lands. */
+function drawTracked(ctx: CanvasRenderingContext2D, tracked: Tracked, zoom: number) {
+  const reach = 4000 / zoom;
+  const [x, y] = tracked.point;
+  ctx.save();
+  ctx.strokeStyle = settings.get().snapColour;
+  ctx.lineWidth = 1 / zoom;
+  ctx.setLineDash([2 / zoom, 4 / zoom]);
+  ctx.beginPath();
+  for (const { origin, dir } of tracked.paths) {
+    // On from the origin through the pointer, whichever way along the path it lies.
+    const way = (x - origin[0]) * dir[0] + (y - origin[1]) * dir[1] >= 0 ? 1 : -1;
+    ctx.moveTo(origin[0], origin[1]);
+    ctx.lineTo(x + dir[0] * way * reach, y + dir[1] * way * reach);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+  const s = 4 / zoom;
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.beginPath();
+  ctx.moveTo(x - s, y - s);
+  ctx.lineTo(x + s, y + s);
+  ctx.moveTo(x + s, y - s);
+  ctx.lineTo(x - s, y + s);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * CAD-style snap glyphs: square = endpoint, X = intersection, boxed X = apparent intersection,
+ * triangle = midpoint, ◇ = on line, ⊕ = centre, ◇ round a dot = quadrant, ⊛ = geometric centre,
+ * right angle = perpendicular, circle under a line = tangent.
+ */
 function drawSnapIndicator(ctx: CanvasRenderingContext2D, snap: Snap, zoom: number) {
   const [x, y] = snap.point;
   const s = 6 / zoom;
@@ -2979,6 +3410,52 @@ function drawSnapIndicator(ctx: CanvasRenderingContext2D, snap: Snap, zoom: numb
       ctx.lineTo(x + s, y + s);
       ctx.moveTo(x + s, y - s);
       ctx.lineTo(x - s, y + s);
+      break;
+    case 'center':
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      ctx.moveTo(x - s * 0.5, y);
+      ctx.lineTo(x + s * 0.5, y);
+      ctx.moveTo(x, y - s * 0.5);
+      ctx.lineTo(x, y + s * 0.5);
+      break;
+    case 'quadrant':
+      ctx.arc(x, y, s * 0.6, 0, Math.PI * 2);
+      ctx.moveTo(x + s, y);
+      ctx.lineTo(x, y + s);
+      ctx.lineTo(x - s, y);
+      ctx.lineTo(x, y - s);
+      ctx.closePath();
+      break;
+    case 'geocenter':
+      // A star of three crossing strokes in a circle.
+      ctx.arc(x, y, s, 0, Math.PI * 2);
+      for (const a of [0, Math.PI / 3, (2 * Math.PI) / 3]) {
+        ctx.moveTo(x + Math.cos(a) * s * 0.6, y + Math.sin(a) * s * 0.6);
+        ctx.lineTo(x - Math.cos(a) * s * 0.6, y - Math.sin(a) * s * 0.6);
+      }
+      break;
+    case 'apparent':
+      // An X in a box.
+      ctx.rect(x - s, y - s, s * 2, s * 2);
+      ctx.moveTo(x - s * 0.6, y - s * 0.6);
+      ctx.lineTo(x + s * 0.6, y + s * 0.6);
+      ctx.moveTo(x + s * 0.6, y - s * 0.6);
+      ctx.lineTo(x - s * 0.6, y + s * 0.6);
+      break;
+    case 'perpendicular':
+      // A right angle.
+      ctx.moveTo(x - s, y - s);
+      ctx.lineTo(x - s, y + s);
+      ctx.lineTo(x + s, y + s);
+      ctx.moveTo(x - s, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + s);
+      break;
+    case 'tangent':
+      // A circle with a line along its top.
+      ctx.arc(x, y + s * 0.3, s * 0.7, 0, Math.PI * 2);
+      ctx.moveTo(x - s, y - s * 0.4);
+      ctx.lineTo(x + s, y - s * 0.4);
       break;
     case 'midpoint':
       ctx.moveTo(x, y - s);

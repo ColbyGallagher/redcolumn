@@ -133,6 +133,7 @@ window.HELP_TOC = [
       { id: 'measure-basics', title: 'Measuring: start here' },
       { id: 'scale', title: 'Set the scale' },
       { id: 'calibrate', title: 'Calibrate from a known length' },
+      { id: 'scale-to-length', title: 'Scale a picture or markup to a length' },
       { id: 'viewports', title: 'Several scales on one page (viewports)' },
       { id: 'scale-bulk', title: 'Apply a scale to many pages' },
       {

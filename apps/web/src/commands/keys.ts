@@ -138,6 +138,8 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'view.snapGrid': ['Ctrl+Shift+F9'],
   'view.snapContent': ['Ctrl+Shift+F8'],
   'view.snapMarkup': ['Ctrl+Shift+F7'],
+  'view.polarTracking': ['Ctrl+Shift+F10'],
+  'view.objectSnapTracking': ['Ctrl+Shift+F11'],
   'view.dimmer': ['Ctrl+F5'],
   'view.back': ['Alt+Left'],
   'view.forward': ['Alt+Right'],

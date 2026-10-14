@@ -531,6 +531,16 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
               <NumberField value={style.leader ?? 0} min={-500} max={500} step={1} unit="pt" onChange={(v) => set('leader', v || undefined)} />
             </Row>
           )}
+          {caps.leader && (
+            <Row label="Text slide" title="How far the text sits along the dimension line from its middle (drag the text's yellow knob); past an end the line runs out to it">
+              <NumberField value={style.labelOffset ?? 0} min={-2000} max={2000} step={1} unit="pt" onChange={(v) => set('labelOffset', v || undefined)} />
+            </Row>
+          )}
+          {caps.leader && (
+            <Row label="Text turn" title="Turns the text, clockwise (or drag the knob above the text)">
+              <NumberField value={style.labelRotation ?? 0} min={-180} max={180} step={1} unit="°" onChange={(v) => set('labelRotation', v || undefined)} />
+            </Row>
+          )}
         </Section>
       )}
 

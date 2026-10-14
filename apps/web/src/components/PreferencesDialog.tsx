@@ -395,6 +395,26 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('snapMidpoints', 'Snap to Mid-Points', { disabled: !snapping })}</C>
         <C>{check('snapEndpoints', 'Snap to End-Points', { disabled: !snapping })}</C>
         <C>{check('snapIntersections', 'Snap to Intersections', { disabled: !snapping })}</C>
+        <C>{check('snapCenters', 'Snap to Centres', { title: 'Centres of circles and arcs, in the drawing and in markups' })}</C>
+        <C>{check('snapQuadrants', 'Snap to Quadrants', { title: 'The top, bottom, left and right of circles, arcs and ellipses' })}</C>
+        <C>{check('snapGeoCenters', 'Snap to Geometric Centres', { title: 'The middle of closed markups: rectangles, polygons and areas' })}</C>
+        <C>{check('snapPerpendicular', 'Snap Perpendicular', { title: 'Square off a line or circle from the point being drawn from' })}</C>
+        <C>{check('snapTangent', 'Snap Tangent', { title: 'Touching a circle or arc from the point being drawn from' })}</C>
+        <C>{check('snapApparent', 'Snap to Apparent Intersections', { disabled: !snapping, title: 'Where two lines would cross if they were extended' })}</C>
+        {head('Tracking')}
+        <C>{check('objectSnapTracking', 'Object Snap Tracking', { title: 'Rest the pointer on a snap point to pick it up (a small + marks it); move away and the pointer lines up with it straight across or up and down. Rest on it again to drop it.' })}</C>
+        <C>{check('snapExtension', 'Extension', { title: 'Rest on the end of a line, then move on past it: the pointer follows the line on beyond its end' })}</C>
+        <C>{check('snapParallel', 'Parallel', { title: 'While drawing a line, rest on another line, then move roughly parallel to it: the pointer follows that direction' })}</C>
+        <C>{check('polarTracking', 'Polar Tracking', { title: 'While drawing, the pointer lines up at multiples of the polar angle from the last point' })}</C>
+        {L('Polar Angle', 'polarAngle')}
+        <select aria-label="Polar Angle" value={d.polarAngle} disabled={!d.polarTracking} onChange={(e) => set({ polarAngle: Number(e.target.value) })}>
+          {[90, 45, 30, 22.5, 18, 15, 10, 5].map((v) => (
+            <option key={v} value={v}>
+              {v}°
+            </option>
+          ))}
+        </select>
+        <C>{check('polarForObjects', 'Track Objects at Polar Angles', { disabled: !d.polarTracking || !d.objectSnapTracking, title: 'Object snap tracking follows every polar angle from acquired points, not only straight across and up and down' })}</C>
         {num('snapSensitivity', 'Sensitivity', { min: 2, max: 30, disabled: !snapping && !d.snapToMarkup })}
         {colour('snapColour', 'Snap Colour', { disabled: !snapping && !d.snapToMarkup && !d.snapToGrid })}
       </Grid>
