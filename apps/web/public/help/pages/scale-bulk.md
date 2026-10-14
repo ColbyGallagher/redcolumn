@@ -14,4 +14,4 @@ Each page gets the scale read from the same box on that page. Pages where no sca
 
 > **Tip:** If one box doesn't catch every sheet (title blocks differ), draw another box. Each box is tried in turn.
 
-For a single scale on every page, it is quicker to set it once and click **All pages** in the navigation bar. See [Set the scale](#scale).
+For a single scale on every page, it is quicker to choose **Custom…** in the navigation bar's Scale list and set **Pages** to **All**. See [Set the scale](#scale).

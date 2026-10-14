@@ -33,7 +33,7 @@ import { ColumnsDialog } from './components/ColumnsDialog';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, useSettings } from './settings/settings';
+import { settings, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
@@ -113,6 +113,7 @@ import type { IncomingPage } from './documents/slipSheet';
 import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
 import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
+import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -754,6 +755,8 @@ export function App() {
   }, [notice]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
+  /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
+  const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
@@ -938,6 +941,8 @@ export function App() {
   const editTextRef = useRef<(pageIndex: number, at: [number, number]) => void>(() => {});
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
+  /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
+  const lastSnapshot = useRef<{ width: number; height: number; markup: Markup } | null>(null);
   const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
   /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
@@ -3003,17 +3008,10 @@ export function App() {
                 }
                 case 'split': {
                   const tools = await import('./documents/pageTools');
-                  const count = cur.doc.pages.length;
-                  const marks = cur.store.bookmarks().sort((a, b) => a.pageIndex - b.pageIndex);
-                  if (command.parts === 'bookmarks' && !marks.length) throw new Error('No bookmarks to split at');
-                  const ranges = command.parts === 'bookmarks' ? tools.rangesFromStarts(count, marks.map((b) => b.pageIndex)) : tools.chunkPages(count, command.count);
-                  const parts = await tools.splitPdf(await annotatedBytes(cur), ranges);
                   const base = cur.file.name.replace(/\.pdf$/i, '');
-                  const safe = (t: string) => t.replace(/[\\/:*?"<>|]+/g, '-').trim();
-                  parts.forEach((data, i) => {
-                    const title = command.parts === 'bookmarks' ? marks.find((b) => b.pageIndex === ranges[i]![0])?.title : undefined;
-                    splitParts.push({ name: `${safe(base)}/${safe(base)} ${String(i + 1).padStart(2, '0')}${title ? ` ${safe(title)}` : ` p${ranges[i]![0]! + 1}-${ranges[i]!.at(-1)! + 1}`}.pdf`, data });
-                  });
+                  const folder = base.replace(/[\\/:*?"<>|]+/g, '-').trim();
+                  const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), command);
+                  for (const p of parts) splitParts.push({ name: `${folder}/${p.name}`, data: p.data });
                   message = `${parts.length} part${parts.length === 1 ? '' : 's'}`;
                   break;
                 }
@@ -3405,15 +3403,8 @@ export function App() {
           return;
         }
         case 'split': {
-          const count = cur.doc.pages.length;
-          const ranges = spec.parts === 'bookmarks' ? tools.rangesFromStarts(count, cur.store.bookmarks().map((b) => b.pageIndex)) : tools.chunkPages(count, spec.count);
-          const titles = spec.parts === 'bookmarks' ? cur.store.bookmarks().sort((a, b) => a.pageIndex - b.pageIndex) : [];
-          const parts = await tools.splitPdf(await annotatedBytes(cur), ranges);
-          const safe = (s: string) => s.replace(/[\\/:*?"<>|]+/g, '-').trim();
-          await zipDownload(`${base} (split).zip`, parts, (i) => {
-            const title = titles.find((b) => b.pageIndex === ranges[i]![0])?.title;
-            return `${base} ${String(i + 1).padStart(2, '0')}${title ? ` ${safe(title)}` : ` p${ranges[i]![0]! + 1}-${ranges[i]!.at(-1)! + 1}`}.pdf`;
-          });
+          const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), spec);
+          await zipDownload(`${base} (split).zip`, parts.map((p) => p.data), (i) => parts[i]!.name);
           setNotice(`Split into ${parts.length} files.`);
           return;
         }
@@ -4644,10 +4635,12 @@ export function App() {
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
       const now = Date.now();
+      const markup: Markup = { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
       // Also on the app's own clipboard, so pasting works where the system clipboard is off limits.
-      clipboard.current = [
-        { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now },
-      ];
+      clipboard.current = [markup];
+      // Pasted back from the system clipboard, the picture is recognised by its pixel size and placed
+      // at the size it was captured, not at a size that depends on the zoom.
+      lastSnapshot.current = { width: canvas.width, height: canvas.height, markup };
       setClipboardCount(1);
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
@@ -4662,25 +4655,43 @@ export function App() {
     const pane: Pane = dropped?.pane ?? activePaneRef.current;
     const { c, o } = paneParts(pane);
     if (!c || !o || o.store.readOnly) return;
-    void imageToDataUrl(file).then(({ image, aspect }) => {
+    const snap = dropped ? null : lastSnapshot.current;
+    void (async () => {
+      if (!snap) return false;
+      const bitmap = await createImageBitmap(file);
+      const ours = bitmap.width === snap.width && bitmap.height === snap.height;
+      bitmap.close();
+      if (!ours) return false;
+      // Our own snapshot: placed at its captured size, like pasting it from the app's clipboard.
       const viewer = c.viewer;
-      const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
+      const at = lastPointer.current?.viewer === viewer ? lastPointer.current : null;
       const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
-      const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
-      const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
-      const size = o.doc.pages[page];
-      // A comfortable on-screen size, no larger than the page, kept on it.
-      const w = Math.min(240 / viewer.zoomFor(page), size ? size.width : Infinity, size ? size.height * aspect : Infinity);
-      const h = w / aspect;
-      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-      if (size) {
-        centre[0] = clamp(centre[0], w / 2, size.width - w / 2);
-        centre[1] = clamp(centre[1], h / 2, size.height - h / 2);
-      }
-      const now = Date.now();
-      const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
-      c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
-    });
+      c.tools.paste([snap.markup], page, at ? viewer.clientToPage(at.x, at.y, page) : null);
+      return true;
+    })()
+      .catch(() => false)
+      .then((done) => (done ? null : imageToDataUrl(file)))
+      .then((pasted) => {
+        if (!pasted) return;
+        const { image, aspect } = pasted;
+        const viewer = c.viewer;
+        const at = dropped ?? (lastPointer.current?.viewer === viewer ? lastPointer.current : null);
+        const page = at ? viewer.pageNearClient(at.x, at.y) : viewer.currentPageIndex;
+        const r = (pane === 'b' ? canvasBRef.current : canvasRef.current)?.getBoundingClientRect();
+        const centre = at ? viewer.clientToPage(at.x, at.y, page) : r ? viewer.clientToPage(r.left + r.width / 2, r.top + r.height / 2, page) : ([0, 0] as PagePoint);
+        const size = o.doc.pages[page];
+        // A comfortable on-screen size, no larger than the page, kept on it.
+        const w = Math.min(240 / viewer.zoomFor(page), size ? size.width : Infinity, size ? size.height * aspect : Infinity);
+        const h = w / aspect;
+        const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+        if (size) {
+          centre[0] = clamp(centre[0], w / 2, size.width - w / 2);
+          centre[1] = clamp(centre[1], h / 2, size.height - h / 2);
+        }
+        const now = Date.now();
+        const m: Markup = { id: 'pasted', type: 'image', pageIndex: page, points: [[0, 0], [w, h]], style: { ...DEFAULT_STYLES.image }, image, status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
+        c.tools.paste([m], page, [centre[0] - w / 2, centre[1] - h / 2]);
+      });
   };
   dropImagesRef.current = (pane, files, x, y) => {
     const { c, o } = paneParts(pane);
@@ -4728,7 +4739,7 @@ export function App() {
   };
   const setPageScale = (scale: Scale, allPages: boolean) => {
     const dest = paneB ? openB : open;
-    dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], scale);
+    dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], withDefaultUnits(scale));
   };
   // Title-block scales that can fill pages nobody has scaled yet (never overriding a set scale).
   const detectedScales = Object.entries(sheets)
@@ -6268,13 +6279,9 @@ export function App() {
         scaleControl={
           <ScaleControl
             scale={sc[idx] ?? null}
-            pageCount={count}
             disabled={!o}
-            onPreset={(scale) => o?.store.setScale([idx], scale)}
-            onApplyAll={() => {
-              const cur = sc[idx];
-              if (cur) o?.store.setScale(Array.from({ length: count }, (_, i) => i), cur);
-            }}
+            onPreset={(scale) => o?.store.setScale([idx], withDefaultUnits(scale))}
+            onCustom={() => setCustomScalePane(which)}
           />
         }
         onFirst={() => viewer?.goToPage(0)}
@@ -7200,7 +7207,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 busy={busyPages || indexing}
                 onGoTo={(i) => v?.goToPage(i)}
                 onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
-                onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, scale)}
+                onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
                 onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
                 onSetLabel={(pages, label) => {
                   for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
@@ -7382,7 +7389,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 pageIndex={pageIndex}
                 pageCount={pageCount}
                 pageName={activeOpen ? (pageLabelFor(activeOpen, pageIndex).startsWith('Page ') ? activeOpen.file.name.replace(/\.pdf$/i, '') : pageLabelFor(activeOpen, pageIndex)) : ''}
-                onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], scale) : null}
+                onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
                 onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
                 tool={toolsState.tool}
                 onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
@@ -7688,7 +7695,7 @@ Open the download page? Run the new installer to update; your documents and mark
                 let done = 0;
                 for (const { page, scale } of scales) {
                   if (!scale) continue;
-                  store.setScale([page], scale);
+                  store.setScale([page], withDefaultUnits(scale));
                   done++;
                 }
                 const missed = scales.length - done;
@@ -8299,6 +8306,7 @@ Open the download page? Run the new installer to update; your documents and mark
           kind={pageTool.kind}
           pageCount={activeOpen.doc.pages.length}
           currentPage={pageIndex}
+          fileName={activeOpen.file.name.replace(/\.pdf$/i, '')}
           bookmarkStarts={activeOpen.store.bookmarks().map((b) => b.pageIndex)}
           drawnRect={pageTool.drawnRect}
           onDraw={() => {
@@ -8620,6 +8628,27 @@ Open the download page? Run the new installer to update; your documents and mark
             setScaleAsk(null);
             (scaleAsk.pane === 'b' ? ctlB : ctl)?.tools.scaleSelectionBy(factor);
           }}
+        />
+      )}
+      {customScalePane && (customScalePane === 'b' ? openB : open) && (
+        <SetScaleDialog
+          scale={(customScalePane === 'b' ? scalesB : scalesA)[(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+          pageCount={(customScalePane === 'b' ? statsB : stats)?.pageCount ?? 0}
+          currentPage={(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+          selected={[]}
+          onCalibrate={
+            activeOpen && !activeReadOnly
+              ? () => {
+                  setCustomScalePane(null);
+                  activeTools?.setTool('calibrate');
+                }
+              : null
+          }
+          onApply={(pages, scale) => {
+            (customScalePane === 'b' ? openB : open)?.store.setScale(pages, withDefaultUnits(scale));
+            setCustomScalePane(null);
+          }}
+          onCancel={() => setCustomScalePane(null)}
         />
       )}
       {calibration && activeOpen && (

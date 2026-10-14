@@ -19,8 +19,8 @@ interface Props {
 /** Asks for the real length of a calibration line and turns it into a page scale. */
 export function CalibrateDialog({ lengthPoints, pageCount, defaultAllPages, viewportName, onApply, onCancel }: Props) {
   const [text, setText] = useState('');
-  const system = useSettings().unitSystem;
-  const [unit, setUnit] = useState<LengthUnit>(system === 'metric' ? 'm' : 'ft');
+  const { unitSystem: system, lengthUnit } = useSettings();
+  const [unit, setUnit] = useState<LengthUnit>(lengthUnit);
   const [allPages, setAllPages] = useState(defaultAllPages);
   const value = parseLength(text, unit);
 
