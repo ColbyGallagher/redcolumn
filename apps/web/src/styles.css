@@ -1277,6 +1277,38 @@ select[size] {
   }
 }
 
+/* Electron on Windows: same layout, flagged by the preload because Electron's frameless window
+   does not reliably report display-mode: window-controls-overlay. */
+.titlebar-overlay .menubar {
+  box-sizing: border-box;
+  min-height: env(titlebar-area-height, 36px);
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.titlebar-overlay .menubar .menu,
+.titlebar-overlay .menubar button,
+.titlebar-overlay .menubar .menu-search {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Wide enough to clear the menus on the left and the window buttons on the right: search sits in
+   the middle of the title bar. Narrower windows keep it right-aligned. */
+@media (min-width: 1100px) {
+  .titlebar-overlay .menubar {
+    position: relative;
+  }
+  .titlebar-overlay .menubar .menu-search {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 320px;
+    margin: 0;
+    transform: translate(-50%, -50%);
+  }
+}
+
 .install-app-btn {
   display: inline-flex;
   align-items: center;

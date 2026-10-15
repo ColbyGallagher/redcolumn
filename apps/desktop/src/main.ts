@@ -233,6 +233,9 @@ function createWindow() {
     title: 'redcolumn',
     show: false,
     autoHideMenuBar: true,
+    // Windows: no native title bar. The page's menu bar fills that strip and the system window
+    // buttons are drawn over its right end (see the .titlebar-overlay rules in styles.css).
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#161f38', symbolColor: '#e7ecf5', height: 36 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -245,6 +248,10 @@ function createWindow() {
   unsavedChanges = false;
   closeConfirmed = false;
   launches.attach(win);
+  if (process.platform === 'win32') {
+    // Tells the page to lay its menu bar out in the title bar strip; runs again after every reload.
+    win.webContents.on('dom-ready', () => void win.webContents.executeJavaScript(`document.documentElement.classList.add('titlebar-overlay')`).catch(() => undefined));
+  }
   win.once('ready-to-show', () => win.show());
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
