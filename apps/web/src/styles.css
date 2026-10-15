@@ -1367,6 +1367,36 @@ select[size] {
   filter: brightness(1.12);
 }
 
+/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
+.update-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin: 0 8px 0 0;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-app-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.update-app-btn.busy {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-weight: 500;
+  cursor: default;
+}
+
 .menu {
   position: relative;
 }
@@ -1493,9 +1523,34 @@ select[size] {
   color: var(--text);
 }
 
-.doc-tabs {
+/* Tabs that do not fit scroll out of sight; the dropdown arrow lists them all. */
+.doc-tabs-scroll {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: stretch;
+  min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.doc-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.doc-tab-more {
+  flex: none;
+  width: 28px;
+  margin-left: auto;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.doc-tab-more:hover {
+  background: #1d2c48;
+  color: var(--text);
 }
 
 .doc-tab {
@@ -3221,6 +3276,13 @@ select[size] {
   background: var(--panel);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   user-select: none;
+}
+
+.ctx-menu.ctx-scroll {
+  width: max-content;
+  max-width: min(480px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
 }
 
 .ctx-has-sub {

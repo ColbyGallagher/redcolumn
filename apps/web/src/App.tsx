@@ -90,6 +90,7 @@ import { comboOf, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
+import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
@@ -145,7 +146,7 @@ import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
-import { desktop } from './desktop/host';
+import { desktop, type UpdateState } from './desktop/host';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
@@ -881,6 +882,27 @@ export function App() {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
   }, []);
+  // The desktop app checks for a newer version at every launch; the header shows what it found.
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    const host = desktop();
+    if (!host?.onUpdateState) return;
+    const off = host.onUpdateState(setUpdateState);
+    void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
+    return off;
+  }, []);
+  /** Restarts into a downloaded update. The desktop app refuses while documents have unsaved changes. */
+  const restartIntoUpdate = () =>
+    void desktop()
+      ?.installUpdate()
+      .then((r) => {
+        if (!r.ok) setNotice(r.reason);
+      })
+      .catch(() => setNotice('Could not restart to update. It installs when you close redcolumn.'));
+  const onUpdateButton = () => {
+    if (updateState?.status === 'ready') restartIntoUpdate();
+    else if (updateState?.status === 'available' && updateState.url) window.open(updateState.url, '_blank', 'noopener');
+  };
   const [fullScreen, setFullScreen] = useState(false);
   const [activePane, setActivePane] = useState<'a' | 'b'>('a');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -5292,7 +5314,34 @@ export function App() {
     const tabs = pane === 'b' ? tabsB : tabsA;
     const front = pane === 'b' ? openB : open;
     return (
-      <div className="doc-tabs" role="tablist" aria-label={pane === 'b' ? 'Right pane documents' : 'Documents'}>
+      <DocTabStrip
+        label={pane === 'b' ? 'Right pane documents' : 'Documents'}
+        activeKey={front?.file.id ?? null}
+        count={tabs.length}
+        onOverflowMenu={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setCtxMenu({
+            x: r.right,
+            y: r.bottom,
+            scroll: true,
+            items: tabs.map((t) => ({ label: t.file.name, checked: t === front, onClick: () => activateTab(pane, t) })),
+          });
+        }}
+        after={
+          <button
+            type="button"
+            className="doc-tab-add"
+            title="Open a PDF in a new tab"
+            onClick={() => {
+              setActivePane(pane);
+              activePaneRef.current = pane;
+              openFromDisk();
+            }}
+          >
+            +
+          </button>
+        }
+      >
         {tabs.map((t) => {
           const session = studioDocOf(t.file.id);
           const sessionName = session ? snapshots.find((s) => s.meta.id === session.sessionId)?.meta.name : null;
@@ -5360,19 +5409,7 @@ export function App() {
           );
         })}
         {tabs.length === 0 && <div className="doc-tab empty">No document</div>}
-        <button
-          type="button"
-          className="doc-tab-add"
-          title="Open a PDF in a new tab"
-          onClick={() => {
-            setActivePane(pane);
-            activePaneRef.current = pane;
-            openFromDisk();
-          }}
-        >
-          +
-        </button>
-      </div>
+      </DocTabStrip>
     );
   };
 
@@ -6569,10 +6606,15 @@ export function App() {
         const host = desktop();
         if (host) {
           void host.checkForUpdates().then((r) => {
-            if (r.status === 'available') {
+            if (r.status === 'available' && r.url) {
               if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
 
 Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'downloading') setNotice(`redcolumn ${r.latest} is downloading in the background (${r.percent ?? 0}%). It installs when you close redcolumn.`);
+            else if (r.status === 'ready') {
+              if (confirm(`redcolumn ${r.latest} is ready to install. You have ${r.current}.
+
+Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate();
             } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
             else setNotice(`You have the latest version (${r.current}).`);
           }).catch(() => setNotice('Could not check for updates (offline?).'));
@@ -7699,7 +7741,9 @@ Open the download page? Run the new installer to update; your documents and mark
         hiddenPanels={ws.hiddenPanels}
         panels={{ showLeft: leftOpen, showBottom, leftTab, bottomTab }}
         stamps={stampLibrary(ws).map((s) => ({ id: s.id, name: s.name }))}
+        update={updateState}
         on={{
+          update: onUpdateButton,
           placeStamp: (id) => {
             const s = stampLibrary(ws).find((x) => x.id === id);
             if (s) placeStamp(s);

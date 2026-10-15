@@ -52,6 +52,13 @@ contextBridge.exposeInMainWorld('redcolumn', {
   finishPrint: (job: string) => call('print:finish', job),
   cancelPrint: (job: string) => call('print:cancel', job),
   checkForUpdates: () => call('update:check'),
+  updateState: () => call('update:get'),
+  installUpdate: () => call('update:install'),
+  onUpdateState(cb: (state: unknown) => void) {
+    const listener = (_event: unknown, state: unknown) => cb(state);
+    ipcRenderer.on('update:state', listener);
+    return () => unsubscribe('update:state', listener as (...args: unknown[]) => void);
+  },
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
   localDataKey: async () => new Uint8Array(await call<Uint8Array>('local:key')),
