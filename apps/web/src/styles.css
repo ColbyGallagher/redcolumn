@@ -1834,6 +1834,26 @@ select[size] {
   flex: none;
 }
 
+.bottom-dock .dock-tablist {
+  display: flex;
+}
+
+.bottom-dock .tabs .dock-width-toggle {
+  display: inline-grid;
+  place-items: center;
+  padding: 0 8px;
+}
+
+.bottom-dock .tabs .dock-width-toggle:hover {
+  color: var(--text);
+}
+
+@media (max-width: 1000px) {
+  .bottom-dock .tabs .dock-width-toggle {
+    display: none;
+  }
+}
+
 
 .btn.flat {
   height: 22px;
