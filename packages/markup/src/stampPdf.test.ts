@@ -117,7 +117,7 @@ test('an artwork stamp is saved as its picture with its text over it', async () 
 
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder to read every stamp it has.
 const dir = process.env.REVU_SETTINGS_DIR;
-test("Revu's own stamps all read", { skip: !dir }, async () => {
+test("Revu's own stamps all read", { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, async () => {
   const files = readdirSync(`${dir}/Stamps`).filter((f) => f.endsWith('.pdf'));
   assert.ok(files.length >= 10);
   for (const f of files) {
