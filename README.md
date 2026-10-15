@@ -37,8 +37,8 @@ pnpm typecheck
 
 ### Releasing the desktop app
 
-Raise `version` in `apps/desktop/package.json` (Help › Check for Updates compares it with the
-latest release's tag), merge that, then tag the merge commit and push the tag:
+Raise `version` in `apps/desktop/package.json` (the app compares it with the latest release's tag
+at every launch), merge that, then tag the merge commit and push the tag:
 
 ```sh
 git checkout master && git pull
@@ -48,11 +48,19 @@ git push origin v0.2.0
 
 The `Release` workflow (`.github/workflows/release.yml`) checks that the tag is `v` plus the
 desktop version, runs the typecheck and tests, builds the installer on Windows and the DMGs on
-macOS, and publishes a GitHub release with `redcolumn-Setup.exe`, `redcolumn-arm64.dmg` and
-`redcolumn-x64.dmg` attached. The files keep those names because the web app's Install button links
-to `releases/latest/download/<file>`, so each new release is what the button downloads. A tag with a
-suffix such as `v0.3.0-beta.1` is published as a pre-release, which the Install button and the
-update check ignore. Running the workflow by hand from the Actions tab builds the installers as
+macOS, and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap`
+and `latest.yml`), `redcolumn-arm64.dmg` and `redcolumn-x64.dmg` attached. The files keep those names
+because the web app's Install button links to `releases/latest/download/<file>`, so each new release
+is what the button downloads. A tag with a suffix such as `v0.3.0-beta.1` is published as a
+pre-release, which the Install button and the update check ignore.
+
+**How installed apps update.** The desktop app checks the latest release a few seconds after every
+launch and shows the result in the header bar. The installed Windows app updates itself
+(`electron-updater`): it downloads the installer in the background, checks its SHA-512 against
+`latest.yml`, shows a "Restart to update" button, and otherwise installs when the app is closed. It
+never restarts over unsaved changes. The Mac app only shows an "Update to x.y.z" button that opens
+the release page, because Squirrel.Mac needs a Developer ID signature. `latest.yml` and the
+`.blockmap` must stay attached to the release, or Windows apps cannot update. Running the workflow by hand from the Actions tab builds the installers as
 workflow artifacts without publishing. The installers are unsigned (the Mac app is only ad-hoc
 signed), so Windows SmartScreen warns and macOS Gatekeeper blocks the first launch until the user
 chooses Open Anyway.

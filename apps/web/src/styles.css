@@ -1299,6 +1299,36 @@ select[size] {
   filter: brightness(1.12);
 }
 
+/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
+.update-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin: 0 8px 0 0;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-app-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.update-app-btn.busy {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-weight: 500;
+  cursor: default;
+}
+
 .menu {
   position: relative;
 }
