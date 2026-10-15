@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
-import { desktop } from '../desktop/host';
+import { desktop, type UpdateState } from '../desktop/host';
 import { isStandalone } from '../offline/install';
 import type { Tool } from '../markup/MarkupTools';
 import { MEASURE_TOOLS } from './ToolBar';
@@ -74,7 +74,11 @@ export interface MenuBarProps {
   panels: { showLeft: boolean; showBottom: boolean; leftTab: LeftTab; bottomTab: BottomTab };
   /** The stamp library, for Tools › Stamp. */
   stamps: { id: string; name: string }[];
+  /** The desktop app's update state; the header shows a button while a newer version exists. */
+  update?: UpdateState | null;
   on: {
+    /** The update button: opens the release page, or restarts into the downloaded version. */
+    update?: () => void;
     placeStamp: (id: string) => void;
     openRecent: (id: string) => void;
     switchProfile: (id: string) => void;
@@ -192,10 +196,21 @@ function Submenu({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** The top menus. Items come from the command table. */
-export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, on }: MenuBarProps) {
+/** What the header's update button says and does for each update state; null while there is nothing to show. */
+export function updateButton(update: UpdateState | null | undefined): { label: string; title: string; busy: boolean } | null {
+  if (!update) return null;
+  const version = update.latest ? `redcolumn ${update.latest}` : 'A new version';
+  if (update.status === 'available') return { label: update.latest ? `Update to ${update.latest}` : 'Update available', title: `${version} is available. Click to open the download page.`, busy: false };
+  if (update.status === 'downloading') return { label: `Downloading update ${update.percent ?? 0}%`, title: `${version} is downloading in the background. It installs when you close redcolumn.`, busy: true };
+  if (update.status === 'ready') return { label: 'Restart to update', title: `${version} is ready. Click to restart into it; it also installs when you close redcolumn.`, busy: false };
+  return null;
+}
+
+export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, update, on }: MenuBarProps) {
   const [open, setOpen] = useState<MenuId | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
+  const updateBtn = updateButton(update);
   const commandList = useMemo(() => [...commands.values()], [commands]);
 
   useEffect(() => {
@@ -514,6 +529,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <>
             <Cmd id="window.toolbar" />
             <Cmd id="window.leftPanel" />
+            <Cmd id="window.rightPanel" />
             <Cmd id="window.bottomPanel" />
             <Cmd id="window.panels" />
             <Sep />
@@ -586,6 +602,14 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />
+      {updateBtn && (
+        <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.8" d="M8 13V4m-3.5 3.5L8 4l3.5 3.5M3 2h10" />
+          </svg>
+          {updateBtn.label}
+        </button>
+      )}
       {!installed && (
         <button type="button" className="install-app-btn" title={'Download the redcolumn desktop app (Windows):\n• Opens PDFs from your file manager\n• Saves straight back to the file\n• Works offline, even with no signal\n• Its own window and taskbar icon'} onClick={on.install}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">

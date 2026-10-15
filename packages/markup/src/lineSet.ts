@@ -1,5 +1,6 @@
 import { decodeRaw } from './toolchest';
 import type { CustomLine } from './lineStyle';
+import type { Markup } from './model';
 import { parseXml, type XmlElement } from './xml';
 
 /** A Revu line style set (.blx): a titled list of custom line styles. */
@@ -86,4 +87,21 @@ export async function parseBlx(xml: string, fallbackTitle = 'Imported line style
     styles.push({ name: s.attrs.Name, spec: [s.attrs.ScaleWithLineWidth === undefined ? true : isTrue(s.attrs.ScaleWithLineWidth), ...lines] });
   }
   return { title: await setTitle(child(root, 'Title')?.textContent, fallbackTitle), styles };
+}
+
+/**
+ * The custom line styles drawn on `markups` that none of `known` already has: what a document that
+ * came from Revu brings with it, to offer in the pickers beside the sets.
+ */
+export function documentLineStyles(markups: readonly Markup[], known: readonly CustomLine[] = []): CustomLine[] {
+  const key = (l: CustomLine) => `${l.name}\u0000${JSON.stringify(l.spec)}`;
+  const seen = new Set(known.map(key));
+  const out: CustomLine[] = [];
+  for (const m of markups) {
+    const l = m.style.lineStyle;
+    if (!l || seen.has(key(l))) continue;
+    seen.add(key(l));
+    out.push(l);
+  }
+  return out;
 }

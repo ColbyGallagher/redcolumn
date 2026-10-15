@@ -139,6 +139,8 @@ export interface CommandActions {
   signatures: () => void;
   toggleToolbar: () => void;
   toggleLeft: () => void;
+  /** Shows or hides the side panel of the panels docked on the right. */
+  toggleRight: () => void;
   toggleBottom: () => void;
   commandPalette: () => void;
   install: () => void;
@@ -188,12 +190,16 @@ export interface CommandState {
   snap: boolean;
   showToolbar: boolean;
   showLeft: boolean;
+  /** The right-hand side panel is showing (some panels are docked on the right). */
+  showRight: boolean;
+  hasRightPanels: boolean;
   showBottom: boolean;
   tool: Tool;
   settings: Settings;
   /** Tabs in the active pane, for next and previous document. */
   openTabCount: number;
   leftTab: string;
+  rightTab: string;
   bottomTab: string;
 }
 
@@ -219,6 +225,7 @@ export type PanelId =
 export function buildCommands(a: CommandActions, s: CommandState): Command[] {
   const doc = s.hasDocument;
   const sel = s.selectionCount > 0;
+  const sidePanelOpen = (id: string) => (s.showLeft && s.leftTab === id) || (s.showRight && s.rightTab === id);
   const cmd = (id: string, category: CommandCategory, label: string, run: () => void, enabled = true, checked?: boolean): Command => ({
     id,
     category,
@@ -402,21 +409,22 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),
+    cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),
     cmd('window.panels', 'Window', 'Toggle Panels', a.togglePanels),
-    cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, s.showLeft && s.leftTab === 'files'),
-    cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, s.showLeft && s.leftTab === 'pages'),
-    cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, s.showLeft && s.leftTab === 'bookmarks'),
-    cmd('window.toolchest', 'Window', 'Tool Library', () => a.focusPanel('toolchest'), true, s.showLeft && s.leftTab === 'toolchest'),
-    cmd('window.properties', 'Window', 'Properties', () => a.focusPanel('properties'), true, s.showLeft && s.leftTab === 'properties'),
-    cmd('window.layers', 'Window', 'Layers', () => a.focusPanel('layers'), true, s.showLeft && s.leftTab === 'layers'),
-    cmd('window.measurements', 'Window', 'Measurements', () => a.focusPanel('measurements'), true, s.showLeft && s.leftTab === 'measurements'),
-    cmd('window.spaces', 'Window', 'Spaces', () => a.focusPanel('spaces'), true, s.showLeft && s.leftTab === 'spaces'),
-    cmd('window.signatures', 'Window', 'Signatures', () => a.focusPanel('signatures'), true, s.showLeft && s.leftTab === 'signatures'),
-    cmd('window.search', 'Window', 'Search', () => a.focusPanel('search'), true, s.showLeft && s.leftTab === 'search'),
-    cmd('window.forms', 'Window', 'Forms', () => a.focusPanel('forms'), true, s.showLeft && s.leftTab === 'forms'),
-    cmd('window.sets', 'Window', 'Sets', () => a.focusPanel('sets'), true, s.showLeft && s.leftTab === 'sets'),
-    cmd('window.sessions', 'Window', 'Sessions', () => a.focusPanel('sessions'), true, s.showLeft && s.leftTab === 'sessions'),
+    cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, sidePanelOpen('files')),
+    cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, sidePanelOpen('pages')),
+    cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, sidePanelOpen('bookmarks')),
+    cmd('window.toolchest', 'Window', 'Tool Library', () => a.focusPanel('toolchest'), true, sidePanelOpen('toolchest')),
+    cmd('window.properties', 'Window', 'Properties', () => a.focusPanel('properties'), true, sidePanelOpen('properties')),
+    cmd('window.layers', 'Window', 'Layers', () => a.focusPanel('layers'), true, sidePanelOpen('layers')),
+    cmd('window.measurements', 'Window', 'Measurements', () => a.focusPanel('measurements'), true, sidePanelOpen('measurements')),
+    cmd('window.spaces', 'Window', 'Spaces', () => a.focusPanel('spaces'), true, sidePanelOpen('spaces')),
+    cmd('window.signatures', 'Window', 'Signatures', () => a.focusPanel('signatures'), true, sidePanelOpen('signatures')),
+    cmd('window.search', 'Window', 'Search', () => a.focusPanel('search'), true, sidePanelOpen('search')),
+    cmd('window.forms', 'Window', 'Forms', () => a.focusPanel('forms'), true, sidePanelOpen('forms')),
+    cmd('window.sets', 'Window', 'Sets', () => a.focusPanel('sets'), true, sidePanelOpen('sets')),
+    cmd('window.sessions', 'Window', 'Sessions', () => a.focusPanel('sessions'), true, sidePanelOpen('sessions')),
     cmd('window.markups', 'Window', 'Markups List', () => a.focusPanel('markups'), true, s.showBottom && s.bottomTab === 'markups'),
     cmd('window.links', 'Window', 'Hyperlinks', () => a.focusPanel('links'), true, s.showBottom && s.bottomTab === 'links'),
 

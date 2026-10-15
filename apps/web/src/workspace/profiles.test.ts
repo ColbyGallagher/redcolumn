@@ -34,3 +34,14 @@ test('restoring replaces same-ID profiles and keeps others', () => {
 test('a file that is not a backup is refused', () => {
   assert.throws(() => profiles.importAll('{"format":"other"}'), /not a profile backup/);
 });
+
+test('the panels docked on the right are saved with the profile, and older profiles dock everything left', () => {
+  const p = profiles.create('Docked', 'default');
+  assert.deepEqual(p.state.rightPanels, []);
+  profiles.update((s) => ({ ...s, rightPanels: ['files', 'properties'] }));
+  const copy = profiles.importJson(profiles.exportJson(p.id));
+  assert.deepEqual(copy.state.rightPanels, ['files', 'properties']);
+  const { rightPanels: _, ...old } = copy.state;
+  const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
+  assert.deepEqual(upgraded.state.rightPanels, []);
+});

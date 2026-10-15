@@ -20,6 +20,51 @@
   box-sizing: border-box;
 }
 
+/* Dark native controls: scrollbars, select drop-downs, spin buttons and pickers match the app. */
+:root {
+  color-scheme: dark;
+  /* Ticked boxes, radios, sliders and progress bars in the app's teal. */
+  accent-color: var(--accent);
+  --scroll-thumb: #34476b;
+  --scroll-thumb-hover: #4a6290;
+}
+
+/* Scrollbars: a slim rounded thumb on the surface behind it (Chromium and the desktop app). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--scroll-thumb) padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover) padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--accent) padding-box;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Firefox has no ::-webkit-scrollbar; the standard properties colour it instead. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+}
+
 html,
 body,
 #root {
@@ -499,7 +544,7 @@ select[size] {
 
 @media (max-width: 1000px) {
   .rail,
-  .panel.left {
+  .panel.side {
     display: none;
   }
 }
@@ -644,7 +689,7 @@ select[size] {
   margin-top: 16px;
 }
 
-.panel.left {
+.panel.side {
   position: relative;
   width: 250px;
   flex: none;
@@ -652,7 +697,7 @@ select[size] {
   border-right: 1px solid var(--border);
 }
 
-.panel.left > :not(h2):not(.panel-split) {
+.panel.side > :not(h2):not(.panel-split) {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -1277,6 +1322,29 @@ select[size] {
   }
 }
 
+/* Electron on Windows: same layout, flagged by the preload because Electron's frameless window
+   does not reliably report display-mode: window-controls-overlay. */
+.titlebar-overlay .menubar {
+  box-sizing: border-box;
+  min-height: env(titlebar-area-height, 36px);
+  padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw));
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.titlebar-overlay .menubar .menu,
+.titlebar-overlay .menubar button,
+.titlebar-overlay .menubar .menu-search {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Search sits in the middle of the space between the menus and the window buttons, so it never
+   covers either; on narrow windows it shrinks rather than sliding under the buttons. */
+.titlebar-overlay .menubar .menu-search {
+  min-width: 96px;
+  margin: 0 auto;
+}
+
 .install-app-btn {
   display: inline-flex;
   align-items: center;
@@ -1297,6 +1365,36 @@ select[size] {
 
 .install-app-btn:hover {
   filter: brightness(1.12);
+}
+
+/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
+.update-app-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
+  margin: 0 8px 0 0;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update-app-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+.update-app-btn.busy {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-weight: 500;
+  cursor: default;
 }
 
 .menu {
@@ -1425,9 +1523,34 @@ select[size] {
   color: var(--text);
 }
 
-.doc-tabs {
+/* Tabs that do not fit scroll out of sight; the dropdown arrow lists them all. */
+.doc-tabs-scroll {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: stretch;
+  min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.doc-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.doc-tab-more {
+  flex: none;
+  width: 28px;
+  margin-left: auto;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.doc-tab-more:hover {
+  background: #1d2c48;
+  color: var(--text);
 }
 
 .doc-tab {
@@ -1840,6 +1963,69 @@ select[size] {
 .panel-edge:hover,
 .panel-edge:focus-visible {
   background: var(--accent);
+}
+
+/* Panels docked on the right: the rail and side panel mirror the left ones. */
+.rail.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.rail.right button {
+  border-left: 0;
+  border-right: 2px solid transparent;
+}
+
+.rail.right button.active {
+  border-right-color: var(--accent);
+}
+
+.panel.side.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.panel.side.right > .panel-split {
+  right: auto;
+  left: 0;
+}
+
+.panel-edge.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+  cursor: w-resize;
+}
+
+/* A panel's title drags it to the other side of the window. */
+.panel.side > h2[draggable='true'] {
+  cursor: grab;
+}
+
+/* While a panel is dragged: the rail or side panel it would dock at the end of. */
+.rail.drop-target,
+.panel.side.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.rail-drop-hint {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-width: 96px;
+  padding: 12px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  writing-mode: vertical-rl;
+}
+
+@media (max-width: 1000px) {
+  .rail.right,
+  .panel.side.right,
+  .panel-edge.right {
+    display: none !important;
+  }
 }
 
 .pagenav {
@@ -3108,6 +3294,13 @@ select[size] {
   user-select: none;
 }
 
+.ctx-menu.ctx-scroll {
+  width: max-content;
+  max-width: min(480px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+}
+
 .ctx-has-sub {
   position: relative;
 }
@@ -3485,7 +3678,8 @@ select[size] {
   white-space: nowrap;
 }
 
-/* Vertical scrollbar the viewer lays over the right edge of the page canvas. */
+/* Vertical scrollbar the viewer lays over the right edge of the page canvas. A solid dark track
+   keeps it visible over a white page, styled like the app's other scrollbars. */
 .viewer-vscroll {
   position: absolute;
   top: 2px;
@@ -3493,7 +3687,9 @@ select[size] {
   bottom: 2px;
   width: 12px;
   border-radius: 6px;
-  z-index: 2;
+  z-index: 5;
+  background: rgba(14, 23, 41, 0.82);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   touch-action: none;
 }
 
@@ -3503,7 +3699,7 @@ select[size] {
 
 .viewer-vscroll:hover,
 .viewer-vscroll.dragging {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(14, 23, 41, 0.92);
 }
 
 .viewer-vscroll-thumb {
@@ -3512,13 +3708,16 @@ select[size] {
   right: 2px;
   top: 0;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--scroll-thumb-hover);
   cursor: default;
 }
 
-.viewer-vscroll:hover .viewer-vscroll-thumb,
+.viewer-vscroll:hover .viewer-vscroll-thumb {
+  background: #5d78ab;
+}
+
 .viewer-vscroll.dragging .viewer-vscroll-thumb {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--accent);
 }
 
 .thumb .thumb-scale {
@@ -3646,16 +3845,16 @@ select[size] {
 
 /* Collaboration sessions and projects panel. Scoped so other panels stay as they are. */
 
-.panel.left.rc-chrome {
+.panel.side.rc-chrome {
   background: #19253d;
   min-width: 280px;
 }
 
-.panel.left.rc-chrome > h2 {
+.panel.side.rc-chrome > h2 {
   display: none;
 }
 
-.panel.left.rc-chrome > :not(h2):not(.panel-split) {
+.panel.side.rc-chrome > :not(h2):not(.panel-split) {
   overflow: hidden;
   background: #19253d;
 }

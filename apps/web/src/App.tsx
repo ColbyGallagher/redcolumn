@@ -90,6 +90,7 @@ import { comboOf, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
+import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
@@ -98,7 +99,9 @@ import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
-import { NewPdfDialog } from './components/NewPdfDialog';
+import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
+import { StartScreen } from './components/StartScreen';
+import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
@@ -143,7 +146,7 @@ import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
-import { desktop } from './desktop/host';
+import { desktop, type UpdateState } from './desktop/host';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
@@ -235,6 +238,15 @@ function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
  * is closed or crashes.
  */
 const RECOVERY_KEY = 'nb.unsavedDocs';
+
+/** True when this page load is the browser's Refresh (F5, Ctrl+R, the reload button). */
+function pageWasReloaded(): boolean {
+  try {
+    return (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
 function recoveredDocs(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? '[]') as string[]);
@@ -551,6 +563,20 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
 const narrowScreen = () => !!window.matchMedia?.('(max-width: 1000px)').matches;
 
+type DockSide = 'left' | 'right';
+
+/** Drag data of a side panel being moved (its rail button or title), so the drawing ignores it. */
+const PANEL_DRAG_TYPE = 'application/x-rc-panel';
+
+/** The side of the window a panel is docked on (the profile's choice). Narrow screens keep every panel in the left drawer. */
+const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active().state.rightPanels.includes(id) ? 'right' : 'left');
+
+/** The first panel the profile docks on a side, which that side panel starts on. */
+const firstPanelOn = (side: DockSide): LeftTab | undefined => {
+  const ws = profiles.active().state;
+  return RAIL.find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id))?.id;
+};
+
 /** Progress within one of `count` steps of a job, as part of the whole. */
 const partOf = (ctx: JobContext, step: number, count: number, label: string): JobContext => ({
   signal: ctx.signal,
@@ -764,9 +790,13 @@ export function App() {
   const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  const [leftTab, setLeftTab] = useState<LeftTab>('files');
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
   const [leftWidth, setLeftWidth] = useState(440);
+  // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
+  const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
+  const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
+  const [rightWidth, setRightWidth] = useState(360);
   // The rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const [railLabels, setRailLabels] = useState(() => {
     try {
@@ -790,7 +820,8 @@ export function App() {
   const toggleToolbar = () => updateWorkspace((w) => ({ ...w, showToolbar: !w.showToolbar }));
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
-  const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean } | null>(null);
+  /** A panel being dragged by its rail button or title: `over` is the panel it would drop beside, `side` the rail it would dock on. */
+  const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean; side: DockSide | null } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -861,6 +892,27 @@ export function App() {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
   }, []);
+  // The desktop app checks for a newer version at every launch; the header shows what it found.
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  useEffect(() => {
+    const host = desktop();
+    if (!host?.onUpdateState) return;
+    const off = host.onUpdateState(setUpdateState);
+    void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
+    return off;
+  }, []);
+  /** Restarts into a downloaded update. The desktop app refuses while documents have unsaved changes. */
+  const restartIntoUpdate = () =>
+    void desktop()
+      ?.installUpdate()
+      .then((r) => {
+        if (!r.ok) setNotice(r.reason);
+      })
+      .catch(() => setNotice('Could not restart to update. It installs when you close redcolumn.'));
+  const onUpdateButton = () => {
+    if (updateState?.status === 'ready') restartIntoUpdate();
+    else if (updateState?.status === 'available' && updateState.url) window.open(updateState.url, '_blank', 'noopener');
+  };
   const [fullScreen, setFullScreen] = useState(false);
   const [activePane, setActivePane] = useState<'a' | 'b'>('a');
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -997,6 +1049,23 @@ export function App() {
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const [searchFocus, setSearchFocus] = useState(0);
+  /** Opens a side panel on whichever side of the window it is docked. */
+  const showPanel = (tab: LeftTab) => {
+    if (panelSide(tab) === 'right') {
+      setRightTab(tab);
+      setRightOpen(true);
+    } else {
+      setLeftTab(tab);
+      setLeftOpen(true);
+    }
+    if (tab === 'search') setSearchFocus((n) => n + 1);
+  };
+  /** Turns the side `tab` is docked on to it, unless that side is on a panel `keep` says to stay on. */
+  const revealPanel = (tab: LeftTab, keep: (cur: LeftTab) => boolean, open = true) => {
+    const side = panelSide(tab);
+    (side === 'right' ? setRightTab : setLeftTab)((cur) => (keep(cur) && panelSide(cur) === side ? cur : tab));
+    if (open) (side === 'right' ? setRightOpen : setLeftOpen)(true);
+  };
   const busyPages = useJobRunning('pages');
   const searchHits = useRef<SearchHit[]>([]);
   const indexing = useJobRunning('index');
@@ -1281,9 +1350,8 @@ export function App() {
       activateTab(pane, packed);
       if (pane === 'a') {
         // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
-        setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search' ? tab : 'pages'));
         // On narrow screens the panel covers the drawing, so it opens only when asked.
-        if (!narrowScreen()) setLeftOpen(true);
+        revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search', !narrowScreen());
       }
     },
     [ctl, ctlB, activateTab, setTabs],
@@ -1617,7 +1685,9 @@ export function App() {
     // A document opened by the launch (a file, a share, a link) is all that opens.
     if (openRef.current) return;
     let saved: { a?: string[]; b?: string[] } = {};
-    if (settings.get().restoreTabs) {
+    // A refresh of the page always brings back what was open, so nothing seems to vanish; a fresh
+    // start reopens it only when Preferences says to.
+    if (settings.get().restoreTabs || pageWasReloaded()) {
       try {
         saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
       } catch {
@@ -3246,8 +3316,7 @@ export function App() {
       }
       case 'signature':
         if (field.value) {
-          setLeftTab('signatures');
-          setLeftOpen(true);
+          showPanel('signatures');
         } else setSignFor({ fieldName: field.name });
         return;
       case 'button':
@@ -3319,8 +3388,7 @@ export function App() {
       const options = newFieldType === 'radio' ? [uniqueName('Choice', joining ? selected.options : [])] : undefined;
       await editForm(o.file.id, 'Adding the field', (bytes) => createFields(bytes, [{ type: newFieldType, name, pageIndex, rect, ...(options ? { options } : {}) }]));
       setSelectedField(name);
-      setLeftTab('forms');
-      setLeftOpen(true);
+      showPanel('forms');
     })();
   };
 
@@ -3330,7 +3398,7 @@ export function App() {
   const checkingSigs = useRef(new Set<string>());
   useEffect(() => {
     const o = split && activePane === 'b' ? openB : open;
-    if (!o || leftTab !== 'signatures' || sigChecks[o.file.hash] || checkingSigs.current.has(o.file.hash)) return;
+    if (!o || (leftTab !== 'signatures' && rightTab !== 'signatures') || sigChecks[o.file.hash] || checkingSigs.current.has(o.file.hash)) return;
     const hash = o.file.hash;
     checkingSigs.current.add(hash);
     void (async () => {
@@ -3344,7 +3412,7 @@ export function App() {
       setSigChecks((cur) => ({ ...cur, [hash]: checks }));
       checkingSigs.current.delete(hash);
     })();
-  }, [open, openB, split, activePane, leftTab, sigChecks]);
+  }, [open, openB, split, activePane, leftTab, rightTab, sigChecks]);
 
   /** Signs the document (an empty field, a drawn box, or invisibly) and keeps the version before as a revision. */
   const runSign = useCallback(
@@ -3373,8 +3441,7 @@ export function App() {
       );
       if (!ok) return;
       setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);
-      setLeftTab('signatures');
-      setLeftOpen(true);
+      showPanel('signatures');
     },
     [editForm],
   );
@@ -3554,8 +3621,7 @@ export function App() {
           setActivePane('a');
         } else {
           showInPane('a', null);
-          setLeftTab((tab) => (tab === 'sessions' || tab === 'projects' ? tab : 'files'));
-          setLeftOpen(true);
+          revealPanel('files', (tab) => tab === 'sessions' || tab === 'projects');
         }
       }
       disposeOpen(closing);
@@ -3617,6 +3683,20 @@ export function App() {
     report();
     const offs = stores.map((t) => t.store.subscribe(report));
     return () => offs.forEach((off) => off());
+  }, [tabsA, tabsB, savedTick]);
+  // In a browser, leaving or refreshing the page while documents have unsaved changes asks first
+  // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
+  useEffect(() => {
+    if (desktop()) return;
+    const stores = [...tabsA, ...tabsB];
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t))) return;
+      e.preventDefault();
+      // Older browsers show the prompt only when returnValue is set.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
   }, [tabsA, tabsB, savedTick]);
   // Document Recovery: remember which open documents have changes not saved to their file.
   const recovery = prefs.documentRecovery;
@@ -4343,8 +4423,7 @@ export function App() {
       window.history.replaceState(null, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}${window.location.hash}`);
       if (projectLink) {
         setProjectInvite(projectLink);
-        setLeftTab('projects');
-        setLeftOpen(true);
+        showPanel('projects');
       }
     }
     if (params.has('studio') || params.has('gdrive') || driveInvite) {
@@ -4353,8 +4432,7 @@ export function App() {
       params.delete('onedrive');
       const query = params.toString();
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
-      setLeftTab('sessions');
-      setLeftOpen(true);
+      showPanel('sessions');
     }
     const current = currentSessions();
     void (async () => {
@@ -4572,6 +4650,8 @@ export function App() {
             : null;
   // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
   const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
+  // In select mode the style controls show the selected markup's style, not the tool's defaults. A table's controls are its cells'.
+  const selectedStyle = toolsState.tool === 'select' && styleType && styleType !== 'table' ? markups.find((m) => m.type === styleType && toolsState.selected.has(m.id))?.style : undefined;
   const selectedText = textType && toolsState.tool === 'select' ? markups.find((m) => m.type === textType && toolsState.selected.has(m.id)) : undefined;
   // Cloud bubble size: shown while drawing a cloud, or when the selection includes one (a Cloud+ is a cloud and its callout).
   // `value` is the selected cloud's size, else the default for new ones (undefined: sized to the zoom).
@@ -4744,8 +4824,7 @@ export function App() {
     const y1 = size ? Math.min(size.height, rect.y + rect.h) : rect.y + rect.h;
     if (x1 <= x0 || y1 <= y0) return;
     store.setViewport({ id: crypto.randomUUID(), pageIndex, name: `Viewport ${n}`, rect: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, scale: store.scaleFor(pageIndex) });
-    setLeftTab('measurements');
-    setLeftOpen(true);
+    showPanel('measurements');
   };
   const setPageScale = (scale: Scale, allPages: boolean) => {
     const dest = paneB ? openB : open;
@@ -5154,12 +5233,6 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const showLeft = (tab: LeftTab) => {
-    setLeftTab(tab);
-    setLeftOpen(true);
-    if (tab === 'search') setSearchFocus((n) => n + 1);
-  };
-
   const showBottomPanel = (tab: BottomTab) => {
     setBottomTab(tab);
     setShowBottom(true);
@@ -5188,20 +5261,23 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
-  /** Dragging the side panel's edge resizes it; clicking the edge without dragging collapses it. */
-  const onLeftResize = (e: { preventDefault(): void; clientX: number }) => {
+  /** Dragging a side panel's inner edge resizes it; clicking the edge without dragging collapses it. */
+  const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = leftWidth;
+    const startW = side === 'left' ? leftWidth : rightWidth;
+    const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
+    // The right panel's inner edge is its left one: dragging it left widens the panel.
+    const dir = side === 'left' ? 1 : -1;
     let dragged = false;
     const move = (ev: PointerEvent) => {
       if (Math.abs(ev.clientX - startX) > 3) dragged = true;
-      if (dragged) setLeftWidth(Math.max(180, Math.min(480, startW + (ev.clientX - startX))));
+      if (dragged) setWidth(Math.max(180, Math.min(480, startW + dir * (ev.clientX - startX))));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      if (!dragged) setLeftOpen(false);
+      if (!dragged) (side === 'left' ? setLeftOpen : setRightOpen)(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -5248,7 +5324,34 @@ export function App() {
     const tabs = pane === 'b' ? tabsB : tabsA;
     const front = pane === 'b' ? openB : open;
     return (
-      <div className="doc-tabs" role="tablist" aria-label={pane === 'b' ? 'Right pane documents' : 'Documents'}>
+      <DocTabStrip
+        label={pane === 'b' ? 'Right pane documents' : 'Documents'}
+        activeKey={front?.file.id ?? null}
+        count={tabs.length}
+        onOverflowMenu={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setCtxMenu({
+            x: r.right,
+            y: r.bottom,
+            scroll: true,
+            items: tabs.map((t) => ({ label: t.file.name, checked: t === front, onClick: () => activateTab(pane, t) })),
+          });
+        }}
+        after={
+          <button
+            type="button"
+            className="doc-tab-add"
+            title="Open a PDF in a new tab"
+            onClick={() => {
+              setActivePane(pane);
+              activePaneRef.current = pane;
+              openFromDisk();
+            }}
+          >
+            +
+          </button>
+        }
+      >
         {tabs.map((t) => {
           const session = studioDocOf(t.file.id);
           const sessionName = session ? snapshots.find((s) => s.meta.id === session.sessionId)?.meta.name : null;
@@ -5316,19 +5419,7 @@ export function App() {
           );
         })}
         {tabs.length === 0 && <div className="doc-tab empty">No document</div>}
-        <button
-          type="button"
-          className="doc-tab-add"
-          title="Open a PDF in a new tab"
-          onClick={() => {
-            setActivePane(pane);
-            activePaneRef.current = pane;
-            openFromDisk();
-          }}
-        >
-          +
-        </button>
-      </div>
+      </DocTabStrip>
     );
   };
 
@@ -5776,7 +5867,7 @@ export function App() {
             if (pages.length) c.tools.applyToPages(pages);
           }),
       },
-      { label: 'Properties', icon: MENU_ICONS.properties, onClick: () => showLeft('properties') },
+      { label: 'Properties', icon: MENU_ICONS.properties, onClick: () => showPanel('properties') },
     ];
   };
 
@@ -5832,8 +5923,8 @@ export function App() {
       SEP,
       { label: 'Page Labels from Region…', disabled: ro, onClick: () => startLabelRegions(pane) },
       { label: 'Bulk Apply Page Scale…', disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
-      { label: 'Thumbnails', onClick: () => showLeft('pages') },
-      { label: 'Properties', onClick: () => showLeft('properties') },
+      { label: 'Thumbnails', onClick: () => showPanel('pages') },
+      { label: 'Properties', onClick: () => showPanel('properties') },
     ];
   };
 
@@ -5971,7 +6062,7 @@ export function App() {
       },
       SEP,
       sessionDoc
-        ? { label: 'Show in Session', onClick: () => { showLeft('sessions'); setFocusedSession(sessionDoc.sessionId); } }
+        ? { label: 'Show in Session', onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
         : {
             label: 'Add to Session',
             items: [
@@ -5980,12 +6071,12 @@ export function App() {
                 onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: t.file.id, name: t.file.name }])),
               })),
               ...(addable.length ? [SEP] : []),
-              { label: 'Start New Session…', onClick: () => { showLeft('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
+              { label: 'Start New Session…', onClick: () => { showPanel('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
             ],
           },
       sessionDoc
         ? { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
-        : { label: 'Show in File Access', onClick: () => { showLeft('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
+        : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
       { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
@@ -5999,12 +6090,55 @@ export function App() {
     return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
   });
 
-  /** Moves a panel next to another on the rail. */
-  const moveRailPanel = (id: LeftTab, target: LeftTab, after: boolean) => {
+  const visibleRail = orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id));
+  const leftRail = visibleRail.filter(({ id }) => panelSide(id) === 'left');
+  const rightRail = visibleRail.filter(({ id }) => panelSide(id) === 'right');
+  const rightShown = rightOpen && rightRail.some(({ id }) => id === rightTab);
+
+  const startPanelDrag = (e: ReactDragEvent, id: LeftTab) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(PANEL_DRAG_TYPE, id);
+    setRailDrag({ id, over: null, after: false, side: null });
+  };
+  /** A panel dragged over a side's rail or side panel (not over one of its rail buttons) docks at the end of that side. */
+  const dragOverSide = (e: ReactDragEvent, side: DockSide) => {
+    if (!railDrag || (e.target as HTMLElement).closest('[data-panel]')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (railDrag.over || railDrag.side !== side) setRailDrag({ ...railDrag, over: null, after: false, side });
+  };
+  const dropOnSide = (e: ReactDragEvent, side: DockSide) => {
+    if (!railDrag || (e.target as HTMLElement).closest('[data-panel]')) return;
+    e.preventDefault();
+    if (panelSide(railDrag.id) !== side) dockPanel(railDrag.id, side);
+    setRailDrag(null);
+  };
+
+  /**
+   * Docks a panel on a side of the window, next to `target` on that side's rail (or at its end).
+   * A panel moved to the other side opens there.
+   */
+  const dockPanel = (id: LeftTab, side: DockSide, target?: LeftTab, after = false) => {
     if (id === target) return;
+    const from = panelSide(id);
     const ids = orderedRail.map((r) => r.id).filter((x) => x !== id);
-    ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, id);
-    updateWorkspace((w) => ({ ...w, panelOrder: ids }));
+    if (target) ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, id);
+    else ids.push(id);
+    updateWorkspace((w) => ({
+      ...w,
+      panelOrder: ids,
+      rightPanels: side === 'right' ? [...w.rightPanels.filter((x) => x !== id), id] : w.rightPanels.filter((x) => x !== id),
+    }));
+    if (from === side) return;
+    if (side === 'right') {
+      if (leftTab === id) setLeftOpen(false);
+      setRightTab(id);
+      setRightOpen(true);
+    } else {
+      if (rightTab === id) setRightOpen(false);
+      setLeftTab(id);
+      setLeftOpen(true);
+    }
   };
 
   /** Right-click on the markup toolbar: add any tool to it as a button, or take one off. */
@@ -6055,8 +6189,16 @@ export function App() {
     ];
   };
 
-  /** Right-click on the panel rail: turn each panel on or off, or restore the default order. */
-  const panelsMenu = (): MenuEntry[] => [
+  /** Right-click on the panel rail: move the clicked panel to the other side, turn each panel on or off, or restore the default order. */
+  const panelsMenu = (clicked?: LeftTab): MenuEntry[] => [
+    ...(clicked && !narrowScreen()
+      ? [
+          panelSide(clicked) === 'left'
+            ? { label: `Dock ${LEFT_TITLES[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
+            : { label: `Dock ${LEFT_TITLES[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+          SEP,
+        ]
+      : []),
     ...orderedRail.map(({ id, title, experimental }): MenuEntry => ({
       label: experimental ? `${title} (Experimental)` : title,
       checked: !ws.hiddenPanels.includes(id),
@@ -6065,16 +6207,26 @@ export function App() {
         const hide = !ws.hiddenPanels.includes(id);
         updateWorkspace((w) => ({ ...w, hiddenPanels: hide ? [...w.hiddenPanels, id] : w.hiddenPanels.filter((x) => x !== id) }));
         if (hide && leftTab === id) setLeftOpen(false);
+        if (hide && rightTab === id) setRightOpen(false);
       },
     })),
     SEP,
     { label: 'Reset Panel Order', disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
+    {
+      label: 'Dock All Panels on the Left',
+      disabled: !ws.rightPanels.length,
+      onClick: () => {
+        updateWorkspace((w) => ({ ...w, rightPanels: [] }));
+        setRightOpen(false);
+      },
+    },
   ];
 
   /** Right-click on the menu bar, toolbars, panel rail or status bar: which parts of the window show. */
   const layoutMenu = (): MenuEntry[] => [
     { label: 'Markup Toolbar', checked: showTools, onClick: toggleToolbar },
     { label: 'Panels', checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
+    ...(rightRail.length ? [{ label: 'Right Panels', checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
     { label: 'Markups List', checked: showBottom, onClick: () => setShowBottom((s) => !s) },
     { label: split ? 'Unsplit' : 'Split View', shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
     SEP,
@@ -6423,7 +6575,7 @@ export function App() {
         if (!confirm(`Create ${specs.length} form field${specs.length === 1 ? '' : 's'} (${specs.filter((s) => s.type === 'checkbox').length} check boxes) where the page has fill-in lines and boxes? They can be renamed or deleted in the Forms panel.`)) return;
         const ok = await editForm(cur.file.id, 'Creating fields', (bytes) => createFields(bytes, specs));
         if (ok) {
-          showLeft('forms');
+          showPanel('forms');
           setNotice(`Created ${specs.length} field${specs.length === 1 ? '' : 's'}.`);
         }
       })().catch((err) => setError(`Finding fields failed: ${err instanceof Error ? err.message : String(err)}`)),
@@ -6464,10 +6616,15 @@ export function App() {
         const host = desktop();
         if (host) {
           void host.checkForUpdates().then((r) => {
-            if (r.status === 'available') {
+            if (r.status === 'available' && r.url) {
               if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
 
 Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'downloading') setNotice(`redcolumn ${r.latest} is downloading in the background (${r.percent ?? 0}%). It installs when you close redcolumn.`);
+            else if (r.status === 'ready') {
+              if (confirm(`redcolumn ${r.latest} is ready to install. You have ${r.current}.
+
+Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate();
             } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
             else setNotice(`You have the latest version (${r.current}).`);
           }).catch(() => setNotice('Could not check for updates (offline?).'));
@@ -6511,9 +6668,7 @@ Open the download page? Run the new installer to update; your documents and mark
       if (ids.length === 1) setHyperlinkEdit({ pane: activePane, id: ids[0]! });
     },
     find: () => {
-      setLeftTab('search');
-      setLeftOpen(true);
-      setSearchFocus((n) => n + 1);
+      showPanel('search');
     },
     fit: () => v?.fit(),
     fitWidth: () => v?.fitToWidth(),
@@ -6555,11 +6710,11 @@ Open the download page? Run the new installer to update; your documents and mark
     },
     documentProperties: () => setDocPropsOpen(true),
     rotatePages: (quarterTurns) => {
-      showLeft('pages');
+      showPanel('pages');
       void applyPageOps([{ type: 'rotate', pages: currentPageOps(), quarterTurns }]);
     },
     insertPages: () => {
-      showLeft('pages');
+      showPanel('pages');
       insertFileRef.current?.click();
     },
     insertBlank: () => setBlankPdf('blank'),
@@ -6587,14 +6742,15 @@ Open the download page? Run the new installer to update; your documents and mark
     compare: () => setCompareOpen('compare'),
     batch: (kind) => (kind === 'summary' ? setSummaryOpen(true) : setBatchOpen(kind)),
     security: () => setSecurityOpen(true),
-    showPanel: (tab) => showLeft(tab),
+    showPanel: (tab) => showPanel(tab),
     focusPanel: (id) => {
       if (id === 'markups' || id === 'links') showBottomPanel(id);
-      else showLeft(id);
+      else showPanel(id);
     },
     togglePanels: () => {
-      const open = leftOpen || showBottom;
+      const open = leftOpen || rightShown || showBottom;
       setLeftOpen(!open);
+      setRightOpen(!open && rightRail.length > 0);
       setShowBottom(!open);
     },
     addBookmark: () => {
@@ -6603,7 +6759,7 @@ Open the download page? Run the new installer to update; your documents and mark
       const view = visibleView(v, paneB ? canvasBRef.current : canvasRef.current);
       const mark: Bookmark = { id: crypto.randomUUID(), title: pageLabelFor(cur, view.pageIndex), pageIndex: view.pageIndex, rect: view.rect, children: [] };
       cur.store.setBookmarks(insertBookmark(cur.store.bookmarks(), mark));
-      showLeft('bookmarks');
+      showPanel('bookmarks');
     },
     cycleDocument: (dir) => {
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
@@ -6618,7 +6774,7 @@ Open the download page? Run the new installer to update; your documents and mark
     scaleToLength: () => activeTools?.setTool('scaleLength'),
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
-      showLeft('signatures');
+      showPanel('signatures');
       setSignFor({ fieldName: null });
     },
     digitalIds: () => setIdsOpen(true),
@@ -6647,17 +6803,18 @@ Open the download page? Run the new installer to update; your documents and mark
     deletePages: () => {
       const pages = currentPageOps();
       if (!confirm(`Delete page ${pages[0]! + 1}? Markups on it are deleted too.`)) return;
-      showLeft('pages');
+      showPanel('pages');
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
-    thumbnails: () => showLeft('pages'),
+    thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
-    signatures: () => showLeft('signatures'),
+    signatures: () => showPanel('signatures'),
     toggleToolbar,
     toggleLeft: () => setLeftOpen((s) => !s),
+    toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom: () => setShowBottom((s) => !s),
     commandPalette: () => setPaletteOpen(true),
     manageStamps: () => {
@@ -6665,14 +6822,8 @@ Open the download page? Run the new installer to update; your documents and mark
       setStampsOpen(true);
     },
   };
-  /** File › New PDF from Template: a copy of a template document (its markups too) under a new name. */
-  const newFromTemplate = async () => {
-    const templates = library.filter((f) => f.template);
-    if (!templates.length) return;
-    const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
-    if (!choice) return;
-    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
-    if (!name) return;
+  /** A new document that is a copy of a template document (its markups too), under `name`. */
+  const copyTemplate = async (choice: StoredFile, name: string) => {
     try {
       const { PDFDocument } = await import('pdf-lib');
       // Written again with its own title and date, so the copy is a document of its own (not the template's twin).
@@ -6692,6 +6843,43 @@ Open the download page? Run the new installer to update; your documents and mark
       void refreshLibrary();
     } catch (err) {
       setError(`New from template failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  /** File › New PDF from Template: picks a template document and a name for the copy. */
+  const newFromTemplate = async () => {
+    const templates = library.filter((f) => f.template);
+    if (!templates.length) return;
+    const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
+    if (!choice) return;
+    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
+    if (name) await copyTemplate(choice, name);
+  };
+  /** File › New PDF › Start from: a built-in template, or a copy of one in the library. */
+  const newFromTemplateRequest = async (req: TemplateRequest) => {
+    if (req.kind === 'library') {
+      const choice = library.find((f) => f.id === req.id);
+      if (choice) await copyTemplate(choice, choice.name.replace(/\.pdf$/i, '') + ' copy.pdf');
+      return;
+    }
+    const t = BUILTIN_TEMPLATES.find((x) => x.id === req.id);
+    if (!t) return;
+    try {
+      const { buildTemplate } = await import('./documents/pdfTemplates');
+      await openCreated(`${t.name}.pdf`, (await buildTemplate(t.id, req.count)).slice().buffer);
+    } catch (err) {
+      setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  /** File › New PDF › Import Template: a PDF from disk, added to the library as a template. */
+  const importTemplate = async (f: File): Promise<string | null> => {
+    try {
+      const stored = await saveFile(f.name, await f.arrayBuffer());
+      await setTemplate(stored.id, true);
+      await refreshLibrary();
+      return stored.id;
+    } catch (err) {
+      setError(`Importing the template failed: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
     }
   };
 
@@ -6980,17 +7168,525 @@ Open the download page? Run the new installer to update; your documents and mark
     snap: toolsState.snap,
     showToolbar: showTools,
     showLeft: leftOpen,
+    showRight: rightShown,
+    hasRightPanels: rightRail.length > 0,
     showBottom,
     tool: toolsState.tool,
     settings: prefs,
     openTabCount: (pane === 'b' ? tabsB : tabsA).length,
     leftTab,
+    rightTab,
     bottomTab,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
 
-  // The Markups list sits beside the side panel, or spans the window below it.
+  /** A side's panel rail: click a panel to show it; drag it along the rail, or onto the other side, to move it. */
+  const panelRail = (side: DockSide, items: typeof RAIL) => {
+    const shown = side === 'left' ? leftOpen : rightOpen;
+    const open = shown ? (side === 'left' ? leftTab : rightTab) : null;
+    return (
+    <nav
+      className={['rail', side, railLabels ? 'labelled' : '', railDrag?.side === side && !railDrag.over ? 'drop-target' : ''].filter(Boolean).join(' ')}
+      aria-label={side === 'left' ? 'Panels' : 'Right panels'}
+      onDragOver={(e) => dragOverSide(e, side)}
+      onDrop={(e) => dropOnSide(e, side)}
+    >
+      {side === 'left' && (
+      <button
+        type="button"
+        className="rail-toggle"
+        title={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
+        aria-label={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
+        aria-pressed={railLabels}
+        onClick={toggleRailLabels}
+      >
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+          <path fill="none" stroke="currentColor" strokeWidth="1.6" d={railLabels ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
+        </svg>
+        <span className="rail-label">Collapse</span>
+      </button>
+      )}
+      {items.map(({ id, title, icon, experimental }) => (
+        <button
+          key={id}
+          type="button"
+          className={[
+            open === id ? 'active' : '',
+            railDrag?.id === id ? 'dragging' : '',
+            railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
+            experimental ? 'experimental' : '',
+          ].filter(Boolean).join(' ')}
+          title={experimental ? `${title} (Experimental)` : title}
+          aria-pressed={open === id}
+          data-panel={id}
+          draggable
+          onDragStart={(e) => startPanelDrag(e, id)}
+          onDragOver={(e) => {
+            if (!railDrag || railDrag.id === id) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const r = e.currentTarget.getBoundingClientRect();
+            const after = e.clientY > r.top + r.height / 2;
+            if (railDrag.over !== id || railDrag.after !== after || railDrag.side !== side) setRailDrag({ ...railDrag, over: id, after, side });
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (railDrag) dockPanel(railDrag.id, side, id, railDrag.after);
+            setRailDrag(null);
+          }}
+          onDragEnd={() => setRailDrag(null)}
+          onClick={() => {
+            if (open === id) (side === 'left' ? setLeftOpen : setRightOpen)(false);
+            else showPanel(id);
+          }}
+        >
+          {icon}
+          <span className="rail-label">{title}</span>
+          {experimental && <span className="rail-exp">Exp</span>}
+        </button>
+      ))}
+      {!items.length && railDrag && <div className="rail-drop-hint">Dock here</div>}
+    </nav>
+    );
+  };
+
+  /** The side panel on one side of the window, showing the panel picked on that side's rail. */
+  const sidePanel = (side: DockSide) => {
+    const tab = side === 'left' ? leftTab : rightTab;
+    if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
+    const width = side === 'left' ? leftWidth : rightWidth;
+    const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
+    return (
+      <aside
+        className={`panel side ${side}${tab === 'sessions' || tab === 'projects' ? ' rc-chrome' : ''}${railDrag?.side === side && !railDrag.over ? ' drop-target' : ''}`}
+        style={{ width: tab === 'layers' ? Math.max(width, 380) : width }}
+        onDragOver={(e) => dragOverSide(e, side)}
+        onDrop={(e) => dropOnSide(e, side)}
+      >
+        <h2
+          style={tab === 'layers' ? { display: 'none' } : undefined}
+          draggable
+          title="Drag to the left or right side of the window to dock this panel there"
+          onDragStart={(e) => startPanelDrag(e, tab)}
+          onDragEnd={() => setRailDrag(null)}
+        >
+          {LEFT_TITLES[tab]}
+          <button className="drawer-close" aria-label="Close the panel" title="Close" draggable={false} onClick={close}>
+            ×
+          </button>
+        </h2>
+        {tab === 'search' ? (
+          <SearchPanel
+            activeId={activeOpen?.file.id ?? null}
+            activeKey={activeOpen ? `${activeOpen.file.id}:${activeOpen.file.hash}` : null}
+            currentPage={pageIndex}
+            memory={searchMemory}
+            focusToken={searchFocus}
+            sheets={sheets}
+            sources={(scope) => {
+              const tabs = [...tabsA, ...tabsB];
+              const fromTab = (o: OpenFile, page?: number) => openSource(o, formModels[o.file.hash], page);
+              if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
+              if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
+              if (scope === 'open') return tabs.map((o) => fromTab(o));
+              return library
+                .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
+                .slice(0, prefs.recentCount)
+                .map((f) => {
+                  const tab = tabs.find((t) => t.file.id === f.id);
+                  return tab ? fromTab(tab) : librarySource(f);
+                });
+            }}
+            onRedactAll={
+              activeOpen && !activeReadOnly
+                ? (hits) => {
+                    const store = activeOpen.store;
+                    const now = Date.now();
+                    const style = { ...(activeTools?.getState().styles.redaction ?? DEFAULT_STYLES.redaction) };
+                    store.checkpoint();
+                    for (const h of hits)
+                      for (const r of h.rects)
+                        store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
+                    setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
+                  }
+                : undefined
+            }
+            onResults={(hits) => {
+              searchHits.current = hits;
+              activeTools?.setHighlights(hits);
+            }}
+            onOpen={(hit, sameDoc, file) => void openDocSearchHit(hit, sameDoc, file)}
+          />
+        ) : tab === 'pages' ? (
+          <PagesPanel
+            doc={activeOpen?.doc ?? null}
+            store={activeOpen?.store ?? null}
+            view={activeTools ?? null}
+            currentPage={pageIndex}
+            sheets={sheets}
+            scales={scales}
+            busy={busyPages || indexing}
+            onGoTo={(i) => v?.goToPage(i)}
+            onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
+            onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
+            onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
+            onSetLabel={(pages, label) => {
+              for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
+            }}
+            onBulkScales={(pages) => startLabelRegions(undefined, 'scale', { pages })}
+            onPageLabels={(pages) => startLabelRegions(undefined, 'label', { pages, typed: true })}
+            onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
+          />
+        ) : tab === 'forms' ? (
+          <FormsPanel
+            model={activeOpen ? (formModels[activeOpen.file.hash] ?? null) : null}
+            editable={!!activeOpen && !studioDocOf(activeOpen.file.id) && !formBusy}
+            selected={selectedField}
+            onSelect={setSelectedField}
+            newType={newFieldType}
+            onNewType={setNewFieldType}
+            drawing={toolsState.tool === 'formField'}
+            onDraw={() => activeTools?.setTool(toolsState.tool === 'formField' ? 'select' : 'formField')}
+            onGo={goToField}
+            onFill={(name, value) => activeOpen && void fillFields(activeOpen.file.id, { [name]: value })}
+            onUpdate={async (name, changes: FieldChanges) => {
+              if (!activeOpen) return;
+              await editForm(activeOpen.file.id, 'Changing the field', async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
+              if (changes.name) setSelectedField(changes.name);
+            }}
+            onDelete={(name) => {
+              if (!activeOpen || !confirm(`Delete the field "${name}"?`)) return;
+              void editForm(activeOpen.file.id, 'Deleting the field', async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
+              setSelectedField(null);
+            }}
+            onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, 'Changing the tab order', async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
+            onReset={() => {
+              if (!activeOpen || !confirm('Clear every field of this form?')) return;
+              void editForm(activeOpen.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
+            }}
+            onExport={(format) => {
+              const model = activeOpen && formModels[activeOpen.file.hash];
+              if (!model) return;
+              void import('./documents/forms').then(({ toCsv, toXfdf }) => {
+                const base = activeOpen.file.name.replace(/\.pdf$/i, '');
+                if (format === 'xfdf') download(`${base}.xfdf`, new Blob([toXfdf(model.fields, activeOpen.file.name)], { type: 'application/vnd.adobe.xfdf' }));
+                else download(`${base} form data.csv`, new Blob(['\uFEFF' + toCsv(model.fields)], { type: 'text/csv' }));
+              });
+            }}
+            onImport={(file) => {
+              const model = activeOpen && formModels[activeOpen.file.hash];
+              if (!model) return;
+              void (async () => {
+                const { fromCsv, fromXfdf } = await import('./documents/forms');
+                const text = await file.text();
+                let data: Record<string, string>;
+                try {
+                  data = /\.csv$/i.test(file.name) ? fromCsv(text) : /\.json$/i.test(file.name) ? Object.fromEntries(Object.entries(JSON.parse(text) as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.join('\n') : String(v ?? '')])) : fromXfdf(text);
+                } catch {
+                  setError(`${file.name} could not be read as form data.`);
+                  return;
+                }
+                const known = new Set(model.fields.filter((f) => f.type !== 'button' && f.type !== 'signature').map((f) => f.name));
+                const values = Object.fromEntries(Object.entries(data).filter(([k]) => known.has(k)));
+                const n = Object.keys(values).length;
+                if (!n) {
+                  setNotice(`None of the fields in ${file.name} are in this form.`);
+                  return;
+                }
+                await fillFields(activeOpen.file.id, values);
+                setNotice(`Filled in ${n} field${n === 1 ? '' : 's'} from ${file.name}.`);
+              })();
+            }}
+          />
+        ) : tab === 'sets' ? (
+          <SetsPanel
+            library={library}
+            current={activeOpen && !studioDocOf(activeOpen.file.id) ? { fileId: activeOpen.file.id, page: pageIndex } : null}
+            indexing={indexingSets}
+            onIndex={(ids) => void indexSetFiles(ids)}
+            onOpenSheet={(fileId, page) => void openSetSheet(fileId, page)}
+            onRevisions={(setId, pairs) => void followUpRevisions(setId, pairs)}
+            onPreview={setSheetPreview}
+          />
+        ) : tab === 'properties' ? (
+          <PropertiesPanel
+            markups={markups}
+            selected={toolsState.selected}
+            store={activeOpen?.store ?? null}
+            scales={scales}
+            tools={activeTools ?? null}
+            toolsState={toolsState}
+            readOnly={!activeOpen || activeReadOnly}
+            cellContext={cellContext}
+          />
+        ) : tab === 'bookmarks' ? (
+          <BookmarksPanel
+            bookmarks={bookmarks}
+            places={places}
+            pageCount={pageCount}
+            currentPage={pageIndex}
+            pageLabel={(i) => pageLabelFor(activeOpen, i)}
+            editable={!!activeOpen && !activeReadOnly}
+            onBookmarks={(tree) => activeOpen?.store.setBookmarks(tree)}
+            onPlaces={(list) => activeOpen?.store.setPlaces(list)}
+            onGo={(t) => ('action' in t && t.action ? followAction(t.action as LinkAction) : goToTarget(t))}
+            onEditAction={(id) => setBookmarkAction(id)}
+            currentView={() => (v ? visibleView(v, paneB ? canvasBRef.current : canvasRef.current) : { pageIndex, rect: null })}
+          />
+        ) : tab === 'layers' ? (
+          <LayersPanel
+            docKey={activeOpen?.file.hash ?? null}
+            pdfLayers={activeOpen ? (pdfLayers[activeOpen.file.hash] ?? []) : []}
+            hiddenPdf={new Set(activeOpen ? (hiddenPdfLayers[activeOpen.file.id] ?? []) : [])}
+            markupLayers={(() => {
+              const counts = new Map<string, number>();
+              for (const m of markups) counts.set(m.layer ?? '', (counts.get(m.layer ?? '') ?? 0) + 1);
+              // Markups on no layer are listed only once some markup is on a layer.
+              if (counts.size === 1 && counts.has('')) return [];
+              return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => (a.name === '' ? 1 : b.name === '' ? -1 : a.name.localeCompare(b.name)));
+            })()}
+            hiddenMarkup={new Set(activeOpen ? (hiddenMarkupLayers[activeOpen.file.id] ?? []) : [])}
+            onHidden={(pdf, markup) => {
+              const cur = activeOpen;
+              if (!cur) return;
+              const id = cur.file.id;
+              setHiddenMarkupLayers((all) => ({ ...all, [id]: markup }));
+              const was = hiddenPdfLayers[id] ?? [];
+              if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
+              setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
+              void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
+            }}
+            onFaded={(markup) => {
+              const id = activeOpen?.file.id;
+              if (!id || (!markup.length && !fadedMarkupLayers[id]?.length)) return;
+              setFadedMarkupLayers((all) => ({ ...all, [id]: markup }));
+            }}
+            onPage={
+              activeOpen && pdfLayerPages[activeOpen.file.hash]
+                ? {
+                    pdf: new Set(pdfLayerPages[activeOpen.file.hash]![pageIndex] ?? []),
+                    markup: new Set(markups.filter((m) => m.pageIndex === pageIndex).map((m) => m.layer ?? '')),
+                  }
+                : null
+            }
+            showLinks={toolsState.showLinks}
+            onShowLinks={(show) => activeTools?.setShowLinks(show)}
+          />
+        ) : tab === 'toolchest' ? (
+          <ToolChestPanel
+            tool={toolsState.tool}
+            presetId={toolsState.preset?.id ?? null}
+            enabled={!!activeOpen && !activeReadOnly}
+            onUse={useToolItem}
+            onSetTool={(t) => activeTools?.setTool(t)}
+            onAddSelected={
+              toolsState.selected.size
+                ? (setId) => {
+                    for (const item of toolChestItemsOf(markups.filter((x) => toolsState.selected.has(x.id)), activeOpen?.store)) {
+                      addToToolSet(setId, item);
+                    }
+                  }
+                : null
+            }
+          />
+        ) : tab === 'measurements' ? (
+          <MeasurementsPanel
+            markups={markups}
+            scales={scales}
+            selected={toolsState.selected}
+            onSelect={selectFromList}
+            scaleOf={scaleOf}
+            viewports={viewports.filter((x) => x.pageIndex === pageIndex)}
+            allViewports={viewports}
+            onViewports={
+              activeOpen && !activeReadOnly
+                ? {
+                    add: () => activeTools?.setTool('viewport'),
+                    update: (x) => activeOpen.store.setViewport(x),
+                    remove: (id) => activeOpen.store.removeViewport(id),
+                  }
+                : null
+            }
+            pageIndex={pageIndex}
+            pageCount={pageCount}
+            pageName={activeOpen ? (pageLabelFor(activeOpen, pageIndex).startsWith('Page ') ? activeOpen.file.name.replace(/\.pdf$/i, '') : pageLabelFor(activeOpen, pageIndex)) : ''}
+            onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
+            onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
+            tool={toolsState.tool}
+            onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
+            store={activeOpen && !activeReadOnly ? activeOpen.store : null}
+            defaults={measureDefaults}
+            onDefaults={setMeasureDefaults}
+          />
+        ) : tab === 'spaces' ? (
+          <SpacesPanel
+            markups={markups}
+            selected={toolsState.selected}
+            pageLabel={(i) => pageLabelFor(activeOpen, i)}
+            scaleOf={scaleOf}
+            editable={!!activeOpen && !activeReadOnly}
+            showSpaces={prefs.showSpaces}
+            onShowSpaces={(showSpaces) => settings.set({ showSpaces })}
+            onSelect={(m) => {
+              selectFromList(m);
+            }}
+            onAdd={() => activeTools?.setTool('space')}
+            onRename={(id, name) => {
+              activeOpen?.store.checkpoint();
+              activeOpen?.store.update(id, { subject: name });
+            }}
+            onDelete={(id) => {
+              activeOpen?.store.checkpoint();
+              activeOpen?.store.remove([id]);
+            }}
+          />
+        ) : tab === 'flags' ? (
+          <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
+        ) : tab === 'projects' ? (
+          <ProjectsPanel
+            me={author}
+            oneDriveAvailable={oneDriveConfigured}
+            invite={projectInvite}
+            onDismissInvite={() => setProjectInvite(null)}
+            localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
+            onOpenFile={openProjectFile}
+            onAddFiles={async (project, folderId, files, onProgress) => {
+              onProgress({ done: 0, total: files.length, name: 'Reading files' });
+              return addToProject(project, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))), onProgress);
+            }}
+            onCheckIn={checkInProjectFile}
+            onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+            onAddCurrent={async (project, folderId, onProgress) => {
+              const cur = activeOpen;
+              if (!cur) return;
+              onProgress({ done: 0, total: 1, name: cur.file.name });
+              const bytes = await annotatedBytes(cur);
+              await addToProject(project, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }], onProgress);
+            }}
+          />
+        ) : tab === 'sessions' ? (
+          <SessionsPanel
+            joined={sessions.map((session, i) => ({ session, snapshot: snapshots[i]! }))}
+            focusedId={focusedSession}
+            onFocus={setFocusedSession}
+            me={author}
+            busy={studioBusy}
+            error={studioError}
+            activeDoc={activeStudioDoc}
+            openDocs={new Set([...tabsA, ...tabsB].map((t) => studioDocOf(t.file.id)).filter((d) => !!d).map((d) => `${d!.sessionId}:${d!.docId}`))}
+            localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
+            openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
+            library={library.map((f) => ({ id: f.id, name: f.name }))}
+            oneDriveAvailable={oneDriveConfigured}
+            invite={studioInvite}
+            onDismissInvite={() => setStudioInvite(null)}
+            onStart={startStudio}
+            startRequest={startSession}
+            onJoin={(ref) => joinStudio(ref)}
+            onLeave={leaveStudio}
+            onAddCurrent={(id) => void addOpenToStudio(id)}
+            onAddFiles={(id, files) => void runStudio(() => addToStudio(id, files.map((file) => ({ kind: 'upload', file, name: file.name }))))}
+            onOpenDocument={(id, docId) => void openSessionDocument(id, docId)}
+            onGoTo={(id, docId, page) => void goToStudioPage(id, docId, page)}
+            onRun={(job) => void runStudio(job)}
+            onReport={(id, format) => {
+              const snap = snapshots.find((x) => x.meta.id === id);
+              if (!snap) return;
+              if (format === 'pdf') {
+                void runStudio(() => sessionReport(id));
+                return;
+              }
+              const csv = recordToCsv(snap.meta, snap.record);
+              download(`${snap.meta.name} session record.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
+            }}
+            onInviteEmail={(id) => setInviteSession(id)}
+            onUpdateDocument={(id, docId, file) =>
+              void runStudio(async () => {
+                const session = sessionById(id);
+                if (!session) return;
+                await session.updateDocument(docId, await unlockBytes(await file.arrayBuffer(), file.name));
+              })
+            }
+            onEnd={(id) => {
+              const session = sessionById(id);
+              if (!session) return;
+              void (async () => {
+                const authors = new Set<string>();
+                for (const d of session.meta.documents) await withSessionMarkups(session, d.id, (store) => store.all().forEach((m) => m.author && authors.add(m.author)));
+                setStudioError(null);
+                setEndFor({ sessionId: id, authors: [...authors].sort() });
+              })().catch((err) => setStudioError(err instanceof Error ? err.message : String(err)));
+            }}
+          />
+        ) : tab === 'signatures' ? (
+          <div className="signatures-wrap">
+          <DigitalSignaturesSection
+            checks={activeOpen ? (sigChecks[activeOpen.file.hash] ?? null) : []}
+            trusted={trustedCerts}
+            canSign={!!activeOpen && !studioDocOf(activeOpen.file.id) && !formBusy}
+            onSign={() => setSignFor({ fieldName: null })}
+            onManageIds={() => setIdsOpen(true)}
+            onGo={(name) => {
+              const f = activeOpen && formModels[activeOpen.file.hash]?.fields.find((x) => x.name === name);
+              if (f && f.widgets[0] && f.widgets[0].rect.w > 0) goToField(f);
+            }}
+            onTrust={(fp) => {
+              digitalIds.trust(fp);
+              setTrustedCerts(digitalIds.trusted());
+            }}
+            onCheckRevocation={async (c) => {
+              const { buildChain, checkRevocation } = await import('./documents/pki');
+              if (!c.certificates.length) throw new Error('The signature carries no certificate');
+              const chain = await buildChain(c.certificates[0]!, c.certificates);
+              const r = await checkRevocation(chain, pkiFetch);
+              const when = r.at ? ` (as of ${r.at.toLocaleString()})` : '';
+              const trust = r.verified ? '' : ' The answer’s signature could not be checked.';
+              return r.status === 'good'
+                ? `Not revoked, says the certificate authority’s ${r.via}${when}.${trust}`
+                : r.status === 'revoked'
+                  ? `Revoked${r.revokedAt ? ` on ${r.revokedAt.toLocaleString()}` : ''} (${r.via}).${c.signedAt && r.revokedAt && c.signedAt < r.revokedAt ? ' It was signed before that.' : ''}${trust}`
+                  : `The ${r.via} responder does not know this certificate.`;
+            }}
+            onOpenSignedVersion={(c) => {
+              if (!activeOpen) return;
+              void (async () => {
+                const bytes = new Uint8Array(await readFile(activeOpen.file.hash)).slice(0, c.signedLength);
+                await openCreated(`${activeOpen.file.name.replace(/\.pdf$/i, '')} (as signed by ${c.signer}).pdf`, bytes.buffer);
+              })();
+            }}
+          />
+          <SignaturesPanel
+            author={author}
+            placed={markups.filter((m) => m.type === 'signature').sort((a, b) => (a.signature?.signedAt ?? a.createdAt) - (b.signature?.signedAt ?? b.createdAt))}
+            canSign={!!activeOpen && !activeReadOnly}
+            currentDigest={docDigest}
+            selected={toolsState.selected}
+            onPlace={(sig, reason) => void placeSignature(sig, reason)}
+            onSelect={(m) => selectFromList(m)}
+          />
+          </div>
+        ) : (
+          <Library
+            files={library}
+            activeHash={activeOpen?.file.hash ?? null}
+            onOpen={(f) => void openFromLibrary(f)}
+            fileMenu={(f, groupEntries) => {
+              const base = libraryMenu(f);
+              // File Access groups go after the open and session actions.
+              const at = base.findIndex((x) => 'sep' in x);
+              return at < 0 ? [...base, SEP, ...groupEntries] : [...base.slice(0, at), SEP, ...groupEntries, ...base.slice(at)];
+            }}
+            reveal={revealFile}
+            onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
+          />
+        )}
+        <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={(e) => onSideResize(side, e)} />
+      </aside>
+    );
+  };
+
+  // The Markups list sits beside the side panels, or spans the window below them.
   const bottomDock = (
     <aside className="bottom-dock" style={{ height: dockHeight }}>
       <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
@@ -6998,8 +7694,8 @@ Open the download page? Run the new installer to update; your documents and mark
         <button
           type="button"
           className="dock-width-toggle"
-          title={dockFull ? 'Fit the panel beside the side panel' : 'Extend the panel across the full width'}
-          aria-label={dockFull ? 'Fit the panel beside the side panel' : 'Extend the panel across the full width'}
+          title={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          aria-label={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
           aria-pressed={dockFull}
           onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
         >
@@ -7073,9 +7769,9 @@ Open the download page? Run the new installer to update; your documents and mark
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
-        if (target.closest('.rail')) showMenu(e, panelsMenu());
+        if (target.closest('.rail')) showMenu(e, panelsMenu(target.closest<HTMLElement>('[data-panel]')?.dataset.panel as LeftTab | undefined));
         else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
-        else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.left > h2')) showMenu(e, layoutMenu());
+        else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.side > h2')) showMenu(e, layoutMenu());
         else if (!target.closest('.modal, .ctx-root, a')) e.preventDefault();
       }}
     >
@@ -7131,7 +7827,9 @@ Open the download page? Run the new installer to update; your documents and mark
         hiddenPanels={ws.hiddenPanels}
         panels={{ showLeft: leftOpen, showBottom, leftTab, bottomTab }}
         stamps={stampLibrary(ws).map((s) => ({ id: s.id, name: s.name }))}
+        update={updateState}
         on={{
+          update: onUpdateButton,
           placeStamp: (id) => {
             const s = stampLibrary(ws).find((x) => x.id === id);
             if (s) placeStamp(s);
@@ -7141,7 +7839,7 @@ Open the download page? Run the new installer to update; your documents and mark
             if (f) void openFromLibrary(f);
           },
           switchProfile: (id) => profiles.switchTo(id),
-          showLeft,
+          showLeft: showPanel,
           showBottom: showBottomPanel,
           install: () => setInstallOpen(true),
           openSetting: (s) => {
@@ -7155,6 +7853,8 @@ Open the download page? Run the new installer to update; your documents and mark
           tools={activeTools}
           state={toolsState}
           styleType={styleType}
+          markups={markups}
+          selectedStyle={selectedStyle}
           cloudBubble={cloudBubble}
           geometry={selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null}
           textType={textType}
@@ -7177,477 +7877,8 @@ Open the download page? Run the new installer to update; your documents and mark
       )}
       {!split && docTabs('a')}
       <div className="body">
-        <nav className={railLabels ? 'rail labelled' : 'rail'} aria-label="Panels">
-          <button
-            type="button"
-            className="rail-toggle"
-            title={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
-            aria-label={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
-            aria-pressed={railLabels}
-            onClick={toggleRailLabels}
-          >
-            <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-              <path fill="none" stroke="currentColor" strokeWidth="1.6" d={railLabels ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
-            </svg>
-            <span className="rail-label">Collapse</span>
-          </button>
-          {orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id)).map(({ id, title, icon, experimental }) => (
-            <button
-              key={id}
-              type="button"
-              className={[
-                leftOpen && leftTab === id ? 'active' : '',
-                railDrag?.id === id ? 'dragging' : '',
-                railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
-                experimental ? 'experimental' : '',
-              ].filter(Boolean).join(' ')}
-              title={experimental ? `${title} (Experimental)` : title}
-              aria-pressed={leftOpen && leftTab === id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', id);
-                setRailDrag({ id, over: null, after: false });
-              }}
-              onDragOver={(e) => {
-                if (!railDrag || railDrag.id === id) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-                const r = e.currentTarget.getBoundingClientRect();
-                const after = e.clientY > r.top + r.height / 2;
-                if (railDrag.over !== id || railDrag.after !== after) setRailDrag({ ...railDrag, over: id, after });
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (railDrag) moveRailPanel(railDrag.id, id, railDrag.after);
-                setRailDrag(null);
-              }}
-              onDragEnd={() => setRailDrag(null)}
-              onClick={() => {
-                if (leftOpen && leftTab === id) setLeftOpen(false);
-                else showLeft(id);
-              }}
-            >
-              {icon}
-              <span className="rail-label">{title}</span>
-              {experimental && <span className="rail-exp">Exp</span>}
-            </button>
-          ))}
-        </nav>
-        {leftOpen && (
-          <aside className={`panel left${leftTab === 'sessions' || leftTab === 'projects' ? ' rc-chrome' : ''}`} style={{ width: leftTab === 'layers' ? Math.max(leftWidth, 380) : leftWidth }}>
-            <h2 style={leftTab === 'layers' ? { display: 'none' } : undefined}>
-              {LEFT_TITLES[leftTab]}
-              <button className="drawer-close" aria-label="Close the panel" title="Close" onClick={() => setLeftOpen(false)}>
-                ×
-              </button>
-            </h2>
-            {leftTab === 'search' ? (
-              <SearchPanel
-                activeId={activeOpen?.file.id ?? null}
-                activeKey={activeOpen ? `${activeOpen.file.id}:${activeOpen.file.hash}` : null}
-                currentPage={pageIndex}
-                memory={searchMemory}
-                focusToken={searchFocus}
-                sheets={sheets}
-                sources={(scope) => {
-                  const tabs = [...tabsA, ...tabsB];
-                  const fromTab = (o: OpenFile, page?: number) => openSource(o, formModels[o.file.hash], page);
-                  if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
-                  if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
-                  if (scope === 'open') return tabs.map((o) => fromTab(o));
-                  return library
-                    .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
-                    .slice(0, prefs.recentCount)
-                    .map((f) => {
-                      const tab = tabs.find((t) => t.file.id === f.id);
-                      return tab ? fromTab(tab) : librarySource(f);
-                    });
-                }}
-                onRedactAll={
-                  activeOpen && !activeReadOnly
-                    ? (hits) => {
-                        const store = activeOpen.store;
-                        const now = Date.now();
-                        const style = { ...(activeTools?.getState().styles.redaction ?? DEFAULT_STYLES.redaction) };
-                        store.checkpoint();
-                        for (const h of hits)
-                          for (const r of h.rects)
-                            store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
-                        setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
-                      }
-                    : undefined
-                }
-                onResults={(hits) => {
-                  searchHits.current = hits;
-                  activeTools?.setHighlights(hits);
-                }}
-                onOpen={(hit, sameDoc, file) => void openDocSearchHit(hit, sameDoc, file)}
-              />
-            ) : leftTab === 'pages' ? (
-              <PagesPanel
-                doc={activeOpen?.doc ?? null}
-                currentPage={pageIndex}
-                sheets={sheets}
-                scales={scales}
-                busy={busyPages || indexing}
-                onGoTo={(i) => v?.goToPage(i)}
-                onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
-                onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
-                onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
-                onSetLabel={(pages, label) => {
-                  for (const i of pages) activeOpen?.store.editSheet(i, { number: label });
-                }}
-                onBulkScales={(pages) => startLabelRegions(undefined, 'scale', { pages })}
-                onPageLabels={(pages) => startLabelRegions(undefined, 'label', { pages, typed: true })}
-                onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
-              />
-            ) : leftTab === 'forms' ? (
-              <FormsPanel
-                model={activeOpen ? (formModels[activeOpen.file.hash] ?? null) : null}
-                editable={!!activeOpen && !studioDocOf(activeOpen.file.id) && !formBusy}
-                selected={selectedField}
-                onSelect={setSelectedField}
-                newType={newFieldType}
-                onNewType={setNewFieldType}
-                drawing={toolsState.tool === 'formField'}
-                onDraw={() => activeTools?.setTool(toolsState.tool === 'formField' ? 'select' : 'formField')}
-                onGo={goToField}
-                onFill={(name, value) => activeOpen && void fillFields(activeOpen.file.id, { [name]: value })}
-                onUpdate={async (name, changes: FieldChanges) => {
-                  if (!activeOpen) return;
-                  await editForm(activeOpen.file.id, 'Changing the field', async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
-                  if (changes.name) setSelectedField(changes.name);
-                }}
-                onDelete={(name) => {
-                  if (!activeOpen || !confirm(`Delete the field "${name}"?`)) return;
-                  void editForm(activeOpen.file.id, 'Deleting the field', async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
-                  setSelectedField(null);
-                }}
-                onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, 'Changing the tab order', async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
-                onReset={() => {
-                  if (!activeOpen || !confirm('Clear every field of this form?')) return;
-                  void editForm(activeOpen.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
-                }}
-                onExport={(format) => {
-                  const model = activeOpen && formModels[activeOpen.file.hash];
-                  if (!model) return;
-                  void import('./documents/forms').then(({ toCsv, toXfdf }) => {
-                    const base = activeOpen.file.name.replace(/\.pdf$/i, '');
-                    if (format === 'xfdf') download(`${base}.xfdf`, new Blob([toXfdf(model.fields, activeOpen.file.name)], { type: 'application/vnd.adobe.xfdf' }));
-                    else download(`${base} form data.csv`, new Blob(['\uFEFF' + toCsv(model.fields)], { type: 'text/csv' }));
-                  });
-                }}
-                onImport={(file) => {
-                  const model = activeOpen && formModels[activeOpen.file.hash];
-                  if (!model) return;
-                  void (async () => {
-                    const { fromCsv, fromXfdf } = await import('./documents/forms');
-                    const text = await file.text();
-                    let data: Record<string, string>;
-                    try {
-                      data = /\.csv$/i.test(file.name) ? fromCsv(text) : /\.json$/i.test(file.name) ? Object.fromEntries(Object.entries(JSON.parse(text) as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.join('\n') : String(v ?? '')])) : fromXfdf(text);
-                    } catch {
-                      setError(`${file.name} could not be read as form data.`);
-                      return;
-                    }
-                    const known = new Set(model.fields.filter((f) => f.type !== 'button' && f.type !== 'signature').map((f) => f.name));
-                    const values = Object.fromEntries(Object.entries(data).filter(([k]) => known.has(k)));
-                    const n = Object.keys(values).length;
-                    if (!n) {
-                      setNotice(`None of the fields in ${file.name} are in this form.`);
-                      return;
-                    }
-                    await fillFields(activeOpen.file.id, values);
-                    setNotice(`Filled in ${n} field${n === 1 ? '' : 's'} from ${file.name}.`);
-                  })();
-                }}
-              />
-            ) : leftTab === 'sets' ? (
-              <SetsPanel
-                library={library}
-                current={activeOpen && !studioDocOf(activeOpen.file.id) ? { fileId: activeOpen.file.id, page: pageIndex } : null}
-                indexing={indexingSets}
-                onIndex={(ids) => void indexSetFiles(ids)}
-                onOpenSheet={(fileId, page) => void openSetSheet(fileId, page)}
-                onRevisions={(setId, pairs) => void followUpRevisions(setId, pairs)}
-                onPreview={setSheetPreview}
-              />
-            ) : leftTab === 'properties' ? (
-              <PropertiesPanel
-                markups={markups}
-                selected={toolsState.selected}
-                store={activeOpen?.store ?? null}
-                scales={scales}
-                tools={activeTools ?? null}
-                toolsState={toolsState}
-                readOnly={!activeOpen || activeReadOnly}
-                cellContext={cellContext}
-              />
-            ) : leftTab === 'bookmarks' ? (
-              <BookmarksPanel
-                bookmarks={bookmarks}
-                places={places}
-                pageCount={pageCount}
-                currentPage={pageIndex}
-                pageLabel={(i) => pageLabelFor(activeOpen, i)}
-                editable={!!activeOpen && !activeReadOnly}
-                onBookmarks={(tree) => activeOpen?.store.setBookmarks(tree)}
-                onPlaces={(list) => activeOpen?.store.setPlaces(list)}
-                onGo={(t) => ('action' in t && t.action ? followAction(t.action as LinkAction) : goToTarget(t))}
-                onEditAction={(id) => setBookmarkAction(id)}
-                currentView={() => (v ? visibleView(v, paneB ? canvasBRef.current : canvasRef.current) : { pageIndex, rect: null })}
-              />
-            ) : leftTab === 'layers' ? (
-              <LayersPanel
-                docKey={activeOpen?.file.hash ?? null}
-                pdfLayers={activeOpen ? (pdfLayers[activeOpen.file.hash] ?? []) : []}
-                hiddenPdf={new Set(activeOpen ? (hiddenPdfLayers[activeOpen.file.id] ?? []) : [])}
-                markupLayers={(() => {
-                  const counts = new Map<string, number>();
-                  for (const m of markups) counts.set(m.layer ?? '', (counts.get(m.layer ?? '') ?? 0) + 1);
-                  // Markups on no layer are listed only once some markup is on a layer.
-                  if (counts.size === 1 && counts.has('')) return [];
-                  return [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => (a.name === '' ? 1 : b.name === '' ? -1 : a.name.localeCompare(b.name)));
-                })()}
-                hiddenMarkup={new Set(activeOpen ? (hiddenMarkupLayers[activeOpen.file.id] ?? []) : [])}
-                onHidden={(pdf, markup) => {
-                  const cur = activeOpen;
-                  if (!cur) return;
-                  const id = cur.file.id;
-                  setHiddenMarkupLayers((all) => ({ ...all, [id]: markup }));
-                  const was = hiddenPdfLayers[id] ?? [];
-                  if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
-                  setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
-                  void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
-                }}
-                onFaded={(markup) => {
-                  const id = activeOpen?.file.id;
-                  if (!id || (!markup.length && !fadedMarkupLayers[id]?.length)) return;
-                  setFadedMarkupLayers((all) => ({ ...all, [id]: markup }));
-                }}
-                onPage={
-                  activeOpen && pdfLayerPages[activeOpen.file.hash]
-                    ? {
-                        pdf: new Set(pdfLayerPages[activeOpen.file.hash]![pageIndex] ?? []),
-                        markup: new Set(markups.filter((m) => m.pageIndex === pageIndex).map((m) => m.layer ?? '')),
-                      }
-                    : null
-                }
-                showLinks={toolsState.showLinks}
-                onShowLinks={(show) => activeTools?.setShowLinks(show)}
-              />
-            ) : leftTab === 'toolchest' ? (
-              <ToolChestPanel
-                tool={toolsState.tool}
-                presetId={toolsState.preset?.id ?? null}
-                enabled={!!activeOpen && !activeReadOnly}
-                onUse={useToolItem}
-                onSetTool={(t) => activeTools?.setTool(t)}
-                onAddSelected={
-                  toolsState.selected.size
-                    ? (setId) => {
-                        for (const item of toolChestItemsOf(markups.filter((x) => toolsState.selected.has(x.id)), activeOpen?.store)) {
-                          addToToolSet(setId, item);
-                        }
-                      }
-                    : null
-                }
-              />
-            ) : leftTab === 'measurements' ? (
-              <MeasurementsPanel
-                markups={markups}
-                scales={scales}
-                selected={toolsState.selected}
-                onSelect={selectFromList}
-                scaleOf={scaleOf}
-                viewports={viewports.filter((x) => x.pageIndex === pageIndex)}
-                allViewports={viewports}
-                onViewports={
-                  activeOpen && !activeReadOnly
-                    ? {
-                        add: () => activeTools?.setTool('viewport'),
-                        update: (x) => activeOpen.store.setViewport(x),
-                        remove: (id) => activeOpen.store.removeViewport(id),
-                      }
-                    : null
-                }
-                pageIndex={pageIndex}
-                pageCount={pageCount}
-                pageName={activeOpen ? (pageLabelFor(activeOpen, pageIndex).startsWith('Page ') ? activeOpen.file.name.replace(/\.pdf$/i, '') : pageLabelFor(activeOpen, pageIndex)) : ''}
-                onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
-                onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
-                tool={toolsState.tool}
-                onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
-                store={activeOpen && !activeReadOnly ? activeOpen.store : null}
-                defaults={measureDefaults}
-                onDefaults={setMeasureDefaults}
-              />
-            ) : leftTab === 'spaces' ? (
-              <SpacesPanel
-                markups={markups}
-                selected={toolsState.selected}
-                pageLabel={(i) => pageLabelFor(activeOpen, i)}
-                scaleOf={scaleOf}
-                editable={!!activeOpen && !activeReadOnly}
-                showSpaces={prefs.showSpaces}
-                onShowSpaces={(showSpaces) => settings.set({ showSpaces })}
-                onSelect={(m) => {
-                  selectFromList(m);
-                }}
-                onAdd={() => activeTools?.setTool('space')}
-                onRename={(id, name) => {
-                  activeOpen?.store.checkpoint();
-                  activeOpen?.store.update(id, { subject: name });
-                }}
-                onDelete={(id) => {
-                  activeOpen?.store.checkpoint();
-                  activeOpen?.store.remove([id]);
-                }}
-              />
-            ) : leftTab === 'flags' ? (
-              <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
-            ) : leftTab === 'projects' ? (
-              <ProjectsPanel
-                me={author}
-                oneDriveAvailable={oneDriveConfigured}
-                invite={projectInvite}
-                onDismissInvite={() => setProjectInvite(null)}
-                localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
-                onOpenFile={openProjectFile}
-                onAddFiles={async (project, folderId, files, onProgress) => {
-                  onProgress({ done: 0, total: files.length, name: 'Reading files' });
-                  return addToProject(project, folderId, await Promise.all(files.map(async (f) => ({ name: f.name, bytes: await unlockBytes(await f.arrayBuffer(), f.name) }))), onProgress);
-                }}
-                onCheckIn={checkInProjectFile}
-                onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
-                onAddCurrent={async (project, folderId, onProgress) => {
-                  const cur = activeOpen;
-                  if (!cur) return;
-                  onProgress({ done: 0, total: 1, name: cur.file.name });
-                  const bytes = await annotatedBytes(cur);
-                  await addToProject(project, folderId, [{ name: cur.file.name, bytes: bytes.slice().buffer, libraryId: cur.file.id }], onProgress);
-                }}
-              />
-            ) : leftTab === 'sessions' ? (
-              <SessionsPanel
-                joined={sessions.map((session, i) => ({ session, snapshot: snapshots[i]! }))}
-                focusedId={focusedSession}
-                onFocus={setFocusedSession}
-                me={author}
-                busy={studioBusy}
-                error={studioError}
-                activeDoc={activeStudioDoc}
-                openDocs={new Set([...tabsA, ...tabsB].map((t) => studioDocOf(t.file.id)).filter((d) => !!d).map((d) => `${d!.sessionId}:${d!.docId}`))}
-                localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
-                openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
-                library={library.map((f) => ({ id: f.id, name: f.name }))}
-                oneDriveAvailable={oneDriveConfigured}
-                invite={studioInvite}
-                onDismissInvite={() => setStudioInvite(null)}
-                onStart={startStudio}
-                startRequest={startSession}
-                onJoin={(ref) => joinStudio(ref)}
-                onLeave={leaveStudio}
-                onAddCurrent={(id) => void addOpenToStudio(id)}
-                onAddFiles={(id, files) => void runStudio(() => addToStudio(id, files.map((file) => ({ kind: 'upload', file, name: file.name }))))}
-                onOpenDocument={(id, docId) => void openSessionDocument(id, docId)}
-                onGoTo={(id, docId, page) => void goToStudioPage(id, docId, page)}
-                onRun={(job) => void runStudio(job)}
-                onReport={(id, format) => {
-                  const snap = snapshots.find((x) => x.meta.id === id);
-                  if (!snap) return;
-                  if (format === 'pdf') {
-                    void runStudio(() => sessionReport(id));
-                    return;
-                  }
-                  const csv = recordToCsv(snap.meta, snap.record);
-                  download(`${snap.meta.name} session record.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
-                }}
-                onInviteEmail={(id) => setInviteSession(id)}
-                onUpdateDocument={(id, docId, file) =>
-                  void runStudio(async () => {
-                    const session = sessionById(id);
-                    if (!session) return;
-                    await session.updateDocument(docId, await unlockBytes(await file.arrayBuffer(), file.name));
-                  })
-                }
-                onEnd={(id) => {
-                  const session = sessionById(id);
-                  if (!session) return;
-                  void (async () => {
-                    const authors = new Set<string>();
-                    for (const d of session.meta.documents) await withSessionMarkups(session, d.id, (store) => store.all().forEach((m) => m.author && authors.add(m.author)));
-                    setStudioError(null);
-                    setEndFor({ sessionId: id, authors: [...authors].sort() });
-                  })().catch((err) => setStudioError(err instanceof Error ? err.message : String(err)));
-                }}
-              />
-            ) : leftTab === 'signatures' ? (
-              <div className="signatures-wrap">
-              <DigitalSignaturesSection
-                checks={activeOpen ? (sigChecks[activeOpen.file.hash] ?? null) : []}
-                trusted={trustedCerts}
-                canSign={!!activeOpen && !studioDocOf(activeOpen.file.id) && !formBusy}
-                onSign={() => setSignFor({ fieldName: null })}
-                onManageIds={() => setIdsOpen(true)}
-                onGo={(name) => {
-                  const f = activeOpen && formModels[activeOpen.file.hash]?.fields.find((x) => x.name === name);
-                  if (f && f.widgets[0] && f.widgets[0].rect.w > 0) goToField(f);
-                }}
-                onTrust={(fp) => {
-                  digitalIds.trust(fp);
-                  setTrustedCerts(digitalIds.trusted());
-                }}
-                onCheckRevocation={async (c) => {
-                  const { buildChain, checkRevocation } = await import('./documents/pki');
-                  if (!c.certificates.length) throw new Error('The signature carries no certificate');
-                  const chain = await buildChain(c.certificates[0]!, c.certificates);
-                  const r = await checkRevocation(chain, pkiFetch);
-                  const when = r.at ? ` (as of ${r.at.toLocaleString()})` : '';
-                  const trust = r.verified ? '' : ' The answer’s signature could not be checked.';
-                  return r.status === 'good'
-                    ? `Not revoked, says the certificate authority’s ${r.via}${when}.${trust}`
-                    : r.status === 'revoked'
-                      ? `Revoked${r.revokedAt ? ` on ${r.revokedAt.toLocaleString()}` : ''} (${r.via}).${c.signedAt && r.revokedAt && c.signedAt < r.revokedAt ? ' It was signed before that.' : ''}${trust}`
-                      : `The ${r.via} responder does not know this certificate.`;
-                }}
-                onOpenSignedVersion={(c) => {
-                  if (!activeOpen) return;
-                  void (async () => {
-                    const bytes = new Uint8Array(await readFile(activeOpen.file.hash)).slice(0, c.signedLength);
-                    await openCreated(`${activeOpen.file.name.replace(/\.pdf$/i, '')} (as signed by ${c.signer}).pdf`, bytes.buffer);
-                  })();
-                }}
-              />
-              <SignaturesPanel
-                author={author}
-                placed={markups.filter((m) => m.type === 'signature').sort((a, b) => (a.signature?.signedAt ?? a.createdAt) - (b.signature?.signedAt ?? b.createdAt))}
-                canSign={!!activeOpen && !activeReadOnly}
-                currentDigest={docDigest}
-                selected={toolsState.selected}
-                onPlace={(sig, reason) => void placeSignature(sig, reason)}
-                onSelect={(m) => selectFromList(m)}
-              />
-              </div>
-            ) : (
-              <Library
-                files={library}
-                activeHash={activeOpen?.file.hash ?? null}
-                onOpen={(f) => void openFromLibrary(f)}
-                fileMenu={(f, groupEntries) => {
-                  const base = libraryMenu(f);
-                  // File Access groups go after the open and session actions.
-                  const at = base.findIndex((x) => 'sep' in x);
-                  return at < 0 ? [...base, SEP, ...groupEntries] : [...base.slice(0, at), SEP, ...groupEntries, ...base.slice(at)];
-                }}
-                reveal={revealFile}
-                onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
-              />
-            )}
-            <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={onLeftResize} />
-          </aside>
-        )}
+        {panelRail('left', leftRail)}
+        {sidePanel('left')}
         {!leftOpen && <button type="button" className="panel-edge" aria-label="Open the side panel" title="Open the side panel" onClick={() => setLeftOpen(true)} />}
         <div className="workspace">
           <div id="rc-project-slot" className="rc-project-slot" />
@@ -7661,6 +7892,7 @@ Open the download page? Run the new installer to update; your documents and mark
               <main
                 className={`stage${dragOver && activePane === 'a' ? ' drag' : ''}`}
                 onDragOver={(e) => {
+                  if (e.dataTransfer.types.includes(PANEL_DRAG_TYPE)) return;
                   e.preventDefault();
                   if (e.dataTransfer.types.includes(TOOL_DRAG_TYPE)) {
                     e.dataTransfer.dropEffect = 'copy';
@@ -7694,12 +7926,14 @@ Open the download page? Run the new installer to update; your documents and mark
                   />
                 )}
                 {!open && (
-                  <div className="hint">
-                    <span>Drop a PDF here or choose File → Open</span>
-                    <button className={`btn${launchOpen ? ' primary' : ''}`} autoFocus={launchOpen} onClick={() => openFromDisk()}>
-                      Open a PDF…
-                    </button>
-                  </div>
+                  <StartScreen
+                    launchOpen={launchOpen}
+                    onOpen={() => openFromDisk()}
+                    onNew={() => setBlankPdf('new')}
+                    showTip={prefs.startTips}
+                    onHideTip={() => settings.set({ startTips: false })}
+                    onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
+                  />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
                 {notice && (
@@ -7734,6 +7968,7 @@ Open the download page? Run the new installer to update; your documents and mark
                   <main
                     className={`stage${dragOver && activePane === 'b' ? ' drag' : ''}`}
                     onDragOver={(e) => {
+                      if (e.dataTransfer.types.includes(PANEL_DRAG_TYPE)) return;
                       e.preventDefault();
                       if (e.dataTransfer.types.includes(TOOL_DRAG_TYPE)) {
                         e.dataTransfer.dropEffect = 'copy';
@@ -7823,6 +8058,11 @@ Open the download page? Run the new installer to update; your documents and mark
           )}
           {showBottom && !dockFull && bottomDock}
         </div>
+        {rightRail.length > 0 && !rightShown && (
+          <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
+        )}
+        {sidePanel('right')}
+        {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
       </div>
       {showBottom && dockFull && bottomDock}
       <StatusBar
@@ -7918,6 +8158,20 @@ Open the download page? Run the new installer to update; your documents and mark
               ? { index: v.currentPageIndex, count: activeOpen.doc.pages.length, ...activeOpen.doc.pages[v.currentPageIndex]! }
               : undefined
           }
+          templates={library.filter((f) => f.template).map((f) => ({ id: f.id, name: f.name }))}
+          openDoc={activeOpen && library.some((f) => f.id === activeOpen.file.id) ? { id: activeOpen.file.id, name: activeOpen.file.name, template: !!library.find((f) => f.id === activeOpen.file.id)?.template } : null}
+          onTemplate={(req) => {
+            setBlankPdf(null);
+            void newFromTemplateRequest(req);
+          }}
+          onKeepOpenDoc={async () => {
+            if (!activeOpen) return null;
+            await setTemplate(activeOpen.file.id, true);
+            await refreshLibrary();
+            return activeOpen.file.id;
+          }}
+          onImport={importTemplate}
+          onRemoveTemplate={(id) => void setTemplate(id, false).then(refreshLibrary)}
           onCancel={() => setBlankPdf(null)}
           onApply={(req) => {
             const mode = blankPdf;
