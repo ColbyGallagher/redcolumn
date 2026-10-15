@@ -1,5 +1,5 @@
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
-import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps, type LinkOptions } from './DriveApi';
+import { DriveAuthError, DriveForbiddenError, DriveLockedError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps, type LinkOptions } from './DriveApi';
 import { desktop } from '../../desktop/host';
 import { requireOnline } from '../../offline/network';
 import { logCloudAction } from './cloudLog';
@@ -477,6 +477,7 @@ async function failure(res: Response, what: string): Promise<Error> {
   if (res.status === 401) return new DriveAuthError('Microsoft sign-in has expired.');
   if (res.status === 403) return new DriveForbiddenError(detail ?? `Not allowed to ${what}.`);
   if (res.status === 404) return new Error(`OneDrive could not find what was needed to ${what}. Is the session folder still shared?`);
+  if (res.status === 423) return new DriveLockedError(`OneDrive could not ${what}: the file is open in Excel, so it is locked. Close it and the update is saved.`);
   return new Error(`OneDrive could not ${what}${detail ? `: ${detail}` : ` (${res.status})`}.`);
 }
 
@@ -769,6 +770,28 @@ export class OneDrive implements DriveApi {
     const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([body], { type: mimeType }), 'save the spreadsheet');
     logCloudAction('onedrive', 'save app file', name);
     return { id: item.id, url: item.webUrl ?? 'https://onedrive.live.com/' };
+  }
+
+  /**
+   * Writes values into a worksheet of a workbook in the app's folder through Excel's own API, which
+   * works while the workbook is open (and locked) in Excel for the web: the change reaches everyone
+   * with it open. Cells the last write filled beyond the new values are blanked. `address` names the
+   * range from A1 for a number of rows and columns, such as `A1:C4`.
+   */
+  async writeAppWorksheet(name: string, sheet: string, values: readonly (readonly (string | number)[])[], address: (rows: number, cols: number) => string): Promise<void> {
+    const { driveId, itemId } = await this.appRoot();
+    const file = (await (await this.fetch(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:?$select=id`, {}, 'find the spreadsheet')).json()) as GraphItem;
+    const ws = `/drives/${driveId}/items/${file.id}/workbook/worksheets/${encodeURIComponent(sheet)}`;
+    const used = (await (await this.fetch(`${ws}/usedRange(valuesOnly=true)?$select=rowCount,columnCount`, {}, 'read the spreadsheet')).json()) as { rowCount?: number; columnCount?: number };
+    const rows = Math.max(values.length, used.rowCount ?? 0, 1);
+    const cols = Math.max(values[0]?.length ?? 0, used.columnCount ?? 0, 1);
+    const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => values[r]?.[c] ?? ''));
+    await this.fetch(
+      `${ws}/range(address='${address(rows, cols)}')`,
+      { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ values: grid }) },
+      'update the spreadsheet',
+    );
+    logCloudAction('onedrive', 'save app file', name);
   }
 
   /**

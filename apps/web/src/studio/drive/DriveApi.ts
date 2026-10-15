@@ -85,3 +85,6 @@ export class DriveAuthError extends Error {}
 
 /** The user may view but not change this file or folder. */
 export class DriveForbiddenError extends Error {}
+
+/** The file is locked, usually because it is open for editing (such as in Excel for the web). */
+export class DriveLockedError extends Error {}
