@@ -4562,6 +4562,8 @@ export function App() {
             : null;
   // A Cloud+ is a cloud with a callout, so selecting or drawing one also offers the callout's text options.
   const textType = styleType === 'cloud' || styleType === null ? (toolsState.tool === 'cloudPlus' || (toolsState.tool === 'select' && selectedTypes.has('callout')) ? 'callout' : null) : styleType;
+  // In select mode the style controls show the selected markup's style, not the tool's defaults. A table's controls are its cells'.
+  const selectedStyle = toolsState.tool === 'select' && styleType && styleType !== 'table' ? markups.find((m) => m.type === styleType && toolsState.selected.has(m.id))?.style : undefined;
   const selectedText = textType && toolsState.tool === 'select' ? markups.find((m) => m.type === textType && toolsState.selected.has(m.id)) : undefined;
   // Cloud bubble size: shown while drawing a cloud, or when the selection includes one (a Cloud+ is a cloud and its callout).
   // `value` is the selected cloud's size, else the default for new ones (undefined: sized to the zoom).
@@ -7069,6 +7071,8 @@ Open the download page? Run the new installer to update; your documents and mark
           tools={activeTools}
           state={toolsState}
           styleType={styleType}
+          markups={markups}
+          selectedStyle={selectedStyle}
           cloudBubble={cloudBubble}
           geometry={selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null}
           textType={textType}

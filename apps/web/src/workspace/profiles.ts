@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 
@@ -278,4 +278,11 @@ export function rememberRecentTool(item: Omit<ToolChestItem, 'id'>) {
 /** Every stamp this profile can place: the built-in ones, then the user's own. */
 export function stampLibrary(state: WorkspaceState): StampDef[] {
   return [...DEFAULT_STAMPS, ...state.stamps];
+}
+
+// --- line styles ----------------------------------------------------------------------------
+
+/** Every line style set this profile offers: the built-in ones, then the imported ones. */
+export function lineSetLibrary(state: WorkspaceState): LineSet[] {
+  return [...DEFAULT_LINE_SETS, ...state.lineSets];
 }
