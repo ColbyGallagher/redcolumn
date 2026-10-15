@@ -359,6 +359,11 @@ export interface MarkupToolsOptions {
    * `scaleSelectionBy`, `pickScaleTarget` (pick two points on the page instead) or `cancel`.
    */
   onScaleToLength?: (pageIndex: number, ref: [Point, Point]) => void;
+  /**
+   * Scale to Length or a measuring tool was used where the page has no scale. The click is
+   * ignored (the tool stays armed) so the page's scale can be set first. Without it, no scale is needed.
+   */
+  onScaleRequired?: (pageIndex: number, tool: Tool) => void;
   /** The user clicked PDF text with the `editText` tool. */
   onEditPdfText?: (pageIndex: number, at: Point) => void;
   /** The user selected PDF text with the `selectText` tool. */
@@ -435,6 +440,11 @@ function snapTarget(type: MarkupType): boolean {
 const ACQUIRE_MS = 400;
 /** An empty index, for snapping to markups alone when Snap to Content is off. */
 const NO_LINES = new SnapIndex(new Float32Array(0));
+
+/** Tools whose result is a real-world size, so they need the page's scale (angles and counts do not). */
+function needsScale(tool: Tool): boolean {
+  return tool === 'scaleLength' || (isMeasureKind(tool) && tool !== 'angle' && tool !== 'count');
+}
 
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
@@ -1833,6 +1843,12 @@ export class MarkupTools implements ViewerOverlay {
 
     if (tool === 'lasso') {
       this.setGesture({ kind: 'lasso', pageIndex, path: [toPoint(pt)], add: e.shiftKey });
+      return true;
+    }
+
+    // Real-world lengths need the page's scale: ask for it before starting.
+    if (e.button === 0 && !this.gesture && needsScale(tool) && this.options.onScaleRequired && !this.store.isScaledAt(pageIndex, toPoint(pt))) {
+      this.options.onScaleRequired(pageIndex, tool);
       return true;
     }
 

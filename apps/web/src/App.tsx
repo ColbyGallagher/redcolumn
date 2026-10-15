@@ -117,6 +117,7 @@ import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
 import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { SetScaleDialog } from './components/SetScaleDialog';
+import { ScaleRequiredDialog } from './components/ScaleRequiredDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -783,6 +784,10 @@ export function App() {
   const [editingText, setEditingText] = useState<string | null>(null);
   /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
   const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
+  /** The page Set Page Scale opens on when it isn't the current page (e.g. the page a measurement needed a scale on). */
+  const [customScalePage, setCustomScalePage] = useState<number | null>(null);
+  /** Scale to Length or a measuring tool was used on a page with no scale. */
+  const [scaleNeeded, setScaleNeeded] = useState<{ pane: Pane; pageIndex: number; tool: Tool } | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
@@ -1146,6 +1151,7 @@ export function App() {
       onEditText: setEditingText,
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
+      onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
       measureDefaults: () => measureDefaultsRef.current,
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
@@ -8888,16 +8894,37 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {scaleNeeded && (scaleNeeded.pane === 'b' ? openB : open) && (
+        <ScaleRequiredDialog
+          scaleToLength={scaleNeeded.tool === 'scaleLength'}
+          page={pageLabelFor(scaleNeeded.pane === 'b' ? openB : open, scaleNeeded.pageIndex)}
+          onCancel={() => setScaleNeeded(null)}
+          onSetScale={() => {
+            setCustomScalePage(scaleNeeded.pageIndex);
+            setCustomScalePane(scaleNeeded.pane);
+            setScaleNeeded(null);
+          }}
+          onCalibrate={
+            activeReadOnly
+              ? null
+              : () => {
+                  (scaleNeeded.pane === 'b' ? ctlB : ctl)?.tools.setTool('calibrate');
+                  setScaleNeeded(null);
+                }
+          }
+        />
+      )}
       {customScalePane && (customScalePane === 'b' ? openB : open) && (
         <SetScaleDialog
-          scale={(customScalePane === 'b' ? scalesB : scalesA)[(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+          scale={(customScalePane === 'b' ? scalesB : scalesA)[customScalePage ?? (customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
           pageCount={(customScalePane === 'b' ? statsB : stats)?.pageCount ?? 0}
-          currentPage={(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+          currentPage={customScalePage ?? (customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
           selected={[]}
           onCalibrate={
             activeOpen && !activeReadOnly
               ? () => {
                   setCustomScalePane(null);
+                  setCustomScalePage(null);
                   activeTools?.setTool('calibrate');
                 }
               : null
@@ -8905,8 +8932,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onApply={(pages, scale) => {
             (customScalePane === 'b' ? openB : open)?.store.setScale(pages, withDefaultUnits(scale));
             setCustomScalePane(null);
+            setCustomScalePage(null);
           }}
-          onCancel={() => setCustomScalePane(null)}
+          onCancel={() => {
+            setCustomScalePane(null);
+            setCustomScalePage(null);
+          }}
         />
       )}
       {calibration && activeOpen && (

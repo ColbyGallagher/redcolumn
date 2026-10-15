@@ -338,6 +338,13 @@ export class MarkupStore {
     return pageIndex in this.scaleSnapshot;
   }
 
+  /** Whether a point has a real scale: a calibrated viewport's, else its page's. */
+  isScaledAt(pageIndex: number, p: Point): boolean {
+    const viewport = viewportAt(this.viewportSnapshot, pageIndex, p);
+    if (viewport && viewport.scale.metersPerPoint !== DEFAULT_SCALE.metersPerPoint) return true;
+    return this.hasScale(pageIndex);
+  }
+
   /** Stable object until the next change (safe for React's useSyncExternalStore). */
   allScales(): Readonly<Record<number, Scale>> {
     return this.scaleSnapshot;
