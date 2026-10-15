@@ -1,4 +1,5 @@
 import { MARKUP_LABELS, type Attachment, type Markup, type MarkupStyle, type MarkupType } from './model';
+import type { Dropped } from './diagnostics';
 import { mimeOf } from './import';
 import { removePredictor, rgbaToPngDataUrl, samplesToRgba } from './pdfExtras';
 import type { StampContent } from './stamp';
@@ -217,7 +218,7 @@ type Defaults = Record<MarkupType, MarkupStyle>;
  * Reads a .btx tool set; each tool's style is laid over `defaults` (DEFAULT_STYLES). Tools
  * we cannot draw yet are kept, marked `type: null`.
  */
-export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 'Imported tools'): Promise<ToolSet> {
+export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 'Imported tools', dropped: Dropped[] = []): Promise<ToolSet> {
   if (!/<BluebeamRevuToolSet/i.test(xml) && !/<ToolChestItem/i.test(xml)) throw new Error('This is not a .btx tool set file.');
   const title = (await decodedText(tag(xml, 'Title'))) || fallbackTitle;
   const items: ToolChestItem[] = [];
@@ -227,7 +228,9 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
     const children = [...m[1]!.matchAll(/<Child\b[^>]*>([\s\S]*?)<\/Child>/gi)].map((c) => c[1]!);
     const body = m[1]!.replace(/<Child\b[^>]*>[\s\S]*?<\/Child>/gi, '');
     const revuType = tag(body, 'Type') ?? '';
-    const dict = await rawDict(tag(body, 'Raw'));
+    const raw = tag(body, 'Raw');
+    const dict = await rawDict(raw);
+    const unread = !!raw && !Object.keys(dict).length;
     const type = toolType(revuType, dict);
     const parts: Part[] = [];
     for (const c of children) {
@@ -254,6 +257,10 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
     const template = grouped ?? content;
     const label = cloudPlus ? 'Cloud+' : template && sequence ? 'Numbered ' + MARKUP_LABELS[type!] : type ? MARKUP_LABELS[type] : '';
     const name = named || (given === 'CopyItem' && subject ? subject : '') || label || subject || str(dict.T) || 'Tool';
+    const item = `${items.length + 1}. ${name}`;
+    if (unread) dropped.push({ item, reason: 'the tool dictionary could not be read' });
+    if (!type && !unread) dropped.push({ item, reason: `tool type "${revuType || 'unknown'}" is not supported yet` });
+    if (parts.length && !grouped && !cloudPlus && !content) dropped.push({ item, reason: 'group members other than plain boxes are not kept' });
     items.push({
       id: newId('t'),
       name,

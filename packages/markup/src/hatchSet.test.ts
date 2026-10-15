@@ -70,7 +70,7 @@ test('other XML is refused', async () => {
 
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder (e.g. …/Bluebeam Software/Revu/21).
 const dir = process.env.REVU_SETTINGS_DIR;
-test('Revu\'s Standard.bhx is the built-in hatch set', { skip: !dir }, async () => {
+test('Revu\'s Standard.bhx is the built-in hatch set', { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, async () => {
   const set = await parseBhx(readFileSync(`${dir}/Standard.bhx`, 'utf8'));
   assert.equal(set.hatches.length, HATCH_PATTERNS.length - 1);
   assert.ok(set.hatches.every((h) => h.builtIn), 'every hatch in it is a built-in one');

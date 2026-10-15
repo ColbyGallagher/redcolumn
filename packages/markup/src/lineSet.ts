@@ -1,3 +1,4 @@
+import type { Dropped } from './diagnostics';
 import { decodeRaw } from './toolchest';
 import type { CustomLine } from './lineStyle';
 import type { Markup } from './model';
@@ -61,8 +62,13 @@ function component(c: XmlElement): unknown | null {
   }
 }
 
-/** Reads a .blx file into line styles the markup engine draws as they are. Throws when it is not one. */
-export async function parseBlx(xml: string, fallbackTitle = 'Imported line styles'): Promise<LineSet> {
+const COMPONENT_TYPES = new Set(['Dash', 'Space', 'Text', 'Vector']);
+
+/**
+ * Reads a .blx file into line styles the markup engine draws as they are. Throws when it is not one.
+ * Components it cannot keep are listed in `dropped`, one entry per line style they were in.
+ */
+export async function parseBlx(xml: string, fallbackTitle = 'Imported line styles', dropped: Dropped[] = []): Promise<LineSet> {
   let root: XmlElement;
   try {
     root = parseXml(xml.replace(/^﻿/, ''));
@@ -71,8 +77,14 @@ export async function parseBlx(xml: string, fallbackTitle = 'Imported line style
   }
   if (root.tagName !== 'BluebeamRevuLineStyleSet') throw new Error('This is not a Bluebeam line style set (.blx).');
   const styles: CustomLine[] = [];
+  let n = 0;
   for (const s of root.children) {
-    if (s.tagName !== 'LineStyle' || !s.attrs.Name) continue;
+    if (s.tagName !== 'LineStyle') continue;
+    const item = `${++n}. ${s.attrs.Name || '(unnamed)'}`;
+    if (!s.attrs.Name) {
+      dropped.push({ item, reason: 'the line style has no name' });
+      continue;
+    }
     const lines = s.children
       .filter((l) => l.tagName === 'Line')
       .map((l) => [
@@ -81,7 +93,10 @@ export async function parseBlx(xml: string, fallbackTitle = 'Imported line style
           .filter((c) => c.tagName === 'Component')
           .flatMap((c) => {
             const part = component(c);
-            return part === null ? [] : [part];
+            if (part !== null) return [part];
+            const reason = COMPONENT_TYPES.has(c.attrs.Type ?? '') ? 'a component has no usable size' : `component type "${c.attrs.Type ?? 'unknown'}" is not supported yet`;
+            dropped.push({ item, reason });
+            return [];
           }),
       ]);
     styles.push({ name: s.attrs.Name, spec: [s.attrs.ScaleWithLineWidth === undefined ? true : isTrue(s.attrs.ScaleWithLineWidth), ...lines] });
