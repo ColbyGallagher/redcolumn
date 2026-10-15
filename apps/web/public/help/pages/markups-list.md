@@ -6,7 +6,7 @@ The Markups list, at the bottom of the screen, shows **every markup and measurem
 
 ## Open it
 
-It is open by default. If you can't see it, choose {{Window > Bottom Panel}} and click the **Markups** tab. Drag the top edge of the panel up to make it taller.
+It is open by default. If you can't see it, choose {{Window > Bottom Panel}} and click the **Markups** tab. Drag the top edge of the panel up to make it taller. Click the double arrow at the left of its tabs to stretch it across the full width of the window, under the side panels; click it again to fit it back between them.
 
 ## Work with rows
 
