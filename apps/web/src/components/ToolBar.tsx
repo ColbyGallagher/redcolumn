@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, LINE_DASHES, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineDash, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
+import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
+import { LineStyleSelect } from './LineStyleSelect';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
@@ -214,6 +215,10 @@ interface Props {
   textType: MarkupType | null;
   /** Style of the selected text markup, which the text controls show instead of the tool's defaults. */
   textMarkupStyle?: MarkupStyle;
+  /** The open document's markups: their custom line styles are offered in the Line picker. */
+  markups: readonly Markup[];
+  /** Style of the selected markup (select mode), which the style controls show instead of the tool's defaults. */
+  selectedStyle?: MarkupStyle;
   cloudBubble: { value: number | undefined } | null;
   /** Draw to Scale: the selected shape whose sizes the toolbar edits. */
   geometry: { markup: Markup; scale: Scale; store: MarkupStore; readOnly: boolean } | null;
@@ -236,10 +241,9 @@ function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
-  const { lineSets } = useWorkspace();
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
-  const style = styleType ? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType]) : null;
+  const style = styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
   const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
   const toolsPick = (tool: Tool) => tools.setTool(tool);
   return (
@@ -329,33 +333,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, cl
           {styleCapabilities(styleType).dash && (
             <label className="field" title="Line style">
               <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
-              <select
-                value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
-                onChange={(e) => {
-                  if (e.target.value === 'custom') return;
-                  // A style from an imported Revu line set (value 'line:<set>:<style>').
-                  const [, si, li] = e.target.value.split(':');
-                  const picked = e.target.value.startsWith('line:') ? lineSets[Number(si)]?.styles[Number(li)] : undefined;
-                  if (picked) tools.setStyle(styleType, { lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
-                  else tools.setStyle(styleType, { dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined, lineStyle: undefined });
-                }}
-              >
-                {(style.lineStyle || style.dashArray) && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
-                {LINE_DASHES.map((d) => (
-                  <option key={d.value} value={d.value}>
-                    {d.label}
-                  </option>
-                ))}
-                {lineSets.map((set, si) => (
-                  <optgroup key={set.title} label={set.title}>
-                    {set.styles.map((l, li) => (
-                      <option key={l.name} value={`line:${si}:${li}`}>
-                        {l.name}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <LineStyleSelect style={style} markups={markups} onChange={(patch) => tools.setStyle(styleType, patch)} />
             </label>
           )}
           <label className="field" title="Opacity">
