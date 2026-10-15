@@ -1236,7 +1236,9 @@ export class TileViewer {
 
   /**
    * Keeps the view from scrolling above the top of the first page or below the bottom of the last
-   * (content shorter than the view stays within it), and updates the scrollbar to match.
+   * (content shorter than the view stays within it), and updates the scrollbar to match. A single
+   * page can be scrolled until its top or bottom edge is in the middle of the view, so either end
+   * can be worked on in the centre of the screen.
    */
   private clampScroll() {
     const b = this.worldBounds();
@@ -1245,12 +1247,14 @@ export class TileViewer {
       this.scrollTrack.hidden = true;
       return;
     }
-    const top = SCROLL_MARGIN - b.y * this.zoom;
-    const bottom = ch - SCROLL_MARGIN - (b.y + b.h) * this.zoom;
+    const margin = this.mode === 'single' ? Math.max(SCROLL_MARGIN, ch / 2) : SCROLL_MARGIN;
+    const top = margin - b.y * this.zoom;
+    const bottom = ch - margin - (b.y + b.h) * this.zoom;
     this.panY = Math.max(Math.min(top, bottom), Math.min(Math.max(top, bottom), this.panY));
 
-    const total = b.h * this.zoom + SCROLL_MARGIN * 2;
-    const hidden = total <= ch + 0.5;
+    const total = b.h * this.zoom + margin * 2;
+    // The scrollbar shows once the page itself is taller than the view, not for the extra room.
+    const hidden = b.h * this.zoom + SCROLL_MARGIN * 2 <= ch + 0.5;
     this.scrollTrack.hidden = hidden;
     if (hidden) return;
     const track = this.scrollTrack.clientHeight || ch;

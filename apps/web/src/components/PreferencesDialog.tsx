@@ -343,6 +343,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </button>
         </span>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
+        <C>{check('startTips', 'Show a Tip on the Start Screen')}</C>
       </Grid>
     ),
     document: () => (
