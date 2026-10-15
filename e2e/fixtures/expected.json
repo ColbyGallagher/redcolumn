@@ -1,0 +1,61 @@
+{
+  "page": {
+    "width": 1224,
+    "height": 792
+  },
+  "calibration": {
+    "from": [
+      100,
+      700
+    ],
+    "to": [
+      200,
+      700
+    ],
+    "feet": 10
+  },
+  "room": {
+    "x": 300,
+    "y": 200,
+    "w": 200,
+    "h": 100
+  },
+  "symbols": [
+    [
+      700,
+      200
+    ],
+    [
+      760,
+      200
+    ],
+    [
+      820,
+      200
+    ],
+    [
+      700,
+      300
+    ],
+    [
+      760,
+      300
+    ]
+  ],
+  "symbolRadius": 6,
+  "search": {
+    "DOOR SCHEDULE": {
+      "hits": 1,
+      "firstPage": 1
+    },
+    "DOOR": {
+      "hits": 6,
+      "firstPage": 0
+    },
+    "GENERAL NOTES": {
+      "hits": 1,
+      "firstPage": 2
+    }
+  },
+  "pageCount": 3
+}

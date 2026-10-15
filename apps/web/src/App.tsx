@@ -153,7 +153,7 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
-import type { AssistantDocument } from './desktop/assistant';
+import { assistantCall, type AssistantDocument } from './desktop/assistant';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -223,6 +223,9 @@ function hasUnsavedChanges(t: OpenFile) {
 
 /** Pages longer than tabloid (17 in) are drawings, shown a sheet at a time; smaller ones scroll. */
 const DRAWING_PAGE_PT = 17 * 72;
+
+/** The window.__nb handle for the console and the end-to-end tests (e2e/): development and VITE_E2E builds only. */
+const TEST_HOOK = import.meta.env.DEV || import.meta.env.VITE_E2E === '1';
 
 /** Preferences › Document › Page Layout, for a document shown for the first time this session. */
 function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
@@ -1198,8 +1201,21 @@ export function App() {
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
-    // Debugging handle for the browser console in development builds.
-    if (import.meta.env.DEV) Object.assign(window, { __nb: { engine, viewer, tools } });
+    // Debugging handle for the browser console and the end-to-end tests. `commands` are the live
+    // commands by id; `assistant` answers the MCP tools (list_markups, get_page...) without asking.
+    if (TEST_HOOK)
+      Object.assign(window, {
+        __nb: {
+          engine,
+          viewer,
+          tools,
+          commands: () => commandsRef.current,
+          assistant: (method: string, params: unknown) => {
+            const env = assistantRuntime.current;
+            return assistantCall(env.documents(), method, params, { ...env, confirm: async () => true });
+          },
+        },
+      });
     return () => {
       tools.dispose();
       viewer.destroy();

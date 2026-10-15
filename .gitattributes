@@ -1,0 +1,3 @@
+# Binary fixtures: line-ending conversion corrupts them.
+*.pdf binary
+*.png binary
