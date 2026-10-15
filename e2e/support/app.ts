@@ -72,6 +72,8 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown> }>
       }
       return;
     }
+    // Select Text and Copy write to the clipboard; the tests read it back.
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
     await page.addInitScript(seed, settings);
     collectErrors(page, errors);
     await page.goto('/');

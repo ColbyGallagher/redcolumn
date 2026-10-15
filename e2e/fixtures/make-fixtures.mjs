@@ -9,6 +9,7 @@
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { deflateSync } from 'node:zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -39,9 +40,10 @@ const expected = {
   pageCount: 3,
 };
 
-async function plan() {
+/** `rev` 1 adds a revision note to sheet 1, so it is a different file (for a second document, and compare). */
+async function plan(rev = 0) {
   const doc = await PDFDocument.create();
-  doc.setTitle('E2E plan');
+  doc.setTitle(rev ? `E2E plan rev ${rev}` : 'E2E plan');
   doc.setProducer('redcolumn e2e fixtures');
   doc.setCreator('redcolumn e2e fixtures');
   doc.setCreationDate(new Date(0));
@@ -53,6 +55,7 @@ async function plan() {
   // Sheet 1: the plan.
   const p1 = doc.addPage([W, H]);
   text(p1, 'LEVEL 1 PLAN', 60, 60, 18);
+  if (rev) text(p1, `REVISION ${rev}`, 1000, 60, 12);
   const { from, to } = expected.calibration;
   line(p1, from, to, 1);
   line(p1, [from[0], from[1] - 6], [from[0], from[1] + 6]);
@@ -89,6 +92,46 @@ async function plan() {
   return doc.save({ useObjectStreams: false });
 }
 
+/** A 40 x 20 px PNG (red left half, blue right half), for the image tool. */
+function png() {
+  const w = 40;
+  const h = 20;
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc(body));
+    return Buffer.concat([len, body, sum]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // RGB
+  const rows = [];
+  for (let y = 0; y < h; y++) {
+    const row = [0];
+    for (let x = 0; x < w; x++) row.push(...(x < w / 2 ? [255, 0, 0] : [0, 0, 255]));
+    rows.push(Buffer.from(row));
+  }
+  const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
+
 writeFileSync(join(here, 'plan.pdf'), await plan());
+writeFileSync(join(here, 'plan-rev1.pdf'), await plan(1));
+writeFileSync(join(here, 'picture.png'), png());
+writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, picture.png, notes.txt, expected.json');
