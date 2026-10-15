@@ -4,7 +4,7 @@ redcolumn measures straight from the drawing, using the drawing's **scale**. Get
 
 ## The three steps
 
-1. **[Set the scale](#scale)** for the page. Pick it from the list, type it, or [calibrate](#calibrate) from a known length.
+1. **[Set the scale](#scale)** for the page. Pick it from the list, type it, or [calibrate](#calibrate) from a known length. Until a page has a scale, measuring on it asks you to set one first (Angle and Count work without one).
 2. **Pick a measure tool** from {{Tools > Measure}}.
 
    ![The Tools, Measure menu](img/menu-measure.png)

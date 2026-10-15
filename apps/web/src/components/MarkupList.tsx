@@ -145,6 +145,12 @@ function CommentCell({ value, disabled, wrap, onSave }: { value: string; disable
 /** A list line's React key, also used to keep its measured height. */
 const lineKey = (l: Line) => (l.kind === 'group' ? `group:${l.label}` : l.kind === 'reply' ? `${l.m.id}:${l.reply.id}` : l.row.markup.id);
 
+/**
+ * What the list is showing beyond the profile's settings. There is one list, and it is remounted when the
+ * Markups panel moves between full width and beside the side panels, so this keeps its place across that.
+ */
+const kept = { query: '', folded: new Set<string>() as ReadonlySet<string>, closed: new Set<string>() as ReadonlySet<string>, scrollTop: 0 };
+
 const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWorkspace((s) => ({ ...s, list: fn(s.list) }));
 
 /**
@@ -163,16 +169,16 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const spaces = useMemo(() => allMarkups.filter((m) => m.type === 'space'), [allMarkups]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: () => MenuEntry[] } | null>(null);
   /** The search box: markups whose content contains this text. */
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => kept.query);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<{ key: string; after: boolean } | null>(null);
   const resizing = useRef(false);
   const body = useRef<HTMLTableSectionElement>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   /** Groups folded shut, by label. */
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const [folded, setFolded] = useState(() => kept.folded);
   /** Comment threads folded shut: `m:<markup id>` or `r:<reply id>`. */
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const [closed, setClosed] = useState(() => kept.closed);
   /** The reply row the list is acting on (reply, delete). */
   const [activeReply, setActiveReply] = useState<{ markupId: string; replyId: string } | null>(null);
   /** The row a Shift+click extends from. */
@@ -244,6 +250,18 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const statusLines = settings.statusHistory !== 'latest' || settings.statusDetails !== false;
   const wrap = (settings.wrapComments !== false && visible.some((c) => c.key === 'comment')) || (statusLines && visible.some((c) => c.key === 'status'));
   const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    kept.query = query;
+    kept.folded = folded;
+    kept.closed = closed;
+  }, [query, folded, closed]);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = kept.scrollTop;
+    return () => {
+      if (el) kept.scrollTop = el.scrollTop;
+    };
+  }, []);
   const [rowH, setRowH] = useState(0);
   const h = rowH || ROW_GUESS;
   /** Measured heights of wrapped rows, by line key. */

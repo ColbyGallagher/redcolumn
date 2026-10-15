@@ -2,7 +2,7 @@
 
 Scale to Length grows or shrinks markups so that two points on them end up a set distance apart, like AutoCAD's Scale › Reference. Use it to bring a pasted map, aerial photo or sketch to the drawing's scale.
 
-Set the page's [scale](#scale) first, so lengths you type are real-world lengths.
+Set the page's [scale](#scale) first, so lengths you type are real-world lengths. On a page without a scale, Scale to Length asks you to set one (or [calibrate](#calibrate)) before it starts.
 
 1. Select what you want to scale (for example a pasted map). If nothing is selected, the first click picks the markup under the pointer.
 2. Choose {{Edit > Scale to Length…}}, or right-click it and choose **Alignment › Scale to Length…**.

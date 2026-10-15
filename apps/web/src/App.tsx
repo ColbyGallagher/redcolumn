@@ -117,6 +117,7 @@ import { migrateLegacyToolSets } from './toolchest/toolSets';
 import { CalibrateDialog } from './components/CalibrateDialog';
 import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { SetScaleDialog } from './components/SetScaleDialog';
+import { ScaleRequiredDialog } from './components/ScaleRequiredDialog';
 import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
@@ -561,7 +562,8 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
-const narrowScreen = () => !!window.matchMedia?.('(max-width: 1000px)').matches;
+const NARROW_QUERY = '(max-width: 1000px)';
+const narrowScreen = () => !!window.matchMedia?.(NARROW_QUERY).matches;
 
 type DockSide = 'left' | 'right';
 
@@ -783,6 +785,10 @@ export function App() {
   const [editingText, setEditingText] = useState<string | null>(null);
   /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
   const [customScalePane, setCustomScalePane] = useState<'a' | 'b' | null>(null);
+  /** The page Set Page Scale opens on when it isn't the current page (e.g. the page a measurement needed a scale on). */
+  const [customScalePage, setCustomScalePage] = useState<number | null>(null);
+  /** Scale to Length or a measuring tool was used on a page with no scale. */
+  const [scaleNeeded, setScaleNeeded] = useState<{ pane: Pane; pageIndex: number; tool: Tool } | null>(null);
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
@@ -832,6 +838,16 @@ export function App() {
   const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
+  // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
+  const [narrow, setNarrow] = useState(narrowScreen);
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_QUERY);
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   /** Split Horizontal: the second pane below the first rather than beside it. */
@@ -1146,6 +1162,7 @@ export function App() {
       onEditText: setEditingText,
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
+      onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
       measureDefaults: () => measureDefaultsRef.current,
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
@@ -7676,6 +7693,84 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     );
   };
 
+  // The Markups list sits beside the side panels, or spans the window below them.
+  const bottomDock = (
+    <aside className="bottom-dock" style={{ height: dockHeight }}>
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
+      <div className="tabs">
+        <button
+          type="button"
+          className="dock-width-toggle"
+          title={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          aria-label={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          aria-pressed={dockFull}
+          onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.6" d={dockFull ? 'M1 4l4 4-4 4M15 4l-4 4 4 4M8 2v12' : 'M5 4 1 8l4 4M11 4l4 4-4 4M1 8h14'} />
+          </svg>
+        </button>
+        <div className="dock-tablist" role="tablist">
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'markups'}
+            className={bottomTab === 'markups' ? 'active' : ''}
+            onClick={() => setBottomTab('markups')}
+          >
+            Markups
+          </button>
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'links'}
+            className={bottomTab === 'links' ? 'active' : ''}
+            onClick={() => setBottomTab('links')}
+          >
+            Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+          </button>
+        </div>
+        <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
+          ×
+        </button>
+      </div>
+      <div className="dock-body">
+        {bottomTab === 'links' ? (
+          <LinksPanel
+            links={links}
+            sheets={sheets}
+            currentPage={pageIndex}
+            showLinks={toolsState.showLinks}
+            busy={indexing}
+            onShowLinks={(show) => activeTools?.setShowLinks(show)}
+            onReveal={(l) => navigate(l.pageIndex, l.rect)}
+            onFollow={(l) => navigate(l.targetPage, l.targetRect)}
+            onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
+            onRedetect={() => void redetectLinks()}
+          />
+        ) : (
+          <MarkupList
+            markups={markups}
+            store={activeOpen?.store ?? null}
+            scaleOf={scaleOf}
+            sheets={sheets}
+            columnSet={columnSet}
+            readOnly={!activeOpen || activeReadOnly}
+            selected={toolsState.selected}
+            onSelect={selectRowsFromList}
+            onReply={onListReply}
+            onRowMenu={onListRowMenu}
+            onManageColumns={onManageColumns}
+            onExport={onExportList}
+            onSync={() => setSyncOpen(true)}
+            syncing={!!sheetSync.link}
+            onFiltered={setListKept}
+            allHidden={allMarkupsHidden}
+            onToggleAllHidden={toggleAllMarkupsHidden}
+          />
+        )}
+      </div>
+    </aside>
+  );
+
   return (
     <div
       className={`app${fullScreen ? ' fullscreen' : ''}`}
@@ -7970,68 +8065,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
-          {showBottom && (
-            <aside className="bottom-dock" style={{ height: dockHeight }}>
-              <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
-              <div className="tabs" role="tablist">
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'markups'}
-                  className={bottomTab === 'markups' ? 'active' : ''}
-                  onClick={() => setBottomTab('markups')}
-                >
-                  Markups
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'links'}
-                  className={bottomTab === 'links' ? 'active' : ''}
-                  onClick={() => setBottomTab('links')}
-                >
-                  Links{links.some((l) => l.status === 'review') ? ' •' : ''}
-                </button>
-                <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
-                  ×
-                </button>
-              </div>
-              <div className="dock-body">
-                {bottomTab === 'links' ? (
-                  <LinksPanel
-                    links={links}
-                    sheets={sheets}
-                    currentPage={pageIndex}
-                    showLinks={toolsState.showLinks}
-                    busy={indexing}
-                    onShowLinks={(show) => activeTools?.setShowLinks(show)}
-                    onReveal={(l) => navigate(l.pageIndex, l.rect)}
-                    onFollow={(l) => navigate(l.targetPage, l.targetRect)}
-                    onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
-                    onRedetect={() => void redetectLinks()}
-                  />
-                ) : (
-                  <MarkupList
-                    markups={markups}
-                    store={activeOpen?.store ?? null}
-                    scaleOf={scaleOf}
-                    sheets={sheets}
-                    columnSet={columnSet}
-                    readOnly={!activeOpen || activeReadOnly}
-                    selected={toolsState.selected}
-                    onSelect={selectRowsFromList}
-                    onReply={onListReply}
-                    onRowMenu={onListRowMenu}
-                    onManageColumns={onManageColumns}
-                    onExport={onExportList}
-                    onSync={() => setSyncOpen(true)}
-                    syncing={!!sheetSync.link}
-                    onFiltered={setListKept}
-                    allHidden={allMarkupsHidden}
-                    onToggleAllHidden={toggleAllMarkupsHidden}
-                  />
-                )}
-              </div>
-            </aside>
-          )}
+          {showBottom && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
           <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
@@ -8039,6 +8073,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
       </div>
+      {showBottom && dockFull && bottomDock}
       <StatusBar
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}
@@ -8888,16 +8923,37 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {scaleNeeded && (scaleNeeded.pane === 'b' ? openB : open) && (
+        <ScaleRequiredDialog
+          scaleToLength={scaleNeeded.tool === 'scaleLength'}
+          page={pageLabelFor(scaleNeeded.pane === 'b' ? openB : open, scaleNeeded.pageIndex)}
+          onCancel={() => setScaleNeeded(null)}
+          onSetScale={() => {
+            setCustomScalePage(scaleNeeded.pageIndex);
+            setCustomScalePane(scaleNeeded.pane);
+            setScaleNeeded(null);
+          }}
+          onCalibrate={
+            activeReadOnly
+              ? null
+              : () => {
+                  (scaleNeeded.pane === 'b' ? ctlB : ctl)?.tools.setTool('calibrate');
+                  setScaleNeeded(null);
+                }
+          }
+        />
+      )}
       {customScalePane && (customScalePane === 'b' ? openB : open) && (
         <SetScaleDialog
-          scale={(customScalePane === 'b' ? scalesB : scalesA)[(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+          scale={(customScalePane === 'b' ? scalesB : scalesA)[customScalePage ?? (customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
           pageCount={(customScalePane === 'b' ? statsB : stats)?.pageCount ?? 0}
-          currentPage={(customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+          currentPage={customScalePage ?? (customScalePane === 'b' ? statsB : stats)?.pageIndex ?? 0}
           selected={[]}
           onCalibrate={
             activeOpen && !activeReadOnly
               ? () => {
                   setCustomScalePane(null);
+                  setCustomScalePage(null);
                   activeTools?.setTool('calibrate');
                 }
               : null
@@ -8905,8 +8961,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onApply={(pages, scale) => {
             (customScalePane === 'b' ? openB : open)?.store.setScale(pages, withDefaultUnits(scale));
             setCustomScalePane(null);
+            setCustomScalePage(null);
           }}
-          onCancel={() => setCustomScalePane(null)}
+          onCancel={() => {
+            setCustomScalePane(null);
+            setCustomScalePage(null);
+          }}
         />
       )}
       {calibration && activeOpen && (
