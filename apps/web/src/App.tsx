@@ -801,6 +801,16 @@ export function App() {
   const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
+  // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
+  const [narrow, setNarrow] = useState(narrowScreen);
+  useEffect(() => {
+    const mq = window.matchMedia?.('(max-width: 1000px)');
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   /** Split Horizontal: the second pane below the first rather than beside it. */
@@ -6980,6 +6990,82 @@ Open the download page? Run the new installer to update; your documents and mark
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
 
+  // The Markups list sits beside the side panel, or spans the window below it.
+  const bottomDock = (
+    <aside className="bottom-dock" style={{ height: dockHeight }}>
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
+      <div className="tabs" role="tablist">
+        <button
+          type="button"
+          className="dock-width-toggle"
+          title={dockFull ? 'Fit the panel beside the side panel' : 'Extend the panel across the full width'}
+          aria-label={dockFull ? 'Fit the panel beside the side panel' : 'Extend the panel across the full width'}
+          aria-pressed={dockFull}
+          onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.6" d={dockFull ? 'M3 3l5 5-5 5M8 3l5 5-5 5' : 'M8 3 3 8l5 5M13 3 8 8l5 5'} />
+          </svg>
+        </button>
+        <button
+          role="tab"
+          aria-selected={bottomTab === 'markups'}
+          className={bottomTab === 'markups' ? 'active' : ''}
+          onClick={() => setBottomTab('markups')}
+        >
+          Markups
+        </button>
+        <button
+          role="tab"
+          aria-selected={bottomTab === 'links'}
+          className={bottomTab === 'links' ? 'active' : ''}
+          onClick={() => setBottomTab('links')}
+        >
+          Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+        </button>
+        <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
+          ×
+        </button>
+      </div>
+      <div className="dock-body">
+        {bottomTab === 'links' ? (
+          <LinksPanel
+            links={links}
+            sheets={sheets}
+            currentPage={pageIndex}
+            showLinks={toolsState.showLinks}
+            busy={indexing}
+            onShowLinks={(show) => activeTools?.setShowLinks(show)}
+            onReveal={(l) => navigate(l.pageIndex, l.rect)}
+            onFollow={(l) => navigate(l.targetPage, l.targetRect)}
+            onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
+            onRedetect={() => void redetectLinks()}
+          />
+        ) : (
+          <MarkupList
+            markups={markups}
+            store={activeOpen?.store ?? null}
+            scaleOf={scaleOf}
+            sheets={sheets}
+            columnSet={columnSet}
+            readOnly={!activeOpen || activeReadOnly}
+            selected={toolsState.selected}
+            onSelect={selectRowsFromList}
+            onReply={onListReply}
+            onRowMenu={onListRowMenu}
+            onManageColumns={onManageColumns}
+            onExport={onExportList}
+            onSync={() => setSyncOpen(true)}
+            syncing={!!sheetSync.link}
+            onFiltered={setListKept}
+            allHidden={allMarkupsHidden}
+            onToggleAllHidden={toggleAllMarkupsHidden}
+          />
+        )}
+      </div>
+    </aside>
+  );
+
   return (
     <div
       className={`app${fullScreen ? ' fullscreen' : ''}`}
@@ -7735,70 +7821,10 @@ Open the download page? Run the new installer to update; your documents and mark
               }}
             />
           )}
-          {showBottom && (
-            <aside className="bottom-dock" style={{ height: dockHeight }}>
-              <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
-              <div className="tabs" role="tablist">
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'markups'}
-                  className={bottomTab === 'markups' ? 'active' : ''}
-                  onClick={() => setBottomTab('markups')}
-                >
-                  Markups
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'links'}
-                  className={bottomTab === 'links' ? 'active' : ''}
-                  onClick={() => setBottomTab('links')}
-                >
-                  Links{links.some((l) => l.status === 'review') ? ' •' : ''}
-                </button>
-                <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
-                  ×
-                </button>
-              </div>
-              <div className="dock-body">
-                {bottomTab === 'links' ? (
-                  <LinksPanel
-                    links={links}
-                    sheets={sheets}
-                    currentPage={pageIndex}
-                    showLinks={toolsState.showLinks}
-                    busy={indexing}
-                    onShowLinks={(show) => activeTools?.setShowLinks(show)}
-                    onReveal={(l) => navigate(l.pageIndex, l.rect)}
-                    onFollow={(l) => navigate(l.targetPage, l.targetRect)}
-                    onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
-                    onRedetect={() => void redetectLinks()}
-                  />
-                ) : (
-                  <MarkupList
-                    markups={markups}
-                    store={activeOpen?.store ?? null}
-                    scaleOf={scaleOf}
-                    sheets={sheets}
-                    columnSet={columnSet}
-                    readOnly={!activeOpen || activeReadOnly}
-                    selected={toolsState.selected}
-                    onSelect={selectRowsFromList}
-                    onReply={onListReply}
-                    onRowMenu={onListRowMenu}
-                    onManageColumns={onManageColumns}
-                    onExport={onExportList}
-                    onSync={() => setSyncOpen(true)}
-                    syncing={!!sheetSync.link}
-                    onFiltered={setListKept}
-                    allHidden={allMarkupsHidden}
-                    onToggleAllHidden={toggleAllMarkupsHidden}
-                  />
-                )}
-              </div>
-            </aside>
-          )}
+          {showBottom && !dockFull && bottomDock}
         </div>
       </div>
+      {showBottom && dockFull && bottomDock}
       <StatusBar
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}

@@ -80,6 +80,8 @@ export interface WorkspaceState {
   /** Order of the panel rail (panel ids); panels not listed follow in their default order. */
   panelOrder: string[];
   showToolbar: boolean;
+  /** The Markups list spans the window's width, under the side panel too, rather than sitting beside it. */
+  dockFullWidth: boolean;
   list: MarkupListSettings;
   /** Custom columns and statuses given to documents that have none of their own. */
   columnTemplate: ColumnSet | null;
@@ -120,6 +122,7 @@ export function defaultWorkspace(): WorkspaceState {
     hiddenPanels: [],
     panelOrder: [],
     showToolbar: true,
+    dockFullWidth: false,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
     columnTemplate: null,
     shortcuts: {},
