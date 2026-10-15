@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PageOp, PdfDocument } from '@nb/pdf-core';
+import { drawMarkup, onImageLoad, type Markup, type MarkupStore } from '@nb/markup';
 import type { SheetInfo } from '@nb/sheets';
 import { yScaleLabel, type Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
@@ -102,8 +103,29 @@ class ThumbnailQueue {
 
 const queue = new ThumbnailQueue();
 
+/** A page's markups in drawing order; the same array back while none of them changed. */
+function usePageMarkups(store: MarkupStore | null, page: number): readonly Markup[] {
+  const [markups, setMarkups] = useState<readonly Markup[]>(() => store?.forPage(page) ?? []);
+  useEffect(() => {
+    if (!store) {
+      setMarkups([]);
+      return;
+    }
+    const read = () => {
+      const next = store.forPage(page).sort((a, b) => a.createdAt - b.createdAt);
+      // Markups are replaced on every edit, so unchanged entries compare equal by reference.
+      setMarkups((prev) => (prev.length === next.length && prev.every((m, i) => m === next[i]) ? prev : next));
+    };
+    read();
+    return store.subscribe(read);
+  }, [store, page]);
+  return markups;
+}
+
 interface ThumbProps {
   doc: PdfDocument;
+  /** The document's markups, drawn over the page. */
+  store: MarkupStore | null;
   page: number;
   /** Width drawn on screen. Can change ahead of `renderW` while the slider is moving. */
   thumbW: number;
@@ -129,9 +151,13 @@ interface ThumbProps {
   renameTick: number;
 }
 
-function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, yScale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename, onContextMenu, renameTick }: ThumbProps) {
+function Thumbnail({ doc, store, page, thumbW, renderW, label, sheet, scale, yScale, editable, active, selected, dropBefore, onClick, onDragStart, onDragOver, onDrop, onRename, onContextMenu, renameTick }: ThumbProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [editing, setEditing] = useState(false);
+  /** The rendered page, kept so markup edits redraw without rendering the page again. */
+  const [base, setBase] = useState<ImageBitmap | null>(null);
+  const [imageTick, setImageTick] = useState(0);
+  const markups = usePageMarkups(store, page);
   const size = doc.pages[page]!;
   const height = Math.round((thumbW * size.height) / size.width);
 
@@ -139,10 +165,7 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, yScale, ed
     const canvas = canvasRef.current!;
     let cancelled = false;
     const draw = (b: ImageBitmap) => {
-      if (cancelled) return;
-      canvas.width = b.width;
-      canvas.height = b.height;
-      canvas.getContext('2d')!.drawImage(b, 0, 0);
+      if (!cancelled) setBase(b);
     };
     const cached = queue.get(doc, page, renderW);
     if (cached) {
@@ -163,6 +186,32 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, yScale, ed
       queue.cancel(doc, page, renderW);
     };
   }, [doc, page, renderW]);
+
+  // Image markups load asynchronously; draw again once they arrive.
+  useEffect(() => (markups.length ? onImageLoad(() => setImageTick((n) => n + 1)) : undefined), [markups]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current!;
+    // The queue closes bitmaps it evicts; a closed one has zero size.
+    if (!base || !base.width) return;
+    canvas.width = base.width;
+    canvas.height = base.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(base, 0, 0);
+    if (!markups.length || !store) return;
+    const k = base.width / size.width;
+    const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
+    ctx.save();
+    ctx.scale(k, k);
+    for (const m of markups) {
+      try {
+        drawMarkup(ctx, m, k, store.scaleOf(m), legends);
+      } catch (err) {
+        console.error('Thumbnail markup failed', err);
+      }
+    }
+    ctx.restore();
+  }, [base, markups, store, size.width, imageTick]);
 
   useEffect(() => {
     if (renameTick && editable) setEditing(true);
@@ -231,6 +280,8 @@ function Thumbnail({ doc, page, thumbW, renderW, label, sheet, scale, yScale, ed
 
 interface Props {
   doc: PdfDocument | null;
+  /** The open document's markups, shown on the thumbnails. */
+  store: MarkupStore | null;
   currentPage: number;
   sheets: Readonly<Record<number, SheetInfo>>;
   scales: Readonly<Record<number, Scale>>;
@@ -251,7 +302,7 @@ interface Props {
 }
 
 /** Page thumbnails with selection, reordering by drag, and page operations. */
-export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onPageOps, onSetScale, onSetLabel, onCalibrate, onBulkScales, onPageLabels, onThumbMenu }: Props) {
+export function PagesPanel({ doc, store, currentPage, sheets, scales, busy, onGoTo, onPageOps, onSetScale, onSetLabel, onCalibrate, onBulkScales, onPageLabels, onThumbMenu }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [anchor, setAnchor] = useState(0);
   const [dropAt, setDropAt] = useState<number | null>(null);
@@ -380,6 +431,7 @@ export function PagesPanel({ doc, currentPage, sheets, scales, busy, onGoTo, onP
       >
         {doc.pages.map((_, i) => (
           <Thumbnail
+            store={store}
             key={`${doc.id}:${i}`}
             doc={doc}
             page={i}

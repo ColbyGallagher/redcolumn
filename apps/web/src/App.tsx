@@ -7201,6 +7201,7 @@ Open the download page? Run the new installer to update; your documents and mark
             ) : leftTab === 'pages' ? (
               <PagesPanel
                 doc={activeOpen?.doc ?? null}
+                store={activeOpen?.store ?? null}
                 currentPage={pageIndex}
                 sheets={sheets}
                 scales={scales}
