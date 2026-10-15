@@ -23,6 +23,8 @@ export interface ContextMenuState {
   x: number;
   y: number;
   items: MenuEntry[];
+  /** A long flat list (no submenus) that scrolls when taller than the window. */
+  scroll?: boolean;
 }
 
 export const SEP: MenuEntry = { sep: true };
@@ -38,7 +40,7 @@ function tidy(items: MenuEntry[]): MenuEntry[] {
   return out;
 }
 
-function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => void; sub?: boolean }) {
+function MenuList({ items, onDone, sub, scroll }: { items: MenuEntry[]; onDone: () => void; sub?: boolean; scroll?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [flip, setFlip] = useState({ x: false, y: 0 });
   // Submenus open to the left, or shift up, when they would leave the window.
@@ -50,7 +52,7 @@ function MenuList({ items, onDone, sub }: { items: MenuEntry[]; onDone: () => vo
   return (
     <div
       ref={ref}
-      className={`ctx-menu${sub ? ' ctx-sub' : ''}${flip.x ? ' flip' : ''}`}
+      className={`ctx-menu${sub ? ' ctx-sub' : ''}${flip.x ? ' flip' : ''}${scroll ? ' ctx-scroll' : ''}`}
       role="menu"
       style={sub && flip.y ? { marginTop: flip.y } : undefined}
     >
@@ -135,7 +137,7 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
 
   return (
     <div ref={ref} className="ctx-root" style={pos} onContextMenu={(e) => e.preventDefault()}>
-      <MenuList items={menu.items} onDone={onClose} />
+      <MenuList items={menu.items} onDone={onClose} scroll={menu.scroll} />
     </div>
   );
 }
