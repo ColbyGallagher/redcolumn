@@ -3,10 +3,11 @@ name: Release
 # Push a tag such as v0.2.0 to build the Windows installer and the macOS DMGs (arm64 and x64) and
 # publish them as a GitHub release. Running it by hand (workflow_dispatch) builds them as workflow
 # artifacts without publishing. The web app's Install button links to
-# releases/latest/download/redcolumn-Setup.exe and redcolumn-{arm64,x64}.dmg, and Help >
-# Check for Updates compares the latest release's tag with the app's version, so the tag must be
-# `v` plus the version in apps/desktop/package.json. A tag with a suffix (v0.3.0-beta.1) is
-# published as a pre-release, which neither of those looks at.
+# releases/latest/download/redcolumn-Setup.exe and redcolumn-{arm64,x64}.dmg. The installed app
+# checks the latest release at every launch (Windows updates itself from latest.yml and the
+# blockmap; the Mac app links to the release page) and compares its tag with the app's version,
+# so the tag must be `v` plus the version in apps/desktop/package.json. A tag with a suffix
+# (v0.3.0-beta.1) is published as a pre-release, which none of those looks at.
 on:
   push:
     tags: ['v[0-9]+.[0-9]+.[0-9]+*']
@@ -65,7 +66,11 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: installer
-          path: apps/desktop/release/redcolumn-Setup.exe
+          # latest.yml and the blockmap are what the installed app reads to update itself.
+          path: |
+            apps/desktop/release/redcolumn-Setup.exe
+            apps/desktop/release/redcolumn-Setup.exe.blockmap
+            apps/desktop/release/latest.yml
           if-no-files-found: error
 
   # Typecheck and tests run in the Windows job. Both DMGs are built on one Apple Silicon runner;
@@ -107,6 +112,10 @@ jobs:
     needs: [build, build-mac]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Installed Windows apps install the latest release by themselves, so publishing waits for a
+    # maintainer to approve it (required reviewers on the `release` environment, set in the repo's
+    # Settings > Environments).
+    environment: release
     permissions:
       contents: write
     steps:
@@ -125,5 +134,5 @@ jobs:
         run: |
           flag=""
           case "$GITHUB_REF_NAME" in *-*) flag="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" redcolumn-Setup.exe redcolumn-arm64.dmg redcolumn-x64.dmg \
+          gh release create "$GITHUB_REF_NAME" redcolumn-Setup.exe redcolumn-Setup.exe.blockmap latest.yml redcolumn-arm64.dmg redcolumn-x64.dmg \
             --title "redcolumn ${GITHUB_REF_NAME#v}" --generate-notes $flag

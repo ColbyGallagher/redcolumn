@@ -60,11 +60,19 @@ export interface DesktopFolders {
 }
 
 export type PrintMode = 'viewer' | 'verb' | 'images';
-/** The answer to Help › Check for Updates: the newest GitHub release against this app's version. */
-export type UpdateCheck =
-  | { status: 'latest'; current: string }
-  | { status: 'available'; current: string; latest: string; url: string }
-  | { status: 'unavailable'; current: string };
+/**
+ * Where the desktop app stands on updates (apps/desktop/src/update-service.ts). It checks the
+ * newest GitHub release at every launch. `available` is a newer version the app cannot install by
+ * itself (open `url`); `downloading` and `ready` are the in-app update, installed at the next quit
+ * or by `installUpdate`.
+ */
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'latest' | 'available' | 'downloading' | 'ready' | 'unavailable';
+  current: string;
+  latest?: string;
+  url?: string;
+  percent?: number;
+}
 
 export interface RedcolumnDesktop {
   isDesktop: true;
@@ -87,7 +95,12 @@ export interface RedcolumnDesktop {
   addPrintPage(job: string, bytes: Uint8Array, type: string, width: number, height: number): Promise<void>;
   finishPrint(job: string): Promise<void>;
   cancelPrint(job: string): Promise<void>;
-  checkForUpdates(): Promise<UpdateCheck>;
+  /** Checks now (Help › Check for Updates) and answers once the check is done. */
+  checkForUpdates(): Promise<UpdateState>;
+  updateState(): Promise<UpdateState>;
+  onUpdateState(cb: (state: UpdateState) => void): () => void;
+  /** Restarts into a downloaded update; refused while documents have unsaved changes. */
+  installUpdate(): Promise<{ ok: true } | { ok: false; reason: string }>;
   /** null when `interactive` is false and the person has to sign in. */
   /** Signs in, or checks the sign-in covers these scopes; null when a sign-in window is needed and `interactive` is false. */
   microsoftToken(clientId: string, tenant: string, scopes: string[], interactive: boolean): Promise<DesktopAccount | null>;
