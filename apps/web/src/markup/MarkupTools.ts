@@ -460,6 +460,8 @@ export class MarkupTools implements ViewerOverlay {
   private filterMode: 'show' | 'dim' | 'hide' = 'show';
   /** Markup layers switched off in the Layers panel ('' is markups on no layer). */
   private hiddenLayers: ReadonlySet<string> = new Set();
+  /** Called when which markups the drawing shows changes (see subscribeView). */
+  private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
   private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
@@ -501,8 +503,11 @@ export class MarkupTools implements ViewerOverlay {
     private options: MarkupToolsOptions,
   ) {
     onImageLoad(() => this.viewer.invalidate());
-    // Grid and snapping preferences change what is drawn.
-    settings.subscribe(() => this.refreshSketch());
+    // Grid and snapping preferences change what is drawn; Show Spaces changes which markups show.
+    settings.subscribe(() => {
+      this.refreshSketch();
+      for (const l of this.viewListeners) l();
+    });
     window.addEventListener('keydown', this.onModifierKey);
     window.addEventListener('keyup', this.onModifierKey);
   }
@@ -844,13 +849,27 @@ export class MarkupTools implements ViewerOverlay {
   setFilterView(filteredOut: ((m: Markup) => boolean) | null, mode: 'show' | 'dim' | 'hide') {
     this.filteredOut = filteredOut;
     this.filterMode = filteredOut ? mode : 'show';
-    this.viewer.invalidate();
+    this.viewChanged();
   }
 
   /** Hides the markups on these layers ('' for markups on no layer). */
   setHiddenLayers(layers: ReadonlySet<string>) {
     this.hiddenLayers = layers;
+    this.viewChanged();
+  }
+
+  /**
+   * Calls `listener` when which markups the drawing shows changes: layers switched off, the Markups
+   * list's filter in hide mode, or Show Spaces. Returns the unsubscribe.
+   */
+  subscribeView(listener: () => void): () => void {
+    this.viewListeners.add(listener);
+    return () => this.viewListeners.delete(listener);
+  }
+
+  private viewChanged() {
     this.viewer.invalidate();
+    for (const l of this.viewListeners) l();
   }
 
   /** Shows the comment pop-up of markup `id` once the pointer has rested on it; null hides it. */
@@ -2921,9 +2940,13 @@ export class MarkupTools implements ViewerOverlay {
   /** A page's markups in drawing order: Spaces underneath everything, then oldest first. */
   private pageMarkups(pageIndex: number): Markup[] {
     if (!this.store) return [];
+    return this.shownMarkups(this.store.forPage(pageIndex));
+  }
+
+  /** The markups of `markups` the drawing shows, in drawing order (as pageMarkups). Page thumbnails use it too. */
+  shownMarkups(markups: readonly Markup[]): Markup[] {
     const showSpaces = settings.get().showSpaces;
-    return this.store
-      .forPage(pageIndex)
+    return markups
       .filter((m) => !m.hidden && !this.hiddenLayers.has(m.layer ?? '') && (showSpaces || m.type !== 'space') && (this.filterMode !== 'hide' || !this.filteredOut?.(m)))
       .sort((a, b) => Number(b.type === 'space') - Number(a.type === 'space') || a.createdAt - b.createdAt);
   }

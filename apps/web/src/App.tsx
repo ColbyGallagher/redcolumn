@@ -7202,6 +7202,7 @@ Open the download page? Run the new installer to update; your documents and mark
               <PagesPanel
                 doc={activeOpen?.doc ?? null}
                 store={activeOpen?.store ?? null}
+                view={activeTools ?? null}
                 currentPage={pageIndex}
                 sheets={sheets}
                 scales={scales}
