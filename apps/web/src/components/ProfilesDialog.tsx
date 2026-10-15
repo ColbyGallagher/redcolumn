@@ -231,6 +231,17 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                           onChange={(e) => edit((s) => ({ ...s, hiddenPanels: e.target.checked ? s.hiddenPanels.filter((x) => x !== id) : [...s.hiddenPanels, id] }))}
                         />
                         {LEFT_TITLES[id]}
+                        <button
+                          type="button"
+                          className="btn small flat dock-side"
+                          title="The side of the window this panel is docked on (or drag its rail button or title across)"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            edit((s) => ({ ...s, rightPanels: s.rightPanels.includes(id) ? s.rightPanels.filter((x) => x !== id) : [...s.rightPanels, id] }));
+                          }}
+                        >
+                          {ws.rightPanels.includes(id) ? 'Right' : 'Left'}
+                        </button>
                       </label>
                     ))}
                   </div>

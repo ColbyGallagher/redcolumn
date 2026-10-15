@@ -1451,6 +1451,10 @@
   text-align: center;
 }
 
+.check-tile .dock-side {
+  margin-left: auto;
+}
+
 .plain-list {
   margin: 0 0 10px;
   padding: 0;
@@ -3865,7 +3869,7 @@
 .app.fullscreen .menubar,
 .app.fullscreen .toolbar,
 .app.fullscreen .rail,
-.app.fullscreen .panel.left,
+.app.fullscreen .panel.side,
 .app.fullscreen .bottom-dock,
 .app.fullscreen .statusbar,
 .app.fullscreen .doc-tabs,
@@ -4083,7 +4087,7 @@ tr.hidden-markup td {
   font-size: 11px;
 }
 
-.panel.left > .layers {
+.panel.side > .layers {
   display: flex;
   flex-direction: column;
   padding: 0;
