@@ -1293,20 +1293,11 @@ select[size] {
   app-region: no-drag;
 }
 
-/* Wide enough to clear the menus on the left and the window buttons on the right: search sits in
-   the middle of the title bar. Narrower windows keep it right-aligned. */
-@media (min-width: 1100px) {
-  .titlebar-overlay .menubar {
-    position: relative;
-  }
-  .titlebar-overlay .menubar .menu-search {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 320px;
-    margin: 0;
-    transform: translate(-50%, -50%);
-  }
+/* Search sits in the middle of the space between the menus and the window buttons, so it never
+   covers either; on narrow windows it shrinks rather than sliding under the buttons. */
+.titlebar-overlay .menubar .menu-search {
+  min-width: 96px;
+  margin: 0 auto;
 }
 
 .install-app-btn {
