@@ -90,6 +90,7 @@ import { comboOf, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
+import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
@@ -5286,7 +5287,34 @@ export function App() {
     const tabs = pane === 'b' ? tabsB : tabsA;
     const front = pane === 'b' ? openB : open;
     return (
-      <div className="doc-tabs" role="tablist" aria-label={pane === 'b' ? 'Right pane documents' : 'Documents'}>
+      <DocTabStrip
+        label={pane === 'b' ? 'Right pane documents' : 'Documents'}
+        activeKey={front?.file.id ?? null}
+        count={tabs.length}
+        onOverflowMenu={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setCtxMenu({
+            x: r.right,
+            y: r.bottom,
+            scroll: true,
+            items: tabs.map((t) => ({ label: t.file.name, checked: t === front, onClick: () => activateTab(pane, t) })),
+          });
+        }}
+        after={
+          <button
+            type="button"
+            className="doc-tab-add"
+            title="Open a PDF in a new tab"
+            onClick={() => {
+              setActivePane(pane);
+              activePaneRef.current = pane;
+              openFromDisk();
+            }}
+          >
+            +
+          </button>
+        }
+      >
         {tabs.map((t) => {
           const session = studioDocOf(t.file.id);
           const sessionName = session ? snapshots.find((s) => s.meta.id === session.sessionId)?.meta.name : null;
@@ -5354,19 +5382,7 @@ export function App() {
           );
         })}
         {tabs.length === 0 && <div className="doc-tab empty">No document</div>}
-        <button
-          type="button"
-          className="doc-tab-add"
-          title="Open a PDF in a new tab"
-          onClick={() => {
-            setActivePane(pane);
-            activePaneRef.current = pane;
-            openFromDisk();
-          }}
-        >
-          +
-        </button>
-      </div>
+      </DocTabStrip>
     );
   };
 

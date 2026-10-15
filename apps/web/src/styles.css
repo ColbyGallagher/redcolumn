@@ -1478,9 +1478,34 @@ select[size] {
   color: var(--text);
 }
 
-.doc-tabs {
+/* Tabs that do not fit scroll out of sight; the dropdown arrow lists them all. */
+.doc-tabs-scroll {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: stretch;
+  min-width: 0;
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.doc-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.doc-tab-more {
+  flex: none;
+  width: 28px;
+  margin-left: auto;
+  border: 0;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.doc-tab-more:hover {
+  background: #1d2c48;
+  color: var(--text);
 }
 
 .doc-tab {
@@ -3206,6 +3231,13 @@ select[size] {
   background: var(--panel);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   user-select: none;
+}
+
+.ctx-menu.ctx-scroll {
+  width: max-content;
+  max-width: min(480px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
 }
 
 .ctx-has-sub {
