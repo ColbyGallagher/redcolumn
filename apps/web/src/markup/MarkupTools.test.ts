@@ -748,3 +748,40 @@ test('Scale to Length: two points on a markup are made a typed length, or the le
   assert.deepEqual(h.store.get(m!.id)!.points, [[100, 200], [420, 400]]);
   await h.store.destroy();
 });
+
+test('Scale to Length and measuring ask for a page scale first on a page without one', async () => {
+  const needed: string[] = [];
+  const asked: Point[][] = [];
+  const h = await setup({ onScaleRequired: (page, tool) => needed.push(`${page}:${tool}`), onScaleToLength: (_page, points) => asked.push(points) });
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  const [m] = h.store.all();
+  h.tools.select([m!.id]);
+  h.tools.setTool('scaleLength');
+  click(h.tools, [101, 201]);
+  click(h.tools, [259, 199]);
+  assert.deepEqual(asked, [], 'no scaling without a scale');
+  h.tools.setTool('length');
+  click(h.tools, [0, 0]);
+  click(h.tools, [100, 0]);
+  assert.equal(h.store.all().filter((s) => s.type === 'length').length, 0, 'nothing measured');
+  assert.deepEqual(needed, ['0:scaleLength', '0:scaleLength', '0:length', '0:length']);
+  assert.equal(h.tools.getState().tool, 'length', 'the tool stays armed');
+  // Angles and counts have no length, so they need no scale.
+  h.tools.setTool('count');
+  click(h.tools, [50, 50]);
+  assert.equal(needed.length, 4);
+
+  // With the page's scale set, both work.
+  h.store.setScale([0], { metersPerPoint: 0.01, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('length');
+  click(h.tools, [0, 0]);
+  click(h.tools, [100, 0]);
+  assert.equal(h.store.all().filter((s) => s.type === 'length').length, 1, 'measured');
+  h.tools.select([m!.id]);
+  h.tools.setTool('scaleLength');
+  click(h.tools, [101, 201]);
+  click(h.tools, [259, 199]);
+  assert.equal(asked.length, 1, 'asked for the new length');
+  assert.equal(needed.length, 4);
+  await h.store.destroy();
+});
