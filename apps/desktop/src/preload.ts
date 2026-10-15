@@ -17,6 +17,10 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
   }
 }
 
+// Windows: the window has no native title bar (see createWindow in main.ts), so the page lays its
+// menu bar out in that strip. Runs before the page's scripts, and again on every reload.
+if (process.platform === 'win32') window.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('titlebar-overlay'));
+
 contextBridge.exposeInMainWorld('redcolumn', {
   isDesktop: true,
   nativeFiles: info.nativeFiles,
