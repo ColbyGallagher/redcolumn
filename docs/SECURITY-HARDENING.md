@@ -384,7 +384,10 @@ changes to existing code.
   are not signed yet, so that hash does not protect against a compromised release or publisher
   account. Signing the installer and setting `win.publisherName` in `electron-builder.yml` makes the
   updater refuse anything not signed by that publisher; do that before relying on updates as a
-  security control. The Mac app does not install updates itself.
+  security control. Until then, the Release workflow's publish job runs in the `release`
+  environment, which should require a maintainer's approval, and `v*` tags should be protected,
+  so publishing a release (which every installed Windows app then installs) needs a person.
+  The Mac app does not install updates itself.
 - The preload script exposes a few named functions through `contextBridge`, never `ipcRenderer`
   itself. The main process checks every IPC message's sender and arguments.
 

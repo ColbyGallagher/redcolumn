@@ -112,6 +112,10 @@ jobs:
     needs: [build, build-mac]
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Installed Windows apps install the latest release by themselves, so publishing waits for a
+    # maintainer to approve it (required reviewers on the `release` environment, set in the repo's
+    # Settings > Environments).
+    environment: release
     permissions:
       contents: write
     steps:

@@ -7,9 +7,45 @@ class FakeNative extends EventEmitter {
   installs: [boolean, boolean][] = [];
   /** What checkForUpdates does: emit events, then resolve. */
   onCheck: () => void | Promise<void> = () => this.emit('update-not-available');
+  /** Like electron-updater with autoDownload: a check that finds an update starts a download, or hands back the running one. */
+  autoDownload = false;
+  /** Whether cancelling the running download stops it. */
+  stoppable = true;
+  downloadsStarted = 0;
+  cancels = 0;
+  private download: { promise: Promise<void>; finish(): void; fail(err: Error): void } | null = null;
   async checkForUpdates() {
     await this.onCheck();
-    return null;
+    if (!this.autoDownload) return null;
+    if (this.download) {
+      // electron-updater: "Downloading update (already in progress)". A fresh token, not the running download's.
+      return { cancellationToken: { cancel: () => undefined }, downloadPromise: this.download.promise };
+    }
+    let finish!: () => void;
+    let fail!: (err: Error) => void;
+    const promise = new Promise<void>((resolve, reject) => {
+      finish = resolve;
+      fail = reject;
+    });
+    const download = { promise, finish, fail };
+    this.download = download;
+    this.downloadsStarted++;
+    promise.catch(() => undefined).finally(() => {
+      if (this.download === download) this.download = null;
+    });
+    return {
+      cancellationToken: {
+        cancel: () => {
+          this.cancels++;
+          if (this.stoppable) download.fail(new Error('cancelled'));
+        },
+      },
+      downloadPromise: promise,
+    };
+  }
+  finishDownload(version: string) {
+    this.download?.finish();
+    this.emit('update-downloaded', { version });
   }
   quitAndInstall(silent: boolean, run: boolean) {
     this.installs.push([silent, run]);
@@ -27,6 +63,7 @@ function service(opts: { native?: FakeNative | null; latest?: typeof release | n
     fetchLatest: async () => (opts.latest === undefined ? release : opts.latest),
     hasUnsavedChanges: () => opts.unsaved ?? false,
     stallMs: 1000,
+    stopWaitMs: 20,
     now: opts.now,
   });
   svc.onChange = (s) => states.push(s);
@@ -158,22 +195,54 @@ test('install needs a downloaded update', async () => {
   assert.equal(svc.install().ok, false);
 });
 
-test('a check starts over once a download has made no progress for a while', async () => {
+/** A native updater whose checks find 0.2.0 and start downloading it. */
+function downloading() {
   const native = new FakeNative();
-  let t = 0;
-  let checks = 0;
+  native.autoDownload = true;
   native.onCheck = () => {
-    checks++;
     native.emit('update-available', { version: '0.2.0' });
   };
+  return native;
+}
+
+test('a download that keeps making progress is not disturbed by a check', async () => {
+  const native = downloading();
+  let t = 0;
   const { svc } = service({ native, now: () => t });
   await svc.check();
   t = 900;
   native.emit('download-progress', { percent: 40 });
   t = 1500;
   assert.equal((await svc.check()).status, 'downloading');
-  assert.equal(checks, 1, 'progress within the stall time keeps the download');
-  t = 2000;
+  assert.equal(native.cancels, 0);
+  assert.equal(native.downloadsStarted, 1);
+});
+
+test('a stalled download is cancelled and a fresh one started', async () => {
+  const native = downloading();
+  let t = 0;
+  const { svc } = service({ native, now: () => t });
   await svc.check();
-  assert.equal(checks, 2, 'a stalled download is checked again');
+  native.emit('download-progress', { percent: 40 });
+  t = 2000;
+  const state = await svc.check();
+  assert.equal(native.cancels, 1, 'the stalled download is cancelled');
+  assert.equal(native.downloadsStarted, 2, 'not handed the stalled download back');
+  assert.equal(state.status, 'downloading');
+  native.finishDownload('0.2.0');
+  assert.equal(svc.state.status, 'ready');
+});
+
+test('a stalled download that will not stop is left to the next launch', async () => {
+  const native = downloading();
+  native.stoppable = false;
+  let t = 0;
+  const { svc } = service({ native, now: () => t });
+  await svc.check();
+  t = 2000;
+  assert.equal((await svc.check()).status, 'unavailable');
+  assert.equal(native.downloadsStarted, 1);
+  // It may still finish; then it is ready to install.
+  native.finishDownload('0.2.0');
+  assert.equal(svc.state.status, 'ready');
 });

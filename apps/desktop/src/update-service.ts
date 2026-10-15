@@ -20,7 +20,11 @@ export interface NativeUpdater {
   on(event: 'update-not-available', listener: () => void): unknown;
   on(event: 'download-progress', listener: (progress: { percent: number }) => void): unknown;
   on(event: 'error', listener: (err: Error) => void): unknown;
-  checkForUpdates(): Promise<unknown>;
+  /**
+   * With autoDownload, the result carries the download and the token that cancels it. A check made
+   * while a download is running returns that same download, so only cancelling it starts a new one.
+   */
+  checkForUpdates(): Promise<{ cancellationToken?: { cancel(): void }; downloadPromise?: Promise<unknown> | null } | null>;
   quitAndInstall(isSilent: boolean, isForceRunAfter: boolean): void;
 }
 
@@ -34,6 +38,8 @@ export interface UpdateServiceOptions {
   hasUnsavedChanges: () => boolean;
   /** A download with no progress for this long counts as stalled, so a check can start over. Default 10 minutes. */
   stallMs?: number;
+  /** How long to wait for a cancelled download to stop before giving up until the next launch. Default 10 seconds. */
+  stopWaitMs?: number;
   now?: () => number;
 }
 
@@ -51,6 +57,8 @@ export class UpdateService {
   private readonly opts: UpdateServiceOptions;
   /** When the download last made progress. */
   private progressAt = 0;
+  /** The running download: cancelling it is the only way to start over (see NativeUpdater.checkForUpdates). */
+  private download: { cancel(): void; done: Promise<void> } | null = null;
 
   constructor(opts: UpdateServiceOptions) {
     this.opts = opts;
@@ -78,7 +86,7 @@ export class UpdateService {
   check(): Promise<UpdateState> {
     const stalled = this.state.status === 'downloading' && this.now() - this.progressAt > (this.opts.stallMs ?? 10 * 60_000);
     if ((this.state.status === 'downloading' && !stalled) || this.state.status === 'ready') return Promise.resolve(this.state);
-    this.pending ??= this.run().finally(() => (this.pending = null));
+    this.pending ??= (stalled ? this.restartStalled() : this.run()).finally(() => (this.pending = null));
     return this.pending;
   }
 
@@ -94,14 +102,43 @@ export class UpdateService {
   private async run(): Promise<UpdateState> {
     this.set({ status: 'checking' });
     try {
-      if (this.opts.native) await this.opts.native.checkForUpdates();
-      else await this.checkRelease();
+      if (this.opts.native) {
+        const result = await this.opts.native.checkForUpdates();
+        if (result?.downloadPromise && result.cancellationToken) {
+          const download = { cancel: () => result.cancellationToken!.cancel(), done: result.downloadPromise.then(() => undefined, () => undefined) };
+          this.download = download;
+          void download.done.then(() => {
+            if (this.download === download) this.download = null;
+          });
+        }
+      } else await this.checkRelease();
     } catch {
       this.set({ status: 'unavailable' });
     }
     // The native updater reports through its events; one that said nothing leaves the check unanswered.
     if (this.state.status === 'checking') this.set({ status: 'unavailable' });
     return this.state;
+  }
+
+  /**
+   * A download that made no progress for a while: cancel it, wait for electron-updater to let go of
+   * it, then check again so a fresh download starts. A download that will not stop is left to the
+   * next launch.
+   */
+  private async restartStalled(): Promise<UpdateState> {
+    const download = this.download;
+    this.download = null;
+    if (download) {
+      download.cancel();
+      const stopped = await Promise.race([download.done.then(() => true), new Promise<boolean>((r) => setTimeout(r, this.opts.stopWaitMs ?? 10_000, false))]);
+      // It finished after all.
+      if (this.state.status === 'ready') return this.state;
+      if (!stopped) {
+        this.set({ status: 'unavailable' });
+        return this.state;
+      }
+    }
+    return this.run();
   }
 
   private async checkRelease() {
