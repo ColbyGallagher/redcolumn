@@ -191,6 +191,8 @@ export interface Settings {
   recentDays: number;
   /** Reopen the documents that were open when the app was last closed. */
   restoreTabs: boolean;
+  /** The start screen (no document open) shows a step-by-step tip from the help. */
+  startTips: boolean;
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
 
@@ -386,6 +388,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentCount: 10,
   recentDays: 0,
   restoreTabs: false,
+  startTips: true,
   snapshotDpi: 200,
 
   tabTruncation: 'end',

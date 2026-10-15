@@ -4,12 +4,14 @@ There are four ways to open a PDF. Use whichever is easiest.
 
 ## Open from the start screen
 
-1. Click **Open a PDF…** in the middle of the screen.
+1. Click **Open PDF…** in the middle of the screen. (**New PDF…** next to it [makes a new one](#new-pdf).)
 
-   ![The Open a PDF button on the start screen](img/start-screen.png)
+   ![The Open PDF button on the start screen](img/start-screen.png)
 2. Pick the PDF on your computer and click **Open**.
 
 The drawing appears and its pages are listed in the **Thumbnails** panel.
+
+> **Tip:** Under the buttons, the start screen shows a different step-by-step from this help each time. Use **‹** and **›** to browse them, or **×** to hide them (turn them back on in {{File > Preferences…}} › **Interface** › **Show a Tip on the Start Screen**).
 
 ## Open from the File menu
 

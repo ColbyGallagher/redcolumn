@@ -98,7 +98,9 @@ import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
-import { NewPdfDialog } from './components/NewPdfDialog';
+import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
+import { StartScreen } from './components/StartScreen';
+import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
@@ -235,6 +237,15 @@ function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
  * is closed or crashes.
  */
 const RECOVERY_KEY = 'nb.unsavedDocs';
+
+/** True when this page load is the browser's Refresh (F5, Ctrl+R, the reload button). */
+function pageWasReloaded(): boolean {
+  try {
+    return (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
 function recoveredDocs(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(RECOVERY_KEY) ?? '[]') as string[]);
@@ -1642,7 +1653,9 @@ export function App() {
     // A document opened by the launch (a file, a share, a link) is all that opens.
     if (openRef.current) return;
     let saved: { a?: string[]; b?: string[] } = {};
-    if (settings.get().restoreTabs) {
+    // A refresh of the page always brings back what was open, so nothing seems to vanish; a fresh
+    // start reopens it only when Preferences says to.
+    if (settings.get().restoreTabs || pageWasReloaded()) {
       try {
         saved = JSON.parse(localStorage.getItem('nb.openTabs') ?? '{}') ?? {};
       } catch {
@@ -3638,6 +3651,20 @@ export function App() {
     report();
     const offs = stores.map((t) => t.store.subscribe(report));
     return () => offs.forEach((off) => off());
+  }, [tabsA, tabsB, savedTick]);
+  // In a browser, leaving or refreshing the page while documents have unsaved changes asks first
+  // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
+  useEffect(() => {
+    if (desktop()) return;
+    const stores = [...tabsA, ...tabsB];
+    const warn = (e: BeforeUnloadEvent) => {
+      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t))) return;
+      e.preventDefault();
+      // Older browsers show the prompt only when returnValue is set.
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
   }, [tabsA, tabsB, savedTick]);
   // Document Recovery: remember which open documents have changes not saved to their file.
   const recovery = prefs.documentRecovery;
@@ -6743,14 +6770,8 @@ Open the download page? Run the new installer to update; your documents and mark
       setStampsOpen(true);
     },
   };
-  /** File › New PDF from Template: a copy of a template document (its markups too) under a new name. */
-  const newFromTemplate = async () => {
-    const templates = library.filter((f) => f.template);
-    if (!templates.length) return;
-    const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
-    if (!choice) return;
-    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
-    if (!name) return;
+  /** A new document that is a copy of a template document (its markups too), under `name`. */
+  const copyTemplate = async (choice: StoredFile, name: string) => {
     try {
       const { PDFDocument } = await import('pdf-lib');
       // Written again with its own title and date, so the copy is a document of its own (not the template's twin).
@@ -6770,6 +6791,43 @@ Open the download page? Run the new installer to update; your documents and mark
       void refreshLibrary();
     } catch (err) {
       setError(`New from template failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  /** File › New PDF from Template: picks a template document and a name for the copy. */
+  const newFromTemplate = async () => {
+    const templates = library.filter((f) => f.template);
+    if (!templates.length) return;
+    const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
+    if (!choice) return;
+    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
+    if (name) await copyTemplate(choice, name);
+  };
+  /** File › New PDF › Start from: a built-in template, or a copy of one in the library. */
+  const newFromTemplateRequest = async (req: TemplateRequest) => {
+    if (req.kind === 'library') {
+      const choice = library.find((f) => f.id === req.id);
+      if (choice) await copyTemplate(choice, choice.name.replace(/\.pdf$/i, '') + ' copy.pdf');
+      return;
+    }
+    const t = BUILTIN_TEMPLATES.find((x) => x.id === req.id);
+    if (!t) return;
+    try {
+      const { buildTemplate } = await import('./documents/pdfTemplates');
+      await openCreated(`${t.name}.pdf`, (await buildTemplate(t.id, req.count)).slice().buffer);
+    } catch (err) {
+      setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  /** File › New PDF › Import Template: a PDF from disk, added to the library as a template. */
+  const importTemplate = async (f: File): Promise<string | null> => {
+    try {
+      const stored = await saveFile(f.name, await f.arrayBuffer());
+      await setTemplate(stored.id, true);
+      await refreshLibrary();
+      return stored.id;
+    } catch (err) {
+      setError(`Importing the template failed: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
     }
   };
 
@@ -7738,12 +7796,14 @@ Open the download page? Run the new installer to update; your documents and mark
                   />
                 )}
                 {!open && (
-                  <div className="hint">
-                    <span>Drop a PDF here or choose File → Open</span>
-                    <button className={`btn${launchOpen ? ' primary' : ''}`} autoFocus={launchOpen} onClick={() => openFromDisk()}>
-                      Open a PDF…
-                    </button>
-                  </div>
+                  <StartScreen
+                    launchOpen={launchOpen}
+                    onOpen={() => openFromDisk()}
+                    onNew={() => setBlankPdf('new')}
+                    showTip={prefs.startTips}
+                    onHideTip={() => settings.set({ startTips: false })}
+                    onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
+                  />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
                 {notice && (
@@ -8028,6 +8088,20 @@ Open the download page? Run the new installer to update; your documents and mark
               ? { index: v.currentPageIndex, count: activeOpen.doc.pages.length, ...activeOpen.doc.pages[v.currentPageIndex]! }
               : undefined
           }
+          templates={library.filter((f) => f.template).map((f) => ({ id: f.id, name: f.name }))}
+          openDoc={activeOpen && library.some((f) => f.id === activeOpen.file.id) ? { id: activeOpen.file.id, name: activeOpen.file.name, template: !!library.find((f) => f.id === activeOpen.file.id)?.template } : null}
+          onTemplate={(req) => {
+            setBlankPdf(null);
+            void newFromTemplateRequest(req);
+          }}
+          onKeepOpenDoc={async () => {
+            if (!activeOpen) return null;
+            await setTemplate(activeOpen.file.id, true);
+            await refreshLibrary();
+            return activeOpen.file.id;
+          }}
+          onImport={importTemplate}
+          onRemoveTemplate={(id) => void setTemplate(id, false).then(refreshLibrary)}
           onCancel={() => setBlankPdf(null)}
           onApply={(req) => {
             const mode = blankPdf;

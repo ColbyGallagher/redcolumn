@@ -20,6 +20,51 @@
   box-sizing: border-box;
 }
 
+/* Dark native controls: scrollbars, select drop-downs, spin buttons and pickers match the app. */
+:root {
+  color-scheme: dark;
+  /* Ticked boxes, radios, sliders and progress bars in the app's teal. */
+  accent-color: var(--accent);
+  --scroll-thumb: #34476b;
+  --scroll-thumb-hover: #4a6290;
+}
+
+/* Scrollbars: a slim rounded thumb on the surface behind it (Chromium and the desktop app). */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: var(--scroll-thumb) padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover) padding-box;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background: var(--accent) padding-box;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* Firefox has no ::-webkit-scrollbar; the standard properties colour it instead. */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-color: var(--scroll-thumb) transparent;
+  }
+}
+
 html,
 body,
 #root {
@@ -3555,7 +3600,8 @@ select[size] {
   white-space: nowrap;
 }
 
-/* Vertical scrollbar the viewer lays over the right edge of the page canvas. */
+/* Vertical scrollbar the viewer lays over the right edge of the page canvas. A solid dark track
+   keeps it visible over a white page, styled like the app's other scrollbars. */
 .viewer-vscroll {
   position: absolute;
   top: 2px;
@@ -3563,7 +3609,9 @@ select[size] {
   bottom: 2px;
   width: 12px;
   border-radius: 6px;
-  z-index: 2;
+  z-index: 5;
+  background: rgba(14, 23, 41, 0.82);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
   touch-action: none;
 }
 
@@ -3573,7 +3621,7 @@ select[size] {
 
 .viewer-vscroll:hover,
 .viewer-vscroll.dragging {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(14, 23, 41, 0.92);
 }
 
 .viewer-vscroll-thumb {
@@ -3582,13 +3630,16 @@ select[size] {
   right: 2px;
   top: 0;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.35);
+  background: var(--scroll-thumb-hover);
   cursor: default;
 }
 
-.viewer-vscroll:hover .viewer-vscroll-thumb,
+.viewer-vscroll:hover .viewer-vscroll-thumb {
+  background: #5d78ab;
+}
+
 .viewer-vscroll.dragging .viewer-vscroll-thumb {
-  background: rgba(255, 255, 255, 0.55);
+  background: var(--accent);
 }
 
 .thumb .thumb-scale {
