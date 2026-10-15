@@ -5,7 +5,7 @@ import type { Tool } from '../markup/MarkupTools';
 
 /**
  * Profiles: a named arrangement of the workspace (which tools the toolbar shows, which
- * side panels are available, the tool library, the markup list's columns and filters, and default
+ * side panels are available and which side of the window each is docked on, the tool library, the markup list's columns and filters, and default
  * custom columns and statuses). Changes are saved to the active profile as they happen; switching
  * profile swaps the whole arrangement.
  */
@@ -79,6 +79,8 @@ export interface WorkspaceState {
   hiddenPanels: string[];
   /** Order of the panel rail (panel ids); panels not listed follow in their default order. */
   panelOrder: string[];
+  /** Panels docked on the right-hand side of the window; the rest sit on the left. */
+  rightPanels: string[];
   showToolbar: boolean;
   list: MarkupListSettings;
   /** Custom columns and statuses given to documents that have none of their own. */
@@ -119,6 +121,7 @@ export function defaultWorkspace(): WorkspaceState {
     toolbarTools: [...DEFAULT_TOOLBAR_TOOLS],
     hiddenPanels: [],
     panelOrder: [],
+    rightPanels: [],
     showToolbar: true,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
     columnTemplate: null,

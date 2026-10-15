@@ -17,7 +17,7 @@ import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
-import { checkForUpdates } from './updater';
+import { createUpdater } from './updater';
 
 const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
@@ -94,7 +94,14 @@ async function start() {
   handle('print:cancel', (job) => {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
-  handle('update:check', () => checkForUpdates());
+  // Updates: checked at every launch, and the page shows the state in its header bar.
+  const updater = createUpdater(() => unsavedChanges);
+  updater.onChange = (state) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+  };
+  handle('update:check', () => updater.check());
+  handle('update:get', () => updater.state);
+  handle('update:install', () => updater.install());
   // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
   handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
@@ -219,6 +226,8 @@ async function start() {
   createWindow();
   for (const filePath of earlyOpens) launches.note(filePath);
   launches.noteArgv(process.argv);
+  // A moment after launch, so the check never competes with the page loading.
+  if (app.isPackaged && process.env.RECOLUMN_SMOKE !== '1') setTimeout(() => void updater.check(), 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -233,6 +242,10 @@ function createWindow() {
     title: 'redcolumn',
     show: false,
     autoHideMenuBar: true,
+    // Windows: no native title bar. The page's menu bar fills that strip and the system window
+    // buttons are drawn over its right end (see the .titlebar-overlay rules in styles.css). The overlay
+    // is transparent so the menu bar's gradient shows behind the buttons.
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#00000000', symbolColor: '#e7ecf5', height: 36 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

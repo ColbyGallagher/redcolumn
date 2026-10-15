@@ -17,6 +17,10 @@ async function call<T>(channel: string, ...args: unknown[]): Promise<T> {
   }
 }
 
+// Windows: the window has no native title bar (see createWindow in main.ts), so the page lays its
+// menu bar out in that strip. Runs before the page's scripts, and again on every reload.
+if (process.platform === 'win32') window.addEventListener('DOMContentLoaded', () => document.documentElement.classList.add('titlebar-overlay'));
+
 contextBridge.exposeInMainWorld('redcolumn', {
   isDesktop: true,
   nativeFiles: info.nativeFiles,
@@ -48,6 +52,13 @@ contextBridge.exposeInMainWorld('redcolumn', {
   finishPrint: (job: string) => call('print:finish', job),
   cancelPrint: (job: string) => call('print:cancel', job),
   checkForUpdates: () => call('update:check'),
+  updateState: () => call('update:get'),
+  installUpdate: () => call('update:install'),
+  onUpdateState(cb: (state: unknown) => void) {
+    const listener = (_event: unknown, state: unknown) => cb(state);
+    ipcRenderer.on('update:state', listener);
+    return () => unsubscribe('update:state', listener as (...args: unknown[]) => void);
+  },
   microsoftToken: (clientId: string, tenant: string, scopes: string[], interactive: boolean) => call('auth:microsoft', clientId, tenant, scopes, interactive),
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
   localDataKey: async () => new Uint8Array(await call<Uint8Array>('local:key')),

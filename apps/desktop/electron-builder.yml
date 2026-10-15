@@ -1,8 +1,16 @@
 # Unsigned installers: an NSIS setup for Windows and a DMG per architecture for macOS. The Release
-# workflow attaches them to a GitHub release when a v* tag is pushed (see README), and the app's
-# Help › Check for Updates compares its version with the latest release and links to it.
+# workflow attaches them to a GitHub release when a v* tag is pushed (see README). The app checks
+# the latest release at every launch. The installed Windows app downloads and installs the update
+# itself (electron-updater, from latest.yml and the .blockmap beside the installer); the Mac app
+# links to the release page, since Squirrel.Mac needs a Developer ID signature.
 # The fixed file names keep releases/latest/download/redcolumn-Setup.exe, redcolumn-arm64.dmg and
 # redcolumn-x64.dmg stable download links.
+# publish only writes app-update.yml into the app (where electron-updater looks) and generates
+# latest.yml; the workflow uploads, so electron-builder is always run with publish never.
+publish:
+  provider: github
+  owner: ColbyGallagher
+  repo: redcolumn
 appId: app.redcolumn.desktop
 productName: redcolumn
 copyright: Copyright © redcolumn contributors
