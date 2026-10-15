@@ -1637,7 +1637,7 @@ select[size] {
 .rail button {
   display: grid;
   place-items: center;
-  width: 36px;
+  width: 100%;
   height: 36px;
   border: 0;
   border-left: 2px solid transparent;
@@ -1844,6 +1844,7 @@ select[size] {
 }
 
 .rail {
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
