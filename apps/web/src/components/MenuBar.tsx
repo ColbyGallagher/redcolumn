@@ -529,6 +529,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <>
             <Cmd id="window.toolbar" />
             <Cmd id="window.leftPanel" />
+            <Cmd id="window.rightPanel" />
             <Cmd id="window.bottomPanel" />
             <Cmd id="window.panels" />
             <Sep />

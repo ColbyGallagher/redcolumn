@@ -242,6 +242,10 @@ function createWindow() {
     title: 'redcolumn',
     show: false,
     autoHideMenuBar: true,
+    // Windows: no native title bar. The page's menu bar fills that strip and the system window
+    // buttons are drawn over its right end (see the .titlebar-overlay rules in styles.css). The overlay
+    // is transparent so the menu bar's gradient shows behind the buttons.
+    ...(process.platform === 'win32' ? { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#00000000', symbolColor: '#e7ecf5', height: 36 } } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

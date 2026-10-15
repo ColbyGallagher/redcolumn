@@ -6,7 +6,6 @@ import {
   tableCellFormat,
   tableCellStyle,
   HATCH_PATTERNS,
-  LINE_DASHES,
   LINE_ENDINGS,
   lineEnds,
   resolveHatch,
@@ -15,7 +14,6 @@ import {
   refillStamp,
   styleCapabilities,
   type FontFamily,
-  type LineDash,
   type LineEnding,
   type Markup,
   type MarkupStore,
@@ -30,6 +28,7 @@ import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, i
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
+import { LineStyleSelect } from './LineStyleSelect';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
 
@@ -67,6 +66,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           type={toolType}
           caps={styleCapabilities(toolType)}
           disabled={false}
+          markups={markups}
           onChange={(patch) => tools.setDefaultStyle(toolType, patch)}
         />
         <div className="props-actions">
@@ -257,7 +257,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           </fieldset>
         </Section>
       )}
-      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} onChange={changeStyle} />
+      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} onChange={changeStyle} />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
@@ -369,16 +369,17 @@ interface EditorProps {
   type: MarkupType;
   caps: StyleCapabilities;
   disabled: boolean;
+  markups: readonly Markup[];
   onChange: (patch: Partial<MarkupStyle>) => void;
 }
 
-function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
+function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const measure = isMeasureKind(type);
   const hatchOn = !!resolveHatch(style.hatch, style.hatchSpec);
   const hatchValue = style.hatch ?? 'none';
-  const { lineSets, hatchSets } = useWorkspace();
+  const { hatchSets } = useWorkspace();
   return (
     <fieldset className="props-style" disabled={disabled}>
       <Section title="Appearance">
@@ -390,37 +391,7 @@ function StyleEditor({ style, type, caps, disabled, onChange }: EditorProps) {
         </Row>
         {caps.dash && (
           <Row label="Line style">
-            <select
-              value={style.lineStyle || style.dashArray ? 'custom' : (style.dash ?? 'solid')}
-              onChange={(e) => {
-                if (e.target.value === 'custom') return;
-                // A style from an imported Revu line set (value 'line:<set>:<style>').
-                const [, si, li] = e.target.value.split(':');
-                const picked = e.target.value.startsWith('line:') ? lineSets[Number(si)]?.styles[Number(li)] : undefined;
-                if (picked) {
-                  onChange({ lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
-                  return;
-                }
-                // A plain style replaces a custom (Bluebeam) one.
-                onChange({ dash: e.target.value === 'solid' ? undefined : (e.target.value as LineDash), dashArray: undefined, lineStyle: undefined });
-              }}
-            >
-              {(style.lineStyle || style.dashArray) && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
-              {LINE_DASHES.map((d) => (
-                <option key={d.value} value={d.value}>
-                  {d.label}
-                </option>
-              ))}
-              {lineSets.map((set, si) => (
-                <optgroup key={set.title} label={set.title}>
-                  {set.styles.map((l, li) => (
-                    <option key={l.name} value={`line:${si}:${li}`}>
-                      {l.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <LineStyleSelect style={style} markups={markups} onChange={onChange} />
           </Row>
         )}
         <Row label="Opacity">
