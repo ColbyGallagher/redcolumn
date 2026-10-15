@@ -499,7 +499,7 @@ select[size] {
 
 @media (max-width: 1000px) {
   .rail,
-  .panel.left {
+  .panel.side {
     display: none;
   }
 }
@@ -644,7 +644,7 @@ select[size] {
   margin-top: 16px;
 }
 
-.panel.left {
+.panel.side {
   position: relative;
   width: 250px;
   flex: none;
@@ -652,7 +652,7 @@ select[size] {
   border-right: 1px solid var(--border);
 }
 
-.panel.left > :not(h2):not(.panel-split) {
+.panel.side > :not(h2):not(.panel-split) {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -1847,6 +1847,69 @@ select[size] {
 .panel-edge:hover,
 .panel-edge:focus-visible {
   background: var(--accent);
+}
+
+/* Panels docked on the right: the rail and side panel mirror the left ones. */
+.rail.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.rail.right button {
+  border-left: 0;
+  border-right: 2px solid transparent;
+}
+
+.rail.right button.active {
+  border-right-color: var(--accent);
+}
+
+.panel.side.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+}
+
+.panel.side.right > .panel-split {
+  right: auto;
+  left: 0;
+}
+
+.panel-edge.right {
+  border-right: 0;
+  border-left: 1px solid var(--border);
+  cursor: w-resize;
+}
+
+/* A panel's title drags it to the other side of the window. */
+.panel.side > h2[draggable='true'] {
+  cursor: grab;
+}
+
+/* While a panel is dragged: the rail or side panel it would dock at the end of. */
+.rail.drop-target,
+.panel.side.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.rail-drop-hint {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-width: 96px;
+  padding: 12px 6px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+  writing-mode: vertical-rl;
+}
+
+@media (max-width: 1000px) {
+  .rail.right,
+  .panel.side.right,
+  .panel-edge.right {
+    display: none !important;
+  }
 }
 
 .pagenav {
@@ -3653,16 +3716,16 @@ select[size] {
 
 /* Collaboration sessions and projects panel. Scoped so other panels stay as they are. */
 
-.panel.left.rc-chrome {
+.panel.side.rc-chrome {
   background: #19253d;
   min-width: 280px;
 }
 
-.panel.left.rc-chrome > h2 {
+.panel.side.rc-chrome > h2 {
   display: none;
 }
 
-.panel.left.rc-chrome > :not(h2):not(.panel-split) {
+.panel.side.rc-chrome > :not(h2):not(.panel-split) {
   overflow: hidden;
   background: #19253d;
 }

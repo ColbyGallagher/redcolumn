@@ -1345,12 +1345,16 @@
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 12px;
-  min-height: 340px;
+  /* Fixed so switching tabs doesn't resize the dialog; the panes scroll instead. */
+  height: min(460px, calc(100vh - 240px));
+  min-height: 0;
 }
 
 .profiles-list {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: #172339;
@@ -1421,10 +1425,12 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
 .profiles-pane {
   flex: 1;
+  min-height: 0;
   padding: 10px 2px;
   overflow: auto;
 }
@@ -1449,6 +1455,10 @@
 .check-tile .icon {
   width: 16px;
   text-align: center;
+}
+
+.check-tile .dock-side {
+  margin-left: auto;
 }
 
 .plain-list {
@@ -3865,7 +3875,7 @@
 .app.fullscreen .menubar,
 .app.fullscreen .toolbar,
 .app.fullscreen .rail,
-.app.fullscreen .panel.left,
+.app.fullscreen .panel.side,
 .app.fullscreen .bottom-dock,
 .app.fullscreen .statusbar,
 .app.fullscreen .doc-tabs,
@@ -4083,7 +4093,7 @@ tr.hidden-markup td {
   font-size: 11px;
 }
 
-.panel.left > .layers {
+.panel.side > .layers {
   display: flex;
   flex-direction: column;
   padding: 0;
