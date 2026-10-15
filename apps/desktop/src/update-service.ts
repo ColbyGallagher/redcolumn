@@ -32,6 +32,9 @@ export interface UpdateServiceOptions {
   fetchLatest: () => Promise<{ tag: string; url: string } | null>;
   /** Documents have unsaved changes, so the app must not restart on its own. */
   hasUnsavedChanges: () => boolean;
+  /** A download with no progress for this long counts as stalled, so a check can start over. Default 10 minutes. */
+  stallMs?: number;
+  now?: () => number;
 }
 
 export type InstallResult = { ok: true } | { ok: false; reason: string };
@@ -46,16 +49,22 @@ export class UpdateService {
   onChange: (state: UpdateState) => void = () => undefined;
   private pending: Promise<UpdateState> | null = null;
   private readonly opts: UpdateServiceOptions;
+  /** When the download last made progress. */
+  private progressAt = 0;
 
   constructor(opts: UpdateServiceOptions) {
     this.opts = opts;
     this.state = { status: 'idle', current: opts.current };
     const native = opts.native;
     if (!native) return;
-    native.on('update-available', (info) => this.set({ status: 'downloading', latest: info.version, percent: 0 }));
+    native.on('update-available', (info) => {
+      this.progressAt = this.now();
+      this.set({ status: 'downloading', latest: info.version, percent: 0 });
+    });
     native.on('update-not-available', () => this.set({ status: 'latest' }));
     native.on('download-progress', (progress) => {
       const percent = Math.max(0, Math.min(100, Math.floor(progress.percent)));
+      this.progressAt = this.now();
       if (this.state.status === 'downloading' && this.state.percent !== percent) this.set({ status: 'downloading', latest: this.state.latest, percent });
     });
     native.on('update-downloaded', (info) => this.set({ status: 'ready', latest: info.version }));
@@ -65,9 +74,10 @@ export class UpdateService {
     });
   }
 
-  /** Looks for a newer version. A download or a finished download is not disturbed. */
+  /** Looks for a newer version. A download or a finished download is not disturbed, unless the download stalled. */
   check(): Promise<UpdateState> {
-    if (this.state.status === 'downloading' || this.state.status === 'ready') return Promise.resolve(this.state);
+    const stalled = this.state.status === 'downloading' && this.now() - this.progressAt > (this.opts.stallMs ?? 10 * 60_000);
+    if ((this.state.status === 'downloading' && !stalled) || this.state.status === 'ready') return Promise.resolve(this.state);
     this.pending ??= this.run().finally(() => (this.pending = null));
     return this.pending;
   }
@@ -99,6 +109,10 @@ export class UpdateService {
     if (!release) this.set({ status: 'unavailable' });
     else if (isNewer(release.tag, this.opts.current)) this.set({ status: 'available', latest: release.tag.replace(/^v/, ''), url: release.url });
     else this.set({ status: 'latest' });
+  }
+
+  private now() {
+    return (this.opts.now ?? Date.now)();
   }
 
   private set(next: Omit<UpdateState, 'current'>) {

@@ -18,7 +18,7 @@ class FakeNative extends EventEmitter {
 
 const release = { tag: 'v0.2.0', url: 'https://github.com/ColbyGallagher/redcolumn/releases/tag/v0.2.0' };
 
-function service(opts: { native?: FakeNative | null; latest?: typeof release | null; unsaved?: boolean }) {
+function service(opts: { native?: FakeNative | null; latest?: typeof release | null; unsaved?: boolean; now?: () => number }) {
   const states: UpdateState[] = [];
   const native = opts.native === undefined ? null : opts.native;
   const svc = new UpdateService({
@@ -26,6 +26,8 @@ function service(opts: { native?: FakeNative | null; latest?: typeof release | n
     native: native as unknown as NativeUpdater | null,
     fetchLatest: async () => (opts.latest === undefined ? release : opts.latest),
     hasUnsavedChanges: () => opts.unsaved ?? false,
+    stallMs: 1000,
+    now: opts.now,
   });
   svc.onChange = (s) => states.push(s);
   return { svc, states };
@@ -154,4 +156,24 @@ test('install needs a downloaded update', async () => {
   const { svc } = service({});
   await svc.check();
   assert.equal(svc.install().ok, false);
+});
+
+test('a check starts over once a download has made no progress for a while', async () => {
+  const native = new FakeNative();
+  let t = 0;
+  let checks = 0;
+  native.onCheck = () => {
+    checks++;
+    native.emit('update-available', { version: '0.2.0' });
+  };
+  const { svc } = service({ native, now: () => t });
+  await svc.check();
+  t = 900;
+  native.emit('download-progress', { percent: 40 });
+  t = 1500;
+  assert.equal((await svc.check()).status, 'downloading');
+  assert.equal(checks, 1, 'progress within the stall time keeps the download');
+  t = 2000;
+  await svc.check();
+  assert.equal(checks, 2, 'a stalled download is checked again');
 });
