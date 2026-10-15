@@ -782,9 +782,15 @@ export class OneDrive implements DriveApi {
     const { driveId, itemId } = await this.appRoot();
     const file = (await (await this.fetch(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:?$select=id`, {}, 'find the spreadsheet')).json()) as GraphItem;
     const ws = `/drives/${driveId}/items/${file.id}/workbook/worksheets/${encodeURIComponent(sheet)}`;
-    const used = (await (await this.fetch(`${ws}/usedRange(valuesOnly=true)?$select=rowCount,columnCount`, {}, 'read the spreadsheet')).json()) as { rowCount?: number; columnCount?: number };
-    const rows = Math.max(values.length, used.rowCount ?? 0, 1);
-    const cols = Math.max(values[0]?.length ?? 0, used.columnCount ?? 0, 1);
+    const used = (await (await this.fetch(`${ws}/usedRange(valuesOnly=true)?$select=rowIndex,columnIndex,rowCount,columnCount`, {}, 'read the spreadsheet')).json()) as {
+      rowIndex?: number;
+      columnIndex?: number;
+      rowCount?: number;
+      columnCount?: number;
+    };
+    // The used range need not start at A1: blank from A1 to its far corner.
+    const rows = Math.max(values.length, (used.rowIndex ?? 0) + (used.rowCount ?? 0), 1);
+    const cols = Math.max(values[0]?.length ?? 0, (used.columnIndex ?? 0) + (used.columnCount ?? 0), 1);
     const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => values[r]?.[c] ?? ''));
     await this.fetch(
       `${ws}/range(address='${address(rows, cols)}')`,

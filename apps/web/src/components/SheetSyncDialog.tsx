@@ -71,7 +71,11 @@ export function SheetSyncDialog({ docName, link, status, rowCount, oneDriveAvail
                 the workbook is closed.
               </p>
             )}
-            <p className="hint-text">Edits you make on the Markups sheet are replaced by the next update, so put your own formulas in another sheet.</p>
+            <p className="hint-text">
+              {local
+                ? 'Edits you make on the Markups sheet are replaced by the next update, so put your own formulas in another sheet: other sheets are kept.'
+                : 'Each update replaces the whole workbook, so keep your own formulas in a separate workbook that links to this one.'}
+            </p>
             <div className="actions">
               <button className="btn" onClick={onStop}>
                 Stop syncing

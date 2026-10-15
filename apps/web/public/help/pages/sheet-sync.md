@@ -20,4 +20,6 @@ If an update fails, the button changes to **Sync to Excel ⚠** and redcolumn ke
 
 > **Note:** Excel in OneDrive needs an internet connection, and the redcolumn site must be set up for Microsoft sign-in. If the button says sign-in is *not set up for this site*, ask whoever runs your redcolumn site (see `docs/CLOUD-SETUP.md`).
 
+> **Your own work:** each update replaces the Markups sheet. In a workbook on this computer, other sheets you add are kept, so put your own formulas there. A OneDrive workbook is replaced whole on each update, so keep your own formulas in a separate workbook that links to it.
+
 > **Tip:** A workbook on this computer is written straight into Excel while it is open there, and Excel saves it. If you are typing in a cell, the update waits until you finish. Click the workbook's name in the Sync to Excel window to open it, or **Show in Folder** to find it.

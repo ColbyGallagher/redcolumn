@@ -130,7 +130,8 @@ test('OneDriveWorkbookTarget says the workbook is open when Excel will not take 
   await assert.rejects(new OneDriveWorkbookTarget('Plan.xlsx', drive).push([['A']]), (err: Error) => err instanceof DriveLockedError && /open in Excel/.test(err.message));
 });
 
-import { LocalExcelTarget } from './targets.ts';
+import { LocalExcelTarget, SyncStoppedError } from './targets.ts';
+import { DriveAuthError } from '../studio/drive/DriveApi.ts';
 import { asText } from './table.ts';
 
 test('asText keeps text that looks like a formula as text', () => {
@@ -162,4 +163,28 @@ test('LocalExcelTarget sends the .xlsx and the table to the desktop app', async 
 test('LocalExcelTarget.create is null when the Save dialog is cancelled', async () => {
   const excel = { pick: async () => null, write: async () => assert.fail('nothing to write'), open: async () => undefined, show: async () => undefined };
   assert.equal(await LocalExcelTarget.create('x', [['A']], excel), null);
+});
+
+test('OneDriveWorkbookTarget asks for Reconnect when the sign-in lapses mid-fallback', async () => {
+  const drive = {
+    writeAppBinary: async () => {
+      throw new DriveLockedError('locked');
+    },
+    writeAppWorksheet: async () => {
+      throw new DriveAuthError('Microsoft sign-in has expired.');
+    },
+  };
+  await assert.rejects(new OneDriveWorkbookTarget('Plan.xlsx', drive).push([['A']]), (err: Error) => err instanceof DriveAuthError);
+});
+
+test('LocalExcelTarget stops retrying a workbook the desktop app no longer knows', async () => {
+  const excel = {
+    pick: async () => null,
+    write: async () => {
+      throw new Error('That workbook is no longer linked. Choose it again.');
+    },
+    open: async () => undefined,
+    show: async () => undefined,
+  };
+  await assert.rejects(new LocalExcelTarget('xl-1', excel).push([['A']]), (err: Error) => err instanceof SyncStoppedError);
 });

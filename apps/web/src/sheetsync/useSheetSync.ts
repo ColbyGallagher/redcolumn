@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DriveAuthError } from '../studio/drive/DriveApi';
+import { DriveAuthError, DriveForbiddenError } from '../studio/drive/DriveApi';
 import { signInWithMicrosoft } from '../studio/drive/onedrive';
-import { LocalExcelTarget, localExcel, OneDriveWorkbookTarget, targetFor, type SyncLink, type SyncTarget } from './targets';
+import { LocalExcelTarget, localExcel, OneDriveWorkbookTarget, SyncStoppedError, targetFor, type SyncLink, type SyncTarget } from './targets';
 import { tableKey, type TableCell } from './table';
 
 /** `reconnect`: only signing in again (from a click) fixes it; otherwise it retries by itself at `retryAt`. */
@@ -90,7 +90,13 @@ export function useSheetSync(docKey: string | null) {
       const current = savedLink(docKey);
       if (!current) return;
       const key = tableKey(table);
-      if (key === written.current) return;
+      if (key === written.current) {
+        // Back to what the sheet already holds (an undo after a failed write): nothing left to retry.
+        stopRetry();
+        failures.current = 0;
+        setStatus((s) => (s.kind === 'error' ? { kind: 'synced', at: Date.now() } : s));
+        return;
+      }
       stopRetry();
       setStatus({ kind: 'syncing' });
       try {
@@ -107,6 +113,11 @@ export function useSheetSync(docKey: string | null) {
         // A lapsed sign-in needs a click (it may open a popup); anything else is tried again by itself.
         if (err instanceof DriveAuthError) {
           setStatus({ kind: 'error', message, reconnect: true });
+          return;
+        }
+        // Refused, or a link this app cannot follow: retrying would only repeat the same answer.
+        if (err instanceof SyncStoppedError || err instanceof DriveForbiddenError) {
+          setStatus({ kind: 'error', message, reconnect: false });
           return;
         }
         const wait = RETRY_MS[Math.min(failures.current, RETRY_MS.length - 1)]!;

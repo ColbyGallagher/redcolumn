@@ -1,5 +1,5 @@
 import { desktop, type DesktopExcel } from '../desktop/host';
-import { DriveLockedError } from '../studio/drive/DriveApi';
+import { DriveAuthError, DriveLockedError } from '../studio/drive/DriveApi';
 import { OneDrive } from '../studio/drive/onedrive';
 import { asText, type TableCell } from './table';
 import { buildXlsx, columnName } from './xlsx';
@@ -16,6 +16,9 @@ export interface SyncLink {
   url: string;
   title: string;
 }
+
+/** A failure that trying again will not fix: sync shows it and stops retrying until the next change or click. */
+export class SyncStoppedError extends Error {}
 
 /** Writes the whole table to the spreadsheet, replacing what was there. */
 export interface SyncTarget {
@@ -53,7 +56,9 @@ export class OneDriveWorkbookTarget implements SyncTarget {
       try {
         const cells = table.map((row) => row.map(asText));
         await this.drive.writeAppWorksheet(this.name, this.sheet, cells, (rows, cols) => `A1:${columnName(cols - 1)}${rows}`);
-      } catch {
+      } catch (inner) {
+        // A lapsed sign-in needs Reconnect, not a closed workbook.
+        if (inner instanceof DriveAuthError) throw inner;
         // Excel would not take the cells either: the lock is what the person needs to hear about.
         throw new DriveLockedError('The workbook is open in Excel, so it cannot be updated right now. Close it in Excel and the update is saved.');
       }
@@ -84,7 +89,13 @@ export class LocalExcelTarget implements SyncTarget {
   }
 
   async push(table: readonly (readonly TableCell[])[]): Promise<void> {
-    await this.excel.write(this.id, buildXlsx(table, this.sheet), table.map((row) => [...row]));
+    try {
+      await this.excel.write(this.id, buildXlsx(table, this.sheet), table.map((row) => [...row]));
+    } catch (err) {
+      // The desktop app forgot this workbook (its settings were reset): only choosing it again helps.
+      if (err instanceof Error && /no longer linked/i.test(err.message)) throw new SyncStoppedError(err.message);
+      throw err;
+    }
   }
 
   /** Asks where the workbook goes, then writes it; null when the person cancels. */
@@ -104,7 +115,7 @@ export const localExcel = (): DesktopExcel | null => desktop()?.excel ?? null;
 export function targetFor(link: SyncLink): SyncTarget {
   if (link.provider === 'excel-local') {
     const excel = localExcel();
-    if (!excel) throw new Error('This workbook is on a Windows computer: open this document in the redcolumn desktop app there to keep syncing it.');
+    if (!excel) throw new SyncStoppedError('This workbook is on a Windows computer: open this document in the redcolumn desktop app there to keep syncing it.');
     return new LocalExcelTarget(link.id, excel);
   }
   return new OneDriveWorkbookTarget(link.id);
