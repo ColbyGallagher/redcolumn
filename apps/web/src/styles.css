@@ -1834,6 +1834,10 @@ select[size] {
   flex: none;
 }
 
+.bottom-dock .dock-tablist {
+  display: flex;
+}
+
 .bottom-dock .tabs .dock-width-toggle {
   display: inline-grid;
   place-items: center;

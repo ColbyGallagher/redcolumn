@@ -561,7 +561,8 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
-const narrowScreen = () => !!window.matchMedia?.('(max-width: 1000px)').matches;
+const NARROW_QUERY = '(max-width: 1000px)';
+const narrowScreen = () => !!window.matchMedia?.(NARROW_QUERY).matches;
 
 type DockSide = 'left' | 'right';
 
@@ -835,7 +836,7 @@ export function App() {
   // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
   const [narrow, setNarrow] = useState(narrowScreen);
   useEffect(() => {
-    const mq = window.matchMedia?.('(max-width: 1000px)');
+    const mq = window.matchMedia?.(NARROW_QUERY);
     if (!mq) return;
     const on = () => setNarrow(mq.matches);
     mq.addEventListener('change', on);
@@ -7690,7 +7691,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const bottomDock = (
     <aside className="bottom-dock" style={{ height: dockHeight }}>
       <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
-      <div className="tabs" role="tablist">
+      <div className="tabs">
         <button
           type="button"
           className="dock-width-toggle"
@@ -7700,25 +7701,27 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
         >
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-            <path fill="none" stroke="currentColor" strokeWidth="1.6" d={dockFull ? 'M3 3l5 5-5 5M8 3l5 5-5 5' : 'M8 3 3 8l5 5M13 3 8 8l5 5'} />
+            <path fill="none" stroke="currentColor" strokeWidth="1.6" d={dockFull ? 'M1 4l4 4-4 4M15 4l-4 4 4 4M8 2v12' : 'M5 4 1 8l4 4M11 4l4 4-4 4M1 8h14'} />
           </svg>
         </button>
-        <button
-          role="tab"
-          aria-selected={bottomTab === 'markups'}
-          className={bottomTab === 'markups' ? 'active' : ''}
-          onClick={() => setBottomTab('markups')}
-        >
-          Markups
-        </button>
-        <button
-          role="tab"
-          aria-selected={bottomTab === 'links'}
-          className={bottomTab === 'links' ? 'active' : ''}
-          onClick={() => setBottomTab('links')}
-        >
-          Links{links.some((l) => l.status === 'review') ? ' •' : ''}
-        </button>
+        <div className="dock-tablist" role="tablist">
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'markups'}
+            className={bottomTab === 'markups' ? 'active' : ''}
+            onClick={() => setBottomTab('markups')}
+          >
+            Markups
+          </button>
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'links'}
+            className={bottomTab === 'links' ? 'active' : ''}
+            onClick={() => setBottomTab('links')}
+          >
+            Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+          </button>
+        </div>
         <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
           ×
         </button>
