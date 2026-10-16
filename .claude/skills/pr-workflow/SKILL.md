@@ -13,6 +13,7 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 - `pnpm typecheck`
 - `pnpm test`
+- `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI does not run it.
 
 ## Role: author
 
@@ -42,6 +43,7 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 Merge only when all of these hold on the current head:
 
 - CI is green.
+- `pnpm verify` passes locally on the current head (typecheck, unit tests, release build, end-to-end suite in web and desktop). CI does not run the end-to-end suite, so this is the only gate for it. Paste its summary line in the merge comment.
 - No open `BLOCKER:` threads.
 - The branch is up to date with the base (merge base in and re-validate if not).
 - No push has landed since the last review without a re-review of that delta.

@@ -333,6 +333,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['end', 'End'],
         ])}
         <C>{check('crosshair', 'Show Full-Screen Crosshair')}</C>
+        {select('geoFormat', 'Map Coordinates', [
+          ['decimal', 'Decimal Degrees'],
+          ['dms', 'Degrees, Minutes, Seconds'],
+        ])}
         <Row>
           {L('Open PDF on Startup', 'startupFile')}
           <span className="pref-row">

@@ -20,6 +20,7 @@ import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
+import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
@@ -1568,6 +1569,8 @@ const sameScale = (a: Scale | null, b: Scale | null) =>
 function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scale: Scale | null, viewports: readonly Viewport[]) {
   const matrix = pageMatrix(page);
   const existing = page.node.lookupMaybe(PDFName.of('VP'), PDFArray);
+  // Map registrations (geospatial PDFs) are not scales: they stay as the file has them.
+  const geo = existing?.asArray().filter((v) => isGeoViewport(toPdfDict(doc.context, v))) ?? [];
   const crop = page.getCropBox();
   const turned = page.getRotation().angle % 180 !== 0;
   if (existing) {
@@ -1591,8 +1594,9 @@ function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scal
     if (same) return;
   } else if (!scale && !viewports.length) return;
   const entries = [
-    ...(scale ? [{ Type: 'Viewport', BBox: [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height], Measure: measureDict(scale) }] : []),
-    ...viewports.map((v) => ({ Type: 'Viewport', BBox: userRect(matrix, v.rect), Name: pdfText(v.name), Measure: measureDict(v.scale) })),
+    ...(scale ? [doc.context.obj({ Type: 'Viewport', BBox: [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height], Measure: measureDict(scale) })] : []),
+    ...viewports.map((v) => doc.context.obj({ Type: 'Viewport', BBox: userRect(matrix, v.rect), Name: pdfText(v.name), Measure: measureDict(v.scale) })),
+    ...geo,
   ];
   if (entries.length) page.node.set(PDFName.of('VP'), doc.context.obj(entries));
   else page.node.delete(PDFName.of('VP'));

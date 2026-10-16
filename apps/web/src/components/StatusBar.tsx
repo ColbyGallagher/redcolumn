@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { formatLength, type Scale } from '@nb/measure';
+import { formatLatLon, formatLength, geoAt, type GeoRegion, type Scale } from '@nb/measure';
 import type { PagePoint, TileViewer } from '../viewer/TileViewer';
 import { settings, useSettings } from '../settings/settings';
 import { useOnline } from '../offline/network';
@@ -20,6 +20,8 @@ interface Props {
   rotation: number;
   /** Scale of a page, for showing the cursor position in real-world units. */
   scaleFor: (pageIndex: number) => Scale | null;
+  /** The document's map registrations (geospatial PDFs), for showing latitude and longitude. */
+  geoRegions: () => readonly GeoRegion[];
   /** Snap to drawing content (the tools' own toggle). */
   snapContent: boolean;
   onSnapContent: (on: boolean) => void;
@@ -64,7 +66,7 @@ function Toggle({
  * the page's scale) on the right. It follows the pointer itself so moving the mouse does not
  * re-render the rest of the app.
  */
-export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings }: Props) {
+export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings }: Props) {
   const prefs = useSettings();
   const online = useOnline();
   const assistantOn = useSyncExternalStore(subscribeAssistant, assistantIsOn, () => false);
@@ -92,6 +94,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
   const size = cursor && viewer ? viewer.pageSize(cursor.pageIndex) : null;
   const onPage = cursor && size && cursor.point[0] >= 0 && cursor.point[1] >= 0 && cursor.point[0] <= size.width && cursor.point[1] <= size.height;
   const coord = (pt: number) => (scale ? formatLength(pt * scale.metersPerPoint, scale) : `${pt.toFixed(1)} pt`);
+  const geo = onPage ? geoAt(geoRegions(), cursor.pageIndex, cursor.point) : null;
 
   return (
     <div className="statusbar">
@@ -128,9 +131,18 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, snapContent, onSn
             View {turns * 90}°
           </button>
         )}
-        <span className="status-coords" title="Pointer position from the page's top-left corner, at the page scale">
-          {onPage ? `X ${coord(cursor.point[0])}   Y ${coord(cursor.point[1])}` : ''}
-        </span>
+        {geo ? (
+          <span
+            className="status-coords"
+            title={`Latitude and longitude at the pointer, from the map registered in this PDF (${geo.region.name}${geo.region.crs ? `, ${geo.region.crs}` : ''}). Right-click the page to copy them.`}
+          >
+            {formatLatLon(geo.lat, geo.lon, prefs.geoFormat)}
+          </span>
+        ) : (
+          <span className="status-coords" title="Pointer position from the page's top-left corner, at the page scale">
+            {onPage ? `X ${coord(cursor.point[0])}   Y ${coord(cursor.point[1])}` : ''}
+          </span>
+        )}
       </div>
       {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
     </div>
