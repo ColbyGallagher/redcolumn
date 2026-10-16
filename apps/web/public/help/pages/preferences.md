@@ -2,9 +2,9 @@
 
 Preferences change how redcolumn behaves on this device.
 
-Open them with {{File > Preferences…}} (or press [[Ctrl+K]]). Pick a category on the left, then a tab along the top. Type in **Search** to find a setting: only the categories and tabs that have it are left, and the matching words are highlighted.
+Open them with {{File > Preferences…}} (or press [[Ctrl+K]]). Pick a category on the left; its sections open beneath it. Type in **Find a setting** at the top: only the categories and sections that have it are left (each with a count of matching sections), and the matching words are highlighted. On/off settings are switches.
 
-Click **OK** to keep your changes, or **Close** to forget them. **Defaults** puts every setting back as it came (press **OK** to keep that too). **Export** saves your preferences, name and custom words to a file; **Import** reads such a file back, for example on another computer.
+Click **Save** to keep your changes, or **Cancel** (or ×) to forget them; **Unsaved changes** shows while there are any. **Reset to defaults** puts every setting back as it came (press **Save** to keep that too). **Export** saves your preferences, name and custom words to a file; **Import** reads such a file back, for example on another computer.
 
 Settings marked with a small circle (○) are saved, imported and exported with the rest, but redcolumn does not use them yet.
 

@@ -14,9 +14,10 @@ import { pickFilesToOpen } from '../storage/diskHandles';
 import { digitalIds, restoreIdBackup, type IdBackup } from '../documents/digitalIds';
 
 /**
- * File › Preferences (Ctrl+K), laid out after Bluebeam Revu's: categories down the left with a
- * search box, tabs along the top of each, and labelled settings in a column. Changes are made to a
- * draft and applied with OK; Close discards them.
+ * File › Preferences (Ctrl+K): a search box across the top, categories down the left with each
+ * one's sections opening beneath it, and the settings as cards of one-line rows (label left, control
+ * right; on/off settings as switches). Changes are made to a draft and kept with Save; Cancel
+ * discards them.
  */
 
 export type Category = 'general' | 'account' | 'interface' | 'tools' | 'sets' | 'importExport' | 'advanced' | 'mcp';
@@ -82,6 +83,26 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
   },
   { id: 'mcp', label: 'MCP', tabs: [{ id: 'mcp', label: 'Enable MCP server' }] },
 ];
+
+/** A 16 × 16 line icon beside each category in the sidebar. */
+function catIcon(d: string): ReactNode {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
+const CATEGORY_ICONS: Record<Category, ReactNode> = {
+  general: catIcon('M2.5 4h11M2.5 8h11M2.5 12h11M5 2.5v3M10.5 6.5v3M7 10.5v3'),
+  interface: catIcon('M2 2.5h12v11H2zM2 5.5h12M5 5.5v8'),
+  tools: catIcon('M10.5 2.5 13.5 5.5 6 13H3v-3zM9 4l3 3'),
+  sets: catIcon('M4 2.5h8v8H4zM2 5v8.5h8.5'),
+  importExport: catIcon('M5 2.5v8M2.5 8 5 10.5 7.5 8M11 13.5v-8M8.5 8 11 5.5 13.5 8'),
+  advanced: catIcon('M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6 5 5M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4M8 5.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z'),
+  account: catIcon('M8 2.5a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5zM2.5 14c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5'),
+  mcp: catIcon('M5.5 2.5v3M10.5 2.5v3M3.5 5.5h9v2.5a4.5 4.5 0 0 1-9 0zM8 12.5v1.5'),
+};
 
 /** Settings kept and exported but not used by RedColumn yet: marked in the dialog so nobody expects them to do anything. */
 const STORED = new Set<keyof Settings>([
@@ -242,7 +263,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
   );
 
   const select = <K extends StrKey>(k: K, text: string, options: readonly (readonly [string, string, boolean?])[], o: { disabled?: boolean } = {}) => (
-    <>
+    <Row>
       {L(text, k)}
       <select aria-label={text} value={d[k]} disabled={o.disabled} onChange={(e) => set({ [k]: e.target.value } as Partial<Settings>)}>
         {options.map(([v, t, off]) => (
@@ -251,11 +272,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </option>
         ))}
       </select>
-    </>
+    </Row>
   );
 
   const num = (k: NumKey, text: string, o: { min: number; max: number; step?: number; unit?: string; disabled?: boolean }) => (
-    <>
+    <Row>
       {L(text, k)}
       <span className={`pref-spin${o.disabled ? ' disabled' : ''}`}>
         <input
@@ -273,23 +294,23 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         />
         {o.unit && <span className="unit">{o.unit}</span>}
       </span>
-    </>
+    </Row>
   );
 
   const colour = (k: StrKey, text: string, o: { disabled?: boolean } = {}) => (
-    <>
+    <Row>
       {L(text, k)}
       <span className={`pref-colour${o.disabled ? ' disabled' : ''}`}>
         <input type="color" aria-label={text} value={d[k]} disabled={o.disabled} onChange={(e) => set({ [k]: e.target.value } as Partial<Settings>)} />
       </span>
-    </>
+    </Row>
   );
 
   const text = (k: StrKey, t: string, o: { placeholder?: string } = {}) => (
-    <>
+    <Row>
       {L(t, k)}
       <input aria-label={t} value={d[k]} placeholder={o.placeholder} onChange={(e) => set({ [k]: e.target.value } as Partial<Settings>)} />
-    </>
+    </Row>
   );
 
   const head = (t: string) => <h4 className="pref-head">{label(t)}</h4>;
@@ -302,46 +323,50 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     // General
     options: () => (
       <Grid>
-        {L('User')}
-        <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
+        <Row>
+          {L('User')}
+          <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
+        </Row>
         {select('tabTruncation', 'Tab Truncation', [
           ['start', 'Start'],
           ['middle', 'Middle'],
           ['end', 'End'],
         ])}
         <C>{check('crosshair', 'Show Full-Screen Crosshair')}</C>
-        {L('Open PDF on Startup', 'startupFile')}
-        <span className="pref-row">
-          <select aria-label="Open PDF on Startup" value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>
-            <option value="">None</option>
-            {[...libraryFiles]
-              .sort((a, b) => a.name.localeCompare(b.name))
-              .map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            {d.startupFile && !libraryFiles.some((f) => f.id === d.startupFile) && <option value={d.startupFile}>(Not in the Library)</option>}
-          </select>
-          <button
-            type="button"
-            className="btn"
-            title="Pick a PDF; it is added to your Library"
-            onClick={async () => {
-              const f = await pickPdf();
-              if (!f) return;
-              try {
-                const stored = await saveToLibrary(f.name, await f.arrayBuffer());
-                setLibraryFiles((x) => [...x.filter((e) => e.id !== stored.id), stored]);
-                set({ startupFile: stored.id });
-              } catch (err) {
-                setMessage(`That file could not be added: ${(err as Error).message}`);
-              }
-            }}
-          >
-            Browse…
-          </button>
-        </span>
+        <Row>
+          {L('Open PDF on Startup', 'startupFile')}
+          <span className="pref-row">
+            <select aria-label="Open PDF on Startup" value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>
+              <option value="">None</option>
+              {[...libraryFiles]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+              {d.startupFile && !libraryFiles.some((f) => f.id === d.startupFile) && <option value={d.startupFile}>(Not in the Library)</option>}
+            </select>
+            <button
+              type="button"
+              className="btn"
+              title="Pick a PDF; it is added to your Library"
+              onClick={async () => {
+                const f = await pickPdf();
+                if (!f) return;
+                try {
+                  const stored = await saveToLibrary(f.name, await f.arrayBuffer());
+                  setLibraryFiles((x) => [...x.filter((e) => e.id !== stored.id), stored]);
+                  set({ startupFile: stored.id });
+                } catch (err) {
+                  setMessage(`That file could not be added: ${(err as Error).message}`);
+                }
+              }}
+            >
+              Browse…
+            </button>
+          </span>
+        </Row>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
         <C>{check('startTips', 'Show a Tip on the Start Screen')}</C>
       </Grid>
@@ -362,7 +387,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     units: () => {
       const choices = DEFAULT_UNIT_CHOICES[d.unitSystem];
       const unitSelect = (k: 'lengthUnit' | 'areaUnit' | 'volumeUnit', t: string, units: readonly LengthUnit[], name: (u: LengthUnit) => string) => (
-        <>
+        <Row>
           {L(t, k)}
           <select aria-label={t} value={d[k]} onChange={(e) => set({ [k]: e.target.value as LengthUnit })}>
             {units.map((u) => (
@@ -371,15 +396,17 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
               </option>
             ))}
           </select>
-        </>
+        </Row>
       );
       return (
         <Grid>
-          {L('Units', 'unitSystem')}
-          <select aria-label="Units" value={d.unitSystem} onChange={(e) => set(switchUnitSystem(d, e.target.value as UnitSystem))}>
-            <option value="metric">Metric</option>
-            <option value="imperial">Imperial</option>
-          </select>
+          <Row>
+            {L('Units', 'unitSystem')}
+            <select aria-label="Units" value={d.unitSystem} onChange={(e) => set(switchUnitSystem(d, e.target.value as UnitSystem))}>
+              <option value="metric">Metric</option>
+              <option value="imperial">Imperial</option>
+            </select>
+          </Row>
           {unitSelect('lengthUnit', 'Length', choices.length, (u) => LENGTH_NAMES[u])}
           {unitSelect('areaUnit', 'Area', choices.area, (u) => AREA_LABELS[u])}
           {unitSelect('volumeUnit', 'Volume', choices.volume, (u) => VOLUME_LABELS[u])}
@@ -427,14 +454,16 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('snapExtension', 'Extension', { title: 'Rest on the end of a line, then move on past it: the pointer follows the line on beyond its end' })}</C>
         <C>{check('snapParallel', 'Parallel', { title: 'While drawing a line, rest on another line, then move roughly parallel to it: the pointer follows that direction' })}</C>
         <C>{check('polarTracking', 'Polar Tracking', { title: 'While drawing, the pointer lines up at multiples of the polar angle from the last point' })}</C>
-        {L('Polar Angle', 'polarAngle')}
-        <select aria-label="Polar Angle" value={d.polarAngle} disabled={!d.polarTracking} onChange={(e) => set({ polarAngle: Number(e.target.value) })}>
-          {[90, 45, 30, 22.5, 18, 15, 10, 5].map((v) => (
-            <option key={v} value={v}>
-              {v}°
-            </option>
-          ))}
-        </select>
+        <Row>
+          {L('Polar Angle', 'polarAngle')}
+          <select aria-label="Polar Angle" value={d.polarAngle} disabled={!d.polarTracking} onChange={(e) => set({ polarAngle: Number(e.target.value) })}>
+            {[90, 45, 30, 22.5, 18, 15, 10, 5].map((v) => (
+              <option key={v} value={v}>
+                {v}°
+              </option>
+            ))}
+          </select>
+        </Row>
         <C>{check('polarForObjects', 'Track Objects at Polar Angles', { disabled: !d.polarTracking || !d.objectSnapTracking, title: 'Object snap tracking follows every polar angle from acquired points, not only straight across and up and down' })}</C>
         {num('snapSensitivity', 'Sensitivity', { min: 2, max: 30, disabled: !snapping && !d.snapToMarkup })}
         {colour('snapColour', 'Snap Colour', { disabled: !snapping && !d.snapToMarkup && !d.snapToGrid })}
@@ -506,14 +535,16 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['jpeg', 'JPEG'],
           ['flate', 'Flate (lossless)'],
         ])}
-        {L('Snapshot Resolution', 'snapshotDpi')}
-        <select aria-label="Snapshot Resolution" value={d.snapshotDpi} onChange={(e) => set({ snapshotDpi: Number(e.target.value) })}>
-          {[...new Set([72, 96, 150, 200, 300, 600, d.snapshotDpi])].sort((a, b) => a - b).map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
+        <Row>
+          {L('Snapshot Resolution', 'snapshotDpi')}
+          <select aria-label="Snapshot Resolution" value={d.snapshotDpi} onChange={(e) => set({ snapshotDpi: Number(e.target.value) })}>
+            {[...new Set([72, 96, 150, 200, 300, 600, d.snapshotDpi])].sort((a, b) => a - b).map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+        </Row>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
         <C>{check('dragToSelect', 'Drag on the Page to Select Markups', { title: 'With Select, dragging on an empty part of the page draws a selection box instead of panning' })}</C>
       </Grid>
@@ -542,16 +573,20 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     signature: () => (
       <Grid>
         {num('signaturePasswordTimeout', 'Password Time-out', { min: 0, max: 120, unit: 'Minutes' })}
-        {L('Digital ID Location')}
-        <span className="pref-row">
-          <input aria-label="Digital ID Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Digital IDs are kept on this device, each locked by its password" />
-          {backupButtons('digital-ids')}
-        </span>
-        {L('Trusted Identity Location')}
-        <span className="pref-row">
-          <input aria-label="Trusted Identity Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Certificates you trust to identify signers are kept on this device" />
-          {backupButtons('trusted-identities')}
-        </span>
+        <Row>
+          {L('Digital ID Location')}
+          <span className="pref-row">
+            <input aria-label="Digital ID Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Digital IDs are kept on this device, each locked by its password" />
+            {backupButtons('digital-ids')}
+          </span>
+        </Row>
+        <Row>
+          {L('Trusted Identity Location')}
+          <span className="pref-row">
+            <input aria-label="Trusted Identity Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Certificates you trust to identify signers are kept on this device" />
+            {backupButtons('trusted-identities')}
+          </span>
+        </Row>
         {select('signatureAlgorithm', 'Algorithm', [
           ['SHA-256', 'SHA-256'],
           ['SHA-384', 'SHA-384'],
@@ -631,17 +666,19 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['wildcard', 'Wildcard'],
           ['none', 'None'],
         ])}
-        {L('Stack Revisions By')}
-        <select
-          aria-label="Stack Revisions By"
-          value={d.setRevisionFilter === 'wildcard' ? 'wildcard' : 'auto'}
-          disabled={d.setRevisionFilter === 'none'}
-          title="What makes two sheets revisions of each other"
-          onChange={(e) => set({ setRevisionFilter: e.target.value as Settings['setRevisionFilter'] })}
-        >
-          <option value="auto">Sheet Number, Revision Number</option>
-          <option value="wildcard">File Name (Wildcard Syntax)</option>
-        </select>
+        <Row>
+          {L('Stack Revisions By')}
+          <select
+            aria-label="Stack Revisions By"
+            value={d.setRevisionFilter === 'wildcard' ? 'wildcard' : 'auto'}
+            disabled={d.setRevisionFilter === 'none'}
+            title="What makes two sheets revisions of each other"
+            onChange={(e) => set({ setRevisionFilter: e.target.value as Settings['setRevisionFilter'] })}
+          >
+            <option value="auto">Sheet Number, Revision Number</option>
+            <option value="wildcard">File Name (Wildcard Syntax)</option>
+          </select>
+        </Row>
         {text('setWildcard', 'Wildcard Syntax', { placeholder: '*_Rev#  (* the sheet, # its revision)' })}
         {select('setPreviousRevisions', 'Previous Revisions', [
           ['crossOut', 'Cross Out'],
@@ -666,14 +703,16 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             'Template',
             Object.keys(d.setTemplates).map((n) => [n, n] as const),
           )}
-          {L('Assign to Categories by', 'setTemplates')}
-          <select aria-label="Assign to Categories by" value={template.assignBy} onChange={(e) => setTemplate({ ...template, assignBy: e.target.value })}>
-            {[...new Set([...ASSIGN_BY, template.assignBy])].map((v) => (
-              <option key={v} value={v}>
-                Tag: {v}
-              </option>
-            ))}
-          </select>
+          <Row>
+            {L('Assign to Categories by', 'setTemplates')}
+            <select aria-label="Assign to Categories by" value={template.assignBy} onChange={(e) => setTemplate({ ...template, assignBy: e.target.value })}>
+              {[...new Set([...ASSIGN_BY, template.assignBy])].map((v) => (
+                <option key={v} value={v}>
+                  Tag: {v}
+                </option>
+              ))}
+            </select>
+          </Row>
         </Grid>
         <EditTable
           columns={[label('Category'), label('Filter')]}
@@ -966,37 +1005,57 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
       <div className="modal prefs-dialog" role="dialog" aria-label="Preferences" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Preferences</h3>
+        <header className="prefs-header">
+          <h3>Preferences</h3>
+          <label className="prefs-search-box">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <circle cx="7" cy="7" r="4.5" />
+              <path d="M10.5 10.5 14 14" />
+            </svg>
+            <input className="prefs-search" type="search" placeholder="Find a setting" aria-label="Search preferences" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </label>
+          <button type="button" className="prefs-x" aria-label="Close" title="Close without saving" onClick={onClose}>
+            ×
+          </button>
+        </header>
         <div className="prefs-body">
-          <div className="prefs-side">
-            <input className="prefs-search" type="search" placeholder="Search" aria-label="Search preferences" value={query} onChange={(e) => setQuery(e.target.value)} />
-            <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label="Categories">
-              {visibleCats.map((c) => (
-                <button key={c.id} type="button" role="tab" aria-selected={c.id === cat.id} className={c.id === cat.id ? 'active' : ''} onClick={() => setCategory(c.id)}>
-                  {c.label}
-                </button>
-              ))}
-              {!visibleCats.length && <span className="pref-note">No matches</span>}
-            </nav>
-          </div>
-          <div className="prefs-frame">
-            {catTabs.length > 0 && cat.id !== 'mcp' && (
-              <div className="prefs-tabs" role="tablist" aria-label={cat.label}>
-                {catTabs.map((t) => (
-                  <button key={t.id} type="button" role="tab" aria-selected={t.id === tab?.id} className={t.id === tab?.id ? 'active' : ''} onClick={() => setTabs((x) => ({ ...x, [cat.id]: t.id }))}>
-                    {t.label}
+          <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label="Categories">
+            {visibleCats.map((c) => {
+              const open = c.id === cat.id;
+              return (
+                <div key={c.id} className={`prefs-group${open ? ' open' : ''}`}>
+                  <button type="button" role="tab" aria-selected={open} aria-expanded={open} className={open ? 'active' : ''} onClick={() => setCategory(c.id)}>
+                    <span className="prefs-cat-icon">{CATEGORY_ICONS[c.id]}</span>
+                    <span className="prefs-cat-label">{c.label}</span>
+                    {q && <span className="prefs-count">{c.tabs.filter((t) => matches.has(t.id)).length}</span>}
                   </button>
-                ))}
-              </div>
-            )}
+                  {open && catTabs.length > 1 && (
+                    <div className="prefs-tabs" role="tablist" aria-label={cat.label} aria-orientation="vertical">
+                      {catTabs.map((t) => (
+                        <button key={t.id} type="button" role="tab" aria-selected={t.id === tab?.id} className={t.id === tab?.id ? 'active' : ''} onClick={() => setTabs((x) => ({ ...x, [cat.id]: t.id }))}>
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {!visibleCats.length && <span className="pref-note">Nothing matches that search</span>}
+          </nav>
+          <div className="prefs-frame">
+            <div className="prefs-title">
+              {cat.tabs.length > 1 && <span className="prefs-crumb">{cat.label}</span>}
+              <h2>{tab && cat.tabs.length > 1 ? tab.label : cat.label}</h2>
+            </div>
             <section className="prefs-section" role="tabpanel">
               {tab ? body[tab.id]?.() : <p className="pref-note">RedColumn has no {cat.label} preferences yet.</p>}
+              {cat.id !== 'mcp' && (
+                <p className="prefs-legend">
+                  <span className="pref-stored" /> Saved with your preferences; not used by RedColumn yet.
+                </p>
+              )}
             </section>
-            {cat.id !== 'mcp' && (
-              <p className="prefs-legend">
-                <span className="pref-stored" /> Saved with your preferences; not used by RedColumn yet.
-              </p>
-            )}
           </div>
         </div>
         {message && (
@@ -1004,44 +1063,50 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             {message}
           </p>
         )}
-        <div className="actions">
-          <button type="button" className="btn" title="Read preferences from a file" onClick={() => void importPrefs()}>
+        <footer className="actions prefs-footer">
+          <button type="button" className="prefs-link" title="Read preferences from a file" onClick={() => void importPrefs()}>
             Import
           </button>
-          <button type="button" className="btn" title="Save these preferences to a file" onClick={exportPrefs}>
+          <button type="button" className="prefs-link" title="Save these preferences to a file" onClick={exportPrefs}>
             Export
           </button>
           <button
             type="button"
-            className="btn"
-            title="Put every preference back to its default (press OK to keep)"
+            className="prefs-link"
+            title="Put every preference back to its default (press Save to keep)"
             disabled={same(d, DEFAULT_SETTINGS) && wrapComments}
             onClick={() => {
               setD({ ...DEFAULT_SETTINGS, setTemplates: structuredClone(DEFAULT_SETTINGS.setTemplates), setTags: structuredClone(DEFAULT_SETTINGS.setTags) });
               setWrapComments(true);
             }}
           >
-            Defaults
+            Reset to defaults
           </button>
           <span className="spacer" />
-          <button type="button" className="btn primary" onClick={() => void apply()} disabled={!changed} title={changed ? undefined : 'Nothing has changed'}>
-            OK
-          </button>
+          {changed && <span className="prefs-dirty">Unsaved changes</span>}
           <button type="button" className="btn" onClick={onClose}>
-            Close
+            Cancel
           </button>
-        </div>
+          <button type="button" className="btn primary" onClick={() => void apply()} disabled={!changed} title={changed ? undefined : 'Nothing has changed'}>
+            Save
+          </button>
+        </footer>
       </div>
     </div>
   );
 }
 
-/** Labelled settings: labels in the left column, controls in the right. */
+/** A label and its control, side by side on one line of the settings list. */
+function Row({ children }: { children: ReactNode }) {
+  return <div className="pref-item">{children}</div>;
+}
+
+/** A card of settings, one per line: the label on the left, its control on the right. */
 function Grid({ children }: { children: ReactNode }) {
   return <div className="pref-grid">{children}</div>;
 }
 
-/** A control in the right-hand column with no label of its own. */
+/** A line of the card with no separate label (a switch carries its own). */
 function C({ children }: { children: ReactNode }) {
   return <div className="pref-c">{children}</div>;
 }

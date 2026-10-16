@@ -35,7 +35,7 @@ const SHARE = path.resolve(__dirname, '../../dist/sw-share.js');
     assert.ok(await page.evaluate(() => !!window.__loadedAt), 'the page did not reload while the dialog was open');
     // Done: closing the dialog lets the new version load.
     const reloaded = page.waitForEvent('load', { timeout: 30000 });
-    await page.locator('.prefs-dialog .btn.primary', { hasText: 'Done' }).click();
+    await page.locator('.prefs-dialog .btn', { hasText: 'Cancel' }).click();
     await page.mouse.click(5, 400);
     await reloaded;
     assert.ok(await page.evaluate(() => !window.__loadedAt), 'the page reloaded into the new version');
