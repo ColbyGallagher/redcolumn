@@ -182,6 +182,33 @@ export interface Settings {
   /** Eraser size, and whether it deletes whole markups (annotation eraser) rather than parts of strokes. */
   eraserSize: 'small' | 'medium' | 'large';
   eraserWhole: boolean;
+  /**
+   * Offset: the distance copies are made at, as typed in the page's units (empty: through the
+   * clicked point), and how many copies each click makes.
+   */
+  offsetDistance: string;
+  offsetCount: number;
+  /** Fillet radius and Chamfer distance as typed (empty: a sharp corner). */
+  filletRadius: string;
+  chamferDistance: string;
+  /** Lengthen: change by an amount, set the total, or a percentage of the length; and the value typed. */
+  lengthenMode: 'delta' | 'total' | 'percent';
+  lengthenValue: string;
+  /** Polar and Path Array: items (the original included), the angle a polar array fills, and whether items turn. */
+  arrayCount: number;
+  arrayAngle: number;
+  arrayRotate: boolean;
+  arrayAlign: boolean;
+  /** Divide: into equal parts, or a mark every spacing (AutoCAD's Measure). */
+  divideMode: 'count' | 'spacing';
+  divideCount: number;
+  divideSpacing: string;
+  /** Mirror keeps the originals (copies the mirror image). */
+  mirrorKeep: boolean;
+  /** Rotate: an angle typed (counter-clockwise degrees), else by reference points. */
+  rotateAngle: string;
+  /** Align scales to fit the second pair of points. */
+  alignScale: boolean;
   /** Languages OCR reads (Tesseract codes). */
   ocrLanguages: string[];
   /** A speech bubble with the reply count on markups that have replies (View menu). */
@@ -385,6 +412,22 @@ export const DEFAULT_SETTINGS: Settings = {
   reuseTool: true,
   eraserSize: 'medium',
   eraserWhole: false,
+  offsetDistance: '',
+  offsetCount: 1,
+  filletRadius: '',
+  chamferDistance: '',
+  lengthenMode: 'delta',
+  lengthenValue: '',
+  arrayCount: 4,
+  arrayAngle: 360,
+  arrayRotate: true,
+  arrayAlign: true,
+  divideMode: 'count',
+  divideCount: 4,
+  divideSpacing: '',
+  mirrorKeep: true,
+  rotateAngle: '',
+  alignScale: false,
   filteredMarkups: 'show',
   replyIndicators: false,
   ocrLanguages: ['eng'],

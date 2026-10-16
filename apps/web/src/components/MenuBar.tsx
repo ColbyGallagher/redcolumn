@@ -311,6 +311,27 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.pasteInPlace" />
             <Cmd id="edit.offset" />
             <Cmd id="edit.multiply" />
+            <Submenu label="Modify">
+              <Cmd id="edit.offset" />
+              <Cmd id="edit.trim" />
+              <Cmd id="edit.extend" />
+              <Cmd id="edit.break" />
+              <Cmd id="edit.lengthen" />
+              <Cmd id="edit.fillet" />
+              <Cmd id="edit.chamfer" />
+              <Cmd id="edit.join" />
+              <Cmd id="edit.explode" />
+              <Sep />
+              <Cmd id="edit.mirror" />
+              <Cmd id="edit.rotate" />
+              <Cmd id="edit.alignPoints" />
+              <Cmd id="edit.stretch" />
+              <Cmd id="edit.scaleToLength" />
+              <Sep />
+              <Cmd id="edit.arrayPolar" />
+              <Cmd id="edit.arrayPath" />
+              <Cmd id="edit.divide" />
+            </Submenu>
             <Cmd id="edit.hide" />
             <Cmd id="edit.showHidden" />
             <Cmd id="edit.delete" />

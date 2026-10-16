@@ -183,3 +183,22 @@ export function offsetPoints(m: Markup, d: number): Point[] | null {
   }
   return null;
 }
+
+/**
+ * `count` copies of the markup's points stepped `d`, `2d`, `3d`… away (see `offsetDistance`), as
+ * Offset makes them. Boxes stop once they have shrunk to nothing rather than stacking up there.
+ */
+export function offsetCopies(m: Markup, d: number, count: number): Point[][] {
+  const out: Point[][] = [];
+  const n = Math.max(1, Math.floor(count));
+  for (let k = 1; k <= n; k++) {
+    if (offsetKind(m) === 'box' && d < 0) {
+      const b = boundsOf(m.points);
+      if (-d * k >= Math.min(b.w, b.h) / 2) break;
+    }
+    const points = offsetPoints(m, d * k);
+    if (!points) break;
+    out.push(points);
+  }
+  return out;
+}

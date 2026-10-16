@@ -4,6 +4,7 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { METERS_PER_UNIT } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { settings } from '../settings/settings';
@@ -784,4 +785,190 @@ test('Scale to Length and measuring ask for a page scale first on a page without
   assert.equal(asked.length, 1, 'asked for the new length');
   assert.equal(needed.length, 4);
   await h.store.destroy();
+});
+
+test('Offset: picks a markup with nothing selected, then makes copies at a typed distance on the clicked side', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // (100, 200) to (260, 300)
+  const [m] = h.store.all();
+  h.tools.select([]);
+  h.tools.setTool('offset');
+  assert.equal(h.tools.getState().painterSource, null);
+  click(h.tools, [100, 250]);
+  assert.equal(h.tools.getState().painterSource?.id, m!.id, 'the click picked the box');
+
+  // A unit-free typed distance is in the page's units: three copies outward, each 2 units further.
+  const scale = h.store.scaleFor(0);
+  const step = (METERS_PER_UNIT[scale.unit] / scale.metersPerPoint) * 2;
+  settings.set({ offsetDistance: '2', offsetCount: 3 });
+  try {
+    click(h.tools, [300, 250]);
+    const copies = h.store.all().filter((x) => x.id !== m!.id);
+    assert.equal(copies.length, 3);
+    const lefts = copies.map((c) => boundsOf(c.points).x).sort((a, b) => b - a);
+    lefts.forEach((x, k) => assert.ok(Math.abs(x - (100 - step * (k + 1))) < 1e-6));
+    assert.equal(h.tools.getState().tool, 'offset', 'the tool stays on for the next pick');
+    assert.equal(h.tools.getState().painterSource, null);
+    h.store.undo();
+    assert.equal(h.store.all().length, 1, 'one undo step');
+  } finally {
+    settings.set({ offsetDistance: '', offsetCount: 1 });
+  }
+
+  // No distance: the copy goes through the clicked point, here inside the box.
+  click(h.tools, [100, 250]);
+  click(h.tools, [120, 250]);
+  const inner = h.store.all().find((x) => x.id !== m!.id)!;
+  assert.deepEqual(inner.points, [[120, 220], [240, 280]]);
+});
+
+/** Puts a markup on page 1 directly, as if drawn. */
+function put(h: Harness, type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
+  const m: Markup = { id: crypto.randomUUID(), type, pageIndex: 0, points, style: { ...DEFAULT_STYLES[type] }, status: 'none', author: 'Tester', createdAt: 0, modifiedAt: 0, ...extra };
+  h.store.add(m);
+  return h.store.get(m.id)!;
+}
+
+test('Trim and Extend: cut a line at the lines crossing it, or carry it on to the next', async () => {
+  const h = await setup();
+  const line = put(h, 'line', [[0, 300], [400, 300]]);
+  put(h, 'line', [[100, 200], [100, 400]]);
+  put(h, 'line', [[300, 200], [300, 400]]);
+  h.tools.setTool('trim');
+  click(h.tools, [200, 301]);
+  const pieces = h.store.all().filter((m) => m.points.every(([, y]) => y === 300));
+  assert.deepEqual(pieces.map((m) => m.points).sort((a, b) => a[0]![0] - b[0]![0]), [[[0, 300], [100, 300]], [[300, 300], [400, 300]]]);
+  assert.equal(h.tools.getState().tool, 'trim', 'stays on for the next cut');
+  h.store.undo();
+  assert.deepEqual(h.store.get(line.id)!.points, [[0, 300], [400, 300]], 'one undo step');
+
+  // Clicking where nothing crosses says so and changes nothing.
+  const short = put(h, 'line', [[150, 500], [250, 500]]);
+  click(h.tools, [200, 500]);
+  assert.match(h.tools.getState().cad?.error ?? '', /Nothing crosses/);
+  h.tools.setTool('extend');
+  click(h.tools, [245, 500]);
+  assert.match(h.tools.getState().cad?.error ?? '', /Nothing lies ahead/);
+  const stub = put(h, 'line', [[150, 250], [250, 250]]);
+  click(h.tools, [245, 250]);
+  assert.deepEqual(h.store.get(stub.id)!.points, [[150, 250], [300, 250]]);
+  assert.ok(h.store.get(short.id));
+});
+
+test('Fillet: two lines meet at their corner, rounded by an arc when a radius is set', async () => {
+  const h = await setup();
+  const a = put(h, 'line', [[100, 100], [180, 100]]);
+  const b = put(h, 'line', [[200, 200], [200, 120]]);
+  h.tools.setTool('fillet');
+  click(h.tools, [140, 100]);
+  assert.equal(h.tools.getState().cad?.picks, 1);
+  click(h.tools, [200, 160]);
+  assert.deepEqual(h.store.get(a.id)!.points, [[100, 100], [200, 100]]);
+  assert.deepEqual(h.store.get(b.id)!.points, [[200, 200], [200, 100]]);
+  h.store.undo();
+  settings.set({ filletRadius: '20' });
+  try {
+    // A unit-free radius is in the page's units; make it 20 pt whatever they are.
+    const scale = h.store.scaleFor(0);
+    settings.set({ filletRadius: String((20 * scale.metersPerPoint) / METERS_PER_UNIT[scale.unit]) });
+    click(h.tools, [140, 100]);
+    click(h.tools, [200, 160]);
+    const arc = h.store.all().find((m) => m.type === 'arc')!;
+    assert.ok(arc, 'an arc joins them');
+    assert.ok(Math.abs(h.store.get(a.id)!.points[1]![0] - 180) < 1e-6);
+    assert.ok(Math.abs(h.store.get(b.id)!.points[1]![1] - 120) < 1e-6);
+  } finally {
+    settings.set({ filletRadius: '' });
+  }
+});
+
+test('Mirror copies the selection across a picked line; Escape steps back before leaving', async () => {
+  const h = await setup();
+  const r = put(h, 'polyline', [[100, 100], [150, 120], [120, 160]]);
+  h.tools.setTool('mirror');
+  // Nothing selected: the first click picks what to mirror.
+  click(h.tools, [125, 110]);
+  assert.deepEqual(h.tools.getState().selected, new Set([r.id]));
+  click(h.tools, [200, 0]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().cad?.picks, 0, 'Escape dropped the first point');
+  assert.equal(h.tools.getState().tool, 'mirror');
+  click(h.tools, [200, 0]);
+  click(h.tools, [200, 500]);
+  const copy = h.store.all().find((m) => m.id !== r.id)!;
+  assert.deepEqual(copy.points, [[300, 100], [250, 120], [280, 160]]);
+  assert.equal(h.tools.getState().tool, 'select');
+  assert.ok(h.tools.getState().selected.has(copy.id));
+});
+
+test('Rotate by a typed angle, Polar Array round a centre, Divide into a count', async () => {
+  const h = await setup();
+  const l = put(h, 'line', [[100, 100], [200, 100]]);
+  h.tools.select([l.id]);
+  settings.set({ rotateAngle: '90' });
+  try {
+    h.tools.setTool('rotateRef');
+    click(h.tools, [100, 100]);
+    // Counter-clockwise on paper: the far end goes up the page.
+    const pts = h.store.get(l.id)!.points;
+    assert.ok(Math.abs(pts[1]![0] - 100) < 1e-6 && Math.abs(pts[1]![1] - 0) < 1e-6);
+  } finally {
+    settings.set({ rotateAngle: '' });
+  }
+  h.tools.select([l.id]);
+  settings.set({ arrayCount: 4, arrayAngle: 360 });
+  h.tools.setTool('arrayPolar');
+  click(h.tools, [100, 100]);
+  assert.equal(h.store.all().filter((m) => m.type === 'line').length, 4);
+
+  h.tools.setTool('divide');
+  settings.set({ divideCount: 5 });
+  try {
+    const path = put(h, 'polyline', [[0, 600], [500, 600]]);
+    click(h.tools, [250, 600]);
+    const count = h.store.all().find((m) => m.type === 'count')!;
+    assert.deepEqual(count.points, [[100, 600], [200, 600], [300, 600], [400, 600]]);
+    assert.ok(h.store.get(path.id));
+  } finally {
+    settings.set({ divideCount: 4 });
+  }
+});
+
+test('Stretch moves the points inside a crossing window', async () => {
+  const h = await setup();
+  const pl = put(h, 'polyline', [[100, 100], [200, 100], [200, 200]]);
+  const box = put(h, 'rect', [[300, 100], [400, 200]]);
+  h.tools.setTool('stretch');
+  click(h.tools, [180, 80]);
+  click(h.tools, [420, 220]);
+  click(h.tools, [0, 0]);
+  click(h.tools, [10, 0]);
+  assert.deepEqual(h.store.get(pl.id)!.points, [[100, 100], [210, 100], [210, 200]]);
+  assert.deepEqual(h.store.get(box.id)!.points, [[310, 100], [410, 200]], 'the box inside moved whole');
+});
+
+test('Join chains touching lines into a polyline or polygon; Explode splits it back into lines', async () => {
+  const h = await setup();
+  const a = put(h, 'line', [[0, 0], [100, 0]]);
+  const b = put(h, 'line', [[100, 100], [100, 0]]);
+  const c = put(h, 'polyline', [[100, 100], [0, 100], [0, 0]]);
+  h.tools.select([a.id, b.id, c.id]);
+  assert.equal(h.tools.joinSelected(), true);
+  const all = h.store.all();
+  assert.equal(all.length, 1);
+  assert.equal(all[0]!.type, 'polygon');
+  assert.deepEqual(all[0]!.points, [[0, 0], [100, 0], [100, 100], [0, 100]]);
+  assert.equal(h.tools.explodeSelected(), true);
+  const lines = h.store.all();
+  assert.equal(lines.length, 4);
+  assert.ok(lines.every((m) => m.type === 'line' && m.points.length === 2));
+  h.store.undo();
+  assert.equal(h.store.all().length, 1, 'one undo step');
+  // Lengths join into a measurement.
+  const l1 = put(h, 'length', [[0, 300], [50, 300]]);
+  const l2 = put(h, 'length', [[50, 300], [50, 350]]);
+  h.tools.select([l1.id, l2.id]);
+  h.tools.joinSelected();
+  assert.equal(h.store.get(l1.id)!.type, 'polylength');
+  assert.equal(h.store.get(l2.id), undefined);
 });

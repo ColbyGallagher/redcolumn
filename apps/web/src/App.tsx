@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canExplode, canJoin, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -60,6 +60,8 @@ import { TableCellEditor } from './components/TableCellEditor';
 import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
+import { CadBar } from './components/CadBar';
+import { isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
@@ -6758,6 +6760,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     formatPainter: () => activeTools?.setTool('painter'),
     offset: () => activeTools?.setTool('offset'),
+    cadTool: (tool) => activeTools?.setTool(tool),
+    join: () => {
+      if (!activeTools?.joinSelected()) setNotice('Nothing to join: select lines or polylines whose ends meet');
+    },
+    explode: () => void activeTools?.explodeSelected(),
     group: () => activeTools?.group(),
     ungroup: () => activeTools?.ungroup(),
     lock: (locked) => activeTools?.setLocked(locked),
@@ -7253,7 +7260,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
-    selectionOffsettable: selectedMarkups.length === 1 && canOffset(selectedMarkups[0]!),
+    selectionJoinable: selectedMarkups.filter(canJoin).length > 1,
+    selectionExplodable: selectedMarkups.some(canExplode),
     canPaste: clipboardCount > 0,
     canGoBack,
     canGoForward,
@@ -8038,6 +8046,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     onCircle={(r) => ctl.tools.sketchCircle(r)}
                     onCancel={() => (toolsStateA.sketch?.mode === 'box' ? ctl.tools.cancelSketch() : ctl.tools.cancel())}
                     onFinish={() => ctl.tools.finish()}
+                  />
+                )}
+                {(toolsStateA.tool === 'offset' || isCadTool(toolsStateA.tool)) && open && ctl && (
+                  <CadBar
+                    tool={toolsStateA.tool}
+                    prompt={ctl.tools.cadPromptText()}
+                    error={toolsStateA.cad?.error ?? null}
+                    source={toolsStateA.painterSource}
+                    scale={toolsStateA.painterSource ? open.store.scaleOf(toolsStateA.painterSource) : open.store.scaleFor(pageIndex)}
+                    onCancel={() => ctl.tools.cancel()}
                   />
                 )}
                 {!open && (
