@@ -90,6 +90,114 @@ test.describe('measure tools', () => {
     expect((await app.toolState()).selected).toEqual([m!.id]);
   });
 
+  test('Smart Fill measures the room around a click', async ({ app }) => {
+    await app.tool('dynamicFill');
+    expect((await app.command('tool.dynamicFill')).checked).toBe(true);
+    await app.clicks([[r.x + r.w / 2, r.y + r.h / 2]]);
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const [m] = await app.markups();
+    expect(m).toMatchObject({ type: 'area', page: 1 });
+    // The fill stops at the inside faces of the 2 pt walls: within 2 grid cells (1224 / 1600 pt
+    // each, 1.53 pt in all) inside the walls' centre lines.
+    const xs = m!.points.map(([x]) => x);
+    const ys = m!.points.map(([, y]) => y);
+    const inside = 2 * (PLAN.page.width / 1600);
+    for (const [v, edge, dir] of [
+      [Math.min(...xs), r.x, 1],
+      [Math.max(...xs), r.x + r.w, -1],
+      [Math.min(...ys), r.y, 1],
+      [Math.max(...ys), r.y + r.h, -1],
+    ] as const) {
+      expect((v - edge) * dir).toBeGreaterThan(0);
+      expect((v - edge) * dir).toBeLessThanOrEqual(inside);
+    }
+    // So its area is under 20 x 10 ft, by at most that band: (200 - 3.06) x (100 - 3.06) pt.
+    const sf = Number(/^([\d.]+) sf$/.exec(m!.measurement ?? '')?.[1]);
+    expect(sf).toBeLessThan(200);
+    expect(sf).toBeGreaterThan(((r.w - 2 * inside) * (r.h - 2 * inside)) / 100);
+  });
+
+  test('Symbol Search finds every copy of a boxed symbol', async ({ app }) => {
+    await app.tool('visualSearch');
+    expect((await app.command('tool.visualSearch')).checked).toBe(true);
+    const [x, y] = PLAN.symbols[0]!;
+    const k = PLAN.symbolRadius + 4;
+    await app.drag([x - k, y - k], [x + k, y + k]);
+    const panel = app.page.locator('.visual-search').filter({ hasText: 'Symbol Search' });
+    await expect(panel.locator('.vs-result')).toHaveText(/^5 found/, { timeout: 30_000 });
+    // Mark them all as one count: five points, one on each symbol.
+    await panel.getByRole('button', { name: 'Count' }).click();
+    await expect.poll(async () => (await app.markups()).map((m) => [m.type, m.measurement])).toEqual([['count', '5 ea']]);
+    const points = (await app.markups())[0]!.points;
+    for (const [sx, sy] of PLAN.symbols) expect(points.some(([px, py]) => Math.hypot(px - sx, py - sy) < 2), `a point on the symbol at ${sx}, ${sy}`).toBe(true);
+  });
+
+  test('tools.nextMeasure steps through the measure tools in toolbar order', async ({ app }) => {
+    // The Measure toolbar (MEASURE_GROUPS in apps/web/src/components/ToolBar.tsx), then round again.
+    const order = ['calibrate', 'length', 'polylength', 'perimeter', 'arcLength', 'diameter', 'radius', 'angle', 'area', 'volume', 'dynamicFill', 'count', 'visualSearch', 'calibrate'];
+    const seen: string[] = [];
+    for (let i = 0; i < order.length; i++) {
+      await app.cmd('tools.nextMeasure');
+      seen.push((await app.toolState()).tool);
+    }
+    expect(seen).toEqual(order);
+  });
+
+  test.afterEach(async ({ app }) => {
+    expect(app.errors).toEqual([]);
+  });
+});
+
+// Draw to Scale on plan.pdf calibrated at 100 pt = 10 ft: typed sizes become exact page lengths.
+test.describe('draw to scale', () => {
+  test.beforeEach(async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.calibrate();
+  });
+
+  test('tools.sketchToScale toggles, and lines take a typed length and angle', async ({ app }) => {
+    expect((await app.command('tools.sketchToScale')).checked).toBe(false);
+    await app.cmd('tools.sketchToScale');
+    expect((await app.command('tools.sketchToScale')).checked).toBe(true);
+    await app.tool('line');
+    await app.clicks([[300, 450]]);
+    const bar = app.page.locator('form.sketch-bar');
+    await expect(bar).toBeVisible();
+    // 15 ft is 150 pt; 90° is straight up the page (counterclockwise from east, as on paper).
+    await bar.getByLabel('Length').fill(`15'`);
+    await bar.getByLabel('Angle').fill('90');
+    await bar.getByRole('button', { name: 'Place' }).click();
+    await expect.poll(async () => (await app.markups()).map((m) => [m.type, m.points.map(([x, y]) => [Math.round(x), Math.round(y)])])).toEqual([
+      [
+        'line',
+        [
+          [300, 450],
+          [300, 300],
+        ],
+      ],
+    ]);
+  });
+
+  test('rectangles take a typed width and height', async ({ app }) => {
+    await app.cmd('tools.sketchToScale');
+    await app.tool('rect');
+    await app.clicks([[300, 450]]);
+    const bar = app.page.locator('form.sketch-bar');
+    // 20 x 10 ft is 200 x 100 pt, right and down from the corner clicked.
+    await bar.getByLabel('Width').fill(`20'`);
+    await bar.getByLabel('Height').fill(`10'`);
+    await bar.getByRole('button', { name: 'Place' }).click();
+    await expect.poll(async () => {
+      const [m] = await app.markups();
+      if (!m) return null;
+      const xs = m.points.map(([x]) => Math.round(x));
+      const ys = m.points.map(([, y]) => Math.round(y));
+      return [m.type, Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }).toEqual(['rect', 300, 450, 500, 550]);
+    await app.cmd('tools.sketchToScale');
+    expect((await app.command('tools.sketchToScale')).checked).toBe(false);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });
