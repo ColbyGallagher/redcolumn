@@ -1139,12 +1139,7 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
           const font = m.FPDFText_LoadStandardFont(doc.handle, 'Helvetica');
           for (const run of rewrite) {
             const obj = m.FPDFPageObj_CreateTextObj(doc.handle, font, run.size);
-            const units = run.text.length + 1;
-            const wide = malloc(units * 2);
-            for (let k = 0; k < run.text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = run.text.charCodeAt(k);
-            m.pdfium.HEAPU16[(wide >> 1) + run.text.length] = 0;
-            m.FPDFText_SetText(obj, wide);
-            free(wide);
+            setWideText(m, obj, run.text);
             m.FPDFPageObj_SetFillColor(obj, ...run.color);
             const c = Math.cos(run.angle);
             const s = Math.sin(run.angle);
@@ -1248,9 +1243,11 @@ function fontHasGlyphs(m: WrappedPdfiumModule, font: number, text: string, size:
 
 function setWideText(m: WrappedPdfiumModule, obj: number, text: string) {
   const { malloc, free } = m.pdfium.wasmExports;
-  const wide = malloc((text.length + 1) * 2);
-  for (let k = 0; k < text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = text.charCodeAt(k);
-  m.pdfium.HEAPU16[(wide >> 1) + text.length] = 0;
+  // UTF-16 code units and a terminating zero, copied into the heap in one go.
+  const units = new Uint16Array(text.length + 1);
+  for (let k = 0; k < text.length; k++) units[k] = text.charCodeAt(k);
+  const wide = malloc(units.byteLength);
+  m.pdfium.HEAPU16.set(units, wide >> 1);
   const ok = m.FPDFText_SetText(obj, wide);
   free(wide);
   return ok;
@@ -1285,11 +1282,7 @@ async function replaceText(bytes: ArrayBuffer, pageIndex: number, index: number,
       const mode = m.FPDFTextObj_GetTextRenderMode(old);
       const font = m.FPDFText_LoadStandardFont(doc.handle, 'Helvetica');
       const obj = m.FPDFPageObj_CreateTextObj(doc.handle, font, size);
-      const wide = malloc((text.length + 1) * 2);
-      for (let k = 0; k < text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = text.charCodeAt(k);
-      m.pdfium.HEAPU16[(wide >> 1) + text.length] = 0;
-      m.FPDFText_SetText(obj, wide);
-      free(wide);
+      setWideText(m, obj, text);
       if (matrixOk) m.FPDFPageObj_SetMatrix(obj, buf + 4);
       m.FPDFPageObj_SetFillColor(obj, rgba[0]!, rgba[1]!, rgba[2]!, rgba[3]!);
       if (mode >= 0) m.FPDFTextObj_SetTextRenderMode(obj, mode);
