@@ -147,7 +147,13 @@ async function start() {
   const props = (v: unknown) => Object.fromEntries(Object.entries(v && typeof v === 'object' ? v : {}).filter((e): e is [string, string] => typeof e[1] === 'string'));
   handle('folder:pick', async (purpose) => {
     const win = mainWindow;
-    const options = { title: purpose === 'open' ? 'Open a Project folder' : 'Choose where the Project folder goes', properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const titles: Record<string, string> = {
+      open: 'Open a Project folder',
+      create: 'Choose where the Project folder goes',
+      'session-open': 'Open a Live Session folder',
+      'session-create': 'Choose a shared folder for the Live Session',
+    };
+    const options = { title: titles[String(purpose)] ?? titles.create!, properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return null;
     const id = await folders.addRoot(result.filePaths[0]);
@@ -163,6 +169,11 @@ async function start() {
   handle('folder:remove', (id) => folders.remove(str(id)));
   handle('folder:owned', (id) => folders.ownedByMe(str(id)));
   handle('folder:show', async (id) => void shell.openPath(await folders.folderPath(str(id))));
+  // Ending a Live Session in a folder on this computer: only a session folder this install made, to the recycle bin.
+  handle('folder:remove-session', async (id) => {
+    await shell.trashItem(await folders.sessionFolderToRemove(str(id)));
+    await saveFolders();
+  });
 
   // Sync to Excel on this computer: Windows only, since it drives Excel through COM. The page gets IDs, never paths.
   if (process.platform === 'win32') {

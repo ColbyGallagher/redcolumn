@@ -23,8 +23,8 @@ export interface DriveFile {
 }
 
 export interface DriveApi {
-  /** Which drive this is (OneDrive when absent). */
-  readonly backend?: 'onedrive';
+  /** Which drive this is (OneDrive when absent; 'folder' is a shared folder on this computer). */
+  readonly backend?: 'onedrive' | 'folder';
   /** A web link that opens the session folder. */
   folderUrl?(folderId: string): string;
   /** Lists a public folder's files (read with the API key). */

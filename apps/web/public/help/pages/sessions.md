@@ -8,6 +8,7 @@ A **Live Session** lets several people mark up the same drawings at the same tim
 
 - The **host** starts the session in **their own** OneDrive. The documents and markups live in a folder there. There is no redcolumn server.
 - **Attendees** join from an invite link or email, and sign in with their Microsoft account.
+- In the desktop app, the session can instead live in a **shared folder on your computer**: a OneDrive, SharePoint or Teams folder synced to your PC, a Dropbox folder, or a network drive. Nobody signs in. Everyone who can open the folder joins by choosing it. See [Host a session](#sessions-host).
 - The host decides who can view, who can comment, and who can edit everyone's markups.
 
 ![The Sessions panel](img/sessions-panel.png)

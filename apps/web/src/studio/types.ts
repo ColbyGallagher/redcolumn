@@ -1,8 +1,11 @@
 import type { MarkupStore } from '@nb/markup';
 import { accessFor, type Access, type AccessPolicy, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from './protocol';
 
-/** Where a session lives: a folder in the host's OneDrive. */
-export type Backend = 'onedrive';
+/**
+ * Where a session lives: a folder in the host's OneDrive (through Microsoft Graph), or a folder on
+ * this computer that everyone reaches through their own sync client or a file share.
+ */
+export type Backend = 'onedrive' | 'folder';
 
 export type ConnectionStatus = 'connecting' | 'online' | 'offline';
 
