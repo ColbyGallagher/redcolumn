@@ -15,7 +15,12 @@ export const PLAN = JSON.parse(readFileSync(join(FIXTURES, 'expected.json'), 'ut
   symbolRadius: number;
   search: Record<string, { hits: number; firstPage: number }>;
   pageCount: number;
+  sheets: { labelBox: Box; labels: string[]; scaleBox: Box; scales: string[] };
+  forms: { page: { width: number; height: number }; lines: { label: string; x0: number; x1: number; y: number }[]; box: { label: string; x: number; y: number; size: number } };
+  stitch: { page: { width: number; height: number }; sheets: { number: string; from: number; to: number; angle: number }[] };
 };
+
+type Box = { x: number; y: number; w: number; h: number };
 
 export type Pt = readonly [number, number];
 
@@ -238,6 +243,30 @@ export function driver(page: Page) {
       await d.tool('select');
     },
     scaleSelect: () => page.locator('.pagenav-side.right select').first(),
+
+    // Text search (Edit › Find Text), for checking what a page operation left on the pages.
+    /** Searches the active document and returns the 1-based page of each hit, in order. */
+    async search(query: string): Promise<number[]> {
+      const input = page.locator('.search-bar input[placeholder="Search text"]');
+      if (!(await input.isVisible())) await d.cmd('edit.find');
+      const summary = page.locator('.search p.empty').first();
+      let pages: number[] = [];
+      // The words of an edited document are read again in the background: search until the
+      // summary and the list agree.
+      await expect(async () => {
+        await input.fill(query);
+        await input.press('Enter');
+        await expect(summary).toHaveText(/^(No matches\.|\d+ match)/, { timeout: 2000 });
+        const n = /^(\d+) match/.exec((await summary.textContent()) ?? '')?.[1];
+        const nums = await page.locator('.search-hit .num').allTextContents();
+        expect(nums.length).toBe(Number(n ?? 0));
+        pages = nums.map((t) => Number(/Page (\d+)/.exec(t)?.[1]));
+      }).toPass({ timeout: 20_000 });
+      return pages;
+    },
+    /** The notice bar's text (an operation's result), once it shows. */
+    notice: () => page.locator('.notice').last(),
+    errorBar: () => page.locator('.error').last(),
   };
   return d;
 }
