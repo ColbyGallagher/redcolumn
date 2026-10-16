@@ -7,6 +7,9 @@ import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
 
 /** The CAD Modify tools' commands, in menu order. */
 export const CAD_COMMANDS: readonly [id: string, tool: CadTool][] = [
+  ['edit.move', 'move'],
+  ['edit.copyBase', 'copy'],
+  ['edit.scale', 'scale'],
   ['edit.trim', 'trim'],
   ['edit.extend', 'extend'],
   ['edit.break', 'break'],
@@ -85,6 +88,9 @@ export interface CommandActions {
   cadTool: (tool: CadTool) => void;
   join: () => void;
   explode: () => void;
+  selectSimilar: () => void;
+  toCloud: () => void;
+  reverse: () => void;
   group: () => void;
   ungroup: () => void;
   lock: (locked: boolean) => void;
@@ -193,6 +199,9 @@ export interface CommandState {
   /** Join and Explode have something selected to work on. */
   selectionJoinable: boolean;
   selectionExplodable: boolean;
+  /** Convert to Cloud and Reverse have something selected to work on. */
+  selectionCloudable: boolean;
+  selectionReversible: boolean;
   canPaste: boolean;
   canGoBack: boolean;
   /** The active document has changes that can be undone (Revert). */
@@ -300,6 +309,9 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable, s.tool === tool)),
     cmd('edit.join', 'Edit', 'Join', a.join, s.selectionJoinable && s.editable),
     cmd('edit.explode', 'Edit', 'Explode', a.explode, s.selectionExplodable && s.editable),
+    cmd('edit.reverse', 'Edit', 'Reverse', a.reverse, s.selectionReversible && s.editable),
+    cmd('edit.toCloud', 'Edit', 'Convert to Cloud', a.toCloud, s.selectionCloudable && s.editable),
+    cmd('edit.selectSimilar', 'Edit', 'Select Similar', a.selectSimilar, sel),
     cmd('edit.delete', 'Edit', 'Delete', a.deleteSelection, sel && s.editable),
     cmd('edit.hide', 'Edit', 'Hide', a.hideSelection, sel && s.editable),
     cmd('edit.showHidden', 'Edit', 'Show Hidden Markups', a.showHidden, s.hiddenCount > 0 && s.editable),

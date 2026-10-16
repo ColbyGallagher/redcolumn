@@ -22,8 +22,10 @@ import {
   pathOf,
   polarArray,
   rotationAbout,
+  scalingAbout,
   stretchMarkup,
   transformMarkup,
+  translation,
   trimPath,
   type Affine,
   type Markup,
@@ -33,9 +35,12 @@ import {
 } from '@nb/markup';
 import { settings } from '../settings/settings';
 
-export type CadTool = 'trim' | 'extend' | 'break' | 'lengthen' | 'fillet' | 'chamfer' | 'mirror' | 'arrayPolar' | 'arrayPath' | 'divide' | 'rotateRef' | 'align' | 'stretch';
+export type CadTool = 'move' | 'copy' | 'scale' | 'trim' | 'extend' | 'break' | 'lengthen' | 'fillet' | 'chamfer' | 'mirror' | 'arrayPolar' | 'arrayPath' | 'divide' | 'rotateRef' | 'align' | 'stretch';
 
 export const CAD_TOOL_LABELS: Record<CadTool, string> = {
+  move: 'Move',
+  copy: 'Copy by Base Point',
+  scale: 'Scale',
   trim: 'Trim',
   extend: 'Extend',
   break: 'Break',
@@ -54,7 +59,7 @@ export const CAD_TOOL_LABELS: Record<CadTool, string> = {
 export const isCadTool = (t: string): t is CadTool => t in CAD_TOOL_LABELS;
 
 /** Tools that work on the selection (picked by the first click when there is none). */
-const ON_SELECTION: ReadonlySet<CadTool> = new Set<CadTool>(['mirror', 'arrayPolar', 'arrayPath', 'rotateRef', 'align']);
+const ON_SELECTION: ReadonlySet<CadTool> = new Set<CadTool>(['move', 'copy', 'scale', 'mirror', 'arrayPolar', 'arrayPath', 'rotateRef', 'align']);
 
 /** A point clicked, and the markup clicked on when the step picks one. */
 export interface CadPick {
@@ -96,8 +101,8 @@ export type CadResult =
   | { picks: CadPick[] }
   /** The click picked what the tool works on. */
   | { select: string[] }
-  /** Done: apply, select `select`, and start over (`again`) or go back to Select. */
-  | { done: CadChanges; select: string[]; again: boolean }
+  /** Done: apply, select `select`, and start over (`again`, from `picks` when given) or go back to Select. */
+  | { done: CadChanges; select: string[]; again: boolean; picks?: CadPick[] }
   /** The click did nothing, and why. */
   | { error: string };
 
@@ -260,6 +265,43 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     return hit && !ctx.frozen(hit) ? { select: ctx.group(hit) } : { error: 'Click a markup, or select some first' };
   }
   switch (tool) {
+    case 'move':
+    case 'copy': {
+      if (!picks.length) return { picks: [{ at: p }] };
+      const base = picks[0]!.at;
+      let [dx, dy] = sub(p, base);
+      const typed = s.moveDistance.trim();
+      if (typed) {
+        // A typed distance goes the way the pointer points (AutoCAD's direct distance entry).
+        const distance = ctx.length(typed, ctx.selected[0] ?? null);
+        if (distance === null) return { error: 'The distance is not a length' };
+        const len = Math.hypot(dx, dy);
+        if (len < 1e-6) return { error: 'Point the way to go first' };
+        [dx, dy] = [(dx / len) * distance, (dy / len) * distance];
+      }
+      if (Math.hypot(dx, dy) < 1e-9) return { error: 'Pick a point away from the base' };
+      const t = translation(dx, dy);
+      if (tool === 'move') return transformSelection(ctx, [t], false);
+      // Copy stays on from the same base, each click placing another; the originals stay selected.
+      const copies = transformSelection(ctx, [t], true, false);
+      return { done: copies.done, select: ctx.selected.map((m) => m.id), again: true, picks };
+    }
+    case 'scale': {
+      const typed = s.scaleFactor.trim();
+      if (typed) {
+        const k = Number(typed);
+        if (!(k > 0) || !Number.isFinite(k)) return { error: 'The factor must be a number above 0' };
+        return transformSelection(ctx, [scalingAbout(p, k)], false);
+      }
+      // By reference: the base, a point at the current size, and where that point goes.
+      const picked = [...picks, { at: p }];
+      if (picked.length < 3) return { picks: picked };
+      const [base, ref, to] = picked.map((x) => x.at) as [Point, Point, Point];
+      const from = Math.hypot(...sub(ref, base));
+      const onto = Math.hypot(...sub(to, base));
+      if (from < 1e-6 || onto < 1e-6) return { error: 'Pick points away from the base' };
+      return transformSelection(ctx, [scalingAbout(base, onto / from)], false);
+    }
     case 'trim':
     case 'extend': {
       const hit = ctx.hit(p);
@@ -389,6 +431,11 @@ export function cadPrompt(tool: CadTool, picks: CadPick[], ctx: Pick<CadContext,
   if (ON_SELECTION.has(tool) && !ctx.selected.length) return 'Click a markup to work on, or select some first';
   const n = picks.length;
   switch (tool) {
+    case 'move':
+    case 'copy':
+      return n ? (s.moveDistance.trim() ? `Point the way and click to ${tool} ${s.moveDistance.trim()}` : `Click where to ${tool} it to`) : 'Click the base point';
+    case 'scale':
+      return !n ? (s.scaleFactor.trim() ? `Click the base point to scale ×${s.scaleFactor.trim()}` : 'Click the base point') : n === 1 ? 'Click a point at the current size' : 'Click where that point goes';
     case 'trim':
       return 'Click the part of a line to cut away · Shift: extend instead';
     case 'extend':
@@ -432,7 +479,7 @@ export function cadPreview(tool: CadTool, picks: CadPick[], hover: Point, ctx: C
     const w = windowOf(picks[0]!.at, picks[1]!.at);
     guides.push([[w.x, w.y], [w.x + w.w, w.y], [w.x + w.w, w.y + w.h], [w.x, w.y + w.h], [w.x, w.y]]);
   }
-  if ((tool === 'mirror' || tool === 'rotateRef' || tool === 'align' || tool === 'stretch') && picks.length) guides.push([picks.at(-1)!.at, hover]);
+  if ((tool === 'mirror' || tool === 'rotateRef' || tool === 'align' || tool === 'stretch' || tool === 'move' || tool === 'copy' || tool === 'scale') && picks.length) guides.push([picks.at(-1)!.at, hover]);
   if (tool === 'align' && picks.length === 1) {
     const [dx, dy] = sub(hover, picks[0]!.at);
     return { ghosts: ctx.selected.map((m) => ({ ...m, points: m.points.map(([x, y]) => [x + dx, y + dy] as Point) })), guides };

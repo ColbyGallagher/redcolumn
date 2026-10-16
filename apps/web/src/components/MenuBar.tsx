@@ -312,6 +312,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.offset" />
             <Cmd id="edit.multiply" />
             <Submenu label="Modify">
+              <Cmd id="edit.move" />
+              <Cmd id="edit.copyBase" />
               <Cmd id="edit.offset" />
               <Cmd id="edit.trim" />
               <Cmd id="edit.extend" />
@@ -321,9 +323,12 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="edit.chamfer" />
               <Cmd id="edit.join" />
               <Cmd id="edit.explode" />
+              <Cmd id="edit.reverse" />
+              <Cmd id="edit.toCloud" />
               <Sep />
               <Cmd id="edit.mirror" />
               <Cmd id="edit.rotate" />
+              <Cmd id="edit.scale" />
               <Cmd id="edit.alignPoints" />
               <Cmd id="edit.stretch" />
               <Cmd id="edit.scaleToLength" />
@@ -339,6 +344,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.pan" />
             <Cmd id="tool.select" label="Select" />
             <Cmd id="edit.selectAll" />
+            <Cmd id="edit.selectSimilar" />
             <Cmd id="tool.lasso" />
             <Cmd id="tool.snapshot" />
             <Cmd id="edit.formatPainter" />

@@ -17,7 +17,7 @@ interface Props {
   onCancel: () => void;
 }
 
-type LengthKey = 'offsetDistance' | 'filletRadius' | 'chamferDistance' | 'lengthenValue' | 'divideSpacing';
+type LengthKey = 'moveDistance' | 'offsetDistance' | 'filletRadius' | 'chamferDistance' | 'lengthenValue' | 'divideSpacing';
 type CountKey = 'offsetCount' | 'arrayCount' | 'divideCount';
 type CheckKey = 'mirrorKeep' | 'arrayRotate' | 'arrayAlign' | 'alignScale';
 
@@ -97,6 +97,19 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       step = source ? (typed ? 'Click the side for the copies' : 'Click where the copy goes through') : 'Click a line or shape to offset';
       break;
     }
+    case 'move':
+    case 'copy':
+      fields = length('moveDistance', 'Distance', 'to the point', 'Type a distance to go that far the way the pointer points. Leave empty to go to the point you click.', first);
+      break;
+    case 'scale':
+      fields = (
+        <label title="Times bigger (0.5 halves it). Leave empty to scale by reference points.">
+          Factor
+          <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder="by reference" aria-label="Scale factor" />×
+        </label>
+      );
+      if (s.scaleFactor.trim() && !(Number(s.scaleFactor) > 0)) bad = true;
+      break;
     case 'lengthen':
       fields = (
         <>

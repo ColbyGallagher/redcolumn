@@ -23,6 +23,9 @@ import {
   transformMarkup,
   trimPath,
   bulgeMidpoint,
+  canReverse,
+  reversedMarkup,
+  scalingAbout,
 } from './cad.ts';
 import { bulgeThrough } from '@nb/measure';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
@@ -207,4 +210,17 @@ test('edges and paths come from what is drawn', () => {
   assert.equal(p.points.length, 4);
   assert.equal(pathOf(markup('line', [[0, 0], [10, 0]]))!.closed, false);
   assert.ok(canCut(markup('polyline', [[0, 0], [1, 1]])) && !canCut(markup('polylength', [[0, 0], [1, 1]], { bulges: [0.2] })));
+});
+
+test('scale grows about a base point; reverse turns a path round with its endings', () => {
+  const t = scalingAbout([10, 10], 2);
+  assert.ok(near(applyAffine(t, [20, 10]), [30, 10]) && near(applyAffine(t, [10, 10]), [10, 10]));
+  const arrow = markup('arrow', [[0, 0], [10, 0]]);
+  const r = reversedMarkup(arrow);
+  assert.deepEqual(r.points, [[10, 0], [0, 0]]);
+  assert.equal(r.style!.startCap, 'filledArrow');
+  assert.equal(r.style!.endCap, 'none');
+  const pl = reversedMarkup(markup('polylength', [[0, 0], [10, 0], [20, 0]], { bulges: [0.2, 0] }));
+  assert.deepEqual(pl.bulges, [0, -0.2]);
+  assert.ok(canReverse(markup('line', [[0, 0], [1, 1]])) && !canReverse(markup('rect', [[0, 0], [1, 1]])));
 });

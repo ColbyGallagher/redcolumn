@@ -4,6 +4,9 @@ import {
   canOffset,
   canExplode,
   canJoin,
+  canReverse,
+  canCloud,
+  reversedMarkup,
   explodeSegments,
   joinPaths,
   bulgeMidpoint,
@@ -3089,9 +3092,9 @@ export class MarkupTools implements ViewerOverlay {
         for (const [id, patch] of update) store.update(id, patch);
         for (const m of add) store.add(m);
       });
-      c.picks = [];
+      c.picks = r.picks ?? [];
       const selected = new Set(r.select.filter((id) => store.get(id)));
-      if (r.again) this.setState({ selected, cad: { picks: 0, error: null } });
+      if (r.again) this.setState({ selected, cad: { picks: c.picks.length, error: null } });
       else {
         this.cad = null;
         this.setState({ tool: 'select', selected, cad: null });
@@ -3174,6 +3177,55 @@ export class MarkupTools implements ViewerOverlay {
       for (const m of add) store.add(m);
     });
     this.setState({ selected: new Set(add.map((m) => m.id)) });
+    return true;
+  }
+
+  /**
+   * Select Similar: adds every markup on the selection's pages that is like one selected (same
+   * type, subject, line colour and layer). Returns how many are selected now.
+   */
+  selectSimilar(): number {
+    const store = this.store;
+    if (!store) return 0;
+    const key = (m: Markup) => [m.type, m.subject ?? '', m.style.stroke.toLowerCase(), m.layer ?? ''].join('\u0000');
+    const picked = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
+    if (!picked.length) return 0;
+    const keys = new Set(picked.map(key));
+    const pages = new Set(picked.map((m) => m.pageIndex));
+    const ids = [...pages].flatMap((p) => this.pageMarkups(p).filter((m) => keys.has(key(m))).map((m) => m.id));
+    this.setState({ selected: new Set([...this.state.selected, ...ids]) });
+    return this.state.selected.size;
+  }
+
+  /**
+   * Convert to Cloud (AutoCAD's Revcloud › Object): the selected polygons become polygon clouds and
+   * rectangles box clouds, keeping their outline, look and comments. One undo step.
+   */
+  convertToCloud(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const targets = this.editable().filter(canCloud);
+    if (!targets.length) return false;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) {
+        const arcRadius = m.style.arcRadius ?? CLOUD_ARC_PX / this.viewer.zoomFor(m.pageIndex);
+        store.update(m.id, { type: m.type === 'rect' ? 'cloud' : 'polygonCloud', style: { ...m.style, arcRadius } });
+      }
+    });
+    return true;
+  }
+
+  /** Reverse: the selected lines and paths run the other way, swapping their end styles. One undo step. */
+  reverseSelected(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const targets = this.editable().filter(canReverse);
+    if (!targets.length) return false;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) store.update(m.id, reversedMarkup(m));
+    });
     return true;
   }
 
@@ -3529,7 +3581,7 @@ const CAD_PREVIEW = '#2563eb';
 const JOIN_PX = 3;
 
 /** CAD tools whose clicks are points in space (snapped) once there is a selection to work on. */
-const CAD_POINT_TOOLS: ReadonlySet<CadTool> = new Set<CadTool>(['mirror', 'rotateRef', 'align', 'arrayPolar']);
+const CAD_POINT_TOOLS: ReadonlySet<CadTool> = new Set<CadTool>(['move', 'copy', 'scale', 'mirror', 'rotateRef', 'align', 'arrayPolar']);
 
 /** A CAD tool's guide: a thin dashed line through the points. */
 function drawGuide(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {

@@ -38,3 +38,7 @@ Click a row in the [Markups list](#markups-list). The page jumps to that markup 
 
 - Markups that are [locked](#group-lock) can be selected but not moved.
 - A markup with a [link](#actions) follows its link when clicked. Hold [[Shift]] and click it to select it instead.
+
+## Select Similar
+
+Select one or more markups and choose {{Edit > Select Similar}}. Every markup on the same page with the same type, subject, line colour and layer is added to the selection.

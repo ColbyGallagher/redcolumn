@@ -686,3 +686,44 @@ export function stretchMarkup(m: Markup, window: Rect, dx: number, dy: number): 
   if (m.type === 'count' || TYPE_INFO[m.type].draw === 'place' || TYPE_INFO[m.type].draw === 'text') return null;
   return { points: m.points.map(mv), ...(m.holes ? { holes: m.holes.map((h) => h.map(mv)) } : {}) };
 }
+
+// ---- Scale and Reverse -----------------------------------------------------------------------
+
+/** Growing (or shrinking) by `factor` about `base` (AutoCAD's Scale). */
+export function scalingAbout(base: Pt, factor: number): Affine {
+  return { a: factor, b: 0, c: 0, d: factor, e: base[0] * (1 - factor), f: base[1] * (1 - factor) };
+}
+
+/** Lines and paths whose direction Reverse can flip (it decides which end has which ending). */
+const REVERSIBLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['line', 'arrow', 'polyline', 'arc', 'length', 'polylength', 'dimension']);
+
+/** True if Reverse works on the markup. */
+export function canReverse(m: Pick<Markup, 'type' | 'points'>): boolean {
+  return REVERSIBLE.has(m.type) && m.points.length >= 2;
+}
+
+/**
+ * Reverse: the markup running the other way, its line endings swapped so what was at the start is
+ * at the new start. Curves keep their shape (their bulges turn round); a dimension stays on the
+ * same side.
+ */
+export function reversedMarkup(m: Markup): Partial<Markup> {
+  const out: Partial<Markup> = { points: [...m.points].reverse().map(copy) };
+  if (m.bulges) out.bulges = [...m.bulges].reverse().map((b) => (b ? -b : 0));
+  const natural = TYPE_INFO[m.type].ends;
+  const style = { ...m.style };
+  if (natural) {
+    const start = m.style.startCap ?? natural[0];
+    const end = m.style.endCap ?? natural[1];
+    style.startCap = end;
+    style.endCap = start;
+  }
+  if (style.labelOffset) style.labelOffset = -style.labelOffset;
+  out.style = style;
+  return out;
+}
+
+/** True if Convert to Cloud works on the markup: a polygon or rectangle. */
+export function canCloud(m: Pick<Markup, 'type' | 'points'>): boolean {
+  return (m.type === 'polygon' && m.points.length >= 3) || m.type === 'rect';
+}

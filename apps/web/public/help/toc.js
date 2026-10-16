@@ -118,6 +118,7 @@ window.HELP_TOC = [
       { id: 'trim-extend', title: 'Trim, Extend, Break and Lengthen' },
       { id: 'fillet-chamfer', title: 'Fillet, Chamfer, Join and Explode' },
       { id: 'mirror-rotate', title: 'Mirror, Rotate, Align and Stretch' },
+      { id: 'move-copy-scale', title: 'Move, Copy, Scale, Reverse and Convert to Cloud' },
       { id: 'arrays-divide', title: 'Arrays and Divide' },
       { id: 'format-painter', title: 'Format Painter' },
       { id: 'group-lock', title: 'Group, lock and hide' },

@@ -165,4 +165,55 @@ test.describe('modify', () => {
     ]);
     expect((await app.markups()).some((m) => m.id === path.id)).toBe(true);
   });
+
+  test('move and copy by base point, scale by a factor', async ({ app }) => {
+    const l = await line(app, [300, 450], [350, 450]);
+    await select(app, [l.id]);
+    await app.cmd('edit.move');
+    await app.clicks([
+      [300, 450],
+      [320, 470],
+    ]);
+    expect(round((await app.markups()).find((m) => m.id === l.id)!.points)).toEqual([
+      [320, 470],
+      [370, 470],
+    ]);
+    await select(app, [l.id]);
+    await app.cmd('edit.copyBase');
+    await app.clicks([
+      [320, 470],
+      [320, 520],
+      [320, 570],
+    ]);
+    expect(await ofType(app, 'line')).toHaveLength(3);
+    await app.page.keyboard.press('Escape');
+    await select(app, [l.id]);
+    await app.cmd('edit.scale');
+    await bar(app).getByLabel('Scale factor').fill('2');
+    await app.clicks([[320, 470]]);
+    expect(round((await app.markups()).find((m) => m.id === l.id)!.points)).toEqual([
+      [320, 470],
+      [420, 470],
+    ]);
+  });
+
+  test('select similar, reverse and convert to cloud', async ({ app }) => {
+    const a = await line(app, [300, 450], [350, 450]);
+    await line(app, [300, 500], [350, 500]);
+    await app.tool('rect');
+    await app.drag([450, 450], [500, 500]);
+    await select(app, [a.id]);
+    await app.cmd('edit.selectSimilar');
+    expect((await app.toolState()).selected).toHaveLength(2);
+    await select(app, [a.id]);
+    await app.cmd('edit.reverse');
+    expect(round((await app.markups()).find((m) => m.id === a.id)!.points)).toEqual([
+      [350, 450],
+      [300, 450],
+    ]);
+    const [box] = await ofType(app, 'rect');
+    await select(app, [box!.id]);
+    await app.cmd('edit.toCloud');
+    expect((await app.markups()).find((m) => m.id === box!.id)!.type).toBe('cloud');
+  });
 });

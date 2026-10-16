@@ -209,6 +209,10 @@ export interface Settings {
   rotateAngle: string;
   /** Align scales to fit the second pair of points. */
   alignScale: boolean;
+  /** Move and Copy: a distance typed, gone the way the pointer points (empty: to the point clicked). */
+  moveDistance: string;
+  /** Scale: a factor typed (empty: by reference points). */
+  scaleFactor: string;
   /** Languages OCR reads (Tesseract codes). */
   ocrLanguages: string[];
   /** A speech bubble with the reply count on markups that have replies (View menu). */
@@ -428,6 +432,8 @@ export const DEFAULT_SETTINGS: Settings = {
   mirrorKeep: true,
   rotateAngle: '',
   alignScale: false,
+  moveDistance: '',
+  scaleFactor: '',
   filteredMarkups: 'show',
   replyIndicators: false,
   ocrLanguages: ['eng'],

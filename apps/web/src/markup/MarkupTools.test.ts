@@ -972,3 +972,60 @@ test('Join chains touching lines into a polyline or polygon; Explode splits it b
   assert.equal(h.store.get(l1.id)!.type, 'polylength');
   assert.equal(h.store.get(l2.id), undefined);
 });
+
+test('Move and Copy by base point; Scale by a typed factor', async () => {
+  const h = await setup();
+  const l = put(h, 'line', [[100, 100], [200, 100]]);
+  h.tools.select([l.id]);
+  h.tools.setTool('move');
+  click(h.tools, [100, 100]);
+  click(h.tools, [150, 130]);
+  assert.deepEqual(h.store.get(l.id)!.points, [[150, 130], [250, 130]]);
+  assert.equal(h.tools.getState().tool, 'select');
+
+  // Copy stays on from the same base, placing one copy per click.
+  h.tools.setTool('copy');
+  click(h.tools, [150, 130]);
+  click(h.tools, [150, 200]);
+  click(h.tools, [150, 300]);
+  const copies = h.store.all().filter((m) => m.id !== l.id);
+  assert.deepEqual(copies.map((m) => m.points[0]), [[150, 200], [150, 300]]);
+  assert.deepEqual(h.tools.getState().selected, new Set([l.id]), 'the original stays selected');
+
+  h.tools.setTool('scale');
+  settings.set({ scaleFactor: '2' });
+  try {
+    click(h.tools, [150, 130]);
+    assert.deepEqual(h.store.get(l.id)!.points, [[150, 130], [350, 130]]);
+  } finally {
+    settings.set({ scaleFactor: '' });
+  }
+});
+
+test('Select Similar, Reverse and Convert to Cloud', async () => {
+  const h = await setup();
+  const a = put(h, 'arrow', [[0, 0], [10, 0]]);
+  const b = put(h, 'arrow', [[0, 20], [10, 20]]);
+  put(h, 'line', [[0, 40], [10, 40]]);
+  const green = put(h, 'arrow', [[0, 60], [10, 60]], { style: { ...DEFAULT_STYLES.arrow, stroke: '#00ff00' } });
+  h.tools.select([a.id]);
+  h.tools.selectSimilar();
+  assert.deepEqual(h.tools.getState().selected, new Set([a.id, b.id]), 'same type and colour only');
+  assert.ok(!h.tools.getState().selected.has(green.id));
+
+  h.tools.select([a.id]);
+  assert.equal(h.tools.reverseSelected(), true);
+  const rev = h.store.get(a.id)!;
+  assert.deepEqual(rev.points, [[10, 0], [0, 0]]);
+  assert.equal(rev.style.startCap, 'filledArrow');
+
+  const poly = put(h, 'polygon', [[0, 100], [50, 100], [25, 150]]);
+  const box = put(h, 'rect', [[100, 100], [150, 150]]);
+  h.tools.select([poly.id, box.id]);
+  assert.equal(h.tools.convertToCloud(), true);
+  assert.equal(h.store.get(poly.id)!.type, 'polygonCloud');
+  assert.equal(h.store.get(box.id)!.type, 'cloud');
+  assert.ok(h.store.get(box.id)!.style.arcRadius! > 0);
+  h.store.undo();
+  assert.equal(h.store.get(poly.id)!.type, 'polygon', 'one undo step');
+});
