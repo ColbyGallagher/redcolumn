@@ -5,3 +5,4 @@ export * from './tracking.ts';
 export * from './fill.ts';
 export * from './visualSearch.ts';
 export * from './rasterSearch.ts';
+export * from './geo.ts';
