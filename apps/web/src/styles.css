@@ -1822,6 +1822,7 @@ select[size] {
   height: 5px;
   margin-top: -3px;
   cursor: ns-resize;
+  touch-action: none;
 }
 
 /* The collapsed Markups list's edge: click it to open the list again. */

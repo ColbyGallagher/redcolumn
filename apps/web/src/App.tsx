@@ -814,7 +814,9 @@ export function App() {
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
     const read = (side: DockSide) => {
       try {
-        return localStorage.getItem(railLabelsKey(side)) !== '0';
+        // The right rail once shared the left's setting, so it starts from that until set on its own.
+        const saved = localStorage.getItem(railLabelsKey(side)) ?? localStorage.getItem(railLabelsKey('left'));
+        return saved !== '0';
       } catch {
         return true;
       }
@@ -855,6 +857,15 @@ export function App() {
   useEffect(() => {
     if (showBottom) setDockOpen(true);
   }, [showBottom]);
+  // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
+  const bottomOpen = showBottom && dockOpen;
+  const toggleBottom = () => {
+    if (bottomOpen) setShowBottom(false);
+    else {
+      setShowBottom(true);
+      setDockOpen(true);
+    }
+  };
   // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
   const [narrow, setNarrow] = useState(narrowScreen);
   useEffect(() => {
@@ -5305,7 +5316,9 @@ export function App() {
   const currentPageOps = () => [v?.currentPageIndex ?? pageIndex];
 
   /** Dragging the Markups list's top edge resizes it; clicking the edge without dragging collapses it. */
-  const onDockSplit = (e: { preventDefault(): void; clientY: number }) => {
+  const onDockSplit = (e: { preventDefault(): void; clientY: number; button: number }) => {
+    // Only the main button: a right or middle click on the edge does nothing.
+    if (e.button !== 0) return;
     e.preventDefault();
     const startY = e.clientY;
     const startH = dockHeight;
@@ -5314,13 +5327,19 @@ export function App() {
       if (Math.abs(ev.clientY - startY) > 3) dragged = true;
       if (dragged) setDockHeight(Math.max(80, Math.min(window.innerHeight * 0.5, startH + (startY - ev.clientY))));
     };
-    const up = () => {
+    const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', stop);
+    };
+    const up = () => {
+      stop();
       if (!dragged) setDockOpen(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    // A cancelled pointer (the browser took the touch gesture) neither resizes nor collapses.
+    window.addEventListener('pointercancel', stop);
   };
 
   /** Dragging a side panel's inner edge resizes it; clicking the edge without dragging collapses it. */
@@ -6291,7 +6310,7 @@ export function App() {
     { label: 'Markup Toolbar', checked: showTools, onClick: toggleToolbar },
     { label: 'Panels', checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
     ...(rightRail.length ? [{ label: 'Right Panels', checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
-    { label: 'Markups List', checked: showBottom, onClick: () => setShowBottom((s) => !s) },
+    { label: 'Markups List', checked: bottomOpen, onClick: toggleBottom },
     { label: split ? 'Unsplit' : 'Split View', shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
     SEP,
     { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
@@ -6812,10 +6831,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       else showPanel(id);
     },
     togglePanels: () => {
-      const open = leftOpen || rightShown || showBottom;
+      const open = leftOpen || rightShown || bottomOpen;
       setLeftOpen(!open);
       setRightOpen(!open && rightRail.length > 0);
       setShowBottom(!open);
+      if (!open) setDockOpen(true);
     },
     addBookmark: () => {
       const cur = activeOpen;
@@ -6879,7 +6899,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     toggleToolbar,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
-    toggleBottom: () => setShowBottom((s) => !s),
+    toggleBottom,
     commandPalette: () => setPaletteOpen(true),
     manageStamps: () => {
       setStampsCreating(false);
@@ -7234,7 +7254,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showLeft: leftOpen,
     showRight: rightShown,
     hasRightPanels: rightRail.length > 0,
-    showBottom,
+    showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
     openTabCount: (pane === 'b' ? tabsB : tabsA).length,
@@ -7900,7 +7920,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         profiles={profileList.map((p) => ({ id: p.id, name: p.name }))}
         activeProfileId={activeProfileId}
         hiddenPanels={ws.hiddenPanels}
-        panels={{ showLeft: leftOpen, showBottom, leftTab, bottomTab }}
+        panels={{ showLeft: leftOpen, showBottom: bottomOpen, leftTab, bottomTab }}
         stamps={stampLibrary(ws).map((s) => ({ id: s.id, name: s.name }))}
         update={updateState}
         on={{
