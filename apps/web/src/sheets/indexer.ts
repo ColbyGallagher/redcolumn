@@ -1,5 +1,5 @@
 import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
-import { DEFAULT_STATUSES, importAnnotations, importColumns, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
@@ -252,6 +252,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
       if (spaces.length) extras.spaces![i] = spaces;
       onProgress({ phase: 'annotations', done: i + 1, total: doc.pages.length });
     }
+    if (raw) extras.geo = raw.pages.flatMap((p, i) => importGeoRegions(i, p));
     if (raw?.columns.length) extras.columns = importColumns(raw.columns);
     // Custom status sets' states (with their colours), then any other states markups were set to.
     const sets = importStatuses(raw?.statusDefs ?? []);
@@ -262,6 +263,16 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     ];
     return { markups, links, imported, extras, labels };
   });
+}
+
+/**
+ * Reads the file's map registrations (geospatial PDFs) into the store, for documents whose
+ * annotations were imported before they were read. A file too large to read records none.
+ */
+export async function readGeoRegions(bytes: ArrayBuffer, store: MarkupStore) {
+  const { readPdfExtras } = await import('@nb/markup/pdfExtras');
+  const raw = await readPdfExtras(bytes).catch(() => null);
+  store.setGeoRegions(raw ? raw.pages.flatMap((p, i) => importGeoRegions(i, p)) : []);
 }
 
 /** True when this image markup's embedded photo was already decoded from the file. */
