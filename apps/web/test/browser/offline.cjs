@@ -73,11 +73,11 @@ const CHROME = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linu
 
   await check('Preferences › Offline shows storage use and OCR languages', async () => {
     await page.keyboard.press('Control+k');
-    await page.locator('.prefs-nav button', { hasText: 'Offline' }).click();
+    await page.locator('.prefs-nav [role=tab]', { hasText: /^Advanced$/ }).click();
     await page.waitForSelector('.storage-use');
     assert.match(await page.locator('.storage-use').innerText(), /used/);
     assert.equal(await page.locator('.ocr-offline li').count(), 7);
-    await page.locator('.prefs-dialog .btn.primary', { hasText: 'Done' }).click();
+    await page.locator('.prefs-dialog .btn', { hasText: 'Cancel' }).click();
   });
 
   await check('starting a Live Session is disabled offline, with the reason', async () => {

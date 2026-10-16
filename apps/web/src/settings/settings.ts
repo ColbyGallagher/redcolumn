@@ -162,6 +162,8 @@ export interface Settings {
   showRulers: boolean;
   /** Full-screen crosshair cursor (View → Full-Screen Crosshair). */
   crosshair: boolean;
+  /** How latitudes and longitudes on maps (geospatial PDFs) are shown: decimal degrees or degrees, minutes and seconds. */
+  geoFormat: 'decimal' | 'dms';
   /** Draw Spaces on the page (Spaces panel). Hidden Spaces still group markups. */
   showSpaces: boolean;
   /** Draw to Scale: type exact lengths, angles and sizes while drawing. */
@@ -379,6 +381,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gridSize: 5,
   showRulers: false,
   crosshair: false,
+  geoFormat: 'decimal',
   showSpaces: true,
   sketchToScale: false,
   sketchEllipse: 'ellipse',

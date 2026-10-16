@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
   - "services/*"
+  - "e2e"
 allowBuilds:
   # Electron downloads its runtime. electron-winstaller downloads the NSIS tools used to package it.
   electron: true

@@ -21,7 +21,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 export function webRoot(): string {
-  return app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '../../web/dist');
+  if (app.isPackaged) return path.join(process.resourcesPath, 'web');
+  // The end-to-end tests (e2e/) load a separate build with their test hook, so it never lands in dist.
+  return path.join(__dirname, process.env.RECOLUMN_E2E === '1' ? '../../web/dist-e2e' : '../../web/dist');
 }
 
 function fileFor(root: string, pathname: string): string | null {

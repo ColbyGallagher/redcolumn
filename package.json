@@ -9,6 +9,12 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "desktop": "node scripts/desktop.mjs",
+    "e2e": "pnpm e2e:web && pnpm e2e:desktop",
+    "e2e:web": "pnpm --filter @nb/e2e e2e:web",
+    "e2e:desktop": "pnpm --filter @nb/e2e e2e:desktop",
+    "e2e:fixtures": "pnpm --filter @nb/e2e fixtures",
+    "e2e:report": "pnpm --filter @nb/e2e exec playwright show-report",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && node e2e/support/check-release.mjs && pnpm e2e",
     "bench:render": "node --experimental-transform-types --no-warnings --import ./apps/web/test/resolve-ts.mjs scripts/render-bench.mjs"
   }
 }
