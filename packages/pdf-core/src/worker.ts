@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
-import { APP_DATA_KEY, NEEDS_PASSWORD, type AnnotImage, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
+import { APP_DATA_KEY, NEEDS_PASSWORD, RENDER_CANCELLED, type AnnotImage, type CopyCheck, type RenderResult, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -20,25 +20,53 @@ const CURVE_STEPS = 8;
 const MAX_SEGMENTS = 2_000_000;
 /** Parsed pages kept open per document; re-parsing heavy sheets dominates tile render cost. */
 const PAGE_CACHE_SIZE = 6;
+/** Longest stretch a progressive render runs before checking for a cancel (ms). */
+const RENDER_SLICE_MS = 12;
+/** FPDF_RenderPageBitmap_Start / _Continue status. */
+const FPDF_RENDER_TOBECONTINUED = 1;
+const FPDF_RENDER_FAILED = 3;
+/** Render-copy check: longest edge of the two renders compared, and the share of pixels allowed to differ. */
+const CHECK_PX = 768;
+const CHECK_MAX_DIFF = 0.01;
 
-interface OpenDoc {
+/** A PDFium document handle and the pages parsed from it. */
+interface Host {
   handle: number;
-  /** The file, kept in JS memory (outside the 2 GB wasm heap) and read by PDFium on demand. */
-  bytes: ArrayBuffer;
-  password: string;
   /** Frees what `FPDF_LoadCustomDocument` needs for as long as the document is open. */
   release: () => void;
-  /** Which wasm instance `handle` belongs to; a document from an aborted one is reopened. */
-  epoch: number;
   /** pageIndex -> page handle; Map insertion order doubles as LRU order. */
   pages: Map<number, number>;
   /** Pages in use while others are loaded (annotations whose links point at other pages): never closed to make room. */
   pinned: Set<number>;
-  /** Annotations (by /Annots index) not to draw, applied whenever the page is loaded. */
-  hidden: Map<number, Set<number>>;
+  /** The page a progressive render is drawing: never closed under it. */
+  busy: number | null;
   /** Form-fill environment, so form fields (widgets) are drawn; 0 when PDFium couldn't make one. */
   form: number;
   formInfo: number;
+  /** Top-level object count of pages parsed so far (a cost profile for the viewer). */
+  objects: Map<number, number>;
+}
+
+/**
+ * An optimised copy of the document used only to draw pages faster: the same pages, boxes and
+ * annotations, lighter content streams. Pages are drawn from it once a check showed they look the
+ * same as the original's.
+ */
+interface RenderCopy extends Host {
+  bytes: ArrayBuffer;
+  /** Pages checked and drawn from the copy. */
+  ok: Set<number>;
+}
+
+interface OpenDoc extends Host {
+  /** The file, kept in JS memory (outside the 2 GB wasm heap) and read by PDFium on demand. */
+  bytes: ArrayBuffer;
+  password: string;
+  /** Which wasm instance `handle` belongs to; a document from an aborted one is reopened. */
+  epoch: number;
+  /** Annotations (by /Annots index) not to draw, applied whenever the page is loaded. */
+  hidden: Map<number, Set<number>>;
+  copy: RenderCopy | null;
 }
 
 const ANNOT_SUBTYPES = ['Unknown', 'Text', 'Link', 'FreeText', 'Line', 'Square', 'Circle', 'Polygon', 'PolyLine', 'Highlight', 'Underline', 'Squiggly', 'StrikeOut', 'Stamp', 'Caret', 'Ink', 'Popup', 'FileAttachment', 'Sound', 'Movie', 'Widget', 'Screen', 'PrinterMark', 'TrapNet', 'Watermark', 'ThreeD', 'RichMedia', 'XFAWidget', 'Redact'];
@@ -89,49 +117,64 @@ function getDoc(docId: number): OpenDoc {
   if (!doc) throw new Error(`Unknown document ${docId}`);
   if (doc.epoch !== epoch && current) {
     // The old instance is gone with everything in it, so nothing is closed or freed there.
-    const fresh = openHandle(current, doc.bytes, doc.password);
-    doc.handle = fresh.handle;
-    doc.release = fresh.release;
-    doc.form = fresh.form;
-    doc.formInfo = fresh.formInfo;
-    doc.epoch = epoch;
-    doc.pages = new Map();
-    doc.pinned = new Set();
+    Object.assign(doc, openHandle(current, doc.bytes, doc.password), { epoch });
+    if (doc.copy) doc.copy = { ...openHandle(current, doc.copy.bytes, doc.password), bytes: doc.copy.bytes, ok: doc.copy.ok };
   }
   return doc;
 }
 
-function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): number {
-  const cached = doc.pages.get(pageIndex);
+/**
+ * A parsed page of `host` (the document, or its render copy). `parsed` (when given) receives how
+ * long parsing took, 0 when the page was already parsed.
+ */
+function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, host: Host = doc, parsed?: { ms: number }): number {
+  const cached = host.pages.get(pageIndex);
   if (cached !== undefined) {
-    doc.pages.delete(pageIndex);
-    doc.pages.set(pageIndex, cached);
+    host.pages.delete(pageIndex);
+    host.pages.set(pageIndex, cached);
+    if (parsed) parsed.ms = 0;
     return cached;
   }
-  const page = m.FPDF_LoadPage(doc.handle, pageIndex);
+  const t0 = performance.now();
+  const page = m.FPDF_LoadPage(host.handle, pageIndex);
   if (!page) throw new Error(`Failed to load page ${pageIndex}`);
+  if (parsed) parsed.ms = performance.now() - t0;
+  if (!host.objects.has(pageIndex)) host.objects.set(pageIndex, m.FPDFPage_CountObjects(page));
   applyHidden(m, page, doc.hidden.get(pageIndex));
-  if (doc.form) m.FORM_OnAfterLoadPage(page, doc.form);
-  doc.pages.set(pageIndex, page);
-  if (doc.pages.size > PAGE_CACHE_SIZE) {
+  if (host.form) m.FORM_OnAfterLoadPage(page, host.form);
+  host.pages.set(pageIndex, page);
+  if (host.pages.size > PAGE_CACHE_SIZE) {
     // The least recently used page that is not in use: closing one in use would leave its
     // annotation handles dangling, and PDFium then crashes (table index out of bounds).
-    for (const [oldIndex, oldPage] of doc.pages) {
-      if (oldIndex === pageIndex || doc.pinned.has(oldIndex)) continue;
-      if (doc.form) m.FORM_OnBeforeClosePage(oldPage, doc.form);
+    for (const [oldIndex, oldPage] of host.pages) {
+      if (oldIndex === pageIndex || host.pinned.has(oldIndex) || host.busy === oldIndex) continue;
+      if (host.form) m.FORM_OnBeforeClosePage(oldPage, host.form);
       m.FPDF_ClosePage(oldPage);
-      doc.pages.delete(oldIndex);
+      host.pages.delete(oldIndex);
       break;
     }
   }
   return page;
 }
 
+/** Closes every page of `host` and the document handle itself. */
+function closeHost(m: WrappedPdfiumModule, host: Host) {
+  for (const page of host.pages.values()) {
+    if (host.form) m.FORM_OnBeforeClosePage(page, host.form);
+    m.FPDF_ClosePage(page);
+  }
+  host.pages.clear();
+  if (host.form) m.PDFiumExt_ExitFormFillEnvironment(host.form);
+  if (host.formInfo) m.PDFiumExt_CloseFormFillInfo(host.formInfo);
+  m.FPDF_CloseDocument(host.handle);
+  host.release();
+}
+
 /**
  * Opens a document that PDFium reads from `bytes` block by block. Copying a large file into the
  * wasm heap (capped at 2 GB) leaves too little room to render; a 500 MB drawing set aborts it.
  */
-function openHandle(m: WrappedPdfiumModule, bytes: ArrayBuffer, password: string) {
+function openHandle(m: WrappedPdfiumModule, bytes: ArrayBuffer, password: string): Host {
   const { malloc, free } = m.pdfium.wasmExports;
   const view = new Uint8Array(bytes);
   // int GetBlock(void* param, unsigned long position, unsigned char* buf, unsigned long size)
@@ -160,13 +203,14 @@ function openHandle(m: WrappedPdfiumModule, bytes: ArrayBuffer, password: string
   // Form fields are only drawn through a form-fill environment (FPDF_FFLDraw).
   const formInfo = m.PDFiumExt_OpenFormFillInfo();
   const form = formInfo ? m.PDFiumExt_InitFormFillEnvironment(handle, formInfo) : 0;
-  return { handle, release, form, formInfo };
+  return { handle, release, form, formInfo, pages: new Map(), pinned: new Set(), busy: null, objects: new Map() };
 }
 
 async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number; pages: PageSize[] }> {
   const m = await lib();
   const { malloc, free } = m.pdfium.wasmExports;
-  const { handle, release, form, formInfo } = openHandle(m, bytes, password);
+  const host = openHandle(m, bytes, password);
+  const { handle } = host;
 
   const count = m.FPDF_GetPageCount(handle);
   const sizePtr = malloc(8);
@@ -180,7 +224,7 @@ async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number;
   free(sizePtr);
 
   const docId = nextDocId++;
-  docs.set(docId, { handle, bytes, password, release, epoch, pages: new Map(), pinned: new Set(), hidden: new Map(), form, formInfo });
+  docs.set(docId, { ...host, bytes, password, epoch, hidden: new Map(), copy: null });
   return { docId, pages };
 }
 
@@ -390,48 +434,235 @@ async function close(docId: number): Promise<void> {
     docs.delete(docId);
     return;
   }
-  for (const page of doc.pages.values()) {
-    if (doc.form) m.FORM_OnBeforeClosePage(page, doc.form);
-    m.FPDF_ClosePage(page);
-  }
-  if (doc.form) m.PDFiumExt_ExitFormFillEnvironment(doc.form);
-  if (doc.formInfo) m.PDFiumExt_CloseFormFillInfo(doc.formInfo);
-  m.FPDF_CloseDocument(doc.handle);
-  doc.release();
+  if (doc.copy) closeHost(m, doc.copy);
+  closeHost(m, doc);
   docs.delete(docId);
 }
 
-async function render(req: TileRequest): Promise<{ bitmap: ImageBitmap; ms: number }> {
-  const t0 = performance.now();
-  const m = await lib();
-  const page = getPage(m, getDoc(req.docId), req.pageIndex);
-  const { width: w, height: h } = req;
+/**
+ * Work that draws pages, queued so the viewer can reorder and cancel it: PDFium draws a page
+ * progressively, and between slices the worker reads its messages, so a tile scrolled out of view
+ * stops within a slice instead of finishing a second-long sheet first.
+ */
+interface RenderJob {
+  id: number;
+  docId: number;
+  /** Lower runs first. */
+  priority: number;
+  cancelled: boolean;
+  /** Gives way (and is queued again) when more urgent work arrives. */
+  preemptible: boolean;
+  run: (job: RenderJob) => Promise<void>;
+}
 
+const jobs: RenderJob[] = [];
+let running: RenderJob | null = null;
+let pumping = false;
+
+/**
+ * PDFium calls run one at a time: a progressive render waits between slices with the page's
+ * render context half done, and nothing else may touch PDFium meanwhile. Cancels and new renders
+ * are queued without it.
+ */
+let lock: Promise<unknown> = Promise.resolve();
+function exclusive<T>(f: () => Promise<T>): Promise<T> {
+  const run = lock.then(() => f());
+  lock = run.catch(() => {});
+  return run;
+}
+
+function schedule(job: RenderJob) {
+  jobs.push(job);
+  // Only what the viewer is waiting for interrupts background work: a stopped job starts over,
+  // so a stream of lesser renders (thumbnails) would keep it from ever finishing.
+  if (running?.preemptible && job.priority <= 0 && job.priority < running.priority) running.cancelled = true;
+  void pump();
+}
+
+async function pump() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    while (jobs.length) {
+      let best = 0;
+      for (let i = 1; i < jobs.length; i++) if (jobs[i]!.priority < jobs[best]!.priority) best = i;
+      const job = jobs.splice(best, 1)[0]!;
+      running = job;
+      await exclusive(() => job.run(job));
+      running = null;
+    }
+  } finally {
+    pumping = false;
+  }
+}
+
+/** Cancels renders: queued ones answer at once, a running one at its next slice. */
+function cancel(ids: number[]) {
+  for (const id of ids) {
+    if (running?.id === id) running.cancelled = true;
+    const at = jobs.findIndex((j) => j.id === id);
+    if (at >= 0) {
+      jobs.splice(at, 1);
+      reply({ id, ok: false, error: RENDER_CANCELLED });
+    }
+  }
+}
+
+/** Lets the worker's queued messages (cancels, more urgent renders) run; no timer clamping. */
+function yieldToMessages(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => resolve();
+    ch.port2.postMessage(null);
+  });
+}
+
+let pauseCheck = () => false;
+let pause: { epoch: number; ptr: number } | null = null;
+
+/** IFSDK_PAUSE for progressive rendering: PDFium asks it whether to stop for now. */
+function pausePtr(m: WrappedPdfiumModule): number {
+  if (pause?.epoch === epoch) return pause.ptr;
+  const cb = m.pdfium.addFunction(() => (pauseCheck() ? 1 : 0), 'ii');
+  const ptr = m.pdfium.wasmExports.malloc(12);
+  m.pdfium.HEAPU32.set([1, cb, 0], ptr >> 2);
+  pause = { epoch, ptr };
+  return ptr;
+}
+
+/**
+ * Draws a page into `bitmap` in slices, yielding between them. False when `stop` said to stop
+ * first (the bitmap is then incomplete).
+ */
+async function drawPage(m: WrappedPdfiumModule, host: Host, page: number, bitmap: number, x: number, y: number, size: { w: number; h: number }, flags: number, stop: () => boolean): Promise<boolean> {
+  const ptr = pausePtr(m);
+  let deadline = performance.now() + RENDER_SLICE_MS;
+  pauseCheck = () => performance.now() > deadline;
+  // Lay the whole page out at `size`, shifted so the tile origin lands at (0, 0); PDFium clips to
+  // the bitmap. (FPDF_RenderPageBitmapWithMatrix traps in this wasm build.)
+  let status = m.FPDF_RenderPageBitmap_Start(bitmap, page, -x, -y, size.w, size.h, 0, flags, ptr);
+  while (status === FPDF_RENDER_TOBECONTINUED) {
+    await yieldToMessages();
+    if (stop()) {
+      m.FPDF_RenderPage_Close(page);
+      return false;
+    }
+    deadline = performance.now() + RENDER_SLICE_MS;
+    status = m.FPDF_RenderPage_Continue(page, ptr);
+  }
+  m.FPDF_RenderPage_Close(page);
+  if (status === FPDF_RENDER_FAILED) throw new Error('PDFium could not draw the page');
+  // Form fields on top, as PDFium draws them only here.
+  if (host.form) m.FPDF_FFLDraw(host.form, bitmap, page, -x, -y, size.w, size.h, 0, flags);
+  return true;
+}
+
+/** A bitmap's pixels as tightly packed RGBA rows. */
+function bitmapPixels(m: WrappedPdfiumModule, bitmap: number, w: number, h: number): Uint8ClampedArray<ArrayBuffer> {
+  const stride = m.FPDFBitmap_GetStride(bitmap);
+  const buf = m.FPDFBitmap_GetBuffer(bitmap);
+  const heap = m.pdfium.HEAPU8;
+  const rgba = new Uint8ClampedArray(w * h * 4);
+  for (let row = 0; row < h; row++) rgba.set(heap.subarray(buf + row * stride, buf + row * stride + w * 4), row * w * 4);
+  return rgba;
+}
+
+/** Draws a region of a page (from `host`) into RGBA pixels; null when stopped. */
+async function renderPixels(m: WrappedPdfiumModule, doc: OpenDoc, host: Host, req: TileRequest, stop: () => boolean, parsed?: { ms: number }): Promise<Uint8ClampedArray<ArrayBuffer> | null> {
+  const page = getPage(m, doc, req.pageIndex, host, parsed);
+  const { width: w, height: h } = req;
   const bitmap = m.FPDFBitmap_CreateEx(w, h, FPDFBitmap_BGRA, 0, 0);
   if (!bitmap) throw new Error('Failed to allocate bitmap');
+  host.busy = req.pageIndex;
   try {
     m.FPDFBitmap_FillRect(bitmap, 0, 0, w, h, req.transparent ? 0x00ffffff : 0xffffffff);
-    // Lay the whole page out at `scale`, shifted so the tile origin lands at (0, 0); PDFium
-    // clips to the bitmap. (FPDF_RenderPageBitmapWithMatrix traps in this wasm build.)
-    const size = pageSizePx(m, page, req.scale);
     const flags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER | (req.thinLines ? FPDF_THIN_LINE : 0);
-    m.FPDF_RenderPageBitmap(bitmap, page, -req.x, -req.y, size.w, size.h, 0, flags);
-    // Form fields on top, as PDFium draws them only here.
-    const form = getDoc(req.docId).form;
-    if (form) m.FPDF_FFLDraw(form, bitmap, page, -req.x, -req.y, size.w, size.h, 0, flags);
-
-    const stride = m.FPDFBitmap_GetStride(bitmap);
-    const buf = m.FPDFBitmap_GetBuffer(bitmap);
-    const heap = m.pdfium.HEAPU8;
-    const rgba = new Uint8ClampedArray(w * h * 4);
-    for (let row = 0; row < h; row++) {
-      rgba.set(heap.subarray(buf + row * stride, buf + row * stride + w * 4), row * w * 4);
-    }
-    const image = await createImageBitmap(new ImageData(rgba, w, h));
-    return { bitmap: image, ms: performance.now() - t0 };
+    if (!(await drawPage(m, host, page, bitmap, req.x, req.y, pageSizePx(m, page, req.scale), flags, stop))) return null;
+    return bitmapPixels(m, bitmap, w, h);
   } finally {
+    host.busy = null;
     m.FPDFBitmap_Destroy(bitmap);
   }
+}
+
+async function render(req: TileRequest, job: RenderJob): Promise<RenderResult | null> {
+  const t0 = performance.now();
+  const m = await lib();
+  const doc = getDoc(req.docId);
+  const host = req.copy && doc.copy?.ok.has(req.pageIndex) ? doc.copy : doc;
+  const parsed = { ms: 0 };
+  const rgba = await renderPixels(m, doc, host, req, () => job.cancelled, parsed);
+  if (!rgba) return null;
+  const bitmap = await createImageBitmap(new ImageData(rgba, req.width, req.height));
+  return { bitmap, ms: performance.now() - t0, parseMs: parsed.ms, objects: host.objects.get(req.pageIndex) ?? 0, fromCopy: host !== doc };
+}
+
+/**
+ * Compares a page drawn from the render copy with the original, small. A page that looks the same
+ * (bar anti-aliasing where merged lines overlap) is drawn from the copy from then on.
+ */
+async function checkCopy(docId: number, pageIndex: number, job: RenderJob): Promise<CopyCheck | null> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const copy = doc.copy;
+  if (!copy) throw new Error('The document has no render copy');
+  const size = await pageSize(m, doc, pageIndex);
+  const scale = CHECK_PX / Math.max(size.width, size.height);
+  const req: TileRequest = { docId, pageIndex, scale, x: 0, y: 0, width: Math.ceil(size.width * scale), height: Math.ceil(size.height * scale) };
+  const stop = () => job.cancelled;
+  // Drawing times without parsing: one side's page may be parsed already, the other's not.
+  const parsed = { ms: 0 };
+  let t = performance.now();
+  const a = await renderPixels(m, doc, doc, req, stop, parsed);
+  const originalMs = performance.now() - t - parsed.ms;
+  if (!a) return null;
+  t = performance.now();
+  const b = await renderPixels(m, doc, copy, req, stop, parsed);
+  const copyMs = performance.now() - t - parsed.ms;
+  const copyParseMs = parsed.ms;
+  if (!b) return null;
+  let differ = 0;
+  for (let k = 0; k < a.length; k += 4) {
+    if (Math.max(Math.abs(a[k]! - b[k]!), Math.abs(a[k + 1]! - b[k + 1]!), Math.abs(a[k + 2]! - b[k + 2]!)) > 48) differ++;
+  }
+  const diff = differ / (a.length / 4);
+  const ok = diff <= CHECK_MAX_DIFF;
+  if (ok) copy.ok.add(pageIndex);
+  else copy.ok.delete(pageIndex);
+  return { ok, diff, originalMs, copyMs, copyParseMs, originalObjects: doc.objects.get(pageIndex) ?? 0, copyObjects: copy.objects.get(pageIndex) ?? 0 };
+}
+
+async function pageSize(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): Promise<PageSize> {
+  const ptr = m.pdfium.wasmExports.malloc(8);
+  try {
+    if (!m.FPDF_GetPageSizeByIndexF(doc.handle, pageIndex, ptr)) throw new Error(`No page ${pageIndex}`);
+    const f32 = m.pdfium.HEAPF32;
+    return { width: f32[ptr >> 2]!, height: f32[(ptr >> 2) + 1]! };
+  } finally {
+    m.pdfium.wasmExports.free(ptr);
+  }
+}
+
+/**
+ * Starts drawing pages of `docId` from `bytes`, an optimised copy, once each passes `checkCopy`.
+ * `keepChecked` carries the pages already checked over from the copy it replaces (a copy that
+ * grew: those pages are unchanged in it).
+ */
+async function setRenderCopy(docId: number, bytes: ArrayBuffer | null, keepChecked: boolean): Promise<void> {
+  const m = await lib();
+  const doc = getDoc(docId);
+  const ok = keepChecked && doc.copy ? doc.copy.ok : new Set<number>();
+  if (doc.copy) {
+    closeHost(m, doc.copy);
+    doc.copy = null;
+  }
+  if (!bytes) return;
+  const host = openHandle(m, bytes, doc.password);
+  if (m.FPDF_GetPageCount(host.handle) !== m.FPDF_GetPageCount(doc.handle)) {
+    closeHost(m, host);
+    throw new Error('The render copy has a different number of pages');
+  }
+  doc.copy = { ...host, bytes, ok };
 }
 
 /** Affine [a b c d e f]: x' = a*x + c*y + e, y' = b*x + d*y + f. */
@@ -908,12 +1139,7 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
           const font = m.FPDFText_LoadStandardFont(doc.handle, 'Helvetica');
           for (const run of rewrite) {
             const obj = m.FPDFPageObj_CreateTextObj(doc.handle, font, run.size);
-            const units = run.text.length + 1;
-            const wide = malloc(units * 2);
-            for (let k = 0; k < run.text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = run.text.charCodeAt(k);
-            m.pdfium.HEAPU16[(wide >> 1) + run.text.length] = 0;
-            m.FPDFText_SetText(obj, wide);
-            free(wide);
+            setWideText(m, obj, run.text);
             m.FPDFPageObj_SetFillColor(obj, ...run.color);
             const c = Math.cos(run.angle);
             const s = Math.sin(run.angle);
@@ -1017,9 +1243,11 @@ function fontHasGlyphs(m: WrappedPdfiumModule, font: number, text: string, size:
 
 function setWideText(m: WrappedPdfiumModule, obj: number, text: string) {
   const { malloc, free } = m.pdfium.wasmExports;
-  const wide = malloc((text.length + 1) * 2);
-  for (let k = 0; k < text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = text.charCodeAt(k);
-  m.pdfium.HEAPU16[(wide >> 1) + text.length] = 0;
+  // UTF-16 code units and a terminating zero, copied into the heap in one go.
+  const units = new Uint16Array(text.length + 1);
+  for (let k = 0; k < text.length; k++) units[k] = text.charCodeAt(k);
+  const wide = malloc(units.byteLength);
+  m.pdfium.HEAPU16.set(units, wide >> 1);
   const ok = m.FPDFText_SetText(obj, wide);
   free(wide);
   return ok;
@@ -1054,11 +1282,7 @@ async function replaceText(bytes: ArrayBuffer, pageIndex: number, index: number,
       const mode = m.FPDFTextObj_GetTextRenderMode(old);
       const font = m.FPDFText_LoadStandardFont(doc.handle, 'Helvetica');
       const obj = m.FPDFPageObj_CreateTextObj(doc.handle, font, size);
-      const wide = malloc((text.length + 1) * 2);
-      for (let k = 0; k < text.length; k++) m.pdfium.HEAPU16[(wide >> 1) + k] = text.charCodeAt(k);
-      m.pdfium.HEAPU16[(wide >> 1) + text.length] = 0;
-      m.FPDFText_SetText(obj, wide);
-      free(wide);
+      setWideText(m, obj, text);
       if (matrixOk) m.FPDFPageObj_SetMatrix(obj, buf + 4);
       m.FPDFPageObj_SetFillColor(obj, rgba[0]!, rgba[1]!, rgba[2]!, rgba[3]!);
       if (mode >= 0) m.FPDFTextObj_SetTextRenderMode(obj, mode);
@@ -1636,8 +1860,65 @@ function reply(msg: WorkerResponse, transfer: Transferable[] = []) {
   self.postMessage(msg, transfer);
 }
 
-self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
+function fail(id: number, err: unknown) {
+  if (isAbort(err)) resetLib();
+  reply({ id, ok: false, error: err instanceof Error ? err.message : String(err) });
+}
+
+/** Queues a render job that answers request `id` with `work`'s result (null: it was stopped). */
+function job<T>(id: number, docId: number, priority: number, preemptible: boolean, work: (job: RenderJob) => Promise<T | null>, answer: (res: T) => void) {
+  schedule({
+    id,
+    docId,
+    priority,
+    preemptible,
+    cancelled: false,
+    run: async (j) => {
+      try {
+        const res = await work(j);
+        if (res) answer(res);
+        else if (preemptible && !cancelledById.delete(id)) {
+          // Gave way to more urgent work: run again later.
+          j.cancelled = false;
+          jobs.push(j);
+        } else reply({ id, ok: false, error: RENDER_CANCELLED });
+      } catch (err) {
+        fail(id, err);
+      }
+    },
+  });
+}
+
+/** Preemptible jobs cancelled by request (not just made to give way). */
+const cancelledById = new Set<number>();
+
+self.onmessage = (e: MessageEvent<WorkerRequest>) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored.
+  if (e.origin && e.origin !== self.location.origin) return;
   const req = e.data;
+  switch (req.type) {
+    case 'cancel':
+      for (const id of req.ids) if (running?.id === id && running.preemptible) cancelledById.add(id);
+      cancel(req.ids);
+      return;
+    case 'render':
+      job(req.id, req.docId, req.priority ?? 0, false, (j) => render(req, j), (res) => reply({ id: req.id, ok: true, type: 'render', ...res }, [res.bitmap]));
+      return;
+    case 'checkCopy':
+      // Behind every render the viewer asks for; gives way to them as they come.
+      job(req.id, req.docId, 100, true, (j) => checkCopy(req.docId, req.pageIndex, j), (check) => reply({ id: req.id, ok: true, type: 'checkCopy', check }));
+      return;
+    case 'close':
+      // Nothing queued for a closing document is worth drawing.
+      cancel(jobs.filter((j) => j.docId === req.docId).map((j) => j.id));
+      if (running?.docId === req.docId) running.cancelled = true;
+      break;
+  }
+  void exclusive(() => handle(req));
+};
+
+async function handle(req: WorkerRequest) {
   try {
     switch (req.type) {
       case 'open': {
@@ -1649,11 +1930,15 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         await close(req.docId);
         reply({ id: req.id, ok: true, type: 'close' });
         break;
-      case 'render': {
-        const res = await render(req);
-        reply({ id: req.id, ok: true, type: 'render', ...res }, [res.bitmap]);
+      case 'bytes': {
+        const bytes = getDoc(req.docId).bytes.slice(0);
+        reply({ id: req.id, ok: true, type: 'bytes', bytes }, [bytes]);
         break;
       }
+      case 'setRenderCopy':
+        await setRenderCopy(req.docId, req.bytes, !!req.keepChecked);
+        reply({ id: req.id, ok: true, type: 'setRenderCopy' });
+        break;
       case 'text': {
         const m = await lib();
         const words = extractWords(m, getPage(m, getDoc(req.docId), req.pageIndex));
@@ -1715,8 +2000,10 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
         const set = doc.hidden.get(req.pageIndex) ?? new Set<number>();
         for (const i of req.indices) set.add(i);
         doc.hidden.set(req.pageIndex, set);
-        const loaded = doc.pages.get(req.pageIndex);
-        if (loaded) applyHidden(m, loaded, set);
+        for (const host of doc.copy ? [doc, doc.copy] : [doc]) {
+          const loaded = host.pages.get(req.pageIndex);
+          if (loaded) applyHidden(m, loaded, set);
+        }
         reply({ id: req.id, ok: true, type: 'hideAnnots' });
         break;
       }
@@ -1727,7 +2014,6 @@ self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
       }
     }
   } catch (err) {
-    if (isAbort(err)) resetLib();
-    reply({ id: req.id, ok: false, error: err instanceof Error ? err.message : String(err) });
+    fail(req.id, err);
   }
-};
+}

@@ -1,4 +1,4 @@
-import type { PdfDocument } from '@nb/pdf-core';
+import { RENDER_CANCELLED, type PdfDocument, type RenderResult } from '@nb/pdf-core';
 import { settings, steppedZoom } from '../settings/settings';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
 import { spreadRows } from './layout';
@@ -9,12 +9,24 @@ export { spreadRows };
 /** Tile edge in device pixels. */
 const TILE = 512;
 /** ~160 MB of RGBA tiles. */
-const MAX_CACHED_TILES = 160;
+const TILE_BUDGET_PX = 160 * TILE * TILE;
+/** Renders handed to the worker at once: one drawing, one ready to start. */
 const MAX_IN_FLIGHT = 2;
-/** Longest edge of the low-res whole-page preview shown while tiles load. */
-const PREVIEW_MAX_PX = 2048;
-/** Previews kept for stitched views, which show many sheets at once. */
-const MAX_PREVIEWS = 12;
+/** Longest edge of the quick whole-page preview shown while a page's first render comes. */
+const QUICK_PX = 512;
+/**
+ * A page at most this many device pixels is drawn as one image rather than tiles: every render
+ * of a sheet pays for walking all its objects, so one whole-page render beats a dozen tiles.
+ */
+const WHOLE_PAGE_MAX_PX = 9_000_000;
+/** ~190 MB of whole-page images (several sheets in a stitched view, and pages scrolled past). */
+const PAGE_BUDGET_PX = 48_000_000;
+/**
+ * A page this costly to parse, or with this many objects, gets no quick preview: drawing even a
+ * small one walks every object, so it would cost about as much as the real render.
+ */
+const OBJECT_HEAVY_PARSE_MS = 300;
+const OBJECT_HEAVY_OBJECTS = 100_000;
 const MIN_ZOOM = 0.1;
 /** Highest zoom (Preferences › Document › Maximum Zoom), as a scale. */
 const maxZoom = () => settings.get().maxZoom / 100;
@@ -61,7 +73,25 @@ export interface ViewerDiagnostics {
   lastTileMs: number;
   avgTileMs: number;
   tilesRendered: number;
+  /** Renders stopped because their tile or page left the view first. */
+  cancelled: number;
 }
+
+/** What drawing a page has cost so far, learned from its renders. */
+export interface PageCost {
+  pageIndex: number;
+  /** Parsing its content (the first render of it pays this). */
+  parseMs: number;
+  /** Top-level objects on the page as drawn. */
+  objects: number;
+  /** The last whole-page render: drawing time without parsing, and its size in megapixels. */
+  pageMs: number;
+  pageMpx: number;
+  /** Drawn from the optimised render copy. */
+  fromCopy: boolean;
+}
+
+const objectHeavy = (c: PageCost | undefined) => !!c && (c.parseMs >= OBJECT_HEAVY_PARSE_MS || c.objects >= OBJECT_HEAVY_OBJECTS);
 
 export type PagePoint = [x: number, y: number];
 
@@ -113,14 +143,24 @@ export interface ViewerOverlay {
 
 interface TileJob {
   key: string;
+  /** A tile; a whole page at the view's level; or a quick low-res page to show meanwhile. */
+  kind: 'tile' | 'page' | 'quick';
   pageIndex: number;
   scale: number;
   x: number;
   y: number;
   w: number;
   h: number;
-  /** Screen distance from the viewport centre, for ordering. */
+  /** Screen distance from the viewport centre, for ordering (quick previews come first). */
   dist: number;
+}
+
+/** A whole page drawn as one image: the view's own level, or a quick preview under the tiles. */
+interface PageImage {
+  bitmap: ImageBitmap;
+  scale: number;
+  /** Drawn from content that has since changed (now drawn from the render copy): shown until replaced. */
+  stale: boolean;
 }
 
 interface Placed extends PagePlacement {
@@ -207,16 +247,23 @@ export class TileViewer {
   private panY = 0;
 
   private tiles = new Map<string, ImageBitmap>();
-  private inFlight = new Set<string>();
+  private tilePixels = 0;
+  /** Renders handed to the worker, by key, with what stops them. */
+  private inFlight = new Map<string, AbortController>();
   /** Tiles that failed to render: not retried until the tile cache is cleared. */
   private failed = new Set<string>();
   private queue: TileJob[] = [];
-  private previews = new Map<number, ImageBitmap>();
-  private previewsLoading = new Set<number>();
+  /** Whole-page images by page; Map order doubles as LRU order. */
+  private previews = new Map<number, PageImage>();
+  private previewPixels = 0;
+  /** What each page has cost to draw, for scheduling and the slow-drawing prompt. */
+  private costs = new Map<number, PageCost>();
+  private costListeners = new Set<(cost: PageCost) => void>();
   private frame = 0;
   private generation = 0;
   private tileTimes: number[] = [];
   private tilesRendered = 0;
+  private cancelled = 0;
   private resizeObserver: ResizeObserver;
   private drag: { x: number; y: number; panX: number; panY: number } | null = null;
   private overlay: ViewerOverlay | null = null;
@@ -444,6 +491,7 @@ export class TileViewer {
     this.doc = doc;
     this.stitchLayout = null;
     this.clearTiles();
+    this.costs.clear();
     this.showPages(0);
   }
 
@@ -455,6 +503,7 @@ export class TileViewer {
     this.pageIndex = 0;
     this.mode = 'single';
     this.clearTiles();
+    this.costs.clear();
     this.invalidate();
     this.emitStats();
   }
@@ -829,36 +878,84 @@ export class TileViewer {
   private clearTiles() {
     for (const bmp of this.tiles.values()) bmp.close();
     this.tiles.clear();
+    this.tilePixels = 0;
     this.queue = [];
     this.failed.clear();
     this.generation++;
-    for (const bmp of this.previews.values()) bmp.close();
+    for (const c of this.inFlight.values()) c.abort();
+    this.inFlight.clear();
+    for (const p of this.previews.values()) p.bitmap.close();
     this.previews.clear();
-    this.previewsLoading.clear();
+    this.previewPixels = 0;
   }
 
-  private async loadPreview(pageIndex: number) {
-    const doc = this.doc;
-    const page = doc?.pages[pageIndex];
-    if (!doc || !page || this.previewsLoading.has(pageIndex)) return;
-    this.previewsLoading.add(pageIndex);
-    const gen = this.generation;
-    const scale = PREVIEW_MAX_PX / Math.max(page.width, page.height);
-    try {
-      const { bitmap, ms } = await doc.renderTile(pageIndex, scale, 0, 0, Math.ceil(page.width * scale), Math.ceil(page.height * scale), { thinLines: this.thinLines });
-      this.recordTime(ms);
-      if (gen !== this.generation) return bitmap.close();
-      this.previews.set(pageIndex, bitmap);
-      // Drop the oldest previews beyond the budget (Map order is insertion order).
-      while (this.previews.size > MAX_PREVIEWS) {
-        const [oldest, bmp] = this.previews.entries().next().value!;
-        if (oldest === this.pageIndex) break;
-        bmp.close();
-        this.previews.delete(oldest);
-      }
-      this.invalidate();
-    } finally {
-      this.previewsLoading.delete(pageIndex);
+  /**
+   * Redraws pages whose content changed under the viewer (they are now drawn from an optimised
+   * copy): their tiles go, and their page images stay on screen until replaced.
+   */
+  refreshPages(pages: Iterable<number>) {
+    const set = new Set(pages);
+    for (const [key, bmp] of this.tiles) {
+      if (!set.has(Number(key.slice(0, key.indexOf(':'))))) continue;
+      this.tilePixels -= bmp.width * bmp.height;
+      bmp.close();
+      this.tiles.delete(key);
+    }
+    for (const [key, c] of this.inFlight) if (set.has(Number(key.slice(0, key.indexOf(':'))))) c.abort();
+    for (const i of set) {
+      const p = this.previews.get(i);
+      if (p) p.stale = true;
+      this.costs.delete(i);
+    }
+    this.invalidate();
+  }
+
+  /** What drawing each page has cost, as far as the viewer has drawn it. */
+  pageCosts(): PageCost[] {
+    return [...this.costs.values()];
+  }
+
+  /** Called with a page's cost each time a render of it teaches something new. */
+  onPageCost(listener: (cost: PageCost) => void): () => void {
+    this.costListeners.add(listener);
+    return () => this.costListeners.delete(listener);
+  }
+
+  private learn(job: TileJob, r: RenderResult) {
+    const prev = this.costs.get(job.pageIndex);
+    const cost: PageCost = {
+      pageIndex: job.pageIndex,
+      // Parsed once and then cached in the worker: keep the first (real) parse time.
+      parseMs: r.parseMs || (prev?.fromCopy === r.fromCopy ? prev.parseMs : 0),
+      objects: r.objects,
+      pageMs: prev?.pageMs ?? 0,
+      pageMpx: prev?.pageMpx ?? 0,
+      fromCopy: r.fromCopy,
+    };
+    if (job.kind !== 'tile') {
+      cost.pageMs = r.ms - r.parseMs;
+      cost.pageMpx = (job.w * job.h) / 1e6;
+    }
+    this.costs.set(job.pageIndex, cost);
+    for (const l of this.costListeners) l(cost);
+  }
+
+  /** Keeps a finished whole-page image, dropping the least recently drawn beyond the budget. */
+  private keepPageImage(pageIndex: number, image: PageImage) {
+    const old = this.previews.get(pageIndex);
+    if (old) {
+      this.previewPixels -= old.bitmap.width * old.bitmap.height;
+      old.bitmap.close();
+      this.previews.delete(pageIndex);
+    }
+    this.previews.set(pageIndex, image);
+    this.previewPixels += image.bitmap.width * image.bitmap.height;
+    for (const [i, p] of this.previews) {
+      if (this.previewPixels <= PAGE_BUDGET_PX) break;
+      if (i === pageIndex || i === this.pageIndex) continue;
+      this.previewPixels -= p.bitmap.width * p.bitmap.height;
+      p.bitmap.close();
+      this.previews.delete(i);
     }
   }
 
@@ -914,6 +1011,8 @@ export class TileViewer {
     }
 
     const wanted: TileJob[] = [];
+    /** Every render this frame still needs, coming or not: renders in flight for anything else are stopped. */
+    const needed = new Set<string>();
     /** Pages near enough the view that their markups may show, for the overlay pass. */
     const drawn: Placed[] = [];
     const screenToWorld = (sx: number, sy: number): PagePoint => [(sx - this.panX) / this.zoom, (sy - this.panY) / this.zoom];
@@ -960,35 +1059,59 @@ export class TileViewer {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
+      const thin = this.thinLines ? ':thin' : '';
+      /** Asks for a render unless it is already coming (or failed); `key` stays needed either way. */
+      const want = (job: TileJob) => {
+        needed.add(job.key);
+        if (!this.inFlight.has(job.key) && !this.failed.has(job.key)) wanted.push(job);
+      };
       const preview = this.previews.get(p.pageIndex);
-      if (preview) ctx.drawImage(preview, 0, 0, size.width, size.height);
-      else void this.loadPreview(p.pageIndex);
+      if (preview) {
+        // Touch for LRU.
+        this.previews.delete(p.pageIndex);
+        this.previews.set(p.pageIndex, preview);
+        ctx.drawImage(preview.bitmap, 0, 0, size.width, size.height);
+      }
 
       const pxPerPoint = this.zoom * p.scale;
       const s = this.levelScale(pxPerPoint);
-      const tilePts = TILE / s;
       const pageDevW = Math.ceil(size.width * s);
       const pageDevH = Math.ceil(size.height * s);
-      // Rotated tiles leave hairline seams at their edges; overdraw each by one device pixel.
-      const bleed = 1 / (pxPerPoint * dpr);
-      for (let ty = Math.floor(y0 / tilePts); ty * tilePts < y1; ty++) {
-        for (let tx = Math.floor(x0 / tilePts); tx * tilePts < x1; tx++) {
-          const dx = tx * TILE;
-          const dy = ty * TILE;
-          const w = Math.min(TILE, pageDevW - dx);
-          const h = Math.min(TILE, pageDevH - dy);
-          if (w <= 0 || h <= 0) continue;
-          const key = `${p.pageIndex}:${s}:${tx}:${ty}${this.thinLines ? ':thin' : ''}`;
-          const bmp = this.tiles.get(key);
-          if (bmp) {
-            // Touch for LRU.
-            this.tiles.delete(key);
-            this.tiles.set(key, bmp);
-            ctx.drawImage(bmp, dx / s, dy / s, w / s + bleed, h / s + bleed);
-          } else if (!this.inFlight.has(key) && !this.failed.has(key)) {
-            const [wx, wy] = applyAffine(m, [(dx + w / 2) / s, (dy + h / 2) / s]);
-            const dist = Math.hypot(this.panX + wx * this.zoom - cw / 2, this.panY + wy * this.zoom - ch / 2);
-            wanted.push({ key, pageIndex: p.pageIndex, scale: s, x: dx, y: dy, w, h, dist });
+      const [cx, cy] = applyAffine(m, [size.width / 2, size.height / 2]);
+      const pageDist = Math.hypot(this.panX + cx * this.zoom - cw / 2, this.panY + cy * this.zoom - ch / 2);
+      if (pageDevW * pageDevH <= WHOLE_PAGE_MAX_PX) {
+        // Zoomed out: the whole page as one image at this level, no tiles.
+        if (!preview || preview.stale || preview.scale !== s) {
+          want({ key: `${p.pageIndex}:${s}:page${thin}`, kind: 'page', pageIndex: p.pageIndex, scale: s, x: 0, y: 0, w: pageDevW, h: pageDevH, dist: pageDist });
+        }
+      } else {
+        // A quick look at the page while its tiles come, unless that costs as much as they do.
+        if (!preview && !objectHeavy(this.costs.get(p.pageIndex))) {
+          const q = QUICK_PX / Math.max(size.width, size.height);
+          want({ key: `${p.pageIndex}:quick${thin}`, kind: 'quick', pageIndex: p.pageIndex, scale: q, x: 0, y: 0, w: Math.ceil(size.width * q), h: Math.ceil(size.height * q), dist: -1 });
+        }
+        const tilePts = TILE / s;
+        // Rotated tiles leave hairline seams at their edges; overdraw each by one device pixel.
+        const bleed = 1 / (pxPerPoint * dpr);
+        for (let ty = Math.floor(y0 / tilePts); ty * tilePts < y1; ty++) {
+          for (let tx = Math.floor(x0 / tilePts); tx * tilePts < x1; tx++) {
+            const dx = tx * TILE;
+            const dy = ty * TILE;
+            const w = Math.min(TILE, pageDevW - dx);
+            const h = Math.min(TILE, pageDevH - dy);
+            if (w <= 0 || h <= 0) continue;
+            const key = `${p.pageIndex}:${s}:${tx}:${ty}${thin}`;
+            const bmp = this.tiles.get(key);
+            if (bmp) {
+              // Touch for LRU.
+              this.tiles.delete(key);
+              this.tiles.set(key, bmp);
+              ctx.drawImage(bmp, dx / s, dy / s, w / s + bleed, h / s + bleed);
+            } else {
+              const [wx, wy] = applyAffine(m, [(dx + w / 2) / s, (dy + h / 2) / s]);
+              const dist = Math.hypot(this.panX + wx * this.zoom - cw / 2, this.panY + wy * this.zoom - ch / 2);
+              want({ key, kind: 'tile', pageIndex: p.pageIndex, scale: s, x: dx, y: dy, w, h, dist });
+            }
           }
         }
       }
@@ -1046,6 +1169,12 @@ export class TileViewer {
 
     wanted.sort((a, b) => a.dist - b.dist);
     this.queue = wanted;
+    // Scrolled or zoomed past: stop what is still being drawn for the old view.
+    for (const [key, c] of this.inFlight) {
+      if (needed.has(key)) continue;
+      c.abort();
+      this.inFlight.delete(key);
+    }
     this.pump();
     this.emitStats();
     const viewKey = `${this.pageIndex}:${this.zoom}:${this.panX}:${this.panY}:${this.turns}:${cw}:${ch}`;
@@ -1118,7 +1247,7 @@ export class TileViewer {
         this.loupeBusy = true;
         const doc = this.doc;
         void doc
-          .renderTile(page, s, Math.floor(want.x * s), Math.floor(want.y * s), Math.max(1, Math.ceil(want.w * s)), Math.max(1, Math.ceil(want.h * s)), { thinLines: this.thinLines })
+          .renderTile(page, s, Math.floor(want.x * s), Math.floor(want.y * s), Math.max(1, Math.ceil(want.w * s)), Math.max(1, Math.ceil(want.h * s)), { thinLines: this.thinLines, copy: true })
           .then(({ bitmap }) => {
             if (doc !== this.doc || !this.magnify) return bitmap.close();
             this.loupe?.bitmap.close();
@@ -1148,7 +1277,7 @@ export class TileViewer {
     ctx.fillRect(0, 0, size.width, size.height);
     if (this.filter !== 'none') ctx.filter = PAGE_FILTERS[this.filter];
     const preview = this.previews.get(page);
-    if (preview) ctx.drawImage(preview, 0, 0, size.width, size.height);
+    if (preview) ctx.drawImage(preview.bitmap, 0, 0, size.width, size.height);
     if (this.loupe?.pageIndex === page) ctx.drawImage(this.loupe.bitmap, this.loupe.rect.x, this.loupe.rect.y, this.loupe.rect.w, this.loupe.rect.h);
     ctx.filter = 'none';
     this.overlay?.draw(ctx, page, this.zoom * placed.scale * this.magnify);
@@ -1309,24 +1438,40 @@ export class TileViewer {
     while (this.inFlight.size < MAX_IN_FLIGHT && this.queue.length) {
       const job = this.queue.shift()!;
       const gen = this.generation;
-      this.inFlight.add(job.key);
+      const control = new AbortController();
+      this.inFlight.set(job.key, control);
       doc
-        .renderTile(job.pageIndex, job.scale, job.x, job.y, job.w, job.h, { thinLines: this.thinLines })
-        .then(({ bitmap, ms }) => {
-          this.recordTime(ms);
-          if (gen !== this.generation) return bitmap.close();
-          this.tiles.set(job.key, bitmap);
-          this.evict();
+        .renderTile(job.pageIndex, job.scale, job.x, job.y, job.w, job.h, { thinLines: this.thinLines, copy: true, signal: control.signal })
+        .then((r) => {
+          this.recordTime(r.ms);
+          if (gen !== this.generation) return r.bitmap.close();
+          // Stopped too late to save the work: what it cost still counts.
+          this.learn(job, r);
+          if (control.signal.aborted) return r.bitmap.close();
+          if (job.kind === 'tile') {
+            this.tiles.set(job.key, r.bitmap);
+            this.tilePixels += r.bitmap.width * r.bitmap.height;
+            this.evict();
+          } else {
+            const kept = this.previews.get(job.pageIndex);
+            // A quick preview never replaces a sharper image that arrived meanwhile.
+            if (job.kind === 'quick' && kept && !kept.stale) r.bitmap.close();
+            else this.keepPageImage(job.pageIndex, { bitmap: r.bitmap, scale: job.scale, stale: false });
+          }
           // Out of flight before the redraw, so the loading pill goes once the last tile lands.
-          this.inFlight.delete(job.key);
+          if (this.inFlight.get(job.key) === control) this.inFlight.delete(job.key);
           this.invalidate();
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.message === RENDER_CANCELLED) {
+            this.cancelled++;
+            return;
+          }
           if (gen === this.generation) this.failed.add(job.key);
           console.error('Tile render failed', err);
         })
         .finally(() => {
-          this.inFlight.delete(job.key);
+          if (this.inFlight.get(job.key) === control) this.inFlight.delete(job.key);
           this.pump();
           this.invalidate();
         });
@@ -1334,8 +1479,9 @@ export class TileViewer {
   }
 
   private evict() {
-    while (this.tiles.size > MAX_CACHED_TILES) {
-      const [key, bmp] = this.tiles.entries().next().value!;
+    for (const [key, bmp] of this.tiles) {
+      if (this.tilePixels <= TILE_BUDGET_PX) break;
+      this.tilePixels -= bmp.width * bmp.height;
       bmp.close();
       this.tiles.delete(key);
     }
@@ -1367,6 +1513,7 @@ export class TileViewer {
       lastTileMs: times.at(-1) ?? 0,
       avgTileMs: times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0,
       tilesRendered: this.tilesRendered,
+      cancelled: this.cancelled,
     };
   }
 
