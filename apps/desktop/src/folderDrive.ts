@@ -27,8 +27,16 @@ export interface FolderFile {
 
 /** Where Drive-style properties live inside a JSON file, as on OneDrive. */
 const PROPS_KEY = '_nb';
-/** Files Projects write; anything else (a sync client's conflict copy, a stray file) is not listed. */
-const APP_FILE = /^[\w@.-]+\.(json|pdf)$/i;
+/**
+ * Files Projects and Live Sessions write; anything else (a sync client's conflict copy of a JSON
+ * file, a stray file) is not listed. Session documents and seats keep the name they were given (the
+ * document's own, the attendee's), so spaces and brackets are allowed in those.
+ */
+const APP_FILE = /^(?:[\w@.-]+\.(?:json|nbsnap|nbdelta)|[^<>:"/\\|?*\u0000-\u001f]+\.(?:pdf|nbseat))$/i;
+/** Files that keep their properties inside them (JSON). */
+const PROPS_FILE = /\.(json|nbseat)$/i;
+/** A Live Session's Yjs room files: binary, no properties. */
+const BINARY_FILE = /\.(nbsnap|nbdelta)$/i;
 const REMOVABLE = /^lock-[\w@.-]+\.json$/i;
 const PREFIX = 'lf:';
 
@@ -88,17 +96,17 @@ export class FolderStore {
     if (!APP_FILE.test(name)) return null;
     const raw = await fs.readFile(abs);
     let properties: Record<string, string> = {};
-    if (/\.json$/i.test(name)) {
+    if (PROPS_FILE.test(name)) {
       try {
         properties = ((JSON.parse(raw.toString('utf8')) as Record<string, unknown>)[PROPS_KEY] as Record<string, string>) ?? {};
       } catch {
         return null; // Half-synced or damaged: listed once it is whole.
       }
-    } else properties = { nbRole: 'document' };
+    } else if (!BINARY_FILE.test(name)) properties = { nbRole: 'document' };
     return {
       id: this.idFor(root, rel),
       name,
-      mimeType: /\.pdf$/i.test(name) ? 'application/pdf' : 'application/json',
+      mimeType: /\.pdf$/i.test(name) ? 'application/pdf' : BINARY_FILE.test(name) ? 'application/octet-stream' : 'application/json',
       version: createHash('sha256').update(raw).digest('hex').slice(0, 32),
       size: raw.byteLength,
       createdTime: st.birthtime.toISOString(),
@@ -121,7 +129,7 @@ export class FolderStore {
   async download(fileId: string): Promise<Uint8Array> {
     const { abs } = await this.resolve(fileId);
     const raw = await fs.readFile(abs);
-    if (!/\.json$/i.test(abs)) return raw;
+    if (!PROPS_FILE.test(abs)) return raw;
     const { [PROPS_KEY]: _props, ...body } = JSON.parse(raw.toString('utf8')) as Record<string, unknown>;
     return Buffer.from(JSON.stringify(body));
   }
@@ -145,8 +153,8 @@ export class FolderStore {
   async createFile(folderId: string, name: string, body: Uint8Array, properties: Record<string, string>): Promise<FolderFile> {
     const { root, rel, abs } = await this.resolve(folderId);
     const clean = safeName(name);
-    if (!APP_FILE.test(clean)) throw new Error('Only the files Projects use can be made here.');
-    const bytes = /\.json$/i.test(clean) ? withProps(body, { ...properties, nbOwner: this.owner }) : body;
+    if (!APP_FILE.test(clean)) throw new Error('Only the files Projects and Live Sessions use can be made here.');
+    const bytes = PROPS_FILE.test(clean) ? withProps(body, { ...properties, nbOwner: this.owner }) : body;
     const dot = clean.lastIndexOf('.');
     for (let n = 0; ; n++) {
       const candidate = n ? `${clean.slice(0, dot)}-${n}${clean.slice(dot)}` : clean;
@@ -179,14 +187,14 @@ export class FolderStore {
   /** Replaces a file's content (JSON keeps its stored properties), written beside it then renamed over. */
   async updateContent(fileId: string, body: Uint8Array): Promise<string> {
     const { root, rel, abs } = await this.resolve(fileId);
-    const bytes = /\.json$/i.test(abs) ? withProps(body, await this.props(abs)) : body;
+    const bytes = PROPS_FILE.test(abs) ? withProps(body, await this.props(abs)) : body;
     await writeAtomic(abs, Buffer.from(bytes));
     return (await this.describe(root, rel, abs))!.version;
   }
 
   async updateProperties(fileId: string, properties: Record<string, string>): Promise<string> {
     const { root, rel, abs } = await this.resolve(fileId);
-    if (!/\.json$/i.test(abs)) throw new Error('Only JSON files keep properties here.');
+    if (!PROPS_FILE.test(abs)) throw new Error('Only JSON files keep properties here.');
     const raw = JSON.parse((await fs.readFile(abs)).toString('utf8')) as Record<string, unknown>;
     const merged = { ...((raw[PROPS_KEY] as Record<string, string>) ?? {}), ...properties };
     await writeAtomic(abs, Buffer.from(JSON.stringify({ ...raw, [PROPS_KEY]: merged })));
@@ -214,6 +222,19 @@ export class FolderStore {
   async ownedByMe(fileId: string): Promise<boolean> {
     const { abs } = await this.resolve(fileId);
     return (await this.props(abs)).nbOwner === this.owner;
+  }
+
+  /**
+   * The absolute path of a Live Session folder this install made, for the main process to move to
+   * the recycle bin when the host ends the session. Any other folder is refused: it must hold a
+   * session manifest (session.json) written by this install. A chosen root that goes is forgotten.
+   */
+  async sessionFolderToRemove(folderId: string): Promise<string> {
+    const { root, rel, abs } = await this.resolve(folderId);
+    const manifest = await this.props(path.join(abs, 'session.json'));
+    if (manifest.nbRole !== 'manifest' || manifest.nbOwner !== this.owner) throw new Error('redcolumn only removes session folders it made on this computer.');
+    if (!rel) this.roots.delete(root);
+    return abs;
   }
 
   /** The absolute folder for "Show in folder"; stays in the main process. */

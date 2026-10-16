@@ -148,6 +148,7 @@ import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
@@ -703,6 +704,10 @@ const authorizeMicrosoft = async () => {
   await signInWithMicrosoft();
 };
 const microsoftEmail = () => microsoftUser()?.email ?? null;
+/** Sessions in a shared folder on this computer sign in to nothing: the sync client moves the files. */
+const noSignIn = async () => {};
+/** Whether Live Sessions can live in a shared folder on this computer (the desktop app only). */
+const folderSessionsAvailable = () => !!desktop()?.folder;
 
 function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
   const doc = studioDocOf(o.file.id);
@@ -3867,6 +3872,10 @@ export function App() {
         }
         const { holder, onRemoved } = removedHandler();
         holder.id = ref.id;
+        if (ref.backend === 'folder') {
+          enterStudio(await DriveSession.join(new SessionFolderDrive(), ref.id, authorRef.current, { authorize: noSignIn, onRemoved, interactive }));
+          return;
+        }
         if (interactive) await signInWithMicrosoft();
         const join = () => DriveSession.join(oneDriveApi, ref.id, authorRef.current, { authorize: authorizeMicrosoft, onRemoved, interactive, email: microsoftEmail(), identify: microsoftEmail });
         let session: DriveSession;
@@ -3889,6 +3898,12 @@ export function App() {
       }),
     [runStudio, enterStudio],
   );
+
+  /** Joins a session kept in a shared folder the person picks on this computer. False if they cancel or it fails. */
+  const joinFolderStudio = useCallback(async (): Promise<boolean> => {
+    const picked = await desktop()?.folder.pick('session-open');
+    return picked ? joinStudio({ backend: 'folder', id: picked.id }) : false;
+  }, [joinStudio]);
 
   /** The bytes of a document offered to a new session, and the markups already on it. */
   const documentSourceBytes = useCallback(
@@ -3942,10 +3957,31 @@ export function App() {
 
   /** Starts a session from the Start dialog: creates it, invites people, and adds its documents. */
   const startStudio = useCallback(
-    (req: StartRequest) =>
-      runStudio(async () => {
+    async (req: StartRequest) => {
+      let cancelled = false;
+      const ok = await runStudio(async () => {
         const { holder, onRemoved } = removedHandler();
         const permissions = { markup: canAddMarkups(req.access.default), addDocuments: req.addDocuments, saveCopy: req.saveCopy, invite: req.invite };
+        if (req.backend === 'folder') {
+          // The host picks a folder everyone can reach; the session gets its own folder inside it.
+          const parent = await desktop()?.folder.pick('session-create');
+          if (!parent) {
+            cancelled = true;
+            return;
+          }
+          const session = await DriveSession.create(new SessionFolderDrive(parent.id), req.name, authorRef.current, permissions, {
+            authorize: noSignIn,
+            onRemoved,
+            linkCanEdit: false,
+            access: req.access,
+            expiresAt: req.expiresAt,
+            encrypt: false,
+          });
+          holder.id = session.id;
+          enterStudio(session);
+          await addToStudio(session.id, req.documents);
+          return;
+        }
         await signInWithMicrosoft();
         const create = () =>
           DriveSession.create(oneDriveApi, req.name, authorRef.current, permissions, {
@@ -3972,7 +4008,9 @@ export function App() {
         const emails = req.access.people.map((p) => p.name).filter(isEmail);
         if (session.invite && emails.length) await session.invite(emails);
         await addToStudio(session.id, req.documents);
-      }),
+      });
+      return ok && !cancelled;
+    },
     [runStudio, enterStudio, addToStudio],
   );
 
@@ -6082,7 +6120,9 @@ export function App() {
             ],
           },
       sessionDoc
-        ? { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
+        ? snap?.backend === 'folder'
+          ? { label: 'Show Session Folder', onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
+          : { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
         : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
@@ -7586,6 +7626,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
             library={library.map((f) => ({ id: f.id, name: f.name }))}
             oneDriveAvailable={oneDriveConfigured}
+            folderAvailable={folderSessionsAvailable()}
+            onJoinFolder={folderSessionsAvailable() ? joinFolderStudio : undefined}
+            onShowFolder={(id) => void desktop()?.folder.show(id).catch((err) => setStudioError(err instanceof Error ? err.message : String(err)))}
             invite={studioInvite}
             onDismissInvite={() => setStudioInvite(null)}
             onStart={startStudio}

@@ -3,7 +3,7 @@ import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
 import { accessFor, canAddMarkups, isExpired, sameName, SESSION_ROOM, type AccessPolicy, type Attendee, type Permissions, type RecordEntry, type SessionDocument, type SessionMeta } from '../protocol';
 import { dropRecentSession, forgetCurrentSession, inviteLink, readLocal, rememberSession, writeLocal } from '../local';
 import { appendRecord, describeChanges, recordId, watchMarkups } from '../record';
-import { attendeeColor, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
+import { attendeeColor, type Backend, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { claimSeat, inPool } from './rooms';
 import { secretFragment, sealedJsonBytes, type Identity, type PublicIdentity, type SessionSecret } from '../crypto/keys';
@@ -184,7 +184,7 @@ interface Init {
 const MISSING_KEY = 'This session is end-to-end encrypted, and the link you opened is missing its key (the part after #). Ask for the full invite link.';
 
 export class DriveSession implements CollabSession {
-  readonly backend: 'onedrive';
+  readonly backend: Backend;
   private api: DriveApi;
   private opts: DriveSessionOptions;
   private folderId: string;
@@ -319,6 +319,7 @@ export class DriveSession implements CollabSession {
       files = await api.list(folderId);
     } catch (err) {
       if (err instanceof TypeError || err instanceof DriveAuthError) throw err;
+      if (api.backend === 'folder') throw new Error(`Cannot read that session folder: ${err instanceof Error ? err.message : String(err)}`);
       throw new Error('Cannot open that session folder. The host needs to share it with “Anyone with the link”.');
     }
     const mf = files.find((f) => f.properties.nbRole === MANIFEST);

@@ -57,7 +57,7 @@ test('paths cannot leave the chosen folder, and only lock files are deleted', as
   const lock = await store.createFile(root, 'lock-f1-abc.json', json({ by: 'Hana' }), {});
   await store.remove(lock.id);
   await store.remove(lock.id);
-  await assert.rejects(store.createFile(root, 'notes.exe', Buffer.from('x'), {}), /Only the files Projects use/);
+  await assert.rejects(store.createFile(root, 'notes.exe', Buffer.from('x'), {}), /Only the files Projects and Live Sessions use/);
 });
 
 test("sync clients' conflict copies and half-written files are not listed", async () => {
@@ -67,4 +67,35 @@ test("sync clients' conflict copies and half-written files are not listed", asyn
   await fs.writeFile(path.join(dir, 'rec-sam.json'), '{"entr');
   await fs.writeFile(path.join(dir, '.rec-hana.json.abc.tmp'), '{}');
   assert.deepEqual((await store.list(root)).map((f) => f.name), ['rec-hana.json']);
+});
+
+test('Live Session files: seats keep properties, room files are binary, documents keep their names', async () => {
+  const { store, root } = await setup();
+  const session = await store.createFolder(root, 'Level 2 (redcolumn session)');
+  const seat = await store.createFile(session, 'Hana (x1y2).nbseat', json({ v: 2 }), { nbRole: 'seat', nbName: 'Hana' });
+  await store.updateProperties(seat.id, { nbSeen: '42' });
+  const room = await store.createFile(session, 'f00aa.f11bb.nbsnap', new Uint8Array([1, 2, 3]), {});
+  const doc = await store.createFile(session, 'Level 2 – Plan (rev B).pdf', Buffer.from('%PDF-1.7'), { nbRole: 'document' });
+  const listed = new Map((await store.list(session)).map((f) => [f.name, f]));
+  assert.deepEqual(listed.get(seat.name)?.properties, { nbRole: 'seat', nbName: 'Hana', nbOwner: 'me', nbSeen: '42' });
+  assert.deepEqual(JSON.parse(text(await store.download(seat.id))), { v: 2 });
+  assert.deepEqual(listed.get(room.name)?.properties, {});
+  assert.equal(listed.get(room.name)?.mimeType, 'application/octet-stream');
+  assert.deepEqual([...(await store.download(room.id))], [1, 2, 3]);
+  assert.equal(listed.get('Level 2 – Plan (rev B).pdf')?.id, doc.id);
+  await assert.rejects(store.createFile(session, 'run.exe', Buffer.from('x'), {}), /Only the files/);
+});
+
+test('only a session folder this install made can be removed', async () => {
+  const { dir, store, root } = await setup();
+  const mine = await store.createFolder(root, 'Mine (redcolumn session)');
+  await store.createFile(mine, 'session.json', json({ v: 1 }), { nbRole: 'manifest' });
+  assert.equal(await store.sessionFolderToRemove(mine), path.join(dir, 'Mine (redcolumn session)'));
+  const theirs = await new FolderStore(store.saved(), 'someone-else').createFolder(root, 'Theirs (redcolumn session)');
+  await new FolderStore(store.saved(), 'someone-else').createFile(theirs, 'session.json', json({ v: 1 }), { nbRole: 'manifest' });
+  await assert.rejects(store.sessionFolderToRemove(theirs), /only removes session folders it made/);
+  const project = await store.createFolder(root, 'Tower (redcolumn project)');
+  await store.createFile(project, 'project.json', json({ name: 'Tower' }), { nbRole: 'manifest' });
+  await assert.rejects(store.sessionFolderToRemove(project), /only removes session folders it made/);
+  await assert.rejects(store.sessionFolderToRemove(root), /only removes session folders it made/);
 });

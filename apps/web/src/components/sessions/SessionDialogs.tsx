@@ -95,6 +95,7 @@ type Step = 'general' | 'documents' | 'people';
 export function StartSessionDialog({
   me,
   oneDriveAvailable,
+  folderAvailable = false,
   openFiles,
   library,
   initialDocs,
@@ -105,6 +106,8 @@ export function StartSessionDialog({
 }: {
   me: string;
   oneDriveAvailable: boolean;
+  /** Sessions can live in a shared folder on this computer (the desktop app). */
+  folderAvailable?: boolean;
   /** Documents open in tabs (local ones, not already in a session). */
   openFiles: { id: string; name: string }[];
   library: { id: string; name: string }[];
@@ -117,6 +120,9 @@ export function StartSessionDialog({
   onClose: () => void;
 }) {
   const [step, setStep] = useState<Step>('general');
+  const [backend, setBackend] = useState<Backend>(oneDriveAvailable || !folderAvailable ? 'onedrive' : 'folder');
+  const inFolder = backend === 'folder';
+  const backendAvailable = inFolder ? folderAvailable : oneDriveAvailable;
   const [name, setName] = useState('');
   const [addDocuments, setAddDocuments] = useState(true);
   const [linkCanEdit, setLinkCanEdit] = useState(false);
@@ -165,8 +171,9 @@ export function StartSessionDialog({
             nameRef.current?.focus();
             return;
           }
-          if (!sessionEndIsValid(ends) || !oneDriveAvailable) return;
-          onStart({ name: name.trim(), backend: 'onedrive', addDocuments, linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends), encrypt });
+          if (!sessionEndIsValid(ends) || !backendAvailable) return;
+          // A shared folder is protected by whoever shares it: its sessions have no link and are not encrypted.
+          onStart({ name: name.trim(), backend, addDocuments, linkCanEdit: inFolder ? false : linkCanEdit, access: tidyPolicy(policy), documents: docs, saveCopy, invite, expiresAt: fromLocalInput(ends), encrypt: inFolder ? false : encrypt });
         }}
       >
         {step === 'general' && (
@@ -175,7 +182,26 @@ export function StartSessionDialog({
               Session name
               <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="Level 2 coordination" maxLength={120} required />
             </label>
-            <p className="hint">{oneDriveAvailable ? 'The session is a shared folder in your OneDrive; everyone signs in with Microsoft.' : 'Live Sessions need OneDrive, which is not set up in this build.'}</p>
+            {folderAvailable ? (
+              <fieldset className="stack">
+                <legend>Where the session lives</legend>
+                <label className="check" title={oneDriveAvailable ? undefined : 'This build is not set up for OneDrive.'}>
+                  <input type="radio" name="session-backend" checked={!inFolder} disabled={!oneDriveAvailable} onChange={() => setBackend('onedrive')} />
+                  OneDrive (everyone signs in with Microsoft)
+                </label>
+                <label className="check">
+                  <input type="radio" name="session-backend" checked={inFolder} onChange={() => setBackend('folder')} />
+                  A shared folder on this computer (OneDrive, Dropbox, Teams or a network drive)
+                </label>
+              </fieldset>
+            ) : null}
+            <p className="hint">
+              {inFolder
+                ? 'You choose a folder everyone in the session can reach; the session gets its own folder inside it. No sign-in: anyone who can open that folder joins by choosing it in Join Session.'
+                : oneDriveAvailable
+                  ? 'The session is a shared folder in your OneDrive; everyone signs in with Microsoft.'
+                  : 'Live Sessions need OneDrive, which is not set up in this build.'}
+            </p>
             <fieldset className="stack">
               <legend>Options</legend>
               <label className="check">
@@ -183,18 +209,22 @@ export function StartSessionDialog({
                 Attendees who can comment may also add documents
               </label>
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
-              <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
-                <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
-                Anyone with the link can edit the OneDrive folder
-              </label>
-              <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft or anyone else. The PDFs cannot be previewed in OneDrive, and a lost invite link cannot be recovered.">
-                <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
-                Encrypt end to end (Microsoft stores only scrambled files)
-              </label>
+              {!inFolder && (
+                <>
+                  <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
+                    <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
+                    Anyone with the link can edit the OneDrive folder
+                  </label>
+                  <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft or anyone else. The PDFs cannot be previewed in OneDrive, and a lost invite link cannot be recovered.">
+                    <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
+                    Encrypt end to end (Microsoft stores only scrambled files)
+                  </label>
+                </>
+              )}
             </fieldset>
             <p className="hint">
               You host as <b>{me}</b>
-              {microsoftEmail ? ` (${microsoftEmail})` : ''}. Add people by their Microsoft account email.
+              {!inFolder && microsoftEmail ? ` (${microsoftEmail})` : ''}. {inFolder ? 'Attendees are known by the name they set in redcolumn.' : 'Add people by their Microsoft account email.'}
             </p>
           </div>
         )}
@@ -264,7 +294,11 @@ export function StartSessionDialog({
         {step === 'people' && (
           <div className="dialog-pane">
             <AccessEditor policy={policy} onChange={setPolicy} host={me} />
-            <p className="hint">People entered as email addresses are also invited to the OneDrive folder by email.</p>
+            <p className="hint">
+              {inFolder
+                ? 'Who can join is up to whoever shares the folder: add people there and tell them where it is. This list only sets what each person may do.'
+                : 'People entered as email addresses are also invited to the OneDrive folder by email.'}
+            </p>
           </div>
         )}
 
@@ -283,8 +317,8 @@ export function StartSessionDialog({
               Next
             </button>
           )}
-          <button type="submit" className="btn primary" disabled={busy || !name.trim() || !oneDriveAvailable}>
-            {busy ? 'Starting…' : 'Start session'}
+          <button type="submit" className="btn primary" disabled={busy || !name.trim() || !backendAvailable}>
+            {busy ? 'Starting…' : inFolder ? 'Choose folder and start' : 'Start session'}
           </button>
         </div>
       </form>
@@ -298,12 +332,15 @@ export function JoinSessionDialog({
   oneDriveAvailable,
   busy,
   onJoinOneDrive,
+  onJoinFolder,
   onClose,
 }: {
   me: string;
   oneDriveAvailable: boolean;
   busy: boolean;
   onJoinOneDrive: (shareId: string) => void;
+  /** Opens a session folder on this computer (the desktop app only). */
+  onJoinFolder?: () => void;
   onClose: () => void;
 }) {
   const [link, setLink] = useState('');
@@ -321,7 +358,7 @@ export function JoinSessionDialog({
         }}
       >
         <p>You join as {me}. The easiest way in is the invite link from the host.</p>
-        {!oneDriveAvailable && <p className="hint">Live Sessions need OneDrive, which is not set up in this build.</p>}
+        {!oneDriveAvailable && !onJoinFolder && <p className="hint">Live Sessions need OneDrive, which is not set up in this build.</p>}
         {oneDriveAvailable && (
           <div className="row">
             <input
@@ -334,6 +371,14 @@ export function JoinSessionDialog({
               aria-invalid={link.trim() !== '' && !oneDriveId}
             />
           </div>
+        )}
+        {onJoinFolder && (
+          <p className="hint">
+            Session in a shared folder?{' '}
+            <button type="button" className="rc-text-btn" disabled={busy} onClick={onJoinFolder}>
+              Open the session folder on this computer…
+            </button>
+          </p>
         )}
         <div className="actions">
           <button type="button" className="btn" onClick={onClose}>
@@ -664,7 +709,7 @@ export function EndSessionDialog({
         <div className="end-warning" role="alert">
           <b>Ending removes this session’s files for everyone.</b>
           <p>
-            The session folder in OneDrive goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
+            The session folder goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
             session straight away and it leaves your Sessions list. Save what you need below first.
           </p>
         </div>
