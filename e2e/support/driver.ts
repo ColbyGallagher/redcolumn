@@ -24,8 +24,11 @@ export interface MarkupInfo {
   id: string;
   type: string;
   page: number;
-  points: { x: number; y: number }[];
+  points: [number, number][];
   text?: string;
+  comment?: string;
+  subject?: string;
+  author?: string;
   measurement?: string;
   hidden?: boolean;
   locked?: boolean;
@@ -74,6 +77,10 @@ export function driver(page: Page) {
     pageInfo(pageNumber?: number) {
       return d.assistant<{ page: number; width: number; height: number; scale?: string }>('get_page', pageNumber ? { page: pageNumber } : {});
     },
+    /** The active document's markups straight from the store, for fields list_markups leaves out. */
+    raw() {
+      return page.evaluate(() => JSON.parse(JSON.stringify(window.__nb.tools.store.all())) as Record<string, unknown>[]);
+    },
     /** Removes every markup in the active document. */
     clearMarkups() {
       return page.evaluate(() => window.__nb.tools.store.remove(window.__nb.tools.store.all().map((m) => m.id)));
@@ -93,12 +100,18 @@ export function driver(page: Page) {
     /** Runs a command by id; fails if it does not exist or is disabled. */
     async cmd(id: string) {
       await page.evaluate((id) => {
-        const c = window.__nb.commands().get(id);
+        const before = window.__nb.commands();
+        const c = before.get(id);
         if (!c) throw new Error(`No command ${id}`);
         if (!c.enabled) throw new Error(`Command ${id} is disabled`);
+        (window as unknown as { __nbBefore: unknown }).__nbBefore = before;
         c.run();
       }, id);
-      await page.waitForTimeout(150);
+      // The command table is rebuilt on every render: wait for one, so `checked` and `enabled` are
+      // current. A command that changes nothing React shows doesn't render, hence the short timeout.
+      await page
+        .waitForFunction(() => window.__nb.commands() !== (window as unknown as { __nbBefore: unknown }).__nbBefore, null, { timeout: 1000 })
+        .catch(() => {});
     },
 
     // Menus and dialogs.
@@ -158,6 +171,14 @@ export function driver(page: Page) {
       return page.evaluate(() => {
         const s = window.__nb.tools.getState();
         return { tool: s.tool, selected: [...s.selected], measuring: !!s.measuring };
+      });
+    },
+    /** The active pane's view: focused page (0-based), zoom, page mode and rotation in quarter turns. */
+    view() {
+      return page.evaluate(() => {
+        const v = window.__nb.viewer;
+        const { pageIndex, zoom, mode } = v.getView();
+        return { pageIndex, zoom, mode, rotation: v.pageView().rotation };
       });
     },
     async fit() {

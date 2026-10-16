@@ -38,9 +38,10 @@ pnpm --filter @nb/e2e exec playwright test --project=web --headed --debug scale
   - `assistant(method, params)`, the desktop MCP tools (`list_markups`, `get_page`, ...).
 
   Release builds never have it; `support/check-release.mjs` checks this.
-- **Fixtures.** `fixtures/make-fixtures.mjs` draws `plan.pdf` at known positions: a 100 pt bar marked 10'-0", a 200 x 100 pt room, five symbols, and known words. `expected.json` records those positions. The PDFs are committed; after changing the generator, run `pnpm e2e:fixtures` and commit the output.
+- **Fixtures.** `fixtures/make-fixtures.mjs` draws `plan.pdf` at known positions: a 100 pt bar marked 10'-0", a 200 x 100 pt room, five symbols, and known words. `expected.json` records those positions. It also writes `plan-rev1.pdf` (a second, slightly different document), `picture.png` (image tool) and `notes.txt` (attachments). The PDFs are committed; after changing the generator, run `pnpm e2e:fixtures` and commit the output.
 - **Isolation.** Each web test gets a new browser context. Each desktop test gets its own Electron process, profile folder and `APPDATA`, so it never touches your installed app's data. Teardown force-quits the app, so "Save changes?" prompts can't block it.
 - **Settings.** Tests start in imperial feet. A spec can change this with `test.use({ settings: { unitSystem: 'metric', ... } })`.
+- **Commands wait for a render.** `app.cmd(id)` waits until the app re-renders, so a command's `checked` and `enabled` are current when you read them.
 - **Expected values are worked out by hand** from the fixture geometry. Never paste in whatever the app prints. If a value changes, check the arithmetic before you update the test.
 
 ## Coverage

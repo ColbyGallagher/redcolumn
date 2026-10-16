@@ -14,7 +14,12 @@ test.describe('page scale', () => {
   test('calibrate from a known length sets every page', async ({ app }) => {
     await app.calibrate();
     // 100 pt (1.39") is 10 ft, so 1" is 7.2 ft.
-    for (let p = 1; p <= PLAN.pageCount; p++) expect((await app.pageInfo(p)).scale).toBe(`1" = 7.2'`);
+    // Clicks land to within a screen pixel, so allow the last few digits (7.200001 at some window sizes).
+    for (let p = 1; p <= PLAN.pageCount; p++) {
+      const m = /^1" = ([\d.]+)'$/.exec((await app.pageInfo(p)).scale ?? '');
+      expect(m, `page ${p} scale`).not.toBeNull();
+      expect(Number(m![1])).toBeCloseTo(7.2, 4);
+    }
     await app.tool('length');
     await app.clicks([
       [300, 450],
