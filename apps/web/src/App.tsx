@@ -22,6 +22,7 @@ import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
+import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
 import { parseProjectKey, rememberProjectKey } from './studio/crypto/sealedDrive';
@@ -7762,6 +7763,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onExport={onExportList}
             onSync={() => setSyncOpen(true)}
             syncing={!!sheetSync.link}
+            syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
             onFiltered={setListKept}
             allHidden={allMarkupsHidden}
             onToggleAllHidden={toggleAllMarkupsHidden}
@@ -9027,7 +9029,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           status={sheetSync.status}
           rowCount={Math.max(0, syncTable.length - 1)}
           oneDriveAvailable={oneDriveConfigured}
+          localExcelAvailable={!!localExcel()}
           onConnect={(title) => void sheetSync.connect(title, syncTable)}
+          onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
+          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
+          onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}
