@@ -18,6 +18,7 @@ import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
+import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
 
 const earlyOpens = captureEarlyOpens();
@@ -31,8 +32,15 @@ let closeConfirmed = false;
 /** A quit is under way, so confirming the close quits rather than only closing the window. */
 let quitting = false;
 
+const smoke = isSmokeRun();
+// Before the lock: the lock belongs to the user-data folder, and a smoke run must not share the person's.
+if (smoke) app.setPath('userData', smokeUserData());
+
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  if (smoke) {
+    console.error(lockHeldMessage(app.getPath('userData')));
+    app.exit(1);
+  } else app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
     launches.noteArgv(argv);
@@ -218,7 +226,9 @@ async function start() {
     if (provider === 'microsoft') return auth.signOut(provider);
   });
 
-  const assistant = new AssistantService(endpointFile(), (method, params) => askPage(() => mainWindow, method, params));
+  // The endpoint file is shared with the person's running app, so a smoke run keeps its own.
+  const assistantFile = smoke ? path.join(app.getPath('userData'), 'assistant.json') : endpointFile();
+  const assistant = new AssistantService(assistantFile, (method, params) => askPage(() => mainWindow, method, params));
   ipcMain.on('assistant:result', (event, body) => {
     if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
     takeAssistantResult(body);
@@ -262,7 +272,7 @@ async function start() {
   for (const filePath of earlyOpens) launches.note(filePath);
   launches.noteArgv(process.argv);
   // A moment after launch, so the check never competes with the page loading.
-  if (app.isPackaged && process.env.RECOLUMN_SMOKE !== '1') setTimeout(() => void updater.check(), 5000);
+  if (app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
@@ -310,7 +320,7 @@ function createWindow() {
   });
   if (isDev()) void win.loadURL(DEV_ORIGIN);
   else void win.loadURL('app://redcolumn/index.html');
-  if (process.env.RECOLUMN_SMOKE === '1') smokeTest(win);
+  if (smoke) smokeTest(win);
 }
 
 /**
