@@ -9,6 +9,7 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
+import { checkTable, loadExcelLinks, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -173,6 +174,29 @@ async function start() {
     await shell.trashItem(await folders.sessionFolderToRemove(str(id)));
     await saveFolders();
   });
+
+  // Sync to Excel on this computer: Windows only, since it drives Excel through COM. The page gets IDs, never paths.
+  if (process.platform === 'win32') {
+    const excelFile = path.join(app.getPath('userData'), 'excel-links.json');
+    const excel = await loadExcelLinks(excelFile);
+    handle('excel:pick', async (suggestedName) => {
+      const win = mainWindow;
+      const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Markups'}.xlsx`;
+      const options = { title: 'Choose where the Excel workbook goes', defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return null;
+      const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath) };
+    });
+    handle('excel:write', (id, xlsx, table) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table)));
+    handle('excel:open', async (id) => {
+      const failed = await shell.openPath(excel.path(id));
+      if (failed) throw new Error(failed);
+    });
+    handle('excel:show', (id) => shell.showItemInFolder(excel.path(id)));
+  }
 
   // "Encrypt local data" (docs/SECURITY-HARDENING.md, E4): one key per install, stored only
   // encrypted by the system key store, handed to the app's own page.
