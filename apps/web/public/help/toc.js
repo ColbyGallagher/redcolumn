@@ -154,6 +154,7 @@ window.HELP_TOC = [
       { id: 'smart-fill', title: 'Smart Fill' },
       { id: 'symbol-search', title: 'Symbol Search' },
       { id: 'measurements-panel', title: 'The Measurements panel' },
+      { id: 'assemblies', title: 'Assemblies and takeoff quantities' },
       { id: 'spaces', title: 'Spaces (rooms and zones)' },
     ],
   },

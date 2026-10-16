@@ -3,6 +3,7 @@ import {
   MARKUP_LABELS,
   isMeasureKind,
   measureProps,
+  type Assembly,
   type Markup,
   type MarkupStore,
   type Viewport,
@@ -27,11 +28,24 @@ import {
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { shortcutLabel } from '../commands/shortcuts';
 import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
+import { formatNumber } from '../columns/listColumns';
+import type { RollupRow } from '../assemblies/quantities';
 import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
 
 export interface MeasureDefaults {
   subject: string;
   label: string;
+  /** The assembly the next measurement is taken off as. */
+  assemblyId?: string;
+}
+
+/** The document's assemblies, for picking one for measurements. */
+export interface TakeoffProps {
+  assemblies: readonly Assembly[];
+  /** The selected measurements' assembly quantities, added up by item. */
+  totals: (markups: Markup[]) => RollupRow[];
+  /** Opens Tools › Takeoff › Assemblies. */
+  onManage: () => void;
 }
 
 function tip(tool: Tool, label = toolLabel(tool)): string {
@@ -628,6 +642,7 @@ function Properties({
   defaults,
   onDefaults,
   editable,
+  takeoff,
 }: {
   markups: Markup[];
   selected: ReadonlySet<string>;
@@ -635,6 +650,7 @@ function Properties({
   defaults: MeasureDefaults;
   onDefaults: (next: MeasureDefaults) => void;
   editable: boolean;
+  takeoff: TakeoffProps | null;
 }) {
   const chosen = markups.filter((m) => selected.has(m.id) && isMeasureKind(m.type));
   const canEdit = chosen.length ? !!store && chosen.every((m) => store.mayEdit(m)) : editable;
@@ -655,7 +671,7 @@ function Properties({
 
   const commit = () => {
     if (!chosen.length || !store) {
-      if (!chosen.length) onDefaults({ subject, label });
+      if (!chosen.length) onDefaults({ ...defaults, subject, label });
       return;
     }
     if (!canEdit) return;
@@ -684,7 +700,7 @@ function Properties({
           disabled={!canEdit}
           onChange={(e) => {
             setSubject(e.target.value);
-            if (!chosen.length) onDefaults({ subject: e.target.value, label });
+            if (!chosen.length) onDefaults({ ...defaults, subject: e.target.value, label });
           }}
           onBlur={commit}
         />
@@ -696,12 +712,86 @@ function Properties({
           disabled={!canEdit}
           onChange={(e) => {
             setLabel(e.target.value);
-            if (!chosen.length) onDefaults({ subject, label: e.target.value });
+            if (!chosen.length) onDefaults({ ...defaults, subject, label: e.target.value });
           }}
           onBlur={commit}
         />
       </label>
+      {takeoff && <AssemblyPicker chosen={chosen} store={store} canEdit={canEdit} defaults={defaults} onDefaults={onDefaults} takeoff={takeoff} />}
     </div>
+  );
+}
+
+/**
+ * Which assembly the selected measurements (or, with none selected, the next one) are taken off
+ * as, and what that comes to. Picking one also names a measurement after it while its subject is
+ * empty or still the old assembly's name.
+ */
+function AssemblyPicker({
+  chosen,
+  store,
+  canEdit,
+  defaults,
+  onDefaults,
+  takeoff,
+}: {
+  chosen: Markup[];
+  store: MarkupStore | null;
+  canEdit: boolean;
+  defaults: MeasureDefaults;
+  onDefaults: (next: MeasureDefaults) => void;
+  takeoff: TakeoffProps;
+}) {
+  const { assemblies } = takeoff;
+  const nameOf = (id: string | undefined) => assemblies.find((a) => a.id === id)?.name ?? '';
+  const ids = new Set(chosen.map((m) => m.assemblyId ?? ''));
+  const value = chosen.length ? (ids.size === 1 ? [...ids][0]! : '*') : (defaults.assemblyId ?? '');
+  const renamed = (subject: string, oldId: string | undefined, newId: string) => (!subject.trim() || subject.trim() === nameOf(oldId) ? nameOf(newId) : subject);
+  const pick = (id: string) => {
+    if (id === '__manage') return takeoff.onManage();
+    if (!chosen.length) {
+      onDefaults({ ...defaults, assemblyId: id || undefined, subject: renamed(defaults.subject, defaults.assemblyId, id) });
+      return;
+    }
+    if (!store || !canEdit) return;
+    store.checkpoint();
+    store.batch(() =>
+      chosen.forEach((m) => {
+        const subject = renamed(m.subject ?? '', m.assemblyId, id);
+        store.update(m.id, { assemblyId: id || undefined, ...(subject !== (m.subject ?? '') ? { subject: subject || undefined } : {}) });
+      }),
+    );
+  };
+  const rows = chosen.length ? takeoff.totals(chosen) : [];
+  return (
+    <>
+      <label className="ms-line">
+        <span className="ms-k">Assembly:</span>
+        <select aria-label="Assembly" value={value} disabled={!canEdit} onChange={(e) => pick(e.target.value)}>
+          {value === '*' && <option value="*">(several)</option>}
+          <option value="">None</option>
+          {assemblies.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+          {value && value !== '*' && !assemblies.some((a) => a.id === value) && <option value={value}>(deleted assembly)</option>}
+          <option value="__manage">Manage assemblies…</option>
+        </select>
+      </label>
+      {rows.length > 0 && (
+        <ul className="ms-asm-items" aria-label="Assembly quantities">
+          {rows.map((r) => (
+            <li key={r.key}>
+              <span>{r.item}</span>
+              <span className={r.errors ? 'qty err' : 'qty'} title={r.errors ? 'The formula could not be worked out' : undefined}>
+                {r.errors ? '⚠' : `${formatNumber(r.total, r.total % 1 ? 2 : 0)} ${r.unit}`}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -822,6 +912,7 @@ export function MeasurementsPanel({
   store,
   defaults,
   onDefaults,
+  takeoff = null,
 }: {
   markups: Markup[];
   scales: Readonly<Record<number, Scale>>;
@@ -842,6 +933,7 @@ export function MeasurementsPanel({
   store: MarkupStore | null;
   defaults: MeasureDefaults;
   onDefaults: (next: MeasureDefaults) => void;
+  takeoff?: TakeoffProps | null;
 }) {
   const scale = scales[pageIndex] ?? null;
   const [open, setOpen] = useState({ scale: true, props: true, view: true, list: true });
@@ -879,7 +971,7 @@ export function MeasurementsPanel({
         <PageScale scale={scale} pageIndex={pageIndex} pageCount={pageCount} pageName={pageName} onScale={onScale} onApplyScale={onApplyScale} onCalibrate={onTool ? () => onTool('calibrate') : null} />,
         'scale-settings',
       )}
-      {section('props', 'Measurement Properties', <Properties markups={markups} selected={selected} store={store} defaults={defaults} onDefaults={onDefaults} editable={!!onTool || !!store} />)}
+      {section('props', 'Measurement Properties', <Properties markups={markups} selected={selected} store={store} defaults={defaults} onDefaults={onDefaults} editable={!!onTool || !!store} takeoff={takeoff} />)}
       {section('view', 'Viewports', <Viewports viewports={viewports} allViewports={allViewports} actions={onViewports} adding={tool === 'viewport'} />)}
       {rows.length > 0 &&
         section(

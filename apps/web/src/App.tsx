@@ -9,7 +9,7 @@ import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
-import { useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
@@ -31,11 +31,15 @@ import { FirstUseHost, StepUpHost } from './components/StepUpDialog';
 import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
+import { AssembliesDialog } from './components/AssembliesDialog';
+import { QuantitiesDialog } from './components/QuantitiesDialog';
+import type { MeasureDefaults } from './components/MeasurementsPanel';
+import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, useSettings, withDefaultUnits } from './settings/settings';
-import { buildRows, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
+import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
@@ -659,6 +663,7 @@ async function annotatedBytes(
     pageScales: cur.store.allScales(),
     columns: cur.store.columnSet().columns,
     statuses: cur.store.columnSet().statuses,
+    assemblies: cur.store.assemblies(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -801,8 +806,8 @@ export function App() {
   const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
-  /** Subject and label the Measurements panel gives the next measurement. */
-  const [measureDefaults, setMeasureDefaults] = useState({ subject: '', label: '' });
+  /** Subject, label and assembly the Measurements panel gives the next measurement. */
+  const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
   const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
@@ -845,6 +850,8 @@ export function App() {
   /** A panel being dragged by its rail button or title: `over` is the panel it would drop beside, `side` the rail it would dock on. */
   const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean; side: DockSide | null } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [assembliesOpen, setAssembliesOpen] = useState(false);
+  const [quantitiesOpen, setQuantitiesOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -1170,6 +1177,7 @@ export function App() {
   const stitchGroups = paneB ? stitchB : stitchA;
   const columnSet = paneB ? columnsB : columnsA;
   const viewports = useViewports(activeStore);
+  const assemblies = useAssemblies(activeStore);
   /** The scale a markup in the active pane is measured at: its viewport's, else its page's. */
   const scaleOf = useCallback((m: Markup) => scaleOfMarkup(m, scales[m.pageIndex] ?? DEFAULT_SCALE, viewports), [scales, viewports]);
 
@@ -1194,7 +1202,11 @@ export function App() {
       onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
       onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
-      measureDefaults: () => measureDefaultsRef.current,
+      measureDefaults: () => {
+        // The assembly chosen in one document is not one of another's.
+        const d = measureDefaultsRef.current;
+        return d.assemblyId && !front()?.store.assemblies().some((a) => a.id === d.assemblyId) ? { ...d, assemblyId: undefined } : d;
+      },
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
       defaultFields: () => defaultFieldsFor(front()?.store),
@@ -4175,6 +4187,7 @@ export function App() {
                 pageScales: store.allScales(),
                 columns: store.columnSet().columns,
                 statuses: store.columnSet().statuses,
+                assemblies: store.assemblies(),
                 places: store.places(),
               },
             ),
@@ -5097,7 +5110,10 @@ export function App() {
     spaces: markups.filter((m) => m.type === 'space'),
     statuses: columnSet.statuses,
     columns: columnSet.columns,
+    assemblies,
   };
+  /** The measurement the Assemblies window shows quantities for while editing: the first one selected. */
+  const takeoffSample = markups.find((m) => toolsState.selected.has(m.id) && isMeasureKind(m.type) && m.type !== 'angle') ?? null;
   const listLayout = resolveLayout(ws.list.columns, listColumns(columnSet.columns));
   const visibleListColumns = listLayout.filter((c) => !c.hidden);
 
@@ -6915,6 +6931,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
+    manageAssemblies: () => setAssembliesOpen(true),
+    takeoffQuantities: () => setQuantitiesOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     toggleLeft: () => setLeftOpen((s) => !s),
@@ -6942,6 +6960,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const now = Date.now();
       to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());
+      if (from.assemblies().length) to.setAssemblies(from.assemblies());
       await Promise.all([from.destroy(), to.destroy()]);
       await openStored(file, bytes, activePaneRef.current);
       void refreshLibrary();
@@ -7625,6 +7644,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
+            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, assemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
           />
         ) : tab === 'spaces' ? (
           <SpacesPanel
@@ -7858,6 +7878,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             scaleOf={scaleOf}
             sheets={sheets}
             columnSet={columnSet}
+            assemblies={assemblies}
             readOnly={!activeOpen || activeReadOnly}
             selected={toolsState.selected}
             onSelect={selectRowsFromList}
@@ -9089,6 +9110,39 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setCalibration(null);
             activeTools?.setTool('length');
           }}
+        />
+      )}
+      {assembliesOpen && activeOpen && (
+        <AssembliesDialog
+          initial={assemblies}
+          readOnly={activeReadOnly}
+          columns={columnSet.columns}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(markups.filter((m) => m.assemblyId), (m) => m.assemblyId!)).map(([id, list]) => [id, list?.length ?? 0]))}
+          // Examples in the units this page measures in, else the preferred ones.
+          unitSystem={scales[pageIndex] ? systemOf(scales[pageIndex]!.unit) : prefs.unitSystem}
+          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, a, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          previewLabel={takeoffSample ? `${takeoffSample.subject || MARKUP_LABELS[takeoffSample.type]} on page ${takeoffSample.pageIndex + 1}` : ''}
+          onSave={(list) => {
+            activeOpen.store.setAssemblies(list);
+            setAssembliesOpen(false);
+          }}
+          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
+          onClose={() => setAssembliesOpen(false)}
+        />
+      )}
+      {quantitiesOpen && activeOpen && (
+        <QuantitiesDialog
+          markups={markups}
+          assemblies={assemblies}
+          ctx={cellContext}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          onManage={() => {
+            setQuantitiesOpen(false);
+            setAssembliesOpen(true);
+          }}
+          // Byte-order mark so Excel reads the CSV as UTF-8.
+          onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
+          onClose={() => setQuantitiesOpen(false)}
         />
       )}
       {columnsOpen && activeOpen && (

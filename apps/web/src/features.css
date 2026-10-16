@@ -5764,3 +5764,204 @@ tr.hidden-markup td {
 .tip-link:hover {
   text-decoration: underline;
 }
+
+/* --- Assemblies and takeoff quantities --- */
+
+.asm-intro {
+  margin: 0 0 10px;
+}
+
+.asm-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.asm-pop {
+  position: relative;
+}
+
+.asm-pop .ms-menu.up {
+  right: auto;
+  left: 0;
+  min-width: 260px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.asm-lib-row {
+  display: flex;
+  align-items: center;
+}
+
+.asm-lib-row button[role='menuitem'] {
+  flex: 1;
+}
+
+.asm-empty {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.asm-table {
+  border-collapse: collapse;
+}
+
+.asm-table th {
+  padding: 2px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.asm-table td {
+  padding: 2px 4px;
+  vertical-align: middle;
+}
+
+.asm-table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.asm-table .center {
+  text-align: center;
+}
+
+.asm-items {
+  width: 100%;
+}
+
+.asm-items td:first-child input {
+  width: 150px;
+}
+
+.asm-formula {
+  width: 100%;
+}
+
+.asm-formula input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 200px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.asm-error-row td {
+  padding-top: 0;
+}
+
+.asm-row-error {
+  padding-left: 8px;
+}
+
+.asm-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.asm-ref {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--accent);
+  font: 11px ui-monospace, SFMono-Regular, Consolas, monospace;
+  cursor: pointer;
+}
+
+.asm-ref:hover {
+  border-color: var(--accent);
+}
+
+.ms-asm-items {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.ms-asm-items li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.ms-asm-items .qty {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ms-asm-items .err {
+  color: #f87171;
+}
+
+.modal.quantities-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(980px, calc(100vw - 32px));
+  height: min(700px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.qty-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.qty-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.qty-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.qty-table th,
+.qty-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.qty-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel, #172339);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.qty-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qty-table .group td {
+  background: rgba(20, 163, 154, 0.1);
+  font-weight: 600;
+}
+
+.qty-table tfoot td {
+  font-weight: 700;
+}
+
+.qty-table .warn {
+  color: #f87171;
+}

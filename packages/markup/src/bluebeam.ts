@@ -6,6 +6,7 @@
  */
 import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
+import type { Assembly } from './assemblies';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
 import type { FontFamily, LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
@@ -64,6 +65,8 @@ export interface PdfExtras {
   statusDefs?: PdfDictValue[];
   /** Image XObjects used by image markups, as PNG or JPEG data URLs, by object number. */
   images: ReadonlyMap<number, string>;
+  /** The document's assemblies, as saved by this app (/NBAssemblies). */
+  assemblies?: Assembly[];
   /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
   appearances?: Map<string, string>;
 }

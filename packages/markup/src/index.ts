@@ -9,6 +9,7 @@ export { applyBookmarkTemplate, DEFAULT_BOOKMARK_TEMPLATE, parseBookmarkTemplate
 export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCategorySet } from './setCategories';
 export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
+export * from './assemblies';
 export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { hitTest, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';

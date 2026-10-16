@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -31,6 +31,8 @@ interface Props {
   scaleOf: (m: Markup) => Scale;
   sheets: Readonly<Record<number, SheetInfo>>;
   columnSet: ColumnSet;
+  /** The document's assemblies, for the Assembly column. */
+  assemblies: readonly Assembly[];
   readOnly: boolean;
   selected: ReadonlySet<string>;
   /** Replace the selection with these markups. `zoom` focuses the one that was clicked on its own. */
@@ -162,7 +164,7 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, syncError, allHidden, onToggleAllHidden } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, assemblies, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, syncError, allHidden, onToggleAllHidden } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
@@ -199,8 +201,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const layout = useMemo(() => resolveLayout(settings.columns, all), [settings.columns, all]);
   const visible = layout.filter((c) => !c.hidden);
   const ctx: CellContext = useMemo(
-    () => ({ scaleOf, sheets, statuses: columnSet.statuses, columns: columnSet.columns, spaces }),
-    [scaleOf, sheets, columnSet, spaces],
+    () => ({ scaleOf, sheets, statuses: columnSet.statuses, columns: columnSet.columns, spaces, assemblies }),
+    [scaleOf, sheets, columnSet, spaces, assemblies],
   );
   // Filters on columns this document does not have (another document's custom columns) are ignored.
   const filters = useMemo(() => {

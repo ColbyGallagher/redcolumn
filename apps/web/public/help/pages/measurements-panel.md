@@ -20,7 +20,7 @@ The row of icons starts a measurement: length, area (and polygon cutout), perime
 
 ## Measurement properties
 
-**Subject** is the name in the markups list. **Label** is written on the measurement, in front of its value. With a measurement selected, the fields edit that one. With none selected, they apply to the next measurement you draw.
+**Subject** is the name in the markups list. **Label** is written on the measurement, in front of its value. **Assembly** is what the measurement is taken off as: the materials it stands for (see [Assemblies](#assemblies)). With a measurement selected, the fields edit that one. With none selected, they apply to the next measurement you draw.
 
 ## Viewports
 

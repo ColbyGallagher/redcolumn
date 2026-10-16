@@ -420,8 +420,8 @@ export interface MarkupToolsOptions {
   defaultStamp?: () => StampDef | null;
   /** File name and page label for a stamp's {File} and {Page} fields. */
   stampValues?: (pageIndex: number) => { file: string; page: string };
-  /** Subject and label the Measurements panel applies to the next measurement. */
-  measureDefaults?: () => { subject?: string; label?: string };
+  /** Subject, label and assembly the Measurements panel applies to the next measurement. */
+  measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string };
 }
 
 /** Drawing with this type snaps its points to drawing geometry (not freehand, text or pictures). */
@@ -2509,6 +2509,7 @@ export class MarkupTools implements ViewerOverlay {
       modifiedAt: now,
       ...(preset?.subject ? { subject: preset.subject } : drawnDefaults?.subject ? { subject: drawnDefaults.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
       ...(drawnDefaults?.label ? { text: drawnDefaults.label } : {}),
+      ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),
       ...(preset?.signature ? { signature: preset.signature } : {}),
