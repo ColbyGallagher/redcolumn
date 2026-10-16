@@ -23,8 +23,8 @@ export interface DriveFile {
 }
 
 export interface DriveApi {
-  /** Which drive this is (OneDrive when absent). */
-  readonly backend?: 'onedrive';
+  /** Which drive this is (OneDrive when absent; 'folder' is a shared folder on this computer). */
+  readonly backend?: 'onedrive' | 'folder';
   /** A web link that opens the session folder. */
   folderUrl?(folderId: string): string;
   /** Lists a public folder's files (read with the API key). */
@@ -85,3 +85,6 @@ export class DriveAuthError extends Error {}
 
 /** The user may view but not change this file or folder. */
 export class DriveForbiddenError extends Error {}
+
+/** The file is locked, usually because it is open for editing (such as in Excel for the web). */
+export class DriveLockedError extends Error {}

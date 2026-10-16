@@ -50,7 +50,7 @@ export function currentSessions(): SessionRef[] {
   return (Array.isArray(cur) ? cur : [cur]).filter((r): r is SessionRef => isBackend(r.backend));
 }
 
-const isBackend = (b: string | undefined): b is Backend => b === 'onedrive';
+const isBackend = (b: string | undefined): b is Backend => b === 'onedrive' || b === 'folder';
 
 export function rememberSession(ref: SessionRef, name: string) {
   const recent = recentSessions().filter((r) => r.id !== ref.id);
@@ -80,8 +80,12 @@ export function restoreRecentSession(id: string) {
   writeLocal(RECENT_KEY, recentSessions().map((r) => (r.id === id ? { ...r, removed: undefined } : r)));
 }
 
-/** A link that opens the app and joins a session: `?onedrive=<share id>`. */
+/**
+ * A link that opens the app and joins a session: `?onedrive=<share id>`. A session in a folder on
+ * this computer has none (each person opens the folder itself), so it is empty.
+ */
 export function inviteLink(ref: SessionRef): string {
+  if (ref.backend === 'folder') return '';
   const url = new URL(typeof window === 'undefined' ? 'http://localhost/' : window.location.href);
   url.search = '';
   url.hash = '';

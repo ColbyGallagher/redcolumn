@@ -47,7 +47,7 @@ export interface DesktopFolderFile {
 }
 
 export interface DesktopFolders {
-  pick(purpose: 'create' | 'open'): Promise<{ id: string; name: string } | null>;
+  pick(purpose: 'create' | 'open' | 'session-create' | 'session-open'): Promise<{ id: string; name: string } | null>;
   list(id: string): Promise<DesktopFolderFile[]>;
   download(id: string): Promise<Uint8Array>;
   createFolder(parent: string, name: string): Promise<string>;
@@ -57,6 +57,8 @@ export interface DesktopFolders {
   remove(id: string): Promise<void>;
   ownedByMe(id: string): Promise<boolean>;
   show(id: string): Promise<void>;
+  /** Moves a Live Session folder this install made to the recycle bin (the host ended it). */
+  removeSession(id: string): Promise<void>;
 }
 
 export type PrintMode = 'viewer' | 'verb' | 'images';
@@ -122,6 +124,19 @@ export interface RedcolumnDesktop {
   onCloseRequest?(cb: () => void): () => void;
   /** Closes the window (or quits, when quitting started it) after the page dealt with unsaved changes. */
   closeWindow?(): void;
+  /** Sync to Excel on this computer. Windows only: absent on a Mac (apps/desktop/src/excel.ts). */
+  excel?: DesktopExcel;
+}
+
+/** Excel workbooks on this computer, by ID; the page never sees their paths. */
+export interface DesktopExcel {
+  /** A Save dialog for the workbook; null when cancelled. */
+  pick(suggestedName: string): Promise<{ id: string; name: string } | null>;
+  /** Replaces the file, or writes the cells into it while it is open in Excel (`live`). */
+  write(id: string, xlsx: Uint8Array, table: (string | number)[][]): Promise<'file' | 'live'>;
+  /** Opens the workbook in Excel. */
+  open(id: string): Promise<void>;
+  show(id: string): Promise<void>;
 }
 
 export interface AssistantInfo {

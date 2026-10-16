@@ -36,6 +36,12 @@ interface Props {
   library: { id: string; name: string }[];
   /** Whether this build has a Microsoft client ID (VITE_MICROSOFT_CLIENT_ID) for OneDrive sessions. */
   oneDriveAvailable: boolean;
+  /** Whether sessions can live in a shared folder on this computer (the desktop app). */
+  folderAvailable?: boolean;
+  /** Joins a session by choosing its folder on this computer; resolves true on success. */
+  onJoinFolder?: () => Promise<boolean>;
+  /** Opens a folder session's folder in Explorer or Finder. */
+  onShowFolder?: (sessionId: string) => void;
   /** A OneDrive session from an invite link, waiting for a click to join. */
   invite: SessionRef | null;
   onDismissInvite: () => void;
@@ -89,6 +95,7 @@ export function SessionsPanel(props: Props) {
           me={props.me}
           microsoftEmail={microsoft?.email ?? null}
           oneDriveAvailable={props.oneDriveAvailable}
+          folderAvailable={props.folderAvailable}
           openFiles={props.openFiles}
           library={props.library}
           initialDocs={startDocs}
@@ -107,6 +114,7 @@ export function SessionsPanel(props: Props) {
           busy={props.busy}
           onClose={() => setDialog(null)}
           onJoinOneDrive={(id) => void props.onJoin({ backend: 'onedrive', id }).then((ok) => ok && setDialog(null))}
+          onJoinFolder={props.onJoinFolder && (() => void props.onJoinFolder!().then((ok) => ok && setDialog(null)))}
         />
       )}
       {dialog === 'settings' && focused && (
@@ -164,6 +172,7 @@ function SessionList({
   busy,
   error,
   oneDriveAvailable,
+  folderAvailable,
   invite,
   onDismissInvite,
   onJoin,
@@ -182,7 +191,7 @@ function SessionList({
   const rows = recent.map((r) => {
     const j = joined.find((x) => x.session.id === r.id);
     const meta = j?.snapshot.meta ?? null;
-    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : 'OneDrive';
+    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'folder' ? 'Folder' : 'OneDrive';
     const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
     return { ref: r, joined: j, meta, status, usable: true, access };
   });
@@ -229,6 +238,11 @@ function SessionList({
           The person who starts the session (the host) signs in to their OneDrive. redcolumn makes one shared folder there and puts the PDFs in it. Your documents are kept in that folder, not on a redcolumn server, and when the host ends the session the folder's files
           are removed.
         </p>
+        {folderAvailable && (
+          <p>
+            In the desktop app the host can instead choose a shared folder on their computer: a OneDrive, Teams or Dropbox folder, or a network drive. Nobody signs in. Everyone who can open that folder joins by choosing it in Join, and changes arrive as fast as the folder syncs.
+          </p>
+        )}
         <h4>Accounts you need</h4>
         <ul>
           <li>A Microsoft account (personal, work or school). The host and guests all sign in with one.</li>
@@ -355,9 +369,12 @@ function InSession({
   onUpdateDocument,
   onSettings,
   onInviteEmail,
+  onShowFolder,
 }: Props & JoinedSession & { onSettings: () => void }) {
   const online = useOnline();
   const { meta, isHost, status, record, presence, needsAuth, viewOnly, denied } = snapshot;
+  // In a shared folder on this computer: no link to copy and no email invites; people open the folder.
+  const inFolder = snapshot.backend === 'folder';
   const finished = meta.status === 'finished';
   // Ended: the host removed the session's files (seen just before, or found gone).
   const ended = !!meta.ended || !!snapshot.removed;
@@ -428,7 +445,7 @@ function InSession({
             <option value="">All Sessions</option>
             {joined.map((j) => (
               <option key={j.session.id} value={j.session.id}>
-                {j.snapshot.meta.name} — {studioIdText(j.snapshot.meta.id)}
+                {j.snapshot.backend === 'folder' ? j.snapshot.meta.name : `${j.snapshot.meta.name} — ${studioIdText(j.snapshot.meta.id)}`}
               </option>
             ))}
           </select>
@@ -437,8 +454,9 @@ function InSession({
             icon={<KebabIcon />}
             items={[
               ...(isHost && !finished && !ended ? [{ label: 'Session settings', onClick: onSettings }] : []),
-              ...(onInviteEmail && (isHost || allows(meta, 'invite')) ? [{ label: 'Share invitations', onClick: () => onInviteEmail(meta.id), disabled: !online }] : []),
-              ...(isHost || allows(meta, 'invite') ? [{ label: copied === 'link' ? 'Link copied' : 'Copy invitation link', onClick: () => copy('link', snapshot.inviteLink) }] : []),
+              ...(onInviteEmail && !inFolder && (isHost || allows(meta, 'invite')) ? [{ label: 'Share invitations', onClick: () => onInviteEmail(meta.id), disabled: !online }] : []),
+              ...(!inFolder && (isHost || allows(meta, 'invite')) ? [{ label: copied === 'link' ? 'Link copied' : 'Copy invitation link', onClick: () => copy('link', snapshot.inviteLink) }] : []),
+              ...(inFolder && onShowFolder ? [{ label: 'Show session folder', onClick: () => onShowFolder(session.id) }] : []),
               { label: 'Session report', onClick: () => onReport(session.id, 'pdf') },
               { label: 'Record as CSV', onClick: () => onReport(session.id, 'csv') },
               { label: 'Leave session', onClick: () => onLeave(session.id), danger: true },

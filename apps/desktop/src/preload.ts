@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   graphRequest: (clientId: string, tenant: string, request: unknown) => call('graph:request', clientId, tenant, request),
   localDataKey: async () => new Uint8Array(await call<Uint8Array>('local:key')),
   folder: {
-    pick: (purpose: 'create' | 'open') => call('folder:pick', purpose),
+    pick: (purpose: 'create' | 'open' | 'session-create' | 'session-open') => call('folder:pick', purpose),
     list: (id: string) => call('folder:list', id),
     download: async (id: string) => new Uint8Array(await call<Uint8Array>('folder:download', id)),
     createFolder: (parent: string, name: string) => call('folder:create-folder', parent, name),
@@ -73,6 +73,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     remove: (id: string) => call('folder:remove', id),
     ownedByMe: (id: string) => call('folder:owned', id),
     show: (id: string) => call('folder:show', id),
+    removeSession: (id: string) => call('folder:remove-session', id),
   },
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'microsoft') => call('auth:sign-out', provider),
@@ -91,4 +92,15 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return () => unsubscribe('window:close-request', listener);
   },
   closeWindow: () => ipcRenderer.send('window:close'),
+  // Sync to Excel on this computer drives Excel through COM, so it exists on Windows only.
+  ...(process.platform === 'win32'
+    ? {
+        excel: {
+          pick: (suggestedName: string) => call('excel:pick', suggestedName),
+          write: (id: string, xlsx: Uint8Array, table: (string | number)[][]) => call('excel:write', id, xlsx, table),
+          open: (id: string) => call('excel:open', id),
+          show: (id: string) => call('excel:show', id),
+        },
+      }
+    : {}),
 });

@@ -120,7 +120,8 @@ export function StudioRow({
   onClick: () => void;
   trailing?: ReactNode;
 }) {
-  const label = id ? studioIdText(id) : '';
+  // A folder on this computer has an ID only this computer understands: not worth showing.
+  const label = id && !id.startsWith('lf:') ? studioIdText(id) : '';
   return (
     <li className={selected ? 'selected' : ''}>
       <button type="button" className="rc-row" disabled={disabled} title={title ?? (id ? `${name} (${id})` : name)} onClick={onClick}>

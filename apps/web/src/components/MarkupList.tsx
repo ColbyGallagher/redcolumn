@@ -45,6 +45,8 @@ interface Props {
   onSync?: () => void;
   /** Whether it is already syncing, shown on the button. */
   syncing?: boolean;
+  /** Why the last write to the workbook failed, shown on the button until one succeeds. */
+  syncError?: string | null;
   /** The markups the filter keeps (null when not filtering), so the page can dim or hide the rest. */
   onFiltered?: (kept: ReadonlySet<string> | null) => void;
   /** Whether every markup is hidden on the page (the list's Hide All button), and its toggle. */
@@ -160,7 +162,7 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, allHidden, onToggleAllHidden } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, syncError, allHidden, onToggleAllHidden } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
@@ -823,8 +825,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           Export…
         </button>
         {onSync && (
-          <button className="btn small" disabled={!markups.length && !syncing} onClick={onSync} title="Keep this list in an Excel workbook in OneDrive, updated as markups change">
-            {syncing ? 'Syncing ✓' : 'Sync…'}
+          <button
+            className={`btn small${syncing && syncError ? ' sync-failed' : ''}`}
+            disabled={!markups.length && !syncing}
+            onClick={onSync}
+            title={syncing && syncError ? `Excel sync stopped: ${syncError} Click to reconnect.` : 'Keep this list in an Excel workbook, updated as markups change'}
+          >
+            {!syncing ? 'Sync to Excel…' : syncError ? 'Sync to Excel ⚠' : 'Sync to Excel ✓'}
           </button>
         )}
       </div>
