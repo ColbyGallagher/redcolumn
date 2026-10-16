@@ -1,0 +1,12 @@
+{
+  "$comment": "Fixtures the compatibility run reads. Only the paths are local: the files themselves stay out of git (Revu's samples). A fixture counts toward Supported only when its source is revu. Add Revu-made files here as they are created.",
+  "fixtures": [
+    { "id": "revu-sample-pdf", "format": "pdf", "base": "compat", "path": "bluebeam-sample-do-not-edit.pdf", "source": "revu" },
+    { "id": "revu-sample-bax", "format": "bax", "base": "compat", "path": "bluebeam-sample-do-not-edit.bax", "pair": "revu-sample-pdf", "source": "revu" },
+    { "id": "revu-markups-xfdf", "format": "xfdf", "base": "compat", "path": "revu-markups.xfdf", "source": "revu" },
+    { "id": "revu-settings-btx", "format": "btx", "base": "settings", "ext": ".btx", "source": "revu" },
+    { "id": "revu-settings-blx", "format": "blx", "base": "settings", "ext": ".blx", "source": "revu" },
+    { "id": "revu-settings-bhx", "format": "bhx", "base": "settings", "ext": ".bhx", "source": "revu" },
+    { "id": "revu-settings-bpx", "format": "bpx", "base": "settings", "ext": ".bpx", "source": "revu" }
+  ]
+}

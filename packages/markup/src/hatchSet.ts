@@ -1,4 +1,5 @@
 import { builtInHatchFor, customHatchId, type HatchElement, type HatchSpec, type StoredHatch } from './hatches';
+import type { Dropped } from './diagnostics';
 import { setTitle } from './lineSet';
 import { parseXml, type XmlElement } from './xml';
 
@@ -30,8 +31,11 @@ function element(e: XmlElement): HatchElement | null {
   return null;
 }
 
-/** Reads a .bhx file. Throws when it is not one. */
-export async function parseBhx(xml: string, fallbackTitle = 'Imported hatches'): Promise<HatchSet> {
+/**
+ * Reads a .bhx file. Throws when it is not one. Hatches it cannot keep, and elements it cannot
+ * draw, are listed in `dropped`.
+ */
+export async function parseBhx(xml: string, fallbackTitle = 'Imported hatches', dropped: Dropped[] = []): Promise<HatchSet> {
   let root: XmlElement;
   try {
     root = parseXml(xml.replace(/^﻿/, ''));
@@ -41,14 +45,30 @@ export async function parseBhx(xml: string, fallbackTitle = 'Imported hatches'):
   if (root.tagName !== 'BluebeamRevuHatchSet') throw new Error('This is not a Bluebeam hatch set (.bhx).');
   const title = await setTitle(root.children.find((c) => c.tagName === 'Title')?.textContent, fallbackTitle);
   const hatches: HatchSet['hatches'] = [];
+  let n = 0;
   for (const h of root.children) {
-    if (h.tagName !== 'Hatch' || !h.attrs.Name) continue;
-    const elements = h.children.flatMap((e) => (e.tagName === 'Element' ? (element(e) ?? []) : []));
-    if (!elements.length) continue;
+    if (h.tagName !== 'Hatch') continue;
+    const item = `${++n}. ${h.attrs.Name || '(unnamed)'}`;
+    if (!h.attrs.Name) {
+      dropped.push({ item, reason: 'the hatch has no name' });
+      continue;
+    }
+    const elements = h.children.flatMap((e) => {
+      if (e.tagName !== 'Element') return [];
+      const el = element(e);
+      if (!el) dropped.push({ item, reason: `element type "${e.attrs.Type ?? 'unknown'}" is not supported yet` });
+      return el ? [el] : [];
+    });
+    if (!elements.length) {
+      dropped.push({ item, reason: 'the hatch has no elements this app can draw' });
+      continue;
+    }
+    const size = (field(h, 'Size') ?? '').toLowerCase();
+    if (size && TILE_POINTS[size] === undefined) dropped.push({ item, reason: `tile size "${field(h, 'Size')}" is not known, so the default is used` });
     const spec: HatchSpec = {
       scaleX: num(field(h, 'ScaleX'), 1),
       scaleY: num(field(h, 'ScaleY'), 1),
-      size: TILE_POINTS[(field(h, 'Size') ?? '').toLowerCase()] ?? 18,
+      size: TILE_POINTS[size] ?? 18,
       lineWidth: num(field(h, 'LineWidth'), 1),
       elements,
     };
