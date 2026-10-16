@@ -120,6 +120,42 @@ export interface TileRequest {
   thinLines?: boolean;
   /** Leaves unpainted page area transparent instead of white (Snapshot). */
   transparent?: boolean;
+  /**
+   * Draws from the optimised render copy where it passed its check (on screen only: printing,
+   * export, OCR and compare always draw the original).
+   */
+  copy?: boolean;
+  /** Lower renders first; the viewer's own tiles are 0. */
+  priority?: number;
+}
+
+/** A rendered region and what drawing it cost. */
+export interface RenderResult {
+  bitmap: ImageBitmap;
+  /** Whole request, parse included. */
+  ms: number;
+  /** Parsing the page's content, when this render had to (0 when it was already parsed). */
+  parseMs: number;
+  /** Top-level objects on the page as drawn. */
+  objects: number;
+  /** Drawn from the optimised render copy. */
+  fromCopy: boolean;
+}
+
+/** A page drawn from the render copy and from the original, compared. */
+export interface CopyCheck {
+  /** Close enough: the page is drawn from the copy from now on. */
+  ok: boolean;
+  /** Share of pixels that differ noticeably. */
+  diff: number;
+  /** Drawing the page small, parsing aside (for one of them it may have been done already). */
+  originalMs: number;
+  copyMs: number;
+  /** Parsing the copy's page (the check is the first to): with the viewer's drawing time, what a first look at it costs. */
+  copyParseMs: number;
+  /** Top-level objects on the page. */
+  originalObjects: number;
+  copyObjects: number;
 }
 
 /** A bookmark from the PDF outline: its title, where it jumps, and its children. */
@@ -203,12 +239,20 @@ export type WorkerRequest =
   | ({ id: number; type: 'redact'; bytes: ArrayBuffer } & RedactRequest)
   | { id: number; type: 'textObjectAt'; docId: number; pageIndex: number; x: number; y: number }
   | { id: number; type: 'replaceText'; bytes: ArrayBuffer; pageIndex: number; index: number; text: string }
-  | { id: number; type: 'addText'; bytes: ArrayBuffer; pageIndex: number; x: number; y: number; text: string; size: number; color: [number, number, number] };
+  | { id: number; type: 'addText'; bytes: ArrayBuffer; pageIndex: number; x: number; y: number; text: string; size: number; color: [number, number, number] }
+  /** Stops renders (answered with RENDER_CANCELLED); this message itself gets no answer. */
+  | { id: number; type: 'cancel'; ids: number[] }
+  | { id: number; type: 'bytes'; docId: number }
+  | { id: number; type: 'setRenderCopy'; docId: number; bytes: ArrayBuffer | null; keepChecked?: boolean }
+  | { id: number; type: 'checkCopy'; docId: number; pageIndex: number };
 
 export type WorkerResponse =
   | { id: number; ok: true; type: 'open'; docId: number; pages: PageSize[] }
   | { id: number; ok: true; type: 'close' }
-  | { id: number; ok: true; type: 'render'; bitmap: ImageBitmap; ms: number }
+  | ({ id: number; ok: true; type: 'render' } & RenderResult)
+  | { id: number; ok: true; type: 'bytes'; bytes: ArrayBuffer }
+  | { id: number; ok: true; type: 'setRenderCopy' }
+  | { id: number; ok: true; type: 'checkCopy'; check: CopyCheck }
   | { id: number; ok: true; type: 'geometry'; segments: Float32Array; curves: Uint8Array; ms: number }
   | { id: number; ok: true; type: 'text'; words: TextWord[] }
   | { id: number; ok: true; type: 'annotations'; annotations: PdfAnnotation[] }
@@ -227,3 +271,6 @@ export type WorkerResponse =
 
 /** The error message when a PDF needs a (different) password to open. */
 export const NEEDS_PASSWORD = 'This PDF needs a password to open';
+
+/** The error a render (or render-copy check) is rejected with when it was cancelled. */
+export const RENDER_CANCELLED = 'Render cancelled';

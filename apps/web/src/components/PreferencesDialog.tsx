@@ -357,6 +357,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['continuousSideBySide', 'Continuous Side by Side'],
         ])}
         {num('maxZoom', 'Maximum Zoom', { min: 400, max: 12800, step: 100, unit: '%' })}
+        {select('optimiseDrawings', 'Optimise Slow Drawings', [
+          ['ask', 'Ask when a sheet is slow to draw'],
+          ['always', 'Always, without asking'],
+          ['never', 'Never'],
+        ])}
       </Grid>
     ),
     units: () => {

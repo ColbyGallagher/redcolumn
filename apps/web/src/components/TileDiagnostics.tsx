@@ -10,7 +10,7 @@ export function TileDiagnostics({ viewer }: { viewer: TileViewer }) {
   }, [viewer]);
   return (
     <div className="stats">
-      tile last/avg {d.lastTileMs.toFixed(0)}/{d.avgTileMs.toFixed(0)} ms · cached {d.cachedTiles} · queued {d.queuedTiles}
+      tile last/avg {d.lastTileMs.toFixed(0)}/{d.avgTileMs.toFixed(0)} ms · cached {d.cachedTiles} · queued {d.queuedTiles} · cancelled {d.cancelled}
     </div>
   );
 }

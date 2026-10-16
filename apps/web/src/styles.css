@@ -171,6 +171,39 @@ body,
   background: #7f1d1d;
 }
 
+/* Offer to draw slow sheets from an optimised copy, and its progress. */
+.slow-drawing {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  width: min(560px, calc(100% - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  transform: translateX(-50%);
+}
+
+.slow-drawing p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.slow-drawing progress {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.slow-drawing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .stats {
   position: absolute;
   right: 10px;

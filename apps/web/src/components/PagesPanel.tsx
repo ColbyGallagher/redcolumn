@@ -76,7 +76,8 @@ class ThumbnailQueue {
         const targetW = Math.min(Math.ceil(job.width * dpr), MAX_BITMAP);
         const scale = targetW / size.width;
         try {
-          const { bitmap } = await job.doc.renderTile(job.page, scale, 0, 0, Math.ceil(size.width * scale), Math.ceil(size.height * scale));
+          // Behind the view's own renders, and from the optimised copy where there is one.
+          const { bitmap } = await job.doc.renderTile(job.page, scale, 0, 0, Math.ceil(size.width * scale), Math.ceil(size.height * scale), { copy: true, priority: 1 });
           const prev = this.cache.get(key);
           if (prev) {
             prev.close();

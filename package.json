@@ -8,6 +8,7 @@
     "build": "pnpm --filter @nb/web build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "desktop": "node scripts/desktop.mjs"
+    "desktop": "node scripts/desktop.mjs",
+    "bench:render": "node --experimental-transform-types --no-warnings --import ./apps/web/test/resolve-ts.mjs scripts/render-bench.mjs"
   }
 }
