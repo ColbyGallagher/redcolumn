@@ -19,6 +19,9 @@ let builder: RenderCopyBuilder | null = null;
 const post = (msg: RenderCopyResponse, transfer: Transferable[] = []) => self.postMessage(msg, transfer);
 
 self.onmessage = async (e: MessageEvent<RenderCopyRequest>) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored.
+  if (e.origin && e.origin !== self.location.origin) return;
   const req = e.data;
   try {
     if (req.type === 'load') {

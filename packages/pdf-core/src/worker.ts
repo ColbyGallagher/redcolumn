@@ -1900,6 +1900,9 @@ function job<T>(id: number, docId: number, priority: number, preemptible: boolea
 const cancelledById = new Set<number>();
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored.
+  if (e.origin && e.origin !== self.location.origin) return;
   const req = e.data;
   switch (req.type) {
     case 'cancel':
