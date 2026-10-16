@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocum
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
@@ -22,6 +22,7 @@ import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
+import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
 import { parseProjectKey, rememberProjectKey } from './studio/crypto/sealedDrive';
@@ -142,12 +143,13 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
@@ -565,7 +567,8 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
-const narrowScreen = () => !!window.matchMedia?.('(max-width: 1000px)').matches;
+const NARROW_QUERY = '(max-width: 1000px)';
+const narrowScreen = () => !!window.matchMedia?.(NARROW_QUERY).matches;
 
 type DockSide = 'left' | 'right';
 
@@ -705,6 +708,10 @@ const authorizeMicrosoft = async () => {
   await signInWithMicrosoft();
 };
 const microsoftEmail = () => microsoftUser()?.email ?? null;
+/** Sessions in a shared folder on this computer sign in to nothing: the sync client moves the files. */
+const noSignIn = async () => {};
+/** Whether Live Sessions can live in a shared folder on this computer (the desktop app only). */
+const folderSessionsAvailable = () => !!desktop()?.folder;
 
 function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
   const doc = studioDocOf(o.file.id);
@@ -840,6 +847,16 @@ export function App() {
   const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
+  // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
+  const [narrow, setNarrow] = useState(narrowScreen);
+  useEffect(() => {
+    const mq = window.matchMedia?.(NARROW_QUERY);
+    if (!mq) return;
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   /** Split Horizontal: the second pane below the first rather than beside it. */
@@ -1422,6 +1439,8 @@ export function App() {
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal);
         }
+        // Documents imported before maps were read: read the file for them once.
+        if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
         if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, report, signal);
       }),
@@ -3872,6 +3891,10 @@ export function App() {
         }
         const { holder, onRemoved } = removedHandler();
         holder.id = ref.id;
+        if (ref.backend === 'folder') {
+          enterStudio(await DriveSession.join(new SessionFolderDrive(), ref.id, authorRef.current, { authorize: noSignIn, onRemoved, interactive }));
+          return;
+        }
         if (interactive) await signInWithMicrosoft();
         const join = () => DriveSession.join(oneDriveApi, ref.id, authorRef.current, { authorize: authorizeMicrosoft, onRemoved, interactive, email: microsoftEmail(), identify: microsoftEmail });
         let session: DriveSession;
@@ -3894,6 +3917,12 @@ export function App() {
       }),
     [runStudio, enterStudio],
   );
+
+  /** Joins a session kept in a shared folder the person picks on this computer. False if they cancel or it fails. */
+  const joinFolderStudio = useCallback(async (): Promise<boolean> => {
+    const picked = await desktop()?.folder.pick('session-open');
+    return picked ? joinStudio({ backend: 'folder', id: picked.id }) : false;
+  }, [joinStudio]);
 
   /** The bytes of a document offered to a new session, and the markups already on it. */
   const documentSourceBytes = useCallback(
@@ -3947,10 +3976,31 @@ export function App() {
 
   /** Starts a session from the Start dialog: creates it, invites people, and adds its documents. */
   const startStudio = useCallback(
-    (req: StartRequest) =>
-      runStudio(async () => {
+    async (req: StartRequest) => {
+      let cancelled = false;
+      const ok = await runStudio(async () => {
         const { holder, onRemoved } = removedHandler();
         const permissions = { markup: canAddMarkups(req.access.default), addDocuments: req.addDocuments, saveCopy: req.saveCopy, invite: req.invite };
+        if (req.backend === 'folder') {
+          // The host picks a folder everyone can reach; the session gets its own folder inside it.
+          const parent = await desktop()?.folder.pick('session-create');
+          if (!parent) {
+            cancelled = true;
+            return;
+          }
+          const session = await DriveSession.create(new SessionFolderDrive(parent.id), req.name, authorRef.current, permissions, {
+            authorize: noSignIn,
+            onRemoved,
+            linkCanEdit: false,
+            access: req.access,
+            expiresAt: req.expiresAt,
+            encrypt: false,
+          });
+          holder.id = session.id;
+          enterStudio(session);
+          await addToStudio(session.id, req.documents);
+          return;
+        }
         await signInWithMicrosoft();
         const create = () =>
           DriveSession.create(oneDriveApi, req.name, authorRef.current, permissions, {
@@ -3977,7 +4027,9 @@ export function App() {
         const emails = req.access.people.map((p) => p.name).filter(isEmail);
         if (session.invite && emails.length) await session.invite(emails);
         await addToStudio(session.id, req.documents);
-      }),
+      });
+      return ok && !cancelled;
+    },
     [runStudio, enterStudio, addToStudio],
   );
 
@@ -5894,6 +5946,7 @@ export function App() {
     const count = o.doc.pages.length;
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
+    const geo = geoAt(o.store.allGeoRegions(), page, pt);
     return [
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
       { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
@@ -5901,6 +5954,7 @@ export function App() {
       SEP,
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
       { label: 'Select All Markups', shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
+      ...(geo ? [{ label: 'Copy Coordinates', onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
       SEP,
       { label: 'Previous View', shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
       { label: 'Previous Page', shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
@@ -6087,7 +6141,9 @@ export function App() {
             ],
           },
       sessionDoc
-        ? { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
+        ? snap?.backend === 'folder'
+          ? { label: 'Show Session Folder', onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
+          : { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
         : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
@@ -7591,6 +7647,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
             library={library.map((f) => ({ id: f.id, name: f.name }))}
             oneDriveAvailable={oneDriveConfigured}
+            folderAvailable={folderSessionsAvailable()}
+            onJoinFolder={folderSessionsAvailable() ? joinFolderStudio : undefined}
+            onShowFolder={(id) => void desktop()?.folder.show(id).catch((err) => setStudioError(err instanceof Error ? err.message : String(err)))}
             invite={studioInvite}
             onDismissInvite={() => setStudioInvite(null)}
             onStart={startStudio}
@@ -7697,6 +7756,85 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       </aside>
     );
   };
+
+  // The Markups list sits beside the side panels, or spans the window below them.
+  const bottomDock = (
+    <aside className="bottom-dock" style={{ height: dockHeight }}>
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
+      <div className="tabs">
+        <button
+          type="button"
+          className="dock-width-toggle"
+          title={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          aria-label={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          aria-pressed={dockFull}
+          onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.6" d={dockFull ? 'M1 4l4 4-4 4M15 4l-4 4 4 4M8 2v12' : 'M5 4 1 8l4 4M11 4l4 4-4 4M1 8h14'} />
+          </svg>
+        </button>
+        <div className="dock-tablist" role="tablist">
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'markups'}
+            className={bottomTab === 'markups' ? 'active' : ''}
+            onClick={() => setBottomTab('markups')}
+          >
+            Markups
+          </button>
+          <button
+            role="tab"
+            aria-selected={bottomTab === 'links'}
+            className={bottomTab === 'links' ? 'active' : ''}
+            onClick={() => setBottomTab('links')}
+          >
+            Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+          </button>
+        </div>
+        <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
+          ×
+        </button>
+      </div>
+      <div className="dock-body">
+        {bottomTab === 'links' ? (
+          <LinksPanel
+            links={links}
+            sheets={sheets}
+            currentPage={pageIndex}
+            showLinks={toolsState.showLinks}
+            busy={indexing}
+            onShowLinks={(show) => activeTools?.setShowLinks(show)}
+            onReveal={(l) => navigate(l.pageIndex, l.rect)}
+            onFollow={(l) => navigate(l.targetPage, l.targetRect)}
+            onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
+            onRedetect={() => void redetectLinks()}
+          />
+        ) : (
+          <MarkupList
+            markups={markups}
+            store={activeOpen?.store ?? null}
+            scaleOf={scaleOf}
+            sheets={sheets}
+            columnSet={columnSet}
+            readOnly={!activeOpen || activeReadOnly}
+            selected={toolsState.selected}
+            onSelect={selectRowsFromList}
+            onReply={onListReply}
+            onRowMenu={onListRowMenu}
+            onManageColumns={onManageColumns}
+            onExport={onExportList}
+            onSync={() => setSyncOpen(true)}
+            syncing={!!sheetSync.link}
+            syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+            onFiltered={setListKept}
+            allHidden={allMarkupsHidden}
+            onToggleAllHidden={toggleAllMarkupsHidden}
+          />
+        )}
+      </div>
+    </aside>
+  );
 
   return (
     <div
@@ -7992,68 +8130,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
-          {showBottom && (
-            <aside className="bottom-dock" style={{ height: dockHeight }}>
-              <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
-              <div className="tabs" role="tablist">
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'markups'}
-                  className={bottomTab === 'markups' ? 'active' : ''}
-                  onClick={() => setBottomTab('markups')}
-                >
-                  Markups
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={bottomTab === 'links'}
-                  className={bottomTab === 'links' ? 'active' : ''}
-                  onClick={() => setBottomTab('links')}
-                >
-                  Links{links.some((l) => l.status === 'review') ? ' •' : ''}
-                </button>
-                <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
-                  ×
-                </button>
-              </div>
-              <div className="dock-body">
-                {bottomTab === 'links' ? (
-                  <LinksPanel
-                    links={links}
-                    sheets={sheets}
-                    currentPage={pageIndex}
-                    showLinks={toolsState.showLinks}
-                    busy={indexing}
-                    onShowLinks={(show) => activeTools?.setShowLinks(show)}
-                    onReveal={(l) => navigate(l.pageIndex, l.rect)}
-                    onFollow={(l) => navigate(l.targetPage, l.targetRect)}
-                    onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
-                    onRedetect={() => void redetectLinks()}
-                  />
-                ) : (
-                  <MarkupList
-                    markups={markups}
-                    store={activeOpen?.store ?? null}
-                    scaleOf={scaleOf}
-                    sheets={sheets}
-                    columnSet={columnSet}
-                    readOnly={!activeOpen || activeReadOnly}
-                    selected={toolsState.selected}
-                    onSelect={selectRowsFromList}
-                    onReply={onListReply}
-                    onRowMenu={onListRowMenu}
-                    onManageColumns={onManageColumns}
-                    onExport={onExportList}
-                    onSync={() => setSyncOpen(true)}
-                    syncing={!!sheetSync.link}
-                    onFiltered={setListKept}
-                    allHidden={allMarkupsHidden}
-                    onToggleAllHidden={toggleAllMarkupsHidden}
-                  />
-                )}
-              </div>
-            </aside>
-          )}
+          {showBottom && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
           <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
@@ -8061,10 +8138,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
       </div>
+      {showBottom && dockFull && bottomDock}
       <StatusBar
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}
         scaleFor={(pageIndex) => activeOpen?.store.scaleFor(pageIndex) ?? null}
+        geoRegions={() => activeOpen?.store.allGeoRegions() ?? []}
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
         onOpenSettings={(category, tab) => {
@@ -9014,7 +9093,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           status={sheetSync.status}
           rowCount={Math.max(0, syncTable.length - 1)}
           oneDriveAvailable={oneDriveConfigured}
+          localExcelAvailable={!!localExcel()}
           onConnect={(title) => void sheetSync.connect(title, syncTable)}
+          onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
+          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
+          onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}

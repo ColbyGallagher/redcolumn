@@ -39,6 +39,7 @@ export {
   type TreePos,
 } from './bookmarks';
 export { markupAnchor, scaleOfMarkup, viewportAt, type Viewport } from './viewports';
+export { importGeoRegions, isGeoViewport, projectionOfWkt } from './geo';
 export { isSpace, spaceName, spaceOf, spacePath, spacesContaining, spaceTree } from './spaces';
 export { legendRows, legendSymbol, type LegendRow } from './legend';
 export {

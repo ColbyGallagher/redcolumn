@@ -32,6 +32,7 @@ Drag a panel back to the left rail to move it back. You can also right-click a p
 
 - Drag the edge between the side panel and the drawing to make the panel wider or narrower.
 - Drag the top edge of the bottom panel up or down.
+- Click the double arrow at the left of the bottom panel's tabs to stretch it across the full width, under the side panels. Click it again to fit it back between them.
 - Click **Collapse** at the top of the rail to show only icons.
 
 > **Tip:** Panel choices, including which side each panel is docked on, are saved in your [profile](#profiles).

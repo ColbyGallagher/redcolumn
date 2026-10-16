@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
-import { DEFAULT_SCALE, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mapGeometry, type Markup, type Point } from './model';
@@ -45,8 +45,11 @@ export interface ImportedExtras {
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
   spaces?: Record<number, number[]>;
+  /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
+  geo?: GeoRegion[];
 }
 const NO_STITCH: StoredStitchGroup[] = [];
+const NO_GEO: GeoRegion[] = [];
 
 /** The file contents markups belong to, as recorded for undo. */
 export interface FileState {
@@ -130,6 +133,7 @@ export class MarkupStore {
   private bookmarkSnapshot: Bookmark[] = [];
   private placeSnapshot: Place[] = [];
   private viewportSnapshot: Viewport[] = [];
+  private geoSnapshot: GeoRegion[] = NO_GEO;
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private locked = false;
@@ -247,6 +251,7 @@ export class MarkupStore {
     if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()];
     if (has(this.meta)) {
       this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
+      this.geoSnapshot = (this.meta.get('geo') as GeoRegion[] | undefined) ?? NO_GEO;
       const raw = this.meta.get('columns');
       if (raw !== this.columnRaw) {
         this.columnRaw = raw;
@@ -315,6 +320,25 @@ export class MarkupStore {
   /** The scale a markup is measured at: its viewport's, else its page's. */
   scaleOf(m: Pick<Markup, 'points' | 'pageIndex'>): Scale {
     return scaleOfMarkup(m, this.scaleFor(m.pageIndex), this.viewportSnapshot);
+  }
+
+  /** The file's map registrations (geospatial PDFs), stable until the next change. */
+  allGeoRegions(): GeoRegion[] {
+    return this.geoSnapshot;
+  }
+
+  /** Whether the file was read for map registrations (documents imported before that was read). */
+  geoChecked(): boolean {
+    return this.meta.get('geoChecked') === true;
+  }
+
+  /** Records the file's map registrations, read from its bytes. */
+  setGeoRegions(regions: GeoRegion[]) {
+    if (this.locked) return;
+    this.doc.transact(() => {
+      this.meta.set('geo', regions);
+      this.meta.set('geoChecked', true);
+    }, DETECTION);
   }
 
   /** Every viewport (stable until the next change). */
@@ -546,6 +570,10 @@ export class MarkupStore {
       }
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
+      if (extras.geo) {
+        this.meta.set('geo', extras.geo);
+        this.meta.set('geoChecked', true);
+      }
       this.meta.set('annotationsImported', true);
     }, DETECTION);
   }
@@ -615,6 +643,13 @@ export class MarkupStore {
         if (n === null) this.viewports.delete(id);
         else this.viewports.set(id, { ...v, pageIndex: n, rect: turnRect(v.pageIndex, v.rect) });
       }
+      if (this.meta.has('geo'))
+        this.meta.set('geo', this.geoSnapshot.flatMap((g) => {
+          const n = to(g.pageIndex);
+          if (n === null) return [];
+          const p = (q: readonly [number, number]) => turn(g.pageIndex, q);
+          return [{ ...g, pageIndex: n, bounds: g.bounds.map(p), points: g.points.map((c) => ({ ...c, at: p(c.at) })) }];
+        }));
       if (this.outline.has('bookmarks')) this.outline.set('bookmarks', remapBookmarks(this.bookmarkSnapshot, to, turnRect));
       if (this.outline.has('places'))
         this.outline.set('places', this.placeSnapshot.flatMap((p) => {
@@ -660,6 +695,8 @@ export class MarkupStore {
         this.links.set(id, { ...l, rect: rect(l.pageIndex, l.rect), targetRect: rectOrNull(l.targetPage, l.targetRect) });
       }
       for (const [id, v] of [...this.viewports.entries()]) if (transforms.has(v.pageIndex)) this.viewports.set(id, { ...v, rect: rect(v.pageIndex, v.rect) });
+      if (this.geoSnapshot.some((g) => transforms.has(g.pageIndex)))
+        this.meta.set('geo', this.geoSnapshot.map((g) => (transforms.has(g.pageIndex) ? { ...g, bounds: g.bounds.map((q) => pt(g.pageIndex, q)), points: g.points.map((c) => ({ ...c, at: pt(g.pageIndex, c.at) })) } : g)));
       if (this.outline.has('bookmarks')) {
         // Point destinations (w = h = 0) move like areas.
         const walk = (list: Bookmark[]): Bookmark[] => list.map((b) => ({ ...b, rect: rectOrNull(b.pageIndex, b.rect), children: walk(b.children) }));
@@ -672,19 +709,23 @@ export class MarkupStore {
 
   /**
    * Forgets which of the PDF's own annotations were imported on these pages (their pages were
-   * replaced, so the old /Annots indices no longer apply).
+   * replaced, so the old /Annots indices no longer apply), and the maps registered on them.
    */
   forgetImported(pages: Iterable<number>) {
     if (this.locked) return;
     const imported = { ...this.importedAnnotations() };
     const spaces = { ...this.importedSpaces() };
-    for (const p of pages) {
+    const replaced = new Set(pages);
+    for (const p of replaced) {
       delete imported[p];
       delete spaces[p];
     }
     this.doc.transact(() => {
       this.meta.set('importedAnnotations', imported);
       this.meta.set('importedSpaces', spaces);
+      // The new pages may be maps of their own: read the file again for them.
+      if (this.meta.has('geo')) this.meta.set('geo', this.geoSnapshot.filter((g) => !replaced.has(g.pageIndex)));
+      this.meta.delete('geoChecked');
     }, DETECTION);
   }
 

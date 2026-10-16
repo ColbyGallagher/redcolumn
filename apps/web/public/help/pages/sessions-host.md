@@ -9,11 +9,27 @@
    ![Start a New Session](img/session-start.png)
    - Type a **Session name**, for example *Level 2 coordination*.
    - The session is a shared folder in your OneDrive. Sign in with Microsoft when asked.
+   - In the desktop app, you can choose **Where the session lives**. Pick **A shared folder on this computer** to keep it in a folder that everyone can already reach (see below).
    - Choose the **Options**: whether attendees who can comment may add documents, may save copies, and may invite others.
    - Optional: set when the session **Closes**.
 4. Click **Next**. On the **Documents** tab, tick the PDFs to share.
 5. Click **Next**. On the **Attendees** tab, add people by email and choose what each may do (see below).
 6. Click **Start session**.
+
+## In a shared folder on this computer
+
+Use this when your team already shares a folder: a OneDrive, SharePoint or Teams folder synced to everyone's PC, a Dropbox folder, or a folder on a network drive. It needs the desktop app.
+
+1. In **Where the session lives**, choose **A shared folder on this computer**, then click **Choose folder and start**.
+2. Pick the shared folder. redcolumn makes a folder for the session inside it, named after the session.
+3. Tell attendees where it is. They open it with **Join…** › **Open the session folder on this computer…**.
+
+Good to know:
+
+- Nobody signs in. Anyone who can open the folder can join, so who gets in depends on who the folder is shared with. **Attendees** only sets what each person may do once they are in.
+- Changes appear as fast as the sync app copies files. That is usually a few seconds, and can be longer.
+- There is no invite link and no end-to-end encryption. **Show session folder** opens the folder in File Explorer or Finder.
+- **End session…** moves the session folder to your Recycle Bin. Only the person who started the session, on the computer they started it from, can end it.
 
 ## Who can do what
 

@@ -481,6 +481,16 @@ them feel like a fast shared review, not a live one. Label them **Shared folder 
 as your sync client syncs)**. A faster direct connection between computers can come later (see
 open questions).
 
+*Built (desktop app):* `SessionFolderDrive` (`studio/drive/folder.ts`) runs a `DriveSession` on a
+folder the host picks. Two differences from Projects:
+
+- The main process's IDs are per computer, but a session's file IDs travel (room files are named
+  after seats, and documents are rooms and manifest entries by ID). Inside the session folder a
+  file is known to the page by a hash of its name instead, which is the same on every computer.
+- No end-to-end encryption and no invite link: whoever shares the folder decides who gets in.
+  `.nbseat`, `.nbsnap` and `.nbdelta` are allowed file types. **End session** moves the folder to
+  the recycle bin (`shell.trashItem`), and only when it holds a `session.json` this install wrote.
+
 **Browser version.** The same `FolderDrive` can run in Chrome and Edge through the File System
 Access API, which the app already uses for exports. It is not available in Firefox or Safari, or
 on iPad. Electron first, then the browser if it proves useful.

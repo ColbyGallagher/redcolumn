@@ -115,7 +115,7 @@ test('a categories file is read with its decoded name, and written back so Revu 
 
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder to read its own files.
 const dir = process.env.REVU_SETTINGS_DIR;
-test("Revu's Construction.xml is the built-in template, and its categories read", { skip: !dir }, () => {
+test("Revu's Construction.xml is the built-in template, and its categories read", { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, () => {
   const t = parseBookmarkTemplate(readFileSync(`${dir}/Construction.xml`, 'utf8'), 'Construction Documents');
   assert.deepEqual(t, DEFAULT_BOOKMARK_TEMPLATE);
   const c = parseCategoriesXml(readFileSync(`${dir}/Categories/Construction.xml`, 'utf8'));

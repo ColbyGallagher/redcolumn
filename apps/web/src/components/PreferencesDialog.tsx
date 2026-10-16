@@ -310,6 +310,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['end', 'End'],
         ])}
         <C>{check('crosshair', 'Show Full-Screen Crosshair')}</C>
+        {select('geoFormat', 'Map Coordinates', [
+          ['decimal', 'Decimal Degrees'],
+          ['dms', 'Degrees, Minutes, Seconds'],
+        ])}
         {L('Open PDF on Startup', 'startupFile')}
         <span className="pref-row">
           <select aria-label="Open PDF on Startup" value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>

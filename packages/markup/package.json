@@ -7,7 +7,8 @@
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc -p .",
-    "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts"
+    "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts test/compat/matrix.test.ts",
+    "compat": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/run.ts"
   },
   "dependencies": {
     "@nb/measure": "workspace:*",

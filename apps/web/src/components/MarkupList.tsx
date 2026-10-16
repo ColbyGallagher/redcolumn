@@ -45,6 +45,8 @@ interface Props {
   onSync?: () => void;
   /** Whether it is already syncing, shown on the button. */
   syncing?: boolean;
+  /** Why the last write to the workbook failed, shown on the button until one succeeds. */
+  syncError?: string | null;
   /** The markups the filter keeps (null when not filtering), so the page can dim or hide the rest. */
   onFiltered?: (kept: ReadonlySet<string> | null) => void;
   /** Whether every markup is hidden on the page (the list's Hide All button), and its toggle. */
@@ -145,6 +147,12 @@ function CommentCell({ value, disabled, wrap, onSave }: { value: string; disable
 /** A list line's React key, also used to keep its measured height. */
 const lineKey = (l: Line) => (l.kind === 'group' ? `group:${l.label}` : l.kind === 'reply' ? `${l.m.id}:${l.reply.id}` : l.row.markup.id);
 
+/**
+ * What the list is showing beyond the profile's settings. There is one list, and it is remounted when the
+ * Markups panel moves between full width and beside the side panels, so this keeps its place across that.
+ */
+const kept = { query: '', folded: new Set<string>() as ReadonlySet<string>, closed: new Set<string>() as ReadonlySet<string>, scrollTop: 0 };
+
 const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWorkspace((s) => ({ ...s, list: fn(s.list) }));
 
 /**
@@ -154,7 +162,7 @@ const editList = (fn: (l: MarkupListSettings) => MarkupListSettings) => updateWo
  * saved by name and are kept in the profile.
  */
 export const MarkupList = memo(function MarkupList(props: Props) {
-  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, allHidden, onToggleAllHidden } = props;
+  const { markups: allMarkups, store, scaleOf, sheets, columnSet, readOnly, selected, onSelect, onReply, onRowMenu, onManageColumns, onExport, onSync, syncing, syncError, allHidden, onToggleAllHidden } = props;
   const prefs = useSettings();
   const ws = useWorkspace();
   const settings = ws.list;
@@ -163,16 +171,16 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const spaces = useMemo(() => allMarkups.filter((m) => m.type === 'space'), [allMarkups]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: () => MenuEntry[] } | null>(null);
   /** The search box: markups whose content contains this text. */
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => kept.query);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<{ key: string; after: boolean } | null>(null);
   const resizing = useRef(false);
   const body = useRef<HTMLTableSectionElement>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   /** Groups folded shut, by label. */
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const [folded, setFolded] = useState(() => kept.folded);
   /** Comment threads folded shut: `m:<markup id>` or `r:<reply id>`. */
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  const [closed, setClosed] = useState(() => kept.closed);
   /** The reply row the list is acting on (reply, delete). */
   const [activeReply, setActiveReply] = useState<{ markupId: string; replyId: string } | null>(null);
   /** The row a Shift+click extends from. */
@@ -244,6 +252,18 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const statusLines = settings.statusHistory !== 'latest' || settings.statusDetails !== false;
   const wrap = (settings.wrapComments !== false && visible.some((c) => c.key === 'comment')) || (statusLines && visible.some((c) => c.key === 'status'));
   const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    kept.query = query;
+    kept.folded = folded;
+    kept.closed = closed;
+  }, [query, folded, closed]);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollTop = kept.scrollTop;
+    return () => {
+      if (el) kept.scrollTop = el.scrollTop;
+    };
+  }, []);
   const [rowH, setRowH] = useState(0);
   const h = rowH || ROW_GUESS;
   /** Measured heights of wrapped rows, by line key. */
@@ -805,8 +825,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           Export…
         </button>
         {onSync && (
-          <button className="btn small" disabled={!markups.length && !syncing} onClick={onSync} title="Keep this list in an Excel workbook in OneDrive, updated as markups change">
-            {syncing ? 'Syncing ✓' : 'Sync…'}
+          <button
+            className={`btn small${syncing && syncError ? ' sync-failed' : ''}`}
+            disabled={!markups.length && !syncing}
+            onClick={onSync}
+            title={syncing && syncError ? `Excel sync stopped: ${syncError} Click to reconnect.` : 'Keep this list in an Excel workbook, updated as markups change'}
+          >
+            {!syncing ? 'Sync to Excel…' : syncError ? 'Sync to Excel ⚠' : 'Sync to Excel ✓'}
           </button>
         )}
       </div>
