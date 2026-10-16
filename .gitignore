@@ -7,3 +7,6 @@ release/
 samples/
 reference-data/
 scripts/help/failed-*.png
+e2e/test-results/
+e2e/playwright-report/
+apps/web/dist-e2e/

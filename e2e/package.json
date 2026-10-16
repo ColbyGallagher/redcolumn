@@ -1,0 +1,21 @@
+{
+  "name": "@nb/e2e",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests: every command and tool, driven in Chromium and in the Electron app",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "fixtures": "node fixtures/make-fixtures.mjs",
+    "e2e": "playwright test",
+    "e2e:web": "playwright test --project=web",
+    "e2e:desktop": "node support/build-desktop.mjs && playwright test --project=desktop"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^26.6.1",
+    "pdf-lib": "^1.17.1",
+    "typescript": "5.9.3"
+  }
+}

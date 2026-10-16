@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocum
 import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canOffset, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatMeasure, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
@@ -143,7 +143,7 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, fromOtherTools, importPdfAnnotations, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -155,7 +155,7 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
-import type { AssistantDocument } from './desktop/assistant';
+import { assistantCall, type AssistantDocument } from './desktop/assistant';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -225,6 +225,9 @@ function hasUnsavedChanges(t: OpenFile) {
 
 /** Pages longer than tabloid (17 in) are drawings, shown a sheet at a time; smaller ones scroll. */
 const DRAWING_PAGE_PT = 17 * 72;
+
+/** The window.__nb handle for the console and the end-to-end tests (e2e/): development and VITE_E2E builds only. */
+const TEST_HOOK = import.meta.env.DEV || import.meta.env.VITE_E2E === '1';
 
 /** Preferences › Document › Page Layout, for a document shown for the first time this session. */
 function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
@@ -1237,8 +1240,21 @@ export function App() {
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
-    // Debugging handle for the browser console in development builds.
-    if (import.meta.env.DEV) Object.assign(window, { __nb: { engine, viewer, tools } });
+    // Debugging handle for the browser console and the end-to-end tests. `commands` are the live
+    // commands by id; `assistant` answers the MCP tools (list_markups, get_page...) without asking.
+    if (TEST_HOOK)
+      Object.assign(window, {
+        __nb: {
+          engine,
+          viewer,
+          tools,
+          commands: () => commandsRef.current,
+          assistant: (method: string, params: unknown) => {
+            const env = assistantRuntime.current;
+            return assistantCall(env.documents(), method, params, { ...env, confirm: async () => true });
+          },
+        },
+      });
     return () => {
       tools.dispose();
       viewer.destroy();
@@ -1445,6 +1461,8 @@ export function App() {
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal);
         }
+        // Documents imported before maps were read: read the file for them once.
+        if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
         if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, report, signal);
       }),
@@ -5963,6 +5981,7 @@ export function App() {
     const count = o.doc.pages.length;
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
+    const geo = geoAt(o.store.allGeoRegions(), page, pt);
     return [
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
       { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
@@ -5970,6 +5989,7 @@ export function App() {
       SEP,
       { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
       { label: 'Select All Markups', shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
+      ...(geo ? [{ label: 'Copy Coordinates', onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
       SEP,
       { label: 'Previous View', shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
       { label: 'Previous Page', shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
@@ -8164,6 +8184,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}
         scaleFor={(pageIndex) => activeOpen?.store.scaleFor(pageIndex) ?? null}
+        geoRegions={() => activeOpen?.store.allGeoRegions() ?? []}
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
         onOpenSettings={(category, tab) => {
