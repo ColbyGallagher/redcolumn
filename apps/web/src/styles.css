@@ -1824,6 +1824,22 @@ select[size] {
   cursor: ns-resize;
 }
 
+/* The collapsed Markups list's edge: click it to open the list again. */
+.dock-edge {
+  flex: none;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  cursor: n-resize;
+}
+
+.dock-edge:hover,
+.dock-edge:focus-visible {
+  background: var(--accent);
+}
+
 .dock-body {
   flex: 1;
   min-height: 0;

@@ -809,22 +809,27 @@ export function App() {
   const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
   const [rightWidth, setRightWidth] = useState(360);
-  // The rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
-  const [railLabels, setRailLabels] = useState(() => {
-    try {
-      return localStorage.getItem('nb.railLabels') !== '0';
-    } catch {
-      return true;
-    }
-  });
-  const toggleRailLabels = () =>
-    setRailLabels((on) => {
+  // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
+  const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
+  const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
+    const read = (side: DockSide) => {
       try {
-        localStorage.setItem('nb.railLabels', on ? '0' : '1');
+        return localStorage.getItem(railLabelsKey(side)) !== '0';
+      } catch {
+        return true;
+      }
+    };
+    return { left: read('left'), right: read('right') };
+  });
+  const toggleRailLabels = (side: DockSide) =>
+    setRailLabels((labels) => {
+      const on = labels[side];
+      try {
+        localStorage.setItem(railLabelsKey(side), on ? '0' : '1');
       } catch {
         /* storage off limits: the choice lasts for this session */
       }
-      return !on;
+      return { ...labels, [side]: !on };
     });
   const ws = useWorkspace();
   const { profiles: profileList, activeId: activeProfileId } = useProfiles();
@@ -844,6 +849,12 @@ export function App() {
   const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
+  // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
+  const [dockOpen, setDockOpen] = useState(true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  useEffect(() => {
+    if (showBottom) setDockOpen(true);
+  }, [showBottom]);
   // On narrow screens the list is a drawer over the drawing, so it stays inside the workspace.
   const [narrow, setNarrow] = useState(narrowScreen);
   useEffect(() => {
@@ -5282,6 +5293,7 @@ export function App() {
   const showBottomPanel = (tab: BottomTab) => {
     setBottomTab(tab);
     setShowBottom(true);
+    setDockOpen(true);
   };
 
   const downloadCsv = (csv: string) => {
@@ -5292,16 +5304,20 @@ export function App() {
 
   const currentPageOps = () => [v?.currentPageIndex ?? pageIndex];
 
+  /** Dragging the Markups list's top edge resizes it; clicking the edge without dragging collapses it. */
   const onDockSplit = (e: { preventDefault(): void; clientY: number }) => {
     e.preventDefault();
     const startY = e.clientY;
     const startH = dockHeight;
+    let dragged = false;
     const move = (ev: PointerEvent) => {
-      setDockHeight(Math.max(80, Math.min(window.innerHeight * 0.5, startH + (startY - ev.clientY))));
+      if (Math.abs(ev.clientY - startY) > 3) dragged = true;
+      if (dragged) setDockHeight(Math.max(80, Math.min(window.innerHeight * 0.5, startH + (startY - ev.clientY))));
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      if (!dragged) setDockOpen(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -7233,24 +7249,27 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const panelRail = (side: DockSide, items: typeof RAIL) => {
     const shown = side === 'left' ? leftOpen : rightOpen;
     const open = shown ? (side === 'left' ? leftTab : rightTab) : null;
+    const labelled = railLabels[side];
+    // The chevron points toward the window edge to collapse the rail, and away from it to expand.
+    const pointsLeft = labelled === (side === 'left');
     return (
     <nav
-      className={['rail', side, railLabels ? 'labelled' : '', railDrag?.side === side && !railDrag.over ? 'drop-target' : ''].filter(Boolean).join(' ')}
+      className={['rail', side, labelled ? 'labelled' : '', railDrag?.side === side && !railDrag.over ? 'drop-target' : ''].filter(Boolean).join(' ')}
       aria-label={side === 'left' ? 'Panels' : 'Right panels'}
       onDragOver={(e) => dragOverSide(e, side)}
       onDrop={(e) => dropOnSide(e, side)}
     >
-      {side === 'left' && (
+      {(side === 'left' || items.length > 0) && (
       <button
         type="button"
         className="rail-toggle"
-        title={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
-        aria-label={railLabels ? 'Collapse the panel names' : 'Show the panel names'}
-        aria-pressed={railLabels}
-        onClick={toggleRailLabels}
+        title={labelled ? 'Collapse the panel names' : 'Show the panel names'}
+        aria-label={labelled ? 'Collapse the panel names' : 'Show the panel names'}
+        aria-pressed={labelled}
+        onClick={() => toggleRailLabels(side)}
       >
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-          <path fill="none" stroke="currentColor" strokeWidth="1.6" d={railLabels ? 'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
+          <path fill="none" stroke="currentColor" strokeWidth="1.6" d={pointsLeft ?'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
         </svg>
         <span className="rail-label">Collapse</span>
       </button>
@@ -7738,9 +7757,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   };
 
   // The Markups list sits beside the side panels, or spans the window below them.
-  const bottomDock = (
+  const bottomDock = !dockOpen ? (
+    <button type="button" className="dock-edge" aria-label="Open the Markups list" title="Open the Markups list" onClick={() => setDockOpen(true)} />
+  ) : (
     <aside className="bottom-dock" style={{ height: dockHeight }}>
-      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" onPointerDown={onDockSplit} />
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" title="Drag to resize, click to collapse" onPointerDown={onDockSplit} />
       <div className="tabs">
         <button
           type="button"
