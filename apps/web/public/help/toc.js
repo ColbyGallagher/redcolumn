@@ -164,6 +164,7 @@ window.HELP_TOC = [
       { id: 'markups-list', title: 'The Markups list' },
       { id: 'list-filter', title: 'Search, filter and sort' },
       { id: 'list-columns', title: 'Columns and custom columns' },
+      { id: 'formulas', title: 'Formulas' },
       { id: 'list-status', title: 'Statuses' },
       { id: 'list-group', title: 'Group and total' },
       { id: 'list-export', title: 'Export the list (CSV, summary)' },

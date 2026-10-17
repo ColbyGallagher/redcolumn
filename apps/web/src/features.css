@@ -5806,6 +5806,7 @@ tr.hidden-markup td {
 }
 
 .asm-table {
+  align-self: flex-start;
   border-collapse: collapse;
 }
 
@@ -5836,19 +5837,70 @@ tr.hidden-markup td {
 }
 
 .asm-items td:first-child input {
-  width: 150px;
+  width: 130px;
 }
 
 .asm-formula {
   width: 100%;
 }
 
-.asm-formula input {
+.modal.columns-dialog.assemblies-dialog {
+  width: min(1400px, calc(100vw - 32px));
+}
+
+.assemblies-dialog .columns-body {
+  grid-template-columns: 240px 1fr;
+}
+
+.asm-items td {
+  vertical-align: top;
+}
+
+.asm-formula textarea {
+  display: block;
   box-sizing: border-box;
   width: 100%;
-  min-width: 200px;
+  min-width: 180px;
+  height: 28px;
+  padding: 5px 8px;
+  overflow: hidden;
+  resize: none;
+  line-height: 16px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.asm-syntax {
+  margin: 2px 0 4px;
+  font-size: 12px;
+}
+
+.asm-syntax summary {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.asm-syntax p {
+  margin: 6px 0;
+}
+
+.asm-syntax table {
+  border-collapse: collapse;
+  margin: 4px 0 8px;
+}
+
+.asm-syntax td {
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.asm-syntax code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  color: var(--accent);
 }
 
 .asm-error-row td {

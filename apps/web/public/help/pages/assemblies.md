@@ -28,6 +28,8 @@ An assembly turns one measurement into the materials and labour it stands for. M
 5. Set **Waste %**, tick **Round up** for things bought whole (sheets, boxes, lengths), and add a **Unit cost** if you want prices.
 6. Click **Save**.
 
+Formulas are written like spreadsheet formulas: see [Formulas](#formulas) for everything they can do. The window's **How to write a formula** shows the essentials.
+
 A formula can use the measurement's **Quantity**, **Length** (an area's perimeter), **Perimeter**, **Area**, **Volume**, **Wall Area**, **Depth** and **Count** (the items in a count; 1 for anything else), any number or calculation column of the [Markups list](#list-columns), and the assembly's variables. Lengths, areas and volumes are in the page's units: feet and square feet on a feet scale, metres on a metric one.
 
 > **Tip:** Select a measurement before opening the window. The **Selected** column then shows what it comes to as you edit.

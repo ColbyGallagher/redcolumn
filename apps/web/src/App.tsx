@@ -9127,6 +9127,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setAssembliesOpen(false);
           }}
           onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
+          onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
         />
       )}

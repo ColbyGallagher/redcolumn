@@ -23,7 +23,7 @@ export function starterAssemblies(system: UnitSystem): Assembly[] {
       variables: imperial
         ? [
             { name: 'Wall Height', value: 9 },
-            { name: 'Stud Spacing', value: 16 / 12 },
+            { name: 'Stud Spacing', value: 1.333 },
             { name: 'Board Area', value: 32 },
           ]
         : [
@@ -42,7 +42,7 @@ export function starterAssemblies(system: UnitSystem): Assembly[] {
       id: crypto.randomUUID(),
       name: 'Slab on grade',
       description: `Measure with Area. Thickness in ${imperial ? 'feet (4" = 0.333)' : 'metres'}.`,
-      variables: [{ name: 'Thickness', value: imperial ? 4 / 12 : 0.1 }],
+      variables: [{ name: 'Thickness', value: imperial ? 0.333 : 0.1 }],
       items: [
         item('Concrete', u.vol, imperial ? '[Area] * [Thickness] / 27' : '[Area] * [Thickness]', { waste: 5 }),
         item('Vapour barrier', u.area, '[Area]', { waste: 10 }),

@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { assembliesFromJson, assembliesToJson, mergeAssemblies, type Assembly, type AssemblyItem, type CustomColumn } from '@nb/markup';
 import { assemblyProblems, MEASURED_NAMES, type ItemQuantity } from '../assemblies/quantities';
 import { loadLibrary, writeLibrary } from '../assemblies/library';
@@ -20,6 +20,8 @@ interface Props {
   previewLabel: string;
   onSave: (list: Assembly[]) => void;
   onExportJson: (json: string) => void;
+  /** Opens a help page (by id) in a new window. */
+  onHelp?: (page: string) => void;
   onClose: () => void;
 }
 
@@ -38,6 +40,108 @@ function parseOptional(text: string): number | undefined | null {
   if (!text.trim()) return undefined;
   const n = Number(text.replace(/[,$\s%]/g, ''));
   return Number.isFinite(n) ? n : null;
+}
+
+/** A formula box that wraps long formulas onto more lines and grows to show them whole. */
+function FormulaBox({ value, invalid, label, onFocus, onChange }: { value: string; invalid: boolean; label: string; onFocus: (el: HTMLTextAreaElement) => void; onChange: (v: string) => void }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight + 2}px`;
+    };
+    fit();
+    // A narrower window wraps the formula onto more lines.
+    let width = el.clientWidth;
+    const watch = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      fit();
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [value]);
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      aria-label={label}
+      className="col-formula"
+      value={value}
+      aria-invalid={invalid}
+      spellCheck={false}
+      onFocus={(e) => onFocus(e.currentTarget)}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
+/** The formula language in brief (the same as calculation columns'); Help › Formulas has the rest. */
+function FormulaSyntax({ onHelp }: { onHelp?: (page: string) => void }) {
+  return (
+    <details className="asm-syntax">
+      <summary>How to write a formula</summary>
+      <p>
+        Formulas work like a spreadsheet’s. Put names of values in <code>[square brackets]</code>; numbers as they are. Spaces don’t matter.
+      </p>
+      <table>
+        <tbody>
+          <tr>
+            <td>
+              <code>+ - * /</code> <code>^</code>
+            </td>
+            <td>add, subtract, multiply, divide, power; brackets <code>( )</code> group</td>
+            <td>
+              <code>([Length] + 2) * 3</code>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>IF(test, then, else)</code>
+            </td>
+            <td>
+              one value or another; tests use <code>= &lt;&gt; &lt; &gt; &lt;= &gt;=</code>
+            </td>
+            <td>
+              <code>IF([Depth] &gt; 0, [Depth], [Wall Height])</code>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>ROUND(x, places)</code>
+            </td>
+            <td>
+              round; <code>CEILING(x)</code> up and <code>FLOOR(x)</code> down to a whole number
+            </td>
+            <td>
+              <code>CEILING([Length] / 10)</code>
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code>MIN MAX SUM AVG</code>
+            </td>
+            <td>
+              smallest, largest, total, average of a list; also <code>ABS</code>, <code>SQRT</code>, <code>AND</code>, <code>OR</code>, <code>NOT</code>
+            </td>
+            <td>
+              <code>MAX([Count], 1)</code>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Read <code>[Length] * IF([Depth] &gt; 0, [Depth], [Wall Height]) * 2 / [Board Area]</code> as: length × height (the measurement’s depth if it has one, else the Wall Height variable) × 2 sides ÷ the area of one board.
+      </p>
+      {onHelp && (
+        <button type="button" className="btn small" onClick={() => onHelp('formulas')}>
+          More in Help › Formulas
+        </button>
+      )}
+    </details>
+  );
 }
 
 function NumberBox({ value, onChange, label, placeholder, width = 70 }: { value: number | undefined; onChange: (v: number | undefined) => void; label: string; placeholder?: string; width?: number }) {
@@ -61,7 +165,7 @@ function NumberBox({ value, onChange, label, placeholder, width = 70 }: { value:
 }
 
 /** Tools › Takeoff › Assemblies: the document's assemblies, edited together and saved as one step. */
-export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem, preview, previewLabel, onSave, onExportJson, onClose }: Props) {
+export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem, preview, previewLabel, onSave, onExportJson, onHelp, onClose }: Props) {
   const [list, setList] = useState<Assembly[]>(() => structuredClone([...initial]));
   const [selectedId, setSelectedId] = useState<string | null>(initial[0]?.id ?? null);
   const [message, setMessage] = useState('');
@@ -69,7 +173,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
   const [menu, setMenu] = useState<'starters' | 'library' | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   /** The formula box last typed in, which the reference chips insert into. */
-  const formulaRef = useRef<{ el: HTMLInputElement; itemId: string } | null>(null);
+  const formulaRef = useRef<{ el: HTMLTextAreaElement; itemId: string } | null>(null);
 
   const selected = list.find((a) => a.id === selectedId) ?? null;
   const problems = useMemo(() => new Map(list.map((a) => [a.id, assemblyProblems(a, list, columns)])), [list, columns]);
@@ -253,6 +357,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   <small className="hint-text">
                     Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total.
                   </small>
+                  <FormulaSyntax onHelp={onHelp} />
                   <div className="asm-refs" aria-label="Insert into the formula">
                     {[...MEASURED_NAMES, ...selected.variables.filter((v) => v.name.trim()).map((v) => ({ name: v.name.trim(), hint: `Variable: ${v.value}` })), ...columns.filter((c) => c.type === 'number' || c.type === 'formula').map((c) => ({ name: c.name, hint: 'Custom column' }))].map((r) => (
                       <button key={r.name} type="button" className="asm-ref" title={r.hint} onMouseDown={(e) => e.preventDefault()} onClick={() => insertRef(r.name)}>
@@ -284,14 +389,12 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                 <input aria-label="Item name" value={item.name} onChange={(e) => patchItem(item.id, { name: e.target.value })} />
                               </td>
                               <td className="asm-formula">
-                                <input
-                                  aria-label={`Formula for ${item.name}`}
-                                  className="col-formula"
+                                <FormulaBox
+                                  label={`Formula for ${item.name}`}
                                   value={item.formula}
-                                  aria-invalid={!!err}
-                                  spellCheck={false}
-                                  onFocus={(e) => (formulaRef.current = { el: e.currentTarget, itemId: item.id })}
-                                  onChange={(e) => patchItem(item.id, { formula: e.target.value })}
+                                  invalid={!!err}
+                                  onFocus={(el) => (formulaRef.current = { el, itemId: item.id })}
+                                  onChange={(formula) => patchItem(item.id, { formula })}
                                 />
                               </td>
                               <td>
