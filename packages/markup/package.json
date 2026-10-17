@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc -p .",
     "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts test/compat/matrix.test.ts",
-    "compat": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/run.ts"
+    "compat": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/run.ts",
+    "compat:a3": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/a3/build.ts"
   },
   "dependencies": {
     "@nb/measure": "workspace:*",
