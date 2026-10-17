@@ -4,6 +4,7 @@ import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
+import type { ToolbarStyle } from '../workspace/profiles';
 
 /** The CAD Modify tools' commands, in menu order. */
 export const CAD_COMMANDS: readonly [id: string, tool: CadTool][] = [
@@ -170,6 +171,8 @@ export interface CommandActions {
   takeoffQuantities: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
+  /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
+  setToolbarStyle: (style: ToolbarStyle, collapsed?: boolean) => void;
   toggleLeft: () => void;
   /** Shows or hides the side panel of the panels docked on the right. */
   toggleRight: () => void;
@@ -206,6 +209,10 @@ export interface CommandState {
   /** Convert to Cloud and Reverse have something selected to work on. */
   selectionCloudable: boolean;
   selectionReversible: boolean;
+  /** Auto-size has a text box selected to fit. */
+  selectionAutoSizable: boolean;
+  /** Whether a Modify tool can work on the selection (true when nothing is selected). */
+  selectionFits: (tool: CadTool | 'offset') => boolean;
   canPaste: boolean;
   canGoBack: boolean;
   /** The active document has changes that can be undone (Revert). */
@@ -225,6 +232,9 @@ export interface CommandState {
   showLinks: boolean;
   snap: boolean;
   showToolbar: boolean;
+  toolbarStyle: ToolbarStyle;
+  /** The ribbon shows only its tabs; a tab's commands drop down when clicked. */
+  ribbonCollapsed: boolean;
   showLeft: boolean;
   /** The right-hand side panel is showing (some panels are docked on the right). */
   showRight: boolean;
@@ -308,9 +318,9 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.copy', 'Edit', 'Copy', a.copy, sel),
     cmd('edit.paste', 'Edit', 'Paste', a.paste, s.editable && s.canPaste),
     cmd('edit.pasteInPlace', 'Edit', 'Paste in Place', a.pasteInPlace, s.editable && s.canPaste),
-    cmd('edit.offset', 'Edit', 'Offset', a.offset, s.editable, s.tool === 'offset'),
+    cmd('edit.offset', 'Edit', 'Offset', a.offset, s.editable && s.selectionFits('offset'), s.tool === 'offset'),
     cmd('edit.multiply', 'Edit', 'Multiply…', a.multiply, sel && s.editable),
-    ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable, s.tool === tool)),
+    ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable && s.selectionFits(tool), s.tool === tool)),
     cmd('edit.join', 'Edit', 'Join', a.join, s.selectionJoinable && s.editable),
     cmd('edit.explode', 'Edit', 'Explode', a.explode, s.selectionExplodable && s.editable),
     cmd('edit.reverse', 'Edit', 'Reverse', a.reverse, s.selectionReversible && s.editable),
@@ -337,7 +347,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
     cmd('edit.sendBackward', 'Edit', 'Send Backward', () => a.arrange('backward'), sel && s.editable),
     cmd('edit.sendToBack', 'Edit', 'Send to Back', () => a.arrange('back'), sel && s.editable),
-    cmd('edit.autoSize', 'Edit', 'Auto-size Text Box', a.autoSize, sel && s.editable),
+    cmd('edit.autoSize', 'Edit', 'Auto-size Text Box', a.autoSize, s.selectionAutoSizable && s.editable),
     cmd('edit.editAction', 'Edit', 'Edit Action…', a.editAction, s.selectionCount === 1 && s.editable),
     cmd('edit.find', 'Edit', 'Find Text', a.find, doc),
     cmd('edit.checkSpelling', 'Edit', 'Check Spelling…', a.checkSpelling, doc),
@@ -452,6 +462,10 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
+    cmd('window.ribbon', 'Window', 'Ribbon', () => a.setToolbarStyle('ribbon', false), true, s.toolbarStyle === 'ribbon' && !s.ribbonCollapsed),
+    cmd('window.ribbonTabs', 'Window', 'Ribbon Tabs Only', () => a.setToolbarStyle('ribbon', true), true, s.toolbarStyle === 'ribbon' && s.ribbonCollapsed),
+    cmd('window.simplifiedToolbar', 'Window', 'Simplified Toolbar', () => a.setToolbarStyle('simplified'), true, s.toolbarStyle === 'simplified'),
+    cmd('window.collapseRibbon', 'Window', s.ribbonCollapsed ? 'Expand the Ribbon' : 'Collapse the Ribbon', () => a.setToolbarStyle('ribbon', !s.ribbonCollapsed), s.toolbarStyle === 'ribbon', s.toolbarStyle === 'ribbon' && s.ribbonCollapsed),
     cmd('window.leftPanel', 'Window', 'Left Panel', a.toggleLeft, true, s.showLeft),
     cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),

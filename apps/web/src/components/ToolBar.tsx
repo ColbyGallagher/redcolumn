@@ -205,7 +205,7 @@ const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
 
-interface Props {
+export interface ToolBarProps {
   tools: MarkupTools;
   state: ToolsState;
   /** Type whose style the controls edit: the active tool, or the selected markups' type. */
@@ -232,19 +232,19 @@ interface Props {
   onManageStamps: () => void;
   onUndo: () => void;
   onRedo: () => void;
+  /** The toolbar's display options (ribbon or simplified), at its right-hand end. */
+  toolbarMenu?: ReactNode;
 }
 
-function toolTitle(tool: Tool) {
+export function toolTitle(tool: Tool) {
   const name = toolLabel(tool);
   const hint = TOOL_HINTS[tool];
   const key = toolShortcut(tool);
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo }: Props) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo, toolbarMenu }: ToolBarProps) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
-  const style = styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
-  const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
   const toolsPick = (tool: Tool) => tools.setTool(tool);
   return (
     <div className="toolbar tools">
@@ -280,6 +280,39 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
             ))}
         </Fragment>
       ))}
+      <StyleControls tools={tools} state={state} styleType={styleType} textType={textType} textMarkupStyle={textMarkupStyle} markups={markups} selectedStyle={selectedStyle} cloudBubble={cloudBubble} geometry={geometry} enabled={enabled} />
+      <span className="sep" />
+      <button className="btn" disabled={!enabled} onClick={onUndo} title="Undo (Ctrl+Z)">
+        ↶
+      </button>
+      <button className="btn" disabled={!enabled} onClick={onRedo} title="Redo (Ctrl+Y)">
+        ↷
+      </button>
+      <button className="btn" disabled={!state.selected.size} onClick={() => tools.deleteSelected()} title="Delete (Del)">
+        🗑
+      </button>
+      {toolbarMenu && (
+        <>
+          <span className="grow" />
+          {toolbarMenu}
+        </>
+      )}
+    </div>
+  );
+}
+
+export type StyleControlsProps = Pick<ToolBarProps, 'tools' | 'state' | 'styleType' | 'textType' | 'textMarkupStyle' | 'markups' | 'selectedStyle' | 'cloudBubble' | 'geometry' | 'enabled'>;
+
+/**
+ * The style of what is being drawn or what is selected (colour, fill, width, line, opacity, hatch,
+ * arrows, bubbles, font): shown after the tools on the simplified toolbar, and in the ribbon's
+ * Properties group.
+ */
+export function StyleControls({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled }: StyleControlsProps) {
+  const style = styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
+  const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
+  return (
+    <>
       {state.tool === 'dynamicFill' && (
         <label className="field" title="What Smart Fill makes from the region it finds">
           Fill as
@@ -411,17 +444,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
           pt
         </label>
       )}
-      <span className="sep" />
-      <button className="btn" disabled={!enabled} onClick={onUndo} title="Undo (Ctrl+Z)">
-        ↶
-      </button>
-      <button className="btn" disabled={!enabled} onClick={onRedo} title="Redo (Ctrl+Y)">
-        ↷
-      </button>
-      <button className="btn" disabled={!state.selected.size} onClick={() => tools.deleteSelected()} title="Delete (Del)">
-        🗑
-      </button>
-    </div>
+    </>
   );
 }
 

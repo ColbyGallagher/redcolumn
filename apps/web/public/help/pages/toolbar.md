@@ -18,6 +18,20 @@ Right-click the tool and choose **Remove** *tool* **from Toolbar**.
 
 Right-click the toolbar and choose **Reset Toolbar to Defaults**.
 
+## Use the ribbon instead
+
+The toolbar can be a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
+
+1. Click the **Toolbar display options** button at the right-hand end of the toolbar.
+2. Choose one:
+   - **Show Tabs and Commands**: the full ribbon, always open.
+   - **Show Tabs Only**: just the tabs. Click a tab to drop its commands down; they fold away once you use one.
+   - **Simplified Toolbar**: tools and style in one row (the toolbar described above).
+
+The same choices are under {{Window > Toolbar Display}}. Press **Ctrl+F1**, or double-click a tab, to fold the ribbon to its tabs or open it again.
+
+The ribbon's tabs are **Home**, **Markup**, **Measure**, **Modify**, **Document**, **Bulk** and **View**. **Modify** holds every editing command (Move, Rotate, Trim, Fillet, Join, Explode, Align, Arrange, Group, and Edit Text, Erase Content and Cut Content for the PDF's own content). **Bulk** runs a job across many files, as the Bulk menu does. Its buttons follow what you select: a command that cannot work on the selection is greyed out, so with a text box selected Explode and Trim are off. The tab shows how many markups are selected.
+
 ## Hide the whole toolbar
 
 Choose {{Window > Tools Toolbar}}. Choose it again to show it.

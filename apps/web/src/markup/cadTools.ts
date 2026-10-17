@@ -61,6 +61,29 @@ export const isCadTool = (t: string): t is CadTool => t in CAD_TOOL_LABELS;
 /** Tools that work on the selection (picked by the first click when there is none). */
 const ON_SELECTION: ReadonlySet<CadTool> = new Set<CadTool>(['move', 'copy', 'scale', 'mirror', 'arrayPolar', 'arrayPath', 'rotateRef', 'align']);
 
+/**
+ * Whether the tool can work on the selection: menus and the ribbon disable the tool when markups
+ * are selected and none of them is one it takes (Trim on a text box, Fillet on a cloud). With
+ * nothing selected every tool is on, as its first click picks what to work on.
+ */
+export function cadToolFits(tool: CadTool, selected: readonly Markup[]): boolean {
+  if (!selected.length) return true;
+  switch (tool) {
+    case 'trim':
+    case 'extend':
+    case 'break':
+    case 'lengthen':
+      return selected.some(canCut);
+    case 'fillet':
+    case 'chamfer':
+      return selected.some(canCorner);
+    case 'divide':
+      return selected.some((m) => !!pathOf(m));
+    default:
+      return true;
+  }
+}
+
 /** A point clicked, and the markup clicked on when the step picks one. */
 export interface CadPick {
   at: Point;

@@ -229,6 +229,8 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'window.sessions': ['Alt+C'],
   'window.markups': ['Alt+L'],
   'window.links': ['Alt+N'],
+  // Word's shortcut for collapsing the ribbon to its tabs.
+  'window.collapseRibbon': ['Ctrl+F1'],
   // Help. Revu uses Ctrl+Shift+P for Reduce File Size, so Find Commands is Ctrl+Shift+K.
   'help.docs': ['F1'],
   'help.commands': ['Ctrl+Shift+K'],

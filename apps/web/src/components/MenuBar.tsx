@@ -551,6 +551,10 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             </Submenu>
             <Submenu label="Toolbars">
               <Cmd id="window.toolbar" />
+              <Sep />
+              <Cmd id="window.ribbon" />
+              <Cmd id="window.ribbonTabs" />
+              <Cmd id="window.simplifiedToolbar" />
             </Submenu>
             <Cmd id="view.reuse" label="Reuse" />
           </>
@@ -559,6 +563,13 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         return (
           <>
             <Cmd id="window.toolbar" />
+            <Submenu label="Toolbar Display">
+              <Cmd id="window.ribbon" label="Ribbon: Tabs and Commands" />
+              <Cmd id="window.ribbonTabs" label="Ribbon: Tabs Only" />
+              <Cmd id="window.simplifiedToolbar" />
+              <Sep />
+              <Cmd id="window.collapseRibbon" />
+            </Submenu>
             <Cmd id="window.leftPanel" />
             <Cmd id="window.rightPanel" />
             <Cmd id="window.bottomPanel" />
