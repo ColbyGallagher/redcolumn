@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -10,6 +11,7 @@ import { StampMenu } from './StampsDialog';
 import { STYLE_ICONS, TOOL_ICONS } from './toolIcons';
 import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
+import { useFloatingPopup } from './useFloatingPopup';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -468,10 +470,13 @@ function FieldTag({ icon, label }: { icon: ReactNode; label?: string }) {
 function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const floating = useFloatingPopup(root, open);
   useEffect(() => {
     if (!open) return;
     const close = (e: PointerEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!root.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -500,8 +505,8 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
         {name}
         {active && current && <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={36} height={18} />}
       </button>
-      {open && (
-        <div className="hatch-pop" role="dialog" aria-label="Hatch">
+      {open && floating && createPortal(
+        <div className="hatch-pop" role="dialog" aria-label="Hatch" ref={pop} style={{ ...floating, minWidth: undefined }}>
           {HATCH_PATTERNS.map((h) => {
             const on = h.value === 'none' ? !current : current === h.value;
             return (
@@ -552,7 +557,8 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
             />
             <span>%</span>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
