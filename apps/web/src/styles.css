@@ -893,7 +893,8 @@ select[size] {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  /* Above the ribbon (30), menus and floating panels, so a dialog is never hidden behind them. */
+  z-index: 100;
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.45);
@@ -901,7 +902,7 @@ select[size] {
 
 /* Above menus, so Allow or Deny is the thing on screen. */
 .modal-backdrop.assistant-confirm {
-  z-index: 90;
+  z-index: 110;
 }
 
 .modal {
