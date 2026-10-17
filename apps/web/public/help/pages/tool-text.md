@@ -2,6 +2,8 @@
 
 Adds a box of text to the drawing.
 
+![Text Box: drag a box, type, and finish with Ctrl+Enter](gif/tool-text.gif)
+
 ## Add a text box
 
 1. Click **Text Box** on the toolbar, or press [[T]].

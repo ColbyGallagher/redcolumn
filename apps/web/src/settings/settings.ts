@@ -179,6 +179,8 @@ export interface Settings {
   thinLines: boolean;
   /** Keep the tool active after placing a markup (status bar Reuse). */
   reuseTool: boolean;
+  /** Hovering over a markup or Modify tool for a moment shows a short animation of how to use it. */
+  toolPreviews: boolean;
   /** Eraser size, and whether it deletes whole markups (annotation eraser) rather than parts of strokes. */
   eraserSize: 'small' | 'medium' | 'large';
   eraserWhole: boolean;
@@ -419,6 +421,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pageFilter: 'none',
   thinLines: false,
   reuseTool: true,
+  toolPreviews: true,
   eraserSize: 'medium',
   eraserWhole: false,
   offsetDistance: '',

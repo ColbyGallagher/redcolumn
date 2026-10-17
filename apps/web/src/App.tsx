@@ -90,6 +90,7 @@ import { drawingSets, type SetSheet } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
+import { ToolPreviewCard } from './components/ToolPreviewCard';
 import { isAbort, runJob, startJob, useJobRunning, type JobContext } from './jobs/jobs';
 import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from './components/VisualSearchPanel';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
@@ -8742,6 +8743,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         />
       )}
       <JobsBar />
+      <ToolPreviewCard />
       {processKind && activeOpen && (
         <ProcessDialog
           kind={processKind}

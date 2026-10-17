@@ -6,6 +6,8 @@ Mirror, Rotate and Align work on the selection. If nothing is selected, the firs
 
 ## Mirror
 
+![Clicking two points to mirror a shape across the line between them](gif/mirror.gif)
+
 1. Select the markups and choose {{Edit > Modify > Mirror}}.
 2. Click two points on the mirror line.
 
@@ -13,11 +15,15 @@ Mirror, Rotate and Align work on the selection. If nothing is selected, the firs
 
 ## Rotate
 
+![Typing an angle and clicking the base point to rotate a rectangle](gif/rotate.gif)
+
 1. Select the markups and choose {{Edit > Modify > Rotate}}.
 2. To turn by an exact amount, type an **Angle** in degrees (counter-clockwise), then click the base point.
 3. To turn by reference, leave the angle empty. Click the base point, then a point along the current direction, then a point along the new direction.
 
 ## Align to Points
+
+![Aligning a rectangle to a line with two pairs of points](gif/align-to-points.gif)
 
 Moves and turns the selection so two points on it land on two target points.
 
@@ -28,6 +34,8 @@ Moves and turns the selection so two points on it land on two target points.
 Tick **Scale to fit** to also grow or shrink the markups so both pairs line up exactly.
 
 ## Stretch
+
+![Windowing one edge of a rectangle and stretching it](gif/stretch.gif)
 
 Moves the points inside a window and leaves the rest where they are, so shapes stretch.
 

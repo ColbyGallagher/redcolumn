@@ -2,6 +2,8 @@
 
 Draws a closed shape with any number of straight sides. Use it to outline rooms and areas that are not rectangles.
 
+![Polygon: click each corner, then the first corner again to close it](gif/tool-polygon.gif)
+
 ## Draw a polygon
 
 1. Choose {{Tools > Markup > Lines & Shapes > Polygon}}, or press [[Shift+P]].

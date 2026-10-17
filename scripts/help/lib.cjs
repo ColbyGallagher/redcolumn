@@ -20,7 +20,8 @@ const CSS = `
 .help-cursor { position: fixed; z-index: 2147483647; pointer-events: none; width: 22px; height: 22px; }
 `;
 
-async function launch({ width = 1440, height = 860 } = {}) {
+// `toolbar`: the app starts with the ribbon; the help screenshots show the one-row toolbar.
+async function launch({ width = 1440, height = 860, toolbar = 'simplified' } = {}) {
   const browser = await chromium.launch({ executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark', acceptDownloads: true });
   await ctx.addInitScript((css) => {
@@ -39,7 +40,9 @@ async function launch({ width = 1440, height = 860 } = {}) {
   page.on('dialog', (d) => d.accept().catch(() => {}));
   await page.goto(URL);
   await page.waitForSelector('.menubar');
-  return { browser, ctx, page, h: helpers(page) };
+  const h = helpers(page);
+  if (toolbar === 'simplified' && (await page.locator('.ribbon').count())) await h.run('Window', 'Toolbar Display', 'Simplified Toolbar');
+  return { browser, ctx, page, h };
 }
 
 function helpers(page) {

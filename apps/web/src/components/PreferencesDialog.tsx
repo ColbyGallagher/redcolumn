@@ -532,6 +532,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     markup: () => (
       <Grid>
         <C>{check('reuseTool', 'Reuse Tools')}</C>
+        <C>{check('toolPreviews', 'Show a short animation when hovering over a tool')}</C>
         <C>{check('autoSizeText', 'Auto-size Text Box and Call-out Markups')}</C>
         <C>{check('retainLayerOnCopy', 'Retain Layer Information when copying Markups')}</C>
         <C>{check('replyIndicators', 'Always Show Reply Indicators')}</C>

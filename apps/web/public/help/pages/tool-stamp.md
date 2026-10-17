@@ -2,6 +2,8 @@
 
 Places a stamp such as **APPROVED**, **REVIEWED** or **FOR CONSTRUCTION**. Stamps fill in your name and the date by themselves.
 
+![Stamp: choose a stamp from the Tools menu, then drag a box to place it](gif/tool-stamp.gif)
+
 ## Place a stamp
 
 1. Press [[S]] for the last stamp you used, or choose {{Tools > Stamp}} and click the stamp you want.

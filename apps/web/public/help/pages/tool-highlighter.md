@@ -2,6 +2,8 @@
 
 Highlights words, or draws a wide see-through stroke. Over text it follows the words. Hold [[Ctrl]] to draw freely, including over text. Where there is no text, it draws a stroke.
 
+![Highlighter: drag across words to highlight them](gif/tool-highlighter.gif)
+
 ## Highlight text
 
 1. Click **Highlighter** on the toolbar.

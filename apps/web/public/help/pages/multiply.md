@@ -2,6 +2,8 @@
 
 Makes a grid of evenly spaced copies. Use it for rows of parking spaces, light fittings, desks and so on.
 
+![Filling in the Multiply window to make a grid of copies](gif/multiply.gif)
+
 1. Select the markup (or markups) to copy.
 2. Choose {{Edit > Multiply…}} (or press [[Ctrl+M]], or right-click › **Multiply…**).
 3. Fill in the grid:

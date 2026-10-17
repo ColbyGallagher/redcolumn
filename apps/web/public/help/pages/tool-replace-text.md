@@ -2,6 +2,8 @@
 
 Strikes through words in the PDF and adds the words that should replace them, with a caret (‸) mark.
 
+![Replace Text: drag across the words, then type what replaces them](gif/tool-replace-text.gif)
+
 ## Replace text
 
 1. Choose {{Tools > Markup > Text Markup > Replace Text}}.

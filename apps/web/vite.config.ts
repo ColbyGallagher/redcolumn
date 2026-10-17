@@ -147,8 +147,8 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,wasm,png,aff,dic}', 'help/pages/*.md'],
         // OCR's engine and data (about 11 MB) load when OCR is first used, not with the app; they
         // are cached then (below), or ahead of time from Preferences › Offline. The help's
-        // screenshots are cached as they are first viewed.
-        globIgnores: ['ocr/**', 'screenshots/**', 'help/img/**'],
+        // screenshots and tool animations are cached as they are first viewed.
+        globIgnores: ['ocr/**', 'screenshots/**', 'help/img/**', 'help/gif/**'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // msal-redirect.html receives Microsoft sign-in results in its query string, which the
         // precache would not match; let it load from the network rather than fall back to the app.
@@ -162,8 +162,9 @@ export default defineConfig({
             options: { cacheName: 'nb-ocr', cacheableResponse: { statuses: [200] } },
           },
           {
-            // Help screenshots: shown from the cache, refreshed in the background when online.
-            urlPattern: ({ url }) => /\/help\/img\/[^/]+$/.test(url.pathname),
+            // Help screenshots and the tool animations the hover previews show: from the cache,
+            // refreshed in the background when online.
+            urlPattern: ({ url }) => /\/help\/(img|gif)\/[^/]+$/.test(url.pathname),
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'nb-help', cacheableResponse: { statuses: [200] } },
           },
