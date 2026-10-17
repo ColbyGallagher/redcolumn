@@ -244,6 +244,11 @@ export interface Settings {
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
+  /**
+   * Sheets slow to draw (hundreds of thousands of hatch lines, clipped hatches): offer to draw them
+   * from an optimised copy, do it without asking, or leave them be. The file itself never changes.
+   */
+  optimiseDrawings: 'ask' | 'always' | 'never';
   // General › Navigation
   /** What the plain mouse wheel does in single page view and in continuous view. */
   singlePageWheel: 'zoom' | 'scroll';
@@ -448,6 +453,7 @@ export const DEFAULT_SETTINGS: Settings = {
   documentRecovery: true,
   pageLayout: 'auto',
   maxZoom: 6400,
+  optimiseDrawings: 'ask',
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',
   wheelSensitivity: 4,
