@@ -63,6 +63,7 @@ import {
   wordAt,
   type WordBox,
   type StoredLink,
+  edgesOf,
   markupBounds,
   dimensionLine,
   labelHandles,
@@ -92,7 +93,7 @@ import {
 import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
-import { CAD_TOOL_LABELS, cadClick, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
+import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
  * `calibrate` draws a temporary line whose real length the user then enters. `labelRegion` draws a
@@ -491,6 +492,8 @@ export class MarkupTools implements ViewerOverlay {
   private ghost: { pageIndex: number; at: Point } | null = null;
   /** A CAD Modify tool's steps: the page, the points picked so far and where the pointer is. */
   private cad: { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean } | null = null;
+  /** The markups the pointer is over that the tool's next click would pick (highlighted so it is clear what a click takes). */
+  private pickIds: string[] = [];
   private hoveredLink: string | null = null;
   /** The markup whose comment pop-up shows (after the pointer rests on it for a moment). */
   private popup: { id: string; timer: ReturnType<typeof setTimeout> | null; shown: boolean } | null = null;
@@ -580,6 +583,7 @@ export class MarkupTools implements ViewerOverlay {
     if (patch.tool !== undefined && patch.tool !== this.state.tool) {
       this.snapHit = null;
       this.clearTracking();
+      this.pickIds = [];
     }
     this.state = { ...this.state, ...patch };
     // Cells stay selected only while their table is the one thing selected.
@@ -1659,6 +1663,7 @@ export class MarkupTools implements ViewerOverlay {
       for (const points of this.offsetCopiesAt(offsetSource, this.ghost.at)) drawMarkup(ctx, { ...offsetSource, points }, zoom, scale);
       ctx.restore();
     }
+    this.drawPickTargets(ctx, pageIndex, zoom);
     this.drawCad(ctx, pageIndex, zoom);
     if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
     if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
@@ -2371,10 +2376,12 @@ export class MarkupTools implements ViewerOverlay {
       this.hidePopup();
       this.snapHit = null;
       this.ghost = null;
+      this.pickIds = [];
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
       this.viewer.invalidate();
       return null;
     }
+    this.updatePickTargets(pageIndex, toPoint(pt));
     if (tool === 'painter') return this.hitAt(toPoint(pt)) ? 'copy' : 'not-allowed';
     if (isCadTool(tool) && this.cad) {
       if (this.cad.pageIndex !== pageIndex && this.cad.picks.length) return 'not-allowed';
@@ -2382,7 +2389,7 @@ export class MarkupTools implements ViewerOverlay {
       this.cad.shift = lastModifiers.shiftKey;
       this.cad.hover = this.cadPoint(tool, pt, lastModifiers);
       this.viewer.invalidate();
-      return 'crosshair';
+      return this.pickIds.length ? 'pointer' : 'crosshair';
     }
     if (tool === 'offset' && !this.state.painterSource) {
       const hit = this.hitAt(toPoint(pt));
@@ -3018,6 +3025,43 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Topmost markup under `p` on the current page. */
+  /**
+   * The markups under `p` that the tool in use would pick with its next click: the line a Modify
+   * step asks for, the shape Offset copies, what Scale to Length or the Format Painter takes.
+   */
+  private pickTargetsAt(pageIndex: number, p: Point): Markup[] {
+    const { tool, painterSource } = this.state;
+    if (!this.store || this.gesture) return [];
+    if (tool !== 'offset' && tool !== 'painter' && tool !== 'scaleLength' && !isCadTool(tool)) return [];
+    if (isCadTool(tool)) return this.cad ? cadPickTarget(tool, this.cad.picks, p, this.cadContext(pageIndex, lastModifiers.shiftKey)) : [];
+    const ctx = this.cadContext(pageIndex, false);
+    const hit = ctx.hit(p);
+    if (!hit) return [];
+    if (tool === 'offset') return !painterSource && canOffset(hit) ? [hit] : [];
+    if (tool === 'painter') return painterSource && hit.id !== painterSource.id && !this.frozen(hit) ? [hit] : [];
+    if (tool === 'scaleLength' && !this.scaleTargets(pageIndex).length && !this.frozen(hit)) {
+      const ids = new Set(ctx.group(hit));
+      return ctx.page.filter((m) => ids.has(m.id));
+    }
+    return [];
+  }
+
+  /** Follows the pointer: highlights what the next click would pick, redrawing only when that changes. */
+  private updatePickTargets(pageIndex: number, p: Point) {
+    const ids = this.pickTargetsAt(pageIndex, p).map((m) => m.id);
+    if (ids.length === this.pickIds.length && ids.every((id, i) => id === this.pickIds[i])) return;
+    this.pickIds = ids;
+    this.viewer.invalidate();
+  }
+
+  /** The highlight on the markups the next click would pick. */
+  private drawPickTargets(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    for (const id of this.pickIds) {
+      const m = this.store?.get(id);
+      if (m && m.pageIndex === pageIndex) drawPickHighlight(ctx, m, zoom);
+    }
+  }
+
   /** What the page gives a CAD Modify tool to work with. */
   private cadContext(pageIndex: number, shift: boolean): CadContext {
     const store = this.store!;
@@ -3083,6 +3127,8 @@ export class MarkupTools implements ViewerOverlay {
       c.pageIndex = pageIndex;
     }
     c.shift = e.shiftKey;
+    // What was under the pointer is picked (or not) now; the next move finds the next target.
+    this.pickIds = [];
     const p = this.cadPoint(tool, pt, e);
     const r = cadClick(tool, c.picks, p, this.cadContext(pageIndex, e.shiftKey));
     if ('error' in r) {
@@ -3600,6 +3646,24 @@ function drawGuide(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: 
   ctx.setLineDash([5 / zoom, 4 / zoom]);
   ctx.beginPath();
   path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A markup a click would pick: a soft, wide blue band along the lines it is drawn with (its box when it has none). */
+function drawPickHighlight(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+  let lines = edgesOf(m);
+  if (!lines.length) {
+    const b = markupBounds(m);
+    lines = [[[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h], [b.x, b.y]]];
+  }
+  ctx.save();
+  ctx.strokeStyle = 'rgba(37, 99, 235, 0.45)';
+  ctx.lineWidth = Math.max(m.style.width, 0) + 6 / zoom;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const line of lines) line.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.stroke();
   ctx.restore();
 }

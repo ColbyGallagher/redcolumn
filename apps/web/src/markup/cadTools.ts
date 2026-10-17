@@ -425,6 +425,38 @@ function stretchTargets(ctx: CadContext, win: Rect): Markup[] {
   return pool.filter((m) => stretchMarkup(m, win, 0, 0));
 }
 
+/**
+ * The markups the next click would pick when the step asks for one (the line to trim, the path to
+ * divide, what to mirror...): the markup under `p` (with its group when picking a selection), or none
+ * when it is not one the step can use. The page highlights them under the pointer.
+ */
+export function cadPickTarget(tool: CadTool, picks: CadPick[], p: Point, ctx: CadContext): Markup[] {
+  const hit = ctx.hit(p);
+  if (!hit) return [];
+  const editable = !ctx.frozen(hit);
+  if (ON_SELECTION.has(tool) && !ctx.selected.length) {
+    const ids = new Set(ctx.group(hit));
+    return editable ? ctx.page.filter((m) => ids.has(m.id)) : [];
+  }
+  switch (tool) {
+    case 'trim':
+    case 'extend':
+    case 'lengthen':
+      return editable && canCut(hit) ? [hit] : [];
+    case 'break':
+      return !picks.length && editable && canCut(hit) ? [hit] : [];
+    case 'fillet':
+    case 'chamfer':
+      return editable && canCorner(hit) ? [hit] : [];
+    case 'arrayPath':
+      return !ctx.selected.some((m) => m.id === hit.id) && pathOf(hit) ? [hit] : [];
+    case 'divide':
+      return pathOf(hit) ? [hit] : [];
+    default:
+      return [];
+  }
+}
+
 /** What the next click with the tool does, for the tool bar. */
 export function cadPrompt(tool: CadTool, picks: CadPick[], ctx: Pick<CadContext, 'selected' | 'shift'>): string {
   const s = settings.get();

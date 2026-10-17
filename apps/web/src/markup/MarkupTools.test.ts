@@ -1068,3 +1068,31 @@ test('Scale to Length handing back to Select clears its snap marker', async () =
   assert.equal(h.tools.getState().tool, 'select');
   assert.equal(internals.snapHit, null);
 });
+
+test('the markup a tool would pick is highlighted under the pointer', async () => {
+  const h = await setup();
+  const l = put(h, 'line', [[100, 100], [200, 100]]);
+  const box = put(h, 'rect', [[300, 300], [400, 400]]);
+  const picked = () => (h.tools as unknown as { pickIds: string[] }).pickIds;
+  h.tools.setTool('trim');
+  h.tools.hover([150, 101] as never, 0);
+  assert.deepEqual(picked(), [l.id], 'a line Trim can cut');
+  h.tools.hover([300, 350] as never, 0);
+  assert.deepEqual(picked(), [], 'a rectangle is not something Trim cuts');
+  h.tools.setTool('divide');
+  h.tools.hover([300, 350] as never, 0);
+  assert.deepEqual(picked(), [box.id], 'but Divide can mark along it');
+  // Mirror with nothing selected picks a markup; once one is selected it picks points instead.
+  h.tools.setTool('mirror');
+  h.tools.hover([150, 101] as never, 0);
+  assert.deepEqual(picked(), [l.id]);
+  click(h.tools, [150, 101]);
+  h.tools.hover([150, 101] as never, 0);
+  assert.deepEqual(picked(), []);
+  h.tools.select([]);
+  h.tools.setTool('offset');
+  h.tools.hover([350, 300] as never, 0);
+  assert.deepEqual(picked(), [box.id]);
+  h.tools.hover(null, 0);
+  assert.deepEqual(picked(), [], 'leaving the page clears it');
+});
