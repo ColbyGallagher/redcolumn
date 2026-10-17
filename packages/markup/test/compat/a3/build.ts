@@ -5,9 +5,11 @@
 //
 // Writes A3-00-ALL-combined.pdf and one PDF per area, plus manifest.csv and README.md. If export
 // refuses a markup the file is still written without it and the refusal is listed in the README.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import fontkit from '@pdf-lib/fontkit';
+import { StandardFonts, type PDFDocument, type PDFFont } from 'pdf-lib';
 import { DEFAULT_SCALE, type Scale } from '@nb/measure';
 import { exportWithAnnotations, type ExportOptions } from '../../../src/export.ts';
 import { MARKUP_TYPES, type Markup } from '../../../src/model.ts';
@@ -31,6 +33,25 @@ interface Part {
 type Maker = (p0: number) => Part;
 
 const here = dirname(fileURLToPath(import.meta.url));
+const FONT_DIR = resolve(here, '../../../../../apps/web/public/fonts');
+const LIBERATION: Partial<Record<StandardFonts, string>> = {
+  [StandardFonts.Helvetica]: 'LiberationSans-Regular.ttf',
+  [StandardFonts.HelveticaBold]: 'LiberationSans-Bold.ttf',
+  [StandardFonts.HelveticaOblique]: 'LiberationSans-Italic.ttf',
+  [StandardFonts.HelveticaBoldOblique]: 'LiberationSans-BoldItalic.ttf',
+  [StandardFonts.TimesRoman]: 'LiberationSerif-Regular.ttf',
+  [StandardFonts.TimesRomanBold]: 'LiberationSerif-Bold.ttf',
+  [StandardFonts.Courier]: 'LiberationMono-Regular.ttf',
+  [StandardFonts.CourierBold]: 'LiberationMono-Bold.ttf',
+};
+/** As the app does for text the standard fonts cannot show: the Liberation font of the same widths. */
+async function fallbackFont(doc: PDFDocument, name: StandardFonts): Promise<PDFFont> {
+  const file = LIBERATION[name];
+  if (!file) return doc.embedFont(name);
+  doc.registerFontkit(fontkit);
+  return doc.embedFont(readFileSync(join(FONT_DIR, file)));
+}
+
 const OUT = resolve(process.argv[2] ?? join(here, '../../../../../reference_data/a3-bluebeam-test'));
 
 const MAKERS = {
@@ -167,6 +188,7 @@ async function main() {
       columns: COLUMNS,
       statuses: STATUSES,
       assemblies: ASSEMBLIES,
+      fallbackFont,
     };
     const { bytes, kept } = await exportSafe(f.file, base, markups, options, refusals);
     writeFileSync(join(OUT, f.file), bytes);

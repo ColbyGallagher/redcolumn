@@ -220,6 +220,22 @@ function safeText(font: PDFFont, s: string): string {
   return [...s].map((ch) => (supported.has(ch.codePointAt(0)!) ? ch : '?')).join('');
 }
 
+/** Characters outside Latin-1 that the standard fonts' WinAnsi encoding still has. */
+const WIN_ANSI_EXTRA = new Set([0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178]);
+
+/** The words a markup draws as text: its text, stamp lines and table cells. */
+function drawnStrings(m: Markup): string[] {
+  return [m.text, ...(m.stamp?.lines ?? []), ...(m.stamp?.art?.texts.map((t) => t.text) ?? []), ...(m.table?.cells.flat() ?? [])].filter((t): t is string => !!t);
+}
+
+/** Whether the standard fonts cannot show every character of the text markups draw. */
+function needsUnicodeFont(markups: readonly Markup[]): boolean {
+  return markups.some((m) => drawnStrings(m).some((t) => [...t].some((ch) => {
+    const cp = ch.codePointAt(0)!;
+    return cp >= 0x100 && !WIN_ANSI_EXTRA.has(cp);
+  })));
+}
+
 /** Like `safeText` for text laid out in paragraphs: its line breaks stay (any kind), and a tab is four spaces. */
 function safeParagraphs(font: PDFFont, s: string): string {
   return s
@@ -1759,6 +1775,11 @@ export interface ExportOptions {
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
    */
   embedFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
+  /**
+   * Used in place of the standard fonts (even without `embedFont`) when some markup text has
+   * characters they cannot show (Greek, Cyrillic), which would otherwise be drawn as question marks.
+   */
+  fallbackFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
 }
 
 /**
@@ -1845,6 +1866,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
   // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
+  const embedder = options.fallbackFont && needsUnicodeFont(written) ? options.fallbackFont : options.embedFont;
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
@@ -1855,7 +1877,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
     ];
-    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));
+    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (embedder ? embedder(doc, name) : doc.embedFont(name)));
   }
   const images = new Map<string, PDFImage>();
   for (const m of written) {
