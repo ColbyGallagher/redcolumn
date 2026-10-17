@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useFloatingPopup } from './useFloatingPopup';
 
 interface Props {
   value: number | undefined;
@@ -21,11 +23,14 @@ export function ComboField({ value, options, min, max, unit, placeholder, title,
   const [text, setText] = useState(shown);
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const floating = useFloatingPopup(root, open);
   useEffect(() => setText(shown), [shown]);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!root.current?.contains(t) && !list.current?.contains(t)) setOpen(false);
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
@@ -64,25 +69,28 @@ export function ComboField({ value, options, min, max, unit, placeholder, title,
       <button type="button" className="combo-caret" aria-label={`${title}: common values`} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>
         ▾
       </button>
-      {open && (
-        <div className="combo-list" role="listbox">
-          {options.map((o) => (
-            <button
-              key={o}
-              type="button"
-              role="option"
-              aria-selected={o === value}
-              className={`menu-item${o === value ? ' checked' : ''}`}
-              onClick={() => {
-                setOpen(false);
-                if (o !== value) onChange(o);
-              }}
-            >
-              {o} {unit}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        floating &&
+        createPortal(
+          <div className="combo-list" role="listbox" ref={list} style={floating}>
+            {options.map((o) => (
+              <button
+                key={o}
+                type="button"
+                role="option"
+                aria-selected={o === value}
+                className={`menu-item${o === value ? ' checked' : ''}`}
+                onClick={() => {
+                  setOpen(false);
+                  if (o !== value) onChange(o);
+                }}
+              >
+                {o} {unit}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </span>
   );
 }

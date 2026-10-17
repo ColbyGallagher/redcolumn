@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { PageComparison } from '../compare/compare';
 import type { Difference } from '../compare/diff';
+import { useBelowRibbon } from './useFloatingPopup';
 
 export interface CompareResults {
   oldName: string;
@@ -29,6 +30,7 @@ const KIND_LABEL = { added: 'Added', removed: 'Removed', changed: 'Changed' } as
 export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Props) {
   const stops: CompareStop[] = results.pages.flatMap((page) => page.differences.map((diff) => ({ page, diff })));
   const [at, setAt] = useState(-1);
+  const belowRibbon = useBelowRibbon();
   const go = (i: number) => {
     if (!stops.length) return;
     const n = (i + stops.length) % stops.length;
@@ -38,7 +40,7 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
   const changedPages = results.pages.filter((p) => p.differences.length).length;
 
   return (
-    <div className="visual-search compare-results" onKeyDown={(e) => e.stopPropagation()}>
+    <div className="visual-search compare-results" style={belowRibbon} onKeyDown={(e) => e.stopPropagation()}>
       <div className="vs-head">
         <b>Compare Results</b>
         <button className="btn small flat" title="Close" onClick={onClose}>
