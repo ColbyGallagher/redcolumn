@@ -9,7 +9,9 @@ const json = (v: unknown) => Buffer.from(JSON.stringify(v));
 const text = (b: Uint8Array) => Buffer.from(b).toString('utf8');
 
 async function setup() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'rc-folder-'));
+  // The store keeps roots by their real path, and on Windows os.tmpdir() can be an 8.3 short
+  // name (C:\Users\RUNNER~1), so compare against the real path too.
+  const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'rc-folder-')));
   const store = new FolderStore({}, 'me');
   const root = await store.addRoot(dir);
   return { dir, store, root };
