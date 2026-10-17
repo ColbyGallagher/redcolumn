@@ -394,7 +394,8 @@ body,
 .rb-body {
   display: flex;
   align-items: stretch;
-  height: 96px;
+  /* Tall enough for the commands, and grows with the Properties group so it never needs a vertical scrollbar. */
+  min-height: 96px;
   padding: 4px 6px 0;
   overflow-x: auto;
   background: #1a2a49;
@@ -522,7 +523,7 @@ body,
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  max-width: 440px;
+  max-width: 600px;
   padding-top: 4px;
 }
 

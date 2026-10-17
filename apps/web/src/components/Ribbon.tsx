@@ -343,8 +343,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (!dropped) return;
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
-      // Stamp and hatch menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop')) return;
+      // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
+      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .combo-list')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
