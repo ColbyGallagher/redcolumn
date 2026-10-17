@@ -117,7 +117,8 @@ test('new markup types export as matching PDF annotations', async () => {
   const name = (d: PDFDict, key: string) => d.get(PDFName.of(key))?.toString();
   assert.deepEqual(
     dicts.map((d) => name(d, 'Subtype')),
-    ['/PolyLine', '/Polygon', '/PolyLine', '/Text', '/FreeText'],
+    // An arc is Bluebeam's Arc: a Circle with /IT /CircleArc.
+    ['/PolyLine', '/Polygon', '/Circle', '/Text', '/FreeText'],
   );
   assert.equal(dicts[0]!.lookup(PDFName.of('LE'), PDFArray).asArray().map(String).join(' '), '/None /ClosedArrow');
   // The arc is exported as points along its curve.

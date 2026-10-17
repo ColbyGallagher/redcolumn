@@ -5,7 +5,7 @@ type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
-import { arcPoints } from './arc';
+import { arcPoints, circleThrough } from './arc';
 import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
 import { legendLayout, legendRows, legendSymbol } from './legend';
@@ -652,8 +652,39 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   return { x, y, w: x1 - x, h: y1 - y };
 }
 
-function annotationDict(ctx: Ctx, m: Markup): PDFDict {
+/**
+ * Bluebeam's Arc tool writes a Circle annotation (/IT /CircleArc) of the circle the arc is part of.
+ * A three-point arc goes out as that, so it is still an arc when Bluebeam edits it, rather than a
+ * polyline. Three points in a line have no circle and stay a polyline.
+ */
+function bluebeamArc(m: Markup): Markup {
+  if (m.type !== 'arc' || m.points.length < 3) return m;
+  const [a, via, b] = m.points as [Point, Point, Point];
+  const circle = circleThrough(a, via, b);
+  if (!circle) return m;
+  const { cx, cy, r } = circle;
+  const angle = (p: Point) => Math.atan2(p[1] - cy, p[0] - cx);
+  const turn = (from: number, to: number) => (((to - from) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  // As `arcPoints` sweeps it: positive is clockwise on the page (y down).
+  let sweep = turn(angle(a), angle(b));
+  if (turn(angle(a), angle(via)) > sweep) sweep -= 2 * Math.PI;
+  // An elliptical arc runs counter-clockwise from its first angle to its second, measured as on paper.
+  const paper = (p: Point) => ((((-angle(p) * 180) / Math.PI) % 360) + 360) % 360;
+  const clockwise = sweep > 0;
+  const [startCap, endCap] = lineEnds(m);
+  return {
+    ...m,
+    type: 'ellipticalArc',
+    points: [[cx - r, cy - r], [cx + r, cy + r]],
+    arcAngles: clockwise ? [paper(b), paper(a)] : [paper(a), paper(b)],
+    // Line endings belong to the arc's ends: swapped when it is described from its far end.
+    style: { ...m.style, startCap: clockwise ? endCap : startCap, endCap: clockwise ? startCap : endCap },
+  };
+}
+
+function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const { doc, matrix } = ctx;
+  const m = bluebeamArc(source);
   const b = boundsWithText(ctx, m);
   const corners = [apply(matrix, [b.x, b.y]), apply(matrix, [b.x + b.w, b.y + b.h])];
   const rect: [number, number, number, number] = [
@@ -695,9 +726,9 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     NM: pdfText(m.id),
     M: pdfDate(m.modifiedAt),
     CreationDate: pdfDate(m.createdAt),
-    AP: { N: appearance(ctx, m, rect) },
+    AP: { N: appearance(ctx, source, rect) },
     // An attachment's bytes live once, in its embedded file, not in the data copy too.
-    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(m))),
+    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(source))),
   };
   if (m.style.lineStyle) {
     base.LineStyle = lineStyleValue(m.style.lineStyle.spec) as never;
