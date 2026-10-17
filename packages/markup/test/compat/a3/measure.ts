@@ -167,7 +167,7 @@ export function oddScales(p0: number): PageSpec[] {
     { title: 'Measurements, 1/4" = 1\'-0" inches', sheet: 'M-105', scale: { ...preset('1/4" = 1\'-0"'), unit: 'in', feetInches: true, precision: 8, label: '1/4" = 1\'-0" (in)' }, note: 'fractional inches' },
     { title: 'Measurements, calibrated (50 mm per pt), mm + m2', sheet: 'M-106', scale: { metersPerPoint: 0.05, unit: 'mm', areaUnit: 'm', feetInches: false, precision: 0, label: 'Calibrated 1 pt = 50 mm' }, note: 'mm lengths, m2 areas' },
     { title: 'Measurements, non-uniform scale (Y is half of X)', sheet: 'M-107', scale: { metersPerPoint: 0.04, yMetersPerPoint: 0.02, unit: 'm', feetInches: false, precision: 2, label: 'Non-uniform 1:2 in Y' }, note: 'anisotropic' },
-    { title: 'Measurements, page scale never set', sheet: 'M-108', scale: undefined, note: 'unset (1:1 inches)' },
+    { title: 'Measurements, page scale never set', sheet: 'M-108', scale: undefined, note: 'no scale in the file: each app uses its own default' },
   ];
   variants.forEach((v, i) => {
     const P = new PageBuilder(p0 + i, { title: v.title, sheet: v.sheet, ...(v.scale ? { scale: v.scale } : {}), note: v.note });
@@ -175,7 +175,7 @@ export function oddScales(p0: number): PageSpec[] {
     const cell = (label: string, size: [number, number] | null, build: (r: Rect) => { m: Markup; note: string }[]) =>
       P.cell(label, size, (r, c) => {
         const o = build(r);
-        P.spec.captions.push({ x: c.x + 5, y: c.y + c.h - 5, text: o.map((x) => x.note).join(' | ').slice(0, 90), size: 5.5 });
+        P.spec.captions.push({ x: c.x + 5, y: c.y + c.h - 5, text: (v.scale ? o.map((x) => x.note).join(' | ') : 'no page scale: the app's default decides').slice(0, 90), size: 5.5 });
         return o.map((x) => x.m);
       });
     cell('length 100 pt', null, (r) => [meas('length', [[r.x, r.y + 30], [r.x + 100, r.y + 30]], S)]);
