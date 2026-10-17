@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
-import { autoSizedPoints, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { autoSizedPoints, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -66,7 +66,7 @@ import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
-import { isCadTool } from './markup/cadTools';
+import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
@@ -92,7 +92,8 @@ import { CompareResultsPanel, type CompareResults, type CompareStop } from './co
 import { JobsBar } from './components/JobsBar';
 import { isAbort, runJob, startJob, useJobRunning, type JobContext } from './jobs/jobs';
 import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from './components/VisualSearchPanel';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolEntry, type ToolGroup } from './components/ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
+import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
 import { comboOf, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
@@ -6946,6 +6947,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffQuantities: () => setQuantitiesOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
+    setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,
@@ -7287,6 +7289,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     selectionExplodable: selectedMarkups.some(canExplode),
     selectionCloudable: selectedMarkups.some(canCloud),
     selectionReversible: selectedMarkups.some(canReverse),
+    selectionAutoSizable: selectedMarkups.some(canAutoSize),
+    selectionFits: (tool) => (tool === 'offset' ? !selectedMarkups.length || selectedMarkups.some(canOffset) : cadToolFits(tool, selectedMarkups)),
     canPaste: clipboardCount > 0,
     canGoBack,
     canGoForward,
@@ -7304,6 +7308,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
+    toolbarStyle: ws.toolbarStyle,
+    ribbonCollapsed: ws.ribbonCollapsed,
     showLeft: leftOpen,
     showRight: rightShown,
     hasRightPanels: rightRail.length > 0,
@@ -7998,33 +8004,39 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           },
         }}
       />
-      {activeTools && showTools && (
-        <ToolBar
-          tools={activeTools}
-          state={toolsState}
-          styleType={styleType}
-          markups={markups}
-          selectedStyle={selectedStyle}
-          cloudBubble={cloudBubble}
-          geometry={selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null}
-          textType={textType}
-          textMarkupStyle={selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style}
-          enabled={!!activeOpen && !activeReadOnly}
-          visibleTools={ws.toolbarTools}
-          author={author}
-          onPlaceStamp={(s) => placeStamp(s)}
-          onNewStamp={() => {
+      {activeTools && showTools && (() => {
+        const toolbarProps: ToolBarProps = {
+          tools: activeTools,
+          state: toolsState,
+          styleType,
+          markups,
+          selectedStyle,
+          cloudBubble,
+          geometry: selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null,
+          textType,
+          textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
+          enabled: !!activeOpen && !activeReadOnly,
+          visibleTools: ws.toolbarTools,
+          author,
+          onPlaceStamp: (s) => placeStamp(s),
+          onNewStamp: () => {
             setStampsCreating(true);
             setStampsOpen(true);
-          }}
-          onManageStamps={() => {
+          },
+          onManageStamps: () => {
             setStampsCreating(false);
             setStampsOpen(true);
-          }}
-          onUndo={() => activeOpen?.store.undo()}
-          onRedo={() => activeOpen?.store.redo()}
-        />
-      )}
+          },
+          onUndo: () => activeOpen?.store.undo(),
+          onRedo: () => activeOpen?.store.redo(),
+        };
+        const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
+        return ws.toolbarStyle === 'ribbon' ? (
+          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
+        ) : (
+          <ToolBar {...toolbarProps} toolbarMenu={displayMenu} />
+        );
+      })()}
       {!split && docTabs('a')}
       <div className="body">
         {panelRail('left', leftRail)}

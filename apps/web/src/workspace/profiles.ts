@@ -82,6 +82,10 @@ export interface WorkspaceState {
   /** Panels docked on the right-hand side of the window; the rest sit on the left. */
   rightPanels: string[];
   showToolbar: boolean;
+  /** The top toolbar: a ribbon of tabs (Word, AutoCAD) or the one-row simplified toolbar. */
+  toolbarStyle: ToolbarStyle;
+  /** The ribbon shows only its tabs until one is clicked. */
+  ribbonCollapsed: boolean;
   /** The Markups list spans the window's width, under the side panel too, rather than sitting beside it. */
   dockFullWidth: boolean;
   list: MarkupListSettings;
@@ -100,6 +104,8 @@ export interface WorkspaceState {
   /** Imported Revu bookmark templates, offered in the Bookmarks panel (the built-in one is always there). */
   bookmarkTemplates: BookmarkTemplate[];
 }
+
+export type ToolbarStyle = 'simplified' | 'ribbon';
 
 export interface Profile {
   id: string;
@@ -125,6 +131,8 @@ export function defaultWorkspace(): WorkspaceState {
     panelOrder: [],
     rightPanels: [],
     showToolbar: true,
+    toolbarStyle: 'simplified',
+    ribbonCollapsed: false,
     dockFullWidth: false,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },
     columnTemplate: null,
