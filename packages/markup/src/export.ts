@@ -12,7 +12,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
@@ -90,6 +90,33 @@ function pdfText(s: string) {
 /** A name Bluebeam looks up by its text: written as a plain string, as Bluebeam writes its own, unless it needs Unicode. */
 function plainText(s: string) {
   return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
+}
+
+/** Bluebeam's /CountStyle for each of our count markers. */
+const COUNT_STYLE_NAMES: Record<CountShape, string> = { circle: 'Circle', check: 'Checkmark', square: 'Square', diamond: 'Diamond', triangle: 'Triangle', cross: 'Cross' };
+
+/** A count marker's outline, centred on (cx, cy), `r` from the centre to its edge (page space, y down). */
+function countMarker(shape: CountShape, cx: number, cy: number, r: number): Point[] {
+  const at = (pts: readonly (readonly [number, number])[]): Point[] => pts.map(([x, y]) => [cx + x * r, cy + y * r]);
+  switch (shape) {
+    case 'check':
+      // Bluebeam's own checkmark, scaled to the marker.
+      return at([[-1, 0.02], [-0.773, -0.205], [-0.271, 0.297], [0.773, -0.749], [1, -0.522], [-0.271, 0.749]]);
+    case 'square':
+      return at([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
+    case 'diamond':
+      return at([[0, -1], [1, 0], [0, 1], [-1, 0]]);
+    case 'triangle':
+      return at([[0, -1], [0.9, 0.75], [-0.9, 0.75]]);
+    case 'cross': {
+      // A plus with arms under a third of the width, turned 45 degrees.
+      const w = 0.3;
+      const plus: [number, number][] = [[-w, -1], [w, -1], [w, -w], [1, -w], [1, w], [w, w], [w, 1], [-w, 1], [-w, w], [-1, w], [-1, -w], [-w, -w]];
+      return at(plus.map(([x, y]) => [(x - y) / Math.SQRT2, (x + y) / Math.SQRT2] as [number, number]));
+    }
+    default:
+      return at(Array.from({ length: 24 }, (_, i) => [Math.cos((i / 24) * 2 * Math.PI), Math.sin((i / 24) * 2 * Math.PI)] as [number, number]));
+  }
 }
 
 /** Bluebeam's name for a hatch: its label in the Standard set, or an imported hatch's own name. */
@@ -936,12 +963,17 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       specific = { Subtype: 'PolyLine', Vertices: flat(arcPoints(m.points).map((p) => apply(matrix, p))), IT: 'PolyLineDimension', Measure: measureDict(ctx.scale), LE: le };
       break;
     case 'count': {
-      // No standard count annotation; each item is an ink circle so the markers survive round trips.
-      const r = markerSize(m);
-      const circles = m.points.map(([cx, cy]) =>
-        flat(Array.from({ length: 17 }, (_, i) => apply(matrix, [cx + r * Math.cos((i / 16) * 2 * Math.PI), cy + r * Math.sin((i / 16) * 2 * Math.PI)]))),
-      );
-      specific = { Subtype: 'Ink', InkList: circles };
+      // Bluebeam's count is one polygon per item, drawn as its marker (the caller writes the rest and groups them).
+      const [cx, cy] = m.points[0] ?? [0, 0];
+      const shape = m.style.countShape ?? 'circle';
+      specific = {
+        Subtype: 'Polygon',
+        Vertices: flat(countMarker(shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
+        IT: 'PolygonCount',
+        CountStyle: COUNT_STYLE_NAMES[shape],
+        MeasurementTypes: 128,
+        BBMeasure: measureDict(ctx.scale),
+      };
       break;
     }
     case 'signature':
@@ -1994,10 +2026,30 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         addSpace(doc, page, ctx.matrix, m);
         continue;
       }
-      const dict = build(m);
+      // A count is one annotation per item, grouped, each saying the group's total (and only the first carries our data).
+      const items = m.type === 'count' && m.points.length ? m.points.map((p, i) => ({ ...m, id: i ? `${m.id}~${i}` : m.id, points: [p], style: { ...m.style, showLabel: false } })) : [m];
+      const dict = build(items[0]!);
+      if (m.type === 'count') {
+        dict.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify(appData(m))));
+        dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+        dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+      }
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
       made.set(m, { dict, ref });
+      if (m.type === 'count' && items.length > 1) {
+        const others = items.slice(1).map((item) => {
+          const d = build(item);
+          d.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify({ replyTo: m.id })));
+          d.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+          d.set(PDFName.of('Contents'), pdfText(String(items.length)));
+          d.set(PDFName.of('IRT'), ref);
+          d.set(PDFName.of('RT'), PDFName.of('Group'));
+          page.node.addAnnot(doc.context.register(d));
+          return item.id;
+        });
+        dict.set(PDFName.of('GroupNesting'), doc.context.obj([PDFString.of('Count Measurement'), PDFHexString.fromText(`/${m.id}`), ...others.map((id) => PDFHexString.fromText(`/${id}`))]));
+      }
       if (m.type === 'flagLabel') addFlag(doc, dict, ref);
       for (const replyRef of placeReplies(doc, ref, m, new Map())) page.node.addAnnot(replyRef);
       statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
