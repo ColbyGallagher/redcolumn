@@ -6017,3 +6017,11 @@ tr.hidden-markup td {
 .qty-table .warn {
   color: #f87171;
 }
+
+.cad-bar input.cad-count {
+  width: 52px;
+}
+
+.cad-bar .cad-error {
+  color: var(--brand-hi);
+}

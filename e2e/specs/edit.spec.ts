@@ -231,6 +231,28 @@ test.describe('edit', () => {
     expect(b[3]).toEqual([290, 440, 360, 510]);
   });
 
+  test('offset picks a shape and makes copies at a typed distance', async ({ app }) => {
+    await three(app);
+    await select(app, []);
+    await app.cmd('edit.offset');
+    const bar = app.page.locator('.cad-bar');
+    await expect(bar).toContainText('Click a line or shape to offset');
+    await bar.getByLabel('Distance').fill('0.005');
+    await bar.getByLabel('Copies').fill('2');
+    // The first click picks r1, the second puts two copies outside it, each the distance further.
+    await app.clicks([[300, 475]]);
+    await expect(bar).toContainText('Click the side for the copies');
+    await app.clicks([[380, 475]]);
+    const b = await boxes(app);
+    expect(b).toHaveLength(5);
+    const step = 300 - b[3]![0]!;
+    expect(step).toBeGreaterThan(0);
+    expect(300 - b[4]![0]!).toBeCloseTo(2 * step, -0.5);
+    expect((await app.toolState()).tool).toBe('offset');
+    await bar.getByLabel('Distance').fill('');
+    await bar.getByLabel('Copies').fill('1');
+  });
+
   test('Scale to Length resizes from two reference points', async ({ app }) => {
     await app.calibrate();
     await app.tool('line');

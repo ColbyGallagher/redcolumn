@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canOffset, eraseStroke, offsetDistance, offsetPath, offsetPoints } from './offset.ts';
+import { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 
 function markup(type: MarkupType, points: Point[]): Markup {
@@ -47,4 +47,13 @@ test('the offset distance follows the pointer: sign by side, outward positive', 
   assert.ok(Math.abs(offsetDistance(markup('rect', [[0, 0], [10, 10]]), [5, 12]) - 2) < 1e-9);
   assert.ok(Math.abs(offsetDistance(markup('rect', [[0, 0], [10, 10]]), [5, 8]) + 2) < 1e-9);
   assert.equal(canOffset(markup('pen', [[0, 0], [1, 1]])), false);
+});
+
+test('copies step out by the distance each time, and shrinking boxes stop before collapsing', () => {
+  const line = offsetCopies(markup('line', [[0, 0], [10, 0]]), 2, 3);
+  assert.deepEqual(line.map((p) => p[0]![1]), [-2, -4, -6]);
+  const rect = offsetCopies(markup('rect', [[0, 0], [10, 10]]), -2, 5);
+  assert.equal(rect.length, 2, 'a 10 x 10 box fits two 2 pt steps inward');
+  assert.deepEqual(rect[1], [[4, 4], [6, 6]]);
+  assert.deepEqual(offsetCopies(markup('pen', [[0, 0], [1, 1]]), 2, 3), []);
 });
