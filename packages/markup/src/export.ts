@@ -14,8 +14,8 @@ import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
-import { hatchDraw, type HatchDraw } from './hatches';
-import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
+import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -85,6 +85,17 @@ function pathOps(path: PathCmd[]): string {
 function pdfText(s: string) {
   // PDFHexString.fromText writes UTF-16BE, which every viewer decodes for text strings.
   return PDFHexString.fromText(s);
+}
+
+/** A name Bluebeam looks up by its text: written as a plain string, as Bluebeam writes its own, unless it needs Unicode. */
+function plainText(s: string) {
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
+}
+
+/** Bluebeam's name for a hatch: its label in the Standard set, or an imported hatch's own name. */
+function hatchName(id: string, resolved: string): string {
+  if (id.startsWith('set:')) return id.slice(id.indexOf('/') + 1);
+  return HATCH_PATTERNS.find((p) => p.value === resolved)?.label ?? resolved;
 }
 
 /** Plain values with their strings as PDF text (`context.obj` would turn plain strings into names). */
@@ -240,10 +251,14 @@ function measureDict(scale: Scale): LiteralObject {
 
 const dashOp = (dash: number[]) => `[${dash.map(fmt).join(' ')}] 0 d`;
 
-/** One uncolored tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. */
-function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
+/**
+ * One tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. Uncolored (the
+ * painter picks the colour) unless `color` is given, which colours it, as Bluebeam's own are.
+ */
+function hatchPatternStream(doc: PDFDocument, draw: HatchDraw, color?: [number, number, number]) {
   const { cellW, cellH, lineWidth } = draw.metrics;
   const ops = [`0 0 ${fmt(cellW)} ${fmt(cellH)} re W n`, `${fmt(lineWidth)} w`, '0 J 0 j'];
+  if (color) ops.push(`${color.map(fmt).join(' ')} RG`, `${color.map(fmt).join(' ')} rg`);
   if (draw.lines.length) {
     for (const l of draw.lines) ops.push(`${fmt(l.x1)} ${fmt(l.y1)} m ${fmt(l.x2)} ${fmt(l.y2)} l`);
     ops.push('S');
@@ -262,7 +277,7 @@ function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
   return doc.context.flateStream(ops.join('\n'), {
     Type: 'Pattern',
     PatternType: 1,
-    PaintType: 2,
+    PaintType: color ? 1 : 2,
     TilingType: 1,
     BBox: [0, 0, cellW, cellH],
     XStep: cellW,
@@ -741,6 +756,16 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   base.Subj = pdfText(m.subject || defaultSubject(m));
   if (contents) base.Contents = pdfText(contents);
   if (fill) base.IC = fill;
+  // Bluebeam keeps a shape's hatch as a pattern, its name and its colour; a shape without them is
+  // redrawn with no hatch as soon as it is edited. (Our appearance already draws it.)
+  const hatch = styleCapabilities(m.type).hatch ? resolveHatch(m.style.hatch, m.style.hatchSpec) : null;
+  const hatched = hatch ? hatchDraw(m.style.hatch, m.style.hatchScale, m.style.hatchSpec) : null;
+  if (hatch && hatched) {
+    const hatchColor = rgb(m.style.hatchColor ?? m.style.stroke);
+    base.Pattern = doc.context.register(hatchPatternStream(doc, hatched, hatchColor));
+    base.PatternName = plainText(hatchName(m.style.hatch!, hatch.id));
+    base.PatternColor = hatchColor;
+  }
 
   const ub = boundsOf(user);
   // Rect is padded for stroke width and decorations; RD (left, top, right, bottom) tells editors

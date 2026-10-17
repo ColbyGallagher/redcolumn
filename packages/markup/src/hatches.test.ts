@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFString, decodePDFRawStream } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { markupShape } from './geometry.ts';
 import { HATCH_PATTERNS, hatchDraw, resolveHatch } from './hatches.ts';
@@ -138,7 +138,42 @@ test('a dot hatch pattern is drawn with curves, not the PostScript arc operator 
   const streams = out.context
     .enumerateIndirectObjects()
     .flatMap(([, o]) => (o instanceof PDFRawStream && o.dict.get(PDFName.of('PatternType')) ? [Buffer.from(decodePDFRawStream(o).decode()).toString('latin1')] : []));
-  assert.equal(streams.length, 1);
-  assert.doesNotMatch(streams[0]!, /\barc\b/);
-  assert.match(streams[0]!, / c f\b/, 'each dot is four Béziers, filled');
+  assert.equal(streams.length, 2, "the appearance's pattern and the annotation's own");
+  for (const text of streams) {
+    assert.doesNotMatch(text, /\barc\b/);
+    assert.match(text, / c f\b/, 'each dot is four Béziers, filled');
+  }
+});
+
+test('a hatched shape carries Bluebeam\'s hatch keys: a coloured pattern, its name and its colour', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  const original = await doc.save();
+  const m = rect('diagonalDown', { hatchColor: '#0000ff' });
+  m.type = 'rect';
+  m.points = [[40, 40], [160, 110]];
+  const out = await PDFDocument.load(await exportWithAnnotations(original.buffer as ArrayBuffer, [m]));
+  const annot = out.context.lookup(out.getPage(0).node.Annots()!.asArray()[0]!, PDFDict);
+  assert.equal(annot.lookup(PDFName.of('PatternName'), PDFString, PDFHexString).decodeText(), 'Diagonal Down');
+  assert.deepEqual(annot.lookup(PDFName.of('PatternColor'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber()), [0, 0, 1]);
+  const pattern = annot.lookup(PDFName.of('Pattern')) as PDFRawStream;
+  assert.equal((pattern.dict.get(PDFName.of('PaintType')) as PDFNumber).asNumber(), 1, 'a coloured pattern, as Bluebeam writes');
+  const text = Buffer.from(decodePDFRawStream(pattern).decode()).toString('latin1');
+  assert.match(text, /0 0 1 RG/);
+  // An unhatched shape has none of these.
+  const plain = await PDFDocument.load(await exportWithAnnotations(original.buffer as ArrayBuffer, [{ ...m, id: 'p', style: { ...m.style, hatch: undefined } }]));
+  const bare = plain.context.lookup(plain.getPage(0).node.Annots()!.asArray()[0]!, PDFDict);
+  assert.equal(bare.has(PDFName.of('PatternName')), false);
+});
+
+test('an imported hatch is named by its own name', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  const spec = { scaleX: 1, scaleY: 1, size: 18, lineWidth: 1, elements: [{ type: 'line' as const, x1: 0, y1: 0.5, x2: 1, y2: 0.5 }] };
+  const m = rect('set:Mine/Stripe', { hatchSpec: spec });
+  m.type = 'rect';
+  m.points = [[40, 40], [160, 110]];
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [m]));
+  const annot = out.context.lookup(out.getPage(0).node.Annots()!.asArray()[0]!, PDFDict);
+  assert.equal(annot.lookup(PDFName.of('PatternName'), PDFString, PDFHexString).decodeText(), 'Stripe');
 });
