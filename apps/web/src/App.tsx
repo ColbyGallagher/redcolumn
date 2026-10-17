@@ -660,6 +660,8 @@ async function annotatedBytes(
   const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
   return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
+    // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it.
+    fallbackFont: async (doc, name) => (await import('./documents/archiveFonts')).embedFontOrStandard(doc, name),
     scaleFor: (i) => cur.store.scaleFor(i),
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),

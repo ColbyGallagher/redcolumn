@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SymbolMatch } from '@nb/measure';
+import { useBelowRibbon } from './useFloatingPopup';
 
 export interface VisualSearchHit {
   pageIndex: number;
@@ -42,6 +43,7 @@ export function VisualSearchPanel({ pageCount, editable, onSearch, onGo, onApply
   const [hits, setHits] = useState<VisualSearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [at, setAt] = useState(0);
+  const belowRibbon = useBelowRibbon();
 
   const run = async () => {
     setBusy(true);
@@ -68,7 +70,7 @@ export function VisualSearchPanel({ pageCount, editable, onSearch, onGo, onApply
   const pages = hits ? new Set(hits.map((h) => h.pageIndex)).size : 0;
 
   return (
-    <div className="visual-search" onKeyDown={(e) => e.stopPropagation()}>
+    <div className="visual-search" style={belowRibbon} onKeyDown={(e) => e.stopPropagation()}>
       <div className="vs-head">
         <b>Symbol Search</b>
         <button className="btn small flat" title="Close" onClick={onClose}>

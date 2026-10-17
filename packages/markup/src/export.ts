@@ -5,17 +5,17 @@ type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
 import { markupShape, type PathCmd } from './geometry';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
-import { arcPoints } from './arc';
+import { arcPoints, circleThrough } from './arc';
 import { calloutLanding } from './callout';
 import { markupLines } from './textSelect';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
-import { hatchDraw, type HatchDraw } from './hatches';
-import { dashPattern, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
+import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -85,6 +85,44 @@ function pathOps(path: PathCmd[]): string {
 function pdfText(s: string) {
   // PDFHexString.fromText writes UTF-16BE, which every viewer decodes for text strings.
   return PDFHexString.fromText(s);
+}
+
+/** A name Bluebeam looks up by its text: written as a plain string, as Bluebeam writes its own, unless it needs Unicode. */
+function plainText(s: string) {
+  return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
+}
+
+/** Bluebeam's /CountStyle for each of our count markers. */
+const COUNT_STYLE_NAMES: Record<CountShape, string> = { circle: 'Circle', check: 'Checkmark', square: 'Square', diamond: 'Diamond', triangle: 'Triangle', cross: 'Cross' };
+
+/** A count marker's outline, centred on (cx, cy), `r` from the centre to its edge (page space, y down). */
+function countMarker(shape: CountShape, cx: number, cy: number, r: number): Point[] {
+  const at = (pts: readonly (readonly [number, number])[]): Point[] => pts.map(([x, y]) => [cx + x * r, cy + y * r]);
+  switch (shape) {
+    case 'check':
+      // Bluebeam's own checkmark, scaled to the marker.
+      return at([[-1, 0.02], [-0.773, -0.205], [-0.271, 0.297], [0.773, -0.749], [1, -0.522], [-0.271, 0.749]]);
+    case 'square':
+      return at([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
+    case 'diamond':
+      return at([[0, -1], [1, 0], [0, 1], [-1, 0]]);
+    case 'triangle':
+      return at([[0, -1], [0.9, 0.75], [-0.9, 0.75]]);
+    case 'cross': {
+      // A plus with arms under a third of the width, turned 45 degrees.
+      const w = 0.3;
+      const plus: [number, number][] = [[-w, -1], [w, -1], [w, -w], [1, -w], [1, w], [w, w], [w, 1], [-w, 1], [-w, w], [-1, w], [-1, -w], [-w, -w]];
+      return at(plus.map(([x, y]) => [(x - y) / Math.SQRT2, (x + y) / Math.SQRT2] as [number, number]));
+    }
+    default:
+      return at(Array.from({ length: 24 }, (_, i) => [Math.cos((i / 24) * 2 * Math.PI), Math.sin((i / 24) * 2 * Math.PI)] as [number, number]));
+  }
+}
+
+/** Bluebeam's name for a hatch: its label in the Standard set, or an imported hatch's own name. */
+function hatchName(id: string, resolved: string): string {
+  if (id.startsWith('set:')) return id.slice(id.indexOf('/') + 1);
+  return HATCH_PATTERNS.find((p) => p.value === resolved)?.label ?? resolved;
 }
 
 /** Plain values with their strings as PDF text (`context.obj` would turn plain strings into names). */
@@ -182,6 +220,30 @@ function safeText(font: PDFFont, s: string): string {
   return [...s].map((ch) => (supported.has(ch.codePointAt(0)!) ? ch : '?')).join('');
 }
 
+/** Characters outside Latin-1 that the standard fonts' WinAnsi encoding still has. */
+const WIN_ANSI_EXTRA = new Set([0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178]);
+
+/** The words a markup draws as text: its text, stamp lines and table cells. */
+function drawnStrings(m: Markup): string[] {
+  return [m.text, ...(m.stamp?.lines ?? []), ...(m.stamp?.art?.texts.map((t) => t.text) ?? []), ...(m.table?.cells.flat() ?? [])].filter((t): t is string => !!t);
+}
+
+/** Whether the standard fonts cannot show every character of the text markups draw. */
+function needsUnicodeFont(markups: readonly Markup[]): boolean {
+  return markups.some((m) => drawnStrings(m).some((t) => [...t].some((ch) => {
+    const cp = ch.codePointAt(0)!;
+    return cp >= 0x100 && !WIN_ANSI_EXTRA.has(cp);
+  })));
+}
+
+/** Like `safeText` for text laid out in paragraphs: its line breaks stay (any kind), and a tab is four spaces. */
+function safeParagraphs(font: PDFFont, s: string): string {
+  return s
+    .split(/\r\n|\r|\n/)
+    .map((line) => safeText(font, line.replace(/\t/g, '    ')))
+    .join('\n');
+}
+
 interface Ctx {
   doc: PDFDocument;
   page: PDFPage;
@@ -232,19 +294,33 @@ function measureDict(scale: Scale): LiteralObject {
 
 const dashOp = (dash: number[]) => `[${dash.map(fmt).join(' ')}] 0 d`;
 
-/** One uncolored tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. */
-function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
+/**
+ * One tiling pattern: the tile clipped to its cell, repeated by XStep and YStep. Uncolored (the
+ * painter picks the colour) unless `color` is given, which colours it, as Bluebeam's own are.
+ */
+function hatchPatternStream(doc: PDFDocument, draw: HatchDraw, color?: [number, number, number]) {
   const { cellW, cellH, lineWidth } = draw.metrics;
   const ops = [`0 0 ${fmt(cellW)} ${fmt(cellH)} re W n`, `${fmt(lineWidth)} w`, '0 J 0 j'];
+  if (color) ops.push(`${color.map(fmt).join(' ')} RG`, `${color.map(fmt).join(' ')} rg`);
   if (draw.lines.length) {
     for (const l of draw.lines) ops.push(`${fmt(l.x1)} ${fmt(l.y1)} m ${fmt(l.x2)} ${fmt(l.y2)} l`);
     ops.push('S');
   }
-  for (const d of draw.dots) ops.push(`${fmt(d.x + d.r)} ${fmt(d.y)} m ${fmt(d.x)} ${fmt(d.y)} ${fmt(d.r)} 0 360 arc f`);
+  // PDF has no arc operator: a dot is four cubic Béziers.
+  for (const { x, y, r } of draw.dots) {
+    const k = r * 0.5522847498;
+    ops.push(
+      `${fmt(x + r)} ${fmt(y)} m`,
+      `${fmt(x + r)} ${fmt(y + k)} ${fmt(x + k)} ${fmt(y + r)} ${fmt(x)} ${fmt(y + r)} c`,
+      `${fmt(x - k)} ${fmt(y + r)} ${fmt(x - r)} ${fmt(y + k)} ${fmt(x - r)} ${fmt(y)} c`,
+      `${fmt(x - r)} ${fmt(y - k)} ${fmt(x - k)} ${fmt(y - r)} ${fmt(x)} ${fmt(y - r)} c`,
+      `${fmt(x + k)} ${fmt(y - r)} ${fmt(x + r)} ${fmt(y - k)} ${fmt(x + r)} ${fmt(y)} c f`,
+    );
+  }
   return doc.context.flateStream(ops.join('\n'), {
     Type: 'Pattern',
     PatternType: 1,
-    PaintType: 2,
+    PaintType: color ? 1 : 2,
     TilingType: 1,
     BBox: [0, 0, cellW, cellH],
     XStep: cellW,
@@ -392,7 +468,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const font = ctx.fonts.get(standardFont(style, false))!;
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
-    const lines = textBoxLines({ ...m, text: safeText(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
+    const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
     const ascent = font.heightAtSize(size, { descender: false });
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
@@ -484,7 +560,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const size = cell.style.fontSize ?? 12;
       const ascent = font.heightAtSize(size, { descender: false });
       const [cr, cg, cb] = rgb(textColor(cell.style));
-      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeText(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
+      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
       for (const line of lines) ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${font.encodeText(line.text).toString()} Tj`);
       ops.push('ET');
@@ -634,8 +710,39 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   return { x, y, w: x1 - x, h: y1 - y };
 }
 
-function annotationDict(ctx: Ctx, m: Markup): PDFDict {
+/**
+ * Bluebeam's Arc tool writes a Circle annotation (/IT /CircleArc) of the circle the arc is part of.
+ * A three-point arc goes out as that, so it is still an arc when Bluebeam edits it, rather than a
+ * polyline. Three points in a line have no circle and stay a polyline.
+ */
+function bluebeamArc(m: Markup): Markup {
+  if (m.type !== 'arc' || m.points.length < 3) return m;
+  const [a, via, b] = m.points as [Point, Point, Point];
+  const circle = circleThrough(a, via, b);
+  if (!circle) return m;
+  const { cx, cy, r } = circle;
+  const angle = (p: Point) => Math.atan2(p[1] - cy, p[0] - cx);
+  const turn = (from: number, to: number) => (((to - from) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  // As `arcPoints` sweeps it: positive is clockwise on the page (y down).
+  let sweep = turn(angle(a), angle(b));
+  if (turn(angle(a), angle(via)) > sweep) sweep -= 2 * Math.PI;
+  // An elliptical arc runs counter-clockwise from its first angle to its second, measured as on paper.
+  const paper = (p: Point) => ((((-angle(p) * 180) / Math.PI) % 360) + 360) % 360;
+  const clockwise = sweep > 0;
+  const [startCap, endCap] = lineEnds(m);
+  return {
+    ...m,
+    type: 'ellipticalArc',
+    points: [[cx - r, cy - r], [cx + r, cy + r]],
+    arcAngles: clockwise ? [paper(b), paper(a)] : [paper(a), paper(b)],
+    // Line endings belong to the arc's ends: swapped when it is described from its far end.
+    style: { ...m.style, startCap: clockwise ? endCap : startCap, endCap: clockwise ? startCap : endCap },
+  };
+}
+
+function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const { doc, matrix } = ctx;
+  const m = bluebeamArc(source);
   const b = boundsWithText(ctx, m);
   const corners = [apply(matrix, [b.x, b.y]), apply(matrix, [b.x + b.w, b.y + b.h])];
   const rect: [number, number, number, number] = [
@@ -677,9 +784,9 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
     NM: pdfText(m.id),
     M: pdfDate(m.modifiedAt),
     CreationDate: pdfDate(m.createdAt),
-    AP: { N: appearance(ctx, m, rect) },
+    AP: { N: appearance(ctx, source, rect) },
     // An attachment's bytes live once, in its embedded file, not in the data copy too.
-    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(m))),
+    [APP_DATA_KEY]: pdfText(JSON.stringify(appData(source))),
   };
   if (m.style.lineStyle) {
     base.LineStyle = lineStyleValue(m.style.lineStyle.spec) as never;
@@ -692,6 +799,16 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
   base.Subj = pdfText(m.subject || defaultSubject(m));
   if (contents) base.Contents = pdfText(contents);
   if (fill) base.IC = fill;
+  // Bluebeam keeps a shape's hatch as a pattern, its name and its colour; a shape without them is
+  // redrawn with no hatch as soon as it is edited. (Our appearance already draws it.)
+  const hatch = styleCapabilities(m.type).hatch ? resolveHatch(m.style.hatch, m.style.hatchSpec) : null;
+  const hatched = hatch ? hatchDraw(m.style.hatch, m.style.hatchScale, m.style.hatchSpec) : null;
+  if (hatch && hatched) {
+    const hatchColor = rgb(m.style.hatchColor ?? m.style.stroke);
+    base.Pattern = doc.context.register(hatchPatternStream(doc, hatched, hatchColor));
+    base.PatternName = plainText(hatchName(m.style.hatch!, hatch.id));
+    base.PatternColor = hatchColor;
+  }
 
   const ub = boundsOf(user);
   // Rect is padded for stroke width and decorations; RD (left, top, right, bottom) tells editors
@@ -862,12 +979,17 @@ function annotationDict(ctx: Ctx, m: Markup): PDFDict {
       specific = { Subtype: 'PolyLine', Vertices: flat(arcPoints(m.points).map((p) => apply(matrix, p))), IT: 'PolyLineDimension', Measure: measureDict(ctx.scale), LE: le };
       break;
     case 'count': {
-      // No standard count annotation; each item is an ink circle so the markers survive round trips.
-      const r = markerSize(m);
-      const circles = m.points.map(([cx, cy]) =>
-        flat(Array.from({ length: 17 }, (_, i) => apply(matrix, [cx + r * Math.cos((i / 16) * 2 * Math.PI), cy + r * Math.sin((i / 16) * 2 * Math.PI)]))),
-      );
-      specific = { Subtype: 'Ink', InkList: circles };
+      // Bluebeam's count is one polygon per item, drawn as its marker (the caller writes the rest and groups them).
+      const [cx, cy] = m.points[0] ?? [0, 0];
+      const shape = m.style.countShape ?? 'circle';
+      specific = {
+        Subtype: 'Polygon',
+        Vertices: flat(countMarker(shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
+        IT: 'PolygonCount',
+        CountStyle: COUNT_STYLE_NAMES[shape],
+        MeasurementTypes: 128,
+        BBMeasure: measureDict(ctx.scale),
+      };
       break;
     }
     case 'signature':
@@ -1417,7 +1539,8 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
     !moved &&
     entries.length === original.length &&
     entries.every((d, i) => original[i] && d.toString() === original[i]!.toString());
-  if (!unchanged) doc.catalog.set(PDFName.of('BSIAnnotColumns'), doc.context.obj(entries));
+  // Bluebeam ignores the columns when the catalog holds the array itself: it must be an indirect object, as Bluebeam writes it.
+  if (!unchanged) doc.catalog.set(PDFName.of('BSIAnnotColumns'), doc.context.register(doc.context.obj(entries)));
   return { columns: ordered, from, moved };
 }
 
@@ -1652,6 +1775,11 @@ export interface ExportOptions {
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
    */
   embedFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
+  /**
+   * Used in place of the standard fonts (even without `embedFont`) when some markup text has
+   * characters they cannot show (Greek, Cyrillic), which would otherwise be drawn as question marks.
+   */
+  fallbackFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
 }
 
 /**
@@ -1738,6 +1866,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
   // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
+  const embedder = options.fallbackFont && needsUnicodeFont(written) ? options.fallbackFont : options.embedFont;
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
@@ -1748,7 +1877,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
     ];
-    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (options.embedFont ? options.embedFont(doc, name) : doc.embedFont(name)));
+    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (embedder ? embedder(doc, name) : doc.embedFont(name)));
   }
   const images = new Map<string, PDFImage>();
   for (const m of written) {
@@ -1919,10 +2048,30 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
         addSpace(doc, page, ctx.matrix, m);
         continue;
       }
-      const dict = build(m);
+      // A count is one annotation per item, grouped, each saying the group's total (and only the first carries our data).
+      const items = m.type === 'count' && m.points.length ? m.points.map((p, i) => ({ ...m, id: i ? `${m.id}~${i}` : m.id, points: [p], style: { ...m.style, showLabel: false } })) : [m];
+      const dict = build(items[0]!);
+      if (m.type === 'count') {
+        dict.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify(appData(m))));
+        dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+        dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+      }
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
       made.set(m, { dict, ref });
+      if (m.type === 'count' && items.length > 1) {
+        const others = items.slice(1).map((item) => {
+          const d = build(item);
+          d.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify({ replyTo: m.id })));
+          d.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
+          d.set(PDFName.of('Contents'), pdfText(String(items.length)));
+          d.set(PDFName.of('IRT'), ref);
+          d.set(PDFName.of('RT'), PDFName.of('Group'));
+          page.node.addAnnot(doc.context.register(d));
+          return item.id;
+        });
+        dict.set(PDFName.of('GroupNesting'), doc.context.obj([PDFString.of('Count Measurement'), PDFHexString.fromText(`/${m.id}`), ...others.map((id) => PDFHexString.fromText(`/${id}`))]));
+      }
       if (m.type === 'flagLabel') addFlag(doc, dict, ref);
       for (const replyRef of placeReplies(doc, ref, m, new Map())) page.node.addAnnot(replyRef);
       statesToWrite(m, false, statuses).forEach((s, n) => page.node.addAnnot(doc.context.register(stateDict(doc, ref, m, s.state, s.model, s.change, n))));
