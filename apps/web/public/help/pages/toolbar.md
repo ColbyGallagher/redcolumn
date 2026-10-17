@@ -18,9 +18,9 @@ Right-click the tool and choose **Remove** *tool* **from Toolbar**.
 
 Right-click the toolbar and choose **Reset Toolbar to Defaults**.
 
-## Use the ribbon instead
+## Ribbon or simplified toolbar
 
-The toolbar can be a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
+redcolumn starts with a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups. Rest the pointer on a markup or Modify tool for a moment and a short animation shows how it is used. If you prefer one row of tools, choose **Simplified Toolbar**; the rest of this page describes that toolbar.
 
 1. Click the **Toolbar display options** button at the right-hand end of the toolbar.
 2. Choose one:

@@ -2,6 +2,8 @@
 
 Draws freehand, like a pen on paper. Good for sketches and quick marks, especially with a stylus.
 
+![Pen: draw freehand](gif/tool-pen.gif)
+
 ## Draw with the pen
 
 1. Click **Pen** on the toolbar, or press [[P]].

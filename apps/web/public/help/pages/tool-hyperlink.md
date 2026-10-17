@@ -2,6 +2,8 @@
 
 Makes an area of the page clickable. Clicking it can jump to another page, a saved view, another PDF, or a web page.
 
+![Hyperlink: drag a box, then choose where the link goes](gif/tool-hyperlink.gif)
+
 ## Make a link
 
 1. Choose {{Tools > Hyperlink}}, or press [[Shift+H]].

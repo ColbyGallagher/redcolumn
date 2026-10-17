@@ -2,6 +2,8 @@
 
 Permanently removes private information (names, prices, signatures) from a PDF and covers it with a box. Redaction happens in two steps: **mark**, then **apply**.
 
+![Redaction: mark an area, then apply the redaction from the Tools menu](gif/tool-redaction.gif)
+
 ![The Redaction menu](img/menu-redaction.png)
 
 ## Step 1: Mark what to remove

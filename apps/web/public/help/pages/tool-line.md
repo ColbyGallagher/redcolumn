@@ -2,6 +2,8 @@
 
 Draws a straight line.
 
+![Line: drag from where it starts to where it ends](gif/tool-line.gif)
+
 ## Draw a line
 
 1. Click **Line** on the toolbar, or press [[L]].

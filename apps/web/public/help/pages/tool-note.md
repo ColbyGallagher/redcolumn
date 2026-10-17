@@ -2,6 +2,8 @@
 
 A small sticky-note icon on the page. The note's text stays hidden until someone opens it, so it does not clutter the drawing.
 
+![Note: click where the note goes and type its comment](gif/tool-note.gif)
+
 ## Add a note
 
 1. Choose {{Tools > Markup > Text & Notes > Note}} (or press [[N]]).

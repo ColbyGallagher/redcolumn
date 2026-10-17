@@ -2,6 +2,8 @@
 
 Attaches a file (a spec sheet, photo, spreadsheet…) to a spot on the page. It shows as a paperclip icon, and the file is saved **inside** the PDF.
 
+![File Attachment: pick a file, then click where the paperclip goes](gif/tool-attachment.gif)
+
 ## Attach a file
 
 1. Choose {{Tools > File Attachment}}, or press [[F]].

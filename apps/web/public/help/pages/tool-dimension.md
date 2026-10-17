@@ -2,6 +2,8 @@
 
 Draws a dimension line with arrows at both ends and the text you type, like a dimension on a drawing.
 
+![Dimension: drag across what is being dimensioned, then type its text](gif/tool-dimension.gif)
+
 ## Draw a dimension
 
 1. Choose {{Tools > Markup > Lines & Shapes > Dimension}}.
