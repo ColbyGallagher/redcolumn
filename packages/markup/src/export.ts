@@ -1491,7 +1491,8 @@ function writeColumns(doc: PDFDocument, columns: readonly CustomColumn[], used: 
     !moved &&
     entries.length === original.length &&
     entries.every((d, i) => original[i] && d.toString() === original[i]!.toString());
-  if (!unchanged) doc.catalog.set(PDFName.of('BSIAnnotColumns'), doc.context.obj(entries));
+  // Bluebeam ignores the columns when the catalog holds the array itself: it must be an indirect object, as Bluebeam writes it.
+  if (!unchanged) doc.catalog.set(PDFName.of('BSIAnnotColumns'), doc.context.register(doc.context.obj(entries)));
   return { columns: ordered, from, moved };
 }
 
