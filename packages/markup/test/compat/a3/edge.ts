@@ -206,3 +206,29 @@ export function unicodePage(p0: number): PageSpec {
   ]);
   return P.spec;
 }
+
+/**
+ * Every dash pattern at 1, 2 and 3 pt widths, to see which ones Revu recognises: open a line's
+ * Properties and check its Style. Revu wrote [2 2] and [3 3] (1 pt), [4 4] (3 pt) and [8 4 4 4] (1 pt) itself.
+ */
+export const DASH_ARRAYS: { label: string; dash: number[] }[] = [
+  { label: 'Revu wrote: 2 2', dash: [2, 2] },
+  { label: 'Revu wrote: 3 3', dash: [3, 3] },
+  { label: 'Revu wrote: 4 4', dash: [4, 4] },
+  { label: 'Revu wrote: 8 4 4 4', dash: [8, 4, 4, 4] },
+  ...[[1, 1], [1, 2], [2, 1], [2, 4], [3, 1], [3, 2], [4, 2], [4, 3], [5, 5], [6, 2], [6, 3], [6, 2, 2, 2], [8, 6], [8, 8], [10, 5], [10, 10], [12, 4], [12, 6, 2, 6], [16, 8], [18, 8], [20, 10], [3, 2, 1, 2]].map((dash) => ({ label: dash.join(' '), dash })),
+  { label: 'zero-length dash (dots): 0 5', dash: [0, 5] },
+  { label: 'zero-length dash: 12 6 0 6', dash: [12, 6, 0, 6] },
+  { label: 'redcolumn dashed at 2 pt: 8 6', dash: [8, 6] },
+  { label: 'redcolumn longDash at 2 pt: 18 8', dash: [18, 8] },
+];
+
+export function dashMatrix(p0: number): PageSpec {
+  const P = new PageBuilder(p0, { title: 'Dash patterns at 1, 2 and 3 pt: which does Revu keep?', sheet: 'D-101', cols: 6, rows: 6 });
+  for (const { label, dash } of DASH_ARRAYS) {
+    P.cell(`DA ${label}  (lines are 1, 2, 3 pt)`, null, (r) =>
+      [1, 2, 3].map((w, i) => mk('line', 0, [[r.x, r.y + 12 + i * 24], [r.x + r.w, r.y + 12 + i * 24]], { subject: `DA [${dash.join(' ')}] ${w}pt` }, { width: w, dashArray: dash, dash: 'dashed' })),
+    );
+  }
+  return P.spec;
+}

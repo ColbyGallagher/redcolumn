@@ -21,7 +21,7 @@ import { imperial, metric, oddScales, viewports } from './measure.ts';
 import { formsPage, stampsImages, tablesLinks } from './content.ts';
 import { geometry } from './geometry.ts';
 import { applyAutoFields, columnsPage, COLUMNS, metadataPage, STATUSES } from './columns.ts';
-import { edgeData, edgeGeometry, unicodePage } from './edge.ts';
+import { dashMatrix, edgeData, edgeGeometry, unicodePage } from './edge.ts';
 
 interface Part {
   pages: PageSpec[];
@@ -55,6 +55,7 @@ const MAKERS = {
   geometry: [(p) => ({ pages: geometry(p) })],
   columns: [(p) => ({ pages: [columnsPage(p), metadataPage(p + 1)] })],
   edge: [(p) => ({ pages: [edgeGeometry(p), edgeData(p + 1), unicodePage(p + 2)] })],
+  dashes: [(p) => ({ pages: [dashMatrix(p)] })],
 } satisfies Record<string, Maker[]>;
 
 const FILES: { file: string; title: string; parts: Maker[] }[] = [
@@ -66,6 +67,7 @@ const FILES: { file: string; title: string; parts: Maker[] }[] = [
   { file: 'A3-06-page-geometry.pdf', title: 'Page rotation, crop and media boxes', parts: MAKERS.geometry },
   { file: 'A3-07-columns-statuses-metadata.pdf', title: 'Custom columns, statuses, metadata', parts: MAKERS.columns },
   { file: 'A3-08-edge-cases.pdf', title: 'Edge cases', parts: MAKERS.edge },
+  { file: 'A3-09-dash-patterns.pdf', title: 'Dash patterns', parts: MAKERS.dashes },
   { file: 'A3-00-ALL-combined.pdf', title: 'Everything', parts: Object.values(MAKERS).flat() },
 ];
 
