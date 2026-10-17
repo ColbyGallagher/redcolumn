@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { markupShape } from './geometry.ts';
 import { HATCH_PATTERNS, hatchDraw, resolveHatch } from './hatches.ts';
@@ -125,4 +125,20 @@ test('an imported hatch carried on the markup draws and exports as a tiling patt
   })();
   const bytes = await exportWithAnnotations(original.buffer as ArrayBuffer, [m]);
   assert.match(Buffer.from(bytes).toString('latin1'), /\/PatternType 1/);
+});
+
+test('a dot hatch pattern is drawn with curves, not the PostScript arc operator PDF does not have', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  const original = await doc.save();
+  const m = rect('dots20');
+  m.type = 'rect';
+  m.points = [[40, 40], [160, 110]];
+  const out = await PDFDocument.load(await exportWithAnnotations(original.buffer as ArrayBuffer, [m]));
+  const streams = out.context
+    .enumerateIndirectObjects()
+    .flatMap(([, o]) => (o instanceof PDFRawStream && o.dict.get(PDFName.of('PatternType')) ? [Buffer.from(decodePDFRawStream(o).decode()).toString('latin1')] : []));
+  assert.equal(streams.length, 1);
+  assert.doesNotMatch(streams[0]!, /\barc\b/);
+  assert.match(streams[0]!, / c f\b/, 'each dot is four Béziers, filled');
 });

@@ -182,6 +182,14 @@ function safeText(font: PDFFont, s: string): string {
   return [...s].map((ch) => (supported.has(ch.codePointAt(0)!) ? ch : '?')).join('');
 }
 
+/** Like `safeText` for text laid out in paragraphs: its line breaks stay (any kind), and a tab is four spaces. */
+function safeParagraphs(font: PDFFont, s: string): string {
+  return s
+    .split(/\r\n|\r|\n/)
+    .map((line) => safeText(font, line.replace(/\t/g, '    ')))
+    .join('\n');
+}
+
 interface Ctx {
   doc: PDFDocument;
   page: PDFPage;
@@ -240,7 +248,17 @@ function hatchPatternStream(doc: PDFDocument, draw: HatchDraw) {
     for (const l of draw.lines) ops.push(`${fmt(l.x1)} ${fmt(l.y1)} m ${fmt(l.x2)} ${fmt(l.y2)} l`);
     ops.push('S');
   }
-  for (const d of draw.dots) ops.push(`${fmt(d.x + d.r)} ${fmt(d.y)} m ${fmt(d.x)} ${fmt(d.y)} ${fmt(d.r)} 0 360 arc f`);
+  // PDF has no arc operator: a dot is four cubic Béziers.
+  for (const { x, y, r } of draw.dots) {
+    const k = r * 0.5522847498;
+    ops.push(
+      `${fmt(x + r)} ${fmt(y)} m`,
+      `${fmt(x + r)} ${fmt(y + k)} ${fmt(x + k)} ${fmt(y + r)} ${fmt(x)} ${fmt(y + r)} c`,
+      `${fmt(x - k)} ${fmt(y + r)} ${fmt(x - r)} ${fmt(y + k)} ${fmt(x - r)} ${fmt(y)} c`,
+      `${fmt(x - r)} ${fmt(y - k)} ${fmt(x - k)} ${fmt(y - r)} ${fmt(x)} ${fmt(y - r)} c`,
+      `${fmt(x + k)} ${fmt(y - r)} ${fmt(x + r)} ${fmt(y - k)} ${fmt(x + r)} ${fmt(y)} c f`,
+    );
+  }
   return doc.context.flateStream(ops.join('\n'), {
     Type: 'Pattern',
     PatternType: 1,
@@ -392,7 +410,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const font = ctx.fonts.get(standardFont(style, false))!;
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
-    const lines = textBoxLines({ ...m, text: safeText(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
+    const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
     const ascent = font.heightAtSize(size, { descender: false });
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
@@ -484,7 +502,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const size = cell.style.fontSize ?? 12;
       const ascent = font.heightAtSize(size, { descender: false });
       const [cr, cg, cb] = rgb(textColor(cell.style));
-      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeText(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
+      const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
       for (const line of lines) ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${font.encodeText(line.text).toString()} Tj`);
       ops.push('ET');
