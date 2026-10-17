@@ -576,6 +576,11 @@ export class MarkupTools implements ViewerOverlay {
   };
 
   private setState(patch: Partial<ToolsState>) {
+    // A tool finishing (or changing) lets go of its snap marker and tracking lines.
+    if (patch.tool !== undefined && patch.tool !== this.state.tool) {
+      this.snapHit = null;
+      this.clearTracking();
+    }
     this.state = { ...this.state, ...patch };
     // Cells stay selected only while their table is the one thing selected.
     const cells = this.state.tableCells;
@@ -3093,6 +3098,9 @@ export class MarkupTools implements ViewerOverlay {
         for (const m of add) store.add(m);
       });
       c.picks = r.picks ?? [];
+      // The step is done: its snap marker and tracking lines go until the pointer moves again.
+      this.snapHit = null;
+      this.clearTracking();
       const selected = new Set(r.select.filter((id) => store.get(id)));
       if (r.again) this.setState({ selected, cad: { picks: c.picks.length, error: null } });
       else {

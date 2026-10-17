@@ -1029,3 +1029,42 @@ test('Select Similar, Reverse and Convert to Cloud', async () => {
   h.store.undo();
   assert.equal(h.store.get(poly.id)!.type, 'polygon', 'one undo step');
 });
+
+test('a Modify tool finishing clears its snap marker and tracking', async () => {
+  const h = await setup();
+  const l = put(h, 'line', [[100, 100], [200, 100]]);
+  put(h, 'line', [[300, 300], [400, 300]]);
+  h.tools.setSnap(true);
+  h.tools.select([l.id]);
+  h.tools.setTool('mirror');
+  const internals = h.tools as unknown as { snapHit: unknown; tracking: { points: unknown[] }; tracked: unknown };
+  click(h.tools, [100, 150]);
+  // Hovering near an endpoint snaps to it.
+  h.tools.hover([301, 301] as never, 0);
+  assert.ok(internals.snapHit, 'snapped while picking');
+  click(h.tools, [301, 301]);
+  assert.equal(h.tools.getState().tool, 'select');
+  assert.equal(internals.snapHit, null);
+  assert.equal(internals.tracked, null);
+  assert.equal(internals.tracking.points.length, 0);
+});
+
+test('Scale to Length handing back to Select clears its snap marker', async () => {
+  const h = await setup();
+  const l = put(h, 'line', [[100, 100], [200, 100]]);
+  put(h, 'line', [[300, 300], [400, 300]]);
+  h.tools.setSnap(true);
+  h.tools.select([l.id]);
+  h.tools.setTool('scaleLength');
+  const internals = h.tools as unknown as { snapHit: unknown };
+  click(h.tools, [100, 100]);
+  click(h.tools, [200, 100]);
+  h.tools.pickScaleTarget();
+  click(h.tools, [300, 300]);
+  h.tools.hover([399, 301] as never, 0);
+  assert.ok(internals.snapHit, 'snapped to the end');
+  // Finishing happens on the click, with no pointer move after it to redraw the marker away.
+  click(h.tools, [399, 301]);
+  assert.equal(h.tools.getState().tool, 'select');
+  assert.equal(internals.snapHit, null);
+});
