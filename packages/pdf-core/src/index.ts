@@ -1,3 +1,3 @@
 export { PdfEngine, PdfDocument } from './engine';
-export { APP_DATA_KEY, NEEDS_PASSWORD } from './protocol';
-export type { AnnotImage, DocumentInfo, OutlineItem, PageRegion, RedactReport, RedactRequest, TextObjectInfo, PageOp, PageSize, PdfAnnotation, TextWord } from './protocol';
+export { APP_DATA_KEY, NEEDS_PASSWORD, RENDER_CANCELLED } from './protocol';
+export type { AnnotImage, CopyCheck, DocumentInfo, OutlineItem, PageRegion, RedactReport, RedactRequest, RenderResult, TextObjectInfo, PageOp, PageSize, PdfAnnotation, TextWord } from './protocol';

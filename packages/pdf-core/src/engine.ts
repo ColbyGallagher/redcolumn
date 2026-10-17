@@ -1,4 +1,4 @@
-import type { AnnotImage, DocumentInfo, OutlineItem, RedactReport, RedactRequest, TextObjectInfo, PageOp, PageSize, PdfAnnotation, TextWord, TileRequest, WorkerRequest, WorkerResponse } from './protocol';
+import { RENDER_CANCELLED, type AnnotImage, type CopyCheck, type DocumentInfo, type OutlineItem, type RedactReport, type RedactRequest, type RenderResult, type TextObjectInfo, type PageOp, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 type Success = Extract<WorkerResponse, { ok: true }>;
 type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void };
@@ -142,11 +142,52 @@ export class PdfEngine {
     return res.bytes;
   }
 
+  /** Starts a call whose id the caller needs (to cancel it); no transfer. */
+  private start(req: WithoutId<WorkerRequest>): { id: number; done: Promise<Success> } {
+    const id = this.nextId++;
+    if (this.failure) return { id, done: Promise.reject(this.failure) };
+    const done = new Promise<Success>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ ...req, id });
+    });
+    return { id, done };
+  }
+
+  /** Runs a cancellable call: aborting `signal` stops it in the worker and rejects with RENDER_CANCELLED. */
+  private cancellable(req: WithoutId<WorkerRequest>, signal?: AbortSignal): Promise<Success> {
+    if (signal?.aborted) return Promise.reject(new Error(RENDER_CANCELLED));
+    const { id, done } = this.start(req);
+    if (!signal) return done;
+    const onAbort = () => this.worker.postMessage({ type: 'cancel', id: 0, ids: [id] });
+    signal.addEventListener('abort', onAbort, { once: true });
+    return done.finally(() => signal.removeEventListener('abort', onAbort));
+  }
+
   /** @internal */
-  async renderTile(req: TileRequest): Promise<{ bitmap: ImageBitmap; ms: number }> {
-    const res = await this.call({ type: 'render', ...req });
+  async renderTile(req: TileRequest, signal?: AbortSignal): Promise<RenderResult> {
+    const res = await this.cancellable({ type: 'render', ...req }, signal);
     if (res.type !== 'render') throw new Error('Unexpected response');
-    return { bitmap: res.bitmap, ms: res.ms };
+    const { id: _, ok: __, type: ___, ...result } = res;
+    return result;
+  }
+
+  /** @internal */
+  async documentBytes(docId: number): Promise<ArrayBuffer> {
+    const res = await this.call({ type: 'bytes', docId });
+    if (res.type !== 'bytes') throw new Error('Unexpected response');
+    return res.bytes;
+  }
+
+  /** @internal */
+  async setRenderCopy(docId: number, bytes: ArrayBuffer | null, keepChecked = false): Promise<void> {
+    await this.call({ type: 'setRenderCopy', docId, bytes, keepChecked }, bytes ? [bytes] : []);
+  }
+
+  /** @internal */
+  async checkCopy(docId: number, pageIndex: number, signal?: AbortSignal): Promise<CopyCheck> {
+    const res = await this.cancellable({ type: 'checkCopy', docId, pageIndex }, signal);
+    if (res.type !== 'checkCopy') throw new Error('Unexpected response');
+    return res.check;
   }
 
   /** @internal */
@@ -206,9 +247,33 @@ export class PdfDocument {
     readonly pages: readonly PageSize[],
   ) {}
 
-  /** Renders a device-pixel region of a page at `scale` device pixels per PDF point. */
-  renderTile(pageIndex: number, scale: number, x: number, y: number, width: number, height: number, options: { thinLines?: boolean; transparent?: boolean } = {}) {
-    return this.engine.renderTile({ docId: this.id, pageIndex, scale, x, y, width, height, ...options });
+  /**
+   * Renders a device-pixel region of a page at `scale` device pixels per PDF point. Aborting
+   * `signal` stops it (it then rejects with RENDER_CANCELLED).
+   */
+  renderTile(pageIndex: number, scale: number, x: number, y: number, width: number, height: number, options: { thinLines?: boolean; transparent?: boolean; copy?: boolean; priority?: number; signal?: AbortSignal } = {}) {
+    const { signal, ...rest } = options;
+    return this.engine.renderTile({ docId: this.id, pageIndex, scale, x, y, width, height, ...rest }, signal);
+  }
+
+  /** A copy of the file as this document was opened from it. */
+  bytes() {
+    return this.engine.documentBytes(this.id);
+  }
+
+  /**
+   * Draws pages from `bytes`, an optimised copy of this file with the same pages, once
+   * `checkCopy` passed for them and only for renders that ask (`copy`); null stops using any copy.
+   * `bytes` is transferred. Everything else (text, geometry, annotations, saving) uses the original.
+   * `keepChecked`: `bytes` extends the copy in use, so pages already checked stay checked.
+   */
+  setRenderCopy(bytes: ArrayBuffer | null, keepChecked = false) {
+    return this.engine.setRenderCopy(this.id, bytes, keepChecked);
+  }
+
+  /** Compares a page drawn from the render copy with the original; one that matches is drawn from the copy. */
+  checkCopy(pageIndex: number, signal?: AbortSignal) {
+    return this.engine.checkCopy(this.id, pageIndex, signal);
   }
 
   /**
