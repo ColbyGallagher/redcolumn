@@ -6,6 +6,8 @@ Each tool stays on after a click, so you can work through a drawing. A bar at th
 
 ## Trim
 
+![Clicking the parts of a line between two crossing lines to trim them away](gif/trim.gif)
+
 Cuts away the part of a line between the lines that cross it.
 
 1. Choose {{Edit > Modify > Trim}}.
@@ -14,6 +16,8 @@ Cuts away the part of a line between the lines that cross it.
 If only one line crosses it, the piece from there to the end you clicked goes. If nothing crosses it, nothing changes. Hold [[Shift]] to extend instead.
 
 ## Extend
+
+![Clicking near the end of a line to extend it to the next line](gif/extend.gif)
 
 Carries a line on in a straight line until it meets the next markup.
 
@@ -24,6 +28,8 @@ Hold [[Shift]] to trim instead.
 
 ## Break
 
+![Clicking where a gap starts and ends on a line](gif/break.gif)
+
 Takes a piece out of a line between two points, or splits it in two.
 
 1. Choose {{Edit > Modify > Break}}.
@@ -31,6 +37,8 @@ Takes a piece out of a line between two points, or splits it in two.
 3. Click where the gap ends. Click the same point again to split the line there without a gap.
 
 ## Lengthen
+
+![Typing a length and clicking the end of a line to lengthen it](gif/lengthen.gif)
 
 Makes a line longer or shorter at one end.
 

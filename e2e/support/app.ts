@@ -33,13 +33,15 @@ export interface Saved {
 const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' };
 
 /** Same first-run state everywhere: a fixed author and known settings (apps/web/src/settings/settings.ts). */
-function seed(settings: Record<string, unknown>) {
+function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolbar: string }) {
   try {
     // Once per tab, so a setting a test changes survives a reload.
     if (sessionStorage.getItem('e2e.seeded')) return;
     sessionStorage.setItem('e2e.seeded', '1');
     localStorage.setItem('nb.author', 'E2E Tester');
     localStorage.setItem('nb.settings', JSON.stringify(settings));
+    // The app starts with the ribbon, which is taller and so shifts the drawing; most specs use the one-row toolbar.
+    if (toolbar === 'simplified') localStorage.setItem('nb.profiles', JSON.stringify({ profiles: [{ id: 'e2e', name: 'Default', state: { toolbarStyle: 'simplified' } }], activeId: 'e2e' }));
   } catch {}
 }
 
@@ -100,10 +102,11 @@ function collectErrors(page: Page, errors: string[]) {
   page.on('dialog', (d) => void d.accept().catch(() => {}));
 }
 
-export const test = base.extend<{ app: App; settings: Record<string, unknown> }>({
+export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' }>({
   settings: [IMPERIAL, { option: true }],
+  toolbar: ['simplified', { option: true }],
   // `page` is only used by the web project (the desktop project's is left blank).
-  app: async ({ page, settings }, use, testInfo) => {
+  app: async ({ page, settings, toolbar }, use, testInfo) => {
     const errors: string[] = [];
     if (testInfo.project.name === 'desktop') {
       const profile = mkdtempSync(join(tmpdir(), 'rc-e2e-'));
@@ -161,7 +164,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown> }>
         };
         collectErrors(win, errors);
         await win.waitForSelector('.menubar', { timeout: 30_000 });
-        await win.evaluate(seed, settings);
+        await win.evaluate(seed, { settings, toolbar });
         await win.reload();
         await win.waitForSelector('.menubar', { timeout: 30_000 });
         await win.waitForFunction(() => !!window.__nb?.commands);
@@ -186,7 +189,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown> }>
     }
     // Select Text and Copy write to the clipboard; the tests read it back.
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-    await page.addInitScript(seed, settings);
+    await page.addInitScript(seed, { settings, toolbar });
     await page.addInitScript(stubSavePicker);
     await page.addInitScript(stubPrintFrame);
     collectErrors(page, errors);

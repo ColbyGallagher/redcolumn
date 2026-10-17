@@ -2,6 +2,8 @@
 
 Draws an oval or a circle.
 
+![Ellipse: drag the box the oval fills](gif/tool-ellipse.gif)
+
 ## Draw an ellipse
 
 1. Click **Ellipse** on the toolbar, or press [[E]].

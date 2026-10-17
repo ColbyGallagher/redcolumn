@@ -2,6 +2,8 @@
 
 Draws part of an oval (ellipse). Use it for curved walls, swings and other curves that are not part of a circle.
 
+![Elliptical Arc: drag the box the oval fits in](gif/tool-elliptical-arc.gif)
+
 ## Draw an elliptical arc
 
 1. Choose {{Tools > Markup > Lines & Shapes > Elliptical Arc}}.

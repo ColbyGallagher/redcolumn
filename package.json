@@ -16,5 +16,9 @@
     "e2e:report": "pnpm --filter @nb/e2e exec playwright show-report",
     "verify": "pnpm typecheck && pnpm test && pnpm build && node e2e/support/check-release.mjs && pnpm e2e",
     "bench:render": "node --experimental-transform-types --no-warnings --import ./apps/web/test/resolve-ts.mjs scripts/render-bench.mjs"
+  },
+  "devDependencies": {
+    "gifenc": "^1.0.3",
+    "pngjs": "^7.0.0"
   }
 }

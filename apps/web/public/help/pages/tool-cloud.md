@@ -2,6 +2,8 @@
 
 Draws a revision cloud: a box with a bumpy, cloud-like edge. Clouds are the usual way to show what has changed or what needs attention.
 
+![Cloud: drag from one corner to the opposite one](gif/tool-cloud.gif)
+
 ## Draw a cloud
 
 1. Click **Cloud** on the toolbar, or press [[C]].

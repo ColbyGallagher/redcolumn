@@ -2,6 +2,8 @@
 
 Draws a line with several straight sections, joined at corners.
 
+![Polyline: click each corner, then Enter to finish](gif/tool-polyline.gif)
+
 ## Draw a polyline
 
 1. Click **Polyline** on the toolbar, or press [[Shift+N]].

@@ -131,7 +131,7 @@ export function defaultWorkspace(): WorkspaceState {
     panelOrder: [],
     rightPanels: [],
     showToolbar: true,
-    toolbarStyle: 'simplified',
+    toolbarStyle: 'ribbon',
     ribbonCollapsed: false,
     dockFullWidth: false,
     list: { columns: [], sort: null, filters: {}, showFilterRow: false, savedFilters: [], advanced: null, groupBy: null, wrapComments: true, statusHistory: 'all', statusDetails: true, typeIcons: true },

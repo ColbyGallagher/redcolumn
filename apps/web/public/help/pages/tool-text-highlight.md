@@ -2,6 +2,8 @@
 
 Highlights words in the PDF, following the lines of text exactly. It only works on PDFs that contain real text (not scanned pictures of text — see [OCR](#ocr)).
 
+![Text Highlight: drag across words in the PDF text](gif/tool-text-highlight.gif)
+
 ## Highlight text
 
 1. Choose {{Tools > Markup > Text Markup > Text Highlight}} (or press [[H]]).

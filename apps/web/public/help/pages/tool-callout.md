@@ -2,6 +2,8 @@
 
 Text in a box with an arrow (leader) pointing at something.
 
+![Callout: press on the thing, drag to where the text goes, and type](gif/tool-callout.gif)
+
 ## Add a callout
 
 1. Click **Callout** on the toolbar, or press [[Q]].
