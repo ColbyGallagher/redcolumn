@@ -2,6 +2,8 @@
 
 Draws a box.
 
+![Rectangle: drag from one corner to the opposite one](gif/tool-rect.gif)
+
 ## Draw a rectangle
 
 1. Click **Rectangle** on the toolbar, or press [[R]].

@@ -17,16 +17,24 @@ Right-click › **Order**:
 | **Send Backward** | down one level |
 | **Send to Back** | under all others |
 
+![Bringing the bottom rectangle to the front, then sending it to the back](gif/arrange.gif)
+
 ## Line up several markups
 
 Select two or more markups, then right-click › **Alignment**:
 
 ![The Alignment menu](img/markup-menu-align.png)
 
+![Three rectangles lined up along their left edges with Align Left](gif/align-left.gif)
+
+![Three rectangles lined up along their middles with Align Middle](gif/align-middle.gif)
+
 - **Align Left / Center / Right** — line up their sides or centres across.
 - **Align Top / Middle / Bottom** — line them up down.
 - **Distribute Horizontally / Vertically** — space three or more out evenly.
 - **Flip Horizontal / Vertical** — mirror the markups.
+
+![Flipping a shape horizontally, then vertically](gif/flip.gif)
 
 ## Rotate
 

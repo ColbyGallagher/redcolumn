@@ -2,6 +2,8 @@
 
 Places a picture (a photo, logo or sketch) on the page.
 
+![Image: pick a picture, then drag a box to place it](gif/tool-image.gif)
+
 ## Place a picture
 
 1. Choose {{Tools > Markup > Other > Image}}, or press [[I]].

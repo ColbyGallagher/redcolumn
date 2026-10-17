@@ -2,6 +2,8 @@
 
 Draws a revision cloud along any outline, corner by corner. Use it when a plain rectangle cloud does not fit the area.
 
+![Polygon Cloud: click each corner, then the first corner again](gif/tool-polygon-cloud.gif)
+
 ## Draw a polygon cloud
 
 1. Choose {{Tools > Markup > Lines & Shapes > Polygon Cloud}}.

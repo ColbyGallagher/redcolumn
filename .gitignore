@@ -10,3 +10,4 @@ scripts/help/failed-*.png
 e2e/test-results/
 e2e/playwright-report/
 apps/web/dist-e2e/
+media/tool-gifs/

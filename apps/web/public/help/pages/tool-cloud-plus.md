@@ -2,6 +2,8 @@
 
 Draws a cloud **and** a callout with your note in one go. This is the quickest way to mark a change and say what it is.
 
+![Cloud+: drag a cloud, then type the note that comes with it](gif/tool-cloud-plus.gif)
+
 ## Draw a Cloud+
 
 1. Click **Cloud+** on the toolbar, or press [[K]].

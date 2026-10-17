@@ -2,6 +2,8 @@
 
 Makes parallel copies of a line, polyline or shape at a set distance, like the Offset command in CAD. Handy for wall thicknesses, kerbs, setbacks and evenly spaced lines.
 
+![Selecting a polyline, choosing Edit > Offset, typing a distance and three copies, then clicking the side to place them](gif/offset.gif)
+
 1. Choose {{Edit > Offset}} (or press [[O]]). If one line, polyline, polygon or rectangle is selected, Offset starts from it.
 2. Otherwise, click the line or shape to offset.
 3. In the Offset bar at the bottom of the view, type a **Distance** in the page's units, or leave it empty to place the copy through the point you click. Typing a number while offsetting jumps to the field.

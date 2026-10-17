@@ -2,6 +2,8 @@
 
 A table, drawn on the page, that lists the kinds of markups on that page: each one's look, its name, and how many there are (with measurement totals). It updates by itself as you add or remove markups.
 
+![Legend: drag a box and it lists the markups on the page](gif/tool-legend.gif)
+
 ## Add a legend
 
 1. Choose {{Tools > Markup > Other > Legend}}.

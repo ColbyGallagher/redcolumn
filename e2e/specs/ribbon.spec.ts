@@ -1,7 +1,8 @@
 import { expect, test, type App } from '../support/app.ts';
 
-// The top toolbar as a ribbon (Window › Toolbar Display): its tabs, the Modify tab's buttons
-// following the selection, collapsing to the tabs, and back to the simplified toolbar.
+// The top toolbar as a ribbon, which is how the app starts (Window › Toolbar Display): its tabs,
+// the Modify tab's buttons following the selection, collapsing to the tabs, and over to the
+// simplified toolbar.
 
 const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
 const ribbon = (app: App) => app.page.locator('.ribbon');
@@ -13,13 +14,17 @@ async function display(app: App, option: RegExp) {
 }
 
 test.describe('ribbon', () => {
+  // The app starts with the ribbon; other specs start with the one-row toolbar (support/app.ts).
+  test.use({ toolbar: 'ribbon' });
+
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
   });
 
-  test('switches between the simplified toolbar, the ribbon and its tabs only', async ({ app }) => {
-    await expect(app.page.locator('.toolbar.tools')).toBeVisible();
-    await expect(ribbon(app)).toHaveCount(0);
+  test('starts as a ribbon, and switches to its tabs only and the simplified toolbar', async ({ app }) => {
+    await expect(ribbon(app)).toBeVisible();
+    await expect(app.page.locator('.toolbar.tools')).toHaveCount(0);
+    expect((await app.command('window.ribbon')).checked).toBe(true);
 
     await display(app, /Show Tabs and Commands/);
     await expect(ribbon(app)).toBeVisible();
@@ -62,7 +67,6 @@ test.describe('ribbon', () => {
   });
 
   test('the Modify tab disables what the selection cannot take', async ({ app }) => {
-    await app.cmd('window.ribbon');
     await ribbon(app).getByRole('tab', { name: 'Modify' }).click();
 
     await app.tool('line');

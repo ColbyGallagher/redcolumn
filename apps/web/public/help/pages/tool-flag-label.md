@@ -2,6 +2,8 @@
 
 A short label in a pennant (flag) shape. Use it for tags like RFI numbers, keynotes or item codes.
 
+![Flag Label: drag a box for the flag and type its label](gif/tool-flag-label.gif)
+
 ## Add a flag label
 
 1. Choose {{Tools > Markup > Text & Notes > Flag Label}}.

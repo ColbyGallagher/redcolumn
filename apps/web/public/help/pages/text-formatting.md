@@ -42,3 +42,5 @@ A list is ordinary text (`• milk`, `1. milk`), so it looks the same in Bluebea
 ## Make the box fit the text
 
 Select the text box and choose {{Edit > Auto-size Text Box}} (or press [[Alt+Z]]).
+
+![A roomy text box shrinking to fit its text](gif/auto-size-text.gif)
