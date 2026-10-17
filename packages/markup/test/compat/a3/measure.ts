@@ -175,7 +175,7 @@ export function oddScales(p0: number): PageSpec[] {
     const cell = (label: string, size: [number, number] | null, build: (r: Rect) => { m: Markup; note: string }[]) =>
       P.cell(label, size, (r, c) => {
         const o = build(r);
-        P.spec.captions.push({ x: c.x + 5, y: c.y + c.h - 5, text: (v.scale ? o.map((x) => x.note).join(' | ') : 'no page scale: the app's default decides').slice(0, 90), size: 5.5 });
+        P.spec.captions.push({ x: c.x + 5, y: c.y + c.h - 5, text: (v.scale ? o.map((x) => x.note).join(' | ') : "no page scale: the app's default decides").slice(0, 90), size: 5.5 });
         return o.map((x) => x.m);
       });
     cell('length 100 pt', null, (r) => [meas('length', [[r.x, r.y + 30], [r.x + 100, r.y + 30]], S)]);
