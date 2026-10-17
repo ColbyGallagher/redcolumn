@@ -516,6 +516,10 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
                 <Cmd key={tool} id={`tool.${tool}`} />
               ))}
             </Submenu>
+            <Submenu label="Takeoff">
+              <Cmd id="tools.assemblies" />
+              <Cmd id="tools.quantities" />
+            </Submenu>
             <Cmd id="tools.sketchToScale" />
             <Submenu label="Sign & Certify">
               <Cmd id="tools.sign" />

@@ -202,3 +202,47 @@ test.describe('draw to scale', () => {
     expect(app.errors).toEqual([]);
   });
 });
+
+test.describe('assemblies', () => {
+  test.beforeEach(async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.calibrate();
+  });
+
+  test('tools.assemblies and tools.quantities: a wall taken off as studs and board', async ({ app }) => {
+    const { page } = app;
+    await app.cmd('tools.assemblies');
+    const dialog = page.getByRole('dialog', { name: 'Assemblies' });
+    await dialog.getByRole('button', { name: 'Examples ▾' }).click();
+    // The page is in feet, so the examples are too: studs at 16" (1.333 ft), 9 ft walls, 4 x 8 sheets.
+    await dialog.getByRole('menuitem', { name: 'Interior partition, studs and board both sides' }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dialog).toBeHidden();
+
+    // With nothing selected, the assembly applies to the next measurement.
+    await app.panel('Measurements');
+    await page.getByLabel('Assembly', { exact: true }).selectOption({ label: 'Interior partition, studs and board both sides' });
+    await app.tool('length');
+    await app.clicks([
+      [300, 450],
+      [500, 450],
+    ]);
+    const [wall] = await app.raw();
+    expect(wall).toMatchObject({ type: 'length', subject: 'Interior partition, studs and board both sides' });
+    expect(wall!.assemblyId).toBeTruthy();
+
+    await app.cmd('tools.quantities');
+    const totals = page.getByRole('dialog', { name: 'Takeoff quantities' });
+    const row = (item: string) => totals.locator('tbody tr', { has: page.locator('td', { hasText: new RegExp(`^${item}`) }) });
+    // 20 ft / 1.333 + 1 = 16 studs, +10% = 17.6: 18.
+    await expect(row('Studs').locator('td').nth(5)).toHaveText('18');
+    // 20 ft x 9 ft x 2 sides / 32 sf = 11.25 sheets, +10% = 12.375: 13.
+    await expect(row('Gypsum board').locator('td').nth(5)).toHaveText('13');
+    // 2 x 20 ft of track, +5% = 42 lf (not rounded).
+    await expect(row('Track, top and bottom').locator('td').nth(5)).toHaveText('42.00');
+  });
+
+  test.afterEach(async ({ app }) => {
+    expect(app.errors).toEqual([]);
+  });
+});

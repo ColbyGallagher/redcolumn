@@ -6,7 +6,7 @@ Click **Columns ▾** on the list's toolbar and tick the columns to show.
 
 ![The Columns menu](img/list-columns-menu.png)
 
-Built-in columns include ID, Subject, Page, Page Label, Space, Measurement, Length, Area, Volume, Wall Area, Depth, Slope, Author, Date, Creation Date, Status, Checkmark, Comments, Lock, Layer, Type, Colour and Capture.
+Built-in columns include ID, Subject, Page, Page Label, Space, Measurement, Length, Area, Volume, Wall Area, Depth, Slope, Assembly, Author, Date, Creation Date, Status, Checkmark, Comments, Lock, Layer, Type, Colour and Capture.
 
 **Reset Column Layout** puts the columns back to how they started.
 
@@ -27,7 +27,7 @@ Custom columns let you track anything: trade, cost code, due date, who is respon
    | **Number** | numbers, with decimal places |
    | **Date** | a date |
    | **Checkmark** | a tick box |
-   | **Calculation** | a value worked out from other columns, e.g. `[Quantity] * [Unit Cost]` |
+   | **Calculation** | a value worked out from other columns, e.g. `[Quantity] * [Unit Cost]` (see [Formulas](#formulas)) |
 
    ![A new column added](img/columns-dialog-add.png)
 3. Give it a **Name**, and fill in its settings (dropdown choices, decimal places, a default value).

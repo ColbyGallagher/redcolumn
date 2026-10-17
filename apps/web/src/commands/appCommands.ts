@@ -164,6 +164,10 @@ export interface CommandActions {
   thumbnails: () => void;
   setTool: (tool: Tool) => void;
   manageColumns: () => void;
+  /** Tools › Takeoff › Assemblies… */
+  manageAssemblies: () => void;
+  /** Tools › Takeoff › Takeoff Quantities… */
+  takeoffQuantities: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   toggleLeft: () => void;
@@ -443,6 +447,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.editText', 'Edit', 'Edit Text', () => a.setTool('editText'), s.pagesEditable && s.editable, s.tool === 'editText'),
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
+    cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
+    cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),

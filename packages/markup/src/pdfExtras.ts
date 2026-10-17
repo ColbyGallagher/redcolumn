@@ -1,7 +1,8 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, type PDFObject } from 'pdf-lib';
 import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue } from './bluebeam';
 import { toPdfValue } from './pdfValue';
-import { pageMatrix } from './export';
+import { ASSEMBLIES_KEY, pageMatrix } from './export';
+import { sanitizeAssemblies, type Assembly } from './assemblies';
 
 /** Above this size the raw read is skipped (PDFium's view of the annotations still applies). */
 const MAX_BYTES = 400 * 1024 * 1024;
@@ -64,7 +65,17 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
 
   const columns = arr(value(doc.catalog.get(PDFName.of('BSIAnnotColumns')), 'BSIAnnotColumns', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
-  return { pages, ocgNames, columns, statusDefs, images };
+  const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
+  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}) };
+}
+
+function readAssemblies(json: string | null): Assembly[] {
+  if (!json) return [];
+  try {
+    return sanitizeAssemblies(JSON.parse(json));
+  } catch {
+    return [];
+  }
 }
 
 /** An image XObject as a PNG (or, for JPEG data, JPEG) data URL; null if it cannot be decoded here. */

@@ -3,6 +3,7 @@ import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
+import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
 import { mapGeometry, type Markup, type Point } from './model';
 import { openPatch, type EditRule } from './ownership';
 import { rotatePagePoint, type PagePlan } from './pages';
@@ -41,6 +42,8 @@ export interface ImportedExtras {
   viewports?: Viewport[];
   /** Custom columns, added to the document's own (matched by name). */
   columns?: CustomColumn[];
+  /** Assemblies the file was saved with, added to the document's own (matched by id, then name). */
+  assemblies?: Assembly[];
   /** Statuses its review states use, added where the document lacks them. */
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
@@ -49,6 +52,7 @@ export interface ImportedExtras {
   geo?: GeoRegion[];
 }
 const NO_STITCH: StoredStitchGroup[] = [];
+const NO_ASSEMBLIES: Assembly[] = [];
 const NO_GEO: GeoRegion[] = [];
 
 /** The file contents markups belong to, as recorded for undo. */
@@ -136,6 +140,8 @@ export class MarkupStore {
   private geoSnapshot: GeoRegion[] = NO_GEO;
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
+  private assemblyRaw: unknown = undefined;
+  private assemblySnapshot: Assembly[] = NO_ASSEMBLIES;
   private locked = false;
   private editRule: EditRule | null = null;
 
@@ -257,6 +263,12 @@ export class MarkupStore {
         this.columnRaw = raw;
         const set = raw as Partial<ColumnSet> | undefined;
         this.columnSnapshot = set ? { columns: set.columns ?? [], statuses: set.statuses?.length ? set.statuses : DEFAULT_STATUSES } : DEFAULT_COLUMN_SET;
+      }
+      const assemblies = this.meta.get('assemblies');
+      if (assemblies !== this.assemblyRaw) {
+        this.assemblyRaw = assemblies;
+        // Checked here as well as on import: Live Session peers write this map too.
+        this.assemblySnapshot = assemblies ? sanitizeAssemblies(assemblies) : NO_ASSEMBLIES;
       }
     }
     if (has(this.outline)) {
@@ -568,6 +580,7 @@ export class MarkupStore {
         const statuses = [...set.statuses, ...(extras.statuses ?? []).filter((x) => !ids.has(x.id))];
         if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) this.meta.set('columns', { columns, statuses });
       }
+      if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -800,6 +813,17 @@ export class MarkupStore {
     this.doc.transact(() => this.meta.set('columns', { columns: set.columns, statuses: set.statuses }), LOCAL);
   }
 
+  /** The document's assemblies (stable until they change). */
+  assemblies(): Assembly[] {
+    return this.assemblySnapshot;
+  }
+
+  setAssemblies(list: readonly Assembly[]) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => this.meta.set('assemblies', structuredClone(list)), LOCAL);
+  }
+
   /** Sets one custom column's value on several markups as one undo step (empty clears it). */
   setField(ids: Iterable<string>, columnId: string, value: string) {
     if (this.locked) return;
@@ -1004,7 +1028,7 @@ function describeChange(
   if (changed.has(scales as never)) return 'Set scale';
   if (changed.has(viewports as never)) return 'Change viewports';
   if (changed.has(outline as never)) return 'Edit bookmarks';
-  if (changed.has(meta as never)) return 'Edit columns';
+  if (changed.has(meta as never)) return (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged.has('assemblies') ? 'Edit assemblies' : 'Edit columns';
   return 'Edit';
 }
 
@@ -1028,5 +1052,6 @@ function editKind(was: Markup, now: Markup): string {
   if (!!was.hidden !== !!now.hidden) return now.hidden ? 'Hide' : 'Show';
   if ((was.rotation ?? 0) !== (now.rotation ?? 0)) return 'Rotate';
   if (!!was.locked !== !!now.locked) return now.locked ? 'Lock' : 'Unlock';
+  if ((was.assemblyId ?? '') !== (now.assemblyId ?? '')) return 'Set assembly of';
   return 'Edit';
 }

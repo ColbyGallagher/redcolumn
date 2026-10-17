@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STATUSES, DEFAULT_STYLES, type Bookmark, type ColumnSet, type Place, type Viewport, type Markup, type MarkupStore, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, DEFAULT_STYLES, type Assembly, type Bookmark, type ColumnSet, type Place, type Viewport, type Markup, type MarkupStore, type StoredLink, type StoredStitchGroup } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import type { MarkupTools, ToolsState } from './MarkupTools';
@@ -58,4 +58,10 @@ const NO_COLUMNS: ColumnSet = { columns: [], statuses: DEFAULT_STATUSES };
 
 export function useColumnSet(store: MarkupStore | null): ColumnSet {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.columnSet() ?? NO_COLUMNS);
+}
+
+const NO_ASSEMBLIES: Assembly[] = [];
+
+export function useAssemblies(store: MarkupStore | null): Assembly[] {
+  return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.assemblies() ?? NO_ASSEMBLIES);
 }

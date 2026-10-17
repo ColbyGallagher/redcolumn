@@ -22,6 +22,7 @@ import { scaleOfMarkup, type Viewport } from './viewports';
 import { importViewports } from './bluebeam';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
+import type { Assembly } from './assemblies';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
@@ -32,6 +33,8 @@ import { toPdfDict } from './pdfValue';
  * here restores it exactly. Must match pdf-core's APP_DATA_KEY, which reads it back.
  */
 const APP_DATA_KEY = 'NBData';
+/** The catalog key the document's assemblies are kept under (read back by `readPdfExtras`). */
+export const ASSEMBLIES_KEY = 'NBAssemblies';
 
 /** Affine [a b c d e f] mapping page space (top-left, y down, rotated) to PDF user space. */
 export type Matrix = [number, number, number, number, number, number];
@@ -1517,6 +1520,17 @@ function writeGroups(doc: PDFDocument, made: ReadonlyMap<Markup, { dict: PDFDict
   }
 }
 
+/** The document's assemblies as JSON in the catalog (other tools ignore the key); none removes it. */
+function writeAssemblies(doc: PDFDocument, assemblies: readonly Assembly[]) {
+  const key = PDFName.of(ASSEMBLIES_KEY);
+  if (!assemblies.length) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify(assemblies);
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
 /** A new Space in its page's /BSISpaces, the entry Bluebeam's Spaces panel lists. */
 function addSpace(doc: PDFDocument, page: PDFPage, matrix: Matrix, m: Markup) {
   const entry = doc.context.obj({
@@ -1631,6 +1645,8 @@ export interface ExportOptions {
   columns?: readonly CustomColumn[];
   /** The document's statuses, for the names of review states. */
   statuses?: readonly MarkupStatusDef[];
+  /** The document's assemblies, kept in the catalog's /NBAssemblies; unset leaves the file's own as they are. */
+  assemblies?: readonly Assembly[];
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -1745,6 +1761,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.bookmarks) writeOutline(doc, pages, options.bookmarks, placeNames);
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
   const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
+  if (options.assemblies) writeAssemblies(doc, options.assemblies);
   if (options.pageScales || options.viewports?.length) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i)));
   }

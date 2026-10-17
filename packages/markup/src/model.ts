@@ -265,6 +265,8 @@ export interface Markup {
   holeBulges?: (number[] | null)[];
   /** Measurements: depth or height in meters (volume for areas, wall area for lengths). */
   depth?: number;
+  /** Measurements: the document assembly (see `Assembly`) whose quantities it stands for. */
+  assemblyId?: string;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
   /** Polylength, area, perimeter and volume: curved segments (per segment, its bulge; see @nb/measure's arcSegment). */

@@ -28,6 +28,7 @@ const BUILT_IN_HINTS: Partial<Record<string, string>> = {
   sheet: 'The page’s label or sheet number.',
   space: 'The Spaces the markup lies in.',
   measurement: 'The measurement’s value at its page or viewport scale.',
+  assembly: 'The assembly a measurement is taken off as (Tools › Takeoff › Assemblies).',
   author: 'Who made the markup.',
   date: 'When the markup was last changed.',
   status: 'The markup’s status. Define the statuses on the Statuses tab.',

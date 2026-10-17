@@ -254,6 +254,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     }
     if (raw) extras.geo = raw.pages.flatMap((p, i) => importGeoRegions(i, p));
     if (raw?.columns.length) extras.columns = importColumns(raw.columns);
+    if (raw?.assemblies?.length) extras.assemblies = raw.assemblies;
     // Custom status sets' states (with their colours), then any other states markups were set to.
     const sets = importStatuses(raw?.statusDefs ?? []);
     const known = new Set([...DEFAULT_STATUSES, ...sets].map((s) => s.id));

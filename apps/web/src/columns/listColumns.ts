@@ -1,4 +1,4 @@
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, threadReplies, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
+import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
@@ -35,6 +35,7 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'wallArea', label: 'Wall Area', align: 'right', defaultWidth: 100 },
   { key: 'depth', label: 'Depth', align: 'right', defaultWidth: 90 },
   { key: 'slope', label: 'Slope', align: 'right', defaultWidth: 70 },
+  { key: 'assembly', label: 'Assembly', defaultWidth: 150 },
   { key: 'author', label: 'Author', defaultWidth: 100 },
   { key: 'date', label: 'Date', defaultWidth: 140 },
   { key: 'created', label: 'Creation Date', defaultWidth: 140 },
@@ -52,7 +53,7 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
 const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
 
 /** Built-in columns that existed before layouts could lack them: one missing from a saved layout is shown. */
-const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer'].includes(k)));
+const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'assembly'].includes(k)));
 
 export const customKey = (id: string) => `custom:${id}`;
 
@@ -110,6 +111,8 @@ export interface CellContext {
   spaces?: readonly Markup[];
   statuses: readonly MarkupStatusDef[];
   columns: readonly CustomColumn[];
+  /** The document's assemblies, for the Assembly column. */
+  assemblies?: readonly Assembly[];
 }
 
 const cell = (text: string, num: number | null = null): Cell => ({ text, num });
@@ -153,6 +156,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     wallArea: q(details.wallArea, formatArea, perArea * perArea),
     depth: q(m.depth, formatLength, per),
     slope: cell(m.slope?.value ? formatSlope(m.slope) : ''),
+    assembly: cell(m.assemblyId ? (ctx.assemblies?.find((a) => a.id === m.assemblyId)?.name ?? '(deleted assembly)') : ''),
     author: cell(m.author),
     date: { text: new Date(m.modifiedAt).toLocaleString(), num: m.modifiedAt },
     created: { text: new Date(m.createdAt).toLocaleString(), num: m.createdAt },
