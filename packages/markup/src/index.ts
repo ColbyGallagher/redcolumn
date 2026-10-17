@@ -15,7 +15,7 @@ export { hitTest, layoutText, markupSegments, markupShape, moved, circleBox, pol
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
-export { canOffset, eraseStroke, offsetDistance, offsetPath, offsetPoints } from './offset';
+export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
@@ -88,3 +88,4 @@ export { bluebeamColumnId, importColumns, importStatuses, statusIdOf, type PdfEx
 export { planPageOps, rotatePagePoint, type PageOperation, type PagePlan } from './pages';
 export { parseBtx, parsePdfObject, pdfColor, toolStyle, toolType, type ToolChestItem, type ToolSet } from './toolchest';
 export { markupSnapPoints } from './snapPoints';
+export * from './cad';

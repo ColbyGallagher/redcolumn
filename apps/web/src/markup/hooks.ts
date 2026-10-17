@@ -5,7 +5,7 @@ import type { SheetInfo } from '@nb/sheets';
 import type { MarkupTools, ToolsState } from './MarkupTools';
 
 const EMPTY: Markup[] = [];
-const IDLE: ToolsState = { tool: 'select', selected: new Set(), styles: DEFAULT_STYLES, snap: true, measuring: false, showLinks: true, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
+const IDLE: ToolsState = { tool: 'select', selected: new Set(), styles: DEFAULT_STYLES, snap: true, measuring: false, showLinks: true, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null };
 const NO_SCALES: Readonly<Record<number, Scale>> = {};
 const NO_SHEETS: Readonly<Record<number, SheetInfo>> = {};
 const noopSubscribe = () => () => {};

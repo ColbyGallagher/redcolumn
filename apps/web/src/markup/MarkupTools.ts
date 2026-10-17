@@ -2,6 +2,14 @@ import {
   align,
   boundsOf,
   canOffset,
+  canExplode,
+  canJoin,
+  canReverse,
+  canCloud,
+  reversedMarkup,
+  explodeSegments,
+  joinPaths,
+  bulgeMidpoint,
   eraseStroke,
   calloutLanding,
   calloutLeaders,
@@ -27,8 +35,8 @@ import {
   MARKUP_LABELS,
   TYPE_INFO,
   multiplyOffsets,
+  offsetCopies,
   offsetDistance,
-  offsetPoints,
   onImageLoad,
   paintedStyle,
   resolveStamp,
@@ -55,6 +63,7 @@ import {
   wordAt,
   type WordBox,
   type StoredLink,
+  edgesOf,
   markupBounds,
   dimensionLine,
   labelHandles,
@@ -81,9 +90,10 @@ import {
   tableRegionRect,
   type TableLine,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, formatLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
+import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
  * `calibrate` draws a temporary line whose real length the user then enters. `labelRegion` draws a
@@ -91,7 +101,7 @@ import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer'
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength';
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -120,6 +130,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
+  ...CAD_TOOL_LABELS,
 };
 
 /** Tools that pick out an area of the page (drawn as a plain box, never snapped). */
@@ -300,6 +311,8 @@ export interface ToolsState {
   sketch: SketchState | null;
   /** The cells selected in the one selected table, if any. */
   tableCells: TableSelection | null;
+  /** A CAD Modify tool (Trim, Fillet, Mirror...): the points picked so far, and why the last click did nothing. */
+  cad: { picks: number; error: string | null } | null;
 }
 
 export interface SketchState {
@@ -474,9 +487,13 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null };
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
+  /** A CAD Modify tool's steps: the page, the points picked so far and where the pointer is. */
+  private cad: { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean } | null = null;
+  /** The markups the pointer is over that the tool's next click would pick (highlighted so it is clear what a click takes). */
+  private pickIds: string[] = [];
   private hoveredLink: string | null = null;
   /** The markup whose comment pop-up shows (after the pointer rests on it for a moment). */
   private popup: { id: string; timer: ReturnType<typeof setTimeout> | null; shown: boolean } | null = null;
@@ -562,6 +579,12 @@ export class MarkupTools implements ViewerOverlay {
   };
 
   private setState(patch: Partial<ToolsState>) {
+    // A tool finishing (or changing) lets go of its snap marker and tracking lines.
+    if (patch.tool !== undefined && patch.tool !== this.state.tool) {
+      this.snapHit = null;
+      this.clearTracking();
+      this.pickIds = [];
+    }
     this.state = { ...this.state, ...patch };
     // Cells stay selected only while their table is the one thing selected.
     const cells = this.state.tableCells;
@@ -829,13 +852,12 @@ export class MarkupTools implements ViewerOverlay {
     this.setGesture(null);
     this.snapHit = null;
     this.ghost = null;
+    this.cad = isCadTool(tool) ? { tool, pageIndex: this.page, picks: [], hover: null, shift: false } : null;
     if (tool === 'offset') {
-      // Offset copies the one selected line or shape at the distance the pointer picks.
+      // Offset copies the one selected line or shape; with nothing suitable selected, the first click picks it.
       const [id] = this.state.selected;
       const source = this.state.selected.size === 1 && id ? this.store?.get(id) : undefined;
-      if (!source || !canOffset(source)) return;
-      this.ghost = null;
-      this.setState({ tool, preset: null, painterSource: structuredClone(source) });
+      this.setState({ tool, preset: null, painterSource: source && canOffset(source) ? structuredClone(source) : null, cad: null });
       return;
     }
     if (tool === 'painter') {
@@ -849,7 +871,8 @@ export class MarkupTools implements ViewerOverlay {
     // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
-    this.setState({ tool, selected: tool === 'select' || tool === 'lasso' || tool === 'scaleLength' ? this.state.selected : new Set(), preset: armed, painterSource: null });
+    const keepSelection = tool === 'select' || tool === 'lasso' || tool === 'scaleLength' || isCadTool(tool);
+    this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
     // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
     if (tool === 'highlighter') this.wordsFor(this.page);
     this.viewer.refreshPointerCursor();
@@ -1387,6 +1410,12 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
+    if (this.cad?.picks.length) {
+      // Escape steps back to the tool's first pick, then leaves it.
+      this.cad.picks = [];
+      this.setState({ cad: { picks: 0, error: null } });
+      return;
+    }
     if (this.gesture) this.setGesture(null);
     else if (this.state.tool !== 'select') this.setTool('select');
     else this.select([]);
@@ -1629,14 +1658,13 @@ export class MarkupTools implements ViewerOverlay {
     }
     const offsetSource = this.state.tool === 'offset' ? this.state.painterSource : null;
     if (offsetSource && this.ghost?.pageIndex === pageIndex && offsetSource.pageIndex === pageIndex) {
-      const points = offsetPoints(offsetSource, offsetDistance(offsetSource, this.ghost.at));
-      if (points) {
-        ctx.save();
-        ctx.globalAlpha = 0.5;
-        drawMarkup(ctx, { ...offsetSource, points }, zoom, scale);
-        ctx.restore();
-      }
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      for (const points of this.offsetCopiesAt(offsetSource, this.ghost.at)) drawMarkup(ctx, { ...offsetSource, points }, zoom, scale);
+      ctx.restore();
     }
+    this.drawPickTargets(ctx, pageIndex, zoom);
+    this.drawCad(ctx, pageIndex, zoom);
     if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
     if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
     const template = this.state.preset?.template;
@@ -1795,6 +1823,12 @@ export class MarkupTools implements ViewerOverlay {
     if (!this.store) return false;
     const { tool } = this.state;
 
+    if (isCadTool(tool)) {
+      if (e.button !== 0 || this.store.readOnly) return false;
+      this.cadClickAt(tool, pt, e, pageIndex);
+      return true;
+    }
+
     if (tool === 'painter') {
       const hit = this.hitAt(toPoint(pt));
       const source = this.state.painterSource;
@@ -1815,15 +1849,24 @@ export class MarkupTools implements ViewerOverlay {
 
     if (tool === 'offset') {
       const source = this.state.painterSource;
-      if (e.button !== 0 || !source || this.store.readOnly) return false;
-      const points = offsetPoints(source, offsetDistance(source, toPoint(pt)));
-      if (!points) return true;
+      if (e.button !== 0 || this.store.readOnly) return false;
+      if (!source) {
+        const hit = this.hitAt(toPoint(pt));
+        if (hit && canOffset(hit)) this.setState({ painterSource: structuredClone(hit), selected: new Set([hit.id]) });
+        return true;
+      }
+      const copies = this.offsetCopiesAt(source, toPoint(pt));
+      if (!copies.length) return true;
+      const store = this.store;
       const now = Date.now();
-      const copy: Markup = { ...structuredClone(source), id: crypto.randomUUID(), points, groupId: undefined, locked: undefined, status: 'none', author: this.options.author(), createdAt: now, modifiedAt: now };
-      this.store.checkpoint();
-      this.store.add(copy);
+      const made = copies.map((points, k): Markup => ({ ...structuredClone(source), id: crypto.randomUUID(), points, groupId: undefined, locked: undefined, status: 'none', author: this.options.author(), createdAt: now + k, modifiedAt: now + k }));
+      store.checkpoint();
+      store.batch(() => made.forEach((m) => store.add(m)));
       this.ghost = null;
-      this.setState({ tool: 'select', painterSource: null, selected: new Set([copy.id]) });
+      const selected = new Set(made.map((m) => m.id));
+      // Like CAD offset the tool stays on for the next pick (unless Reuse is off); Escape ends it.
+      if (settings.get().reuseTool) this.setState({ painterSource: null, selected });
+      else this.setState({ tool: 'select', painterSource: null, selected });
       return true;
     }
 
@@ -2333,11 +2376,25 @@ export class MarkupTools implements ViewerOverlay {
       this.hidePopup();
       this.snapHit = null;
       this.ghost = null;
+      this.pickIds = [];
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
       this.viewer.invalidate();
       return null;
     }
+    this.updatePickTargets(pageIndex, toPoint(pt));
     if (tool === 'painter') return this.hitAt(toPoint(pt)) ? 'copy' : 'not-allowed';
+    if (isCadTool(tool) && this.cad) {
+      if (this.cad.pageIndex !== pageIndex && this.cad.picks.length) return 'not-allowed';
+      this.cad.pageIndex = pageIndex;
+      this.cad.shift = lastModifiers.shiftKey;
+      this.cad.hover = this.cadPoint(tool, pt, lastModifiers);
+      this.viewer.invalidate();
+      return this.pickIds.length ? 'pointer' : 'crosshair';
+    }
+    if (tool === 'offset' && !this.state.painterSource) {
+      const hit = this.hitAt(toPoint(pt));
+      return hit && canOffset(hit) ? 'pointer' : 'default';
+    }
     if (tool === 'eraser' || tool === 'offset') {
       this.ghost = { pageIndex, at: toPoint(pt) };
       this.viewer.invalidate();
@@ -2968,6 +3025,301 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Topmost markup under `p` on the current page. */
+  /**
+   * The markups under `p` that the tool in use would pick with its next click: the line a Modify
+   * step asks for, the shape Offset copies, what Scale to Length or the Format Painter takes.
+   */
+  private pickTargetsAt(pageIndex: number, p: Point): Markup[] {
+    const { tool, painterSource } = this.state;
+    if (!this.store || this.gesture) return [];
+    if (tool !== 'offset' && tool !== 'painter' && tool !== 'scaleLength' && !isCadTool(tool)) return [];
+    if (isCadTool(tool)) return this.cad ? cadPickTarget(tool, this.cad.picks, p, this.cadContext(pageIndex, lastModifiers.shiftKey)) : [];
+    const ctx = this.cadContext(pageIndex, false);
+    const hit = ctx.hit(p);
+    if (!hit) return [];
+    if (tool === 'offset') return !painterSource && canOffset(hit) ? [hit] : [];
+    if (tool === 'painter') return painterSource && hit.id !== painterSource.id && !this.frozen(hit) ? [hit] : [];
+    if (tool === 'scaleLength' && !this.scaleTargets(pageIndex).length && !this.frozen(hit)) {
+      const ids = new Set(ctx.group(hit));
+      return ctx.page.filter((m) => ids.has(m.id));
+    }
+    return [];
+  }
+
+  /** Follows the pointer: highlights what the next click would pick, redrawing only when that changes. */
+  private updatePickTargets(pageIndex: number, p: Point) {
+    const ids = this.pickTargetsAt(pageIndex, p).map((m) => m.id);
+    if (ids.length === this.pickIds.length && ids.every((id, i) => id === this.pickIds[i])) return;
+    this.pickIds = ids;
+    this.viewer.invalidate();
+  }
+
+  /** The highlight on the markups the next click would pick. */
+  private drawPickTargets(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    for (const id of this.pickIds) {
+      const m = this.store?.get(id);
+      if (m && m.pageIndex === pageIndex) drawPickHighlight(ctx, m, zoom);
+    }
+  }
+
+  /** What the page gives a CAD Modify tool to work with. */
+  private cadContext(pageIndex: number, shift: boolean): CadContext {
+    const store = this.store!;
+    const page = this.pageMarkups(pageIndex);
+    const now = Date.now();
+    return {
+      page,
+      selected: this.editable().filter((m) => m.pageIndex === pageIndex),
+      hit: (p) => this.pageMarkups(pageIndex).reverse().find((m) => hitTest(m, p, this.hitPx / this.viewer.zoomFor(pageIndex))),
+      frozen: (m) => this.frozen(m),
+      group: (m) => (m.groupId ? page.filter((x) => x.groupId === m.groupId).map((x) => x.id) : [m.id]),
+      length: (text, m) => {
+        const scale = m ? store.scaleOf(m) : store.scaleFor(pageIndex);
+        const v = text.trim() ? parseLength(text, scale.unit) : null;
+        return v === null ? null : (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+      },
+      create: (type, points, like) => {
+        const m = this.newMarkup(type, pageIndex, points);
+        if (like) {
+          m.style = { ...m.style, stroke: like.style.stroke, width: like.style.width, opacity: like.style.opacity, dash: like.style.dash };
+          if (like.layer) m.layer = like.layer;
+        }
+        return m;
+      },
+      clone: (m, patch) => ({
+        ...structuredClone(m),
+        ...patch,
+        id: crypto.randomUUID(),
+        seq: undefined,
+        groupId: patch.groupId,
+        locked: undefined,
+        pdfAnnot: undefined,
+        replies: undefined,
+        status: 'none',
+        statusHistory: undefined,
+        author: this.options.author(),
+        createdAt: now,
+        modifiedAt: now,
+      }),
+      shift,
+    };
+  }
+
+  /** Where a CAD tool's click lands: snapped for tools that pick points, as is for those that pick a markup. */
+  private cadPoint(tool: CadTool, pt: PagePoint, mods: Modifiers): Point {
+    const c = this.cad;
+    const picks = c?.picks ?? [];
+    const onPoints = tool === 'stretch' || (tool === 'break' && picks.length > 0) || (CAD_POINT_TOOLS.has(tool) && this.editable().some((m) => m.pageIndex === this.page));
+    if (!onPoints) {
+      this.snapHit = null;
+      return toPoint(pt);
+    }
+    return this.resolve(pt, mods, picks.at(-1)?.at ?? null);
+  }
+
+  /** A click with a CAD Modify tool: the next pick, a markup picked, or the edit made as one undo step. */
+  private cadClickAt(tool: CadTool, pt: PagePoint, e: Modifiers, pageIndex: number) {
+    const store = this.store!;
+    let c = this.cad;
+    if (!c || c.tool !== tool) c = this.cad = { tool, pageIndex, picks: [], hover: null, shift: false };
+    if (c.pageIndex !== pageIndex) {
+      c.picks = [];
+      c.pageIndex = pageIndex;
+    }
+    c.shift = e.shiftKey;
+    // What was under the pointer is picked (or not) now; the next move finds the next target.
+    this.pickIds = [];
+    const p = this.cadPoint(tool, pt, e);
+    const r = cadClick(tool, c.picks, p, this.cadContext(pageIndex, e.shiftKey));
+    if ('error' in r) {
+      this.setState({ cad: { picks: c.picks.length, error: r.error } });
+      return;
+    }
+    if ('done' in r) {
+      const { update, add, remove } = r.done;
+      store.checkpoint();
+      store.batch(() => {
+        if (remove.length) store.remove(remove);
+        for (const [id, patch] of update) store.update(id, patch);
+        for (const m of add) store.add(m);
+      });
+      c.picks = r.picks ?? [];
+      // The step is done: its snap marker and tracking lines go until the pointer moves again.
+      this.snapHit = null;
+      this.clearTracking();
+      const selected = new Set(r.select.filter((id) => store.get(id)));
+      if (r.again) this.setState({ selected, cad: { picks: c.picks.length, error: null } });
+      else {
+        this.cad = null;
+        this.setState({ tool: 'select', selected, cad: null });
+        this.viewer.refreshPointerCursor();
+      }
+      return;
+    }
+    if ('select' in r) {
+      this.setState({ selected: new Set(r.select), cad: { picks: c.picks.length, error: null } });
+      return;
+    }
+    c.picks = r.picks;
+    this.setState({ cad: { picks: c.picks.length, error: null } });
+  }
+
+  /**
+   * Join: the selected lines and paths whose ends meet become one polyline (a polygon when they
+   * close), or a Polylength / Perimeter when they are all lengths. One undo step; false if none met.
+   */
+  joinSelected(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const pages = new Map<number, Markup[]>();
+    for (const m of this.editable().filter(canJoin)) pages.set(m.pageIndex, [...(pages.get(m.pageIndex) ?? []), m]);
+    const update: [string, Partial<Markup>][] = [];
+    const remove: string[] = [];
+    for (const [pageIndex, ms] of pages) {
+      const tol = JOIN_PX / this.viewer.zoomFor(pageIndex);
+      for (const chain of joinPaths(ms.map((m) => ({ points: m.points, bulges: m.bulges })), tol)) {
+        if (chain.members.length < 2) continue;
+        const parts = chain.members.map((i) => ms[i]!);
+        const lengths = parts.every((m) => m.type === 'length' || m.type === 'polylength');
+        const type: MarkupType = lengths ? (chain.closed ? 'perimeter' : 'polylength') : chain.closed ? 'polygon' : 'polyline';
+        const curved = chain.bulges.some(Boolean);
+        // Only measurements keep curves; plain paths trace them.
+        const points = curved && !lengths ? expandArcs(chain.points, chain.bulges, chain.closed).map(([x, y]) => [x, y] as Point) : chain.points;
+        if (curved && !lengths && chain.closed && points.length > 1) {
+          const [f, l] = [points[0]!, points.at(-1)!];
+          if (f[0] === l[0] && f[1] === l[1]) points.pop();
+        }
+        update.push([parts[0]!.id, { type, points, bulges: curved && lengths ? chain.bulges : undefined }]);
+        remove.push(...parts.slice(1).map((m) => m.id));
+      }
+    }
+    if (!update.length) return false;
+    store.checkpoint();
+    store.batch(() => {
+      store.remove(remove);
+      for (const [id, patch] of update) store.update(id, patch);
+    });
+    this.setState({ selected: new Set(update.map(([id]) => id)) });
+    return true;
+  }
+
+  /**
+   * Explode: the selected polylines, polygons, rectangles and path measurements become one line per
+   * segment (an Arc where a segment curves; a Length for measurements). One undo step.
+   */
+  explodeSelected(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const targets = this.editable().filter(canExplode);
+    if (!targets.length) return false;
+    const add: Markup[] = [];
+    for (const m of targets) {
+      const ctx = this.cadContext(m.pageIndex, false);
+      const measure = isMeasureKind(m.type);
+      for (const seg of explodeSegments(m)) {
+        const curved = !!seg.bulge;
+        const type: MarkupType = curved ? 'arc' : measure ? 'length' : 'line';
+        const points = curved ? [seg.a, bulgeMidpoint(seg.a, seg.b, seg.bulge), seg.b] : [seg.a, seg.b];
+        const piece = ctx.clone(m, { type, points, bulges: undefined, holes: undefined, holeBulges: undefined, rotation: undefined, depth: undefined, ...(measure ? { text: undefined } : {}) });
+        if (curved) piece.style = { ...DEFAULT_STYLES.arc, stroke: m.style.stroke, width: m.style.width, opacity: m.style.opacity, dash: m.style.dash };
+        add.push(piece);
+      }
+    }
+    store.checkpoint();
+    store.batch(() => {
+      store.remove(targets.map((m) => m.id));
+      for (const m of add) store.add(m);
+    });
+    this.setState({ selected: new Set(add.map((m) => m.id)) });
+    return true;
+  }
+
+  /**
+   * Select Similar: adds every markup on the selection's pages that is like one selected (same
+   * type, subject, line colour and layer). Returns how many are selected now.
+   */
+  selectSimilar(): number {
+    const store = this.store;
+    if (!store) return 0;
+    const key = (m: Markup) => [m.type, m.subject ?? '', m.style.stroke.toLowerCase(), m.layer ?? ''].join('\u0000');
+    const picked = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
+    if (!picked.length) return 0;
+    const keys = new Set(picked.map(key));
+    const pages = new Set(picked.map((m) => m.pageIndex));
+    const ids = [...pages].flatMap((p) => this.pageMarkups(p).filter((m) => keys.has(key(m))).map((m) => m.id));
+    this.setState({ selected: new Set([...this.state.selected, ...ids]) });
+    return this.state.selected.size;
+  }
+
+  /**
+   * Convert to Cloud (AutoCAD's Revcloud › Object): the selected polygons become polygon clouds and
+   * rectangles box clouds, keeping their outline, look and comments. One undo step.
+   */
+  convertToCloud(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const targets = this.editable().filter(canCloud);
+    if (!targets.length) return false;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) {
+        const arcRadius = m.style.arcRadius ?? CLOUD_ARC_PX / this.viewer.zoomFor(m.pageIndex);
+        store.update(m.id, { type: m.type === 'rect' ? 'cloud' : 'polygonCloud', style: { ...m.style, arcRadius } });
+      }
+    });
+    return true;
+  }
+
+  /** Reverse: the selected lines and paths run the other way, swapping their end styles. One undo step. */
+  reverseSelected(): boolean {
+    const store = this.store;
+    if (!store || store.readOnly) return false;
+    const targets = this.editable().filter(canReverse);
+    if (!targets.length) return false;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) store.update(m.id, reversedMarkup(m));
+    });
+    return true;
+  }
+
+  /** What the next click with the CAD tool in use does, for its tool bar. */
+  cadPromptText(): string | null {
+    const c = this.cad;
+    if (!c || c.tool !== this.state.tool) return null;
+    return cadPrompt(c.tool, c.picks, { selected: this.editable().filter((m) => m.pageIndex === c.pageIndex), shift: c.shift });
+  }
+
+  /** The CAD tool's preview: the markups as the next click would leave them, its guide lines and the points picked. */
+  private drawCad(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const c = this.cad;
+    if (!c || c.pageIndex !== pageIndex || !this.store || c.tool !== this.state.tool) return;
+    if (c.hover) {
+      const { ghosts, guides } = cadPreview(c.tool, c.picks, c.hover, this.cadContext(pageIndex, c.shift));
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      // At least 2 px wide so the preview reads at any zoom.
+      for (const m of ghosts) drawMarkup(ctx, { ...m, style: { ...m.style, stroke: CAD_PREVIEW, width: Math.max(m.style.width, 2 / zoom) } }, zoom, this.store.scaleOf(m));
+      ctx.restore();
+      for (const g of guides) drawGuide(ctx, g, zoom);
+    }
+    for (const pick of c.picks) drawPickMark(ctx, pick.at, zoom);
+  }
+
+  /**
+   * Offset: the copies a click at `p` makes. The pointer's side picks the direction; the distance is
+   * the one typed (in the markup's scale) or, with none, through the pointer.
+   */
+  private offsetCopiesAt(source: Markup, p: Point): Point[][] {
+    const through = offsetDistance(source, p);
+    const { offsetDistance: typed, offsetCount } = settings.get();
+    const scale = this.store?.scaleOf(source);
+    const value = typed.trim() && scale ? parseLength(typed, scale.unit) : null;
+    const d = value !== null && value > 0 ? ((value * METERS_PER_UNIT[scale!.unit]) / scale!.metersPerPoint) * (through < 0 ? -1 : 1) : through;
+    if (!d) return [];
+    return offsetCopies(source, d, Math.min(100, Math.max(1, offsetCount || 1)));
+  }
+
   private hitAt(p: Point): Markup | undefined {
     const tol = this.hitPx / this.viewer.zoomFor(this.page);
     return this.pageMarkups(this.page)
@@ -3276,6 +3628,61 @@ function drawGrid(ctx: CanvasRenderingContext2D, size: { width: number; height: 
 }
 
 /** Dashed outline of a selection box or lasso being dragged. */
+/** CAD Modify tools: the colour their previews are drawn in. */
+const CAD_PREVIEW = '#2563eb';
+
+/** Join: ends this close on screen count as meeting. */
+const JOIN_PX = 3;
+
+/** CAD tools whose clicks are points in space (snapped) once there is a selection to work on. */
+const CAD_POINT_TOOLS: ReadonlySet<CadTool> = new Set<CadTool>(['move', 'copy', 'scale', 'mirror', 'rotateRef', 'align', 'arrayPolar']);
+
+/** A CAD tool's guide: a thin dashed line through the points. */
+function drawGuide(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {
+  if (path.length < 2) return;
+  ctx.save();
+  ctx.lineWidth = 1 / zoom;
+  ctx.strokeStyle = CAD_PREVIEW;
+  ctx.setLineDash([5 / zoom, 4 / zoom]);
+  ctx.beginPath();
+  path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A markup a click would pick: a soft, wide blue band along the lines it is drawn with (its box when it has none). */
+function drawPickHighlight(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+  let lines = edgesOf(m);
+  if (!lines.length) {
+    const b = markupBounds(m);
+    lines = [[[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h], [b.x, b.y]]];
+  }
+  ctx.save();
+  ctx.strokeStyle = 'rgba(37, 99, 235, 0.45)';
+  ctx.lineWidth = Math.max(m.style.width, 0) + 6 / zoom;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const line of lines) line.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** A point a CAD tool has picked: a small cross. */
+function drawPickMark(ctx: CanvasRenderingContext2D, [x, y]: Point, zoom: number) {
+  const r = 5 / zoom;
+  ctx.save();
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.strokeStyle = CAD_PREVIEW;
+  ctx.beginPath();
+  ctx.moveTo(x - r, y - r);
+  ctx.lineTo(x + r, y + r);
+  ctx.moveTo(x - r, y + r);
+  ctx.lineTo(x + r, y - r);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {
   if (path.length < 2) return;
   ctx.save();

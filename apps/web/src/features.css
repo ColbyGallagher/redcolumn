@@ -5764,3 +5764,11 @@ tr.hidden-markup td {
 .tip-link:hover {
   text-decoration: underline;
 }
+
+.cad-bar input.cad-count {
+  width: 52px;
+}
+
+.cad-bar .cad-error {
+  color: var(--brand-hi);
+}

@@ -2,7 +2,28 @@ import { BATCH_LABELS, type BatchKind } from '../components/BatchDialog';
 import { desktop } from '../desktop/host';
 import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
+
+/** The CAD Modify tools' commands, in menu order. */
+export const CAD_COMMANDS: readonly [id: string, tool: CadTool][] = [
+  ['edit.move', 'move'],
+  ['edit.copyBase', 'copy'],
+  ['edit.scale', 'scale'],
+  ['edit.trim', 'trim'],
+  ['edit.extend', 'extend'],
+  ['edit.break', 'break'],
+  ['edit.lengthen', 'lengthen'],
+  ['edit.fillet', 'fillet'],
+  ['edit.chamfer', 'chamfer'],
+  ['edit.mirror', 'mirror'],
+  ['edit.rotate', 'rotateRef'],
+  ['edit.alignPoints', 'align'],
+  ['edit.stretch', 'stretch'],
+  ['edit.arrayPolar', 'arrayPolar'],
+  ['edit.arrayPath', 'arrayPath'],
+  ['edit.divide', 'divide'],
+];
 
 export type CommandCategory = 'File' | 'Edit' | 'View' | 'Document' | 'Bulk' | 'Tools' | 'Window' | 'Help';
 
@@ -63,6 +84,13 @@ export interface CommandActions {
   selectAll: () => void;
   formatPainter: () => void;
   offset: () => void;
+  /** Picks a CAD Modify tool (Trim, Fillet, Mirror...). */
+  cadTool: (tool: CadTool) => void;
+  join: () => void;
+  explode: () => void;
+  selectSimilar: () => void;
+  toCloud: () => void;
+  reverse: () => void;
   group: () => void;
   ungroup: () => void;
   lock: (locked: boolean) => void;
@@ -168,8 +196,12 @@ export interface CommandState {
   hiddenCount: number;
   selectionLocked: boolean;
   selectionGrouped: boolean;
-  /** The one selected markup can be offset (a line, path or closed shape). */
-  selectionOffsettable: boolean;
+  /** Join and Explode have something selected to work on. */
+  selectionJoinable: boolean;
+  selectionExplodable: boolean;
+  /** Convert to Cloud and Reverse have something selected to work on. */
+  selectionCloudable: boolean;
+  selectionReversible: boolean;
   canPaste: boolean;
   canGoBack: boolean;
   /** The active document has changes that can be undone (Revert). */
@@ -272,8 +304,14 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.copy', 'Edit', 'Copy', a.copy, sel),
     cmd('edit.paste', 'Edit', 'Paste', a.paste, s.editable && s.canPaste),
     cmd('edit.pasteInPlace', 'Edit', 'Paste in Place', a.pasteInPlace, s.editable && s.canPaste),
-    cmd('edit.offset', 'Edit', 'Offset', a.offset, s.selectionOffsettable && s.editable, s.tool === 'offset'),
+    cmd('edit.offset', 'Edit', 'Offset', a.offset, s.editable, s.tool === 'offset'),
     cmd('edit.multiply', 'Edit', 'Multiply…', a.multiply, sel && s.editable),
+    ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable, s.tool === tool)),
+    cmd('edit.join', 'Edit', 'Join', a.join, s.selectionJoinable && s.editable),
+    cmd('edit.explode', 'Edit', 'Explode', a.explode, s.selectionExplodable && s.editable),
+    cmd('edit.reverse', 'Edit', 'Reverse', a.reverse, s.selectionReversible && s.editable),
+    cmd('edit.toCloud', 'Edit', 'Convert to Cloud', a.toCloud, s.selectionCloudable && s.editable),
+    cmd('edit.selectSimilar', 'Edit', 'Select Similar', a.selectSimilar, sel),
     cmd('edit.delete', 'Edit', 'Delete', a.deleteSelection, sel && s.editable),
     cmd('edit.hide', 'Edit', 'Hide', a.hideSelection, sel && s.editable),
     cmd('edit.showHidden', 'Edit', 'Show Hidden Markups', a.showHidden, s.hiddenCount > 0 && s.editable),
