@@ -58,7 +58,8 @@ test('every markup type exports to a PDF annotation and comes back exactly, repl
   });
   // One annotation per markup, plus the reply (which import leaves to its markup); a Space is a
   // Bluebeam Space on the page, not an annotation.
-  assert.equal(found.length, markups.length);
+  // A count is one annotation per item, as Bluebeam writes it: the others carry no markup of their own.
+  assert.equal(found.length, markups.length + markups.filter((m) => m.type === 'count').reduce((n, m) => n + m.points.length - 1, 0));
   const { markups: imported } = importAnnotations(0, found, undefined, await readPdfExtras(bytes));
   // Spaces come after the annotations, as they are read from the page's own list.
   const back = markups.map((m) => imported.find((i) => i.id === m.id)!);
