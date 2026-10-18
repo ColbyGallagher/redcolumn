@@ -6,7 +6,7 @@ reports are welcome and taken seriously.
 ## Supported versions
 
 Only the current app is supported: the one published from the `master` branch at
-`colbygallagher.github.io/redcolumn`, which updates itself. Fixes are not back-ported to older
+`https://redcolumn-web.vercel.app/`, which updates itself. Fixes are not back-ported to older
 builds or to copies other people host.
 
 ## Reporting a vulnerability
