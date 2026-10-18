@@ -456,7 +456,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
 
-  const image = isImageType(m.type) && m.image ? ctx.images.get(m.image) : undefined;
+  const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
   if (image) {
     const b = boundsOf(m.points);
     // Image space is a unit square with y up; page space is y down.
@@ -1310,6 +1310,10 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
     const name = orig.get(PDFName.of('Name'));
     return { Subtype: 'Stamp', [KEEP_APPEARANCE]: true, ...(name ? { Name: name as never } : {}) };
   }
+  if (m.type === 'attachment' && subtype === 'FileAttachment' && m.pdfAnnot?.image && m.image && markupDigest({ image: m.image } as Markup) === m.pdfAnnot.image) {
+    // Another tool's attachment, moved or resized only: its own appearance, fitted to the new box.
+    return { [KEEP_APPEARANCE]: true };
+  }
   if ((m.type === 'note' || m.type === 'flag') && subtype === 'Text') {
     const name = nameValue(orig, 'Name');
     return name ? { Name: name } : null;
@@ -1881,7 +1885,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   }
   const images = new Map<string, PDFImage>();
   for (const m of written) {
-    const src = isImageType(m.type) ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : undefined;
+    const src = isImageType(m.type) || m.type === 'attachment' ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : undefined;
     if (!src || images.has(src)) continue;
     const img = await embedDataUrl(doc, src);
     if (img) images.set(src, img);

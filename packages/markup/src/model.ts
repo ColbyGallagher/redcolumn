@@ -292,7 +292,7 @@ export interface Markup {
   subject?: string;
   /** Values of the document's custom columns, keyed by column id. */
   fields?: Record<string, string>;
-  /** Image drawn in the markup's box (images, signatures): a PNG or JPEG data URL. */
+  /** Image drawn in the markup's box (images, signatures, other tools' attachments): a PNG or JPEG data URL. */
   image?: string;
   signature?: SignatureInfo;
   /** Locked markups cannot be moved, reshaped, restyled or deleted; their status and comments stay editable. */

@@ -336,7 +336,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillText(dim.text, 0, 0);
     ctx.restore();
   }
-  if (isImageType(m.type) && m.image) {
+  if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
     const b = boundsOf(m.points);
     const img = markupImage(m.image);
     if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);

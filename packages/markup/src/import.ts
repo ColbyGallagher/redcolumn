@@ -262,7 +262,7 @@ export function importAnnotations(
       ...(t?.owned.length ? { owned: [...t.owned].sort((x, y) => x - y) } : {}),
       status: m.status,
       ...(m.checked !== undefined ? { checked: m.checked } : {}),
-      ...(m.image && !ours && a.subtype === 'Stamp' ? { image: markupDigest({ image: m.image } as Markup) } : {}),
+      ...(m.image && !ours && (a.subtype === 'Stamp' || a.subtype === 'FileAttachment') ? { image: markupDigest({ image: m.image } as Markup) } : {}),
     };
     return m;
   };
@@ -529,7 +529,7 @@ function toMarkups(a: ImportableAnnotation): Found[] {
       return [{ type, points: lines, filled: false }];
     }
     case 'FileAttachment':
-      return [{ type: 'attachment', points: [[r.x, r.y], [r.x + r.w, r.y + r.h]], filled: true }];
+      return [{ type: 'attachment', points: [[r.x, r.y], [r.x + r.w, r.y + r.h]], filled: true, ...(a.picture ? { style: { fill: null, width: 0 }, extra: { image: a.picture } } : {}) }];
     case 'FreeText':
       return [{ type: a.intent === 'FreeTextTypeWriter' ? 'typewriter' : 'text', points: box, filled: a.intent !== 'FreeTextTypeWriter' }];
     default:
@@ -827,6 +827,12 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       if (!image) return [];
       const [p, q] = innerBox();
       return [{ type: 'image', points: [p!, q!], filled: false, style: { stroke: color ?? '#000000', fill: null, width: 0, opacity: a.opacity }, extra: { image } }];
+    }
+    case 'FileAttachment': {
+      // Another tool's attachment (Bluebeam's file icon and name): its own appearance, as a picture.
+      const image = extras.appearances?.get(`${pageIndex}:${a.index}`);
+      const box: Point[] = [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
+      return [{ type: 'attachment', points: box, filled: true, ...(image ? { style: { fill: null, width: 0 }, extra: { image } } : {}) }];
     }
     case 'Text': {
       const [p, q] = innerBox();

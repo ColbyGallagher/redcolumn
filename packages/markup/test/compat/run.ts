@@ -215,11 +215,11 @@ async function pipeline(bytes: Uint8Array): Promise<Pipeline> {
   const annots: any[][] = [];
   for (let i = 0; i < open.pages.length; i++) annots.push((await call({ type: 'annotations', docId: open.docId, pageIndex: i })).annotations);
   const labels = (await call({ type: 'pageLabels', docId: open.docId })).labels;
-  // Other tools' stamps are imported as pictures, as the app's indexer does.
+  // Other tools' stamps and attachments are imported as pictures, as the app's indexer does.
   if (raw) raw.appearances = new Map();
   for (const [i, list] of annots.entries())
     for (const a of list) {
-      if (!raw || a.subtype !== 'Stamp' || a.appData || a.flags & 35) continue;
+      if (!raw || (a.subtype !== 'Stamp' && a.subtype !== 'FileAttachment') || a.appData || a.flags & 35) continue;
       const { image } = await call({ type: 'annotImage', docId: open.docId, pageIndex: i, index: a.index, scale: 3 });
       if (image) raw.appearances.set(`${i}:${a.index}`, `data:image/png;base64,${Buffer.from(await encodePng(image.width, image.height, image.rgba)).toString('base64')}`);
     }

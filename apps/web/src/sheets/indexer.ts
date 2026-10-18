@@ -226,13 +226,13 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     for (let i = 0; i < doc.pages.length; i++) {
       signal?.throwIfAborted();
       const annotations = await doc.annotations(i);
-      // Stamps, and Bluebeam image markups whose embedded photo was not decoded, come in as a
-      // picture of their own appearance. Otherwise a square image is imported as an empty rectangle
-      // and the original picture is hidden.
+      // Stamps, file attachments, and Bluebeam image markups whose embedded photo was not decoded,
+      // come in as a picture of their own appearance. Otherwise a square image is imported as an
+      // empty rectangle and the original picture is hidden.
       for (const a of annotations) {
         if (a.appData || a.flags & (1 | 2 | 32)) continue;
         const squareImage = a.subtype === 'Square' && a.intent === 'SquareImage';
-        if (a.subtype !== 'Stamp' && !squareImage) continue;
+        if (a.subtype !== 'Stamp' && a.subtype !== 'FileAttachment' && !squareImage) continue;
         if (squareImage && imageDecoded(raw, i, a)) continue;
         if (!raw && !squareImage) continue;
         const image = await doc.annotationImage(i, a.index, squareImage ? 2 : 3).catch(() => null);
