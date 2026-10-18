@@ -2,6 +2,8 @@
 
 These mark words in the PDF's own text, the same way as [Text Highlight](#tool-text-highlight).
 
+![Underline, Strikethrough and Squiggly: each marks words in the PDF text](gif/tool-underline.gif)
+
 ![Text underlined, highlighted and struck through](img/draw-text-lines.png)
 
 | Tool | Looks like | Shortcut | Use it to |

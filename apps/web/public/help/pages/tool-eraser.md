@@ -2,6 +2,8 @@
 
 Rubs out parts of [Pen](#tool-pen) and [Highlighter](#tool-highlighter) strokes. It never erases the drawing itself.
 
+![Eraser: rub out part of a pen stroke](gif/tool-eraser.gif)
+
 ## Erase
 
 1. Choose {{Tools > Eraser > Eraser}}, or press [[Shift+E]].

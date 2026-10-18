@@ -2,6 +2,8 @@
 
 Draws a curved line through three points.
 
+![Arc: click the start, a point it passes through, and the end](gif/tool-arc.gif)
+
 ## Draw an arc
 
 1. Choose {{Tools > Markup > Lines & Shapes > Arc}}, or press [[Shift+C]].

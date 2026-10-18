@@ -2,6 +2,8 @@
 
 Adds plain text with no box, as if typed straight onto the page. Good for filling in title blocks and forms.
 
+![Typewriter: click where the text starts and type](gif/tool-typewriter.gif)
+
 ## Type on the page
 
 1. Choose {{Tools > Markup > Text & Notes > Typewriter}}, or press [[W]].

@@ -2,6 +2,8 @@
 
 Draws a line with an arrowhead at the end, to point at something.
 
+![Arrow: drag from the tail to the thing it points at](gif/tool-arrow.gif)
+
 ## Draw an arrow
 
 1. Choose {{Tools > Markup > Lines & Shapes > Arrow}}, or press [[A]].

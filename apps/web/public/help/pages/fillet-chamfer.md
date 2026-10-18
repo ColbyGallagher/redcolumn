@@ -4,6 +4,8 @@ Tidy up corners and paths like the AutoCAD commands of the same names. Find them
 
 ## Fillet
 
+![Typing a radius and clicking two lines to round their corner](gif/fillet.gif)
+
 Meets two lines at their corner, rounded by an arc when you set a radius.
 
 1. Choose {{Edit > Modify > Fillet}}.
@@ -14,9 +16,13 @@ The lines are trimmed or extended to meet. With a radius an Arc joins them. Clic
 
 ## Chamfer
 
+![Typing a distance and clicking two lines to cut their corner](gif/chamfer.gif)
+
 Works like Fillet but cuts the corner with a straight edge. Type the **Distance** back from the corner along each line.
 
 ## Join
+
+![Selecting three lines and joining them into one polyline](gif/join.gif)
 
 Turns lines and polylines whose ends meet into one polyline, or a polygon when they close a loop.
 
@@ -26,6 +32,8 @@ Turns lines and polylines whose ends meet into one polyline, or a polygon when t
 Length measurements join into a Polylength, or a Perimeter when they close.
 
 ## Explode
+
+![Exploding a rectangle into four separate lines](gif/explode.gif)
 
 Splits polylines, polygons, rectangles and path measurements into separate lines, one per segment.
 

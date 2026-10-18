@@ -893,7 +893,8 @@ select[size] {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  /* Above the ribbon (30), menus and floating panels, so a dialog is never hidden behind them. */
+  z-index: 100;
   display: grid;
   place-items: center;
   background: rgba(0, 0, 0, 0.45);
@@ -901,7 +902,7 @@ select[size] {
 
 /* Above menus, so Allow or Deny is the thing on screen. */
 .modal-backdrop.assistant-confirm {
-  z-index: 90;
+  z-index: 110;
 }
 
 .modal {
@@ -5188,4 +5189,58 @@ select[size] {
 .modal.rc-share .btn.primary {
   border-color: var(--accent);
   background: var(--accent);
+}
+
+/* Hover preview for the markup and Modify tools: a short animation and one sentence. */
+.tool-hint-card {
+  position: fixed;
+  z-index: 120;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  animation: tool-hint-in 0.12s ease-out;
+}
+
+.tool-hint-card.above {
+  transform: translateY(-100%);
+}
+
+.tool-hint-card .thc-frame {
+  aspect-ratio: 16 / 9;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.tool-hint-card .thc-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.tool-hint-card .thc-frame.loaded img {
+  opacity: 1;
+}
+
+.tool-hint-card .thc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 10px;
+  line-height: 1.35;
+}
+
+.tool-hint-card .thc-text span {
+  color: var(--muted);
+}
+
+@keyframes tool-hint-in {
+  from {
+    opacity: 0;
+  }
 }
