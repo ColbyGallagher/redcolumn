@@ -136,6 +136,7 @@ import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
+import { PopOutWindow } from './components/PopOutWindow';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
 import { idFromText, onProjectOpened, openProject, openProjects, projectAuthor, projectById } from './studio/projects/store';
 import { isUnreachable, noteText, projectQueue } from './studio/projects/queue';
@@ -854,6 +855,10 @@ export function App() {
   const toggleToolbar = () => updateWorkspace((w) => ({ ...w, showToolbar: !w.showToolbar }));
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+  /** The Markups list is shown in its own window instead of the bottom dock. */
+  const [markupsPopped, setMarkupsPopped] = useState(false);
+  /** The open right-click menu belongs to the pop-out window. */
+  const [ctxInPopOut, setCtxInPopOut] = useState(false);
   /** A panel being dragged by its rail button or title: `over` is the panel it would drop beside, `side` the rail it would dock on. */
   const [railDrag, setRailDrag] = useState<{ id: LeftTab; over: LeftTab | null; after: boolean; side: DockSide | null } | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -7839,6 +7844,30 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     );
   };
 
+  const markupList = (
+    <MarkupList
+      markups={markups}
+      store={activeOpen?.store ?? null}
+      scaleOf={scaleOf}
+      sheets={sheets}
+      columnSet={columnSet}
+      assemblies={assemblies}
+      readOnly={!activeOpen || activeReadOnly}
+      selected={toolsState.selected}
+      onSelect={selectRowsFromList}
+      onReply={onListReply}
+      onRowMenu={onListRowMenu}
+      onManageColumns={onManageColumns}
+      onExport={onExportList}
+      onSync={() => setSyncOpen(true)}
+      syncing={!!sheetSync.link}
+      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+      onFiltered={setListKept}
+      allHidden={allMarkupsHidden}
+      onToggleAllHidden={toggleAllMarkupsHidden}
+    />
+  );
+
   // The Markups list sits beside the side panels, or spans the window below them.
   const bottomDock = !dockOpen ? (
     <button type="button" className="dock-edge" aria-label="Open the Markups list" title="Open the Markups list" onClick={() => setDockOpen(true)} />
@@ -7876,6 +7905,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             Links{links.some((l) => l.status === 'review') ? ' •' : ''}
           </button>
         </div>
+        {bottomTab === 'markups' && !markupsPopped && (
+          <button type="button" className="drawer-popout" aria-label="Open the Markups list in its own window" title="Open in its own window" onClick={() => setMarkupsPopped(true)}>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M9 2h5v5M14 2 7.5 8.5M12 10v3.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H6" />
+            </svg>
+          </button>
+        )}
         <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
           ×
         </button>
@@ -7894,28 +7930,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
             onRedetect={() => void redetectLinks()}
           />
+        ) : markupsPopped ? (
+          <div className="popout-note">
+            <p>The Markups list is open in its own window.</p>
+            <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
+              Bring it back
+            </button>
+          </div>
         ) : (
-          <MarkupList
-            markups={markups}
-            store={activeOpen?.store ?? null}
-            scaleOf={scaleOf}
-            sheets={sheets}
-            columnSet={columnSet}
-            assemblies={assemblies}
-            readOnly={!activeOpen || activeReadOnly}
-            selected={toolsState.selected}
-            onSelect={selectRowsFromList}
-            onReply={onListReply}
-            onRowMenu={onListRowMenu}
-            onManageColumns={onManageColumns}
-            onExport={onExportList}
-            onSync={() => setSyncOpen(true)}
-            syncing={!!sheetSync.link}
-            syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
-            onFiltered={setListKept}
-            allHidden={allMarkupsHidden}
-            onToggleAllHidden={toggleAllMarkupsHidden}
-          />
+          markupList
         )}
       </div>
     </aside>
@@ -7924,6 +7947,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   return (
     <div
       className={`app${fullScreen ? ' fullscreen' : ''}`}
+      onContextMenuCapture={() => setCtxInPopOut(false)}
       onContextMenu={(e) => {
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
@@ -8509,32 +8533,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
-      {idsOpen && (
-        <DigitalIdsDialog
-          ids={idList}
-          onClose={() => setIdsOpen(false)}
-          onCreate={async (o) => {
-            const { createSelfSignedId } = await import('./documents/digitalIds');
-            digitalIds.add(await createSelfSignedId(o));
-            setIdList(digitalIds.list());
-            setTrustedCerts(digitalIds.trusted());
-          }}
-          onImport={async (file, password) => {
-            const { importDigitalId } = await import('./documents/digitalIds');
-            digitalIds.add(await importDigitalId(new Uint8Array(await file.arrayBuffer()), password));
-            setIdList(digitalIds.list());
-            setTrustedCerts(digitalIds.trusted());
-          }}
-          onExportCertificate={async (id, password) => {
-            const { certificateOf } = await import('./documents/digitalIds');
-            download(`${id.name}.cer`, new Blob([certificateOf(id, password) as BlobPart], { type: 'application/pkix-cert' }));
-          }}
-          onDelete={(id) => {
-            digitalIds.remove(id.id);
-            setIdList(digitalIds.list());
-          }}
-        />
-      )}
       {signFor && activeOpen && (
         <SignDialog
           ids={idList}
@@ -8558,6 +8556,32 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }
             await runSign(activeOpen.file.id, c, signFor.fieldName ? { fieldName: signFor.fieldName } : {});
             setSignFor(null);
+          }}
+        />
+      )}
+      {idsOpen && (
+        <DigitalIdsDialog
+          ids={idList}
+          onClose={() => setIdsOpen(false)}
+          onCreate={async (o) => {
+            const { createSelfSignedId } = await import('./documents/digitalIds');
+            digitalIds.add(await createSelfSignedId(o));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
+          }}
+          onImport={async (file, password) => {
+            const { importDigitalId } = await import('./documents/digitalIds');
+            digitalIds.add(await importDigitalId(new Uint8Array(await file.arrayBuffer()), password));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
+          }}
+          onExportCertificate={async (id, password) => {
+            const { certificateOf } = await import('./documents/digitalIds');
+            download(`${id.name}.cer`, new Blob([certificateOf(id, password) as BlobPart], { type: 'application/pkix-cert' }));
+          }}
+          onDelete={(id) => {
+            digitalIds.remove(id.id);
+            setIdList(digitalIds.list());
           }}
         />
       )}
@@ -9251,7 +9275,34 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setProfilesOpen(false)}
         />
       )}
-      {ctxMenu && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
+      {ctxMenu && !ctxInPopOut && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
+      {markupsPopped && (
+        <PopOutWindow
+          name="redcolumn-markups"
+          title="Markups"
+          onClose={(reason) => {
+            setMarkupsPopped(false);
+            if (reason === 'blocked') setNotice('The browser blocked the new window. Allow pop-ups for this site and try again.');
+          }}
+        >
+          <div className="app popout" onContextMenuCapture={() => setCtxInPopOut(true)}>
+            <div className="bottom-dock popout-dock">
+              <div className="tabs">
+                <div className="dock-tablist" role="tablist">
+                  <button role="tab" aria-selected="true" className="active">
+                    Markups
+                  </button>
+                </div>
+                <button type="button" className="drawer-popout" title="Put the list back in the app" aria-label="Put the Markups list back in the app" onClick={() => setMarkupsPopped(false)}>
+                  ⇲
+                </button>
+              </div>
+              <div className="dock-body">{markupList}</div>
+            </div>
+            {ctxMenu && ctxInPopOut && <ContextMenu menu={ctxMenu} onClose={closeCtxMenu} />}
+          </div>
+        </PopOutWindow>
+      )}
       <AskTextHost />
       <AssistantConfirmDialog />
       <UnsavedChangesDialog />

@@ -5244,3 +5244,54 @@ select[size] {
     opacity: 0;
   }
 }
+
+/* Dialogs move by their heading (dialogDrag.ts). */
+.modal > :is(h1, h2, h3, h4, header):first-child {
+  cursor: grab;
+  user-select: none;
+}
+
+/* An open help note scrolls on its own, so it cannot push the list out of the panel. */
+.rc-help-body {
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* The Markups list in its own window. */
+.drawer-popout {
+  display: inline-grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.drawer-popout:hover {
+  color: var(--text);
+}
+
+.drawer-popout + .drawer-close {
+  margin-left: 0;
+}
+
+.popout-note {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 12px;
+  color: var(--muted);
+}
+
+.popout-note p {
+  margin: 0;
+}
+
+.popout-dock {
+  flex: 1;
+  height: auto;
+  border-top: 0;
+}

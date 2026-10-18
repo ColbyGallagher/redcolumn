@@ -107,7 +107,7 @@ function CommentCell({ value, disabled, wrap, onSave }: { value: string; disable
       el.parentElement!.dataset.text = `${el.value} `;
       return;
     }
-    if (document.activeElement !== el) return;
+    if (el.ownerDocument.activeElement !== el) return;
     el.style.height = 'auto';
     el.style.height = `${el.scrollHeight + 2}px`;
   };
@@ -340,7 +340,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   useEffect(() => {
     const el = scroller.current;
     if (selected.size !== 1 || !el) return;
-    if ([...(body.current?.querySelectorAll('tr.selected') ?? [])].some((r) => r.contains(document.activeElement))) return;
+    if ([...(body.current?.querySelectorAll('tr.selected') ?? [])].some((r) => r.contains(el.ownerDocument.activeElement))) return;
     const index = lines.findIndex((l) => l.kind === 'markup' && selected.has(l.row.markup.id));
     if (index < 0) return;
     // Rows sit below the sticky header, which covers the top of the scrolled area.
@@ -370,6 +370,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     const startX = e.clientX;
     const startW = col.width;
     const th = (e.currentTarget as HTMLElement).parentElement!;
+    // The list can be in a pop-out window, which has its own pointer events.
+    const win = th.ownerDocument.defaultView ?? window;
     let width = startW;
     const move = (ev: PointerEvent) => {
       width = Math.max(MIN_WIDTH, startW + ev.clientX - startX);
@@ -378,13 +380,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       if (colEl) colEl.style.width = `${width}px`;
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+      win.removeEventListener('pointermove', move);
+      win.removeEventListener('pointerup', up);
       saveLayout(layout.map((c) => (c.key === col.key ? { ...c, width } : c)));
       setTimeout(() => (resizing.current = false));
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    win.addEventListener('pointermove', move);
+    win.addEventListener('pointerup', up);
   };
 
   const columnsMenu = (): MenuEntry[] =>
@@ -544,8 +546,10 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       store?.update(m.id, { replies: withoutReply(replies, activeReply.replyId) });
       setActiveReply(null);
     };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
+    // Listens in whichever window shows the list (the main one, or a pop-out).
+    const win = body.current?.ownerDocument.defaultView ?? window;
+    win.addEventListener('keydown', onKey, true);
+    return () => win.removeEventListener('keydown', onKey, true);
   }, [activeReply, readOnly, markups, store, prefs.confirmDelete]);
 
   const editor = (m: Markup, col: ListColumn, missing: boolean) => {

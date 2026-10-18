@@ -107,9 +107,11 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
+    // The menu can sit in a pop-out window, which has its own size.
+    const win = el.ownerDocument.defaultView ?? window;
     setPos({
-      left: Math.max(4, Math.min(menu.x, window.innerWidth - r.width - 4)),
-      top: Math.max(4, Math.min(menu.y, window.innerHeight - r.height - 4)),
+      left: Math.max(4, Math.min(menu.x, win.innerWidth - r.width - 4)),
+      top: Math.max(4, Math.min(menu.y, win.innerHeight - r.height - 4)),
     });
   }, [menu]);
 
@@ -121,17 +123,20 @@ export function ContextMenu({ menu, onClose }: { menu: ContextMenuState; onClose
       if (e.key === 'Escape') onClose();
     };
     const close = () => onClose();
-    document.addEventListener('pointerdown', away, true);
-    document.addEventListener('wheel', away, true);
-    document.addEventListener('keydown', key);
-    window.addEventListener('resize', close);
-    window.addEventListener('blur', close);
+    // The document and window the menu is shown in (a pop-out window has its own).
+    const doc = ref.current?.ownerDocument ?? document;
+    const win = doc.defaultView ?? window;
+    doc.addEventListener('pointerdown', away, true);
+    doc.addEventListener('wheel', away, true);
+    doc.addEventListener('keydown', key);
+    win.addEventListener('resize', close);
+    win.addEventListener('blur', close);
     return () => {
-      document.removeEventListener('pointerdown', away, true);
-      document.removeEventListener('wheel', away, true);
-      document.removeEventListener('keydown', key);
-      window.removeEventListener('resize', close);
-      window.removeEventListener('blur', close);
+      doc.removeEventListener('pointerdown', away, true);
+      doc.removeEventListener('wheel', away, true);
+      doc.removeEventListener('keydown', key);
+      win.removeEventListener('resize', close);
+      win.removeEventListener('blur', close);
     };
   }, [onClose]);
 
