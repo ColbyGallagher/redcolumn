@@ -6,7 +6,8 @@ const { chromium } = require('playwright');
 
 const ROOT = path.resolve(__dirname, '../..');
 const URL = process.env.URL || 'http://localhost:5173/';
-const OUT = path.join(ROOT, 'apps/web/public/help/img');
+// HELP_SHOTS_OUT sends the shots somewhere else (the README's own screenshots use this).
+const OUT = process.env.HELP_SHOTS_OUT ? path.resolve(process.env.HELP_SHOTS_OUT) : path.join(ROOT, 'apps/web/public/help/img');
 const SAMPLES = path.join(__dirname, 'samples');
 const CHROME = process.env.CHROME || undefined;
 
