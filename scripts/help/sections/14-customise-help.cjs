@@ -19,7 +19,9 @@ module.exports = async function (h) {
   const slug = (s) => s.toLowerCase().replace(/[^a-z]+/g, '-');
   for (const [category, tab] of sections) {
     await page.locator('.prefs-nav [role=tab]', { hasText: exactly(category) }).click();
-    await page.locator('.prefs-tabs [role=tab]', { hasText: exactly(tab) }).click();
+    // A category with one tab (Advanced) has no tab row to click.
+    const tabBtn = page.locator('.prefs-tabs [role=tab]', { hasText: exactly(tab) });
+    if (await tabBtn.count()) await tabBtn.click();
     await h.wait(250);
     await h.shot(`prefs-${slug(category)}-${slug(tab)}`, { around: ['.modal'], pad: 20 });
   }

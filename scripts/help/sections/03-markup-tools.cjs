@@ -54,10 +54,11 @@ module.exports = async function (h) {
 
   /** Where to find a tool: its toolbar button, or Tools › Markup › group. */
   async function where(tool, label) {
-    const btn = page.locator(`.toolbar.tools [data-toolbar-tool="${tool}"]`);
+    // The ribbon shows one tab at a time: a tool on the open tab is shown here.
+    const btn = page.locator(`.rb-body [data-toolbar-tool="${tool}"]`);
     if (await btn.count()) {
       await h.mark(btn);
-      await h.shot(`pick-${tool}`, { around: [page.locator('.toolbar.tools .btn.tool').first(), btn], pad: 14, minWidth: 260 });
+      await h.shot(`pick-${tool}`, { around: [page.locator('.rb-body [data-toolbar-tool]').first(), btn], pad: 14, minWidth: 260 });
       return;
     }
     await h.menu('Tools', 'Markup', GROUP[tool]);
@@ -96,24 +97,27 @@ module.exports = async function (h) {
     await h.shot(name, { around: [box], pad: 0 });
   }
 
-  // The toolbar, and its right-click menu.
+  // The markup tools on the ribbon's Markup tab, and the toolbar's right-click menu.
+  await page.locator('[data-ribbon-tab=markup]').click();
+  await h.wait(300);
   {
-    const tools = page.locator('.toolbar.tools .btn.tool');
+    const tools = page.locator('.rb-body [data-toolbar-tool]');
     const n = await tools.count();
     const marks = [];
     for (let i = 0; i < n; i++) marks.push({ t: tools.nth(i), at: i % 2 ? 'bl' : 'tl' });
     await h.mark(marks, { pad: 1 });
     await h.shot('toolbar-numbered', { around: [tools.first(), tools.last()], pad: 22 });
   }
-  await page.locator('.toolbar.tools [data-toolbar-tool="cloud"]').click({ button: 'right' });
-  await h.wait(300);
-  await page.locator('.ctx-menu .menu-item, .context-menu .menu-item, [role=menu] [role=menuitem]').filter({ hasText: 'Toolbar Tools' }).first().hover();
-  await h.wait(300);
-  await page.locator('[role=menu] [role=menuitem]').filter({ hasText: /^Markup/ }).last().hover();
-  await h.wait(300);
-  await h.shot('toolbar-menu', { around: ['[role=menu]'], pad: 12 });
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('Escape');
+  // Only the one-row toolbar has this right-click menu, so this shot is taken with it shown.
+  await h.withSimplified(async () => {
+    await page.locator('.toolbar.tools [data-toolbar-tool="cloud"]').click({ button: 'right' });
+    await h.wait(300);
+    await page.locator('.ctx-menu .menu-item, .context-menu .menu-item, [role=menu] [role=menuitem]').filter({ hasText: 'Markup Tools' }).first().hover();
+    await h.wait(300);
+    await h.shot('toolbar-menu', { around: ['[role=menu]'], pad: 12 });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+  });
   await h.menu('Tools', 'Markup');
   await h.shot('tools-menu-markup', { around: ['.menu-drop', '.menu-flyout'], pad: 12 });
   await h.closeMenus();

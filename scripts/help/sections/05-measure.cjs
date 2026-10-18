@@ -102,8 +102,8 @@ module.exports = async function (h) {
   // Smart Fill.
   await pick('Smart Fill', 'pick-dynamicFill');
   await h.tool('dynamicFill');
-  await h.mark(page.locator('.toolbar.tools label.field', { hasText: 'Fill as' }));
-  await h.shot('smart-fill-toolbar', { around: [page.locator('.toolbar.tools label.field', { hasText: 'Fill as' })], pad: 40, minWidth: 300 });
+  await h.mark(page.locator('.rb-props label.field', { hasText: 'Fill as' }));
+  await h.shot('smart-fill-toolbar', { around: [page.locator('.rb-props label.field', { hasText: 'Fill as' })], pad: 40, minWidth: 300 });
   await h.clickAt(...P(15, 38));
   await h.wait(1500);
   await h.clickAt(...P(50, 30));
@@ -154,3 +154,6 @@ module.exports = async function (h) {
   await h.wait(600);
   await h.shot('scale-regions', { around: ['.label-regions'], pad: 16 });
 };
+
+// The sample plans are in feet: their scales are the imperial ones.
+module.exports.units = 'imperial';

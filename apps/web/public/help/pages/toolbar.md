@@ -5,7 +5,7 @@ Put the tools you use most on the toolbar, and take off the ones you don't.
 ## Add or remove tools
 
 1. Right-click any tool on the toolbar.
-2. Point at **Toolbar Tools**, then **Markup** or **Measure**.
+2. Point at **Markup Tools** or **Measure Tools**, then a group.
 
    ![The toolbar's right-click menu](img/toolbar-menu.png)
 3. Click a tool to add it (a tick appears) or remove it (the tick goes).

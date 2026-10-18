@@ -24,7 +24,7 @@ const run = wanted.length ? all.filter((s) => wanted.some((w) => s.includes(w)))
   for (const name of run) {
     console.log(`section ${name}`);
     const section = require(path.join(dir, `${name}.cjs`));
-    const { browser, h } = await launch(section.viewport);
+    const { browser, h } = await launch({ ...section.viewport, units: section.units });
     try {
       await section(h);
     } catch (err) {
