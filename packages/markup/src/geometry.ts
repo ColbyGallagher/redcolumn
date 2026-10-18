@@ -104,8 +104,12 @@ function baseShape(m: Markup): ShapePart[] {
       return notePath(boundsOf(points), style.fill);
     case 'dimension':
       return offsetLine(m, points[0]!, points[points.length - 1]!);
-    case 'attachment':
-      return attachmentPath(boundsOf(points), style.fill);
+    case 'attachment': {
+      // Another tool's attachment draws its own appearance (`image`) in the box.
+      if (!m.image) return attachmentPath(boundsOf(points), style.fill);
+      const b = boundsOf(points);
+      return [{ path: [['M', b.x, b.y], ['L', b.x + b.w, b.y], ['L', b.x + b.w, b.y + b.h], ['L', b.x, b.y + b.h], ['Z']], stroke: style.width > 0, fill: style.fill }];
+    }
     case 'flag':
       return flagPath(boundsOf(points), style.fill);
     case 'replaceText': {

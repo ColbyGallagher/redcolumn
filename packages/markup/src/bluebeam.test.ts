@@ -4,6 +4,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRe
 import { importColumns, importStatuses, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
+import { markupShape } from './geometry.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { MarkupStore } from './store.ts';
 import type { Markup } from './model.ts';
@@ -377,4 +378,38 @@ test("Bluebeam callouts: the text box where Revu draws it (/RD's insets read Rev
   const rd = saved.lookup(PDFName.of('RD'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
   assert.ok(Math.abs(rd[1]! - rd[3]!) < 1e-6, `RD ${rd}`);
   assert.equal(saved.lookup(PDFName.of('BS'), PDFDict).lookup(PDFName.of('W'), PDFNumber).asNumber(), 0);
+});
+
+test("another tool's file attachment shows its own appearance (icon and file name), and keeps it when moved", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const ctx = doc.context;
+  const ap = ctx.register(ctx.stream('0 0 1 rg 0 0 120 58 re f', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 120, 58] }));
+  const file = ctx.register(ctx.stream('hello', { Type: 'EmbeddedFile' }));
+  const attach = ctx.register(
+    ctx.obj({ Type: 'Annot', Subtype: 'FileAttachment', Subj: text('File Attachment'), NM: text('ATT1'), C: [0, 0, 1], IsFileIcon: true, ShowFileName: true, Rect: [100, 300, 220, 358], AP: { N: ap }, FS: { Type: 'Filespec', F: text('a.xlsx'), EF: { F: file } } }),
+  );
+  page.node.set(PDFName.of('Annots'), ctx.obj([attach]));
+  const bytes = await doc.save();
+  const extras = await readPdfExtras(bytes);
+  assert.ok(extras);
+  const picture = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+  extras.appearances = new Map([['0:0', picture]]);
+  const base = { color: '#0000ff', interior: null, opacity: 1, borderWidth: 1, contents: '', author: 'Pat', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const annots: ImportableAnnotation[] = [{ ...base, index: 0, objectNumber: attach.objectNumber, subtype: 'FileAttachment', rect: { x: 100, y: 42, w: 120, h: 58 }, file: { name: 'a.xlsx', data: new TextEncoder().encode('hello') } }];
+  const result = importAnnotations(0, annots, () => null, extras);
+  const m = result.markups[0]!;
+  assert.equal(m.type, 'attachment');
+  assert.equal(m.image, picture);
+  assert.deepEqual(m.points, [[100, 42], [220, 100]]);
+  assert.equal(m.attachment?.name, 'a.xlsx');
+  // The picture is drawn, not our paperclip tag stretched over the whole box.
+  assert.deepEqual(markupShape(m).map((p) => p.stroke), [false]);
+
+  const moved = { ...m, points: m.points.map(([x, y]) => [x + 10, y] as [number, number]) };
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [moved], { imported: { 0: [0] } }));
+  const d = out.context.lookup(out.getPage(0).node.Annots()!.get(0), PDFDict);
+  assert.equal(d.get(PDFName.of('Subtype'))?.toString(), '/FileAttachment');
+  assert.equal(d.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N'))?.toString(), ap.toString());
+  assert.deepEqual(d.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Math.round((n as PDFNumber).asNumber())), [110, 300, 230, 358]);
 });
