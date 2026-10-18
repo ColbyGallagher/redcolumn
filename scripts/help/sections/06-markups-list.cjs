@@ -5,9 +5,7 @@ module.exports = async function (h) {
   await h.open('sample-plans.pdf');
   await h.zoomTo(...P(5, 52), ...P(67, 4));
   // Scale, some markups and measurements, a couple of comments and statuses.
-  const typed = page.locator('.pagenav-side.right input');
-  await typed.fill(`1/4" = 1'-0"`);
-  await typed.press('Enter');
+  await page.locator('.pagenav-side.right select').selectOption({ label: `1/4" = 1'-0"` });
   await page.evaluate(() => window.__nb.tools.store.all());
   const add = async (tool, pts, how) => {
     await h.tool(tool);
@@ -141,3 +139,6 @@ module.exports = async function (h) {
   await h.closeModal();
 };
 module.exports.viewport = { width: 1440, height: 1000 };
+
+// The sample plans are in feet: their scales are the imperial ones.
+module.exports.units = 'imperial';

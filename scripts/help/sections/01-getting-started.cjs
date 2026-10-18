@@ -4,7 +4,7 @@ module.exports = async function (h) {
   const { page } = h;
 
   // The start screen.
-  await h.mark(page.getByRole('button', { name: 'Open a PDF…' }));
+  await h.mark(page.getByRole('button', { name: /^Open PDF/ }));
   await h.shot('start-screen');
 
   await h.menu('File');
@@ -20,7 +20,7 @@ module.exports = async function (h) {
 
   // The tour.
   await h.mark(
-    [{ t: '.menubar', at: 'r' }, { t: '.toolbar.tools', at: 'r' }, { t: '.doc-tabs', at: 'r' }, { t: '.rail', at: 'tr' }, { t: '.panel.left', at: 'tr' }, { t: 'main.stage', at: 'tr' }, { t: '.pagenav', at: 'r' }, { t: '.bottom-dock', at: 'tr' }, { t: '.statusbar', at: 'r' }],
+    [{ t: '.menubar', at: 'r' }, { t: '.ribbon', at: 'r' }, { t: '.doc-tabs', at: 'r' }, { t: '.rail', at: 'tr' }, { t: '.panel.left', at: 'tr' }, { t: 'main.stage', at: 'tr' }, { t: '.pagenav', at: 'r' }, { t: '.bottom-dock', at: 'tr' }, { t: '.statusbar', at: 'r' }],
     { pad: -2 },
   );
   await h.shot('workspace-tour');

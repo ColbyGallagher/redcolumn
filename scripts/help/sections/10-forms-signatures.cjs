@@ -36,6 +36,8 @@ module.exports = async function (h) {
   await h.clickAt(60, 216);
   await h.wait(300);
   await h.shot('form-filled', { around: ['main.stage'], pad: 0 });
+  // Clicking the signature field opens the Sign dialog; close it before the menus.
+  await h.closeModal();
 
   // Draw a field.
   await h.run('Tools', 'Form', 'Draw Field');

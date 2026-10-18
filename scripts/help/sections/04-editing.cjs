@@ -60,8 +60,9 @@ module.exports = async function (h) {
   await h.closeMenus();
 
   // Style controls for a selected cloud.
-  await selectAt(41.1, 33);
-  const tb = '.toolbar.tools';
+  await selectAt(51, 40);
+  // The ribbon's Properties group holds the style controls.
+  const tb = '.rb-props';
   await h.mark([
     `${tb} input[type=color]`,
     { t: page.locator(`${tb} label.field`, { hasText: 'Fill' }), at: 'bl' },
@@ -77,7 +78,7 @@ module.exports = async function (h) {
   await h.shot('properties-panel', { around: ['.panel.left'], pad: 0 });
 
   // Right-click menu.
-  const cc = await h.at(...P(41.1, 33));
+  const cc = await h.at(...P(51, 40));
   await page.mouse.click(cc.x, cc.y, { button: 'right' });
   await h.wait(300);
   await h.shot('markup-menu', { around: ['[role=menu]'], pad: 12 });
@@ -163,14 +164,14 @@ module.exports = async function (h) {
   await page.keyboard.press('Escape');
 
   // Format Painter.
-  await selectAt(41.1, 33);
+  await selectAt(51, 40);
   await h.menu('Edit');
   await h.mark(h.item('Format Painter'), { numbers: false });
   await h.shot('edit-menu-painter', { around: ['.menu-drop'], pad: 12 });
   await h.closeMenus();
 
   // Change colours.
-  await selectAt(41.1, 33);
+  await selectAt(51, 40);
   await page.mouse.click(cc.x, cc.y, { button: 'right' });
   await page.locator('[role=menu] [role=menuitem]').filter({ hasText: /Change Colours/ }).first().click();
   await h.wait(300);

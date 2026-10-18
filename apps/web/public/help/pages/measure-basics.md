@@ -26,6 +26,6 @@ redcolumn measures straight from the drawing, using the drawing's **scale**. Get
 | A whole room in one click | [Smart Fill](#smart-fill) ([[J]]) | Click inside the room. |
 | Every copy of a symbol | [Symbol Search](#symbol-search) | Drag a box around one. |
 
-> **Tip:** Measure tools aren't on the toolbar at first. To add the ones you use, right-click the toolbar › **Toolbar Tools** › **Measure**. See [Customise the toolbar](#toolbar).
+> **Tip:** Measure tools aren't on the toolbar at first. To add the ones you use, right-click the toolbar › **Measure Tools** › a group. See [Customise the toolbar](#toolbar).
 
 > **Warning:** Measurements are only as good as the scale and the drawing. Check a known dimension before you rely on a takeoff for pricing or ordering.

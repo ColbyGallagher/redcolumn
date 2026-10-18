@@ -21,28 +21,38 @@ const CSS = `
 .help-cursor { position: fixed; z-index: 2147483647; pointer-events: none; width: 22px; height: 22px; }
 `;
 
-// `toolbar`: the app starts with the ribbon; the help screenshots show the one-row toolbar.
-async function launch({ width = 1440, height = 860, toolbar = 'simplified' } = {}) {
+// `toolbar`: 'ribbon' (the default, as new profiles start) or 'simplified' for the one-row toolbar.
+async function launch({ width = 1440, height = 860, toolbar = 'ribbon', units } = {}) {
   const browser = await chromium.launch({ executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, colorScheme: 'dark', acceptDownloads: true });
-  await ctx.addInitScript((css) => {
+  await ctx.addInitScript(
+    ([css, units]) => {
     // A fixed author for markups, and no first-run notices.
     try {
       localStorage.setItem('nb.author', 'Alex Smith');
+      // No rotating tip on the start screen (it would cover the Open button), and `units` (a
+      // section's own unit system, e.g. the imperial scales of the sample plans).
+      const saved = JSON.parse(localStorage.getItem('nb.settings') ?? '{}');
+      localStorage.setItem('nb.settings', JSON.stringify({ ...saved, startTips: false, ...(units ? { unitSystem: units } : {}) }));
     } catch {}
     addEventListener('DOMContentLoaded', () => {
       const s = document.createElement('style');
       s.textContent = css;
       document.head.appendChild(s);
     });
-  }, CSS);
+    },
+    [CSS, units],
+  );
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.warn('  page error:', String(e).slice(0, 200)));
   page.on('dialog', (d) => d.accept().catch(() => {}));
   await page.goto(URL);
   await page.waitForSelector('.menubar');
   const h = helpers(page);
-  if (toolbar === 'simplified' && (await page.locator('.ribbon').count())) await h.run('Window', 'Toolbar Display', 'Simplified Toolbar');
+  if (toolbar === 'ribbon') await h.run('Window', 'Toolbar Display', 'Ribbon: Tabs and Commands');
+  else if (toolbar === 'simplified') await h.run('Window', 'Toolbar Display', 'Simplified Toolbar');
+  // Rest the pointer off the ribbon: a tool under it shows its preview card after a moment.
+  await page.mouse.move(Math.round(width / 2), height - 40);
   return { browser, ctx, page, h };
 }
 
@@ -120,6 +130,15 @@ function helpers(page) {
       const open = (await btn.getAttribute('class'))?.includes('active') && (await page.locator('.panel.left').count()) > 0;
       if (!open) await btn.click();
       await page.waitForTimeout(500);
+    },
+    /** Runs `action` with the one-row toolbar (its right-click menu is only there), then back to the ribbon. */
+    async withSimplified(action) {
+      await h.run('Window', 'Toolbar Display', 'Simplified Toolbar');
+      try {
+        await action();
+      } finally {
+        await h.run('Window', 'Toolbar Display', 'Ribbon: Tabs and Commands');
+      }
     },
     async tool(tool) {
       await page.evaluate((t) => window.__nb.tools.setTool(t), tool);
