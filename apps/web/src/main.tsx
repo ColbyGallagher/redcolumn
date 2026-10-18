@@ -10,6 +10,7 @@ import { startIdleSignOut } from './studio/drive/idle';
 import { microsoftUser, signOutOfMicrosoft, staySignedInToMicrosoft } from './studio/drive/onedrive';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
 import { startProfileBackup } from './workspace/profileBackup';
+import { installDialogDrag } from './dialogDrag';
 import { App } from './App';
 import './styles.css';
 import './features.css';
@@ -23,6 +24,7 @@ if (window.top !== window.self) {
 
 installLogCapture();
 installDesktopBridge();
+installDialogDrag();
 
 // A new version waits until nothing is in progress, then reloads the page (the service worker).
 // The app shows why it is waiting (Help › Check for Updates). The desktop app has no service

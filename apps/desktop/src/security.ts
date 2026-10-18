@@ -49,7 +49,9 @@ export function installMenu() {
 
 /** Keeps one window on the app origin and sends http(s) and mailto to the system. */
 export function harden(contents: WebContents) {
-  contents.setWindowOpenHandler(({ url }) => {
+  contents.setWindowOpenHandler(({ url, frameName }) => {
+    // A panel popped out into its own window (a blank window the app fills in itself).
+    if (url === 'about:blank' && /^redcolumn-[a-z-]+$/.test(frameName)) return { action: 'allow', overrideBrowserWindowOptions: { ...childWindow(), width: 900, height: 520 } };
     if (isHelpUrl(url, isDev()) || url.startsWith('blob:')) return { action: 'allow', overrideBrowserWindowOptions: childWindow() };
     if (externalProtocol(url)) {
       void shell.openExternal(url);
