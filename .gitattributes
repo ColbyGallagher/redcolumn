@@ -2,3 +2,4 @@
 *.pdf binary
 *.png binary
 *.txt text eol=lf
+*.gif binary
