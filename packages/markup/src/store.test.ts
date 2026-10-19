@@ -216,6 +216,11 @@ test('hand-placed stitching follows page operations and is undoable', async () =
 
     store.transformPages(new Map([[0, { scale: 2, dx: 5, dy: 0 }]]));
     assert.deepEqual(store.manualStitch().lines[0]!.p1, [25, 100]);
+
+    // Adjustments are points on the pair's reference page (the lower ID's), so they scale with it.
+    store.setManualStitch({ lines: [{ ...line('p', 0, 'q'), offset: [4, 2] }, { ...line('q', 1, 'p'), offset: [1, 0] }], regions: {} });
+    store.transformPages(new Map([[0, { scale: 0.5, dx: 0, dy: 0 }]]));
+    assert.deepEqual(store.manualStitch().lines.map((l) => l.offset), [[2, 1], [0.5, 0]]);
   } finally {
     await store.destroy();
   }

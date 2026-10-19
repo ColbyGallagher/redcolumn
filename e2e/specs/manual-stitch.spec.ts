@@ -22,12 +22,18 @@ async function goTo(app: App, pageIndex: number) {
 const manual = (app: App) =>
   app.page.evaluate(() => (window.__nb.tools.store as unknown as { manualStitch(): { lines: { pageIndex: number; matchTo: string | null; p1: [number, number]; offset?: [number, number] }[]; regions: Record<number, unknown> } }).manualStitch());
 
+/** How many stitched groups detection found (once it has run). */
+const detected = (app: App) => () => app.page.evaluate(() => (window.__nb.tools.store as unknown as { stitchGroups(): unknown[] }).stitchGroups().length);
+
 test.describe('stitching by hand', () => {
   test.beforeEach(async ({ app }) => {
     await app.open('stitch.pdf');
   });
 
   test('document.stitching places regions and match lines; document.stitchToPage writes the joined page', async ({ app }) => {
+    // The sheets are matched up in the background after opening; the hand-placed join then
+    // replaces the detected one between sheets 1 and 2.
+    await expect.poll(detected(app), { timeout: 60_000 }).toBe(1);
     await app.cmd('document.stitching');
     const panel = app.page.locator('.stitch-panel');
     await expect(panel).toBeVisible();
@@ -75,7 +81,8 @@ test.describe('stitching by hand', () => {
 
     expect((await app.command('document.stitchToPage')).enabled).toBe(true);
     await app.cmd('document.stitchToPage');
-    await expect(app.notice()).toHaveText(/^Stitched 2 sheets onto page 4/, { timeout: 60_000 });
+    // The hand-placed join replaces the detected one between sheets 1 and 2; sheet 3 stays chained on.
+    await expect(app.notice()).toHaveText(/^Stitched 3 sheets onto page 4/, { timeout: 60_000 });
     const doc = (await app.documents()).find((d) => d.active)!;
     expect(doc.pageCount).toBe(4);
     // The joined road is about as long as the two slices it came from (same scale).
@@ -84,8 +91,7 @@ test.describe('stitching by hand', () => {
   });
 
   test('detected joins can be taken over and edited', async ({ app }) => {
-    const groups = () => app.page.evaluate(() => (window.__nb.tools.store as unknown as { stitchGroups(): unknown[] }).stitchGroups().length);
-    await expect.poll(groups, { timeout: 60_000 }).toBe(1);
+    await expect.poll(detected(app), { timeout: 60_000 }).toBe(1);
     await app.cmd('document.stitching');
     const panel = app.page.locator('.stitch-panel');
     await panel.getByRole('button', { name: 'Edit Detected Lines' }).click();

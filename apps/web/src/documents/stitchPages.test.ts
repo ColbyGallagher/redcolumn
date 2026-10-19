@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PDFArray, PDFDocument, PDFName, PDFRawStream, PDFDict, decodePDFRawStream, rgb } from 'pdf-lib';
 import { DEFAULT_STYLES, type Markup, type StoredManualStitch, type StoredStitchGroup } from '@nb/markup';
 import { stitchToPage, stitchedMarkups } from './stitchPages.ts';
-import { adoptDetected, autoPair, dragToShift, lineProblem, mergeStitch, moverLine, newMatchLine, pairLines, shiftLine, withViewportRegions } from './stitching.ts';
+import { adoptDetected, autoPair, dragToShift, lineProblem, mergeStitch, moverLine, newMatchLine, nudgeToShift, pairLines, shiftLine, withViewportRegions } from './stitching.ts';
 
 /** Two 400 × 300 sheets of one road, split at a match line 300 pt in from the first sheet's left. */
 async function sheets() {
@@ -142,8 +142,8 @@ test('a detected join taken over by hand keeps its placement, and a drag becomes
   // Sheet 1 is placed from sheet 0, so it is the one that moves.
   assert.equal(moverLine(lines, lines[0]!.id, rebuilt!)?.pageIndex, 1);
   // A drag down the screen runs along the line (p0 → p1 is +y on sheet 0); locked, the sideways part is dropped.
-  assert.deepEqual(dragToShift(lines, lines[1]!.id, rebuilt!, [3, 10], true), [10, 0]);
-  const [along, across] = dragToShift(lines, lines[1]!.id, rebuilt!, [3, 10], false);
+  assert.deepEqual(dragToShift(lines, lines[1]!.id, [1, 0, 0, 1], [3, 10], true), [10, 0]);
+  const [along, across] = dragToShift(lines, lines[1]!.id, [1, 0, 0, 1], [3, 10], false);
   assert.equal(along, 10);
   // Across points out of sheet 0's drawing (it keeps the side left of x 300): +x.
   assert.equal(across, 3);
@@ -156,4 +156,67 @@ test('a detected join taken over by hand keeps its placement, and a drag becomes
   assert.ok(Math.abs(x1! - x0! - 3) < 1e-9 && Math.abs(y1! - y0! - 10) < 1e-9);
   // Shifting back clears the adjustment.
   assert.equal(shiftLine(moved, lines[1]!.id, -along, -across)[1]!.offset, undefined);
+});
+
+test('a nudged join survives its sheets being reordered', () => {
+  const size = { width: 400, height: 300 };
+  const a = { ...newMatchLine([], 0, [300, 0], [300, 300], size), id: 'a', matchTo: 'b' };
+  const b = { ...newMatchLine([], 1, [100, 300], [100, 0], size), id: 'b', matchTo: 'a', offset: [0, 10] as [number, number] };
+  const place = (lines: typeof a[]) => {
+    const [g] = mergeStitch([], { lines, regions: {} });
+    const pa = g!.placements.find((p) => p.pageIndex === lines[0]!.pageIndex)!.toWorld;
+    const pb = g!.placements.find((p) => p.pageIndex === lines[1]!.pageIndex)!.toWorld;
+    // Sheet b's page space in sheet a's: the same whichever sheet the group is laid out from.
+    const at = (m: readonly number[], p: [number, number]) => [m[0]! * p[0] + m[2]! * p[1] + m[4]!, m[1]! * p[0] + m[3]! * p[1] + m[5]!];
+    const w = at(pb, [50, 50]);
+    const det = pa[0] * pa[3] - pa[1] * pa[2];
+    const [dx, dy] = [w[0]! - pa[4], w[1]! - pa[5]];
+    return [(pa[3] * dx - pa[2] * dy) / det, (-pa[1] * dx + pa[0] * dy) / det];
+  };
+  const before = place([a, b]);
+  // Move sheet b in front of sheet a: same lines, page numbers swapped.
+  const after = place([{ ...a, pageIndex: 1 }, { ...b, pageIndex: 0 }]);
+  assert.ok(Math.hypot(before[0]! - after[0]!, before[1]! - after[1]!) < 1e-6, `${before} vs ${after}`);
+  // The 10 pt adjustment really moved sheet b apart from a (+x, out of a's drawing on the left).
+  const plain = place([a, { ...b, offset: undefined } as typeof a]);
+  assert.ok(Math.abs(before[0]! - plain[0]! - 10) < 1e-6);
+  // ▼ (apart) is +across on b's line, but -across when the moving line is the reference.
+  assert.deepEqual(nudgeToShift([a, b], 'b', 0, 5), [0, 5]);
+  assert.deepEqual(nudgeToShift([a, b], 'a', 0, 5), [0, -5]);
+});
+
+test('joining two detected sheets by hand keeps the rest of the detected chain', () => {
+  const line = { p0: [300, 0] as [number, number], p1: [300, 300] as [number, number], contentSide: 1 as const };
+  const auto: StoredStitchGroup[] = [
+    {
+      placements: [
+        { pageIndex: 0, toWorld: [1, 0, 0, 1, 0, 0], clips: [] },
+        { pageIndex: 1, toWorld: [1, 0, 0, 1, 200, 0], clips: [] },
+        { pageIndex: 2, toWorld: [1, 0, 0, 1, 400, 0], clips: [] },
+      ],
+      edges: [
+        { a: 0, b: 1, station: null, votes: 5, confidence: 0.8, line },
+        { a: 1, b: 2, station: null, votes: 5, confidence: 0.8, line },
+      ],
+    },
+  ];
+  const size = { width: 400, height: 300 };
+  const a = { ...newMatchLine([], 0, [300, 0], [300, 300], size), id: 'a', matchTo: 'b' };
+  const b = { ...newMatchLine([], 1, [100, 300], [100, 0], size), id: 'b', matchTo: 'a', offset: [5, 0] as [number, number] };
+  const [g, ...rest] = mergeStitch(auto, { lines: [a, b], regions: {} });
+  assert.equal(rest.length, 0);
+  assert.deepEqual(g!.placements.map((p) => p.pageIndex).sort(), [0, 1, 2]);
+  // Sheet 2 stays 200 pt on from sheet 1, wherever the hand-placed join put sheet 1.
+  const at = (i: number) => g!.placements.find((p) => p.pageIndex === i)!.toWorld;
+  assert.ok(Math.abs(at(2)[4] - at(1)[4] - 200) < 1e-6 && Math.abs(at(2)[5] - at(1)[5]) < 1e-6);
+  // Sheet 1 was cut at the hand-placed line and at the detected one to sheet 2.
+  assert.equal(g!.placements.find((p) => p.pageIndex === 1)!.clips.length, 2);
+});
+
+test('a match line with its ends together stitches nothing and says why', () => {
+  const size = { width: 400, height: 300 };
+  const a = { ...newMatchLine([], 0, [300, 0], [300, 300], size), id: 'a', matchTo: 'b' };
+  const b = { ...newMatchLine([], 1, [100, 300], [100, 0], size), id: 'b', matchTo: 'a', p1: [100, 300] as [number, number] };
+  assert.deepEqual(mergeStitch([], { lines: [a, b], regions: {} }), []);
+  assert.equal(lineProblem(b, {}), 'The line is too short: drag its ends apart');
 });

@@ -1,7 +1,7 @@
 import { PDFDocument, PDFName, type PDFRef } from 'pdf-lib';
-import { compose, visiblePolygon, type Affine } from '@nb/stitch';
+import { apply, compose, invert, visiblePolygon, type Affine } from '@nb/stitch';
 import { pointInPolygon, transformMarkup, type Markup, type Point, type StoredStitchGroup } from '@nb/markup';
-import { pageMatrix, type Matrix } from '@nb/markup/export';
+import { pageMatrix } from '@nb/markup/export';
 import { openForEdit } from './incremental';
 import { displayedSize } from './pageTools';
 
@@ -22,22 +22,7 @@ export interface StitchedPage {
   shrink: number;
 }
 
-/** a then b. */
-function multiply(a: Matrix, b: Matrix): Matrix {
-  return [a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3], a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3], a[4] * b[0] + a[5] * b[2] + b[4], a[4] * b[1] + a[5] * b[3] + b[5]];
-}
-
-function invert(m: Matrix): Matrix {
-  const det = m[0] * m[3] - m[1] * m[2];
-  const a = m[3] / det;
-  const b = -m[1] / det;
-  const c = -m[2] / det;
-  const d = m[0] / det;
-  return [a, b, c, d, -(m[4] * a + m[5] * c), -(m[4] * b + m[5] * d)];
-}
-
 const n = (v: number) => (Math.round(v * 10000) / 10000).toString();
-const apply = (m: Affine, [x, y]: readonly [number, number]): Point => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
 
 /**
  * Stitch to New Page: the sheets of a stitched group drawn onto one new page at the end of the
@@ -71,7 +56,7 @@ export async function stitchToPage(bytes: ArrayBuffer | Uint8Array, group: Store
   // The group's world space to the new page's page space (y down).
   const worldToPage: Affine = [shrink, 0, 0, shrink, MARGIN - x0 * shrink, MARGIN - y0 * shrink];
   const out = doc.addPage([W, H]);
-  const flip: Matrix = [1, 0, 0, -1, 0, H];
+  const flip: Affine = [1, 0, 0, -1, 0, H];
 
   const toPage = new Map<number, Affine>();
   const ops: string[] = [];
@@ -87,7 +72,7 @@ export async function stitchToPage(bytes: ArrayBuffer | Uint8Array, group: Store
     const embedded = await doc.embedPage(page, { left: box.x, bottom: box.y, right: box.x + box.width, top: box.y + box.height }, [1, 0, 0, 1, 0, 0]);
     names.set(p.pageIndex, embedded.ref);
     // Sheet user space → sheet page space → new page space → new page user space.
-    const m = multiply(multiply(invert(pageMatrix(page)), [...t] as Matrix), flip);
+    const m = compose(flip, compose(t, invert(pageMatrix(page))));
     const path = poly.map((q, i) => {
       const [x, y] = apply(t, q);
       return `${n(x)} ${n(H - y)} ${i ? 'l' : 'm'}`;

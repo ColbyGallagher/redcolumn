@@ -752,7 +752,7 @@ export class MarkupStore {
         this.links.set(id, { ...l, rect: rect(l.pageIndex, l.rect), targetRect: rectOrNull(l.targetPage, l.targetRect) });
       }
       for (const [id, v] of [...this.viewports.entries()]) if (transforms.has(v.pageIndex)) this.viewports.set(id, { ...v, rect: rect(v.pageIndex, v.rect) });
-      if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, (i) => i, pt));
+      if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, (i) => i, pt, (page) => transforms.get(page)?.scale ?? 1));
       if (this.geoSnapshot.some((g) => transforms.has(g.pageIndex)))
         this.meta.set('geo', this.geoSnapshot.map((g) => (transforms.has(g.pageIndex) ? { ...g, bounds: g.bounds.map((q) => pt(g.pageIndex, q)), points: g.points.map((c) => ({ ...c, at: pt(g.pageIndex, c.at) })) } : g)));
       if (this.outline.has('bookmarks')) {
@@ -1084,10 +1084,19 @@ function describeChange(
  * Moves hand-placed stitching to new page numbers (`to` gives null for deleted pages) and maps
  * its points; lines left without their partner are unpaired.
  */
-function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | null, map: (page: number, p: readonly [number, number]) => Point): StoredManualStitch {
+function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | null, map: (page: number, p: readonly [number, number]) => Point, scaleOf?: (page: number) => number): StoredManualStitch {
+  const byId = new Map(s.lines.map((l) => [l.id, l]));
   const lines = s.lines.flatMap((l) => {
     const n = to(l.pageIndex);
-    return n === null ? [] : [{ ...l, pageIndex: n, p0: map(l.pageIndex, l.p0), p1: map(l.pageIndex, l.p1) }];
+    if (n === null) return [];
+    const next: StoredMatchLine = { ...l, pageIndex: n, p0: map(l.pageIndex, l.p0), p1: map(l.pageIndex, l.p1) };
+    // Adjustments are points on the pair's reference sheet (the line with the lower ID, as in
+    // `@nb/stitch` `referenceLine`), so they scale with that page.
+    const partner = l.matchTo ? byId.get(l.matchTo) : undefined;
+    const ref = partner && partner.id < l.id ? partner : l;
+    const k = scaleOf?.(ref.pageIndex) ?? 1;
+    if (l.offset && k !== 1) next.offset = [l.offset[0] * k, l.offset[1] * k];
+    return [next];
   });
   const ids = new Set(lines.map((l) => l.id));
   for (const l of lines) if (l.matchTo && !ids.has(l.matchTo)) l.matchTo = null;

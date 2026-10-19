@@ -21,8 +21,10 @@ interface Props {
   previewing: boolean;
   /** Writes the current sheet's group as one new page (null when it has none). */
   onStitchToPage: ((includeMarkups: boolean) => void) | null;
-  /** Slides the sheet joined at a line: `along` the line and `across` it, in points. */
-  onNudge: (id: string, along: number, across: number) => void;
+  /** Slides the sheet joined at a line: `along` the line, and `apart` from its partner (negative: closer), in points. */
+  onNudge: (id: string, along: number, apart: number) => void;
+  /** Puts the sheet joined at a line back where the line ends place it. */
+  onReset: (id: string) => void;
   /** The sheet a line's adjustments move (null while it is unmatched). */
   moverPage: (id: string) => number | null;
   /** Move Sheet slides only along the match line. */
@@ -39,7 +41,7 @@ const STEPS = [1, 5, 20];
  * and legend out), click both ends of each match line, match each line to the one it meets on
  * the next sheet, then view the sheets joined or write them out as one page.
  */
-export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewport, tool, onSetTool, onChange, onGoTo, selected, onSelectLine, onPreview, previewing, onStitchToPage, onNudge, moverPage, lockAlong, onLockAlong, onAdoptDetected }: Props) {
+export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewport, tool, onSetTool, onChange, onGoTo, selected, onSelectLine, onPreview, previewing, onStitchToPage, onNudge, onReset, moverPage, lockAlong, onLockAlong, onAdoptDetected }: Props) {
   const [includeMarkups, setIncludeMarkups] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const pages = useMemo(() => [...new Set([pageIndex, ...stitch.lines.map((l) => l.pageIndex), ...Object.keys(stitch.regions).map(Number)])].sort((a, b) => a - b), [stitch, pageIndex]);
@@ -165,10 +167,10 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
                       <button className="btn small" title="Slide forward along the match line (→)" onClick={() => onNudge(l.id, step, 0)}>
                         ▶
                       </button>
-                      <button className="btn small" title="Move across the match line (↑)" onClick={() => onNudge(l.id, 0, -step)}>
+                      <button className="btn small" title="Move closer to the other sheet (↑)" onClick={() => onNudge(l.id, 0, -step)}>
                         ▲
                       </button>
-                      <button className="btn small" title="Move across the match line the other way (↓)" onClick={() => onNudge(l.id, 0, step)}>
+                      <button className="btn small" title="Move apart from the other sheet (↓)" onClick={() => onNudge(l.id, 0, step)}>
                         ▼
                       </button>
                       <select aria-label="Nudge step" value={step} onChange={(e) => setStep(Number(e.target.value))}>
@@ -178,15 +180,11 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
                           </option>
                         ))}
                       </select>
-                      {(() => {
-                        const mover = stitch.lines.find((x) => x.pageIndex === moving && (x.id === l.id || x.id === l.matchTo));
-                        const o = mover?.offset;
-                        return o ? (
-                          <button className="btn small" title={`Moved ${o[0].toFixed(1)} pt along, ${o[1].toFixed(1)} pt across: put the sheet back where the line ends place it`} onClick={() => onNudge(l.id, -o[0], -o[1])}>
-                            Reset
-                          </button>
-                        ) : null;
-                      })()}
+                      {stitch.lines.some((x) => (x.id === l.id || x.id === l.matchTo) && x.offset) && (
+                        <button className="btn small" title="Put the sheet back where the line ends place it" onClick={() => onReset(l.id)}>
+                          Reset
+                        </button>
+                      )}
                     </div>
                   )}
                 </li>

@@ -669,12 +669,8 @@ export class TileViewer {
   }
 
   /**
-   * Shows sheets placed in one continuous view (null returns to single pages). The view opens on
-   * `focusPage`, or fitted to the whole set.
-   */
-  /**
    * Lays the stitched set out again (a sheet nudged, a match line edited) without moving the view.
-   * Not in a stitched view, or with a different set of sheets, it does nothing.
+   * Not in a stitched view, or with a different set of sheets, it does nothing (and returns false).
    */
   updateStitch(layout: PagePlacement[]) {
     if (this.mode !== 'stitch' || !this.stitchLayout) return false;
@@ -687,6 +683,10 @@ export class TileViewer {
     return true;
   }
 
+  /**
+   * Shows sheets placed in one continuous view (null returns to single pages). The view opens on
+   * `focusPage`, or fitted to the whole set.
+   */
   setStitch(layout: PagePlacement[] | null, focusPage?: number) {
     if (!layout || layout.length === 0) {
       this.stitchLayout = null;

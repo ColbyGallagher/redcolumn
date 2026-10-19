@@ -4,14 +4,14 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
-import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, shiftLine, withViewportRegions } from './documents/stitching';
+import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
@@ -1108,7 +1108,7 @@ export function App() {
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
-  const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => void>(() => {});
+  const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
   /** The match line picked in the Stitching panel (drawn thicker; Move Sheet moves its sheet). */
   const [stitchSelected, setStitchSelected] = useState<string | null>(null);
@@ -6634,10 +6634,18 @@ export function App() {
   };
   matchLineEditedRef.current = (pane, id, p0, p1) => {
     const doc = pane === 'b' ? openB : open;
-    if (!doc || doc.store.readOnly) return;
+    if (!doc || doc.store.readOnly) return false;
     const s = doc.store.manualStitch();
+    const line = s.lines.find((l) => l.id === id);
+    const zoom = (pane === 'b' ? ctlB : ctl)?.viewer.zoomFor(line?.pageIndex ?? 0) ?? 1;
+    // Ends dragged onto each other fix no direction: keep the line as it was.
+    if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * zoom < 2) {
+      setNotice('A match line needs two different ends: the line was left as it was.');
+      return false;
+    }
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === id ? { ...l, p0, p1 } : l)) });
     setStitchSelected(id);
+    return true;
   };
   /** The sheet Move Sheet and the nudge buttons move: the one joined at the selected line, placed from its partner. */
   const stitchMover = (doc: OpenFile, groups: readonly StoredStitchGroup[]) => {
@@ -6656,7 +6664,12 @@ export function App() {
       if (done) setNotice('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.');
       return;
     }
-    const [along, across] = dragToShift(m.lines, m.mover.id, m.group, delta, stitchLockAlong);
+    const ref = pairOf(m.lines, m.mover.id)!.ref;
+    // How the view turns and scales the reference sheet (rotation included), from its own placement.
+    const o = c.viewer.pageToWorld(ref.pageIndex, [0, 0]);
+    const x = c.viewer.pageToWorld(ref.pageIndex, [1, 0]);
+    const y = c.viewer.pageToWorld(ref.pageIndex, [0, 1]);
+    const [along, across] = dragToShift(m.lines, m.mover.id, [x[0] - o[0], x[1] - o[1], y[0] - o[0], y[1] - o[1]], delta, stitchLockAlong);
     const lines = shiftLine(m.lines, m.mover.id, along, across);
     const s = doc.store.manualStitch();
     if (done) {
@@ -6668,15 +6681,29 @@ export function App() {
     const group = groups.find((g) => g.placements.some((p) => p.pageIndex === m.mover.pageIndex));
     if (group) c.viewer.updateStitch(group.placements);
   };
-  /** Nudges the selected line's pair by `along` / `across` points (the panel's buttons and arrow keys). */
-  const nudgeStitch = (id: string, along: number, across: number) => {
+  /** The line whose adjustment moves the sheet joined at line `id` (see `moverLine`). */
+  const moverOf = (lines: readonly StoredMatchLine[], id: string) => {
+    const group = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === lines.find((l) => l.id === id)?.pageIndex)) ?? null;
+    return moverLine(lines, id, group);
+  };
+  /** Nudges the sheet joined at line `id`: `along` the match line, `apart` from its partner (the panel's buttons and arrow keys). */
+  const nudgeStitch = (id: string, along: number, apart: number) => {
     const doc = activeOpen;
     if (!doc || activeReadOnly) return;
     const lines = doc.store.manualStitch().lines;
-    const group = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === lines.find((l) => l.id === id)?.pageIndex)) ?? null;
-    const mover = moverLine(lines, id, group);
+    const mover = moverOf(lines, id);
     if (!mover) return;
-    doc.store.setManualStitch({ ...doc.store.manualStitch(), lines: shiftLine(lines, mover.id, along, across) });
+    const [a, c] = nudgeToShift(lines, mover.id, along, apart);
+    doc.store.setManualStitch({ ...doc.store.manualStitch(), lines: shiftLine(lines, mover.id, a, c) });
+  };
+  /** Puts the sheet joined at line `id` back where the two lines' ends place it. */
+  const resetStitch = (id: string) => {
+    const doc = activeOpen;
+    if (!doc || activeReadOnly) return;
+    const s = doc.store.manualStitch();
+    const pair = pairOf(s.lines, id);
+    if (!pair) return;
+    doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
@@ -7861,6 +7888,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             previewing={activeMode === 'stitch'}
             onStitchToPage={currentStitch && activeOpen && !activeReadOnly ? (withMarkups) => void stitchToNewPage(currentStitch, withMarkups) : null}
             onNudge={nudgeStitch}
+            onReset={resetStitch}
             moverPage={(id) => {
               const lines = (paneB ? manualStitchB : manualStitchA).lines;
               const group = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === lines.find((l) => l.id === id)?.pageIndex)) ?? null;

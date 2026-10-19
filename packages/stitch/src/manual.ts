@@ -15,28 +15,39 @@ export interface ManualMatchLine {
   /** The line on another sheet this one joins, or null while unpaired. */
   matchTo: string | null;
   /**
-   * A hand adjustment: how far this line's sheet is slid from where the line ends put it, in the
-   * pair's frame (see `pairFrame`): along the line, and across it away from the other sheet.
+   * A hand adjustment of where this line's sheet sits, in points of the pair's frame (see
+   * `pairFrame`): along the reference line, and across it. On the pair's other line, +across
+   * moves the sheet apart from the reference sheet; on the reference line, it moves it closer.
    */
   offset?: [number, number];
 }
 
+/** Shorter match lines than this (points) are ignored: their ends fix no direction. */
+export const MIN_LINE_LENGTH = 1;
+
 /**
- * The frame a pair's adjustments are measured in, in the page space of `first` (the pair's
- * line on the lower page): `along` runs the way that line was clicked, `across` points out of
- * that sheet's drawing, into the other sheet's.
+ * The line of a pair that its adjustments are measured against. Chosen by ID, which page edits
+ * never change, so stored adjustments keep their meaning when pages are reordered.
  */
-export function pairFrame(first: Pick<ManualMatchLine, 'p0' | 'p1' | 'contentSide'>): { along: Vec; across: Vec } {
-  const along = unit(sub(first.p1, first.p0));
-  const n = perp(along);
-  return { along, across: [-n[0] * first.contentSide, -n[1] * first.contentSide] };
+export function referenceLine<L extends Pick<ManualMatchLine, 'id'>>(a: L, b: L): L {
+  return a.id < b.id ? a : b;
 }
 
-/** Where `second`'s sheet ends up relative to `first`'s, given both lines' hand adjustments (first's page space). */
-function adjustment(first: ManualMatchLine, second: ManualMatchLine): [number, number] {
-  const { along, across } = pairFrame(first);
-  // Sliding the first sheet one way is sliding the second the other way.
-  const [da, dc] = [(second.offset?.[0] ?? 0) - (first.offset?.[0] ?? 0), (second.offset?.[1] ?? 0) - (first.offset?.[1] ?? 0)];
+/**
+ * The frame a pair's adjustments are measured in, in the reference line's page space: `along`
+ * runs the way that line was clicked, `across` points out of its sheet's drawing, into the other.
+ */
+export function pairFrame(ref: Pick<ManualMatchLine, 'p0' | 'p1' | 'contentSide'>): { along: Vec; across: Vec } {
+  const along = unit(sub(ref.p1, ref.p0));
+  const n = perp(along);
+  return { along, across: [-n[0] * ref.contentSide, -n[1] * ref.contentSide] };
+}
+
+/** How far the other line's sheet is slid relative to the reference line's, in the reference sheet's page space. */
+function adjustment(ref: ManualMatchLine, other: ManualMatchLine): [number, number] {
+  const { along, across } = pairFrame(ref);
+  // Sliding the reference sheet one way is sliding the other the opposite way.
+  const [da, dc] = [(other.offset?.[0] ?? 0) - (ref.offset?.[0] ?? 0), (other.offset?.[1] ?? 0) - (ref.offset?.[1] ?? 0)];
   return [along[0] * da + across[0] * dc, along[1] * da + across[1] * dc];
 }
 
@@ -135,26 +146,46 @@ export interface ManualStitchInput {
   regions?: ReadonlyMap<number, [number, number][]>;
   /** Line work by page, for refining same-scale joins. */
   pages?: ReadonlyMap<number, StitchPage>;
+  /** Further joins to chain in with the user's (e.g. detected joins of sheets the user left alone). */
+  extra?: { edges: readonly StitchEdge[]; clips: ReadonlyMap<number, readonly HalfPlane[]> };
 }
 
-/** Groups of sheets joined at the user's paired match lines. */
-export function stitchManual({ lines, regions, pages }: ManualStitchInput): StitchGroup[] {
+/** A line too short to fix a direction (an end dragged onto the other, say). */
+export const tooShort = (l: Pick<ManualMatchLine, 'p0' | 'p1'>) => len(sub(l.p1, l.p0)) < MIN_LINE_LENGTH;
+
+/** The joins the user's paired match lines make, and where each sheet is cut. */
+export function manualEdges({ lines, pages }: Pick<ManualStitchInput, 'lines' | 'pages'>): { edges: StitchEdge[]; clips: Map<number, HalfPlane[]> } {
   const byId = new Map(lines.map((l) => [l.id, l]));
   const edges: StitchEdge[] = [];
   const clips = new Map<number, HalfPlane[]>();
   const done = new Set<string>();
   for (const a of lines) {
     const b = a.matchTo ? byId.get(a.matchTo) : undefined;
-    if (!b || b.pageIndex === a.pageIndex || done.has(a.id) || done.has(b.id)) continue;
+    if (!b || b.pageIndex === a.pageIndex || done.has(a.id) || done.has(b.id) || tooShort(a) || tooShort(b)) continue;
     // A pairing counts once, from either end.
     done.add(a.id);
     done.add(b.id);
     const [first, second] = a.pageIndex < b.pageIndex ? [a, b] : [b, a];
     const alignment = alignManualPair(first, second, pages?.get(first.pageIndex), pages?.get(second.pageIndex));
-    const [dx, dy] = adjustment(first, second);
-    if (dx || dy) alignment.bToA = compose(rigid(0, dx, dy), alignment.bToA);
+    const ref = referenceLine(a, b);
+    const [dx, dy] = adjustment(ref, ref === first ? second : first);
+    if (dx || dy) {
+      // In the reference sheet's space: slide the second sheet, or the first one (which is the
+      // second sheet sliding the other way, in its own space).
+      alignment.bToA = ref === first ? compose(rigid(0, dx, dy), alignment.bToA) : compose(alignment.bToA, rigid(0, -dx, -dy));
+    }
     edges.push({ a: first.pageIndex, b: second.pageIndex, station: first.name || second.name || null, alignment, line: first });
     for (const l of [a, b]) clips.set(l.pageIndex, [...(clips.get(l.pageIndex) ?? []), clipFor(l)]);
+  }
+  return { edges, clips };
+}
+
+/** Groups of sheets joined at the user's paired match lines (and any `extra` joins). */
+export function stitchManual({ lines, regions, pages, extra }: ManualStitchInput): StitchGroup[] {
+  const { edges, clips } = manualEdges({ lines, pages });
+  if (extra) {
+    edges.push(...extra.edges);
+    for (const [page, list] of extra.clips) clips.set(page, [...(clips.get(page) ?? []), ...list]);
   }
   const groups = chainGroups(edges, clips);
   if (regions) for (const g of groups) for (const p of g.placements) p.region = regions.get(p.pageIndex);

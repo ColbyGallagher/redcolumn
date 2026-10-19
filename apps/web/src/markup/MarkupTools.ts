@@ -218,7 +218,7 @@ const REGION_STYLE: MarkupStyle = { stroke: '#2563eb', fill: '#2563eb', width: 1
 
 type Gesture =
   /** Dragging one end (`end` 0 or 1) of a hand-placed match line. */
-  | { kind: 'guideEnd'; id: string; end: 0 | 1 }
+  | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
   /** Move Sheet: dragging a stitched sheet; `start` is where the drag began in the view's world space. */
   | { kind: 'stitchMove'; start: Point }
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
@@ -429,8 +429,8 @@ export interface MarkupToolsOptions {
   onRegion?: (pageIndex: number, rect: PageRect) => void;
   /** The user clicked both ends of a match line (the `matchLine` tool). */
   onMatchLine?: (pageIndex: number, p0: Point, p1: Point) => void;
-  /** The user dragged an end of a hand-placed match line to a new place. */
-  onMatchLineEdited?: (id: string, p0: Point, p1: Point) => void;
+  /** The user dragged an end of a hand-placed match line to a new place; false turns the edit down (the end goes back). */
+  onMatchLineEdited?: (id: string, p0: Point, p1: Point) => boolean | void;
   /** Move Sheet: the pointer has dragged `delta` (world space) since the press; `done` on release. */
   onStitchDrag?: (delta: Point, done: boolean) => void;
   /** The user outlined the part of a sheet holding the drawing, for stitching (`stitchRegion`, `stitchPolygon`). */
@@ -1441,7 +1441,13 @@ export class MarkupTools implements ViewerOverlay {
       this.setState({ cad: { picks: 0, error: null } });
       return;
     }
-    if (this.gesture) this.setGesture(null);
+    const g = this.gesture;
+    // A dragged line end goes back, and a dragged sheet back to where the store has it.
+    if (g?.kind === 'guideEnd') {
+      const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
+      if (line) line[g.end ? 'p1' : 'p0'] = g.from;
+    } else if (g?.kind === 'stitchMove') this.options.onStitchDrag?.([0, 0], false);
+    if (g) this.setGesture(null);
     else if (this.state.tool !== 'select') this.setTool('select');
     else this.select([]);
   }
@@ -1943,7 +1949,8 @@ export class MarkupTools implements ViewerOverlay {
     if (e.button === 0 && !this.store.readOnly && (tool === 'select' || (tool === 'matchLine' && this.gesture?.kind !== 'multi'))) {
       const end = this.guideEndAt(toPoint(pt), pageIndex);
       if (end) {
-        this.setGesture({ kind: 'guideEnd', ...end });
+        const line = this.stitchGuides!.lines.find((l) => l.id === end.id)!;
+        this.setGesture({ kind: 'guideEnd', ...end, from: end.end ? line.p1 : line.p0 });
         return true;
       }
     }
@@ -2390,7 +2397,12 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'guideEnd') {
       this.setGesture(null);
       const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
-      if (line) this.options.onMatchLineEdited?.(line.id, line.p0, line.p1);
+      const now = g.end ? line?.p1 : line?.p0;
+      // A press on an end that didn't move it changes nothing.
+      if (line && now && (now[0] !== g.from[0] || now[1] !== g.from[1]) && this.options.onMatchLineEdited?.(line.id, line.p0, line.p1) === false) {
+        line[g.end ? 'p1' : 'p0'] = g.from;
+        this.viewer.invalidate();
+      }
       return;
     }
     if (g.kind === 'stitchMove') {

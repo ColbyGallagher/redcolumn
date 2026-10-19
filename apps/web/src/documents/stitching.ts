@@ -1,27 +1,48 @@
-import { defaultContentSide, pairFrame, stitchManual, type StitchPage } from '@nb/stitch';
+import { apply, clipFor, compose, defaultContentSide, invert, manualEdges, pairFrame, referenceLine, stitchManual, tooShort, type Affine, type HalfPlane, type StitchEdge, type StitchPage } from '@nb/stitch';
 import type { Point, StoredManualStitch, StoredMatchLine, StoredStitchGroup, Viewport } from '@nb/markup';
 
 /**
- * The stitched groups to show: the user's paired match lines, plus the groups found from the
- * drawings' own match-line labels for sheets the user has not joined by hand. A drawing region
+ * The stitched groups to show: the user's paired match lines, plus the joins found from the
+ * drawings' own match-line labels. A detected join between two sheets the user has joined by hand
+ * gives way to the user's; the rest of that detected group stays chained on. A drawing region
  * the user set on a sheet applies to whichever group the sheet is in.
  */
 export function mergeStitch(auto: readonly StoredStitchGroup[], manual: StoredManualStitch, pages?: ReadonlyMap<number, StitchPage>): StoredStitchGroup[] {
   const regions = new Map(Object.entries(manual.regions).map(([k, v]) => [Number(k), v.map((p): [number, number] => [p[0], p[1]])]));
-  const own = stitchManual({ lines: manual.lines, regions, pages }).map(
+  if (!manual.lines.length && !regions.size) return auto as StoredStitchGroup[];
+  const joined = new Set(manualEdges({ lines: manual.lines }).edges.flatMap((e) => [e.a, e.b]));
+  const withRegions = (g: StoredStitchGroup): StoredStitchGroup =>
+    g.placements.some((p) => regions.has(p.pageIndex)) ? { ...g, placements: g.placements.map((p) => (regions.has(p.pageIndex) ? { ...p, region: regions.get(p.pageIndex) } : p)) } : g;
+  const untouched: StoredStitchGroup[] = [];
+  const edges: StitchEdge[] = [];
+  const clips = new Map<number, HalfPlane[]>();
+  const clip = (page: number, h: HalfPlane) => clips.set(page, [...(clips.get(page) ?? []), h]);
+  for (const g of auto) {
+    if (!g.placements.some((p) => joined.has(p.pageIndex))) {
+      untouched.push(withRegions(g));
+      continue;
+    }
+    // Detected joins the user left alone are chained in with the user's (groups detected before
+    // joins kept their lines can't be, and give way whole).
+    const toWorld = new Map(g.placements.map((p) => [p.pageIndex, p.toWorld as Affine]));
+    for (const e of g.edges) {
+      const [wa, wb] = [toWorld.get(e.a), toWorld.get(e.b)];
+      if (!e.line || !wa || !wb || (joined.has(e.a) && joined.has(e.b))) continue;
+      const bToA = compose(invert(wa), wb);
+      const aToB = invert(bToA);
+      edges.push({ a: e.a, b: e.b, station: e.station, alignment: { bToA, votes: e.votes, confidence: e.confidence }, line: e.line });
+      clip(e.a, clipFor(e.line));
+      clip(e.b, clipFor({ p0: apply(aToB, e.line.p0), p1: apply(aToB, e.line.p1), contentSide: e.line.contentSide === 1 ? -1 : 1 }));
+    }
+  }
+  const own = stitchManual({ lines: manual.lines, regions, pages, extra: { edges, clips } }).map(
     (g): StoredStitchGroup => ({
       placements: g.placements.map((p) => ({ pageIndex: p.pageIndex, toWorld: [...p.toWorld] as StoredStitchGroup['placements'][number]['toWorld'], clips: p.clips, ...(p.region ? { region: p.region } : {}) })),
       edges: g.edges.map((e) => ({ a: e.a, b: e.b, station: e.station, votes: e.alignment.votes, confidence: e.alignment.confidence, ...(e.line ? { line: { p0: e.line.p0, p1: e.line.p1, contentSide: e.line.contentSide } } : {}) })),
     }),
   );
-  if (!own.length && !regions.size) return auto as StoredStitchGroup[];
-  const joined = new Set(own.flatMap((g) => g.placements.map((p) => p.pageIndex)));
-  const rest = auto
-    .filter((g) => !g.placements.some((p) => joined.has(p.pageIndex)))
-    .map((g) => (g.placements.some((p) => regions.has(p.pageIndex)) ? { ...g, placements: g.placements.map((p) => (regions.has(p.pageIndex) ? { ...p, region: regions.get(p.pageIndex) } : p)) } : g));
-  return [...own, ...rest];
+  return [...own, ...untouched];
 }
-
 /**
  * Regions to stitch with: those the user drew, and for other sheets with match lines, the
  * outline of the sheet's biggest viewport (which usually frames the drawing, not the title block).
@@ -38,19 +59,6 @@ export function withViewportRegions(manual: StoredManualStitch, viewports: reado
   return regions === manual.regions ? manual : { ...manual, regions };
 }
 
-type Affine6 = readonly [number, number, number, number, number, number];
-
-function invert(m: Affine6): Affine6 {
-  const det = m[0] * m[3] - m[1] * m[2];
-  const a = m[3] / det;
-  const b = -m[1] / det;
-  const c = -m[2] / det;
-  const d = m[0] / det;
-  return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])];
-}
-
-const applyTo = (m: Affine6, p: Point): Point => [m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5]];
-
 /**
  * Takes over a detected stitched group as hand-placed match lines, so its joins can be edited.
  * Each pair keeps exactly the placement detection found: the line on the second sheet is the
@@ -59,14 +67,14 @@ const applyTo = (m: Affine6, p: Point): Point => [m[0] * p[0] + m[2] * p[1] + m[
  */
 export function adoptDetected(group: StoredStitchGroup, existing: readonly StoredMatchLine[]): StoredMatchLine[] {
   const out: StoredMatchLine[] = [];
-  const toWorld = new Map(group.placements.map((p) => [p.pageIndex, p.toWorld as Affine6]));
+  const toWorld = new Map(group.placements.map((p) => [p.pageIndex, p.toWorld as Affine]));
   let k = 0;
   for (const e of group.edges) {
     const wa = toWorld.get(e.a);
     const wb = toWorld.get(e.b);
     if (!e.line || !wa || !wb) continue;
     // Sheet a's page space → world → sheet b's page space.
-    const aToB = (p: Point) => applyTo(invert(wb), applyTo(wa, p));
+    const aToB = (p: Point): Point => apply(invert(wb), apply(wa, p));
     const stamp = `${Date.now().toString(36)}-${k++}`;
     const used = [...existing, ...out];
     const name = e.station ?? nextLineName(used);
@@ -102,26 +110,38 @@ export function shiftLine(lines: readonly StoredMatchLine[], id: string, along: 
   });
 }
 
-/**
- * A drag of `delta` (the stitched view's world space) on the sheet of line `id`, as an adjustment
- * of that line in its pair's frame. With `lockAlong`, only the slide along the match line counts.
- */
-export function dragToShift(lines: readonly StoredMatchLine[], id: string, group: StoredStitchGroup, delta: Point, lockAlong: boolean): [number, number] {
+/** A line, its partner, and which of the two the pair's adjustments are measured against. */
+export function pairOf(lines: readonly StoredMatchLine[], id: string): { line: StoredMatchLine; partner: StoredMatchLine; ref: StoredMatchLine } | null {
   const line = lines.find((l) => l.id === id);
   const partner = line?.matchTo ? lines.find((l) => l.id === line.matchTo) : undefined;
-  if (!line || !partner) return [0, 0];
-  const first = line.pageIndex < partner.pageIndex ? line : partner;
-  const w = group.placements.find((p) => p.pageIndex === first.pageIndex)?.toWorld;
-  if (!w) return [0, 0];
-  // World motion of either sheet is the first sheet's frame turned and scaled into the world.
-  const inv = invert([w[0], w[1], w[2], w[3], 0, 0]);
-  const d = applyTo(inv, delta);
-  const { along, across } = pairFrame(first);
+  return line && partner ? { line, partner, ref: referenceLine(line, partner) } : null;
+}
+
+/**
+ * A nudge as a change to the moving line's adjustment. Buttons and arrow keys say "along" and
+ * "apart": on the reference line itself, +across closes the gap, so it is turned round.
+ */
+export function nudgeToShift(lines: readonly StoredMatchLine[], moverId: string, along: number, apart: number): [number, number] {
+  const pair = pairOf(lines, moverId);
+  return pair?.ref.id === moverId ? [along, -apart] : [along, apart];
+}
+
+/**
+ * A drag of `delta` (the stitched view's world space) on the sheet of line `moverId`, as a change
+ * to that line's adjustment. `refLinear` is how the view turns and scales the reference line's
+ * sheet into its world (the viewer's own placement, so a rotated view is taken into account).
+ * With `lockAlong`, only the slide along the match line counts.
+ */
+export function dragToShift(lines: readonly StoredMatchLine[], moverId: string, refLinear: readonly [number, number, number, number], delta: Point, lockAlong: boolean): [number, number] {
+  const pair = pairOf(lines, moverId);
+  if (!pair) return [0, 0];
+  // Either sheet's world motion is a slide in the reference sheet's space, turned and scaled into the world.
+  const d = apply(invert([refLinear[0], refLinear[1], refLinear[2], refLinear[3], 0, 0]), delta);
+  const { along, across } = pairFrame(pair.ref);
   const a = d[0] * along[0] + d[1] * along[1];
   const c = d[0] * across[0] + d[1] * across[1];
   return [a, lockAlong ? 0 : c];
 }
-
 /** Labels new match lines ML-1, ML-2... skipping names in use. */
 export function nextLineName(lines: readonly StoredMatchLine[]): string {
   const used = new Set(lines.map((l) => l.name));
@@ -173,6 +193,7 @@ export function autoPair(lines: readonly StoredMatchLine[]): { lines: StoredMatc
 
 /** What is wrong with a line, for the panel: an end outside its sheet's region, or no partner. */
 export function lineProblem(line: StoredMatchLine, regions: StoredManualStitch['regions']): string | null {
+  if (tooShort(line)) return 'The line is too short: drag its ends apart';
   const region = regions[line.pageIndex];
   // A click may land a little outside the outline (snapped to a border line, say).
   if (region && region.length >= 3 && (!nearPolygon(line.p0, region, 2) || !nearPolygon(line.p1, region, 2))) return 'An end is outside the region';
