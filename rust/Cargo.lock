@@ -1583,6 +1583,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-markup"
+version = "0.1.0"
+dependencies = [
+ "rc-parse",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rc-parse"
 version = "0.1.0"
 dependencies = [
@@ -1609,6 +1618,20 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "rc-pdfwrite"
+version = "0.1.0"
+dependencies = [
+ "rc-bench",
+ "rc-markup",
+ "rc-parse",
+ "rc-pdf",
+ "rc-scene",
+ "tempfile",
+ "thiserror",
+ "windows",
 ]
 
 [[package]]

@@ -29,6 +29,9 @@ pub struct Document {
     bytes: Bytes,
     xref: HashMap<u32, Entry>,
     pub trailer: Dict,
+    /// The last cross-reference section (offset, and whether it is a stream), when the file's
+    /// own xref was read rather than rebuilt by scanning. An incremental update chains to it.
+    pub last_xref: Option<(usize, bool)>,
     cache: RwLock<HashMap<u32, Arc<Obj>>>,
     objstms: RwLock<HashMap<u32, Arc<ObjStream>>>,
     pages: Vec<PageNode>,
@@ -37,6 +40,8 @@ pub struct Document {
 /// A page with its inherited attributes resolved.
 #[derive(Clone, Debug)]
 pub struct PageNode {
+    /// The page dictionary's object number (0 when it is a direct object).
+    pub object: u32,
     pub dict: Dict,
     pub resources: Dict,
     pub media_box: [f64; 4],
@@ -57,11 +62,13 @@ impl Document {
             bytes,
             xref: HashMap::new(),
             trailer: Dict::default(),
+            last_xref: None,
             cache: RwLock::new(HashMap::new()),
             objstms: RwLock::new(HashMap::new()),
             pages: Vec::new(),
         };
         if doc.read_xref().is_err() || doc.trailer.get("Root").is_none() {
+            doc.last_xref = None;
             doc.rebuild()?;
         }
         if doc.trailer.has("Encrypt") {
@@ -70,12 +77,31 @@ impl Document {
         if doc.collect_pages().is_err() || doc.pages.is_empty() {
             // The xref pointed somewhere plausible but wrong: rebuild and try again.
             doc.xref.clear();
+            doc.last_xref = None;
             doc.cache.write().unwrap().clear();
             doc.rebuild()?;
             doc.pages.clear();
             doc.collect_pages()?;
         }
         Ok(doc)
+    }
+
+    /// An object's generation number (0 for objects in object streams or not found).
+    pub fn generation(&self, num: u32) -> u16 {
+        let Some(Entry::Offset(off)) = self.xref.get(&num) else {
+            return 0;
+        };
+        let mut lx = Lexer::new(self.data(), *off);
+        match (lx.next(), lx.next()) {
+            (Some(Token::Int(n)), Some(Token::Int(g))) if n == num as i64 => g.clamp(0, 65535) as u16,
+            _ => 0,
+        }
+    }
+
+    /// One more than the highest object number in use.
+    pub fn next_object(&self) -> u32 {
+        let size = self.trailer.get("Size").and_then(Obj::as_i64).unwrap_or(0).max(0) as u32;
+        size.max(self.xref.keys().max().map_or(1, |m| m + 1))
     }
 
     /// The file's bytes.
@@ -105,6 +131,8 @@ impl Document {
         while off >= 0 && (off as usize) < data.len() && seen.insert(off) {
             let trailer = self.read_section(off as usize)?;
             if first {
+                let stream = !data[off as usize..].trim_ascii_start().starts_with(b"xref");
+                self.last_xref = Some((off as usize, stream));
                 self.trailer = trailer.clone();
                 first = false;
             }
@@ -530,6 +558,7 @@ impl Document {
             let media = inh.media_box.unwrap_or([0.0, 0.0, 612.0, 792.0]);
             let crop = inh.crop_box.map(|c| intersect(c, media)).unwrap_or(media);
             out.push(PageNode {
+                object: if let Obj::Ref(n, _) = node { *n } else { 0 },
                 dict: d.clone(),
                 resources: inh.resources.clone().unwrap_or_default(),
                 media_box: media,
