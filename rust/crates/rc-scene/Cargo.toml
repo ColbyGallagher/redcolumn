@@ -1,0 +1,20 @@
+[package]
+name = "rc-scene"
+description = "Page content as extracted from a PDF, and the compact GPU scene built from it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bytemuck.workspace = true
+thiserror.workspace = true
+lyon = { workspace = true }
+i_overlay = "9"
+rayon.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

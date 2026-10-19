@@ -1,0 +1,14 @@
+[package]
+name = "rc-bench"
+description = "Synthetic heavy drawings, engine benchmarks and scene timings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+flate2.workspace = true
+
+[lints]
+workspace = true

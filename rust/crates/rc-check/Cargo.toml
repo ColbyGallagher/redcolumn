@@ -1,0 +1,25 @@
+[package]
+name = "rc-check"
+description = "The fidelity check: a page drawn by the GPU scene against PDFium's own render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+rc-gpu.workspace = true
+rc-pdf.workspace = true
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+
+[dev-dependencies]
+rc-bench = { path = "../rc-bench" }
+image.workspace = true
+
+[lints]
+workspace = true
+
+[[test]]
+name = "fidelity"
+harness = false

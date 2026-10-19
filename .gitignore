@@ -11,3 +11,7 @@ e2e/test-results/
 e2e/playwright-report/
 apps/web/dist-e2e/
 media/tool-gifs/
+
+# Rust workspace
+rust/target/
+rust/vendor/

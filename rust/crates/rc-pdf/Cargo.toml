@@ -1,0 +1,28 @@
+[package]
+name = "rc-pdf"
+description = "PDFium in a pool of worker processes: raster tiles, page content extraction, annotations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+memmap2.workspace = true
+crossbeam-channel.workspace = true
+pdfium-render.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+lopdf.workspace = true
+
+[[bin]]
+name = "rc-pdf-worker"
+path = "src/bin/rc-pdf-worker.rs"
+
+[lints]
+workspace = true

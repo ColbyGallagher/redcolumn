@@ -1,0 +1,21 @@
+[package]
+name = "rc-gpu"
+description = "Draws GPU scenes, raster tiles and images with wgpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+wgpu.workspace = true
+bytemuck.workspace = true
+anyhow.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+image.workspace = true
+
+[lints]
+workspace = true
