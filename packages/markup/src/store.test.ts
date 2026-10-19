@@ -194,3 +194,29 @@ test('changing the custom columns is undoable', async () => {
   assert.deepEqual(store.columnSet().columns, before.columns);
   await store.destroy();
 });
+
+test('hand-placed stitching follows page operations and is undoable', async () => {
+  const { planPageOps } = await import('./pages.ts');
+  const store = await MarkupStore.open('test', { persist: false });
+  try {
+    const line = (id: string, pageIndex: number, matchTo: string | null) => ({ id, pageIndex, p0: [10, 0] as [number, number], p1: [10, 50] as [number, number], contentSide: 1 as const, name: id, matchTo });
+    store.setManualStitch({ lines: [line('a', 0, 'b'), line('b', 1, 'a'), line('c', 2, null)], regions: { 2: [[0, 0], [100, 0], [100, 80]] } });
+    assert.equal(store.undoHistory()[0]?.label, 'Edit stitching');
+    store.undo();
+    assert.deepEqual(store.manualStitch(), { lines: [], regions: {} });
+    store.redo();
+    assert.equal(store.manualStitch().lines.length, 3);
+
+    // Delete page 1: its line goes, its partner is unpaired, page 2 becomes page 1 and is turned.
+    const sizes = [0, 1, 2].map(() => ({ width: 100, height: 100 }));
+    store.remapPages(planPageOps(3, [{ type: 'delete', pages: [1] }, { type: 'rotate', pages: [1], quarterTurns: 1 }]), sizes);
+    const s = store.manualStitch();
+    assert.deepEqual(s.lines.map((l) => [l.id, l.pageIndex, l.matchTo]), [['a', 0, null], ['c', 1, null]]);
+    assert.deepEqual(Object.keys(s.regions), ['1']);
+
+    store.transformPages(new Map([[0, { scale: 2, dx: 5, dy: 0 }]]));
+    assert.deepEqual(store.manualStitch().lines[0]!.p1, [25, 100]);
+  } finally {
+    await store.destroy();
+  }
+});

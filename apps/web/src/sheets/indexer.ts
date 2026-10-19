@@ -147,7 +147,14 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
         toWorld: [...p.toWorld] as StoredStitchGroup['placements'][number]['toWorld'],
         clips: p.clips.map((c) => ({ point: [...c.point] as [number, number], normal: [...c.normal] as [number, number] })),
       })),
-      edges: g.edges.map((e) => ({ a: e.a, b: e.b, station: e.station, votes: e.alignment.votes, confidence: e.alignment.confidence })),
+      edges: g.edges.map((e) => ({
+        a: e.a,
+        b: e.b,
+        station: e.station,
+        votes: e.alignment.votes,
+        confidence: e.alignment.confidence,
+        ...(e.line ? { line: { p0: [...e.line.p0] as [number, number], p1: [...e.line.p1] as [number, number], contentSide: e.line.contentSide } } : {}),
+      })),
     }));
     store.setStitch(groups);
   });

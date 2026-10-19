@@ -15,6 +15,8 @@ export interface Placement {
   /** Page space → the group's world space (the root sheet's page space). */
   toWorld: Affine;
   clips: HalfPlane[];
+  /** The part of the sheet holding the drawing (page space); the whole page when absent. */
+  region?: [number, number][];
 }
 
 export interface StitchEdge {
@@ -22,6 +24,8 @@ export interface StitchEdge {
   b: number;
   station: string | null;
   alignment: PairAlignment;
+  /** The match line on sheet `a`, when known (so the join can be taken over and edited by hand). */
+  line?: Pick<MatchLine, 'p0' | 'p1' | 'contentSide'>;
 }
 
 export interface StitchGroup {
@@ -35,38 +39,16 @@ export interface StitchResult {
   matchLines: MatchLine[];
 }
 
-function clipFor(line: MatchLine): HalfPlane {
+export function clipFor(line: Pick<MatchLine, 'p0' | 'p1' | 'contentSide'>): HalfPlane {
   const n = perp(unit(sub(line.p1, line.p0)));
   return { point: line.p0, normal: [n[0] * line.contentSide, n[1] * line.contentSide] };
 }
 
 /**
- * Finds match lines on every sheet, pairs sheets that point at each other (by sheet reference,
- * falling back to a shared station), aligns each pair and chains the pairs into groups of sheets
- * placed in one continuous coordinate system.
+ * Chains paired sheets into groups placed in one coordinate system each, walking the pairs
+ * outward from each group's lowest page (which keeps its own page space).
  */
-export function stitchSet(pages: StitchPage[], sheetNumbers: readonly (string | null)[]): StitchResult {
-  const lookup = new SheetLookup(sheetNumbers);
-  const matchLines = pages.flatMap((p, i) => findMatchLines(p, i, lookup));
-
-  // Pair match lines: A's line pointing at B with B's line pointing back (or the same station).
-  const edges: StitchEdge[] = [];
-  const used = new Set<MatchLine>();
-  for (const a of matchLines) {
-    if (used.has(a)) continue;
-    const candidates = matchLines.filter((b) => b !== a && !used.has(b) && b.pageIndex !== a.pageIndex);
-    const b =
-      candidates.find((b) => a.targetPage === b.pageIndex && b.targetPage === a.pageIndex) ??
-      candidates.find((b) => a.station && b.station === a.station && (a.targetPage === null || a.targetPage === b.pageIndex));
-    if (!b) continue;
-    used.add(a);
-    used.add(b);
-    edges.push({ a: a.pageIndex, b: b.pageIndex, station: a.station ?? b.station, alignment: alignPair(pages[a.pageIndex]!, a, pages[b.pageIndex]!, b) });
-  }
-
-  // Chain into groups by walking the pairs outward from each group's lowest page.
-  const clips = new Map<number, HalfPlane[]>();
-  for (const line of matchLines) if (used.has(line)) clips.set(line.pageIndex, [...(clips.get(line.pageIndex) ?? []), clipFor(line)]);
+export function chainGroups(edges: StitchEdge[], clips: ReadonlyMap<number, HalfPlane[]>): StitchGroup[] {
   const placed = new Map<number, Affine>();
   const groups: StitchGroup[] = [];
   const pagesInEdges = [...new Set(edges.flatMap((e) => [e.a, e.b]))].sort((x, y) => x - y);
@@ -91,5 +73,35 @@ export function stitchSet(pages: StitchPage[], sheetNumbers: readonly (string | 
     }
     groups.push(group);
   }
+  return groups;
+}
+
+/**
+ * Finds match lines on every sheet, pairs sheets that point at each other (by sheet reference,
+ * falling back to a shared station), aligns each pair and chains the pairs into groups of sheets
+ * placed in one continuous coordinate system.
+ */
+export function stitchSet(pages: StitchPage[], sheetNumbers: readonly (string | null)[]): StitchResult {
+  const lookup = new SheetLookup(sheetNumbers);
+  const matchLines = pages.flatMap((p, i) => findMatchLines(p, i, lookup));
+
+  // Pair match lines: A's line pointing at B with B's line pointing back (or the same station).
+  const edges: StitchEdge[] = [];
+  const used = new Set<MatchLine>();
+  for (const a of matchLines) {
+    if (used.has(a)) continue;
+    const candidates = matchLines.filter((b) => b !== a && !used.has(b) && b.pageIndex !== a.pageIndex);
+    const b =
+      candidates.find((b) => a.targetPage === b.pageIndex && b.targetPage === a.pageIndex) ??
+      candidates.find((b) => a.station && b.station === a.station && (a.targetPage === null || a.targetPage === b.pageIndex));
+    if (!b) continue;
+    used.add(a);
+    used.add(b);
+    edges.push({ a: a.pageIndex, b: b.pageIndex, station: a.station ?? b.station, alignment: alignPair(pages[a.pageIndex]!, a, pages[b.pageIndex]!, b), line: { p0: a.p0, p1: a.p1, contentSide: a.contentSide } });
+  }
+
+  const clips = new Map<number, HalfPlane[]>();
+  for (const line of matchLines) if (used.has(line)) clips.set(line.pageIndex, [...(clips.get(line.pageIndex) ?? []), clipFor(line)]);
+  const groups = chainGroups(edges, clips);
   return { groups, matchLines };
 }

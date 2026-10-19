@@ -52,6 +52,8 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.security': 'todo',
   'document.slipSheet': 'todo',
   'document.splitDocument': { spec: 'document' },
+  'document.stitchToPage': { spec: 'manual-stitch' },
+  'document.stitching': { spec: 'manual-stitch' },
   'document.thumbnails': { spec: 'document' },
   'document.unflatten': { spec: 'document' },
   'edit.alignBottom': { spec: 'edit' },

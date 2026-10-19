@@ -10,7 +10,9 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
-import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, shiftLine, withViewportRegions } from './documents/stitching';
+import { StitchPanel } from './components/StitchPanel';
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
@@ -1104,6 +1106,14 @@ export function App() {
   const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
+  const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
+  const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => void>(() => {});
+  const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
+  /** The match line picked in the Stitching panel (drawn thicker; Move Sheet moves its sheet). */
+  const [stitchSelected, setStitchSelected] = useState<string | null>(null);
+  /** Move Sheet slides a sheet only along its match line. */
+  const [stitchLockAlong, setStitchLockAlong] = useState(true);
   const [searchFocus, setSearchFocus] = useState(0);
   /** Opens a side panel on whichever side of the window it is docked. */
   const showPanel = (tab: LeftTab) => {
@@ -1175,8 +1185,15 @@ export function App() {
   const places = usePlaces(activeStore);
   const linksA = useLinks(open?.store ?? null);
   const linksB = useLinks(openB?.store ?? null);
-  const stitchA = useStitch(open?.store ?? null);
-  const stitchB = useStitch(openB?.store ?? null);
+  const autoStitchA = useStitch(open?.store ?? null);
+  const autoStitchB = useStitch(openB?.store ?? null);
+  const manualStitchA = useManualStitch(open?.store ?? null);
+  const manualStitchB = useManualStitch(openB?.store ?? null);
+  const viewportsA = useViewports(open?.store ?? null);
+  const viewportsB = useViewports(openB?.store ?? null);
+  // The stitched groups shown: the match lines the user placed, then those found on the drawings.
+  const stitchA = useMemo(() => mergeStitch(autoStitchA, withViewportRegions(manualStitchA, viewportsA)), [autoStitchA, manualStitchA, viewportsA]);
+  const stitchB = useMemo(() => mergeStitch(autoStitchB, withViewportRegions(manualStitchB, viewportsB)), [autoStitchB, manualStitchB, viewportsB]);
   const columnsA = useColumnSet(open?.store ?? null);
   const columnsB = useColumnSet(openB?.store ?? null);
 
@@ -1224,6 +1241,10 @@ export function App() {
       defaultFields: () => defaultFieldsFor(front()?.store),
       onCreated: recordRecent,
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
+      onMatchLine: (pageIndex, p0, p1) => matchLineRef.current(pane, pageIndex, p0, p1),
+      onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
+      onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
+      onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
       onEditComment: (id) => setCommentEdit({ pane, id }),
       onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
       onEditStamp: (id) => setStampEdit({ pane, id }),
@@ -1847,6 +1868,8 @@ export function App() {
       if (!c.viewer.isStitched) continue;
       const focus = c.viewer.currentPageIndex;
       const group = groups.find((g) => g.placements.some((p) => p.pageIndex === focus));
+      // The same sheets laid out a little differently (a nudge, an edited line) keep the view where it is.
+      if (group && c.viewer.updateStitch(group.placements)) continue;
       c.viewer.setStitch(group?.placements ?? null, focus);
     }
   }, [ctl, ctlB, stitchA, stitchB]);
@@ -5098,6 +5121,37 @@ export function App() {
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
+  /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
+  const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean) => {
+    const cur = activeOpen;
+    if (!cur || activeReadOnly) return;
+    try {
+      const { stitchToPage, stitchedMarkups } = await import('./documents/stitchPages');
+      const result = await stitchToPage(await readFile(cur.file.hash), group);
+      const root = group.placements[0]!.pageIndex;
+      const rootScale = cur.store.allScales()[root];
+      let copied = 0;
+      await swapDocument(
+        cur,
+        paneB,
+        result.bytes.slice().buffer,
+        () => {
+          // Measurements on the new page read at the first sheet's scale (the others were scaled to it).
+          if (rootScale) cur.store.setScale([result.pageIndex], { ...rootScale, metersPerPoint: rootScale.metersPerPoint / result.shrink });
+          if (!withMarkups) return;
+          const copies = stitchedMarkups(cur.store.all(), result, () => crypto.randomUUID());
+          cur.store.batch(() => copies.forEach((m) => cur.store.add(m)));
+          copied = copies.length;
+        },
+        () => result.pageIndex,
+        'Stitch to New Page',
+      );
+      setNotice(`Stitched ${group.placements.length} sheets onto page ${result.pageIndex + 1}${withMarkups ? ` with ${copied} markup${copied === 1 ? '' : 's'}` : ''}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   // The document's fingerprint, for checking signatures (debounced while markups change).
   useEffect(() => {
     if (!activeOpen) {
@@ -6225,6 +6279,23 @@ export function App() {
   const leftRail = visibleRail.filter(({ id }) => panelSide(id) === 'left');
   const rightRail = visibleRail.filter(({ id }) => panelSide(id) === 'right');
   const rightShown = rightOpen && rightRail.some(({ id }) => id === rightTab);
+  const stitchPanelShown = (leftOpen && leftTab === 'stitching') || (rightShown && rightTab === 'stitching');
+  // Hand-placed match lines and regions show on the sheets while the Stitching panel is open.
+  useEffect(() => {
+    const panes = [
+      [ctl, open, manualStitchA, viewportsA],
+      [ctlB, openB, manualStitchB, viewportsB],
+    ] as const;
+    for (const [c, doc, s, vps] of panes) {
+      if (!c) continue;
+      if (!stitchPanelShown || !doc) {
+        c.tools.setStitchGuides(null);
+        continue;
+      }
+      const { regions } = withViewportRegions(s, vps);
+      c.tools.setStitchGuides({ lines: s.lines.map((l) => ({ ...l, paired: !!l.matchTo, problem: !!l.matchTo && !!lineProblem(l, regions) })), regions, selected: stitchSelected });
+    }
+  }, [ctl, ctlB, open, openB, manualStitchA, manualStitchB, viewportsA, viewportsB, stitchPanelShown, stitchSelected]);
 
   const startPanelDrag = (e: ReactDragEvent, id: LeftTab) => {
     e.dataTransfer.effectAllowed = 'move';
@@ -6541,6 +6612,78 @@ export function App() {
   }, [labelDocId]);
 
   regionRef.current = (rect) => setLabelMode((m) => (m ? { ...m, regions: [...m.regions, rect] } : m));
+  matchLineRef.current = (pane, pageIndex, p0, p1) => {
+    const doc = pane === 'b' ? openB : open;
+    const viewer = pane === 'b' ? ctlB?.viewer : ctl?.viewer;
+    const size = viewer?.pageSize(pageIndex);
+    if (!doc || !size || doc.store.readOnly) return;
+    const s = doc.store.manualStitch();
+    const region = withViewportRegions({ ...s, lines: [{ id: '', pageIndex, p0, p1, contentSide: 1, name: '', matchTo: null }] }, pane === 'b' ? viewportsB : viewportsA).regions[pageIndex];
+    const line = newMatchLine(s.lines, pageIndex, p0, p1, size, region);
+    // With just one unmatched line on another sheet, the new line is clearly its partner.
+    const waiting = s.lines.filter((l) => !l.matchTo && l.pageIndex !== pageIndex);
+    const lines = [...s.lines, line];
+    if (waiting.length === 1) {
+      const other = waiting[0]!;
+      line.matchTo = other.id;
+      lines.splice(lines.indexOf(other), 1, { ...other, matchTo: line.id });
+      setNotice(`${line.name} matched to ${other.name} on ${pageLabelFor(doc, other.pageIndex)}.`);
+    }
+    doc.store.setManualStitch({ ...s, lines });
+    setStitchSelected(line.id);
+  };
+  matchLineEditedRef.current = (pane, id, p0, p1) => {
+    const doc = pane === 'b' ? openB : open;
+    if (!doc || doc.store.readOnly) return;
+    const s = doc.store.manualStitch();
+    doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === id ? { ...l, p0, p1 } : l)) });
+    setStitchSelected(id);
+  };
+  /** The sheet Move Sheet and the nudge buttons move: the one joined at the selected line, placed from its partner. */
+  const stitchMover = (doc: OpenFile, groups: readonly StoredStitchGroup[]) => {
+    const lines = doc.store.manualStitch().lines;
+    const sel = lines.find((l) => l.id === stitchSelected);
+    const group = sel ? (groups.find((g) => g.placements.some((p) => p.pageIndex === sel.pageIndex)) ?? null) : null;
+    const mover = sel ? moverLine(lines, sel.id, group) : null;
+    return mover && group ? { lines, mover, group } : null;
+  };
+  stitchDragRef.current = (pane, delta, done) => {
+    const doc = pane === 'b' ? openB : open;
+    const c = pane === 'b' ? ctlB : ctl;
+    if (!doc || !c || doc.store.readOnly) return;
+    const m = stitchMover(doc, pane === 'b' ? stitchB : stitchA);
+    if (!m) {
+      if (done) setNotice('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.');
+      return;
+    }
+    const [along, across] = dragToShift(m.lines, m.mover.id, m.group, delta, stitchLockAlong);
+    const lines = shiftLine(m.lines, m.mover.id, along, across);
+    const s = doc.store.manualStitch();
+    if (done) {
+      doc.store.setManualStitch({ ...s, lines });
+      return;
+    }
+    // While dragging, only the view follows; the store takes the result on release.
+    const groups = mergeStitch(pane === 'b' ? autoStitchB : autoStitchA, withViewportRegions({ ...s, lines }, pane === 'b' ? viewportsB : viewportsA));
+    const group = groups.find((g) => g.placements.some((p) => p.pageIndex === m.mover.pageIndex));
+    if (group) c.viewer.updateStitch(group.placements);
+  };
+  /** Nudges the selected line's pair by `along` / `across` points (the panel's buttons and arrow keys). */
+  const nudgeStitch = (id: string, along: number, across: number) => {
+    const doc = activeOpen;
+    if (!doc || activeReadOnly) return;
+    const lines = doc.store.manualStitch().lines;
+    const group = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === lines.find((l) => l.id === id)?.pageIndex)) ?? null;
+    const mover = moverLine(lines, id, group);
+    if (!mover) return;
+    doc.store.setManualStitch({ ...doc.store.manualStitch(), lines: shiftLine(lines, mover.id, along, across) });
+  };
+  stitchRegionRef.current = (pane, pageIndex, points) => {
+    const doc = pane === 'b' ? openB : open;
+    if (!doc || doc.store.readOnly) return;
+    const s = doc.store.manualStitch();
+    doc.store.setManualStitch({ ...s, regions: { ...s.regions, [pageIndex]: points } });
+  };
 
   const labelPaneParts = labelMode ? paneParts(labelMode.pane) : null;
 
@@ -6828,6 +6971,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     magnifier: () => setMagnifier((m) => !m),
     fullScreen: toggleFullScreen,
     stitch: () => openStitch(activeMode === 'stitch' ? null : currentStitch, pageIndex),
+    stitching: () => showPanel('stitching'),
+    stitchToPage: () => {
+      if (currentStitch) void stitchToNewPage(currentStitch, true);
+    },
     split: () => {
       setSplitHorizontal(false);
       startSplit();
@@ -7313,6 +7460,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     continuous: activeMode === 'continuous',
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
+    canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
@@ -7695,6 +7843,41 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               activeOpen?.store.checkpoint();
               activeOpen?.store.remove([id]);
             }}
+          />
+        ) : tab === 'stitching' ? (
+          <StitchPanel
+            stitch={paneB ? manualStitchB : manualStitchA}
+            editable={!!activeOpen && !activeReadOnly}
+            pageIndex={pageIndex}
+            pageLabel={(i) => pageLabelFor(activeOpen, i)}
+            hasViewport={(p) => viewports.some((x) => x.pageIndex === p)}
+            tool={toolsState.tool}
+            onSetTool={(t) => activeTools?.setTool(t)}
+            onChange={(next) => activeOpen?.store.setManualStitch(next)}
+            onGoTo={(p) => v?.goToPage(p)}
+            selected={stitchSelected}
+            onSelectLine={setStitchSelected}
+            onPreview={currentStitch || activeMode === 'stitch' ? () => openStitch(activeMode === 'stitch' ? null : currentStitch, pageIndex) : null}
+            previewing={activeMode === 'stitch'}
+            onStitchToPage={currentStitch && activeOpen && !activeReadOnly ? (withMarkups) => void stitchToNewPage(currentStitch, withMarkups) : null}
+            onNudge={nudgeStitch}
+            moverPage={(id) => {
+              const lines = (paneB ? manualStitchB : manualStitchA).lines;
+              const group = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === lines.find((l) => l.id === id)?.pageIndex)) ?? null;
+              return moverLine(lines, id, group)?.pageIndex ?? null;
+            }}
+            lockAlong={stitchLockAlong}
+            onLockAlong={setStitchLockAlong}
+            onAdoptDetected={
+              currentStitch && activeOpen && !activeReadOnly && currentStitch.edges.some((e) => e.line) && !(paneB ? manualStitchB : manualStitchA).lines.some((l) => currentStitch.placements.some((p) => p.pageIndex === l.pageIndex))
+                ? () => {
+                    const s = activeOpen.store.manualStitch();
+                    const adopted = adoptDetected(currentStitch, s.lines);
+                    activeOpen.store.setManualStitch({ ...s, lines: [...s.lines, ...adopted] });
+                    setNotice(`${adopted.length / 2} detected join${adopted.length === 2 ? '' : 's'} can now be edited.`);
+                  }
+                : null
+            }
           />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
@@ -9414,6 +9597,17 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2h12v12H2zM2 8h6V2M8 8v6" />
+      </svg>
+    ),
+  },
+  {
+    id: 'stitching',
+    title: 'Stitching',
+    experimental: true,
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.5" d="M8 1.5v13" />
       </svg>
     ),
   },

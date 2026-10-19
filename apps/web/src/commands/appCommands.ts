@@ -113,6 +113,10 @@ export interface CommandActions {
   magnifier: () => void;
   fullScreen: () => void;
   stitch: () => void;
+  /** Opens the Stitching panel (match lines and regions placed by hand). */
+  stitching: () => void;
+  /** Writes the current sheet's stitched group as one new page. */
+  stitchToPage: () => void;
   split: () => void;
   unsplit: () => void;
   switchPanes: () => void;
@@ -229,6 +233,7 @@ export interface CommandState {
   continuous: boolean;
   stitched: boolean;
   canStitch: boolean;
+  canStitchToPage: boolean;
   showLinks: boolean;
   snap: boolean;
   showToolbar: boolean;
@@ -428,6 +433,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
     cmd('document.compare', 'Document', 'Compare Documents…', a.compare, s.libraryCount > 1),
     cmd('document.overlay', 'Document', 'Overlay Pages…', a.overlay, s.libraryCount > 1),
+    cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
+    cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
