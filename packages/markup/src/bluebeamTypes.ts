@@ -1,5 +1,6 @@
 import type { Markup, MarkupType } from './model';
 import { TYPE_INFO } from './types';
+import { flowShapeLabel } from './flowchart';
 
 /** The subject Bluebeam gives a markup of this kind, for those whose name differs from ours. */
 const BLUEBEAM_SUBJECTS: Partial<Record<MarkupType, string>> = {
@@ -29,6 +30,7 @@ const BLUEBEAM_SUBJECTS: Partial<Record<MarkupType, string>> = {
 /** The subject exported for a markup that has none of its own. */
 export function defaultSubject(m: Markup): string {
   if (m.type === 'stamp') return m.stamp?.lines[0] || 'Stamp';
+  if (m.type === 'flowShape') return flowShapeLabel(m.flowShape);
   return BLUEBEAM_SUBJECTS[m.type] ?? TYPE_INFO[m.type].label;
 }
 
@@ -49,7 +51,9 @@ export const BLUEBEAM_TYPES: Partial<Record<MarkupType, number>> = {
   rect: 9,
   ellipse: 10,
   polygon: 11,
+  flowShape: 11,
   polyline: 12,
+  connector: 12,
   cloud: 17,
   polygonCloud: 17,
   highlighter: 18,

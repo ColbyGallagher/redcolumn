@@ -105,8 +105,8 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
   const finish = () => {
     const text = ref.current?.value ?? '';
     if (!cancelled.current && text !== (markup.text ?? '')) store.update(markup.id, typewriter ? { text, points: typewriterBox(markup, text) } : { text, ...fittedBox(markup, text) });
-    // A text box that never received text is removed rather than left empty.
-    if ((cancelled.current ? markup.text ?? '' : text).trim() === '') store.remove([markup.id]);
+    // A text box that never received text is removed rather than left empty (a flowchart shape is a shape without it).
+    if (markup.type !== 'flowShape' && (cancelled.current ? markup.text ?? '' : text).trim() === '') store.remove([markup.id]);
     onDone();
   };
 

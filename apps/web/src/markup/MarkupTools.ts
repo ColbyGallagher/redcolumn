@@ -89,6 +89,14 @@ import {
   tableRegion,
   tableRegionRect,
   type TableLine,
+  anchorsOf,
+  canConnect,
+  FLOW_SHAPES,
+  relinkCopies,
+  routeConnector,
+  type ConnectorLinks,
+  type FlowShapeKind,
+  type Side,
 } from '@nb/markup';
 import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -329,6 +337,10 @@ export interface ToolsState {
   tableCells: TableSelection | null;
   /** A CAD Modify tool (Trim, Fillet, Mirror...): the points picked so far, and why the last click did nothing. */
   cad: { picks: number; error: string | null } | null;
+  /** The shape the Flowchart Shape tool draws (Diagram tab). */
+  flowShape: FlowShapeKind;
+  /** How new connectors bend: at right angles, or straight from shape to shape. */
+  connectorRoute: 'elbow' | 'straight';
 }
 
 export interface SketchState {
@@ -512,9 +524,13 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow' };
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
+  /** The pointer while drawing or dragging a connector end: the shape under it shows its connection points. */
+  private connectHover: { pageIndex: number; at: Point } | null = null;
+  /** Where the connector being drawn began (its first point is moved onto the shape it glues to). */
+  private connectStart: Point | null = null;
   /** A CAD Modify tool's steps: the page, the points picked so far and where the pointer is. */
   private cad: { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean } | null = null;
   /** The markups the pointer is over that the tool's next click would pick (highlighted so it is clear what a click takes). */
@@ -995,6 +1011,160 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Picks a Tool Library tool: its markup type, drawing with its own style until another tool is chosen. */
+  /** Arms the Flowchart Shape tool with `kind` (Diagram tab). */
+  setFlowShape(kind: FlowShapeKind) {
+    this.setTool('flowShape');
+    this.setState({ flowShape: kind });
+  }
+
+  /** Diagram › Change Shape: the selected flowchart shapes become `kind`, keeping their box, text and connectors. */
+  changeFlowShape(kind: FlowShapeKind) {
+    const store = this.store;
+    const changing = this.editable().filter((m) => m.type === 'flowShape' && (m.flowShape ?? 'process') !== kind);
+    if (!store || store.readOnly || !changing.length) return;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of changing) store.update(m.id, { flowShape: kind });
+    });
+  }
+
+  /** How connectors bend: new ones, and the selected ones as one undo step. */
+  setConnectorRoute(route: 'elbow' | 'straight') {
+    this.setState({ connectorRoute: route });
+    const store = this.store;
+    const targets = this.editable().filter((m) => m.type === 'connector' && (m.connect?.route ?? 'elbow') !== route);
+    if (!store || store.readOnly || !targets.length) return;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of targets) store.update(m.id, { connect: { ...m.connect, route } });
+    });
+  }
+
+  /**
+   * The shape a connector end at `p` glues to, and the side when it is dropped on one of the
+   * shape's connection points (else the side facing the other end is used, and changes as they move).
+   */
+  private glueAt(pageIndex: number, p: Point, exclude?: string): { shape: Markup; side?: Side } | null {
+    const zoom = this.viewer.zoomFor(pageIndex);
+    const reach = (this.hitPx * 1.6) / zoom;
+    const shapes = this.pageMarkups(pageIndex)
+      .filter((m) => m.id !== exclude && canConnect(m))
+      .reverse();
+    for (const shape of shapes) {
+      const near = anchorsOf(shape).find((a) => Math.hypot(a.at[0] - p[0], a.at[1] - p[1]) <= reach);
+      if (near) return { shape, side: near.side };
+    }
+    const hit = shapes.find((m) => hitTest(m, p, this.hitPx / zoom));
+    return hit ? { shape: hit } : null;
+  }
+
+  /** A connector drawn from `from` to `to`, its ends glued to the shapes there and routed between them. */
+  private connectorBetween(m: Markup, from: Point, to: Point): Markup {
+    const a = this.glueAt(m.pageIndex, from);
+    const b = this.glueAt(m.pageIndex, to, a?.shape.id);
+    const connect: ConnectorLinks = { route: m.connect?.route ?? this.state.connectorRoute };
+    if (a) connect.from = { id: a.shape.id, ...(a.side ? { side: a.side } : {}) };
+    if (b) connect.to = { id: b.shape.id, ...(b.side ? { side: b.side } : {}) };
+    const next = { ...m, points: [from, to], connect };
+    return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
+  }
+
+  /** A connector with end `end` (0 the start, 1 the end) dragged to `p`: glued to the shape there, or loose. */
+  private connectorEndMoved(m: Markup, end: number, p: Point): Markup {
+    const key = end === 0 ? 'from' : 'to';
+    const other = m.connect?.[end === 0 ? 'to' : 'from'];
+    const glue = this.glueAt(m.pageIndex, p, other?.id);
+    const connect: ConnectorLinks = { ...m.connect };
+    if (glue) connect[key] = { id: glue.shape.id, ...(glue.side ? { side: glue.side } : {}) };
+    else delete connect[key];
+    const next = { ...m, points: end === 0 ? [p, m.points[m.points.length - 1]!] : [m.points[0]!, p], connect };
+    return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
+  }
+
+  /** The one selected markup a connector can glue to, if that is what is selected. */
+  private selectedShape(): Markup | null {
+    const ms = this.editable();
+    return ms.length === 1 && canConnect(ms[0]!) ? ms[0]! : null;
+  }
+
+  /**
+   * Adds a Process step beside the selected shape (toward `side`), joined to it by a connector,
+   * and starts typing its text: a flowchart grows a step at a time (Change Shape makes it a
+   * decision or another shape). It moves on past shapes already there.
+   */
+  addNextShape(side: Side): boolean {
+    const store = this.store;
+    const from = this.selectedShape();
+    if (!store || store.readOnly || !from) return false;
+    const kind: FlowShapeKind = 'process';
+    const b = boundsOf(from.points);
+    const [w, h] = from.type === 'flowShape' && (from.flowShape ?? 'process') === kind ? [b.w, b.h] : (FLOW_SHAPES.find((s) => s.kind === kind)?.size ?? [120, 60]);
+    const gap = 40;
+    const [dx, dy] = side === 'bottom' ? [0, 1] : side === 'top' ? [0, -1] : side === 'right' ? [1, 0] : [-1, 0];
+    let x = dx ? (dx > 0 ? b.x + b.w + gap : b.x - gap - w) : b.x + b.w / 2 - w / 2;
+    let y = dy ? (dy > 0 ? b.y + b.h + gap : b.y - gap - h) : b.y + b.h / 2 - h / 2;
+    const others = this.pageMarkups(from.pageIndex).filter((m) => m.id !== from.id && canConnect(m)).map((m) => boundsOf(m.points));
+    const overlaps = () => others.some((r) => r.x < x + w && x < r.x + r.w && r.y < y + h && y < r.y + r.h);
+    for (let i = 0; i < 50 && overlaps(); i++) {
+      x += dx * (w + gap);
+      y += dy * (h + gap);
+    }
+    const shape = this.newMarkup('flowShape', from.pageIndex, [[x, y], [x + w, y + h]]);
+    shape.flowShape = kind;
+    // A step after a flowchart shape looks like it.
+    if (from.type === 'flowShape') shape.style = { ...from.style };
+    const connector = this.newMarkup('connector', from.pageIndex, [[b.x + b.w / 2, b.y + b.h / 2], [x + w / 2, y + h / 2]]);
+    connector.connect = { from: { id: from.id }, to: { id: shape.id }, route: this.state.connectorRoute };
+    connector.createdAt = shape.createdAt + 1;
+    store.checkpoint();
+    store.batch(() => {
+      store.add(shape);
+      store.add(connector);
+    });
+    this.setState({ tool: 'select', selected: new Set([shape.id]) });
+    this.options.onEditText(shape.id);
+    return true;
+  }
+
+  /**
+   * Joins the selected shapes one after another with connectors, in reading order: top to bottom
+   * when they are spread more up and down, else left to right. Pairs already joined are skipped.
+   */
+  connectSelected(): number {
+    const store = this.store;
+    const shapes = this.editable().filter((m) => canConnect(m));
+    if (!store || store.readOnly || shapes.length < 2) return 0;
+    const centre = (m: Markup): Point => {
+      const b = boundsOf(m.points);
+      return [b.x + b.w / 2, b.y + b.h / 2];
+    };
+    const cs = shapes.map(centre);
+    const spread = (i: 0 | 1) => Math.max(...cs.map((c) => c[i])) - Math.min(...cs.map((c) => c[i]));
+    const [major, minor] = spread(1) >= spread(0) ? [1, 0] : [0, 1];
+    const ordered = [...shapes].sort((a, b) => centre(a)[major]! - centre(b)[major]! || centre(a)[minor]! - centre(b)[minor]!);
+    const joined = new Set(
+      store
+        .forPage(ordered[0]!.pageIndex)
+        .filter((m) => m.type === 'connector' && m.connect?.from && m.connect.to)
+        .flatMap((m) => [`${m.connect!.from!.id}>${m.connect!.to!.id}`, `${m.connect!.to!.id}>${m.connect!.from!.id}`]),
+    );
+    const made: Markup[] = [];
+    for (let i = 1; i < ordered.length; i++) {
+      const [a, b] = [ordered[i - 1]!, ordered[i]!];
+      if (a.pageIndex !== b.pageIndex || joined.has(`${a.id}>${b.id}`)) continue;
+      const c = this.newMarkup('connector', a.pageIndex, [centre(a), centre(b)]);
+      c.connect = { from: { id: a.id }, to: { id: b.id }, route: this.state.connectorRoute };
+      c.createdAt += i;
+      made.push(c);
+    }
+    if (!made.length) return 0;
+    store.checkpoint();
+    store.batch(() => {
+      for (const c of made) store.add(c);
+    });
+    return made.length;
+  }
+
   usePreset(preset: { id: string; type: MarkupType; style: MarkupStyle; subject?: string }) {
     this.setTool(preset.type, preset);
   }
@@ -1147,10 +1317,11 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const page of pages) {
         const groups = new Map<string, string>();
-        for (const m of ms) {
-          if (m.pageIndex === page) continue;
+        const onPage = ms.filter((m) => m.pageIndex !== page);
+        const ids = new Map(onPage.map((m) => [m.id, crypto.randomUUID()]));
+        for (const m of relinkCopies(onPage, ids)) {
           const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
-          store.add({ ...structuredClone(m), id: crypto.randomUUID(), pageIndex: page, groupId, status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
+          store.add({ ...structuredClone(m), id: ids.get(m.id)!, pageIndex: page, groupId, status: 'none', author: this.options.author(), createdAt: now + n, modifiedAt: now + n });
           n++;
         }
       }
@@ -1175,8 +1346,9 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const [dx, dy] of multiplyOffsets(bounds, rows, columns, gapX, gapY)) {
         const groups = new Map<string, string>();
-        for (const m of ms) {
-          const id = crypto.randomUUID();
+        const copyOf = new Map(ms.map((m) => [m.id, crypto.randomUUID()]));
+        for (const m of relinkCopies(ms, copyOf)) {
+          const id = copyOf.get(m.id)!;
           ids.push(id);
           const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
           store.add({ ...structuredClone(m), id, groupId, ...moved(m, dx, dy), status: 'none', author: this.options.author(), createdAt: now + ids.length, modifiedAt: now + ids.length });
@@ -1282,11 +1454,13 @@ export class MarkupTools implements ViewerOverlay {
     const [dx, dy] = at === 'inPlace' ? [0, 0] : at ? [at[0] - minX, at[1] - minY] : [12, 12];
     const groups = new Map<string, string>();
     const now = Date.now();
-    const ids: string[] = [];
+    const ids = markups.map(() => crypto.randomUUID());
+    // Pasted connectors join the pasted copies of their shapes.
+    const copyOf = new Map(markups.map((m, i) => [m.id, ids[i]!]));
+    markups = relinkCopies(markups, copyOf);
     this.store.checkpoint();
     markups.forEach((m, i) => {
-      const id = crypto.randomUUID();
-      ids.push(id);
+      const id = ids[i]!;
       // Pasted groups stay grouped, as new groups of their own.
       const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
       this.store!.add({
@@ -1320,13 +1494,13 @@ export class MarkupTools implements ViewerOverlay {
     const dy = at[1] - (b.y + b.h / 2);
     const now = Date.now();
     const fields = this.options.defaultFields?.();
-    const ids: string[] = [];
+    const ids = template.map(() => crypto.randomUUID());
+    template = relinkCopies(template, new Map(template.map((m, i) => [m.id, ids[i]!])));
     // Each placement gets its own groups, so two copies of a Cloud+ do not move as one.
     const groups = new Map<string, string>();
     this.store.checkpoint();
     template.forEach((m, i) => {
-      const id = crypto.randomUUID();
-      ids.push(id);
+      const id = ids[i]!;
       const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)!) : undefined;
       this.store!.add({
         ...structuredClone(m),
@@ -1705,6 +1879,7 @@ export class MarkupTools implements ViewerOverlay {
       ctx.restore();
     }
     this.drawPickTargets(ctx, pageIndex, zoom);
+    this.drawConnectionPoints(ctx, pageIndex, zoom);
     this.drawCad(ctx, pageIndex, zoom);
     if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
     if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
@@ -1717,6 +1892,43 @@ export class MarkupTools implements ViewerOverlay {
       for (const m of template) drawMarkup(ctx, { ...m, points: translated(m, x - (b.x + b.w / 2), y - (b.y + b.h / 2)) }, zoom, scale);
       ctx.restore();
     }
+  }
+
+  /** With the Connector tool, or dragging a connector's end: the connection points of the shape under the pointer. */
+  private drawConnectionPoints(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const hover = this.connectHover;
+    const g = this.gesture;
+    const dragging = g?.kind === 'handle' && this.store?.get(g.id)?.type === 'connector' ? this.store.get(g.id)! : null;
+    const drawing = g?.kind === 'draw' && g.markup.type === 'connector' ? g.markup : null;
+    if (hover?.pageIndex !== pageIndex || (this.state.tool !== 'connector' && !dragging)) return;
+    // Not the shape the other end is glued to.
+    const other = drawing?.connect?.from?.id ?? (dragging && g?.kind === 'handle' ? dragging.connect?.[g.index === 0 ? 'to' : 'from']?.id : undefined);
+    const glue = this.glueAt(pageIndex, hover.at, other);
+    if (!glue) return;
+    const r = 4 / zoom;
+    ctx.save();
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.strokeStyle = '#2563eb';
+    const b = boundsOf(glue.shape.points);
+    ctx.setLineDash([3 / zoom, 2 / zoom]);
+    ctx.save();
+    if (glue.shape.rotation) {
+      const c = rotationCentre(glue.shape);
+      ctx.translate(c[0], c[1]);
+      ctx.rotate((glue.shape.rotation * Math.PI) / 180);
+      ctx.translate(-c[0], -c[1]);
+    }
+    ctx.strokeRect(b.x - 2 / zoom, b.y - 2 / zoom, b.w + 4 / zoom, b.h + 4 / zoom);
+    ctx.restore();
+    ctx.setLineDash([]);
+    for (const { side, at } of anchorsOf(glue.shape)) {
+      ctx.beginPath();
+      ctx.arc(at[0], at[1], side === glue.side ? r * 1.4 : r, 0, Math.PI * 2);
+      ctx.fillStyle = side === glue.side ? '#2563eb' : '#ffffff';
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   /** The selected cells of a table: tinted, with a heavier outline round the block. */
@@ -2116,7 +2328,9 @@ export class MarkupTools implements ViewerOverlay {
       if (tool === 'highlighter' && this.startHighlighter(e, pageIndex, toPoint(pt))) return true;
       // Cloud+ draws a cloud, then adds a callout pointing at it.
       const type: MarkupType = tool === 'cloudPlus' ? 'cloud' : (tool as MarkupType);
-      const p = snapsWhileDrawing(type) ? this.resolve(pt, e, null) : toPoint(pt);
+      // A connector glues to shapes rather than snapping to points.
+      const p = snapsWhileDrawing(type) && type !== 'connector' ? this.resolve(pt, e, null) : toPoint(pt);
+      if (type === 'connector') this.connectStart = p;
       const markup = this.newMarkup(type, pageIndex, TYPE_INFO[type].draw === 'freehand' ? [p] : [p, p]);
       this.setGesture({ kind: 'draw', markup });
       return true;
@@ -2322,6 +2536,12 @@ export class MarkupTools implements ViewerOverlay {
       } else if (m.type === 'callout') {
         // The arrow tip stays where the drag began; the box follows the pointer.
         m.points = calloutPoints(m.points[0]!, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / this.viewer.zoomFor(this.page));
+      } else if (m.type === 'connector') {
+        const p = toPoint(pt);
+        const next = this.connectorBetween(m, this.connectStart ?? m.points[0]!, p);
+        m.points = next.points;
+        m.connect = next.connect;
+        this.connectHover = { pageIndex, at: p };
       } else if (TYPE_INFO[m.type].draw === 'place') {
         // Placed with a click at a fixed size; dragging does not size them.
       } else if (e.shiftKey) {
@@ -2385,7 +2605,8 @@ export class MarkupTools implements ViewerOverlay {
     } else {
       const m = this.store?.get(g.id);
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
-      g.point = this.resolve(pt, e, anchor, g.id);
+      g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
+      if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
     }
     this.viewer.invalidate();
   }
@@ -2484,7 +2705,10 @@ export class MarkupTools implements ViewerOverlay {
       if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy) });
     } else if (g.kind === 'handle') {
       const m = this.store.get(g.id);
-      if (m) this.store.update(g.id, { points: handleEdit(m, g.index, g.point) });
+      if (m?.type === 'connector') {
+        const next = this.connectorEndMoved(m, g.index, g.point);
+        this.store.update(g.id, { points: next.points, connect: next.connect });
+      } else if (m) this.store.update(g.id, { points: handleEdit(m, g.index, g.point) });
     } else if (g.kind === 'bend') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { bulges: withBulge(m, g.segment, g.bulge) });
@@ -2513,7 +2737,7 @@ export class MarkupTools implements ViewerOverlay {
     if (hit && isTextType(hit.type) && !this.frozen(hit)) this.options.onEditText(hit.id);
     else if (hit?.type === 'note' || hit?.type === 'flag') this.options.onEditComment?.(hit.id);
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
-    else if ((hit?.type === 'dimension' || hit?.type === 'replaceText') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
+    else if ((hit?.type === 'dimension' || hit?.type === 'replaceText' || hit?.type === 'connector') && !this.frozen(hit)) this.options.onEditLabel?.(hit.id);
     else if (hit?.type === 'hyperlink' && !this.frozen(hit)) this.options.onEditHyperlink?.(hit.id);
     else if (hit?.type === 'stamp' && hit.stamp?.form && !this.frozen(hit)) this.options.onEditStamp?.(hit.id);
     else if (hit?.type === 'table' && !this.frozen(hit)) {
@@ -2552,6 +2776,7 @@ export class MarkupTools implements ViewerOverlay {
       this.snapHit = null;
       this.ghost = null;
       this.pickIds = [];
+      this.connectHover = null;
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
       this.viewer.invalidate();
       return null;
@@ -2611,6 +2836,12 @@ export class MarkupTools implements ViewerOverlay {
       this.ghost = { pageIndex, at: toPoint(pt) };
       this.viewer.invalidate();
       return 'copy';
+    }
+    if (tool === 'connector') {
+      // The shape under the pointer shows where a connector can glue to it.
+      this.connectHover = { pageIndex, at: toPoint(pt) };
+      this.viewer.invalidate();
+      return 'crosshair';
     }
     // Preview the snap target before the first click, and rubber-band between clicks.
     const g = this.gesture;
@@ -2749,6 +2980,8 @@ export class MarkupTools implements ViewerOverlay {
       ...(preset?.signature ? { signature: preset.signature } : {}),
       ...(preset?.stamp ? { stamp: resolveStamp(preset.stamp, { user: this.options.author(), now: new Date(now), ...(this.options.stampValues?.(pageIndex) ?? { file: '', page: String(pageIndex + 1) }) }) } : {}),
       ...(fields && Object.keys(fields).length ? { fields } : {}),
+      ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
+      ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
   }
 
@@ -3068,6 +3301,15 @@ export class MarkupTools implements ViewerOverlay {
       return;
     } else if (m.type === 'legend' && tiny) {
       m.points = [a, [a[0] + LEGEND_PX.w / zoom, a[1] + LEGEND_PX.h / zoom]];
+    } else if (m.type === 'flowShape' && tiny) {
+      // A click places the shape at its usual size, centred on the click.
+      const [w, h] = FLOW_SHAPES.find((s) => s.kind === m.flowShape)?.size ?? [120, 60];
+      m.points = [[a[0] - w / 2, a[1] - h / 2], [a[0] + w / 2, a[1] + h / 2]];
+    } else if (m.type === 'connector') {
+      this.connectStart = null;
+      this.connectHover = null;
+      // A click is not a connector; drag from one shape to another.
+      if (tiny) return;
     } else if (m.type === 'flagLabel' && tiny) {
       // The flag's point is at the click; the label's text sits right of it.
       m.points = [a, [a[0] + FLAG_LABEL_PX.w / zoom, a[1] + FLAG_LABEL_PX.h / zoom]];
@@ -3508,12 +3750,25 @@ export class MarkupTools implements ViewerOverlay {
       .find((m) => hitTest(m, p, tol));
   }
 
-  /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
+  /** The markup as it should appear mid-gesture; connectors follow their shapes as those move. */
   private previewOf(m: Markup): Markup {
+    const own = this.ownPreview(m);
+    const g = this.gesture;
+    if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
+    const get = (id: string) => {
+      const s = this.store?.get(id);
+      return s && this.ownPreview(s);
+    };
+    const points = routeConnector(own, get);
+    return points === own.points ? own : { ...own, points };
+  }
+
+  /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
+  private ownPreview(m: Markup): Markup {
     const g = this.gesture;
     if (g?.kind === 'move' && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
-    if (g?.kind === 'handle' && g.id === m.id) return { ...m, points: handleEdit(m, g.index, g.point) };
+    if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {

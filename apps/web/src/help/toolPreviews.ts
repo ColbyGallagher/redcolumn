@@ -85,6 +85,14 @@ const TOOLS: Record<string, ToolPreview> = {
   'edit.alignTop': { hint: 'Lines up the top edges of the selected markups.' },
   'edit.alignMiddle': { gif: 'align-middle', hint: 'Lines up the centres of the selected markups, top to bottom.' },
   'edit.alignBottom': { hint: 'Lines up the bottom edges of the selected markups.' },
+  // Diagram tab.
+  'diagram.process': { hint: 'Click to place a step, or drag its size, then type its text.' },
+  'diagram.decision': { hint: 'Click to place a question; connect a line out of it for each answer.' },
+  'diagram.terminator': { hint: 'Click to place where the process starts or ends.' },
+  'tool.connector': { hint: 'Drag from one shape to another. The line follows them when they move.' },
+  'diagram.connect': { hint: 'Joins the selected shapes in order, top to bottom or left to right.' },
+  'diagram.addBelow': { hint: 'Adds the next step under the selected shape, joined to it, ready to type.' },
+  'diagram.addRight': { hint: 'Adds the next step right of the selected shape, joined to it.' },
 };
 
 /** The preview for a toolbar tool or ribbon command id, if it has one. */

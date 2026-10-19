@@ -518,6 +518,19 @@ body,
   height: 28px;
 }
 
+.rb-select {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.rb-select select {
+  height: 24px;
+  max-width: 140px;
+}
+
 .rb-props {
   display: flex;
   flex-wrap: wrap;

@@ -565,7 +565,7 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
 }
 
 /** Icons for markup types not drawn with a tool of their own name. */
-const TYPE_ONLY_ICONS: Partial<Record<string, ReactNode>> = { signature: '✍', flag: '⚑', count: '#' };
+const TYPE_ONLY_ICONS: Partial<Record<string, ReactNode>> = { signature: '✍', flag: '⚑', count: '#', flowShape: '▭', connector: '↳' };
 
 /** The icon of a markup's type (the tool that draws it), as the toolbar shows it. */
 export function markupTypeIcon(type: string): ReactNode {

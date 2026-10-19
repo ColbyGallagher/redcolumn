@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type KeyboardEv
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
 import { StampMenu } from './StampsDialog';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
@@ -154,6 +155,25 @@ const ICONS: Record<string, ReactNode> = {
   'window.rightPanel': ic('M1.5 2.5h13v11h-13zM10.5 2.5v11'),
   'window.bottomPanel': ic('M1.5 2.5h13v11h-13zM1.5 9.5h13'),
   'window.panels': ic('M1.5 2.5h13v11h-13zM5.5 2.5v7M1.5 9.5h13'),
+  // Diagram: each flowchart shape drawn as itself.
+  'diagram.process': ic('M1.5 4h13v8h-13z'),
+  'diagram.decision': ic('M8 1.5 14.5 8 8 14.5 1.5 8z'),
+  'diagram.terminator': ic('M5 4.5h6a3.5 3.5 0 0 1 0 7H5a3.5 3.5 0 0 1 0-7z'),
+  'diagram.data': ic('M4.5 4h10l-3 8h-10z'),
+  'diagram.document': ic('M2 2.5h12v9.5c-3-2-5.5 2.5-12 .5z'),
+  'diagram.predefined': ic('M1.5 4h13v8h-13zM3.5 4v8M12.5 4v8'),
+  'diagram.preparation': ic('M4.5 4h7l3 4-3 4h-7l-3-4z'),
+  'diagram.manualInput': ic('M1.5 6.5l13-3v9h-13z'),
+  'diagram.database': ic('M2.5 4v8c0 2 11 2 11 0V4', <ellipse cx="8" cy="4" rx="5.5" ry="1.8" />),
+  'diagram.circle': ic('', <circle cx="8" cy="8" r="5" />),
+  'tool.connector': ic('M5 5.5h3v5h3', <><rect x="1" y="3.5" width="4" height="4" rx="0.6" /><rect x="11" y="8.5" width="4" height="4" rx="0.6" /></>),
+  'diagram.connect': ic('M4 6v4M12 6v4', <><rect x="1.5" y="1.5" width="5" height="4.5" rx="0.6" /><rect x="9.5" y="10" width="5" height="4.5" rx="0.6" /><path d="M4 10h8" /></>),
+  'diagram.elbow': ic('M2.5 3v5.5h11V13M11.5 11l2 2 2-2'),
+  'diagram.straight': ic('M2.5 3 13 13M9.5 13H13V9.5'),
+  'diagram.addBelow': ic('M4 1.5h8v4.5H4zM8 6v4M6.3 8.5 8 10.2l1.7-1.7', <rect x="4" y="11" width="8" height="3.5" rx="0.6" strokeDasharray="1.5 1.2" />),
+  'diagram.addRight': ic('M1.5 5h4.5v6H1.5zM6 8h4M8.5 6.3 10.2 8l-1.7 1.7', <rect x="11" y="5" width="3.5" height="6" rx="0.6" strokeDasharray="1.5 1.2" />),
+  'diagram.addAbove': ic('M4 10h8v4.5H4zM8 10V6M6.3 7.5 8 5.8l1.7 1.7', <rect x="4" y="1.5" width="8" height="3.5" rx="0.6" strokeDasharray="1.5 1.2" />),
+  'diagram.addLeft': ic('M10 5h4.5v6H10zM10 8H6M7.5 6.3 5.8 8l1.7 1.7', <rect x="1.5" y="5" width="3.5" height="6" rx="0.6" strokeDasharray="1.5 1.2" />),
 };
 
 // Bulk jobs share their single-document command's icon.
@@ -181,12 +201,13 @@ Object.assign(ICONS, {
 /** Each tool's toolbar icon. */
 const TOOL_ICON = new Map<Tool, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
 
-type TabId = 'home' | 'markup' | 'measure' | 'modify' | 'document' | 'bulk' | 'view';
+type TabId = 'home' | 'markup' | 'measure' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'markup', label: 'Markup' },
   { id: 'measure', label: 'Measure' },
+  { id: 'diagram', label: 'Diagram' },
   { id: 'modify', label: 'Modify' },
   { id: 'document', label: 'Document' },
   { id: 'bulk', label: 'Bulk' },
@@ -305,6 +326,27 @@ function Group({ label, children, wide }: { label: string; children: ReactNode; 
     <div className="rb-items">{children}</div>
     <div className="rb-group-label">{label}</div>
   </div>
+  );
+}
+
+/** Diagram › Change Shape: turns the selected flowchart shapes into another shape. */
+function ChangeShape() {
+  const { toolbar } = useContext(Ctx);
+  const selected = toolbar.markups.filter((m) => m.type === 'flowShape' && !m.locked && toolbar.state.selected.has(m.id));
+  const kinds = new Set(selected.map((m) => m.flowShape ?? 'process'));
+  const value = kinds.size === 1 ? [...kinds][0]! : '';
+  return (
+    <label className="rb-select" title="Change the selected flowchart shapes into another shape">
+      <span className="rb-label">Change to</span>
+      <select value={value} disabled={!toolbar.enabled || !selected.length} aria-label="Change Shape" onChange={(e) => e.target.value && toolbar.tools.changeFlowShape(e.target.value as FlowShapeKind)}>
+        {!value && <option value="">{selected.length ? 'Mixed' : 'Select a shape'}</option>}
+        {FLOW_SHAPES.map((f) => (
+          <option key={f.kind} value={f.kind}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -468,6 +510,70 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             {properties}
+          </>
+        );
+      case 'diagram':
+        return (
+          <>
+            <Group label="Shapes">
+              <Cmd id="diagram.process" size="large" />
+              <Stack>
+                <Cmd id="diagram.decision" />
+                <Cmd id="diagram.terminator" />
+                <Cmd id="diagram.data" />
+              </Stack>
+              <Stack>
+                <Cmd id="diagram.document" />
+                <Cmd id="diagram.predefined" />
+                <Cmd id="diagram.preparation" />
+              </Stack>
+              <Stack>
+                <Cmd id="diagram.manualInput" />
+                <Cmd id="diagram.database" />
+                <Cmd id="diagram.circle" label="Reference" />
+              </Stack>
+              <Stack>
+                <ChangeShape />
+              </Stack>
+            </Group>
+            <Group label="Connect">
+              <Cmd id="tool.connector" size="large" />
+              <Stack>
+                <Cmd id="diagram.connect" />
+                <Cmd id="diagram.elbow" label="Elbow" />
+                <Cmd id="diagram.straight" label="Straight" />
+              </Stack>
+            </Group>
+            <Group label="Add Step">
+              <Cmd id="diagram.addBelow" size="large" label="Below" />
+              <Stack>
+                <Cmd id="diagram.addRight" label="Right" />
+                <Cmd id="diagram.addAbove" label="Above" />
+                <Cmd id="diagram.addLeft" label="Left" />
+              </Stack>
+            </Group>
+            <Group label="Arrange">
+              <div className="rb-icon-grid">
+                <Cmd id="edit.alignLeft" />
+                <Cmd id="edit.alignCenter" />
+                <Cmd id="edit.alignRight" />
+                <Cmd id="edit.alignTop" />
+                <Cmd id="edit.alignMiddle" />
+                <Cmd id="edit.alignBottom" />
+              </div>
+              <Stack>
+                <Cmd id="edit.bringToFront" />
+                <Cmd id="edit.sendToBack" />
+                <Cmd id="edit.group" />
+              </Stack>
+            </Group>
+            {properties}
+            <Group label="Page">
+              <Stack>
+                <Cmd id="document.insertBlank" label="Insert Blank Page" />
+                <Cmd id="file.newPdf" label="New Blank PDF" />
+              </Stack>
+            </Group>
           </>
         );
       case 'modify':

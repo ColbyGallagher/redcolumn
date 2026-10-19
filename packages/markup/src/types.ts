@@ -202,6 +202,30 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     measure: false,
     caps: caps({ fill: true, dash: true, font: true, textLayout: true }),
   },
+  // A flowchart shape (Diagram tab): process, decision, terminator... drawn in its box, with its text inside.
+  flowShape: {
+    label: 'Flowchart Shape',
+    style: { stroke: '#1e3a8a', fill: '#dbeafe', width: 1, opacity: 1, fontSize: 11, textColor: '#0f172a', textAlign: 'center', verticalAlign: 'middle' },
+    draw: 'drag',
+    closed: true,
+    handles: 'box',
+    solid: true,
+    content: 'text',
+    measure: false,
+    caps: caps({ fill: true, dash: true, font: true, textLayout: true }),
+  },
+  // A line between two shapes that follows them when they move; its text (Yes, No...) sits on its middle.
+  connector: {
+    label: 'Connector',
+    style: { stroke: '#334155', fill: null, width: 1, opacity: 1, fontSize: 9 },
+    draw: 'drag',
+    closed: false,
+    handles: 'ends',
+    solid: false,
+    ends: ['none', 'filledArrow'],
+    measure: false,
+    caps: caps({ dash: true, lineEnds: true, font: true }),
+  },
   // Struck-out PDF text with the replacement (its text) marked by a caret.
   replaceText: { label: 'Replace Text', style: { stroke: '#2563eb', fill: null, width: 1, opacity: 1 }, draw: 'text', closed: false, handles: 'none', solid: true, measure: false, caps: NONE },
   // A clickable area; its action (link) is chosen after drawing it.
