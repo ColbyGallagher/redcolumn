@@ -52,7 +52,16 @@ function median(values: number[]): number {
   return s[Math.floor(s.length / 2)]!;
 }
 
-const cleanWord = (t: string) => t.trim().toUpperCase().replace(/[,;:.)]+$/, '').replace(/^[(]+/, '');
+const TRAILING = new Set([',', ';', ':', '.', ')']);
+/** A word without trailing punctuation or opening brackets (trimmed by hand: a `[...]+$` regex is slow on long runs). */
+const cleanWord = (t: string) => {
+  const s = t.trim().toUpperCase();
+  let end = s.length;
+  while (end > 0 && TRAILING.has(s[end - 1]!)) end--;
+  let start = 0;
+  while (start < end && s[start] === '(') start++;
+  return s.slice(start, end);
+};
 
 /**
  * Looks up sheet numbers the way people write them. Exact text first; then ignoring separators
