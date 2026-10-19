@@ -174,7 +174,7 @@ impl Reader<'_> {
         }
         let n = u64::from_le_bytes(self.0[..8].try_into().unwrap()) as usize;
         let rest = &self.0[8..];
-        if n > rest.len() || n % size_of::<T>() != 0 {
+        if n > rest.len() || !n.is_multiple_of(size_of::<T>()) {
             return Err(WireError::Truncated);
         }
         let mut v = vec![T::zeroed(); n / size_of::<T>()];

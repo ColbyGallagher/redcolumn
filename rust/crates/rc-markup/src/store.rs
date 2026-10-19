@@ -292,7 +292,7 @@ mod tests {
         let mut s = Store::new();
         let a = s.add(m(RECT));
         for w in 2..10 {
-            s.update_coalesced(&[a.clone()], "width", |m| m.style.width = w as f64);
+            s.update_coalesced(std::slice::from_ref(&a), "width", |m| m.style.width = w as f64);
         }
         assert_eq!(s.get(&a).unwrap().style.width, 9.0);
         s.undo();
@@ -306,8 +306,8 @@ mod tests {
         let mut s = Store::new();
         let a = s.add(m(RECT));
         s.update_any(&a, |m| m.locked = Some(true));
-        s.update(&[a.clone()], |m| m.points[0][0] = 99.0);
-        s.remove(&[a.clone()]);
+        s.update(std::slice::from_ref(&a), |m| m.points[0][0] = 99.0);
+        s.remove(std::slice::from_ref(&a));
         assert_eq!(s.get(&a).unwrap().points[0][0], 0.0);
         s.update_any(&a, |m| m.status = "Accepted".into());
         assert_eq!(s.get(&a).unwrap().status, "Accepted");

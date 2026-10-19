@@ -487,6 +487,6 @@ mod tests {
         };
         let mut rng = Rng(7);
         let (_, segs) = page_content(&o, 0, &mut rng);
-        assert!(segs >= 50_000 && segs < 80_000, "{segs}");
+        assert!((50_000..80_000).contains(&segs), "{segs}");
     }
 }

@@ -172,7 +172,7 @@ static CLASS: [u8; 256] = {
         t[white[i] as usize] = WHITE;
         i += 1;
     }
-    let delim = [b'(', b')', b'<', b'>', b'[', b']', b'{', b'}', b'/', b'%'];
+    let delim = *b"()<>[]{}/%";
     let mut i = 0;
     while i < delim.len() {
         t[delim[i] as usize] = DELIM;
@@ -246,6 +246,7 @@ impl<'a> Lexer<'a> {
         self.pos >= self.b.len()
     }
 
+    #[allow(clippy::should_implement_trait)] // A lexer, not an iterator: callers peek and seek between tokens.
     pub fn next(&mut self) -> Option<Token<'a>> {
         self.skip_ws();
         let b = self.b;

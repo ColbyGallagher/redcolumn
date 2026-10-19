@@ -696,7 +696,7 @@ impl Renderer {
             down,
             sampler,
             align,
-            max_binding: limits.max_storage_buffer_binding_size as u64,
+            max_binding: limits.max_storage_buffer_binding_size,
             max_buffer: limits.max_buffer_size,
             white,
         }

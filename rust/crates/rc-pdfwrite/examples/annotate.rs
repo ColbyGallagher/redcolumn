@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
             "Page {} — check this dimension against the grid before issue.\nRev B",
             i + 1
         ));
-        t.style.font_size = Some(h as f64 / 60.0);
+        t.style.font_size = Some(h / 60.0);
         t.style.fill = Some("#fff7c2".into());
         t.style.text_color = Some("#1f2937".into());
         markups.push(r);

@@ -7,7 +7,7 @@
 //! - [`worker`]: the worker process's side.
 //! - [`extract`]: page content through PDFium's page object API.
 
-pub mod extract;
+pub(crate) mod extract;
 pub mod pool;
 pub mod protocol;
 pub mod shm;

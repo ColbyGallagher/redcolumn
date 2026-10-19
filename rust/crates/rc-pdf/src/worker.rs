@@ -21,7 +21,8 @@ use std::time::Instant;
 const FPDF_ANNOT: c_int = 0x01;
 const FPDF_REVERSE_BYTE_ORDER: c_int = 0x10;
 const FPDF_THIN_LINE: c_int = 0x20;
-const FPDF_ERR_PASSWORD: u64 = 4;
+/// `FPDF_GetLastError` returns a C `unsigned long`: 64 bits on Linux, 32 on Windows.
+const FPDF_ERR_PASSWORD: std::ffi::c_ulong = 4;
 const FPDFBITMAP_BGRA: c_int = 4;
 /// FPDF_RenderPageBitmap_Start / _Continue status.
 const FPDF_RENDER_TOBECONTINUED: c_int = 1;
@@ -173,7 +174,7 @@ impl Worker {
         let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(map.as_ptr(), map.len()) };
         let handle = unsafe { b.FPDF_LoadMemDocument64(bytes, password) };
         if handle.is_null() {
-            let err = unsafe { b.FPDF_GetLastError() } as u64;
+            let err = unsafe { b.FPDF_GetLastError() };
             if err == FPDF_ERR_PASSWORD {
                 return Ok(Response::PasswordRequired);
             }

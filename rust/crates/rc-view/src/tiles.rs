@@ -110,7 +110,7 @@ mod tests {
     fn levels() {
         assert_eq!(level_for(1.0), 0);
         assert_eq!(level_for(1.2), 1);
-        assert!((level_scale(1) - 1.41421).abs() < 1e-3);
+        assert!((level_scale(1) - std::f32::consts::SQRT_2).abs() < 1e-3);
         assert!(level_scale(level_for(3.0)) >= 3.0 && level_scale(level_for(3.0)) < 3.0 * 1.415);
     }
 

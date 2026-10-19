@@ -185,7 +185,7 @@ impl Reader<'_> {
         }
         let n = u64::from_le_bytes(self.b[..8].try_into().unwrap()) as usize;
         let rest = &self.b[8..];
-        if n > rest.len() || n % size_of::<T>() != 0 {
+        if n > rest.len() || !n.is_multiple_of(size_of::<T>()) {
             return Err(WireError::Truncated);
         }
         let (data, rest) = rest.split_at(n);
@@ -241,7 +241,7 @@ mod tests {
         let c = b.finish();
         let bytes = encode(&c);
         assert_eq!(decode(&bytes).unwrap(), c);
-        assert!(matches!(decode(&bytes[..bytes.len() - 3]), Err(_)));
+        assert!(decode(&bytes[..bytes.len() - 3]).is_err());
     }
 
     #[test]

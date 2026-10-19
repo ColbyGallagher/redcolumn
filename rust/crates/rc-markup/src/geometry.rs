@@ -46,7 +46,7 @@ pub fn hit(m: &Markup, p: Point, tol: f64) -> bool {
 }
 
 /// The topmost markup at `p` on `page` (drawn last, picked first).
-pub fn pick<'a>(markups: &'a [Markup], page: usize, p: Point, tol: f64) -> Option<&'a Markup> {
+pub fn pick(markups: &[Markup], page: usize, p: Point, tol: f64) -> Option<&Markup> {
     markups.iter().rev().find(|m| m.page_index == page && hit(m, p, tol))
 }
 

@@ -514,7 +514,7 @@ pub fn apply_dash(p: &[[f32; 2]], closed: bool, dashes: &[f32], phase: f32, out:
             ph = 0.0;
         }
     }
-    let mut on = idx % 2 == 0;
+    let mut on = idx.is_multiple_of(2);
     let mut cur: Vec<[f32; 2]> = if on { vec![pts[0]] } else { Vec::new() };
     for w in pts.windows(2) {
         let (a, b) = (w[0], w[1]);
@@ -1186,7 +1186,7 @@ mod tests {
         assert_eq!(scene.rows, 4);
         // 970 pt long: split into 8 pieces of at most 128 pt.
         assert_eq!(scene.segs.len(), 8);
-        let (a, _) = scene.seg_points(&scene.segs.iter().find(|s| s.flags & 3 == end::BUTT).unwrap());
+        let (a, _) = scene.seg_points(scene.segs.iter().find(|s| s.flags & 3 == end::BUTT).unwrap());
         assert!((a[0] - 10.0).abs() < 0.01 && (a[1] - 10.0).abs() < 0.01);
         for sg in &scene.segs {
             let (p, q) = scene.seg_points(sg);

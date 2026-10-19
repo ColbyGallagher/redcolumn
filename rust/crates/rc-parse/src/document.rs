@@ -389,14 +389,14 @@ impl Document {
         let obj = match self.xref.get(&num) {
             None => Obj::Null,
             Some(Entry::Offset(off)) => self.parse_at(*off, depth)?,
-            Some(&Entry::InStream { stream, index }) => self.from_stream(stream, index, num, depth)?,
+            Some(&Entry::InStream { stream, index }) => self.load_from_stream(stream, index, num, depth)?,
         };
         let obj = Arc::new(obj);
         self.cache.write().unwrap().insert(num, obj.clone());
         Ok(obj)
     }
 
-    fn from_stream(&self, stream: u32, index: u32, num: u32, depth: usize) -> Result<Obj, Error> {
+    fn load_from_stream(&self, stream: u32, index: u32, num: u32, depth: usize) -> Result<Obj, Error> {
         if depth > MAX_DEPTH {
             return Err(Error::Damaged("object streams nest too deep".into()));
         }
