@@ -1,0 +1,28 @@
+[package]
+name = "rc-view"
+description = "The document view: layout, camera, page loading, tiles, scheduling and the fidelity check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+rc-pdf.workspace = true
+rc-parse.workspace = true
+rc-gpu.workspace = true
+rc-check.workspace = true
+rc-cache.workspace = true
+anyhow.workspace = true
+crossbeam-channel.workspace = true
+rayon.workspace = true
+memmap2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rc-bench = { path = "../rc-bench" }
+
+[lints]
+workspace = true

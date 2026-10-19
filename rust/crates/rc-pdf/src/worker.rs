@@ -264,10 +264,14 @@ impl Worker {
         let page_h = unsafe { b.FPDF_GetPageHeightF(page) } * r.scale;
         let cancel = PauseState { flag: self.control.cancel_generation() as *const _, generation: r.generation };
         let mut pause = IFSDK_PAUSE { version: 1, NeedToPauseNow: Some(need_to_pause), user: &cancel as *const _ as *mut c_void };
-        let size_x = page_w.round() as c_int;
-        let size_y = page_h.round() as c_int;
+        let rotate = (r.rotate % 4) as c_int;
+        let (size_x, size_y) = if rotate % 2 == 1 {
+            (page_h.round() as c_int, page_w.round() as c_int)
+        } else {
+            (page_w.round() as c_int, page_h.round() as c_int)
+        };
         // SAFETY: page and bitmap are live; `pause` and `cancel` outlive the render calls.
-        let mut status = unsafe { b.FPDF_RenderPageBitmap_Start(bitmap, page, -r.x, -r.y, size_x, size_y, 0, flags, &mut pause) };
+        let mut status = unsafe { b.FPDF_RenderPageBitmap_Start(bitmap, page, -r.x, -r.y, size_x, size_y, rotate, flags, &mut pause) };
         let mut cancelled = false;
         while status == FPDF_RENDER_TOBECONTINUED {
             if cancel.cancelled() {

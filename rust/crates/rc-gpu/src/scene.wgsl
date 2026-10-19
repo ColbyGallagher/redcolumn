@@ -2,11 +2,11 @@
 // paint order (later parts of the page are nearer). See rc-scene's scene module for the data.
 
 struct View {
-    // Device pixels per point on each axis (PDFium rounds the page's pixel size, so its scale
-    // can differ slightly between x and y; matching it keeps the scene aligned with its tiles).
-    scale: vec2<f32>,
-    // Where the page's origin is in the target (pixels), and the target's size.
-    offset: vec2<f32>,
+    // Page space to target pixels: x' = a x + c y + e, y' = b x + d y + f (m = a b c d, t = e f).
+    // It carries zoom, scroll and view rotation; PDFium's slightly different x and y scales
+    // (it rounds the page's pixel size) are matched by the caller.
+    m: vec4<f32>,
+    t: vec2<f32>,
     target_size: vec2<f32>,
     // The thinnest a stroke is drawn, in pixels (hairlines).
     hairline: f32,
@@ -17,8 +17,14 @@ struct View {
     alpha: f32,
     // MSAA samples per pixel (stroke coverage is written as a sample mask).
     samples: u32,
-    _pad: f32,
+    // How much the transform scales lengths (for stroke widths).
+    scale: f32,
+    _pad: vec2<f32>,
 };
+
+fn to_px(p: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(view.m.x * p.x + view.m.z * p.y + view.t.x, view.m.y * p.x + view.m.w * p.y + view.t.y);
+}
 
 struct Item {
     color: u32,
@@ -94,9 +100,9 @@ fn stroke_vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     let cell = s.z & 0xffffu;
     let flags = s.z >> 16u;
     let c = cell_center(cell);
-    let a = (c + unpack_point(s.x)) * view.scale + view.offset;
-    let b = (c + unpack_point(s.y)) * view.scale + view.offset;
-    var w = item.width * 0.5 * (view.scale.x + view.scale.y);
+    let a = to_px(c + unpack_point(s.x));
+    let b = to_px(c + unpack_point(s.y));
+    var w = item.width * view.scale;
     if (view.thin != 0u) {
         w = 0.0;
     }
@@ -208,7 +214,7 @@ fn fill_vs(@location(0) pos: vec2<f32>, @location(1) item_index: u32) -> FillOut
         out.pos = NOWHERE;
         return out;
     }
-    out.pos = to_clip(pos * view.scale + view.offset, item.depth);
+    out.pos = to_clip(to_px(pos), item.depth);
     var col = unpack_rgba(item.color);
     col.a = col.a * view.alpha;
     out.color = col;
@@ -241,7 +247,7 @@ fn image_vs(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>, @location(2
         out.pos = NOWHERE;
         return out;
     }
-    out.pos = to_clip(pos * view.scale + view.offset, item.depth);
+    out.pos = to_clip(to_px(pos), item.depth);
     out.uv = uv;
     out.alpha = unpack_rgba(item.color).a * view.alpha;
     return out;

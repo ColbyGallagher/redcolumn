@@ -22,8 +22,11 @@ struct ObjStream {
     offsets: Vec<(u32, usize)>,
 }
 
-pub struct Document<'a> {
-    pub data: &'a [u8],
+/// The file's bytes, shared (a memory map, or a buffer).
+pub type Bytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
+
+pub struct Document {
+    bytes: Bytes,
     xref: HashMap<u32, Entry>,
     pub trailer: Dict,
     cache: RwLock<HashMap<u32, Arc<Obj>>>,
@@ -43,10 +46,15 @@ pub struct PageNode {
 
 const MAX_DEPTH: usize = 64;
 
-impl<'a> Document<'a> {
-    pub fn open(data: &'a [u8]) -> Result<Self, Error> {
+impl Document {
+    /// Opens a copy of these bytes (tools and tests; the app maps the file with [`Self::open_shared`]).
+    pub fn open(data: &[u8]) -> Result<Self, Error> {
+        Self::open_shared(Arc::new(data.to_vec()))
+    }
+
+    pub fn open_shared(bytes: Bytes) -> Result<Self, Error> {
         let mut doc = Document {
-            data,
+            bytes,
             xref: HashMap::new(),
             trailer: Dict::default(),
             cache: RwLock::new(HashMap::new()),
@@ -70,6 +78,11 @@ impl<'a> Document<'a> {
         Ok(doc)
     }
 
+    /// The file's bytes.
+    pub fn data(&self) -> &[u8] {
+        (*self.bytes).as_ref()
+    }
+
     pub fn page_count(&self) -> usize {
         self.pages.len()
     }
@@ -79,13 +92,15 @@ impl<'a> Document<'a> {
     }
 
     fn read_xref(&mut self) -> Result<(), Error> {
-        let tail = &self.data[self.data.len().saturating_sub(2048)..];
+        let bytes = self.bytes.clone();
+        let data = (*bytes).as_ref();
+        let tail = &data[data.len().saturating_sub(2048)..];
         let at = rfind(tail, b"startxref").ok_or_else(|| Error::Damaged("no startxref".into()))?;
         let mut lx = Lexer::new(tail, at + 9);
         let Some(Token::Int(mut off)) = lx.next() else { return Err(Error::Damaged("bad startxref".into())) };
         let mut seen = std::collections::HashSet::new();
         let mut first = true;
-        while off >= 0 && (off as usize) < self.data.len() && seen.insert(off) {
+        while off >= 0 && (off as usize) < data.len() && seen.insert(off) {
             let trailer = self.read_section(off as usize)?;
             if first {
                 self.trailer = trailer.clone();
@@ -106,7 +121,8 @@ impl<'a> Document<'a> {
     /// Reads one cross-reference section at `off` (a table or a stream); earlier sections never
     /// override entries already read (later updates win). Returns its trailer.
     fn read_section(&mut self, off: usize) -> Result<Dict, Error> {
-        let mut lx = Lexer::new(self.data, off);
+        let bytes = self.bytes.clone();
+        let mut lx = Lexer::new((*bytes).as_ref(), off);
         match lx.next() {
             Some(Token::Word(b"xref")) => {
                 loop {
@@ -184,7 +200,8 @@ impl<'a> Document<'a> {
 
     /// Rebuilds the cross-reference by scanning for `N G obj`, as readers do for damaged files.
     fn rebuild(&mut self) -> Result<(), Error> {
-        let d = self.data;
+        let bytes = self.bytes.clone();
+        let d = (*bytes).as_ref();
         let mut i = 0;
         while let Some(rel) = find(&d[i..], b"obj") {
             let at = i + rel;
@@ -251,7 +268,7 @@ impl<'a> Document<'a> {
 
     /// Parses the indirect object at `off` (`N G obj ... endobj`).
     fn parse_at(&self, off: usize, depth: usize) -> Result<Obj, Error> {
-        let mut lx = Lexer::new(self.data, off);
+        let mut lx = Lexer::new(self.data(), off);
         let (Some(Token::Int(_)), Some(Token::Int(_)), Some(Token::Word(b"obj"))) = (lx.next(), lx.next(), lx.next()) else {
             return Err(Error::Damaged(format!("no object at {off}")));
         };
@@ -261,10 +278,10 @@ impl<'a> Document<'a> {
             && let Some(Token::Word(b"stream")) = lx.next()
         {
             let mut start = lx.pos;
-            if self.data.get(start) == Some(&b'\r') {
+            if self.data().get(start) == Some(&b'\r') {
                 start += 1;
             }
-            if self.data.get(start) == Some(&b'\n') {
+            if self.data().get(start) == Some(&b'\n') {
                 start += 1;
             }
             let declared = match dict.get("Length") {
@@ -273,12 +290,12 @@ impl<'a> Document<'a> {
                 None => None,
             };
             let len = match declared {
-                Some(l) if l >= 0 && start + (l as usize) <= self.data.len() && self.looks_like_end(start + l as usize) => l as usize,
+                Some(l) if l >= 0 && start + (l as usize) <= self.data().len() && self.looks_like_end(start + l as usize) => l as usize,
                 // A wrong or missing /Length: find `endstream`.
                 _ => {
-                    let end = find(&self.data[start..], b"endstream").map(|e| start + e).unwrap_or(self.data.len());
+                    let end = find(&self.data()[start..], b"endstream").map(|e| start + e).unwrap_or(self.data().len());
                     let mut e = end;
-                    while e > start && matches!(self.data[e - 1], b'\r' | b'\n') {
+                    while e > start && matches!(self.data()[e - 1], b'\r' | b'\n') {
                         e -= 1;
                     }
                     e - start
@@ -291,7 +308,7 @@ impl<'a> Document<'a> {
     }
 
     fn looks_like_end(&self, at: usize) -> bool {
-        let mut lx = Lexer::new(self.data, at);
+        let mut lx = Lexer::new(self.data(), at);
         matches!(lx.next(), Some(Token::Word(b"endstream")))
     }
 
@@ -365,7 +382,7 @@ impl<'a> Document<'a> {
     /// the image codec's data).
     pub fn decode(&self, s: &Stream) -> Result<Vec<u8>, Error> {
         let raw: &[u8] = match &s.data {
-            StreamData::File(off, len) => &self.data[*off..(*off + *len).min(self.data.len())],
+            StreamData::File(off, len) => &self.data()[*off..(*off + *len).min(self.data().len())],
             StreamData::Owned(b) => b,
         };
         let filters: Vec<Name> = match s.dict.get("Filter").map(|f| self.resolve(f)) {
@@ -398,7 +415,7 @@ impl<'a> Document<'a> {
     /// The raw bytes of a stream as stored (for image codecs).
     pub fn raw<'s>(&'s self, s: &'s Stream) -> &'s [u8] {
         match &s.data {
-            StreamData::File(off, len) => &self.data[*off..(*off + *len).min(self.data.len())],
+            StreamData::File(off, len) => &self.data()[*off..(*off + *len).min(self.data().len())],
             StreamData::Owned(b) => b,
         }
     }

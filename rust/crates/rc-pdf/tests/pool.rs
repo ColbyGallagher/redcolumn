@@ -52,6 +52,7 @@ fn pages_render_extract() {
         height: (p.height * 0.5).ceil() as u32,
         layer: Layer::Full,
         thin_lines: false,
+        rotate: 0,
         hide_annots: vec![],
         generation: 1,
     };
@@ -103,6 +104,7 @@ fn many_tiles_in_parallel() {
                     height: 256,
                     layer: Layer::Content,
                     thin_lines: false,
+                    rotate: 0,
                     hide_annots: vec![],
                     generation: 1,
                 }),

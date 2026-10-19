@@ -7,6 +7,7 @@
 pub mod clip;
 pub mod content;
 pub mod scene;
+pub mod scene_io;
 pub mod wire;
 
 pub use content::{Affine, PageContent};

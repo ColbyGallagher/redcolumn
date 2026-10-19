@@ -93,6 +93,7 @@ fn render(file: &str, which: Option<&String>) -> anyhow::Result<()> {
             height: (info.height * s).ceil() as u32,
             layer: Layer::Content,
             thin_lines: false,
+            rotate: 0,
             hide_annots: vec![],
             generation: rc_pdf::pool::NEVER_CANCEL,
         };
@@ -128,7 +129,7 @@ fn scene(file: &str, which: Option<&String>) -> anyhow::Result<()> {
         let s = 2048.0 / info.width.max(info.height);
         let size = [(info.width * s).ceil() as u32, (info.height * s).ceil() as u32];
         let t = Instant::now();
-        let tile = renderer.render_tile(&gpu.device, &gpu.queue, &gs, [s, s], [0.0, 0.0], size, 2, false, &mut scratch);
+        let tile = renderer.render_tile(&gpu.device, &gpu.queue, &gs, rc_gpu::scale_offset([s, s], [0.0, 0.0]), size, 2, false, &mut scratch);
         let _ = gpu.device.poll(rc_gpu::wgpu::PollType::Wait { submission_index: None, timeout: None });
         let tile_ms = t.elapsed().as_secs_f64() * 1000.0;
         drop(tile);

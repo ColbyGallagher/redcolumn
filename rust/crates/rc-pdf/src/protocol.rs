@@ -52,6 +52,9 @@ pub struct RenderRequest {
     pub layer: Layer,
     /// Draw every line at hairline weight.
     pub thin_lines: bool,
+    /// View rotation in quarter turns clockwise (the region is in the rotated page).
+    #[serde(default)]
+    pub rotate: u8,
     /// Annotation indices not to draw (markups the app draws itself).
     pub hide_annots: Vec<u32>,
     /// The request's generation: the worker stops it when the app's cancel generation passes it.

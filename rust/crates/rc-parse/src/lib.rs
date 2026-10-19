@@ -7,6 +7,7 @@
 //! (`rc_scene::content::flags`), and the app then uses PDFium for that page. Every page is still
 //! checked against PDFium before the scene is trusted.
 
+pub mod annots;
 pub mod color;
 pub mod content;
 pub mod document;
@@ -15,6 +16,7 @@ pub mod font;
 pub mod image;
 pub mod object;
 
+pub use annots::{Annotation, annotations};
 pub use content::{Options, extract_page};
 pub use document::Document;
 use rc_scene::PageContent;

@@ -1,0 +1,17 @@
+[package]
+name = "rc-cache"
+description = "The disk cache: scenes, thumbnails and fidelity verdicts of documents opened before"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+blake3.workspace = true
+dirs.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

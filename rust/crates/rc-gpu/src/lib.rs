@@ -73,15 +73,16 @@ pub fn sample_count(adapter: &wgpu::Adapter) -> u32 {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 struct ViewUniform {
-    scale: [f32; 2],
-    offset: [f32; 2],
+    m: [f32; 4],
+    t: [f32; 2],
     target_size: [f32; 2],
     hairline: f32,
     cols: u32,
     thin: u32,
     alpha: f32,
     samples: u32,
-    _pad: f32,
+    scale: f32,
+    _pad: [f32; 2],
 }
 
 #[repr(C)]
@@ -91,10 +92,11 @@ struct QuadUniform {
     uv: [f32; 4],
     target_size: [f32; 2],
     opacity: f32,
-    straight: u32,
+    flags: u32,
+    _pad: [f32; 4],
 }
 
-const UNIFORM_SIZE: u64 = 48;
+const UNIFORM_SIZE: u64 = 64;
 
 /// A texture the renderer can draw as a quad.
 pub struct GpuTexture {
@@ -286,11 +288,47 @@ pub fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::
 pub enum Draw<'a> {
     /// A page's scene. `clip` is the part of the target it may draw in (pixels), usually the
     /// page's visible area.
-    /// `hairline` is the thinnest stroke in target pixels: 1 on screen, more when drawing a
-    /// supersampled tile that is filtered down.
-    Scene { scene: &'a GpuScene, scale: [f32; 2], offset: [f32; 2], clip: [f32; 4], alpha: f32, thin: bool, hairline: f32 },
-    /// A texture drawn into `dest` (pixels), showing `uv` of it.
-    Quad { texture: &'a GpuTexture, dest: [f32; 4], uv: [f32; 4], opacity: f32, straight: bool },
+    /// `transform` maps page space to target pixels (zoom, scroll, rotation). `hairline` is the
+    /// thinnest stroke in target pixels: 1 on screen, more when drawing a supersampled tile that
+    /// is filtered down.
+    Scene { scene: &'a GpuScene, transform: Affine2, clip: [f32; 4], alpha: f32, thin: bool, hairline: f32 },
+    /// A texture drawn into `dest` (pixels), showing `uv` of it, with a page filter.
+    Quad { texture: &'a GpuTexture, dest: [f32; 4], uv: [f32; 4], opacity: f32, straight: bool, filter: PageFilter },
+}
+
+/// A 2 × 3 affine transform `[a, b, c, d, e, f]`: x' = a x + c y + e, y' = b x + d y + f.
+pub type Affine2 = [f32; 6];
+
+/// Scale and offset, without rotation.
+pub fn scale_offset(scale: [f32; 2], offset: [f32; 2]) -> Affine2 {
+    [scale[0], 0.0, 0.0, scale[1], offset[0], offset[1]]
+}
+
+fn affine_scale(m: &Affine2) -> f32 {
+    (m[0] * m[3] - m[1] * m[2]).abs().sqrt()
+}
+
+fn affine_invert(m: &Affine2) -> Option<Affine2> {
+    let det = m[0] * m[3] - m[1] * m[2];
+    if det.abs() < 1e-20 {
+        return None;
+    }
+    let (a, b, c, d) = (m[3] / det, -m[1] / det, -m[2] / det, m[0] / det);
+    Some([a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])])
+}
+
+fn affine_apply(m: &Affine2, x: f32, y: f32) -> [f32; 2] {
+    [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]
+}
+
+/// How pages are coloured on screen.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PageFilter {
+    #[default]
+    None,
+    /// Inverted with hues kept, for night work.
+    Dark,
+    Dim,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -554,7 +592,7 @@ impl Renderer {
         })
     }
 
-    /// Draws the part of a scene at `origin` (pixels at `scale`) into a new `size` × `size` tile:
+    /// Draws a scene through `transform` (page space to the tile's pixels) into a new tile:
     /// at `ss` times the resolution with hairlines `ss` pixels wide, then box-filtered down, so the
     /// tile matches an antialiased render at `scale` (PDFium's, within the fidelity check's
     /// limits). Submits its own work. `scratch` keeps the large target between calls.
@@ -563,8 +601,7 @@ impl Renderer {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &GpuScene,
-        scale: [f32; 2],
-        origin: [f32; 2],
+        transform: Affine2,
         size: [u32; 2],
         ss: u32,
         thin: bool,
@@ -586,8 +623,7 @@ impl Renderer {
             wgpu::Color::WHITE,
             &[Draw::Scene {
                 scene,
-                scale: [scale[0] * f, scale[1] * f],
-                offset: [-origin[0] * f, -origin[1] * f],
+                transform: transform.map(|v| v * f),
                 clip: [0.0, 0.0, bw as f32, bh as f32],
                 alpha: 1.0,
                 thin,
@@ -611,7 +647,8 @@ impl Renderer {
             uv: [0.0, 0.0, bw as f32 / big.width as f32, bh as f32 / big.height as f32],
             target_size: [size[0] as f32, size[1] as f32],
             opacity: 1.0,
-            straight: 0,
+            flags: 0,
+            ..Default::default()
         };
         queue.write_buffer(&self.down_uniforms, 0, bytemuck::bytes_of(&u));
         let src = self.tex_group(device, &big.view);
@@ -823,23 +860,30 @@ impl Renderer {
         for d in draws {
             offsets.push(arena.len() as u32);
             let block: [u8; UNIFORM_SIZE as usize] = match d {
-                Draw::Scene { scene, scale, offset, alpha, thin, hairline, .. } => bytemuck::cast(ViewUniform {
-                    scale: *scale,
+                Draw::Scene { scene, transform: m, alpha, thin, hairline, .. } => bytemuck::cast(ViewUniform {
+                    m: [m[0], m[1], m[2], m[3]],
+                    t: [m[4], m[5]],
                     hairline: *hairline,
-                    offset: *offset,
                     target_size: size,
                     cols: scene.cols,
                     thin: *thin as u32,
                     alpha: *alpha,
                     samples: self.sample_count,
+                    scale: affine_scale(m),
                     ..Default::default()
                 }),
-                Draw::Quad { dest, uv, opacity, straight, .. } => bytemuck::cast(QuadUniform {
+                Draw::Quad { dest, uv, opacity, straight, filter, .. } => bytemuck::cast(QuadUniform {
                     dest: *dest,
                     uv: *uv,
                     target_size: size,
                     opacity: *opacity,
-                    straight: *straight as u32,
+                    flags: *straight as u32
+                        | match filter {
+                            PageFilter::None => 0,
+                            PageFilter::Dark => 2,
+                            PageFilter::Dim => 4,
+                        },
+                    ..Default::default()
                 }),
             };
             arena.extend_from_slice(&block);
@@ -883,18 +927,15 @@ impl Renderer {
                     pass.draw(0..6, 0..1);
                     stats.draw_calls += 1;
                 }
-                Draw::Scene { scene, scale, offset, clip, .. } => {
+                Draw::Scene { scene, transform, clip, .. } => {
                     let Some(sc) = scissor(*clip, target.width, target.height) else { continue };
+                    let Some(inv) = affine_invert(transform) else { continue };
                     pass.set_scissor_rect(sc[0], sc[1], sc[2], sc[3]);
-                    let [sx, sy] = *scale;
                     // The part of the page the scissor shows, in page space.
-                    let r = [
-                        (sc[0] as f32 - offset[0]) / sx,
-                        (sc[1] as f32 - offset[1]) / sy,
-                        ((sc[0] + sc[2]) as f32 - offset[0]) / sx,
-                        ((sc[1] + sc[3]) as f32 - offset[1]) / sy,
-                    ];
-                    self.draw_scene(&mut pass, scene, off, r, 2.0 / sx.min(sy), &mut stats);
+                    let (x0, y0, x1, y1) = (sc[0] as f32, sc[1] as f32, (sc[0] + sc[2]) as f32, (sc[1] + sc[3]) as f32);
+                    let corners = [affine_apply(&inv, x0, y0), affine_apply(&inv, x1, y0), affine_apply(&inv, x0, y1), affine_apply(&inv, x1, y1)];
+                    let r = rc_scene::clip::bounds(corners);
+                    self.draw_scene(&mut pass, scene, off, r, 2.0 / affine_scale(transform).max(1e-6), &mut stats);
                 }
             }
         }

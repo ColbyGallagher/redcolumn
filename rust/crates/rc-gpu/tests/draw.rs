@@ -25,7 +25,7 @@ fn render(gpu: &Gpu, scene: &rc_scene::Scene, scale: f32, w: u32, h: u32) -> Vec
         &mut enc,
         &target,
         wgpu::Color::WHITE,
-        &[Draw::Scene { scene: &gs, scale: [scale, scale], offset: [0.0, 0.0], clip: [0.0, 0.0, w as f32, h as f32], alpha: 1.0, thin: false, hairline: 1.0 }],
+        &[Draw::Scene { scene: &gs, transform: scale_offset([scale, scale], [0.0, 0.0]), clip: [0.0, 0.0, w as f32, h as f32], alpha: 1.0, thin: false, hairline: 1.0 }],
     );
     gpu.queue.submit([enc.finish()]);
     target.read_rgba(&gpu.device, &gpu.queue)
@@ -89,8 +89,7 @@ fn hairlines_are_one_pixel_and_layers_hide() {
         let mut enc = gpu.device.create_command_encoder(&Default::default());
         r.draw(&gpu.device, &gpu.queue, &mut enc, &target, wgpu::Color::WHITE, &[Draw::Scene {
             scene: gs,
-            scale: [1.0, 1.0],
-            offset: [0.0, 0.0],
+            transform: scale_offset([1.0, 1.0], [0.0, 0.0]),
             clip: [0.0, 0.0, 100.0, 100.0],
             alpha: 1.0,
             thin: false,

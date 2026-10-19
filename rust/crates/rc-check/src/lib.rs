@@ -94,8 +94,7 @@ pub fn draw_scene(device: &wgpu::Device, queue: &wgpu::Queue, renderer: &mut Ren
         device,
         queue,
         scene,
-        pdfium_scale(scene.size, v.scale),
-        [v.x as f32, v.y as f32],
+        rc_gpu::scale_offset(pdfium_scale(scene.size, v.scale), [-v.x as f32, -v.y as f32]),
         [v.width, v.height],
         SUPERSAMPLE,
         false,
@@ -136,6 +135,7 @@ pub fn request(doc: u32, page: u32, v: View, layer: Layer, hide_annots: Vec<u32>
         height: v.height,
         layer,
         thin_lines: false,
+        rotate: 0,
         hide_annots,
         generation: rc_pdf::pool::NEVER_CANCEL,
     }

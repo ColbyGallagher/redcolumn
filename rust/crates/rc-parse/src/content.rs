@@ -146,7 +146,7 @@ impl Operand<'_> {
 }
 
 struct Interp<'d, 'f> {
-    doc: &'d Document<'d>,
+    doc: &'d Document,
     out: ContentBuilder,
     gs: GState,
     stack: Vec<GState>,
