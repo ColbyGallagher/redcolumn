@@ -69,16 +69,34 @@ fn main() {
             JobResult::Pages(p) => p.len() as u32,
             other => panic!("{name}: {other:?}"),
         };
+        let bytes = std::fs::read(path).unwrap();
+        let parsed = rc_parse::Document::open(&bytes);
+        if let Err(e) = &parsed {
+            eprintln!("fidelity: {name}: own parser cannot read it ({e})");
+        }
         for page in 0..pages {
-            let content = match wait(&pool, pool.submit(Job::Extract { doc, page }, 0)) {
-                JobResult::Extracted { content, .. } => content,
-                other => panic!("{name} p{page}: {other:?}"),
+          for source in ["pdfium", "parser"] {
+            let content = if source == "pdfium" {
+                match wait(&pool, pool.submit(Job::Extract { doc, page }, 0)) {
+                    JobResult::Extracted { content, .. } => content,
+                    other => panic!("{name} p{page}: {other:?}"),
+                }
+            } else {
+                let Ok(d) = &parsed else { continue };
+                let t = std::time::Instant::now();
+                let c = rc_parse::page_content(d, page as usize, &Default::default()).unwrap();
+                eprintln!("fidelity: {name} p{} parsed in {:.1} ms", page + 1, t.elapsed().as_secs_f64() * 1000.0);
+                Box::new(c)
             };
+            if content.flags & rc_scene::content::flags::NEEDS_RASTER != 0 {
+                eprintln!("fidelity: {name} p{} [{source}] flags {:#x}: drawn by the raster path", page + 1, content.flags);
+                continue;
+            }
             let scene = rc_scene::build_scene(&content, &Default::default());
             let gs = renderer.upload(&gpu.device, &gpu.queue, &scene).unwrap();
             let (verdict, gpus, refs) = check_blocking(&gpu.device, &gpu.queue, &mut renderer, &pool, doc, page, &scene, &gs).unwrap();
             eprintln!(
-                "fidelity: {name} p{} {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {}",
+                "fidelity: {name} p{} [{source}] {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {}",
                 page + 1,
                 scene.stats.segments,
                 scene.stats.triangles,
@@ -91,15 +109,16 @@ fn main() {
                 let vs = views(scene.size, densest_point(&scene));
                 for (i, v) in vs.iter().enumerate() {
                     let save = |kind: &str, px: &[u8]| {
-                        image::save_buffer(dir.join(format!("{name}-p{}-v{i}-{kind}.png", page + 1)), px, v.width, v.height, image::ColorType::Rgba8).unwrap();
+                        image::save_buffer(dir.join(format!("{name}-p{}-{source}-v{i}-{kind}.png", page + 1)), px, v.width, v.height, image::ColorType::Rgba8).unwrap();
                     };
                     save("gpu", &gpus[i]);
                     save("pdfium", &refs[i]);
                 }
             }
             if !verdict.ok {
-                failures.push(format!("{name} page {}: {:?}", page + 1, verdict.diffs));
+                failures.push(format!("{name} page {} [{source}]: {:?}", page + 1, verdict.diffs));
             }
+          }
         }
     }
     let _ = std::fs::remove_dir_all(&tmp);

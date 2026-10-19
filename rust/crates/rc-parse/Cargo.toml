@@ -1,0 +1,21 @@
+[package]
+name = "rc-parse"
+description = "Our own PDF reader and content stream interpreter, built for heavy drawings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+thiserror.workspace = true
+flate2.workspace = true
+rayon.workspace = true
+skrifa.workspace = true
+zune-jpeg.workspace = true
+
+[dev-dependencies]
+rc-bench = { path = "../rc-bench" }
+
+[lints]
+workspace = true

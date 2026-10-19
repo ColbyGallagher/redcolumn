@@ -227,10 +227,7 @@ impl Extractor<'_> {
                 node = existing;
                 continue;
             }
-            let start = self.out.begin_path();
-            self.out.content.verbs.extend_from_slice(&c.verbs);
-            self.out.content.points.extend_from_slice(&c.points);
-            let id = self.out.finish_clip(start, fill::NONZERO, node);
+            let id = self.out.add_clip(&c.verbs, &c.points, fill::NONZERO, node);
             self.clip_nodes.insert((hash, node), id);
             node = id;
         }

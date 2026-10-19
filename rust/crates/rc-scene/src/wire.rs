@@ -36,6 +36,10 @@ pub fn encode(c: &PageContent) -> Vec<u8> {
     put_slice(&mut out, &c.points);
     put_slice(&mut out, &c.dashes);
     put_slice(&mut out, &c.clips);
+    put_slice(&mut out, &c.clip_verbs);
+    put_slice(&mut out, &c.clip_points);
+    put_slice(&mut out, &c.layers_off);
+    put_slice(&mut out, &[c.slot_base, c.slot_total]);
     put_slice(&mut out, &[c.images.len() as u64]);
     for img in &c.images {
         put_slice(&mut out, &[img.width, img.height, img.smooth as u32]);
@@ -65,8 +69,15 @@ pub fn decode(bytes: &[u8]) -> Result<PageContent, WireError> {
         points: r.slice()?,
         dashes: r.slice()?,
         clips: r.slice()?,
+        clip_verbs: r.slice()?,
+        clip_points: r.slice()?,
+        layers_off: r.slice()?,
         ..Default::default()
     };
+    let slots: Vec<u32> = r.slice()?;
+    let (&[base, total],) = (&slots[..],) else { return Err(WireError::Truncated) };
+    c.slot_base = base;
+    c.slot_total = total;
     let n: Vec<u64> = r.slice()?;
     for _ in 0..*n.first().ok_or(WireError::Truncated)? {
         let dims: Vec<u32> = r.slice()?;
@@ -93,14 +104,16 @@ pub fn decode(bytes: &[u8]) -> Result<PageContent, WireError> {
 /// Checks every index in the content is in range, so later code can index without checks
 /// failing on content from a crashed or confused worker.
 pub fn validate(c: &PageContent) -> Result<(), WireError> {
-    let path_ok = |vs: u32, vl: u32, ps: u32| -> bool {
+    let range_ok = |verbs: &[u8], points: &[[f32; 2]], vs: u32, vl: u32, ps: u32| -> bool {
         let Some(end) = vs.checked_add(vl) else { return false };
-        if end as usize > c.verbs.len() {
+        if end as usize > verbs.len() {
             return false;
         }
-        let pts: usize = c.verbs[vs as usize..end as usize].iter().map(|&v| crate::content::verb_points(v)).sum();
-        (ps as usize).checked_add(pts).is_some_and(|e| e <= c.points.len())
+        let pts: usize = verbs[vs as usize..end as usize].iter().map(|&v| crate::content::verb_points(v)).sum();
+        (ps as usize).checked_add(pts).is_some_and(|e| e <= points.len())
     };
+    let path_ok = |vs: u32, vl: u32, ps: u32| range_ok(&c.verbs, &c.points, vs, vl, ps);
+    let clip_ok = |vs: u32, vl: u32, ps: u32| range_ok(&c.clip_verbs, &c.clip_points, vs, vl, ps);
     for it in &c.items {
         match it.kind {
             crate::content::kind::PATH => {
@@ -125,8 +138,11 @@ pub fn validate(c: &PageContent) -> Result<(), WireError> {
             return Err(WireError::Invalid("layer index"));
         }
     }
+    if c.layers_off.iter().any(|&l| l as usize >= c.layers.len()) {
+        return Err(WireError::Invalid("layer index"));
+    }
     for (i, cl) in c.clips.iter().enumerate() {
-        if !path_ok(cl.verb_start, cl.verb_len, cl.point_start) {
+        if !clip_ok(cl.verb_start, cl.verb_len, cl.point_start) {
             return Err(WireError::Invalid("clip path range"));
         }
         // Parents come first, so chains always end.

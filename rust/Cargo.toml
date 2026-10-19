@@ -73,3 +73,8 @@ opt-level = 3
 [profile.bench]
 inherits = "release"
 debug = true
+
+[profile.profiling]
+inherits = "release"
+debug = true
+lto = "thin"

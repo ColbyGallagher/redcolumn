@@ -147,6 +147,8 @@ pub struct Scene {
     pub images: Vec<SceneImage>,
     pub stream: Vec<StreamEntry>,
     pub layers: Vec<String>,
+    /// Layers off by default.
+    pub layers_off: Vec<u32>,
     /// The content's [`content::flags`].
     pub flags: u32,
     pub stats: SceneStats,
@@ -244,6 +246,8 @@ struct Part {
     images: Vec<(u32, SceneImage)>,
     stream: Vec<StreamEntry>,
     dropped: usize,
+    /// Reused for one polyline at a time.
+    scratch: Vec<[f32; 2]>,
 }
 
 struct Ctx<'a> {
@@ -267,6 +271,13 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
     let page: Rect = [0.0, 0.0, w, h];
     let n = content.items.len();
     let slots = (n as u32).saturating_mul(2);
+    // Depth is spread over the whole page's items, so the chunks of a page read in pieces draw
+    // in paint order together.
+    let (depth_base, depth_slots) = if content.slot_total > 0 {
+        (content.slot_base.saturating_mul(2), content.slot_total.saturating_mul(2))
+    } else {
+        (0, slots)
+    };
 
     // Resolve every clip node items use, once, in parallel.
     let mut used: Vec<u32> = content.items.iter().map(|i| i.clip).filter(|&c| c != content::NONE).collect();
@@ -283,11 +294,15 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
         if it.kind == kind::IMAGE {
             let opacity = content.images.get(it.image as usize).map_or(1.0, |im| im.opacity);
             let a = (opacity.clamp(0.0, 1.0) * 255.0).round() as u32;
-            items[s as usize] = GpuItem { color: 0x00ff_ffff | a << 24, width: 0.0, depth: depth(s, slots), layer };
+            items[s as usize] = GpuItem { color: 0x00ff_ffff | a << 24, width: 0.0, depth: depth(depth_base + s, depth_slots), layer };
         } else {
-            items[s as usize] = GpuItem { color: it.fill_color, width: 0.0, depth: depth(s, slots), layer };
-            items[s as usize + 1] =
-                GpuItem { color: it.stroke_color, width: it.width.max(0.0), depth: depth(s + 1, slots), layer };
+            items[s as usize] = GpuItem { color: it.fill_color, width: 0.0, depth: depth(depth_base + s, depth_slots), layer };
+            items[s as usize + 1] = GpuItem {
+                color: it.stroke_color,
+                width: it.width.max(0.0),
+                depth: depth(depth_base + s + 1, depth_slots),
+                layer,
+            };
         }
     }
 
@@ -310,6 +325,7 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
     scene.size = content.size;
     scene.items = items;
     scene.layers = content.layers.clone();
+    scene.layers_off = content.layers_off.clone();
     scene.flags = content.flags;
     scene.stats.content_items = n;
     scene.stats.segments = scene.segs.len() + scene.t_segs.len();
@@ -333,6 +349,9 @@ fn emit_item(ctx: &Ctx, items: &[GpuItem], index: u32, it: &Item, part: &mut Par
     let shapes = clip.and_then(|c| c.shapes.as_ref());
     if it.kind == kind::IMAGE {
         emit_image(ctx, items, index, it, clip_rect, shapes, part);
+        return;
+    }
+    if fast_stroke(ctx, index, it, clip_rect, shapes.is_some(), part) {
         return;
     }
     let lines = flatten(ctx.content.item_path(it), ctx.opts.curve_tolerance);
@@ -493,68 +512,166 @@ fn stroke_segments(
     part: &mut Part,
     ctx: &Ctx,
 ) {
-    let cap = match item_cap {
-        cap::ROUND => end::ROUND,
-        cap::SQUARE => end::SQUARE,
-        _ => end::BUTT,
-    };
-    let mut seg_start = part.t_segs.len() as u32;
+    let cap = end_style(item_cap);
+    let seg_start = part.t_segs.len() as u32;
     let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
     for (p, closed) in runs {
-        let mut pts: Vec<[f32; 2]> = p.clone();
-        if *closed {
-            pts.push(p[0]);
-        }
-        // Drop repeated points; a run that collapses to one point still draws its caps.
-        pts.dedup();
-        if pts.len() == 1 {
-            if cap == end::BUTT {
-                continue;
-            }
-            pts.push(pts[0]);
-        }
-        let last = pts.len() - 2;
-        for (i, w) in pts.windows(2).enumerate() {
-            let (a, b) = (w[0], w[1]);
-            let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
-            let pieces = ((len / MAX_SEGMENT).ceil() as usize).max(1);
-            for k in 0..pieces {
-                let t0 = k as f32 / pieces as f32;
-                let t1 = (k + 1) as f32 / pieces as f32;
-                let q0 = [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0];
-                let q1 = [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1];
-                let first = i == 0 && k == 0;
-                let lastp = i == last && k == pieces - 1;
-                let s_end = if first && !*closed { cap } else { end::ROUND };
-                let e_end = if lastp && !*closed { cap } else { end::ROUND };
-                let mid = [(q0[0] + q1[0]) * 0.5, (q0[1] + q1[1]) * 0.5];
-                let cell = cell_index(mid[0], mid[1], ctx.cols, ctx.rows);
-                let c = cell_center(cell, ctx.cols);
-                let seg = StrokeSeg {
-                    p0: quant(q0, c),
-                    p1: quant(q1, c),
-                    cell: cell as u16,
-                    flags: s_end | e_end << 2,
-                    item: slot,
-                };
-                if opaque {
-                    part.segs.push(seg);
-                } else {
-                    part.t_segs.push(seg);
-                    bounds = grow(bounds, q0);
-                    bounds = grow(bounds, q1);
-                }
-            }
-        }
+        emit_polyline(p, *closed, cap, slot, opaque, part, ctx, &mut bounds);
     }
     if !opaque {
         let count = part.t_segs.len() as u32 - seg_start;
         if count > 0 {
             push_stream(part, stream::STROKES, seg_start, count, 0, bounds);
         }
-        seg_start = part.t_segs.len() as u32;
-        let _ = seg_start;
     }
+}
+
+fn end_style(c: u8) -> u16 {
+    match c {
+        cap::ROUND => end::ROUND,
+        cap::SQUARE => end::SQUARE,
+        _ => end::BUTT,
+    }
+}
+
+/// Emits a polyline's segments (closing it back to its start when `closed`), skipping
+/// zero-length ones; a polyline that is a single point still draws its round or square caps.
+fn emit_polyline(pts: &[[f32; 2]], closed: bool, cap: u16, slot: u32, opaque: bool, part: &mut Part, ctx: &Ctx, bounds: &mut Rect) {
+    if pts.is_empty() {
+        return;
+    }
+    let n = pts.len();
+    let count = if closed { n } else { n - 1 };
+    let seg = |i: usize| (pts[i], pts[(i + 1) % n]);
+    let first = (0..count).find(|&i| seg(i).0 != seg(i).1);
+    let Some(first) = first else {
+        if cap != end::BUTT {
+            emit_segment(pts[0], pts[0], cap | cap << 2, slot, opaque, part, ctx, bounds);
+        }
+        return;
+    };
+    let last = (0..count).rev().find(|&i| seg(i).0 != seg(i).1).unwrap();
+    for i in first..=last {
+        let (a, b) = seg(i);
+        if a == b {
+            continue;
+        }
+        let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2)).sqrt();
+        let pieces = ((len / MAX_SEGMENT).ceil() as usize).max(1);
+        for k in 0..pieces {
+            let (q0, q1) = if pieces == 1 {
+                (a, b)
+            } else {
+                let t0 = k as f32 / pieces as f32;
+                let t1 = (k + 1) as f32 / pieces as f32;
+                ([a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0], [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1])
+            };
+            let s_end = if i == first && k == 0 && !closed { cap } else { end::ROUND };
+            let e_end = if i == last && k == pieces - 1 && !closed { cap } else { end::ROUND };
+            emit_segment(q0, q1, s_end | e_end << 2, slot, opaque, part, ctx, bounds);
+        }
+    }
+}
+
+#[inline]
+fn emit_segment(q0: [f32; 2], q1: [f32; 2], flags: u16, slot: u32, opaque: bool, part: &mut Part, ctx: &Ctx, bounds: &mut Rect) {
+    let mid = [(q0[0] + q1[0]) * 0.5, (q0[1] + q1[1]) * 0.5];
+    let cell = cell_index(mid[0], mid[1], ctx.cols, ctx.rows);
+    let c = cell_center(cell, ctx.cols);
+    let seg = StrokeSeg { p0: quant(q0, c), p1: quant(q1, c), cell: cell as u16, flags, item: slot };
+    if opaque {
+        part.segs.push(seg);
+    } else {
+        part.t_segs.push(seg);
+        *bounds = grow(grow(*bounds, q0), q1);
+    }
+}
+
+/// The common case without allocating: a stroked path (no fill, no dashes, not thick) whose
+/// whole reach is inside a rectangular clip. Returns false when it does not apply.
+fn fast_stroke(ctx: &Ctx, index: u32, it: &Item, clip_rect: Rect, has_shapes: bool, part: &mut Part) -> bool {
+    if has_shapes || it.stroked == 0 || (it.fill_rule != fill::NONE && it.fill_color >> 24 != 0) || it.stroke_color >> 24 == 0 {
+        return false;
+    }
+    if it.width >= THICK_STROKE && it.join != join::ROUND {
+        return false;
+    }
+    if it.dash_len > 0 {
+        let d = &ctx.content.dashes[it.dash_start as usize..(it.dash_start as usize + it.dash_len as usize).min(ctx.content.dashes.len())];
+        if dash_visible(d) {
+            return false;
+        }
+    }
+    // Bounds from the path's points (curves lie inside their control points).
+    let npts: usize = ctx.content.verbs[it.verb_start as usize..(it.verb_start + it.verb_len) as usize]
+        .iter()
+        .map(|&v| content::verb_points(v))
+        .sum();
+    let pts = &ctx.content.points[it.point_start as usize..it.point_start as usize + npts];
+    if pts.is_empty() {
+        return true;
+    }
+    let b = clip::bounds(pts.iter().copied());
+    let half = it.width.max(0.0) * 0.5;
+    let reach = [b[0] - half - 1.0, b[1] - half - 1.0, b[2] + half + 1.0, b[3] + half + 1.0];
+    if !clip::rect_overlaps(reach, clip_rect) {
+        part.dropped += 1;
+        return true;
+    }
+    if !clip::rect_contains(clip_rect, reach) {
+        return false;
+    }
+    let slot = 2 * index + 1;
+    let opaque = it.stroke_color >> 24 == 255;
+    let cap = end_style(it.cap);
+    let seg_start = part.t_segs.len() as u32;
+    let mut bounds = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
+    let mut run = std::mem::take(&mut part.scratch);
+    run.clear();
+    let mut start = [0.0f32; 2];
+    for el in ctx.content.item_path(it) {
+        match el {
+            content::PathEl::Move(p) => {
+                if run.len() > 1 || (run.len() == 1 && cap != end::BUTT) {
+                    emit_polyline(&run, false, cap, slot, opaque, part, ctx, &mut bounds);
+                }
+                run.clear();
+                run.push(p);
+                start = p;
+            }
+            content::PathEl::Line(p) => {
+                if run.is_empty() {
+                    run.push(start);
+                }
+                run.push(p);
+            }
+            content::PathEl::Cubic(c1, c2, p) => {
+                if run.is_empty() {
+                    run.push(start);
+                }
+                let p0 = *run.last().unwrap();
+                content::flatten_cubic(p0, c1, c2, p, ctx.opts.curve_tolerance, &mut run);
+            }
+            content::PathEl::Close => {
+                if run.len() > 1 {
+                    emit_polyline(&run, true, cap, slot, opaque, part, ctx, &mut bounds);
+                    start = run[0];
+                }
+                run.clear();
+            }
+        }
+    }
+    if run.len() > 1 {
+        emit_polyline(&run, false, cap, slot, opaque, part, ctx, &mut bounds);
+    }
+    part.scratch = run;
+    if !opaque {
+        let count = part.t_segs.len() as u32 - seg_start;
+        if count > 0 {
+            push_stream(part, stream::STROKES, seg_start, count, 0, bounds);
+        }
+    }
+    true
 }
 
 fn grow(r: Rect, p: [f32; 2]) -> Rect {

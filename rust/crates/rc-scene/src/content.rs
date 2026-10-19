@@ -121,7 +121,9 @@ pub struct Item {
     pub image: u32,
 }
 
-/// A clip node: its path intersected with its parent's clip.
+/// A clip node: its path intersected with its parent's clip. Its path is in the content's clip
+/// path storage (`clip_verbs`, `clip_points`), apart from items' paths, so content can be handed
+/// over in chunks while clips stay shared.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 pub struct ClipNode {
@@ -240,11 +242,19 @@ pub struct PageContent {
     pub points: Vec<[f32; 2]>,
     pub dashes: Vec<f32>,
     pub clips: Vec<ClipNode>,
+    pub clip_verbs: Vec<u8>,
+    pub clip_points: Vec<[f32; 2]>,
     pub images: Vec<Image>,
     /// Optional content group names; items refer to them by index.
     pub layers: Vec<String>,
+    /// Layers that are off in the document's default configuration.
+    pub layers_off: Vec<u32>,
     /// [`flags`] for what the content uses that the scene cannot draw.
     pub flags: u32,
+    /// When this is one chunk of a page handed over while it was still being read: the page-wide
+    /// index of its first item, and the item count depth is spread over (0: this is the whole page).
+    pub slot_base: u32,
+    pub slot_total: u32,
 }
 
 /// Builds [`PageContent`] item by item. Extractors push paths in page space.
@@ -252,11 +262,13 @@ pub struct PageContent {
 pub struct ContentBuilder {
     pub content: PageContent,
     layer_index: std::collections::HashMap<String, u32>,
+    /// Items already handed over in chunks.
+    taken: u32,
 }
 
 impl ContentBuilder {
     pub fn new(size: [f32; 2]) -> Self {
-        Self { content: PageContent { size, ..Default::default() }, layer_index: Default::default() }
+        Self { content: PageContent { size, ..Default::default() }, layer_index: Default::default(), taken: 0 }
     }
 
     /// Starts a path; returns `(verb_start, point_start)` to pass to [`Self::finish_path`].
@@ -305,18 +317,63 @@ impl ContentBuilder {
         true
     }
 
-    /// Adds the path begun at `start` as a clip node under `parent`. Returns the node's index.
+    /// Moves the path begun at `start` into a clip node under `parent`. Returns the node's index.
     pub fn finish_clip(&mut self, start: (u32, u32), rule: u8, parent: u32) -> u32 {
-        let verb_len = self.content.verbs.len() as u32 - start.0;
-        self.content.clips.push(ClipNode {
-            parent,
-            verb_start: start.0,
-            verb_len,
-            point_start: start.1,
-            rule,
-            _pad: [0; 3],
-        });
-        self.content.clips.len() as u32 - 1
+        let verbs = self.content.verbs.split_off(start.0 as usize);
+        let points = self.content.points.split_off(start.1 as usize);
+        self.add_clip(&verbs, &points, rule, parent)
+    }
+
+    /// Copies the path begun at `start` (left in place, for an item too) into a clip node.
+    pub fn clip_from_path(&mut self, start: (u32, u32), rule: u8, parent: u32) -> u32 {
+        let c = &mut self.content;
+        let vs = c.clip_verbs.len() as u32;
+        let ps = c.clip_points.len() as u32;
+        c.clip_verbs.extend_from_slice(&c.verbs[start.0 as usize..]);
+        c.clip_points.extend_from_slice(&c.points[start.1 as usize..]);
+        c.clips.push(ClipNode { parent, verb_start: vs, verb_len: c.clip_verbs.len() as u32 - vs, point_start: ps, rule, _pad: [0; 3] });
+        c.clips.len() as u32 - 1
+    }
+
+    /// Adds a clip node with this path under `parent`. Returns its index.
+    pub fn add_clip(&mut self, verbs: &[u8], points: &[[f32; 2]], rule: u8, parent: u32) -> u32 {
+        let c = &mut self.content;
+        let vs = c.clip_verbs.len() as u32;
+        let ps = c.clip_points.len() as u32;
+        c.clip_verbs.extend_from_slice(verbs);
+        c.clip_points.extend_from_slice(points);
+        c.clips.push(ClipNode { parent, verb_start: vs, verb_len: verbs.len() as u32, point_start: ps, rule, _pad: [0; 3] });
+        c.clips.len() as u32 - 1
+    }
+
+    /// Items added so far, including chunks already taken.
+    pub fn item_count(&self) -> u32 {
+        self.taken + self.content.items.len() as u32
+    }
+
+    /// Hands over the items added since the last chunk as a chunk of the page (clips, layers and
+    /// flags so far come with it). `slot_total` is the item count depth is spread over for every
+    /// chunk of the page.
+    pub fn take_chunk(&mut self, slot_total: u32) -> PageContent {
+        let c = &mut self.content;
+        let chunk = PageContent {
+            size: c.size,
+            items: std::mem::take(&mut c.items),
+            verbs: std::mem::take(&mut c.verbs),
+            points: std::mem::take(&mut c.points),
+            dashes: std::mem::take(&mut c.dashes),
+            clips: c.clips.clone(),
+            clip_verbs: c.clip_verbs.clone(),
+            clip_points: c.clip_points.clone(),
+            images: std::mem::take(&mut c.images),
+            layers: c.layers.clone(),
+            layers_off: c.layers_off.clone(),
+            flags: c.flags,
+            slot_base: self.taken,
+            slot_total,
+        };
+        self.taken += chunk.items.len() as u32;
+        chunk
     }
 
     pub fn add_dashes(&mut self, dashes: &[f32]) -> (u32, u32) {
@@ -365,7 +422,10 @@ impl PageContent {
     }
 
     pub fn clip_path(&self, clip: &ClipNode) -> PathIter<'_> {
-        self.path(clip.verb_start, clip.verb_len, clip.point_start)
+        PathIter {
+            verbs: &self.clip_verbs[clip.verb_start as usize..(clip.verb_start + clip.verb_len) as usize],
+            points: &self.clip_points[clip.point_start as usize..],
+        }
     }
 
     /// Path segments (lines and curves, before flattening), for statistics.

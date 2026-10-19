@@ -15,6 +15,7 @@ crossbeam-channel.workspace = true
 
 [dev-dependencies]
 rc-bench = { path = "../rc-bench" }
+rc-parse.workspace = true
 image.workspace = true
 
 [lints]

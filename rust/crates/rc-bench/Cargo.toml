@@ -9,6 +9,11 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 flate2.workspace = true
+rc-scene.workspace = true
+rc-pdf.workspace = true
+rc-gpu.workspace = true
+rc-parse.workspace = true
+rayon.workspace = true
 
 [lints]
 workspace = true

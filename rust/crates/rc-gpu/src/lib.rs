@@ -719,7 +719,12 @@ impl Renderer {
         };
         let storage_usage = wgpu::BufferUsages::STORAGE;
         let items = buffer("items", bytemuck::cast_slice(&scene.items), storage_usage)?;
-        let layer_bits = vec![u32::MAX; scene.layers.len().div_ceil(32).max(1)];
+        let mut layer_bits = vec![u32::MAX; scene.layers.len().div_ceil(32).max(1)];
+        for &l in &scene.layers_off {
+            if let Some(w) = layer_bits.get_mut(l as usize / 32) {
+                *w &= !(1 << (l % 32));
+            }
+        }
         let layers = buffer("layers", bytemuck::cast_slice(&layer_bits), storage_usage | wgpu::BufferUsages::COPY_DST)?;
         let per_chunk = (self.max_binding.min(self.max_buffer) / size_of::<StrokeSeg>() as u64).max(1) as usize;
         let mut chunks = |segs: &[StrokeSeg], label: &str| -> anyhow::Result<Vec<SegChunk>> {
