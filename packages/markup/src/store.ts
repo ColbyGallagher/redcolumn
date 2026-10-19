@@ -1099,7 +1099,11 @@ function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | n
     return [next];
   });
   const ids = new Set(lines.map((l) => l.id));
-  for (const l of lines) if (l.matchTo && !ids.has(l.matchTo)) l.matchTo = null;
+  // A line left without its partner loses the adjustment it had in that pair's frame.
+  for (const l of lines) if (l.matchTo && !ids.has(l.matchTo)) {
+    l.matchTo = null;
+    delete l.offset;
+  }
   const regions: Record<number, Point[]> = {};
   for (const [k, pts] of Object.entries(s.regions)) {
     const n = to(Number(k));

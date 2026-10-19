@@ -10,7 +10,11 @@ import type { Point, StoredManualStitch, StoredMatchLine, StoredStitchGroup, Vie
 export function mergeStitch(auto: readonly StoredStitchGroup[], manual: StoredManualStitch, pages?: ReadonlyMap<number, StitchPage>): StoredStitchGroup[] {
   const regions = new Map(Object.entries(manual.regions).map(([k, v]) => [Number(k), v.map((p): [number, number] => [p[0], p[1]])]));
   if (!manual.lines.length && !regions.size) return auto as StoredStitchGroup[];
-  const joined = new Set(manualEdges({ lines: manual.lines }).edges.flatMap((e) => [e.a, e.b]));
+  const handJoins = manualEdges({ lines: manual.lines }).edges;
+  const joined = new Set(handJoins.flatMap((e) => [e.a, e.b]));
+  // Sheet pairs the user joined by hand; a detected join between the same two sheets gives way.
+  const pairKey = (a: number, b: number) => `${Math.min(a, b)}-${Math.max(a, b)}`;
+  const joinedPairs = new Set(handJoins.map((e) => pairKey(e.a, e.b)));
   const withRegions = (g: StoredStitchGroup): StoredStitchGroup =>
     g.placements.some((p) => regions.has(p.pageIndex)) ? { ...g, placements: g.placements.map((p) => (regions.has(p.pageIndex) ? { ...p, region: regions.get(p.pageIndex) } : p)) } : g;
   const untouched: StoredStitchGroup[] = [];
@@ -27,7 +31,7 @@ export function mergeStitch(auto: readonly StoredStitchGroup[], manual: StoredMa
     const toWorld = new Map(g.placements.map((p) => [p.pageIndex, p.toWorld as Affine]));
     for (const e of g.edges) {
       const [wa, wb] = [toWorld.get(e.a), toWorld.get(e.b)];
-      if (!e.line || !wa || !wb || (joined.has(e.a) && joined.has(e.b))) continue;
+      if (!e.line || !wa || !wb || joinedPairs.has(pairKey(e.a, e.b))) continue;
       const bToA = compose(invert(wa), wb);
       const aToB = invert(bToA);
       edges.push({ a: e.a, b: e.b, station: e.station, alignment: { bToA, votes: e.votes, confidence: e.confidence }, line: e.line });
@@ -161,14 +165,22 @@ export function newMatchLine(lines: readonly StoredMatchLine[], pageIndex: numbe
   };
 }
 
-/** Pairs `id` with `to` (or unpairs it, with null), unpairing whatever either was joined to before. */
+/**
+ * Pairs `id` with `to` (or unpairs it, with null), unpairing whatever either was joined to before.
+ * Every line whose partner changes loses its hand adjustment: it was measured in the old pair's frame.
+ */
 export function pairLines(lines: readonly StoredMatchLine[], id: string, to: string | null): StoredMatchLine[] {
   // The lines the two were joined to before lose their partner.
   const dropped = new Set([lines.find((l) => l.id === id)?.matchTo, to ? lines.find((l) => l.id === to)?.matchTo : null]);
+  const repaired = (l: StoredMatchLine, matchTo: string | null): StoredMatchLine => {
+    if (l.matchTo === matchTo) return l;
+    const { offset: _, ...rest } = l;
+    return { ...rest, matchTo };
+  };
   return lines.map((l) => {
-    if (l.id === id) return { ...l, matchTo: to };
-    if (to && l.id === to) return { ...l, matchTo: id };
-    return dropped.has(l.id) ? { ...l, matchTo: null } : l;
+    if (l.id === id) return repaired(l, to);
+    if (to && l.id === to) return repaired(l, id);
+    return dropped.has(l.id) ? repaired(l, null) : l;
   });
 }
 

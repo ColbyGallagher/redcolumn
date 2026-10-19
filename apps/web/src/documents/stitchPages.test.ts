@@ -220,3 +220,31 @@ test('a match line with its ends together stitches nothing and says why', () => 
   assert.deepEqual(mergeStitch([], { lines: [a, b], regions: {} }), []);
   assert.equal(lineProblem(b, {}), 'The line is too short: drag its ends apart');
 });
+
+test('hand-joining 1-2 and 3-4 keeps the detected 2-3 join between them', () => {
+  const line = { p0: [300, 0] as [number, number], p1: [300, 300] as [number, number], contentSide: 1 as const };
+  const auto: StoredStitchGroup[] = [
+    {
+      placements: [0, 1, 2, 3].map((i) => ({ pageIndex: i, toWorld: [1, 0, 0, 1, i * 200, 0] as [number, number, number, number, number, number], clips: [] })),
+      edges: [0, 1, 2].map((i) => ({ a: i, b: i + 1, station: null, votes: 5, confidence: 0.8, line })),
+    },
+  ];
+  const size = { width: 400, height: 300 };
+  const pair = (x: string, y: string, pa: number) => [
+    { ...newMatchLine([], pa, [300, 0], [300, 300], size), id: x, matchTo: y },
+    { ...newMatchLine([], pa + 1, [100, 300], [100, 0], size), id: y, matchTo: x },
+  ];
+  const groups = mergeStitch(auto, { lines: [...pair('a', 'b', 0), ...pair('c', 'd', 2)], regions: {} });
+  assert.deepEqual(groups.map((g) => g.placements.map((p) => p.pageIndex).sort()), [[0, 1, 2, 3]]);
+});
+
+test('re-pairing a line drops the adjustment it had with its old partner', () => {
+  const size = { width: 400, height: 300 };
+  const a = { ...newMatchLine([], 0, [300, 0], [300, 300], size), id: 'a', matchTo: 'b', offset: [3, 4] as [number, number] };
+  const b = { ...newMatchLine([], 1, [100, 300], [100, 0], size), id: 'b', matchTo: 'a', offset: [20, 0] as [number, number] };
+  const c = { ...newMatchLine([], 2, [100, 300], [100, 0], size), id: 'c' };
+  const lines = pairLines([a, b, c], 'a', 'c');
+  assert.deepEqual(lines.map((l) => [l.id, l.matchTo, l.offset]), [['a', 'c', undefined], ['b', null, undefined], ['c', 'a', undefined]]);
+  // Pairing a line with the partner it already has keeps its adjustment.
+  assert.deepEqual(pairLines([a, b], 'a', 'b')[0]!.offset, [3, 4]);
+});
