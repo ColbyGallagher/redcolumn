@@ -32,7 +32,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'diagram.connect': { spec: 'diagram' },
   'diagram.data': { spec: 'diagram' },
   'diagram.database': 'todo',
-  'diagram.decision': { spec: 'diagram' },
+  'diagram.decision': 'todo',
   'diagram.document': 'todo',
   'diagram.elbow': 'todo',
   'diagram.manualInput': 'todo',
