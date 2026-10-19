@@ -52,6 +52,8 @@ pub struct ViewerOptions {
     pub scene_budget: u64,
     /// Scene tiles drawn per frame at most (the rest come next frame).
     pub tiles_per_frame: usize,
+    /// GPU time a frame may spend drawing scene tiles, in milliseconds (at least one is drawn).
+    pub tile_ms_per_frame: f64,
     /// Pages loaded ahead on each side of the one in view.
     pub prefetch: usize,
     /// Supersampling for scene tiles (2 matches PDFium's antialiasing within the check's limits).
@@ -71,6 +73,7 @@ impl ViewerOptions {
             tile_budget: 320 << 20,
             scene_budget: 1536 << 20,
             tiles_per_frame: 12,
+            tile_ms_per_frame: 10.0,
             prefetch: 2,
             supersample: rc_check::SUPERSAMPLE,
         }
@@ -235,6 +238,8 @@ pub struct Viewer {
     tiles: BTreeMap<TileKey, Tile>,
     tile_bytes: u64,
     requested: HashSet<TileKey>,
+    /// Tiles PDFium could not draw (not asked for again until the document is reopened).
+    failed: HashSet<TileKey>,
     pending: HashMap<JobId, Pending>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -278,6 +283,7 @@ impl Viewer {
             tiles: BTreeMap::new(),
             tile_bytes: 0,
             requested: HashSet::new(),
+            failed: HashSet::new(),
             pending: HashMap::new(),
             tx,
             rx,
@@ -320,6 +326,19 @@ impl Viewer {
 
     pub fn page_count(&self) -> usize {
         self.doc.as_ref().map_or(0, |d| d.pages.len())
+    }
+
+    /// Our parser's view of the document, when it could read it.
+    pub fn parser(&self) -> Option<Arc<rc_parse::Document>> {
+        self.doc.as_ref()?.parser.clone()
+    }
+
+    /// A page's own /Rotate (0 when our parser cannot read the file).
+    pub fn page_rotate(&self, i: usize) -> i32 {
+        self.doc
+            .as_ref()
+            .and_then(|d| d.parser.as_ref()?.page(i).map(|p| p.rotate))
+            .unwrap_or(0)
     }
 
     pub fn page_info(&self, i: usize) -> Option<&PageInfo> {
@@ -411,8 +430,10 @@ impl Viewer {
         self.tiles.clear();
         self.tile_bytes = 0;
         self.requested.clear();
+        self.failed.clear();
         self.pending.clear();
         self.loading_count = 0;
+        self.checks_running = 0;
         self.layout = Layout::new(Vec::new(), self.layout.mode, self.layout.rotation, 0);
     }
 
@@ -1232,22 +1253,9 @@ impl Viewer {
                     if kind == Kind::Overlay && !overlay {
                         continue;
                     }
-                    // Fallbacks: coarser levels, then one finer, then the level itself.
-                    for l in [level - 4, level - 3, level - 2, level - 1, level + 1] {
-                        for (tx, ty) in tiles::covering(&self.layout, i, l, vis) {
-                            let k = TileKey {
-                                page: i as u32,
-                                kind,
-                                level: l,
-                                tx,
-                                ty,
-                            };
-                            if let Some(t) = self.tiles.get_mut(&k) {
-                                t.last_used = frame;
-                                out.push((k, tile_dest(&self.layout, &self.camera, &k)));
-                            }
-                        }
-                    }
+                    // The level itself, and what is missing from it.
+                    let mut exact = Vec::new();
+                    let mut kind_missing = 0;
                     for (tx, ty) in tiles::covering(&self.layout, i, level, vis) {
                         let k = TileKey {
                             page: i as u32,
@@ -1258,10 +1266,14 @@ impl Viewer {
                         };
                         if let Some(t) = self.tiles.get_mut(&k) {
                             t.last_used = frame;
-                            out.push((k, tile_dest(&self.layout, &self.camera, &k)));
+                            exact.push((k, tile_dest(&self.layout, &self.camera, &k)));
+                            continue;
+                        }
+                        if self.failed.contains(&k) {
                             continue;
                         }
                         missing += 1;
+                        kind_missing += 1;
                         let d = tile_dest(&self.layout, &self.camera, &k);
                         let c = [
                             (d[0] + d[2]) / 2.0 - width as f32 / 2.0,
@@ -1273,6 +1285,27 @@ impl Viewer {
                             _ => raster_wanted.push((k, 1000 - (dist.sqrt() as i64 / 64))),
                         }
                     }
+                    // Fallbacks under it while it is incomplete: coarser levels, then one finer.
+                    // Overlay tiles are transparent, so once the level is complete its
+                    // fallbacks would show through; opaque kinds keep them for the edges.
+                    if kind != Kind::Overlay || kind_missing > 0 {
+                        for l in [level - 4, level - 3, level - 2, level - 1, level + 1] {
+                            for (tx, ty) in tiles::covering(&self.layout, i, l, vis) {
+                                let k = TileKey {
+                                    page: i as u32,
+                                    kind,
+                                    level: l,
+                                    tx,
+                                    ty,
+                                };
+                                if let Some(t) = self.tiles.get_mut(&k) {
+                                    t.last_used = frame;
+                                    out.push((k, tile_dest(&self.layout, &self.camera, &k)));
+                                }
+                            }
+                        }
+                    }
+                    out.extend(exact);
                 }
             } else {
                 busy = true;
@@ -1316,6 +1349,15 @@ impl Viewer {
             }
             drawn_now += 1;
             missing -= 1;
+            // Wait for the tile so the time spent is real GPU time, and stop once the frame's
+            // budget is spent (a slow GPU draws fewer tiles a frame instead of freezing).
+            let _ = self.gpu.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            });
+            if t_tiles.elapsed().as_secs_f64() * 1000.0 > self.opts.tile_ms_per_frame {
+                break;
+            }
         }
         self.diag.scene_tiles_this_frame = drawn_now;
         self.diag.scene_tile_ms = t_tiles.elapsed().as_secs_f64() * 1000.0;
@@ -1419,6 +1461,16 @@ impl Viewer {
     }
 
     fn request_preview(&mut self, page: usize) {
+        let key = TileKey {
+            page: page as u32,
+            kind: Kind::Preview,
+            level: 0,
+            tx: 0,
+            ty: 0,
+        };
+        if self.failed.contains(&key) {
+            return;
+        }
         let Some(d) = self.doc.as_mut() else { return };
         let doc = d.id;
         let p = &mut d.pages[page];
@@ -1577,6 +1629,11 @@ impl Viewer {
                 p.info.mode = PageMode::Loading;
             }
         }
+    }
+
+    /// Emits `name` the next time everything in view is drawn at full sharpness.
+    pub fn expect_sharp(&mut self, name: &'static str) {
+        self.awaiting_sharp = Some(name);
     }
 
     /// Drains the timing events.

@@ -19,6 +19,8 @@ pub struct Store {
     undo: Vec<Vec<Change>>,
     redo: Vec<Vec<Change>>,
     next_seq: u64,
+    /// What the last undo step was (see [`Store::update_coalesced`]).
+    last_key: Option<String>,
     /// Edits since the last save.
     pub dirty: bool,
     /// Annotations imported per page as (page, /Annots index): saving removes the ones whose
@@ -115,6 +117,32 @@ impl Store {
         self.commit(changes);
     }
 
+    /// Like [`Store::update`], but merged into the last undo step when that was the same kind of
+    /// change (`key`) to the same markups: dragging a slider is one step, not a hundred.
+    pub fn update_coalesced(&mut self, ids: &[String], key: &str, f: impl FnMut(&mut Markup)) {
+        let key = format!("{key}:{}", ids.join(","));
+        let merge = self.last_key.as_deref() == Some(key.as_str()) && self.redo.is_empty();
+        let before = merge.then(|| self.undo.pop()).flatten();
+        let steps = self.undo.len();
+        self.update(ids, f);
+        if let Some(prev) = before {
+            if self.undo.len() > steps {
+                let mut now = self.undo.pop().unwrap();
+                // Keep each markup's state from before the first change.
+                for c in &mut now {
+                    let id = c.after.as_ref().map(|m| &m.id);
+                    if let Some(p) = prev.iter().find(|p| p.after.as_ref().map(|m| &m.id) == id) {
+                        c.before = p.before.clone();
+                    }
+                }
+                self.undo.push(now);
+            } else {
+                self.undo.push(prev);
+            }
+        }
+        self.last_key = Some(key);
+    }
+
     /// Changes a markup even when locked (locking itself, status and comments).
     pub fn update_any(&mut self, id: &str, f: impl FnOnce(&mut Markup)) {
         let Some(pos) = self.markups.iter().position(|m| m.id == id) else {
@@ -154,6 +182,7 @@ impl Store {
             return;
         }
         apply(&mut self.markups, &changes, false);
+        self.last_key = None;
         self.undo.push(changes);
         self.redo.clear();
         self.dirty = true;
@@ -168,6 +197,7 @@ impl Store {
     }
 
     pub fn undo(&mut self) -> bool {
+        self.last_key = None;
         let Some(c) = self.undo.pop() else { return false };
         apply(&mut self.markups, &c, true);
         self.redo.push(c);
@@ -255,6 +285,20 @@ mod tests {
         assert!(s.all().is_empty());
         while s.redo() {}
         assert_eq!(s.all().len(), 1);
+    }
+
+    #[test]
+    fn coalesced_is_one_step() {
+        let mut s = Store::new();
+        let a = s.add(m(RECT));
+        for w in 2..10 {
+            s.update_coalesced(&[a.clone()], "width", |m| m.style.width = w as f64);
+        }
+        assert_eq!(s.get(&a).unwrap().style.width, 9.0);
+        s.undo();
+        assert_eq!(s.get(&a).unwrap().style.width, 1.5);
+        s.undo();
+        assert!(s.all().is_empty());
     }
 
     #[test]

@@ -50,10 +50,22 @@ pub fn default_library_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let name = Pdfium::pdfium_platform_library_name();
-    std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join(&name)))
-        .unwrap_or_else(|| PathBuf::from(name))
+    let exe = std::env::current_exe().ok();
+    let beside = exe.as_ref().and_then(|e| e.parent().map(|d| d.join(&name)));
+    if beside.as_ref().is_some_and(|p| p.exists()) {
+        return beside.unwrap();
+    }
+    // A development build: the library `cargo xtask fetch-pdfium` put in the workspace.
+    let sub = if cfg!(windows) { "win-x64/bin" } else { "linux-x64/lib" };
+    if let Some(dev) = exe
+        .iter()
+        .flat_map(|e| e.ancestors())
+        .map(|d| d.join("vendor/pdfium").join(sub).join(&name))
+        .find(|p| p.exists())
+    {
+        return dev;
+    }
+    beside.unwrap_or_else(|| PathBuf::from(name))
 }
 
 struct CachedPage {
