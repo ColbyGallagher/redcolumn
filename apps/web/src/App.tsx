@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
-import { autoSizedPoints, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -4809,8 +4809,9 @@ export function App() {
     const m = store?.get(id);
     if (!store || !m) return;
     const replace = m.type === 'replaceText';
-    void askText(replace ? 'Replace Text' : 'Dimension Text', m.text ?? '', {
-      label: replace ? `Replacing "${m.comment ?? ''}" with:` : 'Shown along the dimension line.',
+    const connector = m.type === 'connector';
+    void askText(replace ? 'Replace Text' : connector ? 'Connector Text' : 'Dimension Text', m.text ?? '', {
+      label: replace ? `Replacing "${m.comment ?? ''}" with:` : connector ? 'Shown on the connector, e.g. Yes or No.' : 'Shown along the dimension line.',
       confirm: 'OK',
     }).then((text) => {
       if (text !== null && text !== (m.text ?? '')) {
@@ -7138,6 +7139,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       setStampsCreating(false);
       setStampsOpen(true);
     },
+    flowShape: (kind) => activeTools?.setFlowShape(kind),
+    addNextShape: (side) => activeTools?.addNextShape(side),
+    connectShapes: () => {
+      if (activeTools && !activeTools.connectSelected()) setNotice('The selected shapes are already connected.');
+    },
+    connectorRoute: (route) => activeTools?.setConnectorRoute(route),
   };
   /** A new document that is a copy of a template document (its markups too), under `name`. */
   const copyTemplate = async (choice: StoredFile, name: string) => {
@@ -7503,6 +7510,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     leftTab,
     rightTab,
     bottomTab,
+    flowShape: toolsState.flowShape,
+    connectorRoute: toolsState.connectorRoute,
+    canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
+    canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;

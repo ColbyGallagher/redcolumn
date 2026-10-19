@@ -26,6 +26,7 @@ Use it in the browser at [redcolumn-web.vercel.app](https://redcolumn-web.vercel
   - [Markups list and spreadsheets](#markups-list-and-spreadsheets)
   - [Documents](#documents)
   - [Batch work](#batch-work)
+  - [Flowcharts](#flowcharts)
   - [Shared work (experimental)](#shared-work-experimental)
   - [Local MCP server for AI](#local-mcp-server-for-ai)
 - [Install the desktop app](#install-the-desktop-app)
@@ -328,6 +329,14 @@ The **Bulk** tab of the ribbon runs one task across many PDFs at once: flatten a
 folder of scans, stamp every sheet, set page labels, sign, or print summaries.
 
 <img src="docs/media/readme/bulk-ribbon.png" alt="The Bulk tab of the ribbon" width="760">
+
+### Flowcharts
+
+The **Diagram** tab draws basic flowcharts on any page, or on a blank one: process, decision, start and
+end, data, document and other standard shapes, each with its text inside. **Connectors** glue to the
+shapes they join and re-route with right-angled bends when a shape moves. **Add Step** puts the next
+shape beside the selected one, already connected, so a flowchart grows a step at a time. Shapes and
+connectors save as ordinary PDF annotations, like every other markup.
 
 ### Shared work (experimental)
 

@@ -5,6 +5,7 @@ import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
 import type { ToolbarStyle } from '../workspace/profiles';
+import { FLOW_SHAPES, type FlowShapeKind, type Side } from '@nb/markup';
 
 /** The CAD Modify tools' commands, in menu order. */
 export const CAD_COMMANDS: readonly [id: string, tool: CadTool][] = [
@@ -185,6 +186,14 @@ export interface CommandActions {
   install: () => void;
   help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
+  /** Diagram: arms the Flowchart Shape tool with a shape. */
+  flowShape: (kind: FlowShapeKind) => void;
+  /** Diagram: adds the next step beside the selected shape, joined to it. */
+  addNextShape: (side: Side) => void;
+  /** Diagram: joins the selected shapes one after another. */
+  connectShapes: () => void;
+  /** Diagram: how connectors bend (new ones and the selected ones). */
+  connectorRoute: (route: 'elbow' | 'straight') => void;
 }
 
 /** The state commands depend on. */
@@ -252,6 +261,13 @@ export interface CommandState {
   leftTab: string;
   rightTab: string;
   bottomTab: string;
+  /** The shape the Flowchart Shape tool draws, and how connectors bend. */
+  flowShape: FlowShapeKind;
+  connectorRoute: 'elbow' | 'straight';
+  /** One shape is selected to add the next step after. */
+  canAddNextShape: boolean;
+  /** Two or more shapes are selected to join. */
+  canConnectShapes: boolean;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -467,6 +483,15 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
+    ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
+    cmd('tool.connector', 'Tools', 'Connector', () => a.setTool('connector'), doc && s.editable, s.tool === 'connector'),
+    cmd('diagram.addBelow', 'Tools', 'Add Step Below', () => a.addNextShape('bottom'), s.canAddNextShape),
+    cmd('diagram.addRight', 'Tools', 'Add Step Right', () => a.addNextShape('right'), s.canAddNextShape),
+    cmd('diagram.addAbove', 'Tools', 'Add Step Above', () => a.addNextShape('top'), s.canAddNextShape),
+    cmd('diagram.addLeft', 'Tools', 'Add Step Left', () => a.addNextShape('left'), s.canAddNextShape),
+    cmd('diagram.connect', 'Tools', 'Connect Shapes', a.connectShapes, s.canConnectShapes),
+    cmd('diagram.elbow', 'Tools', 'Elbow Connectors', () => a.connectorRoute('elbow'), doc, s.connectorRoute === 'elbow'),
+    cmd('diagram.straight', 'Tools', 'Straight Connectors', () => a.connectorRoute('straight'), doc, s.connectorRoute === 'straight'),
 
     cmd('window.toolbar', 'Window', 'Tools Toolbar', a.toggleToolbar, true, s.showToolbar),
     cmd('window.ribbon', 'Window', 'Ribbon', () => a.setToolbarStyle('ribbon', false), true, s.toolbarStyle === 'ribbon' && !s.ribbonCollapsed),

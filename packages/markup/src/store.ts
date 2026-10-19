@@ -10,6 +10,7 @@ import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
+import { gluedTo, routeConnector } from './flowchart';
 
 /**
  * `auto`: detected with high confidence and active. `review`: detected with low confidence; active
@@ -170,6 +171,8 @@ export class MarkupStore {
   private assemblySnapshot: Assembly[] = NO_ASSEMBLIES;
   private locked = false;
   private editRule: EditRule | null = null;
+  /** Some markup is a connector, so moving markups may need connectors re-routed. */
+  private hasConnectors = false;
 
   readonly fileHash: string;
 
@@ -276,7 +279,10 @@ export class MarkupStore {
    */
   private refresh(changed?: ReadonlyMap<Y.AbstractType<any>, unknown>) {
     const has = (t: Y.AbstractType<any>) => !changed || changed.has(t);
-    if (has(this.map)) this.snapshot = [...this.map.values()];
+    if (has(this.map)) {
+      this.snapshot = [...this.map.values()];
+      this.hasConnectors = this.snapshot.some((m) => m.type === 'connector');
+    }
     if (has(this.scales)) this.scaleSnapshot = Object.fromEntries([...this.scales.entries()].map(([k, v]) => [Number(k), v]));
     if (has(this.sheets)) this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
     if (has(this.links)) this.linkSnapshot = [...this.links.values()];
@@ -925,6 +931,9 @@ export class MarkupStore {
         if (clean.status === 'none') delete clean.statusHistory;
       }
       this.map.set(markup.id, clean as unknown as Markup);
+      // A new connector is routed to its shapes; a markup put back in place takes its connectors along.
+      if (markup.type === 'connector') this.hasConnectors = true;
+      this.followConnectors(new Set([markup.id]));
     }, LOCAL);
     if (added) MarkupStore.onAdded?.(this, clean as unknown as Markup);
   }
@@ -948,7 +957,24 @@ export class MarkupStore {
     }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
-    this.doc.transact(() => this.map.set(id, next as unknown as Markup), LOCAL);
+    this.doc.transact(() => {
+      this.map.set(id, next as unknown as Markup);
+      if ('points' in patch || 'rotation' in patch || 'connect' in patch || 'pageIndex' in patch) this.followConnectors(new Set([id]));
+    }, LOCAL);
+  }
+
+  /**
+   * Re-routes the connectors glued to `ids` (and any of them that are connectors) after they
+   * changed, in the same transaction: a moved shape takes its connectors along in one undo step.
+   */
+  private followConnectors(ids: ReadonlySet<string>) {
+    if (!this.hasConnectors) return;
+    const get = (id: string) => this.map.get(id);
+    for (const c of this.map.values()) {
+      if (c.type !== 'connector' || !(ids.has(c.id) || gluedTo(c, ids)) || !this.mayEdit(c)) continue;
+      const points = routeConnector(c, get);
+      if (points !== c.points && JSON.stringify(points) !== JSON.stringify(c.points)) this.map.set(c.id, { ...c, points });
+    }
   }
 
   remove(ids: Iterable<string>) {

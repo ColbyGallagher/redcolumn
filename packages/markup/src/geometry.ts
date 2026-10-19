@@ -3,7 +3,7 @@ import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -69,6 +69,10 @@ function baseShape(m: Markup): ShapePart[] {
       return withEnds(m, arcPoints(points));
     case 'ellipticalArc':
       return withEnds(m, ellipticalArcPoints(m));
+    case 'connector':
+      return withEnds(m, points);
+    case 'flowShape':
+      return flowShapeParts(m.flowShape ?? 'process', boundsOf(points), style.fill, style.width > 0);
     case 'flagLabel': {
       // A pennant: the text box with a point on its left.
       const b = boundsOf(points);
@@ -236,6 +240,67 @@ function baseShape(m: Markup): ShapePart[] {
         { path: polyline(arc), stroke: true, fill: null },
       ];
     }
+  }
+}
+
+/**
+ * A flowchart shape filling box `b`: its outline (filled), then any inner lines it has (the bars of
+ * a predefined process, the front of a cylinder's rim).
+ */
+export function flowShapeParts(kind: FlowShapeKind, b: Rect, fill: string | null, stroke = true): ShapePart[] {
+  const { x, y, w, h } = b;
+  const poly = (pts: Point[]): PathCmd[] => [...polyline(pts), ['Z']];
+  const outline = (path: PathCmd[], ...inner: PathCmd[][]): ShapePart[] => [{ path, stroke, fill }, ...inner.map((p) => ({ path: p, stroke, fill: null }))];
+  switch (kind) {
+    case 'process':
+      return outline(rectPath(b));
+    case 'decision':
+      return outline(poly([[x + w / 2, y], [x + w, y + h / 2], [x + w / 2, y + h], [x, y + h / 2]]));
+    case 'terminator':
+      return outline(roundedRect(b, Math.min(w, h) / 2));
+    case 'data': {
+      const s = flowSlant(b);
+      return outline(poly([[x + s, y], [x + w, y], [x + w - s, y + h], [x, y + h]]));
+    }
+    case 'preparation': {
+      const s = flowSlant(b);
+      return outline(poly([[x + s, y], [x + w - s, y], [x + w, y + h / 2], [x + w - s, y + h], [x + s, y + h], [x, y + h / 2]]));
+    }
+    case 'manualInput':
+      return outline(poly([[x, y + h * 0.3], [x + w, y], [x + w, y + h], [x, y + h]]));
+    case 'document': {
+      // A sheet with a wavy bottom edge.
+      const bottom = y + h * 0.85;
+      return outline([['M', x, y], ['L', x + w, y], ['L', x + w, bottom], ['C', x + w * 0.72, bottom - h * 0.17, x + w * 0.3, bottom + h * 0.2, x, bottom], ['Z']]);
+    }
+    case 'predefined': {
+      const d = flowBar(b);
+      return outline(rectPath(b), [['M', x + d, y], ['L', x + d, y + h]], [['M', x + w - d, y], ['L', x + w - d, y + h]]);
+    }
+    case 'database': {
+      // A cylinder: an ellipse for its top, its front edge drawn again over the fill.
+      const e = flowRim(b);
+      const cx = x + w / 2;
+      const rx = w / 2;
+      const top = y + e;
+      const base = y + h - e;
+      const kx = rx * KAPPA;
+      const ky = e * KAPPA;
+      return outline(
+        [
+          ['M', x, top],
+          ['C', x, top - ky, cx - kx, y, cx, y],
+          ['C', cx + kx, y, x + w, top - ky, x + w, top],
+          ['L', x + w, base],
+          ['C', x + w, base + ky, cx + kx, y + h, cx, y + h],
+          ['C', cx - kx, y + h, x, base + ky, x, base],
+          ['Z'],
+        ],
+        [['M', x, top], ['C', x, top + ky, cx - kx, top + e, cx, top + e], ['C', cx + kx, top + e, x + w, top + ky, x + w, top]],
+      );
+    }
+    case 'circle':
+      return outline(ellipsePath(b));
   }
 }
 

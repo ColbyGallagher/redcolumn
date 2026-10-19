@@ -38,7 +38,8 @@ export function defaultCornerRadius(m: Pick<Markup, 'points'>): number {
 
 /** Text boxes that Auto-size can fit to their text. */
 export function canAutoSize(m: Pick<Markup, 'type' | 'text'>): boolean {
-  return isTextType(m.type) && m.type !== 'typewriter' && !!m.text;
+  // A flowchart shape keeps its size: the text is laid out in it.
+  return isTextType(m.type) && m.type !== 'typewriter' && m.type !== 'flowShape' && !!m.text;
 }
 
 /**

@@ -1,7 +1,8 @@
 import { arcPoints } from './arc';
 import { applyMatrix, type Matrix } from './export';
 import { importAnnotations, type ImportableAnnotation } from './import';
-import { boundsOf, isTextType, markupBounds, threadReplies, type Markup, type Point } from './model';
+import { flatten, markupShape } from './geometry';
+import { boundsOf, isTextType, markupBounds, rotatePoint, rotationCentre, threadReplies, type Markup, type Point } from './model';
 import { markupLines } from './textSelect';
 import { lineEnds, type LineEnding } from './style';
 
@@ -68,6 +69,7 @@ function element(m: Markup, user: (p: Point) => Point): { tag: string; attrs: Re
     case 'angle':
     case 'arc':
     case 'arcLength':
+    case 'connector':
       return {
         tag: 'polyline',
         attrs: { ...ends, ...(m.type === 'polylength' || m.type === 'arcLength' ? { IT: 'PolyLineDimension' } : {}) },
@@ -79,6 +81,12 @@ function element(m: Markup, user: (p: Point) => Point): { tag: string; attrs: Re
     case 'volume':
     case 'space':
       return { tag: 'polygon', attrs: m.type === 'area' || m.type === 'volume' ? { IT: 'PolygonDimension' } : {}, children: [`<vertices>${pts(m.points)}</vertices>`] };
+    case 'flowShape': {
+      // The shape's outline; its text goes in contents, as for other markups.
+      const outline = flatten(markupShape(m)[0]?.path ?? [])[0] ?? m.points;
+      const turned = m.rotation ? outline.map((p) => rotatePoint(p, rotationCentre(m), m.rotation!)) : outline;
+      return { tag: 'polygon', attrs: {}, children: [`<vertices>${pts(turned)}</vertices>`] };
+    }
     case 'cloud': {
       const b = boundsOf(m.points);
       return { tag: 'polygon', attrs: { style: 'cloudy', intensity: '1', IT: 'PolygonCloud' }, children: [`<vertices>${pts([[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]])}</vertices>`] };
@@ -138,7 +146,7 @@ export function markupsToXfdf(markups: readonly Markup[], matrixFor: (pageIndex:
     const corners = [user([b.x, b.y]), user([b.x + b.w, b.y + b.h])];
     const rect = [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])];
     const { tag, attrs, children } = element(m, user);
-    const text = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' ? m.text : m.comment;
+    const text = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' || m.type === 'connector' ? m.text : m.comment;
     const all: Record<string, string> = {
       page: String(m.pageIndex),
       rect: rect.map(fmt).join(','),

@@ -44,6 +44,8 @@ export type MarkupType =
   | 'flag'
   | 'flagLabel'
   | 'replaceText'
+  | 'flowShape'
+  | 'connector'
   | MeasureKind;
 
 /** Every markup type, in menu order. */
@@ -52,7 +54,7 @@ export const MARKUP_TYPES = Object.keys(TYPE_INFO) as MarkupType[];
 export { isMeasureKind };
 
 /** Markups whose content is typed text laid out in their box. */
-export function isTextType(type: string): type is 'text' | 'callout' | 'typewriter' | 'flagLabel' {
+export function isTextType(type: string): type is 'text' | 'callout' | 'typewriter' | 'flagLabel' | 'flowShape' {
   return TYPE_INFO[type as MarkupType]?.content === 'text';
 }
 
@@ -65,6 +67,26 @@ export function isImageType(type: string): type is 'image' | 'signature' {
 export const CLICK_SHAPES: Partial<Record<MarkupType, { min: number; fixed?: number; closes?: boolean }>> = Object.fromEntries(
   MARKUP_TYPES.flatMap((t) => (TYPE_INFO[t].click ? [[t, TYPE_INFO[t].click]] : [])),
 );
+
+/** The shapes of a flowchart (Diagram tab), each drawn in its box with its text inside. */
+export type FlowShapeKind = 'process' | 'decision' | 'terminator' | 'data' | 'document' | 'predefined' | 'preparation' | 'manualInput' | 'database' | 'circle';
+
+/** A side of a shape's box, where a connector meets it. */
+export type Side = 'top' | 'right' | 'bottom' | 'left';
+
+/** One end of a connector glued to a shape: at the middle of `side`, or the side facing the other end when unset. */
+export interface ConnectorEnd {
+  id: string;
+  side?: Side;
+}
+
+/** What a connector joins; its points are routed between them again whenever either moves. */
+export interface ConnectorLinks {
+  from?: ConnectorEnd;
+  to?: ConnectorEnd;
+  /** Right-angled bends (the default) or one straight line. */
+  route?: 'elbow' | 'straight';
+}
 
 /** Count markers (Bluebeam's count styles). */
 export type CountShape = 'circle' | 'check' | 'square' | 'diamond' | 'triangle' | 'cross';
@@ -288,6 +310,10 @@ export interface Markup {
   };
   /** Tables: the grid and what is in its cells. */
   table?: TableData;
+  /** Flowchart shapes: which shape is drawn in the box. */
+  flowShape?: FlowShapeKind;
+  /** Connectors: the shapes their ends are glued to. */
+  connect?: ConnectorLinks;
   /** Subject shown in the markup list; the type's name when unset (tool library tools set it). */
   subject?: string;
   /** Values of the document's custom columns, keyed by column id. */
@@ -386,12 +412,67 @@ export interface Rect {
 }
 
 /** The box a markup's text or picture sits in: a callout's box, else the bounds of its points. */
-export function contentBox(m: Pick<Markup, 'type' | 'points'>): Rect {
+export function contentBox(m: Pick<Markup, 'type' | 'points'> & { flowShape?: FlowShapeKind }): Rect {
   const b = boundsOf(m.type === 'callout' && m.points.length >= 4 ? m.points.slice(2, 4) : m.points);
+  if (m.type === 'flowShape') return flowTextBox(m.flowShape ?? 'process', b);
   if (m.type !== 'flagLabel') return b;
   // A flag label's text sits right of its pointed end.
   const tip = flagTip(b);
   return { x: b.x + tip, y: b.y, w: Math.max(0, b.w - tip), h: b.h };
+}
+
+/**
+ * The part of a flowchart shape's box its text sits in: clear of slanted sides, the diamond's
+ * corners and the cylinder's rim. Inset evenly, so the text stays centred on the shape.
+ */
+export function flowTextBox(kind: FlowShapeKind, b: Rect): Rect {
+  let ix = 0;
+  let iy = 0;
+  switch (kind) {
+    case 'decision':
+      ix = b.w * 0.2;
+      iy = b.h * 0.2;
+      break;
+    case 'terminator':
+      ix = Math.min(b.h / 2, b.w / 2) * 0.4;
+      break;
+    case 'data':
+    case 'preparation':
+      ix = flowSlant(b);
+      break;
+    case 'predefined':
+      ix = flowBar(b);
+      break;
+    case 'document':
+      iy = b.h * 0.12;
+      break;
+    case 'manualInput':
+      iy = b.h * 0.15;
+      break;
+    case 'database':
+      iy = flowRim(b) * 2;
+      break;
+    case 'circle':
+      ix = b.w * 0.146;
+      iy = b.h * 0.146;
+      break;
+  }
+  return { x: b.x + ix, y: b.y + iy, w: Math.max(0, b.w - ix * 2), h: Math.max(0, b.h - iy * 2) };
+}
+
+/** How far a data shape's sides lean, and a preparation shape's points reach in. */
+export function flowSlant(b: Rect): number {
+  return Math.min(b.w * 0.2, b.h * 0.5);
+}
+
+/** How far in a predefined process's inner bars stand. */
+export function flowBar(b: Rect): number {
+  return Math.min(b.w * 0.1, 12);
+}
+
+/** Half the height of a database cylinder's rim. */
+export function flowRim(b: Rect): number {
+  return Math.min(b.h * 0.12, b.w * 0.25);
 }
 
 /** How far a flag label's point reaches in from its left side. */
@@ -448,7 +529,7 @@ export function markupBounds(m: Markup): Rect {
 }
 
 /** Types that can be turned to any angle (Rotate): box-shaped markups. */
-export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp', 'flagLabel']);
+export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp', 'flagLabel', 'flowShape']);
 
 /** The point a markup turns about: the centre of its box. */
 export function rotationCentre(m: Pick<Markup, 'type' | 'points'>): Point {

@@ -3,7 +3,8 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexStr
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
-import { markupShape, type PathCmd } from './geometry';
+import { flatten, markupShape, type PathCmd } from './geometry';
+import { connectorLabel } from './flowchart';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
 import { arcPoints, circleThrough } from './arc';
 import { calloutLanding } from './callout';
@@ -12,7 +13,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, measurementLabel, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
@@ -456,6 +457,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
 
+  const flow = connectorLabel(m);
+  if (flow) {
+    const font = ctx.fonts.get(standardFont(style, false))!;
+    const text = safeText(font, flow.text);
+    const textW = font.widthOfTextAtSize(text, flow.size);
+    const w = textW + flow.size * 0.6;
+    const h = flow.size * 1.4;
+    const [x, y] = flow.at;
+    const background = labelStyle(m).background;
+    if (background) {
+      const [br, bg, bb] = rgb(background);
+      ops.push(`/GS1 gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
+    }
+    ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(flow.size)} Tf`, `1 0 0 -1 ${fmt(x - textW / 2)} ${fmt(y + flow.size * 0.35)} Tm`, `${font.encodeText(text).toString()} Tj`, 'ET');
+    resources.Font = { F0: font.ref };
+  }
+
   const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
   if (image) {
     const b = boundsOf(m.points);
@@ -794,7 +812,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   }
   const label = measurementLabel(m, ctx.scale);
   const signed = m.signature ? `Signed by ${m.signature.signer} on ${new Date(m.signature.signedAt).toLocaleString()}${m.signature.reason ? ` (${m.signature.reason})` : ''}` : null;
-  const contents = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' ? [m.text, m.type === 'replaceText' ? m.comment : null].filter(Boolean).join(' — ') : [signed, label?.text, m.comment].filter(Boolean).join(' — ');
+  const contents = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' || m.type === 'connector' ? [m.text, m.type === 'replaceText' ? m.comment : null].filter(Boolean).join(' — ') : [signed, label?.text, m.comment].filter(Boolean).join(' — ');
   // Bluebeam's Markups List names and groups markups by subject: without one they sit under a blank group.
   base.Subj = pdfText(m.subject || defaultSubject(m));
   if (contents) base.Contents = pdfText(contents);
@@ -826,8 +844,16 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       };
       break;
     case 'polyline':
+    case 'connector':
       specific = { Subtype: 'PolyLine', Vertices: flat(user), LE: le, ...(filledEnd ? { IC: color } : {}) };
       break;
+    case 'flowShape': {
+      // Other tools see the shape's outline, with its text in /Contents; ours come back as the shape from NBData.
+      const outline = flatten(markupShape(m)[0]?.path ?? [])[0] ?? m.points;
+      const turned = m.rotation ? outline.map((p) => rotatePoint(p, rotationCentre(m), m.rotation!)) : outline;
+      specific = { Subtype: 'Polygon', Vertices: flat(turned.map((p) => apply(matrix, p))) };
+      break;
+    }
     case 'arc':
       // PDF has no arc annotation; a polyline along the curve keeps its look in other viewers.
       specific = { Subtype: 'PolyLine', Vertices: flat(arcPoints(m.points, 24).map((p) => apply(matrix, p))), LE: le, ...(filledEnd ? { IC: color } : {}) };

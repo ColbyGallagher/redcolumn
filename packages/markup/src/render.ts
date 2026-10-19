@@ -10,6 +10,7 @@ import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
+import { connectorLabel } from './flowchart';
 
 export const TEXT_FONT_FAMILY = 'Helvetica, Arial, sans-serif';
 
@@ -336,6 +337,22 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillText(dim.text, 0, 0);
     ctx.restore();
   }
+  const flow = connectorLabel(m);
+  if (flow) {
+    // On a background, so the line does not run through it.
+    ctx.font = cssFont(style, flow.size);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(flow.text).width + flow.size * 0.6;
+    const h = flow.size * 1.4;
+    const background = labelStyle(m).background;
+    if (background) {
+      ctx.fillStyle = background;
+      ctx.fillRect(flow.at[0] - w / 2, flow.at[1] - h / 2, w, h);
+    }
+    ctx.fillStyle = textColor(style);
+    ctx.fillText(flow.text, flow.at[0], flow.at[1]);
+  }
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
     const b = boundsOf(m.points);
     const img = markupImage(m.image);
@@ -611,7 +628,9 @@ export const BOX_OPPOSITE: readonly number[] = [1, 0, 3, 2, 5, 4, 7, 6];
  */
 export function handlePositions(m: Markup): [number, number][] {
   const handles = TYPE_INFO[m.type].handles;
-  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : m.points.slice(0, 2);
+  // A connector's bends are routed for it: only its two ends are handles.
+  const ends = m.type === 'connector' && m.points.length > 1 ? [m.points[0]!, m.points[m.points.length - 1]!] : m.points.slice(0, 2);
+  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : ends;
   if (!m.rotation) return pts;
   const c = rotationCentre(m);
   return pts.map((p) => rotatePoint(p, c, m.rotation!));

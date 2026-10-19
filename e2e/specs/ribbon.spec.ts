@@ -30,7 +30,7 @@ test.describe('ribbon', () => {
     await expect(ribbon(app)).toBeVisible();
     await expect(app.page.locator('.toolbar.tools')).toHaveCount(0);
     expect((await app.command('window.ribbon')).checked).toBe(true);
-    await expect(ribbon(app).getByRole('tab')).toHaveText(['Home', 'Markup', 'Measure', 'Modify', 'Document', 'Bulk', 'View']);
+    await expect(ribbon(app).getByRole('tab')).toHaveText(['Home', 'Markup', 'Measure', 'Diagram', 'Modify', 'Document', 'Bulk', 'View']);
 
     // Every bulk job has a button on the Bulk tab; Modify has the PDF content tools.
     await ribbon(app).getByRole('tab', { name: 'Bulk' }).click();

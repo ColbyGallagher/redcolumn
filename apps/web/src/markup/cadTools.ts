@@ -32,6 +32,7 @@ import {
   type MarkupType,
   type Point,
   type Rect,
+  relinkCopies,
 } from '@nb/markup';
 import { settings } from '../settings/settings';
 
@@ -256,15 +257,18 @@ function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolea
   for (const t of ts) {
     // Each copy is grouped like its originals, under a group of its own.
     const groups = new Map<string, string>();
+    const copies: Markup[] = [];
     for (const m of ctx.selected) {
       const patch = transformMarkup(m, t);
       if (copy) {
         const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)) : undefined;
         const c = ctx.clone(m, { ...patch, groupId });
-        out.add.push(c);
+        copies.push(c);
         select.push(c.id);
       } else out.update.push([m.id, patch]);
     }
+    // Copied connectors join the copies of their shapes.
+    out.add.push(...relinkCopies(copies, new Map(ctx.selected.map((m, i) => [m.id, copies[i]?.id ?? m.id]))));
   }
   return { done: out, select, again: false };
 }
