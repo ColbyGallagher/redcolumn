@@ -70,8 +70,16 @@ impl Job {
 #[derive(Debug)]
 pub enum JobResult {
     /// RGBA rows, `width * 4` bytes each.
-    Rendered { width: u32, height: u32, rgba: Vec<u8>, timing: Timing },
-    Extracted { content: Box<PageContent>, timing: Timing },
+    Rendered {
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+        timing: Timing,
+    },
+    Extracted {
+        content: Box<PageContent>,
+        timing: Timing,
+    },
     Annotations(Vec<AnnotInfo>),
     Text(Vec<TextRun>),
     Pages(Vec<PageInfo>),
@@ -158,7 +166,10 @@ impl Pool {
     pub fn new(opts: PoolOptions) -> anyhow::Result<Self> {
         let n = opts.workers.max(1);
         let shared = Arc::new(Shared_ {
-            state: Mutex::new(State { closing: vec![Vec::new(); n], ..Default::default() }),
+            state: Mutex::new(State {
+                closing: vec![Vec::new(); n],
+                ..Default::default()
+            }),
             wake: Condvar::new(),
             closed: Condvar::new(),
             controls: (0..n).map(|_| Mutex::new(None)).collect(),
@@ -178,7 +189,14 @@ impl Pool {
                     .spawn(move || worker_thread(i, opts, shared, tx, stopped))?,
             );
         }
-        Ok(Self { shared, next_id: AtomicU64::new(1), events: rx, threads, stopped, workers: n })
+        Ok(Self {
+            shared,
+            next_id: AtomicU64::new(1),
+            events: rx,
+            threads,
+            stopped,
+            workers: n,
+        })
     }
 
     /// Called after each event is sent (for example, to ask the interface to repaint).
@@ -215,7 +233,12 @@ impl Pool {
 
     pub fn submit(&self, job: Job, priority: i64) -> JobId {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        self.shared.state.lock().unwrap().queue.push(Queued { id, job, priority, queued: Instant::now() });
+        self.shared.state.lock().unwrap().queue.push(Queued {
+            id,
+            job,
+            priority,
+            queued: Instant::now(),
+        });
         self.shared.wake.notify_one();
         id
     }
@@ -229,7 +252,12 @@ impl Pool {
 
     /// Drops queued render jobs older than `generation` and stops running ones.
     pub fn cancel_below(&self, generation: u64) {
-        self.shared.state.lock().unwrap().queue.retain(|q| q.job.generation() >= generation);
+        self.shared
+            .state
+            .lock()
+            .unwrap()
+            .queue
+            .retain(|q| q.job.generation() >= generation);
         for c in &self.shared.controls {
             if let Some(c) = c.lock().unwrap().as_ref() {
                 c.set_cancel_generation(generation);
@@ -307,10 +335,20 @@ fn spawn(opts: &PoolOptions) -> anyhow::Result<Proc> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("cannot start PDFium worker {}: {e}", opts.program.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("cannot start PDFium worker {}: {e}", opts.program.display()))?;
     let stdin = child.stdin.take().unwrap();
     let stdout = BufReader::new(child.stdout.take().unwrap());
-    Ok(Proc { child, stdin, stdout, control, payloads: None, open: HashSet::new(), recent: VecDeque::new() })
+    Ok(Proc {
+        child,
+        stdin,
+        stdout,
+        control,
+        payloads: None,
+        open: HashSet::new(),
+        recent: VecDeque::new(),
+    })
 }
 
 impl Proc {
@@ -338,7 +376,9 @@ impl Proc {
             self.payloads = Some(Shared::open(&p.file)?);
         }
         let s = self.payloads.as_ref().unwrap();
-        s.bytes().get(..p.len as usize).ok_or_else(|| anyhow::anyhow!("payload larger than its file"))
+        s.bytes()
+            .get(..p.len as usize)
+            .ok_or_else(|| anyhow::anyhow!("payload larger than its file"))
     }
 }
 
@@ -431,7 +471,16 @@ fn worker_thread(index: usize, opts: PoolOptions, shared: Arc<Shared_>, tx: Send
             }
         }
         let total_ms = q.queued.elapsed().as_secs_f64() * 1000.0;
-        if tx.send(Event { id: q.id, job: q.job, result, worker: index, total_ms }).is_err() {
+        if tx
+            .send(Event {
+                id: q.id,
+                job: q.job,
+                result,
+                worker: index,
+                total_ms,
+            })
+            .is_err()
+        {
             return;
         }
         if let Some(w) = shared.waker.lock().unwrap().clone() {
@@ -460,7 +509,11 @@ fn pick(queue: &[Queued], proc: Option<&Proc>) -> Option<usize> {
 fn run_job(p: &mut Proc, job: &Job, path: &std::path::Path, password: Option<String>) -> anyhow::Result<JobResult> {
     let doc = job.doc();
     if !p.open.contains(&doc) {
-        match p.call(&Request::Open { doc, path: path.to_path_buf(), password })? {
+        match p.call(&Request::Open {
+            doc,
+            path: path.to_path_buf(),
+            password,
+        })? {
             Response::Opened { .. } => {
                 p.open.insert(doc);
             }
@@ -470,13 +523,26 @@ fn run_job(p: &mut Proc, job: &Job, path: &std::path::Path, password: Option<Str
         }
     }
     Ok(match p.call(&job.request())? {
-        Response::Rendered { width, height, payload, timing } => {
+        Response::Rendered {
+            width,
+            height,
+            payload,
+            timing,
+        } => {
             let rgba = p.payload(&payload)?.to_vec();
-            JobResult::Rendered { width, height, rgba, timing }
+            JobResult::Rendered {
+                width,
+                height,
+                rgba,
+                timing,
+            }
         }
         Response::Extracted { payload, timing } => {
             let content = rc_scene::wire::decode(p.payload(&payload)?)?;
-            JobResult::Extracted { content: Box::new(content), timing }
+            JobResult::Extracted {
+                content: Box::new(content),
+                timing,
+            }
         }
         Response::Annotations { annots } => JobResult::Annotations(annots),
         Response::Text { runs } => JobResult::Text(runs),

@@ -24,15 +24,27 @@ use rc_scene::PageContent;
 /// A page's content, whole.
 pub fn page_content(doc: &Document, index: usize, opts: &Options) -> Option<PageContent> {
     let page = doc.page(index)?;
-    let opts = Options { chunk_items: 0, ..opts.clone() };
+    let opts = Options {
+        chunk_items: 0,
+        ..opts.clone()
+    };
     Some(extract_page(doc, page, &opts, &mut |_| {}))
 }
 
 /// A page's content in chunks of about `chunk_items` items, each passed to `on_chunk` as soon
 /// as it is read (the last one included).
-pub fn page_content_chunked(doc: &Document, index: usize, chunk_items: usize, opts: &Options, on_chunk: &mut dyn FnMut(PageContent)) -> bool {
+pub fn page_content_chunked(
+    doc: &Document,
+    index: usize,
+    chunk_items: usize,
+    opts: &Options,
+    on_chunk: &mut dyn FnMut(PageContent),
+) -> bool {
     let Some(page) = doc.page(index) else { return false };
-    let opts = Options { chunk_items: chunk_items.max(1), ..opts.clone() };
+    let opts = Options {
+        chunk_items: chunk_items.max(1),
+        ..opts.clone()
+    };
     let last = extract_page(doc, page, &opts, on_chunk);
     on_chunk(last);
     true

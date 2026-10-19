@@ -11,8 +11,14 @@ use std::process::Command;
 /// The pdfium-binaries release every build uses, and each archive's SHA-256.
 const PDFIUM_TAG: &str = "chromium/8100";
 const PDFIUM_ARCHIVES: &[(&str, &str)] = &[
-    ("linux-x64", "1c1894a12d4d96ee01400c3874444126254180c5c7d2ab628576b67f8120320a"),
-    ("win-x64", "51621bcc1d9be9ea448f4b84b0516862b928e3968d3fca899af1a6d6e2848d6d"),
+    (
+        "linux-x64",
+        "1c1894a12d4d96ee01400c3874444126254180c5c7d2ab628576b67f8120320a",
+    ),
+    (
+        "win-x64",
+        "51621bcc1d9be9ea448f4b84b0516862b928e3968d3fca899af1a6d6e2848d6d",
+    ),
 ];
 
 fn main() -> Result<()> {
@@ -57,7 +63,11 @@ fn fetch_pdfium(target: &str) -> Result<()> {
         PDFIUM_TAG.replace('/', "%2F")
     );
     println!("Downloading {url}");
-    let ok = Command::new("curl").args(["-fsSL", "--retry", "4", "-o"]).arg(&archive).arg(&url).status()?;
+    let ok = Command::new("curl")
+        .args(["-fsSL", "--retry", "4", "-o"])
+        .arg(&archive)
+        .arg(&url)
+        .status()?;
     if !ok.success() {
         bail!("download failed");
     }
@@ -65,7 +75,12 @@ fn fetch_pdfium(target: &str) -> Result<()> {
     if got != sha {
         bail!("SHA-256 mismatch for {url}: expected {sha}, got {got}");
     }
-    let ok = Command::new("tar").arg("xzf").arg(&archive).arg("-C").arg(&dir).status()?;
+    let ok = Command::new("tar")
+        .arg("xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&dir)
+        .status()?;
     if !ok.success() {
         bail!("extracting {} failed", archive.display());
     }
@@ -87,8 +102,9 @@ fn sha256(data: &[u8]) -> String {
         0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
         0xc67178f2,
     ];
-    let mut h: [u32; 8] =
-        [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    ];
     let mut msg = data.to_vec();
     let bits = (data.len() as u64) * 8;
     msg.push(0x80);
@@ -110,11 +126,24 @@ fn sha256(data: &[u8]) -> String {
         for i in 0..64 {
             let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
             let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
-            let t1 = v[7].wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let t1 = v[7]
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
             let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
             let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
             let t2 = s0.wrapping_add(maj);
-            v = [t1.wrapping_add(t2), v[0], v[1], v[2], v[3].wrapping_add(t1), v[4], v[5], v[6]];
+            v = [
+                t1.wrapping_add(t2),
+                v[0],
+                v[1],
+                v[2],
+                v[3].wrapping_add(t1),
+                v[4],
+                v[5],
+                v[6],
+            ];
         }
         for i in 0..8 {
             h[i] = h[i].wrapping_add(v[i]);

@@ -512,7 +512,11 @@ pub fn number<'a>(s: &[u8]) -> Option<Token<'a>> {
         return Some(Token::Int(if neg { -int } else { int }));
     }
     if s[i] != b'.' {
-        return if digits > 0 { Some(Token::Int(if neg { -int } else { int })) } else { None };
+        return if digits > 0 {
+            Some(Token::Int(if neg { -int } else { int }))
+        } else {
+            None
+        };
     }
     i += 1;
     let mut frac: f64 = 0.0;
@@ -550,7 +554,10 @@ mod tests {
         let o = Lexer::new(src, 0).object().unwrap();
         let d = o.as_dict().unwrap();
         assert!(d.get("Type").unwrap().as_name().unwrap().is("Page"));
-        assert_eq!(d.get("Kids").unwrap().as_array().unwrap(), &[Obj::Ref(1, 0), Obj::Ref(2, 0)]);
+        assert_eq!(
+            d.get("Kids").unwrap().as_array().unwrap(),
+            &[Obj::Ref(1, 0), Obj::Ref(2, 0)]
+        );
         assert_eq!(d.get("N"), Some(&Obj::Int(3)));
         assert_eq!(d.get("S").unwrap().as_str(), Some(&b"a(b)"[..]));
         assert_eq!(d.get("H").unwrap().as_str(), Some(&b"A@"[..]));

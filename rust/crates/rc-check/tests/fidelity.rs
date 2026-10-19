@@ -13,11 +13,17 @@ use std::time::Duration;
 
 fn pdfium() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium");
-    if cfg!(windows) { dir.join("win-x64/bin/pdfium.dll") } else { dir.join("linux-x64/lib/libpdfium.so") }
+    if cfg!(windows) {
+        dir.join("win-x64/bin/pdfium.dll")
+    } else {
+        dir.join("linux-x64/lib/libpdfium.so")
+    }
 }
 
 fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../e2e/fixtures").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../e2e/fixtures")
+        .join(name)
 }
 
 fn main() {
@@ -33,7 +39,10 @@ fn main() {
             return;
         }
     };
-    eprintln!("fidelity: {} ({:?}), {}x MSAA", gpu.info.name, gpu.info.backend, gpu.sample_count);
+    eprintln!(
+        "fidelity: {} ({:?}), {}x MSAA",
+        gpu.info.name, gpu.info.backend, gpu.sample_count
+    );
     let pool = Pool::new(PoolOptions {
         workers: 2,
         program: std::env::current_exe().unwrap(),
@@ -41,7 +50,7 @@ fn main() {
         pdfium: pdfium(),
     })
     .unwrap();
-    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, gpu.sample_count);
+    let renderer = Renderer::new(&gpu.device, &gpu.queue, gpu.sample_count);
     let tmp = std::env::temp_dir().join(format!("rc-fidelity-{}", std::process::id()));
     std::fs::create_dir_all(&tmp).unwrap();
     let mut cases: Vec<(String, PathBuf)> = ["plan.pdf", "plan-rev1.pdf", "sheets.pdf", "stitch.pdf", "forms.pdf"]
@@ -49,11 +58,49 @@ fn main() {
         .map(|n| (n.to_string(), fixture(n)))
         .collect();
     let generated = [
-        ("generated", GenOptions { segments: 20_000, ..Default::default() }),
-        ("rotated-90", GenOptions { segments: 10_000, rotate: 90, ..Default::default() }),
-        ("rotated-270", GenOptions { segments: 10_000, rotate: 270, width: 1684.0, height: 2384.0, ..Default::default() }),
-        ("plain", GenOptions { segments: 10_000, text: false, image: false, transparency: false, layers: false, ..Default::default() }),
-        ("heavy", GenOptions { segments: 300_000, ..Default::default() }),
+        (
+            "generated",
+            GenOptions {
+                segments: 20_000,
+                ..Default::default()
+            },
+        ),
+        (
+            "rotated-90",
+            GenOptions {
+                segments: 10_000,
+                rotate: 90,
+                ..Default::default()
+            },
+        ),
+        (
+            "rotated-270",
+            GenOptions {
+                segments: 10_000,
+                rotate: 270,
+                width: 1684.0,
+                height: 2384.0,
+                ..Default::default()
+            },
+        ),
+        (
+            "plain",
+            GenOptions {
+                segments: 10_000,
+                text: false,
+                image: false,
+                transparency: false,
+                layers: false,
+                ..Default::default()
+            },
+        ),
+        (
+            "heavy",
+            GenOptions {
+                segments: 300_000,
+                ..Default::default()
+            },
+        ),
     ];
     for (name, o) in generated {
         let p = tmp.join(format!("{name}.pdf"));
@@ -75,55 +122,75 @@ fn main() {
             eprintln!("fidelity: {name}: own parser cannot read it ({e})");
         }
         for page in 0..pages {
-          for source in ["pdfium", "parser"] {
-            let content = if source == "pdfium" {
-                match wait(&pool, pool.submit(Job::Extract { doc, page }, 0)) {
-                    JobResult::Extracted { content, .. } => content,
-                    other => panic!("{name} p{page}: {other:?}"),
+            for source in ["pdfium", "parser"] {
+                let content = if source == "pdfium" {
+                    match wait(&pool, pool.submit(Job::Extract { doc, page }, 0)) {
+                        JobResult::Extracted { content, .. } => content,
+                        other => panic!("{name} p{page}: {other:?}"),
+                    }
+                } else {
+                    let Ok(d) = &parsed else { continue };
+                    let t = std::time::Instant::now();
+                    let c = rc_parse::page_content(d, page as usize, &Default::default()).unwrap();
+                    eprintln!(
+                        "fidelity: {name} p{} parsed in {:.1} ms",
+                        page + 1,
+                        t.elapsed().as_secs_f64() * 1000.0
+                    );
+                    Box::new(c)
+                };
+                if content.flags & rc_scene::content::flags::NEEDS_RASTER != 0 {
+                    eprintln!(
+                        "fidelity: {name} p{} [{source}] flags {:#x}: drawn by the raster path",
+                        page + 1,
+                        content.flags
+                    );
+                    continue;
                 }
-            } else {
-                let Ok(d) = &parsed else { continue };
-                let t = std::time::Instant::now();
-                let c = rc_parse::page_content(d, page as usize, &Default::default()).unwrap();
-                eprintln!("fidelity: {name} p{} parsed in {:.1} ms", page + 1, t.elapsed().as_secs_f64() * 1000.0);
-                Box::new(c)
-            };
-            if content.flags & rc_scene::content::flags::NEEDS_RASTER != 0 {
-                eprintln!("fidelity: {name} p{} [{source}] flags {:#x}: drawn by the raster path", page + 1, content.flags);
-                continue;
-            }
-            let scene = rc_scene::build_scene(&content, &Default::default());
-            let gs = renderer.upload(&gpu.device, &gpu.queue, &scene).unwrap();
-            let (verdict, gpus, refs) = check_blocking(&gpu.device, &gpu.queue, &mut renderer, &pool, doc, page, &scene, &gs).unwrap();
-            eprintln!(
-                "fidelity: {name} p{} [{source}] {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {}",
-                page + 1,
-                scene.stats.segments,
-                scene.stats.triangles,
-                scene.flags,
-                verdict.diffs[0],
-                verdict.diffs[1],
-                if verdict.ok { "ok" } else { "FAIL" }
-            );
-            if let Some(dir) = &out {
-                let vs = views(scene.size, densest_point(&scene));
-                for (i, v) in vs.iter().enumerate() {
-                    let save = |kind: &str, px: &[u8]| {
-                        image::save_buffer(dir.join(format!("{name}-p{}-{source}-v{i}-{kind}.png", page + 1)), px, v.width, v.height, image::ColorType::Rgba8).unwrap();
-                    };
-                    save("gpu", &gpus[i]);
-                    save("pdfium", &refs[i]);
+                let scene = rc_scene::build_scene(&content, &Default::default());
+                let gs = renderer.upload(&gpu.device, &gpu.queue, &scene).unwrap();
+                let (verdict, gpus, refs) =
+                    check_blocking(&gpu.device, &gpu.queue, &renderer, &pool, doc, page, &scene, &gs).unwrap();
+                eprintln!(
+                    "fidelity: {name} p{} [{source}] {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {}",
+                    page + 1,
+                    scene.stats.segments,
+                    scene.stats.triangles,
+                    scene.flags,
+                    verdict.diffs[0],
+                    verdict.diffs[1],
+                    if verdict.ok { "ok" } else { "FAIL" }
+                );
+                if let Some(dir) = &out {
+                    let vs = views(scene.size, densest_point(&scene));
+                    for (i, v) in vs.iter().enumerate() {
+                        let save = |kind: &str, px: &[u8]| {
+                            image::save_buffer(
+                                dir.join(format!("{name}-p{}-{source}-v{i}-{kind}.png", page + 1)),
+                                px,
+                                v.width,
+                                v.height,
+                                image::ColorType::Rgba8,
+                            )
+                            .unwrap();
+                        };
+                        save("gpu", &gpus[i]);
+                        save("pdfium", &refs[i]);
+                    }
+                }
+                if !verdict.ok {
+                    failures.push(format!("{name} page {} [{source}]: {:?}", page + 1, verdict.diffs));
                 }
             }
-            if !verdict.ok {
-                failures.push(format!("{name} page {} [{source}]: {:?}", page + 1, verdict.diffs));
-            }
-          }
         }
     }
     let _ = std::fs::remove_dir_all(&tmp);
     if !failures.is_empty() {
-        eprintln!("fidelity: {} page(s) differ from PDFium:\n  {}", failures.len(), failures.join("\n  "));
+        eprintln!(
+            "fidelity: {} page(s) differ from PDFium:\n  {}",
+            failures.len(),
+            failures.join("\n  ")
+        );
         std::process::exit(1);
     }
     eprintln!("fidelity: all pages match PDFium");
@@ -131,7 +198,10 @@ fn main() {
 
 fn wait(pool: &Pool, id: u64) -> JobResult {
     loop {
-        let e = pool.events().recv_timeout(Duration::from_secs(300)).expect("pool timed out");
+        let e = pool
+            .events()
+            .recv_timeout(Duration::from_secs(300))
+            .expect("pool timed out");
         if e.id == id {
             return e.result;
         }

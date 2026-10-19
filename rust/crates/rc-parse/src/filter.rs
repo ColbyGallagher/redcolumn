@@ -11,7 +11,10 @@ pub fn apply(name: &[u8], data: &[u8], parms: Option<&Dict>) -> Result<Vec<u8>, 
     let out = match name {
         b"FlateDecode" | b"Fl" => inflate(data),
         b"LZWDecode" | b"LZW" => {
-            let early = parms.and_then(|p| p.get("EarlyChange")).and_then(Obj::as_i64).unwrap_or(1);
+            let early = parms
+                .and_then(|p| p.get("EarlyChange"))
+                .and_then(Obj::as_i64)
+                .unwrap_or(1);
             lzw(data, early != 0)
         }
         b"ASCIIHexDecode" | b"AHx" => ascii_hex(data),
@@ -28,7 +31,10 @@ pub fn apply(name: &[u8], data: &[u8], parms: Option<&Dict>) -> Result<Vec<u8>, 
 
 /// Whether a filter is decoded by the image decoder, not here.
 pub fn is_image_filter(name: &[u8]) -> bool {
-    matches!(name, b"DCTDecode" | b"DCT" | b"JPXDecode" | b"CCITTFaxDecode" | b"CCF" | b"JBIG2Decode")
+    matches!(
+        name,
+        b"DCTDecode" | b"DCT" | b"JPXDecode" | b"CCITTFaxDecode" | b"CCF" | b"JBIG2Decode"
+    )
 }
 
 pub fn inflate(data: &[u8]) -> Vec<u8> {
@@ -50,7 +56,11 @@ fn predict(data: Vec<u8>, p: &Dict) -> Result<Vec<u8>, Error> {
         return Ok(data);
     }
     let colors = p.get("Colors").and_then(Obj::as_i64).unwrap_or(1).clamp(1, 32) as usize;
-    let bpc = p.get("BitsPerComponent").and_then(Obj::as_i64).unwrap_or(8).clamp(1, 16) as usize;
+    let bpc = p
+        .get("BitsPerComponent")
+        .and_then(Obj::as_i64)
+        .unwrap_or(8)
+        .clamp(1, 16) as usize;
     let columns = p.get("Columns").and_then(Obj::as_i64).unwrap_or(1).clamp(1, 1 << 24) as usize;
     let bpp = (colors * bpc).div_ceil(8);
     let row = (colors * bpc * columns).div_ceil(8);
@@ -89,7 +99,13 @@ fn predict(data: Vec<u8>, p: &Dict) -> Result<Vec<u8>, Error> {
                 4 => {
                     let p = a as i16 + b as i16 - c as i16;
                     let (pa, pb, pc) = ((p - a as i16).abs(), (p - b as i16).abs(), (p - c as i16).abs());
-                    let pred = if pa <= pb && pa <= pc { a } else if pb <= pc { b } else { c };
+                    let pred = if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        b
+                    } else {
+                        c
+                    };
                     cur[i].wrapping_add(pred)
                 }
                 _ => cur[i],
@@ -144,7 +160,15 @@ fn lzw(data: &[u8], early: bool) -> Vec<u8> {
             }
             prev = Some(code);
             let next = table.len() + early as usize;
-            width = if next >= 2048 { 12 } else if next >= 1024 { 11 } else if next >= 512 { 10 } else { 9 };
+            width = if next >= 2048 {
+                12
+            } else if next >= 1024 {
+                11
+            } else if next >= 512 {
+                10
+            } else {
+                9
+            };
         }
     }
     out
@@ -240,7 +264,9 @@ mod tests {
 
     #[test]
     fn png_up_predictor() {
-        let parms = crate::object::Lexer::new(b"<< /Predictor 12 /Columns 3 >>", 0).object().unwrap();
+        let parms = crate::object::Lexer::new(b"<< /Predictor 12 /Columns 3 >>", 0)
+            .object()
+            .unwrap();
         let data = vec![2, 1, 2, 3, 2, 1, 1, 1];
         let out = predict(data, parms.as_dict().unwrap()).unwrap();
         assert_eq!(out, vec![1, 2, 3, 2, 3, 4]);

@@ -18,7 +18,12 @@ fn main() -> anyhow::Result<()> {
     if args.iter().any(|a| a == "--rc-pdfium-worker") {
         return rc_pdf::worker::main_from_args(args.into_iter().skip(1));
     }
-    let opt = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned();
+    let opt = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
     match args.get(1).map(String::as_str) {
         Some("gen") => {
             let out = args.get(2).ok_or_else(|| anyhow::anyhow!("gen needs an output file"))?;
@@ -31,14 +36,22 @@ fn main() -> anyhow::Result<()> {
             let t = Instant::now();
             let bytes = generate(&o);
             std::fs::write(out, &bytes)?;
-            println!("{out}: {} pages, ~{} segments each, {:.1} MB in {:.1} s", o.pages, o.segments, bytes.len() as f64 / 1e6, t.elapsed().as_secs_f64());
+            println!(
+                "{out}: {} pages, ~{} segments each, {:.1} MB in {:.1} s",
+                o.pages,
+                o.segments,
+                bytes.len() as f64 / 1e6,
+                t.elapsed().as_secs_f64()
+            );
             Ok(())
         }
         Some("render") => render(&args[2], args.get(3)),
         Some("scene") => scene(&args[2], args.get(3)),
         Some("parse") => parse(&args[2], args.get(3)),
         _ => {
-            eprintln!("usage: rc-bench gen <out.pdf> [--segments N] [--pages N] [--rotate D]\n       rc-bench render <file.pdf> [pages]\n       rc-bench scene <file.pdf> [pages]");
+            eprintln!(
+                "usage: rc-bench gen <out.pdf> [--segments N] [--pages N] [--rotate D]\n       rc-bench render <file.pdf> [pages]\n       rc-bench scene <file.pdf> [pages]"
+            );
             std::process::exit(2);
         }
     }
@@ -49,7 +62,11 @@ fn pool(workers: usize) -> anyhow::Result<Pool> {
     o.workers = workers;
     if !o.pdfium.exists() {
         let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium");
-        o.pdfium = if cfg!(windows) { dev.join("win-x64/bin/pdfium.dll") } else { dev.join("linux-x64/lib/libpdfium.so") };
+        o.pdfium = if cfg!(windows) {
+            dev.join("win-x64/bin/pdfium.dll")
+        } else {
+            dev.join("linux-x64/lib/libpdfium.so")
+        };
     }
     Pool::new(o)
 }
@@ -69,10 +86,17 @@ fn pages_of(pool: &Pool, file: &str, which: Option<&String>) -> anyhow::Result<V
         anyhow::bail!("cannot read pages of {file}");
     };
     let picked: Vec<u32> = match which {
-        Some(list) => list.split(',').filter_map(|p| p.trim().parse::<u32>().ok()).map(|p| p - 1).collect(),
+        Some(list) => list
+            .split(',')
+            .filter_map(|p| p.trim().parse::<u32>().ok())
+            .map(|p| p - 1)
+            .collect(),
         None => (0..pages.len() as u32).collect(),
     };
-    Ok(picked.into_iter().filter_map(|i| pages.get(i as usize).map(|p| (i, p.clone()))).collect())
+    Ok(picked
+        .into_iter()
+        .filter_map(|i| pages.get(i as usize).map(|p| (i, p.clone())))
+        .collect())
 }
 
 /// Native PDFium on one worker: parse and draw each page whole at 2048 px on its long side.
@@ -98,8 +122,16 @@ fn render(file: &str, which: Option<&String>) -> anyhow::Result<()> {
             generation: rc_pdf::pool::NEVER_CANCEL,
         };
         let e = wait(&pool, pool.submit(Job::Render(req), 0))?;
-        let JobResult::Rendered { timing, .. } = e.result else { anyhow::bail!("page {}: {:?}", i + 1, e.result) };
-        println!("{:4} {:8} {:9.0} {:8.0}", i + 1, timing.objects, timing.parse_ms, timing.work_ms);
+        let JobResult::Rendered { timing, .. } = e.result else {
+            anyhow::bail!("page {}: {:?}", i + 1, e.result)
+        };
+        println!(
+            "{:4} {:8} {:9.0} {:8.0}",
+            i + 1,
+            timing.objects,
+            timing.parse_ms,
+            timing.work_ms
+        );
         parse += timing.parse_ms;
         draw += timing.work_ms;
     }
@@ -112,25 +144,42 @@ fn scene(file: &str, which: Option<&String>) -> anyhow::Result<()> {
     let pool = pool(1)?;
     let gpu = rc_gpu::Gpu::headless()?;
     eprintln!("GPU: {} ({:?})", gpu.info.name, gpu.info.backend);
-    let mut renderer = rc_gpu::Renderer::new(&gpu.device, &gpu.queue, gpu.sample_count);
+    let renderer = rc_gpu::Renderer::new(&gpu.device, &gpu.queue, gpu.sample_count);
     let pages = pages_of(&pool, file, which)?;
     println!("page   segments  parse ms  extract ms  build ms  scene MB  upload ms  tile ms  (2048px fit, 2x ss)");
     let mut scratch = None;
     for (i, info) in pages {
         let e = wait(&pool, pool.submit(Job::Extract { doc: 1, page: i }, 0))?;
-        let JobResult::Extracted { content, timing } = e.result else { anyhow::bail!("page {}: {:?}", i + 1, e.result) };
+        let JobResult::Extracted { content, timing } = e.result else {
+            anyhow::bail!("page {}: {:?}", i + 1, e.result)
+        };
         let t = Instant::now();
         let scene = rc_scene::build_scene(&content, &Default::default());
         let build = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
         let gs = renderer.upload(&gpu.device, &gpu.queue, &scene)?;
-        let _ = gpu.device.poll(rc_gpu::wgpu::PollType::Wait { submission_index: None, timeout: None });
+        let _ = gpu.device.poll(rc_gpu::wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         let upload = t.elapsed().as_secs_f64() * 1000.0;
         let s = 2048.0 / info.width.max(info.height);
         let size = [(info.width * s).ceil() as u32, (info.height * s).ceil() as u32];
         let t = Instant::now();
-        let tile = renderer.render_tile(&gpu.device, &gpu.queue, &gs, rc_gpu::scale_offset([s, s], [0.0, 0.0]), size, 2, false, &mut scratch);
-        let _ = gpu.device.poll(rc_gpu::wgpu::PollType::Wait { submission_index: None, timeout: None });
+        let tile = renderer.render_tile(
+            &gpu.device,
+            &gpu.queue,
+            &gs,
+            rc_gpu::scale_offset([s, s], [0.0, 0.0]),
+            size,
+            2,
+            false,
+            &mut scratch,
+        );
+        let _ = gpu.device.poll(rc_gpu::wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
         let tile_ms = t.elapsed().as_secs_f64() * 1000.0;
         drop(tile);
         println!(
@@ -155,11 +204,19 @@ fn parse(file: &str, which: Option<&String>) -> anyhow::Result<()> {
     let t = Instant::now();
     let bytes = std::fs::read(file)?;
     let doc = rc_parse::Document::open(&bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
-    println!("opened in {:.1} ms ({} pages)", t.elapsed().as_secs_f64() * 1000.0, doc.page_count());
-    println!("page   segments | PDFium: parse+extract ms  | parser: read ms  chunked ms  | build ms (chunks in parallel)");
+    println!(
+        "opened in {:.1} ms ({} pages)",
+        t.elapsed().as_secs_f64() * 1000.0,
+        doc.page_count()
+    );
+    println!(
+        "page   segments | PDFium: parse+extract ms  | parser: read ms  chunked ms  | build ms (chunks in parallel)"
+    );
     for (i, _) in pages {
         let e = wait(&pool, pool.submit(Job::Extract { doc: 1, page: i }, 0))?;
-        let JobResult::Extracted { timing, .. } = e.result else { anyhow::bail!("page {}: {:?}", i + 1, e.result) };
+        let JobResult::Extracted { timing, .. } = e.result else {
+            anyhow::bail!("page {}: {:?}", i + 1, e.result)
+        };
         let t = Instant::now();
         let content = rc_parse::page_content(&doc, i as usize, &Default::default()).unwrap();
         let read = t.elapsed().as_secs_f64() * 1000.0;

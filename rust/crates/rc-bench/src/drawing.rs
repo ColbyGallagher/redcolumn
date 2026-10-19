@@ -72,7 +72,11 @@ impl Rng {
 fn n(v: f32) -> String {
     let s = format!("{v:.2}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-0" { "0".into() } else { s.into() }
+    if s.is_empty() || s == "-0" {
+        "0".into()
+    } else {
+        s.into()
+    }
 }
 
 /// The layers pages use, in order.
@@ -83,16 +87,33 @@ pub const LAYERS: [&str; 5] = ["A-WALL", "A-HATCH", "A-DETL", "A-ANNO", "GRID"];
 fn glyph(c: char) -> &'static [&'static [(f32, f32)]] {
     match c {
         'A' => &[&[(0.0, 0.0), (2.0, 6.0), (4.0, 0.0)], &[(1.0, 3.0), (3.0, 3.0)]],
-        'B' => &[&[(0.0, 0.0), (0.0, 6.0), (3.0, 6.0), (4.0, 5.0), (3.0, 3.0), (0.0, 3.0)], &[(3.0, 3.0), (4.0, 1.0), (3.0, 0.0), (0.0, 0.0)]],
-        'D' => &[&[(0.0, 0.0), (0.0, 6.0), (3.0, 6.0), (4.0, 4.0), (4.0, 2.0), (3.0, 0.0), (0.0, 0.0)]],
-        'E' => &[&[(4.0, 0.0), (0.0, 0.0), (0.0, 6.0), (4.0, 6.0)], &[(0.0, 3.0), (3.0, 3.0)]],
+        'B' => &[
+            &[(0.0, 0.0), (0.0, 6.0), (3.0, 6.0), (4.0, 5.0), (3.0, 3.0), (0.0, 3.0)],
+            &[(3.0, 3.0), (4.0, 1.0), (3.0, 0.0), (0.0, 0.0)],
+        ],
+        'D' => &[&[
+            (0.0, 0.0),
+            (0.0, 6.0),
+            (3.0, 6.0),
+            (4.0, 4.0),
+            (4.0, 2.0),
+            (3.0, 0.0),
+            (0.0, 0.0),
+        ]],
+        'E' => &[
+            &[(4.0, 0.0), (0.0, 0.0), (0.0, 6.0), (4.0, 6.0)],
+            &[(0.0, 3.0), (3.0, 3.0)],
+        ],
         'L' => &[&[(0.0, 6.0), (0.0, 0.0), (4.0, 0.0)]],
         'O' | '0' => &[&[(0.0, 0.0), (0.0, 6.0), (4.0, 6.0), (4.0, 0.0), (0.0, 0.0)]],
         'R' => &[&[(0.0, 0.0), (0.0, 6.0), (4.0, 6.0), (4.0, 3.0), (0.0, 3.0), (4.0, 0.0)]],
         'T' => &[&[(0.0, 6.0), (4.0, 6.0)], &[(2.0, 6.0), (2.0, 0.0)]],
         '1' => &[&[(1.0, 5.0), (2.0, 6.0), (2.0, 0.0)]],
         '2' => &[&[(0.0, 6.0), (4.0, 6.0), (4.0, 3.0), (0.0, 3.0), (0.0, 0.0), (4.0, 0.0)]],
-        '3' => &[&[(0.0, 6.0), (4.0, 6.0), (4.0, 0.0), (0.0, 0.0)], &[(1.0, 3.0), (4.0, 3.0)]],
+        '3' => &[
+            &[(0.0, 6.0), (4.0, 6.0), (4.0, 0.0), (0.0, 0.0)],
+            &[(1.0, 3.0), (4.0, 3.0)],
+        ],
         _ => &[&[(0.0, 0.0), (4.0, 6.0)]],
     }
 }
@@ -116,7 +137,14 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
     };
     // Border and title block: thick, mitred.
     let _ = writeln!(s, "q 0 0 0 RG 2.5 w 0 j 0 J 20 20 {} {} re S", n(w - 40.0), n(h - 40.0));
-    let _ = writeln!(s, "1.2 w {} 20 m {} 20 l {} 220 l {} 220 l h S Q", n(w - 420.0), n(w - 20.0), n(w - 20.0), n(w - 420.0));
+    let _ = writeln!(
+        s,
+        "1.2 w {} 20 m {} 20 l {} 220 l {} 220 l h S Q",
+        n(w - 420.0),
+        n(w - 20.0),
+        n(w - 20.0),
+        n(w - 420.0)
+    );
     segs += 8;
     // Grid lines, dashed, grey.
     layer(&mut s, 4);
@@ -140,7 +168,16 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
         let ry = rng.range(260.0, h - rh - 60.0);
         if r % 3 == 0 {
             // A triangular (non-rectangular) clip.
-            let _ = writeln!(s, "q {} {} m {} {} l {} {} l h W n", n(rx), n(ry), n(rx + rw), n(ry), n(rx + rw / 2.0), n(ry + rh));
+            let _ = writeln!(
+                s,
+                "q {} {} m {} {} l {} {} l h W n",
+                n(rx),
+                n(ry),
+                n(rx + rw),
+                n(ry),
+                n(rx + rw / 2.0),
+                n(ry + rh)
+            );
         } else {
             let _ = writeln!(s, "q {} {} {} {} re W n", n(rx), n(ry), n(rw), n(rh));
         }
@@ -183,7 +220,14 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
     for i in 0..12 {
         let cx = 200.0 + i as f32 * 140.0;
         let cy = h - 140.0;
-        let _ = writeln!(s, "{} {} 30 30 re {} {} 14 14 re f*", n(cx), n(cy), n(cx + 8.0), n(cy + 8.0));
+        let _ = writeln!(
+            s,
+            "{} {} 30 30 re {} {} 14 14 re f*",
+            n(cx),
+            n(cy),
+            n(cx + 8.0),
+            n(cy + 8.0)
+        );
         segs += 8;
     }
     s.push_str("Q\n");
@@ -229,7 +273,13 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
             for stroke in glyph(c) {
                 let mut first = true;
                 for &(gx, gy) in stroke.iter() {
-                    let _ = write!(s, "{} {} {} ", n(lx + gx * size), n(ly + gy * size), if first { "m" } else { "l" });
+                    let _ = write!(
+                        s,
+                        "{} {} {} ",
+                        n(lx + gx * size),
+                        n(ly + gy * size),
+                        if first { "m" } else { "l" }
+                    );
                     if !first {
                         segs += 1;
                     }
@@ -251,7 +301,14 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
         for _ in 0..batch {
             let x0 = rng.range(50.0, w - 470.0);
             let y0 = rng.range(250.0, h - 50.0);
-            let _ = write!(s, "{} {} m {} {} l ", n(x0), n(y0), n(x0 + rng.range(-6.0, 6.0)), n(y0 + rng.range(-6.0, 6.0)));
+            let _ = write!(
+                s,
+                "{} {} m {} {} l ",
+                n(x0),
+                n(y0),
+                n(x0 + rng.range(-6.0, 6.0)),
+                n(y0 + rng.range(-6.0, 6.0))
+            );
         }
         s.push_str("S\n");
         segs += batch;
@@ -269,9 +326,20 @@ fn page_content(o: &GenOptions, page: u32, rng: &mut Rng) -> (String, u64) {
     if o.text {
         s.push_str("q 0 g BT /F1 9 Tf\n");
         for i in 0..20 {
-            let _ = writeln!(s, "1 0 0 1 {} {} Tm (ROOM {}) Tj", n(w - 400.0), n(200.0 - i as f32 * 8.0), i + 1);
+            let _ = writeln!(
+                s,
+                "1 0 0 1 {} {} Tm (ROOM {}) Tj",
+                n(w - 400.0),
+                n(200.0 - i as f32 * 8.0),
+                i + 1
+            );
         }
-        let _ = writeln!(s, "/F1 14 Tf 1 0 0 1 {} 60 Tm (SHEET A-{:03}) Tj ET Q", n(w - 400.0), page + 101);
+        let _ = writeln!(
+            s,
+            "/F1 14 Tf 1 0 0 1 {} 60 Tm (SHEET A-{:03}) Tj ET Q",
+            n(w - 400.0),
+            page + 101
+        );
     }
     (s, segs)
 }
@@ -290,10 +358,15 @@ pub fn generate(o: &GenOptions) -> Vec<u8> {
     let mut objs: Vec<Vec<u8>> = Vec::new();
     let ocg_first = 7;
     let page_first = ocg_first + LAYERS.len();
-    let kids: Vec<String> = (0..o.pages).map(|i| format!("{} 0 R", page_first + 2 * i as usize)).collect();
+    let kids: Vec<String> = (0..o.pages)
+        .map(|i| format!("{} 0 R", page_first + 2 * i as usize))
+        .collect();
     let ocgs: Vec<String> = (0..LAYERS.len()).map(|i| format!("{} 0 R", ocg_first + i)).collect();
     let ocprops = if o.layers {
-        format!(" /OCProperties << /OCGs [{0}] /D << /Order [{0}] /ON [{0}] >> >>", ocgs.join(" "))
+        format!(
+            " /OCProperties << /OCGs [{0}] /D << /Order [{0}] /ON [{0}] >> >>",
+            ocgs.join(" ")
+        )
     } else {
         String::new()
     };
@@ -311,7 +384,11 @@ pub fn generate(o: &GenOptions) -> Vec<u8> {
     }
     hatch.push_str("S\n");
     let hz = deflate(hatch.as_bytes());
-    let mut form = format!("<< /Type /XObject /Subtype /Form /BBox [0 0 64 64] /Filter /FlateDecode /Length {} >>\nstream\n", hz.len()).into_bytes();
+    let mut form = format!(
+        "<< /Type /XObject /Subtype /Form /BBox [0 0 64 64] /Filter /FlateDecode /Length {} >>\nstream\n",
+        hz.len()
+    )
+    .into_bytes();
     form.extend_from_slice(&hz);
     form.extend_from_slice(b"\nendstream");
     objs.push(form);
@@ -336,11 +413,17 @@ pub fn generate(o: &GenOptions) -> Vec<u8> {
     for l in LAYERS {
         objs.push(format!("<< /Type /OCG /Name ({l}) >>").into_bytes());
     }
-    let props: Vec<String> = (0..LAYERS.len()).map(|i| format!("/oc{i} {} 0 R", ocg_first + i)).collect();
+    let props: Vec<String> = (0..LAYERS.len())
+        .map(|i| format!("/oc{i} {} 0 R", ocg_first + i))
+        .collect();
     for p in 0..o.pages {
         let (content, _) = page_content(o, p, &mut rng);
         let z = deflate(content.as_bytes());
-        let rotate = if o.rotate != 0 { format!(" /Rotate {}", o.rotate) } else { String::new() };
+        let rotate = if o.rotate != 0 {
+            format!(" /Rotate {}", o.rotate)
+        } else {
+            String::new()
+        };
         objs.push(
             format!(
                 "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}]{rotate} /Contents {} 0 R /Resources << /XObject << /Hatch 3 0 R /Im1 4 0 R >> /Font << /F1 5 0 R >> /ExtGState << /GS1 6 0 R >> /Properties << {} >> >> >>",
@@ -369,7 +452,13 @@ pub fn generate(o: &GenOptions) -> Vec<u8> {
     for off in offsets {
         out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
     }
-    out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
     out
 }
 
@@ -379,7 +468,11 @@ mod tests {
 
     #[test]
     fn deterministic_and_well_formed() {
-        let o = GenOptions { segments: 5000, pages: 2, ..Default::default() };
+        let o = GenOptions {
+            segments: 5000,
+            pages: 2,
+            ..Default::default()
+        };
         let a = generate(&o);
         assert_eq!(a, generate(&o));
         assert!(a.starts_with(b"%PDF-1.7"));
@@ -388,7 +481,10 @@ mod tests {
 
     #[test]
     fn hits_the_segment_target() {
-        let o = GenOptions { segments: 50_000, ..Default::default() };
+        let o = GenOptions {
+            segments: 50_000,
+            ..Default::default()
+        };
         let mut rng = Rng(7);
         let (_, segs) = page_content(&o, 0, &mut rng);
         assert!(segs >= 50_000 && segs < 80_000, "{segs}");

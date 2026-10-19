@@ -46,7 +46,12 @@ impl Gpu {
             required_limits: adapter.limits(),
             ..Default::default()
         }))?;
-        Ok(Gpu { sample_count: sample_count(&adapter), info: adapter.get_info(), device, queue })
+        Ok(Gpu {
+            sample_count: sample_count(&adapter),
+            info: adapter.get_info(),
+            device,
+            queue,
+        })
     }
 
     /// Whether the adapter draws in software (WARP, llvmpipe, lavapipe, SwiftShader). The view
@@ -67,7 +72,11 @@ pub fn is_software(info: &wgpu::AdapterInfo) -> bool {
 pub fn sample_count(adapter: &wgpu::Adapter) -> u32 {
     let c = adapter.get_texture_format_features(COLOR_FORMAT);
     let d = adapter.get_texture_format_features(DEPTH_FORMAT);
-    if c.flags.sample_count_supported(4) && d.flags.sample_count_supported(4) { 4 } else { 1 }
+    if c.flags.sample_count_supported(4) && d.flags.sample_count_supported(4) {
+        4
+    } else {
+        1
+    }
 }
 
 #[repr(C)]
@@ -127,7 +136,7 @@ pub struct GpuScene {
     /// Half the widest stroke (points), for culling.
     reach: f32,
     layers: wgpu::Buffer,
-    layer_bits: Vec<u32>,
+    layer_bits: std::sync::Mutex<Vec<u32>>,
     pub layer_names: Vec<String>,
     seg_chunks: Vec<SegChunk>,
     t_seg_chunks: Vec<SegChunk>,
@@ -147,21 +156,34 @@ pub struct GpuScene {
 
 impl GpuScene {
     /// Shows or hides a layer (takes effect on the next draw).
-    pub fn set_layer_visible(&mut self, queue: &wgpu::Queue, layer: usize, visible: bool) {
+    pub fn set_layer_visible(&self, queue: &wgpu::Queue, layer: usize, visible: bool) {
         let (w, b) = (layer / 32, layer % 32);
-        if w >= self.layer_bits.len() {
+        let mut bits = self.layer_bits.lock().unwrap();
+        if w >= bits.len() {
             return;
         }
         if visible {
-            self.layer_bits[w] |= 1 << b;
+            bits[w] |= 1 << b;
         } else {
-            self.layer_bits[w] &= !(1 << b);
+            bits[w] &= !(1 << b);
         }
-        queue.write_buffer(&self.layers, 0, bytemuck::cast_slice(&self.layer_bits));
+        queue.write_buffer(&self.layers, 0, bytemuck::cast_slice(&bits));
     }
 
     pub fn layer_visible(&self, layer: usize) -> bool {
-        self.layer_bits.get(layer / 32).is_some_and(|w| w >> (layer % 32) & 1 == 1)
+        self.layer_bits
+            .lock()
+            .unwrap()
+            .get(layer / 32)
+            .is_some_and(|w| w >> (layer % 32) & 1 == 1)
+    }
+
+    /// The centre of the cell with the most geometry (where the fidelity check looks closely).
+    pub fn densest_point(&self) -> [f32; 2] {
+        let best = (0..self.seg_cells.len())
+            .max_by_key(|&i| self.seg_cells[i][1] as u64 * 2 + self.fill_cells.get(i).map_or(0, |c| c[1] as u64))
+            .unwrap_or(0) as u32;
+        rc_scene::scene::cell_center(best, self.cols)
     }
 
     /// Opaque segments and triangles in cells overlapping `r` (page space): the cost of drawing
@@ -199,7 +221,11 @@ pub struct Target {
 
 impl Target {
     pub fn new(device: &wgpu::Device, width: u32, height: u32, sample_count: u32) -> Self {
-        let size = wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 };
+        let size = wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("target"),
             size,
@@ -243,7 +269,15 @@ impl Target {
                 view_formats: &[],
             })
             .create_view(&Default::default());
-        Target { width: size.width, height: size.height, msaa, depth, texture, view, srgb_view }
+        Target {
+            width: size.width,
+            height: size.height,
+            msaa,
+            depth,
+            texture,
+            view,
+            srgb_view,
+        }
     }
 
     /// Copies the target back as RGBA rows (for tests, thumbnails and the fidelity check).
@@ -252,7 +286,13 @@ impl Target {
     }
 }
 
-pub fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, width: u32, height: u32) -> Vec<u8> {
+pub fn read_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
     let row = (width * 4).div_ceil(256) * 256;
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("readback"),
@@ -262,17 +302,33 @@ pub fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::
     });
     let mut enc = device.create_command_encoder(&Default::default());
     enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
         wgpu::TexelCopyBufferInfo {
             buffer: &buffer,
-            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(height) },
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(height),
+            },
         },
-        wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
     );
     queue.submit([enc.finish()]);
     let slice = buffer.slice(..);
     slice.map_async(wgpu::MapMode::Read, |_| {});
-    let _ = device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: None,
+    });
     let data = slice.get_mapped_range().expect("readback buffer is mapped");
     let mut out = Vec::with_capacity((width * height * 4) as usize);
     for y in 0..height {
@@ -291,9 +347,23 @@ pub enum Draw<'a> {
     /// `transform` maps page space to target pixels (zoom, scroll, rotation). `hairline` is the
     /// thinnest stroke in target pixels: 1 on screen, more when drawing a supersampled tile that
     /// is filtered down.
-    Scene { scene: &'a GpuScene, transform: Affine2, clip: [f32; 4], alpha: f32, thin: bool, hairline: f32 },
+    Scene {
+        scene: &'a GpuScene,
+        transform: Affine2,
+        clip: [f32; 4],
+        alpha: f32,
+        thin: bool,
+        hairline: f32,
+    },
     /// A texture drawn into `dest` (pixels), showing `uv` of it, with a page filter.
-    Quad { texture: &'a GpuTexture, dest: [f32; 4], uv: [f32; 4], opacity: f32, straight: bool, filter: PageFilter },
+    Quad {
+        texture: &'a GpuTexture,
+        dest: [f32; 4],
+        uv: [f32; 4],
+        opacity: f32,
+        straight: bool,
+        filter: PageFilter,
+    },
 }
 
 /// A 2 × 3 affine transform `[a, b, c, d, e, f]`: x' = a x + c y + e, y' = b x + d y + f.
@@ -351,11 +421,7 @@ pub struct Renderer {
     quad: wgpu::RenderPipeline,
     /// Filters a supersampled tile down (one sample, no depth).
     down: wgpu::RenderPipeline,
-    down_uniforms: wgpu::Buffer,
-    down_group: wgpu::BindGroup,
     pub sampler: wgpu::Sampler,
-    uniforms: wgpu::Buffer,
-    uniform_group: wgpu::BindGroup,
     align: u64,
     max_binding: u64,
     max_buffer: u64,
@@ -479,8 +545,16 @@ impl Renderer {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(layout),
-                vertex: wgpu::VertexState { module, entry_point: Some(vs), compilation_options: Default::default(), buffers },
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+                vertex: wgpu::VertexState {
+                    module,
+                    entry_point: Some(vs),
+                    compilation_options: Default::default(),
+                    buffers,
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
                 depth_stencil: Some(depth_state),
                 multisample: wgpu::MultisampleState {
                     count: sample_count,
@@ -491,22 +565,83 @@ impl Renderer {
                     module,
                     entry_point: Some(fs),
                     compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState { format: COLOR_FORMAT, blend, write_mask: wgpu::ColorWrites::ALL })],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: COLOR_FORMAT,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                 }),
                 multiview_mask: None,
                 cache: None,
             })
         };
         use wgpu::CompareFunction::{Always, Less};
-        let stroke = make("stroke", &scene_layout, &scene_module, "stroke_vs", "stroke_fs", &[], None, depth(true, Less), false);
-        let stroke_t =
-            make("stroke_t", &scene_layout, &scene_module, "stroke_vs", "stroke_fs_t", &[], Some(premul), depth(true, Less), false);
-        let fill = make("fill", &scene_layout, &scene_module, "fill_vs", "fill_fs", &[Some(fill_layout.clone())], None, depth(true, Less), false);
-        let fill_t =
-            make("fill_t", &scene_layout, &scene_module, "fill_vs", "fill_fs_t", &[Some(fill_layout)], Some(premul), depth(true, Less), false);
-        let image =
-            make("image", &image_layout, &scene_module, "image_vs", "image_fs", &[Some(image_vlayout)], Some(premul), depth(true, Less), false);
-        let quad = make("quad", &quad_layout, &quad_module, "quad_vs", "quad_fs", &[], Some(premul), depth(false, Always), false);
+        let stroke = make(
+            "stroke",
+            &scene_layout,
+            &scene_module,
+            "stroke_vs",
+            "stroke_fs",
+            &[],
+            None,
+            depth(true, Less),
+            false,
+        );
+        let stroke_t = make(
+            "stroke_t",
+            &scene_layout,
+            &scene_module,
+            "stroke_vs",
+            "stroke_fs_t",
+            &[],
+            Some(premul),
+            depth(true, Less),
+            false,
+        );
+        let fill = make(
+            "fill",
+            &scene_layout,
+            &scene_module,
+            "fill_vs",
+            "fill_fs",
+            &[Some(fill_layout.clone())],
+            None,
+            depth(true, Less),
+            false,
+        );
+        let fill_t = make(
+            "fill_t",
+            &scene_layout,
+            &scene_module,
+            "fill_vs",
+            "fill_fs_t",
+            &[Some(fill_layout)],
+            Some(premul),
+            depth(true, Less),
+            false,
+        );
+        let image = make(
+            "image",
+            &image_layout,
+            &scene_module,
+            "image_vs",
+            "image_fs",
+            &[Some(image_vlayout)],
+            Some(premul),
+            depth(true, Less),
+            false,
+        );
+        let quad = make(
+            "quad",
+            &quad_layout,
+            &quad_module,
+            "quad_vs",
+            "quad_fs",
+            &[],
+            Some(premul),
+            depth(false, Always),
+            false,
+        );
         let down = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("downsample"),
             layout: Some(&quad_layout),
@@ -516,14 +651,21 @@ impl Renderer {
                 compilation_options: Default::default(),
                 buffers: &[],
             },
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
             depth_stencil: None,
             multisample: Default::default(),
             fragment: Some(wgpu::FragmentState {
                 module: &quad_module,
                 entry_point: Some("quad_fs"),
                 compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState { format: COLOR_FORMAT, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: COLOR_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
             multiview_mask: None,
             cache: None,
@@ -539,10 +681,6 @@ impl Renderer {
         });
         let limits = device.limits();
         let align = limits.min_uniform_buffer_offset_alignment.max(UNIFORM_SIZE as u32) as u64;
-        let uniforms = Self::uniform_buffer(device, align * 64);
-        let uniform_group = Self::uniform_group(device, &uniform_bgl, &uniforms);
-        let down_uniforms = Self::uniform_buffer(device, align);
-        let down_group = Self::uniform_group(device, &uniform_bgl, &down_uniforms);
         let white = Self::texture_with(device, queue, &tex_bgl, &sampler, 1, 1, &[255, 255, 255, 255], false);
         Renderer {
             sample_count,
@@ -556,11 +694,7 @@ impl Renderer {
             image,
             quad,
             down,
-            down_uniforms,
-            down_group,
             sampler,
-            uniforms,
-            uniform_group,
             align,
             max_binding: limits.max_storage_buffer_binding_size as u64,
             max_buffer: limits.max_buffer_size,
@@ -568,12 +702,13 @@ impl Renderer {
         }
     }
 
-    fn uniform_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
+    /// A uniform buffer holding `data`, for one draw call. Each call has its own, so the renderer
+    /// has no shared mutable state and any thread can draw with it.
+    fn uniform_buffer(device: &wgpu::Device, data: &[u8]) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniforms"),
-            size,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+            contents: data,
+            usage: wgpu::BufferUsages::UNIFORM,
         })
     }
 
@@ -597,7 +732,7 @@ impl Renderer {
     /// tile matches an antialiased render at `scale` (PDFium's, within the fidelity check's
     /// limits). Submits its own work. `scratch` keeps the large target between calls.
     pub fn render_tile(
-        &mut self,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         scene: &GpuScene,
@@ -632,12 +767,18 @@ impl Renderer {
         );
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("tile"),
-            size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: size[0],
+                height: size[1],
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
@@ -650,7 +791,10 @@ impl Renderer {
             flags: 0,
             ..Default::default()
         };
-        queue.write_buffer(&self.down_uniforms, 0, bytemuck::bytes_of(&u));
+        let mut block = bytemuck::bytes_of(&u).to_vec();
+        block.resize(self.align as usize, 0);
+        let down_uniforms = Self::uniform_buffer(device, &block);
+        let down_group = Self::uniform_group(device, &self.uniform_bgl, &down_uniforms);
         let src = self.tex_group(device, &big.view);
         {
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -659,7 +803,10 @@ impl Renderer {
                     view: &view,
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::WHITE), store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
@@ -667,13 +814,19 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.down);
-            pass.set_bind_group(0, &self.down_group, &[0]);
+            pass.set_bind_group(0, &down_group, &[0]);
             pass.set_bind_group(1, &src, &[]);
             pass.draw(0..6, 0..1);
         }
         queue.submit([enc.finish()]);
         let bind_group = self.tex_group(device, &view);
-        GpuTexture { texture, view, bind_group, width: size[0], height: size[1] }
+        GpuTexture {
+            texture,
+            view,
+            bind_group,
+            width: size[0],
+            height: size[1],
+        }
     }
 
     /// A white 1 × 1 texture (page backgrounds).
@@ -682,14 +835,27 @@ impl Renderer {
     }
 
     /// Uploads RGBA pixels as a texture (raster tiles, thumbnails).
-    pub fn texture(&self, device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32, rgba: &[u8]) -> GpuTexture {
+    pub fn texture(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> GpuTexture {
         Self::texture_with(device, queue, &self.tex_bgl, &self.sampler, width, height, rgba, false)
     }
 
     /// Wraps a target's resolved texture so it can be drawn as a quad (overview tiles).
     pub fn texture_from_target(&self, device: &wgpu::Device, target: Target) -> GpuTexture {
         let bind_group = self.tex_group(device, &target.view);
-        GpuTexture { bind_group, width: target.width, height: target.height, texture: target.texture, view: target.view }
+        GpuTexture {
+            bind_group,
+            width: target.width,
+            height: target.height,
+            texture: target.texture,
+            view: target.view,
+        }
     }
 
     fn tex_group(&self, device: &wgpu::Device, view: &wgpu::TextureView) -> wgpu::BindGroup {
@@ -706,10 +872,18 @@ impl Renderer {
         rgba: &[u8],
         mips: bool,
     ) -> GpuTexture {
-        let levels = if mips { mip_chain(width, height, rgba) } else { vec![(width, height, rgba.to_vec())] };
+        let levels = if mips {
+            mip_chain(width, height, rgba)
+        } else {
+            vec![(width, height, rgba.to_vec())]
+        };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture"),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: levels.len() as u32,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -726,13 +900,27 @@ impl Renderer {
                     aspect: wgpu::TextureAspect::All,
                 },
                 px,
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(w * 4), rows_per_image: Some(*h) },
-                wgpu::Extent3d { width: *w, height: *h, depth_or_array_layers: 1 },
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(w * 4),
+                    rows_per_image: Some(*h),
+                },
+                wgpu::Extent3d {
+                    width: *w,
+                    height: *h,
+                    depth_or_array_layers: 1,
+                },
             );
         }
         let view = texture.create_view(&Default::default());
         let bind_group = tex_group(device, layout, sampler, &view);
-        GpuTexture { texture, view, bind_group, width, height }
+        GpuTexture {
+            texture,
+            view,
+            bind_group,
+            width,
+            height,
+        }
     }
 
     /// Uploads a scene. Fails when a buffer would exceed the device's limits (the caller then
@@ -752,7 +940,11 @@ impl Renderer {
                 anyhow::bail!("{label} needs {} bytes; the GPU allows {}", data.len(), self.max_buffer);
             }
             bytes += data.len() as u64;
-            Ok(device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: data, usage }))
+            Ok(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: data,
+                usage,
+            }))
         };
         let storage_usage = wgpu::BufferUsages::STORAGE;
         let items = buffer("items", bytemuck::cast_slice(&scene.items), storage_usage)?;
@@ -762,7 +954,11 @@ impl Renderer {
                 *w &= !(1 << (l % 32));
             }
         }
-        let layers = buffer("layers", bytemuck::cast_slice(&layer_bits), storage_usage | wgpu::BufferUsages::COPY_DST)?;
+        let layers = buffer(
+            "layers",
+            bytemuck::cast_slice(&layer_bits),
+            storage_usage | wgpu::BufferUsages::COPY_DST,
+        )?;
         let per_chunk = (self.max_binding.min(self.max_buffer) / size_of::<StrokeSeg>() as u64).max(1) as usize;
         let mut chunks = |segs: &[StrokeSeg], label: &str| -> anyhow::Result<Vec<SegChunk>> {
             let mut out = Vec::new();
@@ -774,12 +970,24 @@ impl Renderer {
                     label: Some(label),
                     layout: &self.scene_bgl,
                     entries: &[
-                        wgpu::BindGroupEntry { binding: 0, resource: items.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 1, resource: layers.as_entire_binding() },
-                        wgpu::BindGroupEntry { binding: 2, resource: buf.as_entire_binding() },
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: items.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: layers.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buf.as_entire_binding(),
+                        },
                     ],
                 });
-                out.push(SegChunk { bind_group, range: start as u32..end as u32 });
+                out.push(SegChunk {
+                    bind_group,
+                    range: start as u32..end as u32,
+                });
                 start = end;
                 if start >= segs.len() {
                     return Ok(out);
@@ -791,12 +999,29 @@ impl Renderer {
         let base_group = seg_chunks[0].bind_group.clone();
         let vb = wgpu::BufferUsages::VERTEX;
         let ib = wgpu::BufferUsages::INDEX;
-        let opt = |v: bool, b: anyhow::Result<wgpu::Buffer>| -> anyhow::Result<Option<wgpu::Buffer>> { if v { b.map(Some) } else { Ok(None) } };
-        let fill_vb = opt(!scene.fill_verts.is_empty(), buffer("fill vertices", bytemuck::cast_slice(&scene.fill_verts), vb))?;
-        let fill_ib = opt(!scene.fill_idx.is_empty(), buffer("fill indices", bytemuck::cast_slice(&scene.fill_idx), ib))?;
-        let t_fill_ib = opt(!scene.t_fill_idx.is_empty(), buffer("transparent fill indices", bytemuck::cast_slice(&scene.t_fill_idx), ib))?;
-        let image_vb = opt(!scene.image_verts.is_empty(), buffer("image vertices", bytemuck::cast_slice(&scene.image_verts), vb))?;
-        let image_ib = opt(!scene.image_idx.is_empty(), buffer("image indices", bytemuck::cast_slice(&scene.image_idx), ib))?;
+        let opt = |v: bool, b: anyhow::Result<wgpu::Buffer>| -> anyhow::Result<Option<wgpu::Buffer>> {
+            if v { b.map(Some) } else { Ok(None) }
+        };
+        let fill_vb = opt(
+            !scene.fill_verts.is_empty(),
+            buffer("fill vertices", bytemuck::cast_slice(&scene.fill_verts), vb),
+        )?;
+        let fill_ib = opt(
+            !scene.fill_idx.is_empty(),
+            buffer("fill indices", bytemuck::cast_slice(&scene.fill_idx), ib),
+        )?;
+        let t_fill_ib = opt(
+            !scene.t_fill_idx.is_empty(),
+            buffer("transparent fill indices", bytemuck::cast_slice(&scene.t_fill_idx), ib),
+        )?;
+        let image_vb = opt(
+            !scene.image_verts.is_empty(),
+            buffer("image vertices", bytemuck::cast_slice(&scene.image_verts), vb),
+        )?;
+        let image_ib = opt(
+            !scene.image_idx.is_empty(),
+            buffer("image indices", bytemuck::cast_slice(&scene.image_idx), ib),
+        )?;
         let max_tex = device.limits().max_texture_dimension_2d;
         let images: Vec<GpuTexture> = scene
             .images
@@ -810,7 +1035,16 @@ impl Renderer {
                     img
                 };
                 bytes += img.rgba.len() as u64 * 4 / 3;
-                Self::texture_with(device, queue, &self.tex_bgl, &self.sampler, img.width, img.height, &img.rgba, true)
+                Self::texture_with(
+                    device,
+                    queue,
+                    &self.tex_bgl,
+                    &self.sampler,
+                    img.width,
+                    img.height,
+                    &img.rgba,
+                    true,
+                )
             })
             .collect();
         let reach = scene.items.iter().map(|i| i.width).fold(0.0f32, f32::max) * 0.5 + 0.5;
@@ -825,7 +1059,7 @@ impl Renderer {
             stream: scene.stream.clone(),
             reach,
             layers,
-            layer_bits,
+            layer_bits: std::sync::Mutex::new(layer_bits),
             layer_names: scene.layers.clone(),
             seg_chunks,
             t_seg_chunks,
@@ -844,7 +1078,7 @@ impl Renderer {
 
     /// Draws `draws` into `target`, clearing it to `clear` first.
     pub fn draw(
-        &mut self,
+        &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
@@ -860,7 +1094,14 @@ impl Renderer {
         for d in draws {
             offsets.push(arena.len() as u32);
             let block: [u8; UNIFORM_SIZE as usize] = match d {
-                Draw::Scene { scene, transform: m, alpha, thin, hairline, .. } => bytemuck::cast(ViewUniform {
+                Draw::Scene {
+                    scene,
+                    transform: m,
+                    alpha,
+                    thin,
+                    hairline,
+                    ..
+                } => bytemuck::cast(ViewUniform {
                     m: [m[0], m[1], m[2], m[3]],
                     t: [m[4], m[5]],
                     hairline: *hairline,
@@ -872,7 +1113,14 @@ impl Renderer {
                     scale: affine_scale(m),
                     ..Default::default()
                 }),
-                Draw::Quad { dest, uv, opacity, straight, filter, .. } => bytemuck::cast(QuadUniform {
+                Draw::Quad {
+                    dest,
+                    uv,
+                    opacity,
+                    straight,
+                    filter,
+                    ..
+                } => bytemuck::cast(QuadUniform {
                     dest: *dest,
                     uv: *uv,
                     target_size: size,
@@ -889,13 +1137,12 @@ impl Renderer {
             arena.extend_from_slice(&block);
             arena.resize(arena.len().next_multiple_of(self.align as usize), 0);
         }
-        if arena.len() as u64 > self.uniforms.size() {
-            self.uniforms = Self::uniform_buffer(device, (arena.len() as u64).next_power_of_two());
-            self.uniform_group = Self::uniform_group(device, &self.uniform_bgl, &self.uniforms);
+        if arena.is_empty() {
+            arena.resize(self.align as usize, 0);
         }
-        if !arena.is_empty() {
-            queue.write_buffer(&self.uniforms, 0, &arena);
-        }
+        let _ = queue;
+        let uniforms = Self::uniform_buffer(device, &arena);
+        let uniform_group = Self::uniform_group(device, &self.uniform_bgl, &uniforms);
         let (view, resolve) = match &target.msaa {
             Some(m) => (m, Some(&target.view)),
             None => (&target.view, None),
@@ -906,11 +1153,17 @@ impl Renderer {
                 view,
                 depth_slice: None,
                 resolve_target: resolve,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(clear), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(clear),
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &target.depth,
-                depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Discard }),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
                 stencil_ops: None,
             }),
             timestamp_writes: None,
@@ -922,28 +1175,59 @@ impl Renderer {
                 Draw::Quad { texture, .. } => {
                     pass.set_scissor_rect(0, 0, target.width, target.height);
                     pass.set_pipeline(&self.quad);
-                    pass.set_bind_group(0, &self.uniform_group, &[off]);
+                    pass.set_bind_group(0, &uniform_group, &[off]);
                     pass.set_bind_group(1, &texture.bind_group, &[]);
                     pass.draw(0..6, 0..1);
                     stats.draw_calls += 1;
                 }
-                Draw::Scene { scene, transform, clip, .. } => {
-                    let Some(sc) = scissor(*clip, target.width, target.height) else { continue };
+                Draw::Scene {
+                    scene, transform, clip, ..
+                } => {
+                    let Some(sc) = scissor(*clip, target.width, target.height) else {
+                        continue;
+                    };
                     let Some(inv) = affine_invert(transform) else { continue };
                     pass.set_scissor_rect(sc[0], sc[1], sc[2], sc[3]);
                     // The part of the page the scissor shows, in page space.
-                    let (x0, y0, x1, y1) = (sc[0] as f32, sc[1] as f32, (sc[0] + sc[2]) as f32, (sc[1] + sc[3]) as f32);
-                    let corners = [affine_apply(&inv, x0, y0), affine_apply(&inv, x1, y0), affine_apply(&inv, x0, y1), affine_apply(&inv, x1, y1)];
+                    let (x0, y0, x1, y1) = (
+                        sc[0] as f32,
+                        sc[1] as f32,
+                        (sc[0] + sc[2]) as f32,
+                        (sc[1] + sc[3]) as f32,
+                    );
+                    let corners = [
+                        affine_apply(&inv, x0, y0),
+                        affine_apply(&inv, x1, y0),
+                        affine_apply(&inv, x0, y1),
+                        affine_apply(&inv, x1, y1),
+                    ];
                     let r = rc_scene::clip::bounds(corners);
-                    self.draw_scene(&mut pass, scene, off, r, 2.0 / affine_scale(transform).max(1e-6), &mut stats);
+                    self.draw_scene(
+                        &mut pass,
+                        &uniform_group,
+                        scene,
+                        off,
+                        r,
+                        2.0 / affine_scale(transform).max(1e-6),
+                        &mut stats,
+                    );
                 }
             }
         }
         stats
     }
 
-    fn draw_scene(&self, pass: &mut wgpu::RenderPass, scene: &GpuScene, off: u32, r: Rect, px: f32, stats: &mut DrawStats) {
-        pass.set_bind_group(0, &self.uniform_group, &[off]);
+    fn draw_scene(
+        &self,
+        pass: &mut wgpu::RenderPass,
+        uniform_group: &wgpu::BindGroup,
+        scene: &GpuScene,
+        off: u32,
+        r: Rect,
+        px: f32,
+        stats: &mut DrawStats,
+    ) {
+        pass.set_bind_group(0, uniform_group, &[off]);
         // Opaque strokes: runs of consecutive visible cells are contiguous in the buffer.
         let m = scene.reach + px;
         let reach = [r[0] - m, r[1] - m, r[2] + m, r[3] + m];
@@ -965,7 +1249,11 @@ impl Renderer {
         }
         // Opaque fills.
         if let (Some(vb), Some(ib)) = (&scene.fill_vb, &scene.fill_ib) {
-            let ranges = visible_ranges(&scene.fill_cells, &scene.fill_cell_bounds, [r[0] - px, r[1] - px, r[2] + px, r[3] + px]);
+            let ranges = visible_ranges(
+                &scene.fill_cells,
+                &scene.fill_cell_bounds,
+                [r[0] - px, r[1] - px, r[2] + px, r[3] + px],
+            );
             if !ranges.is_empty() {
                 pass.set_pipeline(&self.fill);
                 pass.set_bind_group(1, &scene.base_group, &[]);
@@ -998,7 +1286,9 @@ impl Renderer {
                     stats.segments += e.count as u64;
                 }
                 stream::FILLS => {
-                    let (Some(vb), Some(ib)) = (&scene.fill_vb, &scene.t_fill_ib) else { continue };
+                    let (Some(vb), Some(ib)) = (&scene.fill_vb, &scene.t_fill_ib) else {
+                        continue;
+                    };
                     pass.set_pipeline(&self.fill_t);
                     pass.set_bind_group(1, &scene.base_group, &[]);
                     pass.set_vertex_buffer(0, vb.slice(..));
@@ -1008,7 +1298,9 @@ impl Renderer {
                     stats.draw_calls += 1;
                 }
                 _ => {
-                    let (Some(vb), Some(ib), Some(tex)) = (&scene.image_vb, &scene.image_ib, scene.images.get(e.image as usize)) else {
+                    let (Some(vb), Some(ib), Some(tex)) =
+                        (&scene.image_vb, &scene.image_ib, scene.images.get(e.image as usize))
+                    else {
                         continue;
                     };
                     pass.set_pipeline(&self.image);
@@ -1025,13 +1317,24 @@ impl Renderer {
     }
 }
 
-fn tex_group(device: &wgpu::Device, layout: &wgpu::BindGroupLayout, sampler: &wgpu::Sampler, view: &wgpu::TextureView) -> wgpu::BindGroup {
+fn tex_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    view: &wgpu::TextureView,
+) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("texture"),
         layout,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(view) },
-            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
         ],
     })
 }

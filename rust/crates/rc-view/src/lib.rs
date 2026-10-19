@@ -4,3 +4,4 @@
 
 pub mod layout;
 pub mod tiles;
+pub mod viewer;

@@ -6,11 +6,17 @@ use std::time::Duration;
 
 pub fn pdfium_path() -> PathBuf {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/pdfium");
-    if cfg!(windows) { dir.join("win-x64/bin/pdfium.dll") } else { dir.join("linux-x64/lib/libpdfium.so") }
+    if cfg!(windows) {
+        dir.join("win-x64/bin/pdfium.dll")
+    } else {
+        dir.join("linux-x64/lib/libpdfium.so")
+    }
 }
 
 pub fn fixture(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../e2e/fixtures").join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../e2e/fixtures")
+        .join(name)
 }
 
 fn pool(workers: usize) -> Pool {
@@ -25,7 +31,10 @@ fn pool(workers: usize) -> Pool {
 
 fn wait(pool: &Pool, id: JobId) -> Event {
     loop {
-        let e = pool.events().recv_timeout(Duration::from_secs(60)).expect("no answer from the pool");
+        let e = pool
+            .events()
+            .recv_timeout(Duration::from_secs(60))
+            .expect("no answer from the pool");
         if e.id == id {
             return e;
         }
@@ -37,7 +46,9 @@ fn pages_render_extract() {
     let pool = pool(2);
     pool.open(1, fixture("plan.pdf"), None);
     let e = wait(&pool, pool.submit(Job::Pages { doc: 1 }, 0));
-    let JobResult::Pages(pages) = e.result else { panic!("{:?}", e.result) };
+    let JobResult::Pages(pages) = e.result else {
+        panic!("{:?}", e.result)
+    };
     assert!(!pages.is_empty());
     let p = &pages[0];
     assert!(p.width > 100.0 && p.height > 100.0);
@@ -57,13 +68,20 @@ fn pages_render_extract() {
         generation: 1,
     };
     let e = wait(&pool, pool.submit(Job::Render(req.clone()), 0));
-    let JobResult::Rendered { width, height, rgba, .. } = e.result else { panic!("{:?}", e.result) };
+    let JobResult::Rendered {
+        width, height, rgba, ..
+    } = e.result
+    else {
+        panic!("{:?}", e.result)
+    };
     assert_eq!(rgba.len(), (width * height * 4) as usize);
     // Something is drawn: not every pixel is white.
     assert!(rgba.chunks(4).any(|px| px[0] < 200));
 
     let e = wait(&pool, pool.submit(Job::Extract { doc: 1, page: 0 }, 0));
-    let JobResult::Extracted { content, .. } = e.result else { panic!("{:?}", e.result) };
+    let JobResult::Extracted { content, .. } = e.result else {
+        panic!("{:?}", e.result)
+    };
     assert!(!content.items.is_empty());
     assert!((content.size[0] - p.width).abs() < 0.5);
 

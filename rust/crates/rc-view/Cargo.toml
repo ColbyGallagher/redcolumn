@@ -26,3 +26,7 @@ rc-bench = { path = "../rc-bench" }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "viewer"
+harness = false

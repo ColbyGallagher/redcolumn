@@ -155,7 +155,14 @@ impl Default for Affine {
 }
 
 impl Affine {
-    pub const IDENTITY: Affine = Affine { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 };
+    pub const IDENTITY: Affine = Affine {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
 
     pub fn new(a: f64, b: f64, c: f64, d: f64, e: f64, f: f64) -> Self {
         Self { a, b, c, d, e, f }
@@ -192,7 +199,14 @@ impl Affine {
         let b = -self.b / det;
         let c = -self.c / det;
         let d = self.a / det;
-        Some(Affine { a, b, c, d, e: -(a * self.e + c * self.f), f: -(b * self.e + d * self.f) })
+        Some(Affine {
+            a,
+            b,
+            c,
+            d,
+            e: -(a * self.e + c * self.f),
+            f: -(b * self.e + d * self.f),
+        })
     }
 
     /// How much the transform scales lengths on average (for line widths).
@@ -268,7 +282,14 @@ pub struct ContentBuilder {
 
 impl ContentBuilder {
     pub fn new(size: [f32; 2]) -> Self {
-        Self { content: PageContent { size, ..Default::default() }, layer_index: Default::default(), taken: 0 }
+        Self {
+            content: PageContent {
+                size,
+                ..Default::default()
+            },
+            layer_index: Default::default(),
+            taken: 0,
+        }
     }
 
     /// Starts a path; returns `(verb_start, point_start)` to pass to [`Self::finish_path`].
@@ -331,7 +352,14 @@ impl ContentBuilder {
         let ps = c.clip_points.len() as u32;
         c.clip_verbs.extend_from_slice(&c.verbs[start.0 as usize..]);
         c.clip_points.extend_from_slice(&c.points[start.1 as usize..]);
-        c.clips.push(ClipNode { parent, verb_start: vs, verb_len: c.clip_verbs.len() as u32 - vs, point_start: ps, rule, _pad: [0; 3] });
+        c.clips.push(ClipNode {
+            parent,
+            verb_start: vs,
+            verb_len: c.clip_verbs.len() as u32 - vs,
+            point_start: ps,
+            rule,
+            _pad: [0; 3],
+        });
         c.clips.len() as u32 - 1
     }
 
@@ -342,7 +370,14 @@ impl ContentBuilder {
         let ps = c.clip_points.len() as u32;
         c.clip_verbs.extend_from_slice(verbs);
         c.clip_points.extend_from_slice(points);
-        c.clips.push(ClipNode { parent, verb_start: vs, verb_len: verbs.len() as u32, point_start: ps, rule, _pad: [0; 3] });
+        c.clips.push(ClipNode {
+            parent,
+            verb_start: vs,
+            verb_len: verbs.len() as u32,
+            point_start: ps,
+            rule,
+            _pad: [0; 3],
+        });
         c.clips.len() as u32 - 1
     }
 
@@ -430,7 +465,10 @@ impl PageContent {
 
     /// Path segments (lines and curves, before flattening), for statistics.
     pub fn segment_count(&self) -> usize {
-        self.verbs.iter().filter(|&&v| v == verb::LINE || v == verb::CUBIC).count()
+        self.verbs
+            .iter()
+            .filter(|&&v| v == verb::LINE || v == verb::CUBIC)
+            .count()
     }
 }
 
@@ -585,7 +623,13 @@ mod tests {
         b.close();
         b.move_to([50.0, 50.0]);
         b.line_to([60.0, 60.0]);
-        assert!(b.finish_path(s, Item { stroked: 1, ..Default::default() }));
+        assert!(b.finish_path(
+            s,
+            Item {
+                stroked: 1,
+                ..Default::default()
+            }
+        ));
         let c = b.finish();
         let lines = flatten(c.item_path(&c.items[0]), 0.01);
         assert_eq!(lines.len(), 2);

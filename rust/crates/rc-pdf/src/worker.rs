@@ -50,7 +50,10 @@ pub fn default_library_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let name = Pdfium::pdfium_platform_library_name();
-    std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(&name))).unwrap_or_else(|| PathBuf::from(name))
+    std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|d| d.join(&name)))
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 struct CachedPage {
@@ -88,7 +91,14 @@ impl Worker {
         let control_shm = Shared::open(control)?;
         let payload_path = shm::temp_path("payload");
         let payload = Shared::create(&payload_path, PAYLOAD_INITIAL)?;
-        Ok(Self { pdf, docs: HashMap::new(), control: control_shm, payload, payload_gen: 0, control_path: control.to_path_buf() })
+        Ok(Self {
+            pdf,
+            docs: HashMap::new(),
+            control: control_shm,
+            payload,
+            payload_gen: 0,
+            control_path: control.to_path_buf(),
+        })
     }
 
     /// Makes sure the payload file holds at least `len` bytes, replacing it with a larger one if not.
@@ -106,13 +116,18 @@ impl Worker {
     }
 
     fn payload_of(&self, len: usize) -> Payload {
-        Payload { file: self.payload.path.clone(), len: len as u64 }
+        Payload {
+            file: self.payload.path.clone(),
+            len: len as u64,
+        }
     }
 
     pub fn handle(&mut self, req: Request) -> Response {
         match self.try_handle(req) {
             Ok(r) => r,
-            Err(e) => Response::Error { message: format!("{e:#}") },
+            Err(e) => Response::Error {
+                message: format!("{e:#}"),
+            },
         }
     }
 
@@ -154,7 +169,16 @@ impl Worker {
         }
         let scratch = unsafe { b.FPDF_LoadMemDocument64(bytes, password) };
         let pages = unsafe { b.FPDF_GetPageCount(handle) }.max(0) as u32;
-        self.docs.insert(doc, Doc { handle, scratch, pages: Vec::new(), overlays: HashMap::new(), _map: map });
+        self.docs.insert(
+            doc,
+            Doc {
+                handle,
+                scratch,
+                pages: Vec::new(),
+                overlays: HashMap::new(),
+                _map: map,
+            },
+        );
         Ok(Response::Opened { doc, pages })
     }
 
@@ -176,7 +200,9 @@ impl Worker {
     }
 
     fn doc(&mut self, doc: DocId) -> anyhow::Result<&mut Doc> {
-        self.docs.get_mut(&doc).ok_or_else(|| anyhow::anyhow!("document {doc} is not open"))
+        self.docs
+            .get_mut(&doc)
+            .ok_or_else(|| anyhow::anyhow!("document {doc} is not open"))
     }
 
     /// The page, parsed (from the cache when it is there). Returns it and the parse time this
@@ -220,10 +246,18 @@ impl Worker {
         for i in 0..n {
             // Page sizes without parsing content: FPDF_GetPageSizeByIndexF reads only the
             // page dictionary.
-            let mut size = FS_SIZEF { width: 0.0, height: 0.0 };
+            let mut size = FS_SIZEF {
+                width: 0.0,
+                height: 0.0,
+            };
             unsafe { b.FPDF_GetPageSizeByIndexF(handle, i, &mut size) };
             let label = page_label(b.as_ref(), handle, i);
-            pages.push(PageInfo { width: size.width, height: size.height, rotation: 0, label });
+            pages.push(PageInfo {
+                width: size.width,
+                height: size.height,
+                rotation: 0,
+                label,
+            });
         }
         Ok(Response::Pages { doc, pages })
     }
@@ -247,11 +281,23 @@ impl Worker {
         let buf = self.payload.bytes_mut().as_mut_ptr() as *mut c_void;
         // SAFETY: the payload holds at least width*height*4 bytes (reserved above); the bitmap
         // borrows it only until it is destroyed below.
-        let bitmap = unsafe { b.FPDFBitmap_CreateEx(r.width as c_int, r.height as c_int, FPDFBITMAP_BGRA, buf, (r.width * 4) as c_int) };
+        let bitmap = unsafe {
+            b.FPDFBitmap_CreateEx(
+                r.width as c_int,
+                r.height as c_int,
+                FPDFBITMAP_BGRA,
+                buf,
+                (r.width * 4) as c_int,
+            )
+        };
         if bitmap.is_null() {
             anyhow::bail!("could not create a {}x{} bitmap", r.width, r.height);
         }
-        let background = if matches!(r.layer, Layer::Overlay { .. }) { 0x0000_0000 } else { 0xffff_ffff };
+        let background = if matches!(r.layer, Layer::Overlay { .. }) {
+            0x0000_0000
+        } else {
+            0xffff_ffff
+        };
         unsafe { b.FPDFBitmap_FillRect(bitmap, 0, 0, r.width as c_int, r.height as c_int, background) };
         let mut flags = FPDF_REVERSE_BYTE_ORDER;
         if !matches!(r.layer, Layer::Content) {
@@ -262,8 +308,15 @@ impl Worker {
         }
         let page_w = unsafe { b.FPDF_GetPageWidthF(page) } * r.scale;
         let page_h = unsafe { b.FPDF_GetPageHeightF(page) } * r.scale;
-        let cancel = PauseState { flag: self.control.cancel_generation() as *const _, generation: r.generation };
-        let mut pause = IFSDK_PAUSE { version: 1, NeedToPauseNow: Some(need_to_pause), user: &cancel as *const _ as *mut c_void };
+        let cancel = PauseState {
+            flag: self.control.cancel_generation() as *const _,
+            generation: r.generation,
+        };
+        let mut pause = IFSDK_PAUSE {
+            version: 1,
+            NeedToPauseNow: Some(need_to_pause),
+            user: &cancel as *const _ as *mut c_void,
+        };
         let rotate = (r.rotate % 4) as c_int;
         let (size_x, size_y) = if rotate % 2 == 1 {
             (page_h.round() as c_int, page_w.round() as c_int)
@@ -271,7 +324,9 @@ impl Worker {
             (page_w.round() as c_int, page_h.round() as c_int)
         };
         // SAFETY: page and bitmap are live; `pause` and `cancel` outlive the render calls.
-        let mut status = unsafe { b.FPDF_RenderPageBitmap_Start(bitmap, page, -r.x, -r.y, size_x, size_y, rotate, flags, &mut pause) };
+        let mut status = unsafe {
+            b.FPDF_RenderPageBitmap_Start(bitmap, page, -r.x, -r.y, size_x, size_y, rotate, flags, &mut pause)
+        };
         let mut cancelled = false;
         while status == FPDF_RENDER_TOBECONTINUED {
             if cancel.cancelled() {
@@ -292,7 +347,11 @@ impl Worker {
             width: r.width,
             height: r.height,
             payload: self.payload_of(len),
-            timing: Timing { parse_ms, work_ms: (Instant::now() - parse_done).as_secs_f64() * 1000.0, objects },
+            timing: Timing {
+                parse_ms,
+                work_ms: (Instant::now() - parse_done).as_secs_f64() * 1000.0,
+                objects,
+            },
         })
         .inspect(|_| tracing::trace!(ms = t0.elapsed().as_secs_f64() * 1000.0, "render"))
     }
@@ -360,7 +419,14 @@ impl Worker {
         let work_ms = t.elapsed().as_secs_f64() * 1000.0;
         self.reserve(bytes.len())?;
         self.payload.bytes_mut()[..bytes.len()].copy_from_slice(&bytes);
-        Ok(Response::Extracted { payload: self.payload_of(bytes.len()), timing: Timing { parse_ms, work_ms, objects } })
+        Ok(Response::Extracted {
+            payload: self.payload_of(bytes.len()),
+            timing: Timing {
+                parse_ms,
+                work_ms,
+                objects,
+            },
+        })
     }
 
     fn annotations(&mut self, doc: DocId, index: u32) -> anyhow::Result<Response> {
@@ -371,7 +437,9 @@ impl Worker {
 
     fn text(&mut self, doc: DocId, index: u32) -> anyhow::Result<Response> {
         let (page, _) = self.page(doc, index)?;
-        Ok(Response::Text { runs: extract::text_runs(self.pdf.b.as_ref(), page) })
+        Ok(Response::Text {
+            runs: extract::text_runs(self.pdf.b.as_ref(), page),
+        })
     }
 
     pub fn control_path(&self) -> &Path {
@@ -462,7 +530,9 @@ pub fn run(library: &Path, control: &Path) -> anyhow::Result<()> {
         }
         let response = match serde_json::from_str::<Request>(line.trim_end()) {
             Ok(req) => worker.handle(req),
-            Err(e) => Response::Error { message: format!("bad request: {e}") },
+            Err(e) => Response::Error {
+                message: format!("bad request: {e}"),
+            },
         };
         serde_json::to_writer(&mut stdout, &response)?;
         stdout.write_all(b"\n")?;
@@ -474,7 +544,12 @@ pub fn run(library: &Path, control: &Path) -> anyhow::Result<()> {
 /// binary calls this when started as a worker.
 pub fn main_from_args(args: impl Iterator<Item = String>) -> anyhow::Result<()> {
     let args: Vec<String> = args.collect();
-    let get = |name: &str| args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).map(PathBuf::from);
+    let get = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .map(PathBuf::from)
+    };
     let library = get("--pdfium").unwrap_or_else(default_library_path);
     let control = get("--control").ok_or_else(|| anyhow::anyhow!("--control is required"))?;
     run(&library, &control)

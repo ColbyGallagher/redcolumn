@@ -13,17 +13,34 @@ pub type DocId = u32;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Request {
     /// Open (map) a file. Workers open documents lazily, before their first job on it.
-    Open { doc: DocId, path: PathBuf, password: Option<String> },
-    Close { doc: DocId },
+    Open {
+        doc: DocId,
+        path: PathBuf,
+        password: Option<String>,
+    },
+    Close {
+        doc: DocId,
+    },
     /// Page sizes, rotations and labels, for laying out the document.
-    Pages { doc: DocId },
+    Pages {
+        doc: DocId,
+    },
     Render(RenderRequest),
     /// The page's content through PDFium's page object API, as `rc_scene::wire` bytes.
-    Extract { doc: DocId, page: u32 },
+    Extract {
+        doc: DocId,
+        page: u32,
+    },
     /// Annotations on a page (for importing markups).
-    Annotations { doc: DocId, page: u32 },
+    Annotations {
+        doc: DocId,
+        page: u32,
+    },
     /// Text runs on a page, for selection and search.
-    Text { doc: DocId, page: u32 },
+    Text {
+        doc: DocId,
+        page: u32,
+    },
 }
 
 /// What a render draws.
@@ -116,19 +133,41 @@ pub struct Payload {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum Response {
-    Opened { doc: DocId, pages: u32 },
-    Closed { doc: DocId },
-    Pages { doc: DocId, pages: Vec<PageInfo> },
+    Opened {
+        doc: DocId,
+        pages: u32,
+    },
+    Closed {
+        doc: DocId,
+    },
+    Pages {
+        doc: DocId,
+        pages: Vec<PageInfo>,
+    },
     /// RGBA pixels, row by row, `width * 4` bytes a row.
-    Rendered { width: u32, height: u32, payload: Payload, timing: Timing },
+    Rendered {
+        width: u32,
+        height: u32,
+        payload: Payload,
+        timing: Timing,
+    },
     /// The render was stopped because its generation was cancelled.
     Cancelled,
-    Extracted { payload: Payload, timing: Timing },
-    Annotations { annots: Vec<AnnotInfo> },
-    Text { runs: Vec<TextRun> },
+    Extracted {
+        payload: Payload,
+        timing: Timing,
+    },
+    Annotations {
+        annots: Vec<AnnotInfo>,
+    },
+    Text {
+        runs: Vec<TextRun>,
+    },
     /// The file needs a password (or the one given was wrong).
     PasswordRequired,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 /// What a job cost the worker.

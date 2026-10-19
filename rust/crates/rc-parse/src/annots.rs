@@ -54,7 +54,11 @@ fn rgb(o: Option<std::sync::Arc<Obj>>) -> Option<[f32; 3]> {
         3 => Some([v[0], v[1], v[2]]),
         4 => {
             let k = v[3];
-            Some([(1.0 - (v[0] + k).min(1.0)), (1.0 - (v[1] + k).min(1.0)), (1.0 - (v[2] + k).min(1.0))])
+            Some([
+                (1.0 - (v[0] + k).min(1.0)),
+                (1.0 - (v[1] + k).min(1.0)),
+                (1.0 - (v[2] + k).min(1.0)),
+            ])
         }
         _ => None,
     }
@@ -62,7 +66,9 @@ fn rgb(o: Option<std::sync::Arc<Obj>>) -> Option<[f32; 3]> {
 
 pub fn annotations(doc: &Document, page: &PageNode) -> Vec<Annotation> {
     let base = Affine::page_from_user(page.crop_box, page.rotate);
-    let Some(list) = page.dict.get("Annots").map(|a| doc.resolve(a)) else { return Vec::new() };
+    let Some(list) = page.dict.get("Annots").map(|a| doc.resolve(a)) else {
+        return Vec::new();
+    };
     let Some(list) = list.as_array() else { return Vec::new() };
     let mut out = Vec::new();
     for (i, entry) in list.iter().enumerate() {
@@ -72,8 +78,16 @@ pub fn annotations(doc: &Document, page: &PageNode) -> Vec<Annotation> {
         };
         let a = doc.resolve(entry);
         let Some(d) = a.as_dict() else { continue };
-        let s = |k: &str| doc.dict_get(d, k).and_then(|o| o.as_str().map(decode_text)).unwrap_or_default();
-        let name = |k: &str| doc.dict_get(d, k).and_then(|o| o.as_name().map(|n| n.as_str().into_owned())).unwrap_or_default();
+        let s = |k: &str| {
+            doc.dict_get(d, k)
+                .and_then(|o| o.as_str().map(decode_text))
+                .unwrap_or_default()
+        };
+        let name = |k: &str| {
+            doc.dict_get(d, k)
+                .and_then(|o| o.as_name().map(|n| n.as_str().into_owned()))
+                .unwrap_or_default()
+        };
         let Some(r) = doc.rect(d, "Rect") else { continue };
         let p0 = base.apply_f32(r[0], r[3]);
         let p1 = base.apply_f32(r[2], r[1]);
@@ -85,7 +99,10 @@ pub fn annotations(doc: &Document, page: &PageNode) -> Vec<Annotation> {
         let border_width = doc
             .dict_get(d, "BS")
             .and_then(|bs| bs.as_dict().and_then(|b| doc.dict_get(b, "W")).and_then(|w| w.as_f32()))
-            .or_else(|| doc.dict_get(d, "Border").and_then(|b| b.as_array().and_then(|a| a.get(2)).and_then(Obj::as_f32)));
+            .or_else(|| {
+                doc.dict_get(d, "Border")
+                    .and_then(|b| b.as_array().and_then(|a| a.get(2)).and_then(Obj::as_f32))
+            });
         out.push(Annotation {
             index: i as u32,
             object,

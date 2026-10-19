@@ -49,14 +49,27 @@ pub fn tile_size(layout: &Layout, k: &TileKey) -> [u32; 2] {
     let [pw, ph] = page_px(layout, k.page as usize, k.level);
     let x = k.tx as u32 * TILE;
     let y = k.ty as u32 * TILE;
-    [TILE.min(pw.saturating_sub(x)).max(1), TILE.min(ph.saturating_sub(y)).max(1)]
+    [
+        TILE.min(pw.saturating_sub(x)).max(1),
+        TILE.min(ph.saturating_sub(y)).max(1),
+    ]
 }
 
 /// Page space to the tile's pixels.
 pub fn tile_transform(layout: &Layout, k: &TileKey) -> Affine2 {
     let s = level_scale(k.level);
     let rot = layout.rotate(k.page as usize);
-    then(&rot, &[s, 0.0, 0.0, s, -(k.tx as f32 * TILE as f32), -(k.ty as f32 * TILE as f32)])
+    then(
+        &rot,
+        &[
+            s,
+            0.0,
+            0.0,
+            s,
+            -(k.tx as f32 * TILE as f32),
+            -(k.ty as f32 * TILE as f32),
+        ],
+    )
 }
 
 /// Tiles of a page at a level covering `region` (in the rotated page's points).
@@ -106,7 +119,13 @@ mod tests {
         let l = Layout::new(vec![[2384.0, 1684.0]], Mode::Single, 0, 0);
         let t = covering(&l, 0, 0, [0.0, 0.0, 600.0, 100.0]);
         assert_eq!(t, vec![(0, 0), (1, 0)]);
-        let inner = TileKey { page: 0, kind: Kind::Scene, level: 0, tx: 1, ty: 1 };
+        let inner = TileKey {
+            page: 0,
+            kind: Kind::Scene,
+            level: 0,
+            tx: 1,
+            ty: 1,
+        };
         assert_eq!(tile_size(&l, &inner), [512, 512]);
         // The last tile is cut at the page's edge: 2384 - 2048 by 1684 - 1536.
         let k = TileKey { tx: 4, ty: 3, ..inner };
@@ -119,7 +138,13 @@ mod tests {
     #[test]
     fn rotated_tiles() {
         let l = Layout::new(vec![[100.0, 50.0]], Mode::Single, 1, 0);
-        let k = TileKey { page: 0, kind: Kind::Scene, level: 0, tx: 0, ty: 0 };
+        let k = TileKey {
+            page: 0,
+            kind: Kind::Scene,
+            level: 0,
+            tx: 0,
+            ty: 0,
+        };
         // Rotated 90°: the page is 50 wide, 100 tall; its top-left corner is now at top-right.
         assert_eq!(tile_size(&l, &k), [50, 100]);
         assert_eq!(apply(&tile_transform(&l, &k), [0.0, 0.0]), [50.0, 0.0]);

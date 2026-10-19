@@ -33,10 +33,28 @@ pub fn views(size: [f32; 2], densest: [f32; 2]) -> [View; 2] {
     let w = (size[0] * fit).round().max(1.0) as u32;
     let h = (size[1] * fit).round().max(1.0) as u32;
     let detail = fit * 4.0;
-    let (dw, dh) = (CHECK_PX.min((size[0] * detail) as u32).max(1), CHECK_PX.min((size[1] * detail) as u32).max(1));
+    let (dw, dh) = (
+        CHECK_PX.min((size[0] * detail) as u32).max(1),
+        CHECK_PX.min((size[1] * detail) as u32).max(1),
+    );
     let cx = (densest[0] * detail - dw as f32 / 2.0).clamp(0.0, (size[0] * detail - dw as f32).max(0.0)) as i32;
     let cy = (densest[1] * detail - dh as f32 / 2.0).clamp(0.0, (size[1] * detail - dh as f32).max(0.0)) as i32;
-    [View { scale: fit, x: 0, y: 0, width: w, height: h }, View { scale: detail, x: cx, y: cy, width: dw, height: dh }]
+    [
+        View {
+            scale: fit,
+            x: 0,
+            y: 0,
+            width: w,
+            height: h,
+        },
+        View {
+            scale: detail,
+            x: cx,
+            y: cy,
+            width: dw,
+            height: dh,
+        },
+    ]
 }
 
 /// The scale PDFium actually draws a page at for a requested scale: it lays the page out at a
@@ -88,7 +106,13 @@ pub fn composite(under: &mut [u8], over: &[u8]) {
 pub const SUPERSAMPLE: u32 = 2;
 
 /// Draws a scene on white for one view the way the view does: as a supersampled tile.
-pub fn draw_scene(device: &wgpu::Device, queue: &wgpu::Queue, renderer: &mut Renderer, scene: &GpuScene, v: View) -> Vec<u8> {
+pub fn draw_scene(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    renderer: &Renderer,
+    scene: &GpuScene,
+    v: View,
+) -> Vec<u8> {
     let mut scratch = None;
     let tile = renderer.render_tile(
         device,
@@ -152,7 +176,10 @@ pub struct Verdict {
 /// against PDFium's references.
 pub fn judge(gpu: [&[u8]; 2], reference: [&[u8]; 2]) -> Verdict {
     let diffs = [diff(gpu[0], reference[0]), diff(gpu[1], reference[1])];
-    Verdict { ok: diffs.iter().all(|&d| d <= MAX_DIFF), diffs }
+    Verdict {
+        ok: diffs.iter().all(|&d| d <= MAX_DIFF),
+        diffs,
+    }
 }
 
 /// Runs the whole check for one page, blocking on the pool (for tools and tests; the app runs
@@ -160,7 +187,7 @@ pub fn judge(gpu: [&[u8]; 2], reference: [&[u8]; 2]) -> Verdict {
 pub fn check_blocking(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    renderer: &mut Renderer,
+    renderer: &Renderer,
     pool: &Pool,
     doc: u32,
     page: u32,
@@ -172,10 +199,19 @@ pub fn check_blocking(
     let mut refs: Vec<Vec<u8>> = Vec::new();
     let mut gpus: Vec<Vec<u8>> = Vec::new();
     for v in vs {
-        let r = wait(pool, pool.submit(Job::Render(request(doc, page, v, Layer::Full, vec![])), 0))?;
+        let r = wait(
+            pool,
+            pool.submit(Job::Render(request(doc, page, v, Layer::Full, vec![])), 0),
+        )?;
         let mut g = draw_scene(device, queue, renderer, gpu_scene, v);
         // The overlay carries annotations (and text when the scene has none), as on screen.
-        let overlay = wait(pool, pool.submit(Job::Render(request(doc, page, v, Layer::Overlay { text: with_text }, vec![])), 0))?;
+        let overlay = wait(
+            pool,
+            pool.submit(
+                Job::Render(request(doc, page, v, Layer::Overlay { text: with_text }, vec![])),
+                0,
+            ),
+        )?;
         composite(&mut g, &overlay);
         refs.push(r);
         gpus.push(g);

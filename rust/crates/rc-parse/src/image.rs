@@ -50,9 +50,13 @@ pub fn decode(doc: &Document, s: &Stream, resources: &Dict, fill: [u8; 3]) -> Re
         return Err(Error::Unsupported("very large image".into()));
     }
     let n = (width * height) as usize;
-    let mask = keys_get(doc, d, &["ImageMask", "IM"]).and_then(|o| o.as_bool()).unwrap_or(false);
-    let decode_arr: Option<Vec<f32>> = keys_get(doc, d, &["Decode", "D"])
-        .and_then(|o| o.as_array().map(|a| a.iter().filter_map(|v| doc.resolve(v).as_f32()).collect()));
+    let mask = keys_get(doc, d, &["ImageMask", "IM"])
+        .and_then(|o| o.as_bool())
+        .unwrap_or(false);
+    let decode_arr: Option<Vec<f32>> = keys_get(doc, d, &["Decode", "D"]).and_then(|o| {
+        o.as_array()
+            .map(|a| a.iter().filter_map(|v| doc.resolve(v).as_f32()).collect())
+    });
     let codec = image_filter(doc, d);
     let mut rgba = vec![0u8; n * 4];
 
@@ -88,7 +92,12 @@ pub fn decode(doc: &Document, s: &Stream, resources: &Dict, fill: [u8; 3]) -> Re
                 rgba[i * 4 + 3] = 255;
             }
         }
-        Some(other) => return Err(Error::Unsupported(format!("image filter {}", String::from_utf8_lossy(other)))),
+        Some(other) => {
+            return Err(Error::Unsupported(format!(
+                "image filter {}",
+                String::from_utf8_lossy(other)
+            )));
+        }
         None => {
             let cs = match &cs_obj {
                 Some(o) => color::resolve(doc, o, resources, 0),
@@ -211,10 +220,15 @@ fn sample(row: &[u8], bit: usize, bpc: u32) -> u32 {
 pub fn jpeg(data: &[u8]) -> Result<(u32, u32, Vec<u8>), Error> {
     use zune_jpeg::zune_core::colorspace::ColorSpace as Zcs;
     use zune_jpeg::zune_core::options::DecoderOptions;
-    let opts = DecoderOptions::default().jpeg_set_out_colorspace(Zcs::RGB).set_max_width(1 << 16).set_max_height(1 << 16);
+    let opts = DecoderOptions::default()
+        .jpeg_set_out_colorspace(Zcs::RGB)
+        .set_max_width(1 << 16)
+        .set_max_height(1 << 16);
     let mut dec = zune_jpeg::JpegDecoder::new_with_options(data, opts);
     let px = dec.decode().map_err(|e| Error::Damaged(format!("JPEG: {e:?}")))?;
-    let info = dec.info().ok_or_else(|| Error::Damaged("JPEG without a header".into()))?;
+    let info = dec
+        .info()
+        .ok_or_else(|| Error::Damaged("JPEG without a header".into()))?;
     let (w, h) = (info.width as u32, info.height as u32);
     if px.len() == (w * h * 3) as usize {
         return Ok((w, h, px));

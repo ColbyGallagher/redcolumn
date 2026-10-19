@@ -32,7 +32,9 @@ pub struct ResolvedClip {
 
 impl ResolvedClip {
     pub fn is_empty(&self) -> bool {
-        self.rect[0] >= self.rect[2] || self.rect[1] >= self.rect[3] || self.shapes.as_ref().is_some_and(|s| s.is_empty())
+        self.rect[0] >= self.rect[2]
+            || self.rect[1] >= self.rect[3]
+            || self.shapes.as_ref().is_some_and(|s| s.is_empty())
     }
 }
 
@@ -93,10 +95,17 @@ pub fn resolve(content: &PageContent, node: u32, page: Rect) -> ResolvedClip {
             rect = rect_intersect(rect, as_rect(&polys[0].0).unwrap());
         } else if polys.is_empty() {
             // An empty clip path clips everything away.
-            return ResolvedClip { rect: [0.0; 4], shapes: Some(Vec::new()) };
+            return ResolvedClip {
+                rect: [0.0; 4],
+                shapes: Some(Vec::new()),
+            };
         } else {
             let contours: Vec<Contour> = polys.iter().map(|(p, _)| to_f64(p)).collect();
-            let rule = if c.rule == fill::EVENODD { FillRule::EvenOdd } else { FillRule::NonZero };
+            let rule = if c.rule == fill::EVENODD {
+                FillRule::EvenOdd
+            } else {
+                FillRule::NonZero
+            };
             shape_list.push(contours.simplify_shape(rule));
         }
         n = c.parent;
@@ -115,7 +124,10 @@ pub fn resolve(content: &PageContent, node: u32, page: Rect) -> ResolvedClip {
         acc = acc.overlay(&r, OverlayRule::Intersect, FillRule::NonZero);
     }
     let rect = rect_intersect(rect, shapes_bounds(&acc));
-    ResolvedClip { rect, shapes: Some(acc) }
+    ResolvedClip {
+        rect,
+        shapes: Some(acc),
+    }
 }
 
 fn to_f64(p: &[[f32; 2]]) -> Contour {
@@ -164,7 +176,12 @@ pub fn segment_rect(a: [f32; 2], b: [f32; 2], r: Rect) -> Option<([f32; 2], [f32
     let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
     let mut t0 = 0.0f32;
     let mut t1 = 1.0f32;
-    for (p, q) in [(-dx, a[0] - r[0]), (dx, r[2] - a[0]), (-dy, a[1] - r[1]), (dy, r[3] - a[1])] {
+    for (p, q) in [
+        (-dx, a[0] - r[0]),
+        (dx, r[2] - a[0]),
+        (-dy, a[1] - r[1]),
+        (dy, r[3] - a[1]),
+    ] {
         if p == 0.0 {
             if q < 0.0 {
                 return None;
@@ -181,7 +198,15 @@ pub fn segment_rect(a: [f32; 2], b: [f32; 2], r: Rect) -> Option<([f32; 2], [f32
     if t0 > t1 {
         return None;
     }
-    let at = |t: f32| if t == 0.0 { a } else if t == 1.0 { b } else { [a[0] + t * dx, a[1] + t * dy] };
+    let at = |t: f32| {
+        if t == 0.0 {
+            a
+        } else if t == 1.0 {
+            b
+        } else {
+            [a[0] + t * dx, a[1] + t * dy]
+        }
+    };
     Some((at(t0), at(t1)))
 }
 
@@ -191,7 +216,10 @@ pub fn polylines_shapes(polys: &[Vec<[f32; 2]>], shapes: &Shapes, out: &mut Vec<
         return;
     }
     let paths: Vec<Contour> = polys.iter().map(|p| to_f64(p)).collect();
-    let rule = ClipRule { invert: false, boundary_included: true };
+    let rule = ClipRule {
+        invert: false,
+        boundary_included: true,
+    };
     for p in paths.clip_by(shapes, FillRule::NonZero, rule) {
         if p.len() > 1 {
             out.push(p.iter().map(|&[x, y]| [x as f32, y as f32]).collect());
@@ -237,7 +265,11 @@ pub fn polygon_rect(poly: &[[f32; 2]], r: Rect) -> Vec<[f32; 2]> {
 /// the non-zero rule.
 pub fn polygons_shapes(polys: &[Vec<[f32; 2]>], rule: u8, shapes: &Shapes) -> Shapes {
     let contours: Vec<Contour> = polys.iter().map(|p| to_f64(p)).collect();
-    let rule = if rule == fill::EVENODD { FillRule::EvenOdd } else { FillRule::NonZero };
+    let rule = if rule == fill::EVENODD {
+        FillRule::EvenOdd
+    } else {
+        FillRule::NonZero
+    };
     let subject = contours.simplify_shape(rule);
     subject.overlay(shapes, OverlayRule::Intersect, FillRule::NonZero)
 }
@@ -249,19 +281,35 @@ mod tests {
 
     #[test]
     fn rect_detection() {
-        assert_eq!(as_rect(&[[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0]]), Some([0.0, 0.0, 10.0, 5.0]));
-        assert_eq!(as_rect(&[[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0], [0.0, 0.0]]), Some([0.0, 0.0, 10.0, 5.0]));
+        assert_eq!(
+            as_rect(&[[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0]]),
+            Some([0.0, 0.0, 10.0, 5.0])
+        );
+        assert_eq!(
+            as_rect(&[[0.0, 0.0], [10.0, 0.0], [10.0, 5.0], [0.0, 5.0], [0.0, 0.0]]),
+            Some([0.0, 0.0, 10.0, 5.0])
+        );
         assert_eq!(as_rect(&[[0.0, 0.0], [10.0, 1.0], [10.0, 5.0], [0.0, 5.0]]), None);
     }
 
     #[test]
     fn liang_barsky() {
         let r = [0.0, 0.0, 10.0, 10.0];
-        assert_eq!(segment_rect([-5.0, 5.0], [15.0, 5.0], r), Some(([0.0, 5.0], [10.0, 5.0])));
+        assert_eq!(
+            segment_rect([-5.0, 5.0], [15.0, 5.0], r),
+            Some(([0.0, 5.0], [10.0, 5.0]))
+        );
         assert_eq!(segment_rect([-5.0, -5.0], [-1.0, 20.0], r), None);
         let mut out = Vec::new();
-        polyline_rect(&[[-5.0, 5.0], [5.0, 5.0], [5.0, 20.0], [5.0, 30.0], [5.0, 8.0]], r, &mut out);
-        assert_eq!(out, vec![vec![[0.0, 5.0], [5.0, 5.0], [5.0, 10.0]], vec![[5.0, 10.0], [5.0, 8.0]]]);
+        polyline_rect(
+            &[[-5.0, 5.0], [5.0, 5.0], [5.0, 20.0], [5.0, 30.0], [5.0, 8.0]],
+            r,
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            vec![vec![[0.0, 5.0], [5.0, 5.0], [5.0, 10.0]], vec![[5.0, 10.0], [5.0, 8.0]]]
+        );
     }
 
     #[test]
@@ -290,7 +338,13 @@ mod tests {
         let c = b.finish();
         let page = [0.0, 0.0, 100.0, 100.0];
         let r = resolve(&c, outer, page);
-        assert_eq!(r, ResolvedClip { rect: [10.0, 10.0, 90.0, 90.0], shapes: None });
+        assert_eq!(
+            r,
+            ResolvedClip {
+                rect: [10.0, 10.0, 90.0, 90.0],
+                shapes: None
+            }
+        );
         let r = resolve(&c, inner, page);
         let s = r.shapes.unwrap();
         assert_eq!(r.rect, [10.0, 10.0, 40.0, 40.0]);

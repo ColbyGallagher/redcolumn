@@ -97,7 +97,9 @@ impl Document {
         let tail = &data[data.len().saturating_sub(2048)..];
         let at = rfind(tail, b"startxref").ok_or_else(|| Error::Damaged("no startxref".into()))?;
         let mut lx = Lexer::new(tail, at + 9);
-        let Some(Token::Int(mut off)) = lx.next() else { return Err(Error::Damaged("bad startxref".into())) };
+        let Some(Token::Int(mut off)) = lx.next() else {
+            return Err(Error::Damaged("bad startxref".into()));
+        };
         let mut seen = std::collections::HashSet::new();
         let mut first = true;
         while off >= 0 && (off as usize) < data.len() && seen.insert(off) {
@@ -115,7 +117,11 @@ impl Document {
                 None => break,
             }
         }
-        if first { Err(Error::Damaged("no cross-reference".into())) } else { Ok(()) }
+        if first {
+            Err(Error::Damaged("no cross-reference".into()))
+        } else {
+            Ok(())
+        }
     }
 
     /// Reads one cross-reference section at `off` (a table or a stream); earlier sections never
@@ -149,18 +155,31 @@ impl Document {
                     }
                 }
                 match lx.next() {
-                    Some(Token::Word(b"trailer")) => lx.object().and_then(|o| o.as_dict().cloned()).ok_or_else(|| Error::Damaged("bad trailer".into())),
+                    Some(Token::Word(b"trailer")) => lx
+                        .object()
+                        .and_then(|o| o.as_dict().cloned())
+                        .ok_or_else(|| Error::Damaged("bad trailer".into())),
                     _ => Err(Error::Damaged("no trailer".into())),
                 }
             }
             Some(Token::Int(_)) => {
                 let obj = self.parse_at(off, 0)?;
-                let Obj::Stream(s) = &obj else { return Err(Error::Damaged("xref is not a stream".into())) };
+                let Obj::Stream(s) = &obj else {
+                    return Err(Error::Damaged("xref is not a stream".into()));
+                };
                 if !s.dict.get("Type").and_then(Obj::as_name).is_some_and(|n| n.is("XRef")) {
                     return Err(Error::Damaged("xref stream has no /Type /XRef".into()));
                 }
                 let data = self.decode(s)?;
-                let w: Vec<usize> = s.dict.get("W").and_then(Obj::as_array).unwrap_or(&[]).iter().filter_map(Obj::as_i64).map(|v| v.max(0) as usize).collect();
+                let w: Vec<usize> = s
+                    .dict
+                    .get("W")
+                    .and_then(Obj::as_array)
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter_map(Obj::as_i64)
+                    .map(|v| v.max(0) as usize)
+                    .collect();
                 if w.len() < 3 {
                     return Err(Error::Damaged("xref stream /W".into()));
                 }
@@ -186,7 +205,10 @@ impl Document {
                         let num = (start + i) as u32;
                         let e = match ty {
                             1 => Entry::Offset(f1 as usize),
-                            2 => Entry::InStream { stream: f1 as u32, index: f2 as u32 },
+                            2 => Entry::InStream {
+                                stream: f1 as u32,
+                                index: f2 as u32,
+                            },
                             _ => continue,
                         };
                         self.xref.entry(num).or_insert(e);
@@ -269,10 +291,13 @@ impl Document {
     /// Parses the indirect object at `off` (`N G obj ... endobj`).
     fn parse_at(&self, off: usize, depth: usize) -> Result<Obj, Error> {
         let mut lx = Lexer::new(self.data(), off);
-        let (Some(Token::Int(_)), Some(Token::Int(_)), Some(Token::Word(b"obj"))) = (lx.next(), lx.next(), lx.next()) else {
+        let (Some(Token::Int(_)), Some(Token::Int(_)), Some(Token::Word(b"obj"))) = (lx.next(), lx.next(), lx.next())
+        else {
             return Err(Error::Damaged(format!("no object at {off}")));
         };
-        let obj = lx.object().ok_or_else(|| Error::Damaged(format!("bad object at {off}")))?;
+        let obj = lx
+            .object()
+            .ok_or_else(|| Error::Damaged(format!("bad object at {off}")))?;
         let save = lx.pos;
         if let Obj::Dict(dict) = &obj
             && let Some(Token::Word(b"stream")) = lx.next()
@@ -285,15 +310,25 @@ impl Document {
                 start += 1;
             }
             let declared = match dict.get("Length") {
-                Some(Obj::Ref(n, _)) if depth < MAX_DEPTH => self.get_depth(*n, depth + 1).ok().and_then(|o| o.as_i64()),
+                Some(Obj::Ref(n, _)) if depth < MAX_DEPTH => {
+                    self.get_depth(*n, depth + 1).ok().and_then(|o| o.as_i64())
+                }
                 Some(o) => o.as_i64(),
                 None => None,
             };
             let len = match declared {
-                Some(l) if l >= 0 && start + (l as usize) <= self.data().len() && self.looks_like_end(start + l as usize) => l as usize,
+                Some(l)
+                    if l >= 0
+                        && start + (l as usize) <= self.data().len()
+                        && self.looks_like_end(start + l as usize) =>
+                {
+                    l as usize
+                }
                 // A wrong or missing /Length: find `endstream`.
                 _ => {
-                    let end = find(&self.data()[start..], b"endstream").map(|e| start + e).unwrap_or(self.data().len());
+                    let end = find(&self.data()[start..], b"endstream")
+                        .map(|e| start + e)
+                        .unwrap_or(self.data().len());
                     let mut e = end;
                     while e > start && matches!(self.data()[e - 1], b'\r' | b'\n') {
                         e -= 1;
@@ -301,7 +336,10 @@ impl Document {
                     e - start
                 }
             };
-            return Ok(Obj::Stream(Stream { dict: dict.clone(), data: StreamData::File(start, len) }));
+            return Ok(Obj::Stream(Stream {
+                dict: dict.clone(),
+                data: StreamData::File(start, len),
+            }));
         }
         let _ = save;
         Ok(obj)
@@ -338,14 +376,18 @@ impl Document {
             os.clone()
         } else {
             let s = self.get_depth(stream, depth + 1)?;
-            let Obj::Stream(s) = s.as_ref() else { return Err(Error::Damaged("object stream is not a stream".into())) };
+            let Obj::Stream(s) = s.as_ref() else {
+                return Err(Error::Damaged("object stream is not a stream".into()));
+            };
             let data: Arc<[u8]> = self.decode(s)?.into();
             let n = s.dict.get("N").and_then(Obj::as_i64).unwrap_or(0).max(0) as usize;
             let first = s.dict.get("First").and_then(Obj::as_i64).unwrap_or(0).max(0) as usize;
             let mut lx = Lexer::new(&data, 0);
             let mut offsets = Vec::with_capacity(n);
             for _ in 0..n {
-                let (Some(Token::Int(o)), Some(Token::Int(off))) = (lx.next(), lx.next()) else { break };
+                let (Some(Token::Int(o)), Some(Token::Int(off))) = (lx.next(), lx.next()) else {
+                    break;
+                };
                 offsets.push((o as u32, first + off as usize));
             }
             let os = Arc::new(ObjStream { data, offsets });
@@ -355,9 +397,16 @@ impl Document {
         // Prefer the index, but trust the object number when they disagree.
         let off = match os.offsets.get(index as usize) {
             Some(&(n, off)) if n == num => off,
-            _ => os.offsets.iter().find(|(n, _)| *n == num).map(|&(_, o)| o).ok_or_else(|| Error::Damaged(format!("object {num} not in its stream")))?,
+            _ => os
+                .offsets
+                .iter()
+                .find(|(n, _)| *n == num)
+                .map(|&(_, o)| o)
+                .ok_or_else(|| Error::Damaged(format!("object {num} not in its stream")))?,
         };
-        Lexer::new(&os.data, off).object().ok_or_else(|| Error::Damaged(format!("bad object {num}")))
+        Lexer::new(&os.data, off)
+            .object()
+            .ok_or_else(|| Error::Damaged(format!("bad object {num}")))
     }
 
     /// Follows references (any number of them) to the object itself.
@@ -375,7 +424,9 @@ impl Document {
 
     /// A dictionary entry, references followed.
     pub fn dict_get(&self, d: &Dict, key: &str) -> Option<Arc<Obj>> {
-        d.get(key).map(|o| self.resolve(o)).filter(|o| !matches!(o.as_ref(), Obj::Null))
+        d.get(key)
+            .map(|o| self.resolve(o))
+            .filter(|o| !matches!(o.as_ref(), Obj::Null))
     }
 
     /// A stream's bytes with its filters applied (image filters excluded: the result then holds
@@ -407,7 +458,11 @@ impl Document {
                 break;
             }
             let input = data.as_deref().unwrap_or(raw);
-            data = Some(filter::apply(f.as_bytes(), input, parms.get(i).and_then(|p| p.as_ref()))?);
+            data = Some(filter::apply(
+                f.as_bytes(),
+                input,
+                parms.get(i).and_then(|p| p.as_ref()),
+            )?);
         }
         Ok(data.unwrap_or_else(|| raw.to_vec()))
     }
@@ -421,9 +476,16 @@ impl Document {
     }
 
     fn collect_pages(&mut self) -> Result<(), Error> {
-        let root = self.dict_get(&self.trailer, "Root").ok_or_else(|| Error::Damaged("no /Root".into()))?;
-        let root = root.as_dict().ok_or_else(|| Error::Damaged("/Root is not a dictionary".into()))?;
-        let pages = root.get("Pages").cloned().ok_or_else(|| Error::Damaged("no /Pages".into()))?;
+        let root = self
+            .dict_get(&self.trailer, "Root")
+            .ok_or_else(|| Error::Damaged("no /Root".into()))?;
+        let root = root
+            .as_dict()
+            .ok_or_else(|| Error::Damaged("/Root is not a dictionary".into()))?;
+        let pages = root
+            .get("Pages")
+            .cloned()
+            .ok_or_else(|| Error::Damaged("no /Pages".into()))?;
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
         self.walk_pages(&pages, &Inherited::default(), &mut out, &mut seen, 0)?;
@@ -462,8 +524,8 @@ impl Document {
         if let Some(r) = self.dict_get(d, "Rotate").and_then(|r| r.as_i64()) {
             inh.rotate = Some(r as i32);
         }
-        let is_page = d.get("Type").and_then(Obj::as_name).is_some_and(|t| t.is("Page"))
-            || (!d.has("Kids") && d.has("Contents"));
+        let is_page =
+            d.get("Type").and_then(Obj::as_name).is_some_and(|t| t.is("Page")) || (!d.has("Kids") && d.has("Contents"));
         if is_page {
             let media = inh.media_box.unwrap_or([0.0, 0.0, 612.0, 792.0]);
             let crop = inh.crop_box.map(|c| intersect(c, media)).unwrap_or(media);
@@ -496,16 +558,24 @@ impl Document {
 
     /// The catalog's optional content groups that are off in the default configuration.
     pub fn hidden_layers(&self) -> Vec<Obj> {
-        let Some(root) = self.dict_get(&self.trailer, "Root") else { return vec![] };
-        let Some(ocp) = root.as_dict().and_then(|r| self.dict_get(r, "OCProperties")) else { return vec![] };
-        let Some(d) = ocp.as_dict().and_then(|o| self.dict_get(o, "D")) else { return vec![] };
+        let Some(root) = self.dict_get(&self.trailer, "Root") else {
+            return vec![];
+        };
+        let Some(ocp) = root.as_dict().and_then(|r| self.dict_get(r, "OCProperties")) else {
+            return vec![];
+        };
+        let Some(d) = ocp.as_dict().and_then(|o| self.dict_get(o, "D")) else {
+            return vec![];
+        };
         let Some(d) = d.as_dict() else { return vec![] };
         let base_off = d.get("BaseState").and_then(Obj::as_name).is_some_and(|n| n.is("OFF"));
         if base_off {
             // Everything off except /ON: report it as not supported (rare); callers fall back.
             return vec![Obj::Name(Name(b"*".to_vec()))];
         }
-        self.dict_get(d, "OFF").and_then(|a| a.as_array().map(|a| a.to_vec())).unwrap_or_default()
+        self.dict_get(d, "OFF")
+            .and_then(|a| a.as_array().map(|a| a.to_vec()))
+            .unwrap_or_default()
     }
 }
 

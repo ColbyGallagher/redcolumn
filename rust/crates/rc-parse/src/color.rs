@@ -9,7 +9,11 @@ pub enum ColorSpace {
     Gray,
     Rgb,
     Cmyk,
-    Indexed { base: Box<ColorSpace>, hival: u32, lookup: Vec<u8> },
+    Indexed {
+        base: Box<ColorSpace>,
+        hival: u32,
+        lookup: Vec<u8>,
+    },
     Pattern,
     /// Separation, DeviceN, Lab and others: their component count, so operands can be skipped.
     Unsupported(usize),
@@ -75,9 +79,10 @@ pub fn resolve(doc: &Document, obj: &Obj, resources: &Dict, depth: usize) -> Col
             b"DeviceCMYK" | b"CMYK" => ColorSpace::Cmyk,
             b"Pattern" => ColorSpace::Pattern,
             name => {
-                let named = doc
-                    .dict_get(resources, "ColorSpace")
-                    .and_then(|cs| cs.as_dict().and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| v.clone())));
+                let named = doc.dict_get(resources, "ColorSpace").and_then(|cs| {
+                    cs.as_dict()
+                        .and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| v.clone()))
+                });
                 match named {
                     Some(o) => resolve(doc, &o, resources, depth + 1),
                     None => ColorSpace::Unsupported(1),
@@ -85,7 +90,9 @@ pub fn resolve(doc: &Document, obj: &Obj, resources: &Dict, depth: usize) -> Col
             }
         },
         Obj::Array(a) => {
-            let Some(kind) = a.first().and_then(|o| o.as_name()) else { return ColorSpace::Unsupported(1) };
+            let Some(kind) = a.first().and_then(|o| o.as_name()) else {
+                return ColorSpace::Unsupported(1);
+            };
             match kind.as_bytes() {
                 b"CalGray" => ColorSpace::Gray,
                 b"CalRGB" => ColorSpace::Rgb,
@@ -94,7 +101,12 @@ pub fn resolve(doc: &Document, obj: &Obj, resources: &Dict, depth: usize) -> Col
                 b"DeviceCMYK" => ColorSpace::Cmyk,
                 b"ICCBased" => {
                     let s = a.get(1).map(|o| doc.resolve(o));
-                    let n = s.as_ref().and_then(|s| s.as_dict()).and_then(|d| d.get("N")).and_then(Obj::as_i64).unwrap_or(3);
+                    let n = s
+                        .as_ref()
+                        .and_then(|s| s.as_dict())
+                        .and_then(|d| d.get("N"))
+                        .and_then(Obj::as_i64)
+                        .unwrap_or(3);
                     match n {
                         1 => ColorSpace::Gray,
                         4 => ColorSpace::Cmyk,
@@ -102,8 +114,15 @@ pub fn resolve(doc: &Document, obj: &Obj, resources: &Dict, depth: usize) -> Col
                     }
                 }
                 b"Indexed" | b"I" => {
-                    let base = a.get(1).map(|o| resolve(doc, o, resources, depth + 1)).unwrap_or(ColorSpace::Rgb);
-                    let hival = a.get(2).and_then(|o| doc.resolve(o).as_i64()).unwrap_or(0).clamp(0, 255) as u32;
+                    let base = a
+                        .get(1)
+                        .map(|o| resolve(doc, o, resources, depth + 1))
+                        .unwrap_or(ColorSpace::Rgb);
+                    let hival = a
+                        .get(2)
+                        .and_then(|o| doc.resolve(o).as_i64())
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u32;
                     let lookup = match a.get(3).map(|o| doc.resolve(o)) {
                         Some(o) => match o.as_ref() {
                             Obj::Str(s) => s.clone(),
@@ -112,12 +131,19 @@ pub fn resolve(doc: &Document, obj: &Obj, resources: &Dict, depth: usize) -> Col
                         },
                         None => Vec::new(),
                     };
-                    ColorSpace::Indexed { base: Box::new(base), hival, lookup }
+                    ColorSpace::Indexed {
+                        base: Box::new(base),
+                        hival,
+                        lookup,
+                    }
                 }
                 b"Pattern" => ColorSpace::Pattern,
                 b"Separation" => ColorSpace::Unsupported(1),
                 b"DeviceN" => {
-                    let n = a.get(1).and_then(|o| doc.resolve(o).as_array().map(|x| x.len())).unwrap_or(1);
+                    let n = a
+                        .get(1)
+                        .and_then(|o| doc.resolve(o).as_array().map(|x| x.len()))
+                        .unwrap_or(1);
                     ColorSpace::Unsupported(n.max(1))
                 }
                 b"Lab" => ColorSpace::Unsupported(3),
@@ -137,7 +163,11 @@ mod tests {
         assert_eq!(ColorSpace::Gray.to_rgb(&[0.5]), Some([128, 128, 128]));
         assert_eq!(ColorSpace::Cmyk.to_rgb(&[0.0, 0.0, 0.0, 1.0]), Some([0, 0, 0]));
         assert_eq!(ColorSpace::Cmyk.to_rgb(&[1.0, 0.0, 0.0, 0.0]), Some([0, 255, 255]));
-        let idx = ColorSpace::Indexed { base: Box::new(ColorSpace::Rgb), hival: 1, lookup: vec![1, 2, 3, 4, 5, 6] };
+        let idx = ColorSpace::Indexed {
+            base: Box::new(ColorSpace::Rgb),
+            hival: 1,
+            lookup: vec![1, 2, 3, 4, 5, 6],
+        };
         assert_eq!(idx.to_rgb(&[1.0]), Some([4, 5, 6]));
         assert_eq!(ColorSpace::Pattern.to_rgb(&[0.0]), None);
     }

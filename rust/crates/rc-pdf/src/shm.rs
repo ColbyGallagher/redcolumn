@@ -22,12 +22,21 @@ pub struct Shared {
 impl Shared {
     /// Creates (or truncates) the file at `path` with `size` bytes and maps it.
     pub fn create(path: &Path, size: u64) -> std::io::Result<Self> {
-        let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(path)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
         file.set_len(size.max(1))?;
         // SAFETY: the file is private to the app and its worker; both only access it through
         // atomics (control) or under the request/response protocol (payload), never concurrently.
         let map = unsafe { MmapOptions::new().map_mut(&file)? };
-        Ok(Self { path: path.to_path_buf(), map, _file: file })
+        Ok(Self {
+            path: path.to_path_buf(),
+            map,
+            _file: file,
+        })
     }
 
     /// Maps an existing file.
@@ -35,7 +44,11 @@ impl Shared {
         let file = OpenOptions::new().read(true).write(true).open(path)?;
         // SAFETY: as in `create`.
         let map = unsafe { MmapOptions::new().map_mut(&file)? };
-        Ok(Self { path: path.to_path_buf(), map, _file: file })
+        Ok(Self {
+            path: path.to_path_buf(),
+            map,
+            _file: file,
+        })
     }
 
     pub fn len(&self) -> usize {

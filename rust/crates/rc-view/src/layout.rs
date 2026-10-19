@@ -32,7 +32,13 @@ pub struct Layout {
 
 impl Layout {
     pub fn new(sizes: Vec<[f32; 2]>, mode: Mode, rotation: u8, current: usize) -> Self {
-        let mut l = Layout { mode, rotation: rotation % 4, sizes, rects: Vec::new(), current };
+        let mut l = Layout {
+            mode,
+            rotation: rotation % 4,
+            sizes,
+            rects: Vec::new(),
+            current,
+        };
         l.place();
         l
     }
@@ -71,7 +77,9 @@ impl Layout {
     /// Pages present in the layout (all of them, or the current one).
     pub fn shown(&self) -> std::ops::Range<usize> {
         match self.mode {
-            Mode::Single => self.current.min(self.sizes.len().saturating_sub(1))..(self.current + 1).min(self.sizes.len()),
+            Mode::Single => {
+                self.current.min(self.sizes.len().saturating_sub(1))..(self.current + 1).min(self.sizes.len())
+            }
             Mode::Continuous => 0..self.sizes.len(),
         }
     }
@@ -159,7 +167,11 @@ pub struct Camera {
 
 impl Default for Camera {
     fn default() -> Self {
-        Self { scale: 1.0, scroll: [0.0, 0.0], viewport: [800.0, 600.0] }
+        Self {
+            scale: 1.0,
+            scroll: [0.0, 0.0],
+            viewport: [800.0, 600.0],
+        }
     }
 }
 
@@ -178,7 +190,10 @@ impl Camera {
     }
 
     pub fn to_screen(&self, p: [f32; 2]) -> [f32; 2] {
-        [(p[0] - self.scroll[0]) * self.scale, (p[1] - self.scroll[1]) * self.scale]
+        [
+            (p[0] - self.scroll[0]) * self.scale,
+            (p[1] - self.scroll[1]) * self.scale,
+        ]
     }
 
     /// The viewport in layout space.
@@ -243,7 +258,11 @@ mod tests {
 
     #[test]
     fn zoom_keeps_anchor() {
-        let mut c = Camera { scale: 2.0, scroll: [10.0, 20.0], viewport: [400.0, 300.0] };
+        let mut c = Camera {
+            scale: 2.0,
+            scroll: [10.0, 20.0],
+            viewport: [400.0, 300.0],
+        };
         let before = c.to_layout([100.0, 50.0]);
         c.zoom_at(1.5, [100.0, 50.0]);
         let after = c.to_layout([100.0, 50.0]);
@@ -256,7 +275,11 @@ mod tests {
 
     #[test]
     fn clamp_centres_small_layouts() {
-        let mut c = Camera { scale: 1.0, scroll: [500.0, 500.0], viewport: [400.0, 300.0] };
+        let mut c = Camera {
+            scale: 1.0,
+            scroll: [500.0, 500.0],
+            viewport: [400.0, 300.0],
+        };
         c.clamp([0.0, 0.0, 100.0, 100.0]);
         assert_eq!(c.scroll, [-150.0, -100.0]);
     }

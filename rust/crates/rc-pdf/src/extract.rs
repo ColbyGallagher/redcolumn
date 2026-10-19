@@ -25,7 +25,12 @@ pub(crate) struct Page<'a> {
 
 /// The page's map from PDF user space to page space.
 pub fn page_transform(b: &dyn PdfiumLibraryBindings, page: FPDF_PAGE) -> Affine {
-    let mut r = FS_RECTF { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 };
+    let mut r = FS_RECTF {
+        left: 0.0,
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+    };
     // SAFETY: page is live; r is a valid out pointer.
     unsafe { b.FPDF_GetPageBoundingBox(page, &mut r) };
     let rot = unsafe { b.FPDFPage_GetRotation(page) }.rem_euclid(4) * 90;
@@ -46,7 +51,11 @@ pub fn extract_page(b: &dyn PdfiumLibraryBindings, doc: FPDF_DOCUMENT, page: FPD
     // SAFETY: page is live for the whole extraction.
     let (w, h) = unsafe { (b.FPDF_GetPageWidthF(page), b.FPDF_GetPageHeightF(page)) };
     let base = page_transform(b, page);
-    let mut x = Extractor { p: Page { b, doc, page }, out: ContentBuilder::new([w, h]), clip_nodes: HashMap::new() };
+    let mut x = Extractor {
+        p: Page { b, doc, page },
+        out: ContentBuilder::new([w, h]),
+        clip_nodes: HashMap::new(),
+    };
     let n = unsafe { b.FPDFPage_CountObjects(page) };
     for i in 0..n {
         let obj = unsafe { b.FPDFPage_GetObject(page, i) };
@@ -102,7 +111,12 @@ impl Extractor<'_> {
         if fillmode == 0 && stroke == 0 {
             return;
         }
-        let mut item = Item { clip, layer, miter_limit: 10.0, ..Default::default() };
+        let mut item = Item {
+            clip,
+            layer,
+            miter_limit: 10.0,
+            ..Default::default()
+        };
         if fillmode != 0 {
             match color(b, obj, false) {
                 Some(c) => {
@@ -158,7 +172,13 @@ impl Extractor<'_> {
         }
         let start = self.out.begin_path();
         let n = unsafe { b.FPDFPath_CountSegments(obj) };
-        read_segments(n, |i| unsafe { b.FPDFPath_GetPathSegment(obj, i) }, b, to_page, &mut self.out);
+        read_segments(
+            n,
+            |i| unsafe { b.FPDFPath_GetPathSegment(obj, i) },
+            b,
+            to_page,
+            &mut self.out,
+        );
         self.out.finish_path(start, item);
     }
 
@@ -197,7 +217,18 @@ impl Extractor<'_> {
         let unit = Affine::new(1.0, 0.0, 0.0, -1.0, 0.0, 1.0);
         let to_page = unit.then(m).then(parent);
         let opacity = 1.0;
-        self.out.add_image(Image { width, height, rgba: px, transform: to_page, opacity, smooth: true }, clip, layer);
+        self.out.add_image(
+            Image {
+                width,
+                height,
+                rgba: px,
+                transform: to_page,
+                opacity,
+                smooth: true,
+            },
+            clip,
+            layer,
+        );
     }
 
     /// The object's clip as a clip node (parented to its form's clip), deduplicated.
@@ -220,7 +251,13 @@ impl Extractor<'_> {
                 continue;
             }
             let mut scratch = ContentBuilder::new([0.0, 0.0]);
-            read_segments(n, |i| unsafe { b.FPDFClipPath_GetPathSegment(cp, pi, i) }, b, parent, &mut scratch);
+            read_segments(
+                n,
+                |i| unsafe { b.FPDFClipPath_GetPathSegment(cp, pi, i) },
+                b,
+                parent,
+                &mut scratch,
+            );
             let c = scratch.finish();
             let hash = hash_path(&c.verbs, &c.points);
             if let Some(&existing) = self.clip_nodes.get(&(hash, node)) {
@@ -252,7 +289,14 @@ impl Extractor<'_> {
 }
 
 fn matrix(b: &dyn PdfiumLibraryBindings, obj: FPDF_PAGEOBJECT) -> Affine {
-    let mut m = FS_MATRIX { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 };
+    let mut m = FS_MATRIX {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+    };
     // SAFETY: obj is live; m is a valid out pointer.
     if unsafe { b.FPDFPageObj_GetMatrix(obj, &mut m) } == 0 {
         return Affine::IDENTITY;
@@ -437,9 +481,35 @@ fn annot_color(b: &dyn PdfiumLibraryBindings, annot: FPDF_ANNOTATION, interior: 
 
 pub fn subtype_name(t: c_int) -> &'static str {
     const NAMES: [&str; 29] = [
-        "Unknown", "Text", "Link", "FreeText", "Line", "Square", "Circle", "Polygon", "PolyLine", "Highlight",
-        "Underline", "Squiggly", "StrikeOut", "Stamp", "Caret", "Ink", "Popup", "FileAttachment", "Sound", "Movie",
-        "Widget", "Screen", "PrinterMark", "TrapNet", "Watermark", "3D", "RichMedia", "XFAWidget", "Redact",
+        "Unknown",
+        "Text",
+        "Link",
+        "FreeText",
+        "Line",
+        "Square",
+        "Circle",
+        "Polygon",
+        "PolyLine",
+        "Highlight",
+        "Underline",
+        "Squiggly",
+        "StrikeOut",
+        "Stamp",
+        "Caret",
+        "Ink",
+        "Popup",
+        "FileAttachment",
+        "Sound",
+        "Movie",
+        "Widget",
+        "Screen",
+        "PrinterMark",
+        "TrapNet",
+        "Watermark",
+        "3D",
+        "RichMedia",
+        "XFAWidget",
+        "Redact",
     ];
     NAMES.get(t as usize).copied().unwrap_or("Unknown")
 }
@@ -456,7 +526,12 @@ pub fn annotations(b: &dyn PdfiumLibraryBindings, page: FPDF_PAGE) -> Vec<crate:
             continue;
         }
         let subtype = subtype_name(unsafe { b.FPDFAnnot_GetSubtype(a) }).to_string();
-        let mut r = FS_RECTF { left: 0.0, top: 0.0, right: 0.0, bottom: 0.0 };
+        let mut r = FS_RECTF {
+            left: 0.0,
+            top: 0.0,
+            right: 0.0,
+            bottom: 0.0,
+        };
         unsafe { b.FPDFAnnot_GetRect(a, &mut r) };
         let p0 = base.apply_f32(r.left as f64, r.top as f64);
         let p1 = base.apply_f32(r.right as f64, r.bottom as f64);

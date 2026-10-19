@@ -167,7 +167,11 @@ pub struct SceneOptions {
 impl Default for SceneOptions {
     fn default() -> Self {
         // 0.005 pt is a quarter of a pixel at 3200% on a 150% display.
-        Self { curve_tolerance: 0.005, image_px_per_pt: 12.0, max_image_side: 8192 }
+        Self {
+            curve_tolerance: 0.005,
+            image_px_per_pt: 12.0,
+            max_image_side: 8192,
+        }
     }
 }
 
@@ -274,19 +278,37 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
     // Depth is spread over the whole page's items, so the chunks of a page read in pieces draw
     // in paint order together.
     let (depth_base, depth_slots) = if content.slot_total > 0 {
-        (content.slot_base.saturating_mul(2), content.slot_total.saturating_mul(2))
+        (
+            content.slot_base.saturating_mul(2),
+            content.slot_total.saturating_mul(2),
+        )
     } else {
         (0, slots)
     };
 
     // Resolve every clip node items use, once, in parallel.
-    let mut used: Vec<u32> = content.items.iter().map(|i| i.clip).filter(|&c| c != content::NONE).collect();
+    let mut used: Vec<u32> = content
+        .items
+        .iter()
+        .map(|i| i.clip)
+        .filter(|&c| c != content::NONE)
+        .collect();
     used.sort_unstable();
     used.dedup();
-    let clips: HashMap<u32, Arc<ResolvedClip>> =
-        used.par_iter().map(|&c| (c, Arc::new(clip::resolve(content, c, page)))).collect();
+    let clips: HashMap<u32, Arc<ResolvedClip>> = used
+        .par_iter()
+        .map(|&c| (c, Arc::new(clip::resolve(content, c, page))))
+        .collect();
 
-    let ctx = Ctx { content, clips: &clips, page, cols, rows, slots, opts };
+    let ctx = Ctx {
+        content,
+        clips: &clips,
+        page,
+        cols,
+        rows,
+        slots,
+        opts,
+    };
     let mut items = vec![GpuItem::default(); slots as usize];
     for (i, it) in content.items.iter().enumerate() {
         let layer = if it.layer == content::NONE { u32::MAX } else { it.layer };
@@ -294,9 +316,19 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
         if it.kind == kind::IMAGE {
             let opacity = content.images.get(it.image as usize).map_or(1.0, |im| im.opacity);
             let a = (opacity.clamp(0.0, 1.0) * 255.0).round() as u32;
-            items[s as usize] = GpuItem { color: 0x00ff_ffff | a << 24, width: 0.0, depth: depth(depth_base + s, depth_slots), layer };
+            items[s as usize] = GpuItem {
+                color: 0x00ff_ffff | a << 24,
+                width: 0.0,
+                depth: depth(depth_base + s, depth_slots),
+                layer,
+            };
         } else {
-            items[s as usize] = GpuItem { color: it.fill_color, width: 0.0, depth: depth(depth_base + s, depth_slots), layer };
+            items[s as usize] = GpuItem {
+                color: it.fill_color,
+                width: 0.0,
+                depth: depth(depth_base + s, depth_slots),
+                layer,
+            };
             items[s as usize + 1] = GpuItem {
                 color: it.stroke_color,
                 width: it.width.max(0.0),
@@ -336,7 +368,11 @@ pub fn build_scene(content: &PageContent, opts: &SceneOptions) -> Scene {
 }
 
 fn emit_item(ctx: &Ctx, items: &[GpuItem], index: u32, it: &Item, part: &mut Part) {
-    let clip = if it.clip == content::NONE { None } else { ctx.clips.get(&it.clip).map(|c| c.as_ref()) };
+    let clip = if it.clip == content::NONE {
+        None
+    } else {
+        ctx.clips.get(&it.clip).map(|c| c.as_ref())
+    };
     if clip.is_some_and(|c| c.is_empty()) {
         part.dropped += 1;
         return;
@@ -359,9 +395,20 @@ fn emit_item(ctx: &Ctx, items: &[GpuItem], index: u32, it: &Item, part: &mut Par
         part.dropped += 1;
         return;
     }
-    let half = it.width.max(0.0) * 0.5 * if it.join == join::MITER { it.miter_limit.max(1.0) } else { 1.0 };
+    let half = it.width.max(0.0)
+        * 0.5
+        * if it.join == join::MITER {
+            it.miter_limit.max(1.0)
+        } else {
+            1.0
+        };
     let b = clip::bounds(lines.iter().flat_map(|(p, _)| p.iter().copied()));
-    let reach = [b[0] - half - 1.0, b[1] - half - 1.0, b[2] + half + 1.0, b[3] + half + 1.0];
+    let reach = [
+        b[0] - half - 1.0,
+        b[1] - half - 1.0,
+        b[2] + half + 1.0,
+        b[3] + half + 1.0,
+    ];
     if !clip::rect_overlaps(reach, clip_rect) {
         part.dropped += 1;
         return;
@@ -369,7 +416,11 @@ fn emit_item(ctx: &Ctx, items: &[GpuItem], index: u32, it: &Item, part: &mut Par
     let inside = clip::rect_contains(clip_rect, reach) && shapes.is_none();
     if it.fill_rule != fill::NONE && it.fill_color >> 24 != 0 {
         let slot = 2 * index;
-        let polys: Vec<Vec<[f32; 2]>> = lines.iter().filter(|(p, _)| p.len() > 2).map(|(p, _)| p.clone()).collect();
+        let polys: Vec<Vec<[f32; 2]>> = lines
+            .iter()
+            .filter(|(p, _)| p.len() > 2)
+            .map(|(p, _)| p.clone())
+            .collect();
         let opaque = it.fill_color >> 24 == 255;
         if inside {
             fill_polygons(&polys, it.fill_rule, slot, opaque, part, ctx);
@@ -382,8 +433,11 @@ fn emit_item(ctx: &Ctx, items: &[GpuItem], index: u32, it: &Item, part: &mut Par
                 .collect();
             fill_polygons(&contours, fill::NONZERO, slot, opaque, part, ctx);
         } else {
-            let contours: Vec<Vec<[f32; 2]>> =
-                polys.iter().map(|p| clip::polygon_rect(p, clip_rect)).filter(|p| p.len() > 2).collect();
+            let contours: Vec<Vec<[f32; 2]>> = polys
+                .iter()
+                .map(|p| clip::polygon_rect(p, clip_rect))
+                .filter(|p| p.len() > 2)
+                .collect();
             fill_polygons(&contours, it.fill_rule, slot, opaque, part, ctx);
         }
     }
@@ -441,7 +495,11 @@ pub fn apply_dash(p: &[[f32; 2]], closed: bool, dashes: &[f32], phase: f32, out:
         pts.push(p[0]);
     }
     // An odd-length pattern repeats twice so on and off alternate.
-    let pat: Vec<f32> = if dashes.len() % 2 == 1 { [dashes, dashes].concat() } else { dashes.to_vec() };
+    let pat: Vec<f32> = if dashes.len() % 2 == 1 {
+        [dashes, dashes].concat()
+    } else {
+        dashes.to_vec()
+    };
     let total: f32 = pat.iter().sum();
     let mut idx = 0usize;
     let mut left = pat[0];
@@ -536,7 +594,16 @@ fn end_style(c: u8) -> u16 {
 
 /// Emits a polyline's segments (closing it back to its start when `closed`), skipping
 /// zero-length ones; a polyline that is a single point still draws its round or square caps.
-fn emit_polyline(pts: &[[f32; 2]], closed: bool, cap: u16, slot: u32, opaque: bool, part: &mut Part, ctx: &Ctx, bounds: &mut Rect) {
+fn emit_polyline(
+    pts: &[[f32; 2]],
+    closed: bool,
+    cap: u16,
+    slot: u32,
+    opaque: bool,
+    part: &mut Part,
+    ctx: &Ctx,
+    bounds: &mut Rect,
+) {
     if pts.is_empty() {
         return;
     }
@@ -564,21 +631,47 @@ fn emit_polyline(pts: &[[f32; 2]], closed: bool, cap: u16, slot: u32, opaque: bo
             } else {
                 let t0 = k as f32 / pieces as f32;
                 let t1 = (k + 1) as f32 / pieces as f32;
-                ([a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0], [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1])
+                (
+                    [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0],
+                    [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1],
+                )
             };
-            let s_end = if i == first && k == 0 && !closed { cap } else { end::ROUND };
-            let e_end = if i == last && k == pieces - 1 && !closed { cap } else { end::ROUND };
+            let s_end = if i == first && k == 0 && !closed {
+                cap
+            } else {
+                end::ROUND
+            };
+            let e_end = if i == last && k == pieces - 1 && !closed {
+                cap
+            } else {
+                end::ROUND
+            };
             emit_segment(q0, q1, s_end | e_end << 2, slot, opaque, part, ctx, bounds);
         }
     }
 }
 
 #[inline]
-fn emit_segment(q0: [f32; 2], q1: [f32; 2], flags: u16, slot: u32, opaque: bool, part: &mut Part, ctx: &Ctx, bounds: &mut Rect) {
+fn emit_segment(
+    q0: [f32; 2],
+    q1: [f32; 2],
+    flags: u16,
+    slot: u32,
+    opaque: bool,
+    part: &mut Part,
+    ctx: &Ctx,
+    bounds: &mut Rect,
+) {
     let mid = [(q0[0] + q1[0]) * 0.5, (q0[1] + q1[1]) * 0.5];
     let cell = cell_index(mid[0], mid[1], ctx.cols, ctx.rows);
     let c = cell_center(cell, ctx.cols);
-    let seg = StrokeSeg { p0: quant(q0, c), p1: quant(q1, c), cell: cell as u16, flags, item: slot };
+    let seg = StrokeSeg {
+        p0: quant(q0, c),
+        p1: quant(q1, c),
+        cell: cell as u16,
+        flags,
+        item: slot,
+    };
     if opaque {
         part.segs.push(seg);
     } else {
@@ -590,14 +683,19 @@ fn emit_segment(q0: [f32; 2], q1: [f32; 2], flags: u16, slot: u32, opaque: bool,
 /// The common case without allocating: a stroked path (no fill, no dashes, not thick) whose
 /// whole reach is inside a rectangular clip. Returns false when it does not apply.
 fn fast_stroke(ctx: &Ctx, index: u32, it: &Item, clip_rect: Rect, has_shapes: bool, part: &mut Part) -> bool {
-    if has_shapes || it.stroked == 0 || (it.fill_rule != fill::NONE && it.fill_color >> 24 != 0) || it.stroke_color >> 24 == 0 {
+    if has_shapes
+        || it.stroked == 0
+        || (it.fill_rule != fill::NONE && it.fill_color >> 24 != 0)
+        || it.stroke_color >> 24 == 0
+    {
         return false;
     }
     if it.width >= THICK_STROKE && it.join != join::ROUND {
         return false;
     }
     if it.dash_len > 0 {
-        let d = &ctx.content.dashes[it.dash_start as usize..(it.dash_start as usize + it.dash_len as usize).min(ctx.content.dashes.len())];
+        let d = &ctx.content.dashes
+            [it.dash_start as usize..(it.dash_start as usize + it.dash_len as usize).min(ctx.content.dashes.len())];
         if dash_visible(d) {
             return false;
         }
@@ -613,7 +711,12 @@ fn fast_stroke(ctx: &Ctx, index: u32, it: &Item, clip_rect: Rect, has_shapes: bo
     }
     let b = clip::bounds(pts.iter().copied());
     let half = it.width.max(0.0) * 0.5;
-    let reach = [b[0] - half - 1.0, b[1] - half - 1.0, b[2] + half + 1.0, b[3] + half + 1.0];
+    let reach = [
+        b[0] - half - 1.0,
+        b[1] - half - 1.0,
+        b[2] + half + 1.0,
+        b[3] + half + 1.0,
+    ];
     if !clip::rect_overlaps(reach, clip_rect) {
         part.dropped += 1;
         return true;
@@ -693,11 +796,21 @@ fn push_stream(part: &mut Part, kind: u32, start: u32, count: u32, image: u32, b
         ];
         return;
     }
-    part.stream.push(StreamEntry { kind, start, count, image, bounds });
+    part.stream.push(StreamEntry {
+        kind,
+        start,
+        count,
+        image,
+        bounds,
+    });
 }
 
 fn lyon_fill_rule(rule: u8) -> tess::FillRule {
-    if rule == fill::EVENODD { tess::FillRule::EvenOdd } else { tess::FillRule::NonZero }
+    if rule == fill::EVENODD {
+        tess::FillRule::EvenOdd
+    } else {
+        tess::FillRule::NonZero
+    }
 }
 
 fn fill_polygons(polys: &[Vec<[f32; 2]>], rule: u8, slot: u32, opaque: bool, part: &mut Part, ctx: &Ctx) {
@@ -719,7 +832,11 @@ fn fill_polygons(polys: &[Vec<[f32; 2]>], rule: u8, slot: u32, opaque: bool, par
     let mut geom: tess::VertexBuffers<[f32; 2], u32> = tess::VertexBuffers::new();
     let opts = tess::FillOptions::tolerance(0.01).with_fill_rule(lyon_fill_rule(rule));
     if tess::FillTessellator::new()
-        .tessellate_path(&path, &opts, &mut tess::BuffersBuilder::new(&mut geom, |v: tess::FillVertex| v.position().to_array()))
+        .tessellate_path(
+            &path,
+            &opts,
+            &mut tess::BuffersBuilder::new(&mut geom, |v: tess::FillVertex| v.position().to_array()),
+        )
         .is_err()
     {
         return;
@@ -732,7 +849,8 @@ fn push_triangles(geom: &tess::VertexBuffers<[f32; 2], u32>, slot: u32, opaque: 
         return;
     }
     let base = part.fill_verts.len() as u32;
-    part.fill_verts.extend(geom.vertices.iter().map(|&pos| FillVert { pos, item: slot }));
+    part.fill_verts
+        .extend(geom.vertices.iter().map(|&pos| FillVert { pos, item: slot }));
     if opaque {
         for t in geom.indices.chunks_exact(3) {
             let [a, b, c] = [t[0], t[1], t[2]].map(|i| geom.vertices[i as usize]);
@@ -784,7 +902,11 @@ fn stroke_tessellate(runs: &[(Vec<[f32; 2]>, bool)], it: &Item, slot: u32, opaqu
         .with_miter_limit(it.miter_limit.max(1.0));
     let mut geom: tess::VertexBuffers<[f32; 2], u32> = tess::VertexBuffers::new();
     if tess::StrokeTessellator::new()
-        .tessellate_path(&path, &opts, &mut tess::BuffersBuilder::new(&mut geom, |v: tess::StrokeVertex| v.position().to_array()))
+        .tessellate_path(
+            &path,
+            &opts,
+            &mut tess::BuffersBuilder::new(&mut geom, |v: tess::StrokeVertex| v.position().to_array()),
+        )
         .is_err()
     {
         return;
@@ -801,12 +923,19 @@ fn emit_image(
     shapes: Option<&clip::Shapes>,
     part: &mut Part,
 ) {
-    let Some(img) = ctx.content.images.get(it.image as usize) else { return };
+    let Some(img) = ctx.content.images.get(it.image as usize) else {
+        return;
+    };
     if img.width == 0 || img.height == 0 {
         return;
     }
     let t = img.transform;
-    let quad = [t.apply_f32(0.0, 0.0), t.apply_f32(1.0, 0.0), t.apply_f32(1.0, 1.0), t.apply_f32(0.0, 1.0)];
+    let quad = [
+        t.apply_f32(0.0, 0.0),
+        t.apply_f32(1.0, 0.0),
+        t.apply_f32(1.0, 1.0),
+        t.apply_f32(0.0, 1.0),
+    ];
     let qb = clip::bounds(quad.iter().copied());
     if !clip::rect_overlaps(qb, clip_rect) {
         part.dropped += 1;
@@ -836,7 +965,11 @@ fn emit_image(
     }
     let mut geom: tess::VertexBuffers<[f32; 2], u32> = tess::VertexBuffers::new();
     if tess::FillTessellator::new()
-        .tessellate_path(&b.build(), &tess::FillOptions::tolerance(0.01), &mut tess::BuffersBuilder::new(&mut geom, |v: tess::FillVertex| v.position().to_array()))
+        .tessellate_path(
+            &b.build(),
+            &tess::FillOptions::tolerance(0.01),
+            &mut tess::BuffersBuilder::new(&mut geom, |v: tess::FillVertex| v.position().to_array()),
+        )
         .is_err()
     {
         return;
@@ -845,7 +978,11 @@ fn emit_image(
     let base = part.image_verts.len() as u32;
     part.image_verts.extend(geom.vertices.iter().map(|&pos| {
         let uv = inv.apply(pos[0] as f64, pos[1] as f64);
-        ImageVert { pos, uv: [uv[0] as f32, uv[1] as f32], item: slot }
+        ImageVert {
+            pos,
+            uv: [uv[0] as f32, uv[1] as f32],
+            item: slot,
+        }
     }));
     let start = part.image_idx.len() as u32;
     part.image_idx.extend(geom.indices.iter().map(|i| i + base));
@@ -900,12 +1037,21 @@ pub fn downsample(img: &Image, want_w: u32, want_h: u32, max_side: u32) -> Scene
         w = nw;
         h = nh;
     }
-    SceneImage { width: w, height: h, rgba: px, smooth: img.smooth }
+    SceneImage {
+        width: w,
+        height: h,
+        rgba: px,
+        smooth: img.smooth,
+    }
 }
 
 fn merge(parts: Vec<Part>, cols: u32, rows: u32) -> Scene {
     let ncells = (cols * rows) as usize;
-    let mut s = Scene { cols, rows, ..Default::default() };
+    let mut s = Scene {
+        cols,
+        rows,
+        ..Default::default()
+    };
     let total_segs: usize = parts.iter().map(|p| p.segs.len()).sum();
     let total_tris: usize = parts.iter().map(|p| p.tris.len()).sum();
     let mut segs_unsorted: Vec<StrokeSeg> = Vec::with_capacity(total_segs);
@@ -1017,7 +1163,15 @@ mod tests {
     use crate::content::{Affine, ContentBuilder, NONE, rgba};
 
     fn line_item(width: f32, color: u32) -> Item {
-        Item { stroked: 1, width, stroke_color: color, clip: NONE, layer: NONE, miter_limit: 10.0, ..Default::default() }
+        Item {
+            stroked: 1,
+            width,
+            stroke_color: color,
+            clip: NONE,
+            layer: NONE,
+            miter_limit: 10.0,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -1072,12 +1226,24 @@ mod tests {
         let s = b.begin_path();
         b.move_to([0.0, 40.0]);
         b.line_to([200.0, 40.0]);
-        b.finish_path(s, Item { clip, ..line_item(0.0, rgba(255, 0, 0, 255)) });
+        b.finish_path(
+            s,
+            Item {
+                clip,
+                ..line_item(0.0, rgba(255, 0, 0, 255))
+            },
+        );
         // Outside the clip: dropped.
         let s = b.begin_path();
         b.move_to([100.0, 100.0]);
         b.line_to([150.0, 150.0]);
-        b.finish_path(s, Item { clip, ..line_item(0.0, rgba(255, 0, 0, 255)) });
+        b.finish_path(
+            s,
+            Item {
+                clip,
+                ..line_item(0.0, rgba(255, 0, 0, 255))
+            },
+        );
         let scene = build_scene(&b.finish(), &SceneOptions::default());
         assert_eq!(scene.stats.dropped_items, 1);
         assert_eq!(scene.segs.len(), 1);
@@ -1097,7 +1263,13 @@ mod tests {
             b.close();
             b.finish_path(
                 s,
-                Item { fill_rule: fill::NONZERO, fill_color: rgba(0, 0, 255, alpha), clip: NONE, layer: NONE, ..Default::default() },
+                Item {
+                    fill_rule: fill::NONZERO,
+                    fill_color: rgba(0, 0, 255, alpha),
+                    clip: NONE,
+                    layer: NONE,
+                    ..Default::default()
+                },
             );
         }
         let scene = build_scene(&b.finish(), &SceneOptions::default());

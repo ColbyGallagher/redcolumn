@@ -44,7 +44,9 @@ pub fn decode(b: &[u8]) -> Result<Scene, WireError> {
     let mut r = Reader(&b[8..]);
     let size: Vec<f32> = r.get()?;
     let dims: Vec<u32> = r.get()?;
-    let (&[w, h], &[cols, rows, flags]) = (&size[..], &dims[..]) else { return Err(WireError::Truncated) };
+    let (&[w, h], &[cols, rows, flags]) = (&size[..], &dims[..]) else {
+        return Err(WireError::Truncated);
+    };
     let mut s = Scene {
         size: [w, h],
         cols,
@@ -67,15 +69,24 @@ pub fn decode(b: &[u8]) -> Result<Scene, WireError> {
         ..Default::default()
     };
     let counts: Vec<u64> = r.get()?;
-    let (&[ni, nl],) = (&counts[..],) else { return Err(WireError::Truncated) };
+    let (&[ni, nl],) = (&counts[..],) else {
+        return Err(WireError::Truncated);
+    };
     for _ in 0..ni {
         let d: Vec<u32> = r.get()?;
         let rgba: Vec<u8> = r.get()?;
-        let (&[iw, ih, smooth],) = (&d[..],) else { return Err(WireError::Truncated) };
+        let (&[iw, ih, smooth],) = (&d[..],) else {
+            return Err(WireError::Truncated);
+        };
         if rgba.len() != iw as usize * ih as usize * 4 {
             return Err(WireError::Invalid("image size"));
         }
-        s.images.push(SceneImage { width: iw, height: ih, rgba, smooth: smooth != 0 });
+        s.images.push(SceneImage {
+            width: iw,
+            height: ih,
+            rgba,
+            smooth: smooth != 0,
+        });
     }
     for _ in 0..nl {
         let l: Vec<u8> = r.get()?;
@@ -91,11 +102,17 @@ pub fn decode(b: &[u8]) -> Result<Scene, WireError> {
 
 /// Every index in range, so a damaged cache file can never make the renderer read out of bounds.
 fn validate(s: &Scene) -> Result<(), WireError> {
-    let cells = (s.cols as usize).checked_mul(s.rows as usize).ok_or(WireError::Invalid("grid"))?;
+    let cells = (s.cols as usize)
+        .checked_mul(s.rows as usize)
+        .ok_or(WireError::Invalid("grid"))?;
     if s.cols == 0 || s.rows == 0 || cells > 1 << 16 {
         return Err(WireError::Invalid("grid"));
     }
-    if s.seg_cells.len() != cells || s.seg_cell_bounds.len() != cells || s.fill_cells.len() != cells || s.fill_cell_bounds.len() != cells {
+    if s.seg_cells.len() != cells
+        || s.seg_cell_bounds.len() != cells
+        || s.fill_cells.len() != cells
+        || s.fill_cell_bounds.len() != cells
+    {
         return Err(WireError::Invalid("cell tables"));
     }
     let items = s.items.len() as u32;
@@ -107,7 +124,10 @@ fn validate(s: &Scene) -> Result<(), WireError> {
     if s.seg_cells.iter().any(|&[a, n]| a as usize + n as usize > s.segs.len()) {
         return Err(WireError::Invalid("segment ranges"));
     }
-    if s.fill_cells.iter().any(|&[a, n]| a as usize + n as usize > s.fill_idx.len()) {
+    if s.fill_cells
+        .iter()
+        .any(|&[a, n]| a as usize + n as usize > s.fill_idx.len())
+    {
         return Err(WireError::Invalid("fill ranges"));
     }
     let nv = s.fill_verts.len() as u32;
@@ -179,8 +199,31 @@ mod tests {
         b.line_to([200.0, 150.0]);
         b.line_to([20.0, 150.0]);
         b.close();
-        b.finish_path(s, Item { fill_rule: fill::NONZERO, fill_color: rgba(1, 2, 3, 128), stroked: 1, stroke_color: rgba(0, 0, 0, 255), clip: NONE, layer, miter_limit: 10.0, ..Default::default() });
-        b.add_image(Image { width: 2, height: 2, rgba: vec![255; 16], transform: Affine::new(10.0, 0.0, 0.0, 10.0, 5.0, 5.0), opacity: 1.0, smooth: true }, NONE, NONE);
+        b.finish_path(
+            s,
+            Item {
+                fill_rule: fill::NONZERO,
+                fill_color: rgba(1, 2, 3, 128),
+                stroked: 1,
+                stroke_color: rgba(0, 0, 0, 255),
+                clip: NONE,
+                layer,
+                miter_limit: 10.0,
+                ..Default::default()
+            },
+        );
+        b.add_image(
+            Image {
+                width: 2,
+                height: 2,
+                rgba: vec![255; 16],
+                transform: Affine::new(10.0, 0.0, 0.0, 10.0, 5.0, 5.0),
+                opacity: 1.0,
+                smooth: true,
+            },
+            NONE,
+            NONE,
+        );
         let scene = build_scene(&b.finish(), &SceneOptions::default());
         let bytes = encode(&scene);
         let back = decode(&bytes).unwrap();

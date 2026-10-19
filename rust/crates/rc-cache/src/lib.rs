@@ -26,12 +26,19 @@ pub struct DiskCache {
 
 impl DiskCache {
     pub fn new(root: PathBuf, budget: u64) -> Self {
-        Self { root, budget, enabled: true }
+        Self {
+            root,
+            budget,
+            enabled: true,
+        }
     }
 
     /// `%LOCALAPPDATA%\redcolumn-native\cache` on Windows (the platform cache folder elsewhere).
     pub fn default_root() -> PathBuf {
-        dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("redcolumn-native").join("cache")
+        dirs::cache_dir()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("redcolumn-native")
+            .join("cache")
     }
 
     pub fn root(&self) -> &Path {
@@ -43,7 +50,11 @@ impl DiskCache {
         let mut f = fs::File::open(path)?;
         let meta = f.metadata()?;
         let len = meta.len();
-        let mtime = meta.modified().ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos());
         let mut h = blake3::Hasher::new();
         h.update(&FORMAT.to_le_bytes());
         h.update(&len.to_le_bytes());
@@ -70,7 +81,10 @@ impl DiskCache {
         let p = self.dir(key).join(name);
         let data = fs::read(&p).ok()?;
         // Mark the document as recently used.
-        let _ = fs::File::options().write(true).open(self.dir(key).join(".used")).and_then(|mut f| f.write_all(b"1"));
+        let _ = fs::File::options()
+            .write(true)
+            .open(self.dir(key).join(".used"))
+            .and_then(|mut f| f.write_all(b"1"));
         Some(data)
     }
 
@@ -130,8 +144,12 @@ fn dir_entries(root: &Path) -> Vec<(PathBuf, u64, SystemTime)> {
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .map(|e| {
             let dir = e.path();
-            let size = fs::read_dir(&dir).map(|r| r.filter_map(|f| f.ok()?.metadata().ok()).map(|m| m.len()).sum()).unwrap_or(0);
-            let used = fs::metadata(dir.join(".used")).and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH);
+            let size = fs::read_dir(&dir)
+                .map(|r| r.filter_map(|f| f.ok()?.metadata().ok()).map(|m| m.len()).sum())
+                .unwrap_or(0);
+            let used = fs::metadata(dir.join(".used"))
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
             (dir, size, used)
         })
         .collect()

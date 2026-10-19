@@ -61,7 +61,13 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Self { chunk_items: 0, text: true, parallel: true, parallel_min: 4 << 20, token_chunk: 1 << 20 }
+        Self {
+            chunk_items: 0,
+            text: true,
+            parallel: true,
+            parallel_min: 4 << 20,
+            token_chunk: 1 << 20,
+        }
     }
 }
 
@@ -175,11 +181,20 @@ struct Interp<'d, 'f> {
 
 /// Reads a page. With `opts.chunk_items` set, chunks go to `on_chunk` as they fill and the rest
 /// is returned; otherwise the whole page is returned.
-pub fn extract_page(doc: &Document, page: &PageNode, opts: &Options, on_chunk: &mut dyn FnMut(PageContent)) -> PageContent {
+pub fn extract_page(
+    doc: &Document,
+    page: &PageNode,
+    opts: &Options,
+    on_chunk: &mut dyn FnMut(PageContent),
+) -> PageContent {
     let rotate = page.rotate;
     let base = Affine::page_from_user(page.crop_box, rotate);
     let [x0, y0, x1, y1] = page.crop_box;
-    let (w, h) = if rotate % 180 == 0 { (x1 - x0, y1 - y0) } else { (y1 - y0, x1 - x0) };
+    let (w, h) = if rotate % 180 == 0 {
+        (x1 - x0, y1 - y0)
+    } else {
+        (y1 - y0, x1 - x0)
+    };
     let hidden: HashSet<u32> = doc
         .hidden_layers()
         .iter()
@@ -210,7 +225,11 @@ pub fn extract_page(doc: &Document, page: &PageNode, opts: &Options, on_chunk: &
         opts,
         on_chunk,
     };
-    if doc.hidden_layers().iter().any(|o| matches!(o, Obj::Name(n) if n.is("*"))) {
+    if doc
+        .hidden_layers()
+        .iter()
+        .any(|o| matches!(o, Obj::Name(n) if n.is("*")))
+    {
         it.out.content.flags |= flags::UNSUPPORTED;
     }
     // Every font must be drawable for text to be outlines; otherwise PDFium draws all of it.
@@ -220,10 +239,13 @@ pub fn extract_page(doc: &Document, page: &PageNode, opts: &Options, on_chunk: &
     let contents = page.dict.get("Contents").map(|c| doc.resolve(c));
     let streams: Vec<Stream> = match contents.as_deref() {
         Some(Obj::Stream(s)) => vec![s.clone()],
-        Some(Obj::Array(a)) => a.iter().filter_map(|o| match doc.resolve(o).as_ref() {
-            Obj::Stream(s) => Some(s.clone()),
-            _ => None,
-        }).collect(),
+        Some(Obj::Array(a)) => a
+            .iter()
+            .filter_map(|o| match doc.resolve(o).as_ref() {
+                Obj::Stream(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect(),
         _ => vec![],
     };
     // Decompress the content streams and the page's forms in parallel.
@@ -260,7 +282,10 @@ fn fonts_drawable(it: &mut Interp, resources: &Dict, depth: usize) -> bool {
         for (_, v) in xobjs.iter() {
             let o = doc.resolve(v);
             if let Obj::Stream(s) = o.as_ref()
-                && s.dict.get("Subtype").and_then(Obj::as_name).is_some_and(|n| n.is("Form"))
+                && s.dict
+                    .get("Subtype")
+                    .and_then(Obj::as_name)
+                    .is_some_and(|n| n.is("Form"))
                 && let Some(r) = doc.dict_get(&s.dict, "Resources").and_then(|r| r.as_dict().cloned())
                 && !fonts_drawable(it, &r, depth + 1)
             {
@@ -273,19 +298,31 @@ fn fonts_drawable(it: &mut Interp, resources: &Dict, depth: usize) -> bool {
 
 fn prefetch_forms(it: &mut Interp, resources: &Dict) {
     let doc = it.doc;
-    let Some(xobjs) = doc.dict_get(resources, "XObject").and_then(|x| x.as_dict().cloned()) else { return };
+    let Some(xobjs) = doc.dict_get(resources, "XObject").and_then(|x| x.as_dict().cloned()) else {
+        return;
+    };
     let forms: Vec<(u32, Stream)> = xobjs
         .iter()
         .filter_map(|(_, v)| {
             let Obj::Ref(n, _) = v else { return None };
             let o = doc.resolve(v);
             match o.as_ref() {
-                Obj::Stream(s) if s.dict.get("Subtype").and_then(Obj::as_name).is_some_and(|t| t.is("Form")) => Some((*n, s.clone())),
+                Obj::Stream(s)
+                    if s.dict
+                        .get("Subtype")
+                        .and_then(Obj::as_name)
+                        .is_some_and(|t| t.is("Form")) =>
+                {
+                    Some((*n, s.clone()))
+                }
                 _ => None,
             }
         })
         .collect();
-    let decoded: Vec<(u32, Vec<u8>)> = forms.par_iter().map(|(n, s)| (*n, doc.decode(s).unwrap_or_default())).collect();
+    let decoded: Vec<(u32, Vec<u8>)> = forms
+        .par_iter()
+        .map(|(n, s)| (*n, doc.decode(s).unwrap_or_default()))
+        .collect();
     for (n, d) in decoded {
         it.forms.insert(n, Arc::new(d));
     }
@@ -357,7 +394,11 @@ impl Interp<'_, '_> {
                         // or array across the boundary): this chunk's tokens may be misread, so
                         // read it again from where that token ended.
                         let mut again = Vec::new();
-                        let end2 = if prev_end < e { tokenize(data, prev_end, e, &mut again) } else { prev_end };
+                        let end2 = if prev_end < e {
+                            tokenize(data, prev_end, e, &mut again)
+                        } else {
+                            prev_end
+                        };
                         self.exec(data, &again, resources, &mut ops);
                         prev_end = end2;
                     } else {
@@ -537,7 +578,12 @@ impl Interp<'_, '_> {
             b"M" => self.gs.miter = n(0) as f32,
             b"d" => {
                 if let Some(Operand::Arr(arr)) = a.first() {
-                    self.gs.dash = arr.iter().filter_map(Operand::num).map(|v| v as f32).collect::<Vec<_>>().into();
+                    self.gs.dash = arr
+                        .iter()
+                        .filter_map(Operand::num)
+                        .map(|v| v as f32)
+                        .collect::<Vec<_>>()
+                        .into();
                     self.gs.dash_phase = n(1) as f32;
                 }
             }
@@ -580,7 +626,11 @@ impl Interp<'_, '_> {
                 let comps: Vec<f32> = a.iter().filter_map(Operand::num).map(|v| v as f32).collect();
                 let cs = if stroke { &self.gs.stroke_cs } else { &self.gs.fill_cs };
                 // A pattern name (last operand) leaves the colour undrawable.
-                let rgb = if matches!(a.last(), Some(Operand::Name(_))) { None } else { cs.to_rgb(&comps) };
+                let rgb = if matches!(a.last(), Some(Operand::Name(_))) {
+                    None
+                } else {
+                    cs.to_rgb(&comps)
+                };
                 if stroke {
                     self.gs.stroke = rgb;
                 } else {
@@ -605,7 +655,13 @@ impl Interp<'_, '_> {
             }
             b"EMC" => {
                 self.marks.pop();
-                self.layer = self.marks.iter().rev().copied().find(|&l| l != rc::NONE).unwrap_or(rc::NONE);
+                self.layer = self
+                    .marks
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&l| l != rc::NONE)
+                    .unwrap_or(rc::NONE);
             }
             // Text.
             b"BT" => {
@@ -698,7 +754,11 @@ impl Interp<'_, '_> {
             self.move_to(c1[0], c1[1]);
         }
         let m = &self.gs.ctm;
-        self.out.cubic_to(m.apply_f32(c1[0], c1[1]), m.apply_f32(c2[0], c2[1]), m.apply_f32(p[0], p[1]));
+        self.out.cubic_to(
+            m.apply_f32(c1[0], c1[1]),
+            m.apply_f32(c2[0], c2[1]),
+            m.apply_f32(p[0], p[1]),
+        );
         self.cur = p;
     }
 
@@ -719,7 +779,12 @@ impl Interp<'_, '_> {
             self.clip_rule = None;
             return;
         };
-        let mut item = Item { clip: self.gs.clip, layer: self.layer, miter_limit: self.gs.miter, ..Default::default() };
+        let mut item = Item {
+            clip: self.gs.clip,
+            layer: self.layer,
+            miter_limit: self.gs.miter,
+            ..Default::default()
+        };
         let mut drawn = false;
         if do_fill {
             match Self::color(self.gs.fill, self.gs.fill_alpha) {
@@ -795,7 +860,13 @@ impl Interp<'_, '_> {
 
     fn ext_gstate(&mut self, res: &Dict, name: &[u8]) {
         let doc = self.doc;
-        let Some(gs) = doc.dict_get(res, "ExtGState").and_then(|g| g.as_dict().and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| doc.resolve(v)))) else {
+        let Some(gs) = doc.dict_get(res, "ExtGState").and_then(|g| {
+            g.as_dict().and_then(|d| {
+                d.0.iter()
+                    .find(|(k, _)| k.as_bytes() == name)
+                    .map(|(_, v)| doc.resolve(v))
+            })
+        }) else {
             return;
         };
         let Some(d) = gs.as_dict() else { return };
@@ -812,14 +883,23 @@ impl Interp<'_, '_> {
                     if let Some(arr) = v.as_array()
                         && let Some(dash) = arr.first().map(|o| doc.resolve(o))
                     {
-                        self.gs.dash = dash.as_array().unwrap_or(&[]).iter().filter_map(|o| o.as_f32()).collect::<Vec<_>>().into();
+                        self.gs.dash = dash
+                            .as_array()
+                            .unwrap_or(&[])
+                            .iter()
+                            .filter_map(|o| o.as_f32())
+                            .collect::<Vec<_>>()
+                            .into();
                         self.gs.dash_phase = arr.get(1).and_then(Obj::as_f32).unwrap_or(0.0);
                     }
                 }
                 b"BM" => {
                     let normal = match v.as_ref() {
                         Obj::Name(n) => n.is("Normal") || n.is("Compatible"),
-                        Obj::Array(a) => a.first().and_then(Obj::as_name).is_some_and(|n| n.is("Normal") || n.is("Compatible")),
+                        Obj::Array(a) => a
+                            .first()
+                            .and_then(Obj::as_name)
+                            .is_some_and(|n| n.is("Normal") || n.is("Compatible")),
                         _ => true,
                     };
                     if !normal {
@@ -840,7 +920,12 @@ impl Interp<'_, '_> {
                             Some(f) => f.clone(),
                             None => {
                                 let fd = doc.get(*num).ok();
-                                let f = Arc::new(fd.as_deref().and_then(Obj::as_dict).map(|d| font::load(doc, d)).unwrap_or_else(Font::unsupported));
+                                let f = Arc::new(
+                                    fd.as_deref()
+                                        .and_then(Obj::as_dict)
+                                        .map(|d| font::load(doc, d))
+                                        .unwrap_or_else(Font::unsupported),
+                                );
                                 self.fonts.insert(key, f.clone());
                                 f
                             }
@@ -857,7 +942,12 @@ impl Interp<'_, '_> {
     fn font(&mut self, res: &Dict, name: &[u8]) -> Option<Arc<Font>> {
         let doc = self.doc;
         let fonts = doc.dict_get(res, "Font")?;
-        let entry = fonts.as_dict()?.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| v.clone())?;
+        let entry = fonts
+            .as_dict()?
+            .0
+            .iter()
+            .find(|(k, _)| k.as_bytes() == name)
+            .map(|(_, v)| v.clone())?;
         // Fonts are cached by object number (shared across forms), else by name and resources.
         let key = match entry {
             Obj::Ref(n, _) => (n as usize, Vec::new()),
@@ -867,7 +957,11 @@ impl Interp<'_, '_> {
             return Some(f.clone());
         }
         let fd = doc.resolve(&entry);
-        let f = Arc::new(fd.as_dict().map(|d| font::load(doc, d)).unwrap_or_else(Font::unsupported));
+        let f = Arc::new(
+            fd.as_dict()
+                .map(|d| font::load(doc, d))
+                .unwrap_or_else(Font::unsupported),
+        );
         self.fonts.insert(key, f.clone());
         Some(f)
     }
@@ -893,11 +987,20 @@ impl Interp<'_, '_> {
             self.out.content.flags |= flags::TEXT_NOT_EXTRACTED;
         }
         let codes = font.codes(s);
-        if let Kind::Type3 { procs, matrix, resources } = &font.kind {
+        if let Kind::Type3 {
+            procs,
+            matrix,
+            resources,
+        } = &font.kind
+        {
             for &code in &codes {
                 let trm = Affine::new((size * hs) as f64, 0.0, 0.0, size as f64, 0.0, rise as f64).then(&self.tm);
                 if draw && let Some(proc) = procs.get(&(code as u8)) {
-                    let r = if resources.0.is_empty() { res.clone() } else { resources.clone() };
+                    let r = if resources.0.is_empty() {
+                        res.clone()
+                    } else {
+                        resources.clone()
+                    };
                     self.type3_glyph(proc, matrix.then(&trm), &r);
                 }
                 let w = font.width(code) as f64 * matrix.a;
@@ -912,7 +1015,9 @@ impl Interp<'_, '_> {
                 && let Some(gid) = font.gid(code)
                 && let Some(outline) = font.outline(gid)
             {
-                let m = Affine::new((size * hs) as f64, 0.0, 0.0, size as f64, 0.0, rise as f64).then(&self.tm).then(&self.gs.ctm);
+                let m = Affine::new((size * hs) as f64, 0.0, 0.0, size as f64, 0.0, rise as f64)
+                    .then(&self.tm)
+                    .then(&self.gs.ctm);
                 let mut pi = 0;
                 for &v in &outline.verbs {
                     match v {
@@ -944,7 +1049,12 @@ impl Interp<'_, '_> {
             self.tm = translate(tx as f64, 0.0).then(&self.tm);
         }
         if let Some(start) = start {
-            let mut item = Item { clip: self.gs.clip, layer: self.layer, miter_limit: self.gs.miter, ..Default::default() };
+            let mut item = Item {
+                clip: self.gs.clip,
+                layer: self.layer,
+                miter_limit: self.gs.miter,
+                ..Default::default()
+            };
             if matches!(mode, 0 | 2 | 4 | 6)
                 && let Some(c) = Self::color(self.gs.fill, self.gs.fill_alpha)
             {
@@ -970,7 +1080,14 @@ impl Interp<'_, '_> {
             return;
         }
         let data = self.doc.decode(proc).unwrap_or_default();
-        let saved = (self.gs.clone(), self.stack.len(), self.tm, self.tlm, self.uncolored, self.path.take());
+        let saved = (
+            self.gs.clone(),
+            self.stack.len(),
+            self.tm,
+            self.tlm,
+            self.uncolored,
+            self.path.take(),
+        );
         self.gs.ctm = glyph_to_text.then(&saved.0.ctm);
         self.form_stack.push(u32::MAX);
         self.run(&data, res);
@@ -985,8 +1102,13 @@ impl Interp<'_, '_> {
 
     fn xobject(&mut self, res: &Dict, name: &[u8]) {
         let doc = self.doc;
-        let Some(xobjs) = doc.dict_get(res, "XObject") else { return };
-        let Some(entry) = xobjs.as_dict().and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| v.clone())) else {
+        let Some(xobjs) = doc.dict_get(res, "XObject") else {
+            return;
+        };
+        let Some(entry) = xobjs
+            .as_dict()
+            .and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == name).map(|(_, v)| v.clone()))
+        else {
             return;
         };
         let num = match entry {
@@ -995,7 +1117,12 @@ impl Interp<'_, '_> {
         };
         let obj = doc.resolve(&entry);
         let Obj::Stream(s) = obj.as_ref() else { return };
-        let subtype = s.dict.get("Subtype").and_then(Obj::as_name).map(|n| n.as_bytes().to_vec()).unwrap_or_default();
+        let subtype = s
+            .dict
+            .get("Subtype")
+            .and_then(Obj::as_name)
+            .map(|n| n.as_bytes().to_vec())
+            .unwrap_or_default();
         match &subtype[..] {
             b"Image" => self.image(s, res),
             b"Form" => self.form(num, s, res),
@@ -1023,7 +1150,13 @@ impl Interp<'_, '_> {
         if let Some(r) = &form_res {
             prefetch_forms(self, r);
         }
-        let saved = (self.gs.clone(), self.stack.len(), self.path.take(), self.marks.len(), self.layer);
+        let saved = (
+            self.gs.clone(),
+            self.stack.len(),
+            self.path.take(),
+            self.marks.len(),
+            self.layer,
+        );
         if let Some(m) = doc.dict_get(&s.dict, "Matrix").and_then(|m| {
             m.as_array().and_then(|a| {
                 let v: Vec<f64> = a.iter().filter_map(|o| doc.resolve(o).as_f64()).collect();
@@ -1035,8 +1168,19 @@ impl Interp<'_, '_> {
         // The form's bounding box clips it.
         if let Some([x0, y0, x1, y1]) = doc.rect(&s.dict, "BBox") {
             let m = self.gs.ctm;
-            let pts = [m.apply_f32(x0, y0), m.apply_f32(x1, y0), m.apply_f32(x1, y1), m.apply_f32(x0, y1)];
-            let verbs = [rc::verb::MOVE, rc::verb::LINE, rc::verb::LINE, rc::verb::LINE, rc::verb::CLOSE];
+            let pts = [
+                m.apply_f32(x0, y0),
+                m.apply_f32(x1, y0),
+                m.apply_f32(x1, y1),
+                m.apply_f32(x0, y1),
+            ];
+            let verbs = [
+                rc::verb::MOVE,
+                rc::verb::LINE,
+                rc::verb::LINE,
+                rc::verb::LINE,
+                rc::verb::CLOSE,
+            ];
             self.gs.clip = self.out.add_clip(&verbs, &pts, fill::NONZERO, self.gs.clip);
         }
         if let Some(oc) = s.dict.get("OC") {
@@ -1055,7 +1199,11 @@ impl Interp<'_, '_> {
 
     fn image(&mut self, s: &Stream, res: &Dict) {
         let fill = self.gs.fill.unwrap_or([0, 0, 0]);
-        let is_mask = self.doc.dict_get(&s.dict, "ImageMask").and_then(|o| o.as_bool()).unwrap_or(false);
+        let is_mask = self
+            .doc
+            .dict_get(&s.dict, "ImageMask")
+            .and_then(|o| o.as_bool())
+            .unwrap_or(false);
         if is_mask && self.gs.fill.is_none() {
             self.out.content.flags |= flags::PATTERN;
             return;
@@ -1063,7 +1211,11 @@ impl Interp<'_, '_> {
         match image::decode(self.doc, s, res, fill) {
             Ok(img) => {
                 let unit = Affine::new(1.0, 0.0, 0.0, -1.0, 0.0, 1.0);
-                let smooth = self.doc.dict_get(&s.dict, "Interpolate").and_then(|o| o.as_bool()).unwrap_or(!is_mask);
+                let smooth = self
+                    .doc
+                    .dict_get(&s.dict, "Interpolate")
+                    .and_then(|o| o.as_bool())
+                    .unwrap_or(!is_mask);
                 self.out.add_image(
                     rc::Image {
                         width: img.width,
@@ -1133,7 +1285,10 @@ impl Interp<'_, '_> {
             data_end -= 1;
         }
         lx.pos = ei + 2;
-        let stream = Stream { dict: Dict(dict), data: StreamData::Owned(b[start..data_end].to_vec().into()) };
+        let stream = Stream {
+            dict: Dict(dict),
+            data: StreamData::Owned(b[start..data_end].to_vec().into()),
+        };
         self.image(&stream, res);
     }
 
@@ -1148,8 +1303,13 @@ impl Interp<'_, '_> {
         let doc = self.doc;
         match props {
             Operand::Name(n) => {
-                let Some(p) = doc.dict_get(res, "Properties") else { return rc::NONE };
-                let Some(entry) = p.as_dict().and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == *n).map(|(_, v)| v.clone())) else {
+                let Some(p) = doc.dict_get(res, "Properties") else {
+                    return rc::NONE;
+                };
+                let Some(entry) = p
+                    .as_dict()
+                    .and_then(|d| d.0.iter().find(|(k, _)| k.as_bytes() == *n).map(|(_, v)| v.clone()))
+                else {
                     return rc::NONE;
                 };
                 self.oc_layer_obj(&entry)
@@ -1175,7 +1335,10 @@ impl Interp<'_, '_> {
         }
         let ocg = doc.resolve(&target);
         let Some(ocg) = ocg.as_dict() else { return rc::NONE };
-        let name = doc.dict_get(ocg, "Name").and_then(|n| n.as_str().map(decode_text)).unwrap_or_else(|| "(unnamed layer)".into());
+        let name = doc
+            .dict_get(ocg, "Name")
+            .and_then(|n| n.as_str().map(decode_text))
+            .unwrap_or_else(|| "(unnamed layer)".into());
         let index = self.out.layer(&name);
         if let Obj::Ref(num, _) = target
             && self.hidden.contains(&num)
@@ -1276,7 +1439,8 @@ fn skip_inline_image(b: &[u8], mut p: usize) -> usize {
     }
     p = (lx.pos + 1).min(b.len());
     while p + 2 < b.len() {
-        if b[p] == b'E' && b[p + 1] == b'I' && crate::object::is_white(b[p - 1]) && !crate::object::is_regular(b[p + 2]) {
+        if b[p] == b'E' && b[p + 1] == b'I' && crate::object::is_white(b[p - 1]) && !crate::object::is_regular(b[p + 2])
+        {
             return p + 2;
         }
         p += 1;
@@ -1311,7 +1475,9 @@ fn fast_number(b: &[u8], mut p: usize) -> (f64, usize) {
             }
             p += 1;
         }
-        const POW: [f64; 19] = [1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18];
+        const POW: [f64; 19] = [
+            1.0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18,
+        ];
         v += frac as f64 / POW[digits as usize];
     }
     while p < n && crate::object::is_regular(b[p]) {
@@ -1343,7 +1509,10 @@ fn read_array<'a>(lx: &mut Lexer<'a>) -> Vec<Operand<'a>> {
 /// A PDF text string (UTF-16 with a byte order mark, or PDFDocEncoding treated as Latin-1).
 pub fn decode_text(s: &[u8]) -> String {
     if s.len() >= 2 && s[0] == 0xfe && s[1] == 0xff {
-        let units: Vec<u16> = s[2..].chunks(2).map(|c| (c[0] as u16) << 8 | *c.get(1).unwrap_or(&0) as u16).collect();
+        let units: Vec<u16> = s[2..]
+            .chunks(2)
+            .map(|c| (c[0] as u16) << 8 | *c.get(1).unwrap_or(&0) as u16)
+            .collect();
         return String::from_utf16_lossy(&units);
     }
     s.iter().map(|&b| b as char).collect()

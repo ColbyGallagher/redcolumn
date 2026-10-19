@@ -62,7 +62,10 @@ pub fn decode(bytes: &[u8]) -> Result<PageContent, WireError> {
     let size: Vec<f32> = r.slice()?;
     let flags: Vec<u32> = r.slice()?;
     let mut c = PageContent {
-        size: [*size.first().ok_or(WireError::Truncated)?, *size.get(1).ok_or(WireError::Truncated)?],
+        size: [
+            *size.first().ok_or(WireError::Truncated)?,
+            *size.get(1).ok_or(WireError::Truncated)?,
+        ],
         flags: *flags.first().ok_or(WireError::Truncated)?,
         items: r.slice()?,
         verbs: r.slice()?,
@@ -75,7 +78,9 @@ pub fn decode(bytes: &[u8]) -> Result<PageContent, WireError> {
         ..Default::default()
     };
     let slots: Vec<u32> = r.slice()?;
-    let (&[base, total],) = (&slots[..],) else { return Err(WireError::Truncated) };
+    let (&[base, total],) = (&slots[..],) else {
+        return Err(WireError::Truncated);
+    };
     c.slot_base = base;
     c.slot_total = total;
     let n: Vec<u64> = r.slice()?;
@@ -90,7 +95,14 @@ pub fn decode(bytes: &[u8]) -> Result<PageContent, WireError> {
         if rgba.len() != w as usize * h as usize * 4 {
             return Err(WireError::Invalid("image size"));
         }
-        c.images.push(Image { width: w, height: h, rgba, transform, opacity, smooth: smooth != 0 });
+        c.images.push(Image {
+            width: w,
+            height: h,
+            rgba,
+            transform,
+            opacity,
+            smooth: smooth != 0,
+        });
     }
     let n: Vec<u64> = r.slice()?;
     for _ in 0..*n.first().ok_or(WireError::Truncated)? {
@@ -109,7 +121,10 @@ pub fn validate(c: &PageContent) -> Result<(), WireError> {
         if end as usize > verbs.len() {
             return false;
         }
-        let pts: usize = verbs[vs as usize..end as usize].iter().map(|&v| crate::content::verb_points(v)).sum();
+        let pts: usize = verbs[vs as usize..end as usize]
+            .iter()
+            .map(|&v| crate::content::verb_points(v))
+            .sum();
         (ps as usize).checked_add(pts).is_some_and(|e| e <= points.len())
     };
     let path_ok = |vs: u32, vl: u32, ps: u32| range_ok(&c.verbs, &c.points, vs, vl, ps);
@@ -194,7 +209,17 @@ mod tests {
         b.move_to([1.0, 2.0]);
         b.line_to([3.0, 4.0]);
         let layer = b.layer("A-WALL");
-        b.finish_path(s, Item { stroked: 1, width: 0.5, stroke_color: rgba(1, 2, 3, 255), layer, clip: NONE, ..Default::default() });
+        b.finish_path(
+            s,
+            Item {
+                stroked: 1,
+                width: 0.5,
+                stroke_color: rgba(1, 2, 3, 255),
+                layer,
+                clip: NONE,
+                ..Default::default()
+            },
+        );
         let s = b.begin_path();
         b.move_to([0.0, 0.0]);
         b.line_to([10.0, 0.0]);
@@ -202,7 +227,14 @@ mod tests {
         b.close();
         let clip = b.finish_clip(s, fill::NONZERO, NONE);
         b.add_image(
-            Image { width: 1, height: 1, rgba: vec![9, 8, 7, 255], transform: Affine::IDENTITY, opacity: 0.5, smooth: true },
+            Image {
+                width: 1,
+                height: 1,
+                rgba: vec![9, 8, 7, 255],
+                transform: Affine::IDENTITY,
+                opacity: 0.5,
+                smooth: true,
+            },
             clip,
             NONE,
         );
@@ -214,8 +246,16 @@ mod tests {
 
     #[test]
     fn rejects_bad_indices() {
-        let mut c = PageContent { size: [1.0, 1.0], ..Default::default() };
-        c.items.push(Item { verb_len: 5, clip: NONE, layer: NONE, ..Default::default() });
+        let mut c = PageContent {
+            size: [1.0, 1.0],
+            ..Default::default()
+        };
+        c.items.push(Item {
+            verb_len: 5,
+            clip: NONE,
+            layer: NONE,
+            ..Default::default()
+        });
         assert!(decode(&encode(&c)).is_err());
     }
 }
