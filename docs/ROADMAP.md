@@ -18,7 +18,7 @@ two), **M** (about a week), **L** (several weeks).
 ## Later
 
 - Detached windows for multi-monitor work (L).
-- A native Windows prototype in Rust, benchmarked against the Electron app before deciding on a port: [RUST-PLAN.md](RUST-PLAN.md) (L).
+- A native Windows viewer in Rust built for heavy engineering drawings (GPU scene, PDFium process pool, disk cache), benchmarked against the Electron app before deciding on a port: [RUST-PLAN.md](RUST-PLAN.md) (L).
 
 ## Not planned
 
