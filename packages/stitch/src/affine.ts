@@ -37,6 +37,20 @@ export function rigid(angle: number, tx: number, ty: number): Affine {
   return [cos, sin, -sin, cos, tx, ty];
 }
 
+/**
+ * The similarity transform (rotation, uniform scale, translation; no reflection) that takes
+ * b0 to a0 and b1 to a1.
+ */
+export function similarityFromSegments(a0: Vec, a1: Vec, b0: Vec, b1: Vec): Affine {
+  // As complex numbers: z' = k z + t with k = (a1 - a0) / (b1 - b0).
+  const [ax, ay] = sub(a1, a0);
+  const [bx, by] = sub(b1, b0);
+  const d = bx * bx + by * by || 1;
+  const kr = (ax * bx + ay * by) / d;
+  const ki = (ay * bx - ax * by) / d;
+  return [kr, ki, -ki, kr, a0[0] - (kr * b0[0] - ki * b0[1]), a0[1] - (ki * b0[0] + kr * b0[1])];
+}
+
 /** Uniform scale factor of a similarity transform. */
 export function scaleOf(m: Affine): number {
   return Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2]));

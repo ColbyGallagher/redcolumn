@@ -108,6 +108,8 @@ export interface PagePlacement {
   pageIndex: number;
   toWorld: Affine;
   clips: readonly HalfPlane[];
+  /** The part of the page shown (page space), before the clips cut it; the whole page when absent. */
+  region?: readonly (readonly [number, number])[];
 }
 
 export interface ViewState {
@@ -185,14 +187,16 @@ export interface RulerUnits {
 /** Ruler thickness in CSS px. */
 const RULER = 18;
 
-/** The page rectangle cut down by half-planes (Sutherland–Hodgman), in page space. */
-function clipPolygon(width: number, height: number, clips: readonly HalfPlane[]): [number, number][] {
-  let poly: [number, number][] = [
-    [0, 0],
-    [width, 0],
-    [width, height],
-    [0, height],
-  ];
+/** The page rectangle (or its region) cut down by half-planes (Sutherland–Hodgman), in page space. */
+function clipPolygon(width: number, height: number, clips: readonly HalfPlane[], region?: PagePlacement['region']): [number, number][] {
+  let poly: [number, number][] = region?.length
+    ? region.map((p): [number, number] => [p[0], p[1]])
+    : [
+        [0, 0],
+        [width, 0],
+        [width, height],
+        [0, height],
+      ];
   for (const { point, normal } of clips) {
     const side = (p: [number, number]) => (p[0] - point[0]) * normal[0] + (p[1] - point[1]) * normal[1];
     const next: [number, number][] = [];
@@ -443,7 +447,7 @@ export class TileViewer {
     for (let i = this.placements.length - 1; i >= 0; i--) {
       const p = this.placements[i]!;
       const size = this.doc?.pages[p.pageIndex];
-      if (size && insidePolygon(applyAffine(p.fromWorld, pt), clipPolygon(size.width, size.height, p.clips))) return p.pageIndex;
+      if (size && insidePolygon(applyAffine(p.fromWorld, pt), clipPolygon(size.width, size.height, p.clips, p.region))) return p.pageIndex;
     }
     return null;
   }
@@ -665,6 +669,21 @@ export class TileViewer {
   }
 
   /**
+   * Lays the stitched set out again (a sheet nudged, a match line edited) without moving the view.
+   * Not in a stitched view, or with a different set of sheets, it does nothing (and returns false).
+   */
+  updateStitch(layout: PagePlacement[]) {
+    if (this.mode !== 'stitch' || !this.stitchLayout) return false;
+    const pages = (l: readonly PagePlacement[]) => l.map((p) => p.pageIndex).sort((a, b) => a - b).join();
+    if (pages(layout) !== pages(this.stitchLayout)) return false;
+    this.stitchLayout = layout;
+    const rot = rotationAffine(this.turns, 0, 0);
+    this.placements = layout.map((p) => this.place({ ...p, toWorld: composeAffine(rot, p.toWorld) }));
+    this.invalidate();
+    return true;
+  }
+
+  /**
    * Shows sheets placed in one continuous view (null returns to single pages). The view opens on
    * `focusPage`, or fitted to the whole set.
    */
@@ -724,7 +743,7 @@ export class TileViewer {
   /** World-space bounds of one placed sheet (its visible part). */
   private placementBounds(p: Placed) {
     const size = this.doc?.pages[p.pageIndex];
-    const pts = size ? clipPolygon(size.width, size.height, p.clips).map((c) => applyAffine(p.toWorld, c)) : [];
+    const pts = size ? clipPolygon(size.width, size.height, p.clips, p.region).map((c) => applyAffine(p.toWorld, c)) : [];
     const xs = pts.map((q) => q[0]);
     const ys = pts.map((q) => q[1]);
     const x = Math.min(...xs);
@@ -783,7 +802,7 @@ export class TileViewer {
     for (const p of this.placements) {
       const size = this.doc?.pages[p.pageIndex];
       if (!size) continue;
-      for (const c of clipPolygon(size.width, size.height, p.clips)) {
+      for (const c of clipPolygon(size.width, size.height, p.clips, p.region)) {
         const [x, y] = applyAffine(p.toWorld, c);
         x0 = Math.min(x0, x);
         y0 = Math.min(y0, y);
@@ -1038,7 +1057,7 @@ export class TileViewer {
       }
 
       const m = p.toWorld;
-      const poly = clipPolygon(size.width, size.height, p.clips);
+      const poly = clipPolygon(size.width, size.height, p.clips, p.region);
       ctx.save();
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.translate(this.panX, this.panY);

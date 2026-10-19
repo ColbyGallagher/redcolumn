@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STATUSES, DEFAULT_STYLES, type Assembly, type Bookmark, type ColumnSet, type Place, type Viewport, type Markup, type MarkupStore, type StoredLink, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, DEFAULT_STYLES, type Assembly, type Bookmark, type ColumnSet, type Place, type Viewport, type Markup, type MarkupStore, type StoredLink, type StoredManualStitch, type StoredStitchGroup } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import type { MarkupTools, ToolsState } from './MarkupTools';
@@ -20,9 +20,15 @@ export function useScales(store: MarkupStore | null): Readonly<Record<number, Sc
 
 const NO_LINKS: StoredLink[] = [];
 const NO_STITCH: StoredStitchGroup[] = [];
+const NO_MANUAL_STITCH: StoredManualStitch = { lines: [], regions: {} };
 
 export function useStitch(store: MarkupStore | null): StoredStitchGroup[] {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.stitchGroups() ?? NO_STITCH);
+}
+
+/** Match lines and drawing regions the user placed for stitching. */
+export function useManualStitch(store: MarkupStore | null): StoredManualStitch {
+  return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.manualStitch() ?? NO_MANUAL_STITCH);
 }
 
 export function useLinks(store: MarkupStore | null): StoredLink[] {

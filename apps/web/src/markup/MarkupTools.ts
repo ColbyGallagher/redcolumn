@@ -101,7 +101,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -127,6 +127,10 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   snapshot: 'Snapshot',
   cutContent: 'Cut Content',
   scaleLength: 'Scale to Length',
+  matchLine: 'Match Line',
+  stitchRegion: 'Stitch Region',
+  stitchPolygon: 'Stitch Region (Polygon)',
+  stitchMove: 'Move Sheet',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
@@ -134,7 +138,14 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 };
 
 /** Tools that pick out an area of the page (drawn as a plain box, never snapped). */
-const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent']);
+const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
+
+/** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
+export interface StitchGuides {
+  lines: { id: string; pageIndex: number; p0: Point; p1: Point; contentSide: 1 | -1; name: string; paired: boolean; problem?: boolean }[];
+  regions: Record<number, Point[]>;
+  selected?: string | null;
+}
 
 /** A form field's widget, for clicking to fill it in. */
 export interface FormWidgetHit {
@@ -202,9 +213,14 @@ const IMAGE_PX = 240;
 /** Drag distance (screen px) that turns a click into a drag. */
 const DRAG_PX = 4;
 const CALIBRATE_STYLE: MarkupStyle = { stroke: '#2563eb', fill: null, width: 1, opacity: 1 };
+const MATCH_LINE_STYLE: MarkupStyle = { stroke: '#dc2626', fill: null, width: 2, opacity: 1, dash: 'dashed' };
 const REGION_STYLE: MarkupStyle = { stroke: '#2563eb', fill: '#2563eb', width: 1, opacity: 1, fillOpacity: 0.08, dash: 'dashed' };
 
 type Gesture =
+  /** Dragging one end (`end` 0 or 1) of a hand-placed match line. */
+  | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
+  /** Move Sheet: dragging a stitched sheet; `start` is where the drag began in the view's world space. */
+  | { kind: 'stitchMove'; start: Point }
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
@@ -411,6 +427,14 @@ export interface MarkupToolsOptions {
   onCreated?: (m: Markup) => void;
   /** The user drew a page-label region (the `labelRegion` tool). */
   onRegion?: (pageIndex: number, rect: PageRect) => void;
+  /** The user clicked both ends of a match line (the `matchLine` tool). */
+  onMatchLine?: (pageIndex: number, p0: Point, p1: Point) => void;
+  /** The user dragged an end of a hand-placed match line to a new place; false turns the edit down (the end goes back). */
+  onMatchLineEdited?: (id: string, p0: Point, p1: Point) => boolean | void;
+  /** Move Sheet: the pointer has dragged `delta` (world space) since the press; `done` on release. */
+  onStitchDrag?: (delta: Point, done: boolean) => void;
+  /** The user outlined the part of a sheet holding the drawing, for stitching (`stitchRegion`, `stitchPolygon`). */
+  onStitchRegion?: (pageIndex: number, points: Point[]) => void;
   /** A short message for the user (e.g. Smart Fill found no enclosed region). */
   onNotice?: (text: string) => void;
   /** A Space was drawn: it needs a name. */
@@ -462,7 +486,8 @@ function needsScale(tool: Tool): boolean {
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
-  if (tool === 'cutout') return { min: 3, closes: true };
+  if (tool === 'matchLine') return { min: 2, fixed: 2 };
+  if (tool === 'cutout' || tool === 'stitchPolygon') return { min: 3, closes: true };
   // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
   if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
@@ -1416,7 +1441,13 @@ export class MarkupTools implements ViewerOverlay {
       this.setState({ cad: { picks: 0, error: null } });
       return;
     }
-    if (this.gesture) this.setGesture(null);
+    const g = this.gesture;
+    // A dragged line end goes back, and a dragged sheet back to where the store has it.
+    if (g?.kind === 'guideEnd') {
+      const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
+      if (line) line[g.end ? 'p1' : 'p0'] = g.from;
+    } else if (g?.kind === 'stitchMove') this.options.onStitchDrag?.([0, 0], false);
+    if (g) this.setGesture(null);
     else if (this.state.tool !== 'select') this.setTool('select');
     else this.select([]);
   }
@@ -1446,6 +1477,15 @@ export class MarkupTools implements ViewerOverlay {
     const zoom = this.viewer.zoomFor(g.markup.pageIndex);
     // A double-click lands two clicks on the same spot; collapse consecutive near-duplicates.
     const points = g.markup.points.filter((p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1]![0], p[1] - all[i - 1]![1]) * zoom > 2);
+    if (this.state.tool === 'matchLine') {
+      // The tool stays on, for the next sheet's line.
+      if (points.length >= 2) this.options.onMatchLine?.(g.markup.pageIndex, points[0]!, points[1]!);
+      return;
+    }
+    if (this.state.tool === 'stitchPolygon') {
+      if (points.length >= 3) this.options.onStitchRegion?.(g.markup.pageIndex, points);
+      return;
+    }
     if (g.calibrate) {
       if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!);
       return;
@@ -1572,6 +1612,7 @@ export class MarkupTools implements ViewerOverlay {
     this.drawFormWidgets(ctx, pageIndex);
     this.drawLinks(ctx, pageIndex, zoom);
     this.drawRegions(ctx, zoom);
+    this.drawStitchGuides(ctx, pageIndex, zoom);
     const g = this.gesture;
     if (g?.kind === 'textMark' && g.markup.pageIndex === pageIndex && g.markup.type !== 'textHighlight') {
       // The words under the pointer show as a highlight while an underline, strikeout or other text tool drags.
@@ -1812,6 +1853,87 @@ export class MarkupTools implements ViewerOverlay {
     ctx.restore();
   }
 
+  private stitchGuides: StitchGuides | null = null;
+
+  /** Shows (or, with null, hides) the hand-placed match lines and stitch regions. */
+  setStitchGuides(guides: StitchGuides | null) {
+    this.stitchGuides = guides;
+    this.viewer.invalidate();
+  }
+
+  /** The end of a shown match line under a page point, if any. */
+  private guideEndAt(p: Point, pageIndex: number): { id: string; end: 0 | 1 } | null {
+    const tol = this.hitPx / this.viewer.zoomFor(pageIndex);
+    for (const l of this.stitchGuides?.lines ?? []) {
+      if (l.pageIndex !== pageIndex) continue;
+      if (Math.hypot(p[0] - l.p0[0], p[1] - l.p0[1]) <= tol) return { id: l.id, end: 0 };
+      if (Math.hypot(p[0] - l.p1[0], p[1] - l.p1[1]) <= tol) return { id: l.id, end: 1 };
+    }
+    return null;
+  }
+
+  private drawStitchGuides(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const guides = this.stitchGuides;
+    if (!guides) return;
+    ctx.save();
+    const region = guides.regions[pageIndex];
+    const size = this.viewer.pageSize(pageIndex);
+    if (region?.length && size) {
+      // Shade what the stitch leaves out (title block, legend...), and outline what it keeps.
+      ctx.beginPath();
+      ctx.rect(0, 0, size.width, size.height);
+      region.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
+      ctx.fill('evenodd');
+      ctx.beginPath();
+      region.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.closePath();
+      ctx.strokeStyle = '#7c3aed';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.setLineDash([6 / zoom, 4 / zoom]);
+      ctx.stroke();
+    }
+    ctx.font = `600 ${12 / zoom}px system-ui, sans-serif`;
+    for (const l of guides.lines) {
+      if (l.pageIndex !== pageIndex) continue;
+      const colour = l.problem ? '#d97706' : l.paired ? '#16a34a' : '#dc2626';
+      ctx.strokeStyle = colour;
+      ctx.fillStyle = colour;
+      ctx.lineWidth = (l.id === guides.selected ? 4 : 2.5) / zoom;
+      ctx.setLineDash([10 / zoom, 5 / zoom]);
+      ctx.beginPath();
+      ctx.moveTo(l.p0[0], l.p0[1]);
+      ctx.lineTo(l.p1[0], l.p1[1]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // An arrow from the middle of the line into the side this sheet keeps.
+      const [dx, dy] = [l.p1[0] - l.p0[0], l.p1[1] - l.p0[1]];
+      const length = Math.hypot(dx, dy) || 1;
+      const [nx, ny] = [(-dy / length) * l.contentSide, (dx / length) * l.contentSide];
+      const mid: Point = [(l.p0[0] + l.p1[0]) / 2, (l.p0[1] + l.p1[1]) / 2];
+      const tip: Point = [mid[0] + (nx * 28) / zoom, mid[1] + (ny * 28) / zoom];
+      const back = 8 / zoom;
+      ctx.beginPath();
+      ctx.moveTo(mid[0], mid[1]);
+      ctx.lineTo(tip[0], tip[1]);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(tip[0] + nx * 2 / zoom, tip[1] + ny * 2 / zoom);
+      ctx.lineTo(tip[0] - nx * back + (dx / length) * back * 0.6, tip[1] - ny * back + (dy / length) * back * 0.6);
+      ctx.lineTo(tip[0] - nx * back - (dx / length) * back * 0.6, tip[1] - ny * back - (dy / length) * back * 0.6);
+      ctx.closePath();
+      ctx.fill();
+      for (const end of [l.p0, l.p1]) {
+        ctx.beginPath();
+        ctx.arc(end[0], end[1], 4 / zoom, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillText(l.name, tip[0] + 4 / zoom, tip[1] - 4 / zoom);
+    }
+    ctx.restore();
+  }
+
   /** While a measurement is being clicked out, pointer positions are wanted in its page's space. */
   activePage(): number | null {
     return this.gesture?.kind === 'multi' ? this.gesture.markup.pageIndex : null;
@@ -1822,6 +1944,26 @@ export class MarkupTools implements ViewerOverlay {
     this.pointerKind = e.pointerType || 'mouse';
     if (!this.store) return false;
     const { tool } = this.state;
+
+    // With the Stitching panel open, the ends of its match lines can be dragged.
+    if (e.button === 0 && !this.store.readOnly && (tool === 'select' || (tool === 'matchLine' && this.gesture?.kind !== 'multi'))) {
+      const end = this.guideEndAt(toPoint(pt), pageIndex);
+      if (end) {
+        const line = this.stitchGuides!.lines.find((l) => l.id === end.id)!;
+        this.setGesture({ kind: 'guideEnd', ...end, from: end.end ? line.p1 : line.p0 });
+        return true;
+      }
+    }
+
+    if (tool === 'stitchMove') {
+      if (e.button !== 0 || this.store.readOnly) return false;
+      if (!this.viewer.isStitched) {
+        this.options.onNotice?.('Move Sheet works in the Stitched View: turn it on from the Stitching panel.');
+        return true;
+      }
+      this.setGesture({ kind: 'stitchMove', start: toPoint(this.viewer.pageToWorld(pageIndex, pt)) });
+      return true;
+    }
 
     if (isCadTool(tool)) {
       if (e.button !== 0 || this.store.readOnly) return false;
@@ -1939,10 +2081,12 @@ export class MarkupTools implements ViewerOverlay {
       }
       // A cutout is drawn inside its area, on the area's page.
       if (tool === 'cutout' && this.store.get(this.cutoutTarget ?? '')?.pageIndex !== pageIndex) return false;
-      const markup = this.newMarkup(tool === 'calibrate' ? 'line' : tool === 'cutout' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
+      const markup = this.newMarkup(tool === 'calibrate' || tool === 'matchLine' ? 'line' : tool === 'cutout' || tool === 'stitchPolygon' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
       if (tool === 'calibrate') markup.style = { ...CALIBRATE_STYLE };
-      if (tool === 'cutout') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
-      this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' });
+      if (tool === 'matchLine') markup.style = { ...MATCH_LINE_STYLE };
+      if (tool === 'cutout' || tool === 'stitchPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
+      // A match line, like a calibration line, is two points and makes no markup.
+      this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' || tool === 'matchLine' });
       return true;
     }
 
@@ -2121,6 +2265,20 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     const g = this.gesture;
     if (!g || g.kind === 'link' || g.kind === 'formField') return;
+    if (g.kind === 'guideEnd') {
+      const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
+      if (!line) return;
+      const p = this.resolve(pt, e, g.end ? line.p0 : line.p1);
+      if (g.end) line.p1 = p;
+      else line.p0 = p;
+      this.viewer.invalidate();
+      return;
+    }
+    if (g.kind === 'stitchMove') {
+      const w = this.viewer.pageToWorld(pageIndex, pt);
+      this.options.onStitchDrag?.([w[0] - g.start[0], w[1] - g.start[1]], false);
+      return;
+    }
     if (g.kind === 'hyperlink') {
       const p = toPoint(pt);
       if (Math.hypot(p[0] - g.start[0], p[1] - g.start[1]) * this.viewer.zoomFor(this.page) < this.dragPx) return;
@@ -2236,6 +2394,23 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     const g = this.gesture;
     if (!g || !this.store) return;
+    if (g.kind === 'guideEnd') {
+      this.setGesture(null);
+      const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
+      const now = g.end ? line?.p1 : line?.p0;
+      // A press on an end that didn't move it changes nothing.
+      if (line && now && (now[0] !== g.from[0] || now[1] !== g.from[1]) && this.options.onMatchLineEdited?.(line.id, line.p0, line.p1) === false) {
+        line[g.end ? 'p1' : 'p0'] = g.from;
+        this.viewer.invalidate();
+      }
+      return;
+    }
+    if (g.kind === 'stitchMove') {
+      this.setGesture(null);
+      const w = this.viewer.pageToWorld(pageIndex, pt);
+      this.options.onStitchDrag?.([w[0] - g.start[0], w[1] - g.start[1]], true);
+      return;
+    }
     if (g.kind === 'pendingHighlight') {
       const at = toPoint(pt);
       const m = g.markup;
@@ -2382,6 +2557,8 @@ export class MarkupTools implements ViewerOverlay {
       return null;
     }
     this.updatePickTargets(pageIndex, toPoint(pt));
+    if (tool === 'stitchMove') return this.viewer.isStitched ? 'move' : 'not-allowed';
+    if ((tool === 'select' || tool === 'matchLine') && this.gesture?.kind !== 'multi' && this.guideEndAt(toPoint(pt), pageIndex)) return 'grab';
     if (tool === 'painter') return this.hitAt(toPoint(pt)) ? 'copy' : 'not-allowed';
     if (isCadTool(tool) && this.cad) {
       if (this.cad.pageIndex !== pageIndex && this.cad.picks.length) return 'not-allowed';
@@ -2451,7 +2628,7 @@ export class MarkupTools implements ViewerOverlay {
       }
       this.resolve(pt, mods, null);
     } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
-    else if (tool === 'calibrate' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
+    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
   }
@@ -2856,6 +3033,9 @@ export class MarkupTools implements ViewerOverlay {
       } else if (this.state.tool === 'snapshot') {
         this.options.onSnapshot?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
+      } else if (this.state.tool === 'stitchRegion') {
+        // The tool stays on, for the next sheet.
+        this.options.onStitchRegion?.(m.pageIndex, [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]]);
       } else if (this.state.tool === 'cutContent') {
         this.options.onCutContent?.(m.pageIndex, b);
         this.setState({ tool: 'select' });

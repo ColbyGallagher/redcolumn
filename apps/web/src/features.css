@@ -6036,3 +6036,125 @@ tr.hidden-markup td {
 .cad-bar .cad-error {
   color: var(--brand-hi);
 }
+
+/* Stitching panel */
+.stitch-panel .panel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.stitch-panel .stitch-actions {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+
+.stitch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stitch-page {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: center;
+  padding: 8px 10px 4px;
+}
+
+.stitch-page-name {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stitch-page-name:hover {
+  text-decoration: underline;
+}
+
+.stitch-page .stitch-region {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stitch-page .warn {
+  color: #f59e0b;
+}
+
+.stitch-page .btn {
+  margin-left: auto;
+}
+
+.stitch-line {
+  display: grid;
+  grid-template-columns: 10px minmax(48px, 1fr) minmax(0, 1.6fr) auto auto;
+  gap: 4px;
+  align-items: center;
+  padding: 3px 10px 3px 18px;
+  cursor: default;
+}
+
+.stitch-line.active {
+  background: rgba(20, 163, 154, 0.12);
+}
+
+.stitch-line .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #dc2626;
+}
+
+.stitch-line .swatch.ok {
+  background: #16a34a;
+}
+
+.stitch-line input,
+.stitch-line select {
+  min-width: 0;
+  width: 100%;
+}
+
+.stitch-problem {
+  grid-column: 2 / -1;
+  color: #f59e0b;
+  font-size: 11px;
+}
+
+.stitch-nudge {
+  display: flex;
+  flex-wrap: wrap;
+  grid-column: 2 / -1;
+  gap: 4px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.stitch-nudge-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stitch-nudge select {
+  width: auto;
+}
+
+.stitch-experimental {
+  margin: 0;
+  padding: 6px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.stitch-experimental .experimental-badge {
+  margin: 0 4px 0 0;
+}

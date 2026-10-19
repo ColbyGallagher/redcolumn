@@ -28,7 +28,9 @@ export interface MatchLine {
   label: [number, number];
 }
 
-const STATION = /STA(?:TION)?\.?\s*[:=]?\s*(\d+\s*\+\s*\d+(?:\.\d+)?)/;
+// The space after "STA" is matched once, before or after the optional ":" or "=" (two optional
+// runs of spaces side by side make the match slow on long runs of spaces).
+const STATION = /STA(?:TION)?\.?\s*(?:[:=]\s*)?(\d+\s*\+\s*\d+(?:\.\d+)?)/;
 /** Minimum drawn length for a match line, as a fraction of the sheet's shorter side. */
 const MIN_LINE_FRACTION = 0.15;
 /** Match lines are drawn parallel to their label within this angle. */

@@ -29,8 +29,32 @@ export interface StoredStitchGroup {
     /** Affine [a, b, c, d, e, f] from page space to the group's world space. */
     toWorld: [number, number, number, number, number, number];
     clips: { point: [number, number]; normal: [number, number] }[];
+    /** The part of the sheet holding the drawing; the whole page when absent. */
+    region?: Point[];
   }[];
-  edges: { a: number; b: number; station: string | null; votes: number; confidence: number }[];
+  /** `line`: the match line on sheet `a`, when known (lets a detected join be taken over by hand). */
+  edges: { a: number; b: number; station: string | null; votes: number; confidence: number; line?: { p0: Point; p1: Point; contentSide: 1 | -1 } }[];
+}
+
+/** A match line the user placed by clicking its two ends (see `@nb/stitch` `ManualMatchLine`). */
+export interface StoredMatchLine {
+  id: string;
+  pageIndex: number;
+  p0: Point;
+  p1: Point;
+  /** Which side of the line holds this sheet's drawing: +1 along perp(p1 - p0), -1 against it. */
+  contentSide: 1 | -1;
+  name: string;
+  /** The line on another sheet this one joins. */
+  matchTo: string | null;
+  /** A hand adjustment of where this line's sheet sits: along the line and across it (see `@nb/stitch` `pairFrame`). */
+  offset?: [number, number];
+}
+
+/** Stitching the user set up by hand: match lines and, per sheet, the region holding the drawing. */
+export interface StoredManualStitch {
+  lines: StoredMatchLine[];
+  regions: Record<number, Point[]>;
 }
 
 const DEFAULT_COLUMN_SET: ColumnSet = { columns: [], statuses: DEFAULT_STATUSES };
@@ -52,6 +76,7 @@ export interface ImportedExtras {
   geo?: GeoRegion[];
 }
 const NO_STITCH: StoredStitchGroup[] = [];
+const NO_MANUAL_STITCH: StoredManualStitch = { lines: [], regions: {} };
 const NO_ASSEMBLIES: Assembly[] = [];
 const NO_GEO: GeoRegion[] = [];
 
@@ -134,6 +159,7 @@ export class MarkupStore {
   private sheetSnapshot: Readonly<Record<number, SheetInfo>> = {};
   private linkSnapshot: StoredLink[] = [];
   private stitchSnapshot: StoredStitchGroup[] = [];
+  private manualStitchSnapshot: StoredManualStitch = NO_MANUAL_STITCH;
   private bookmarkSnapshot: Bookmark[] = [];
   private placeSnapshot: Place[] = [];
   private viewportSnapshot: Viewport[] = [];
@@ -257,6 +283,8 @@ export class MarkupStore {
     if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()];
     if (has(this.meta)) {
       this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
+      const manual = this.meta.get('manualStitch') as StoredManualStitch | undefined;
+      this.manualStitchSnapshot = manual ?? NO_MANUAL_STITCH;
       this.geoSnapshot = (this.meta.get('geo') as GeoRegion[] | undefined) ?? NO_GEO;
       const raw = this.meta.get('columns');
       if (raw !== this.columnRaw) {
@@ -465,6 +493,21 @@ export class MarkupStore {
     this.doc.transact(() => this.meta.set('stitch', groups), DETECTION);
   }
 
+  /** Match lines and drawing regions the user placed (stable until the next change). */
+  manualStitch(): StoredManualStitch {
+    return this.manualStitchSnapshot;
+  }
+
+  /** Replaces the hand-placed stitching (one undo step). */
+  setManualStitch(next: StoredManualStitch) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      if (!next.lines.length && !Object.keys(next.regions).length) this.meta.delete('manualStitch');
+      else this.meta.set('manualStitch', next);
+    }, LOCAL);
+  }
+
   setLinkStatus(id: string, status: LinkStatus) {
     if (this.locked) return;
     const link = this.links.get(id);
@@ -651,6 +694,7 @@ export class MarkupStore {
       }
       this.meta.set('importedSpaces', spaces);
       this.meta.delete('stitch');
+      if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, to, turn));
       for (const [id, v] of [...this.viewports.entries()]) {
         const n = to(v.pageIndex);
         if (n === null) this.viewports.delete(id);
@@ -708,6 +752,7 @@ export class MarkupStore {
         this.links.set(id, { ...l, rect: rect(l.pageIndex, l.rect), targetRect: rectOrNull(l.targetPage, l.targetRect) });
       }
       for (const [id, v] of [...this.viewports.entries()]) if (transforms.has(v.pageIndex)) this.viewports.set(id, { ...v, rect: rect(v.pageIndex, v.rect) });
+      if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, (i) => i, pt, (page) => transforms.get(page)?.scale ?? 1));
       if (this.geoSnapshot.some((g) => transforms.has(g.pageIndex)))
         this.meta.set('geo', this.geoSnapshot.map((g) => (transforms.has(g.pageIndex) ? { ...g, bounds: g.bounds.map((q) => pt(g.pageIndex, q)), points: g.points.map((c) => ({ ...c, at: pt(g.pageIndex, c.at) })) } : g)));
       if (this.outline.has('bookmarks')) {
@@ -1028,8 +1073,43 @@ function describeChange(
   if (changed.has(scales as never)) return 'Set scale';
   if (changed.has(viewports as never)) return 'Change viewports';
   if (changed.has(outline as never)) return 'Edit bookmarks';
-  if (changed.has(meta as never)) return (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged.has('assemblies') ? 'Edit assemblies' : 'Edit columns';
+  if (changed.has(meta as never)) {
+    const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('manualStitch') ? 'Edit stitching' : 'Edit columns';
+  }
   return 'Edit';
+}
+
+/**
+ * Moves hand-placed stitching to new page numbers (`to` gives null for deleted pages) and maps
+ * its points; lines left without their partner are unpaired.
+ */
+function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | null, map: (page: number, p: readonly [number, number]) => Point, scaleOf?: (page: number) => number): StoredManualStitch {
+  const byId = new Map(s.lines.map((l) => [l.id, l]));
+  const lines = s.lines.flatMap((l) => {
+    const n = to(l.pageIndex);
+    if (n === null) return [];
+    const next: StoredMatchLine = { ...l, pageIndex: n, p0: map(l.pageIndex, l.p0), p1: map(l.pageIndex, l.p1) };
+    // Adjustments are points on the pair's reference sheet (the line with the lower ID, as in
+    // `@nb/stitch` `referenceLine`), so they scale with that page.
+    const partner = l.matchTo ? byId.get(l.matchTo) : undefined;
+    const ref = partner && partner.id < l.id ? partner : l;
+    const k = scaleOf?.(ref.pageIndex) ?? 1;
+    if (l.offset && k !== 1) next.offset = [l.offset[0] * k, l.offset[1] * k];
+    return [next];
+  });
+  const ids = new Set(lines.map((l) => l.id));
+  // A line left without its partner loses the adjustment it had in that pair's frame.
+  for (const l of lines) if (l.matchTo && !ids.has(l.matchTo)) {
+    l.matchTo = null;
+    delete l.offset;
+  }
+  const regions: Record<number, Point[]> = {};
+  for (const [k, pts] of Object.entries(s.regions)) {
+    const n = to(Number(k));
+    if (n !== null) regions[n] = pts.map((p) => map(Number(k), p));
+  }
+  return { lines, regions };
 }
 
 function nameOf(m: Markup): string {
