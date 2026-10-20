@@ -32,6 +32,7 @@ Use it in the browser at [redcolumn-web.vercel.app](https://redcolumn-web.vercel
 - [Install the desktop app](#install-the-desktop-app)
   - [Windows](#windows)
   - [Mac](#mac)
+  - [Linux](#linux)
   - [Updates](#updates)
   - [Verify your download (optional)](#verify-your-download-optional)
 - [Help and documentation](#help-and-documentation)
@@ -414,13 +415,26 @@ xattr -dr com.apple.quarantine /Applications/redcolumn.app
 
 Then open redcolumn normally.
 
+### Linux
+
+The Linux build is an AppImage for 64-bit Intel and AMD processors. It runs on most distributions without
+installing anything.
+
+1. Download **redcolumn-x86_64.AppImage** from the [latest release](https://github.com/ColbyGallagher/redcolumn/releases/latest).
+2. Make it runnable: right-click the file, choose **Properties › Permissions**, and tick **Allow executing
+   file as program**. Or run `chmod +x redcolumn-x86_64.AppImage` in a terminal.
+3. Double-click it, or run `./redcolumn-x86_64.AppImage`.
+
+AppImages need FUSE 2 to start. On Ubuntu 24.04 and later, install it with `sudo apt install libfuse2t64`.
+The AppImage does not install anything, so deleting the file removes the app.
+
 ### Updates
 
 - **Windows:** the installed app checks for a new release a few seconds after launch. When one is ready
   it downloads in the background and shows **Restart to update**. It never restarts over unsaved work,
   and otherwise installs the update when you close the app.
-- **Mac:** the app shows **Update to x.y.z** when a new release exists. That button opens the release
-  page, and you drag the new version into Applications. Your documents and markups are kept.
+- **Mac and Linux:** the app shows **Update to x.y.z** when a new release exists. That button opens the
+  release page, and you download the new version and replace the old one. Your documents and markups are kept.
 - You can check at any time with **Help › Check for Updates**. That asks GitHub for the latest release
   and sends nothing from your documents. See [PRIVACY.md](PRIVACY.md#checking-for-updates-desktop-app).
 
@@ -454,8 +468,9 @@ pnpm test
 pnpm typecheck
 ```
 
-To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows or
-`pnpm --filter @nb/desktop package:mac` on a Mac. The output is written to `apps/desktop/release/`.
+To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows,
+`pnpm --filter @nb/desktop package:mac` on a Mac, or `pnpm --filter @nb/desktop package:linux` on Linux.
+The output is written to `apps/desktop/release/`.
 
 The optional settings for OneDrive are listed in `apps/web/.env.example`; `docs/CLOUD-SETUP.md`
 explains how to set them up. The user help is in `apps/web/public/help`: Markdown pages in `pages/`, the
@@ -486,9 +501,9 @@ git push origin v0.2.0
 ```
 
 The `Release` workflow (`.github/workflows/release.yml`) checks that the tag is `v` plus the desktop
-version, runs the typecheck and tests, builds the Windows installer and both Mac DMGs, and publishes a
-GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`),
-`redcolumn-arm64.dmg` and `redcolumn-x64.dmg` attached. The file names stay fixed so the web app's Install
+version, runs the typecheck and tests, builds the Windows installer, both Mac DMGs and the Linux AppImage,
+and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`),
+`redcolumn-arm64.dmg`, `redcolumn-x64.dmg` and `redcolumn-x86_64.AppImage` attached. The file names stay fixed so the web app's Install
 button, which links to `releases/latest/download/<file>`, always gets the newest release. A tag with a
 suffix such as `v0.3.0-beta.1` is published as a pre-release, which the Install button and the update
 check ignore.
