@@ -12,6 +12,7 @@ rc-pdf.workspace = true
 rc-parse.workspace = true
 rc-gpu.workspace = true
 rc-check.workspace = true
+rc-raster.workspace = true
 rc-cache.workspace = true
 anyhow.workspace = true
 crossbeam-channel.workspace = true

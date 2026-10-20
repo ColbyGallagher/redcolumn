@@ -8,7 +8,7 @@ use rc_bench::drawing::{GenOptions, generate};
 use rc_gpu::Gpu;
 use rc_pdf::PoolOptions;
 use rc_view::layout::Mode;
-use rc_view::viewer::{GpuCtx, PageMode, Source, Verdict, Viewer, ViewerOptions};
+use rc_view::viewer::{Engine, GpuCtx, PageMode, Source, Verdict, Viewer, ViewerOptions};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -19,6 +19,17 @@ fn pdfium() -> PathBuf {
     } else {
         dir.join("linux-x64/lib/libpdfium.so")
     }
+}
+
+fn opts_for(cache: &Path) -> ViewerOptions {
+    let mut opts = ViewerOptions::new(PoolOptions {
+        workers: 2,
+        program: std::env::current_exe().unwrap(),
+        args: vec!["--rc-pdfium-worker".into()],
+        pdfium: pdfium(),
+    });
+    opts.cache_root = cache.to_path_buf();
+    opts
 }
 
 /// Draws frames until nothing is pending (or the time runs out). Returns the frame count.
@@ -66,20 +77,17 @@ fn main() {
         }),
     )
     .unwrap();
-    let mut opts = ViewerOptions::new(PoolOptions {
-        workers: 2,
-        program: std::env::current_exe().unwrap(),
-        args: vec!["--rc-pdfium-worker".into()],
-        pdfium: pdfium(),
-    });
-    opts.cache_root = tmp.join("cache");
+    // These first runs test the engines themselves; on a software GPU the speed gate would
+    // (rightly) send the page to PDFium, so it is tested on its own below.
+    let mut opts = opts_for(&tmp.join("cache"));
+    opts.speed_gate = false;
     let ctx = GpuCtx {
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
         sample_count: gpu.sample_count,
         software: false,
     };
-    let mut v = Viewer::new(ctx, opts).unwrap();
+    let mut v = Viewer::new(ctx.clone(), opts).unwrap();
 
     v.open(&path).unwrap();
     let frames = settle(&mut v, "open");
@@ -88,6 +96,7 @@ fn main() {
     assert_eq!(info.mode, PageMode::Scene, "{info:?}");
     assert_eq!(info.source, Some(Source::Parser));
     assert_eq!(info.verdict, Verdict::Pass, "{info:?}");
+    assert_eq!(info.engine, Some(Engine::Gpu));
     let events: Vec<_> = v.take_events().into_iter().map(|e| e.0).collect();
     assert!(
         events.contains(&"first-paint") && events.contains(&"page-sharp"),
@@ -143,6 +152,55 @@ fn main() {
     assert_eq!(p, path);
     v.reopen().unwrap();
     settle(&mut v, "after save");
+    v.close();
+    drop(v);
+
+    // The CPU engine (what software GPUs use): tiles drawn on the rayon pool, checked against
+    // PDFium the same way.
+    let mut cpu_opts = opts_for(&tmp.join("cache-cpu"));
+    cpu_opts.engine = Engine::Cpu;
+    cpu_opts.speed_gate = false;
+    let mut v = Viewer::new(ctx.clone(), cpu_opts).unwrap();
+    v.open(&path).unwrap();
+    settle(&mut v, "cpu open");
+    let info = v.page_info(0).unwrap().clone();
+    assert_eq!(info.mode, PageMode::Scene, "{info:?}");
+    assert_eq!(info.engine, Some(Engine::Cpu));
+    assert_eq!(info.verdict, Verdict::Pass, "{info:?}");
+    assert!(info.stats.tiles_timed > 0, "CPU tiles are timed: {:?}", info.stats);
+    let rgba = v.render(1280, 800).0.read_rgba(&gpu.device, &gpu.queue);
+    let dark = rgba.chunks(4).filter(|p| p[0] < 128).count();
+    assert!(dark > 1000, "CPU tiles drew the drawing ({dark} dark pixels)");
+    eprintln!(
+        "viewer: CPU engine, page 0 tile {:.1} ms (median of {}), PDFium page {:?} ms",
+        info.stats.tile_ms, info.stats.tiles_timed, info.stats.pdfium_ms
+    );
+    v.close();
+    drop(v);
+
+    // The speed gate, made to fire: any scene tile slower than nothing sends the page to PDFium,
+    // and the disk cache remembers it on the next open.
+    let mut gate_opts = opts_for(&tmp.join("cache-gate"));
+    gate_opts.gate_factor = 0.0;
+    gate_opts.gate_floor_ms = 0.0;
+    gate_opts.gate_samples = 1;
+    gate_opts.check = false;
+    let mut v = Viewer::new(ctx.clone(), gate_opts).unwrap();
+    v.open(&path).unwrap();
+    settle(&mut v, "gate open");
+    let info = v.page_info(0).unwrap().clone();
+    assert_eq!(info.mode, PageMode::Raster, "{info:?}");
+    assert!(info.gate.is_some(), "{info:?}");
+    eprintln!("viewer: speed gate: {}", info.gate.as_ref().unwrap());
+    v.close();
+    v.open(&path).unwrap();
+    settle(&mut v, "gate reopen");
+    let info = v.page_info(0).unwrap().clone();
+    assert_eq!(info.mode, PageMode::Raster, "{info:?}");
+    assert!(
+        info.gate.is_some() && info.stats.tiles_timed == 0,
+        "cached, with no scene drawn: {info:?}"
+    );
     v.close();
     let _ = std::fs::remove_dir_all(&tmp);
     eprintln!("viewer: ok");

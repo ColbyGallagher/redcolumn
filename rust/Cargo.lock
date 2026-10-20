@@ -3398,6 +3398,7 @@ dependencies = [
  "rc-gpu",
  "rc-parse",
  "rc-pdf",
+ "rc-raster",
  "rc-scene",
 ]
 
@@ -3468,6 +3469,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rc-raster"
+version = "0.1.0"
+dependencies = [
+ "rc-scene",
+]
+
+[[package]]
 name = "rc-scene"
 version = "0.1.0"
 dependencies = [
@@ -3493,6 +3501,7 @@ dependencies = [
  "rc-gpu",
  "rc-parse",
  "rc-pdf",
+ "rc-raster",
  "rc-scene",
  "serde",
  "serde_json",

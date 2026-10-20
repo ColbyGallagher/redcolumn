@@ -10,8 +10,12 @@ pub struct Settings {
     pub recent: Vec<PathBuf>,
     /// Read pages with our own parser (else PDFium only).
     pub use_parser: bool,
-    /// Draw pages from GPU scenes (else PDFium's raster only).
+    /// Draw pages from scenes (else PDFium's raster only).
     pub use_scenes: bool,
+    /// What draws scenes: `auto` (the GPU, or the CPU on a software GPU), `gpu` or `cpu`.
+    pub scene_engine: String,
+    /// Send pages whose scene is slower than PDFium to PDFium.
+    pub speed_gate: bool,
     /// Check each scene against PDFium in the background.
     pub check: bool,
     pub disk_cache: bool,
@@ -33,6 +37,8 @@ impl Default for Settings {
             recent: Vec::new(),
             use_parser: true,
             use_scenes: true,
+            scene_engine: "auto".into(),
+            speed_gate: true,
             check: true,
             disk_cache: true,
             thin_lines: false,

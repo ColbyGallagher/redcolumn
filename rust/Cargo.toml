@@ -17,6 +17,7 @@ rc-gpu = { path = "crates/rc-gpu" }
 rc-view = { path = "crates/rc-view" }
 rc-cache = { path = "crates/rc-cache" }
 rc-check = { path = "crates/rc-check" }
+rc-raster = { path = "crates/rc-raster" }
 rc-markup = { path = "crates/rc-markup" }
 rc-pdfwrite = { path = "crates/rc-pdfwrite" }
 

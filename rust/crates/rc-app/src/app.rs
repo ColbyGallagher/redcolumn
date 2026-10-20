@@ -13,7 +13,7 @@ use rc_markup::store::Store;
 use rc_markup::{Markup, Point, RECT, TEXT, parse_color};
 use rc_pdf::PoolOptions;
 use rc_view::layout::{Mode, apply};
-use rc_view::viewer::{GpuCtx, PageMode, Source, Verdict, Viewer, ViewerOptions};
+use rc_view::viewer::{Engine, GpuCtx, PageMode, Source, Verdict, Viewer, ViewerOptions};
 use std::collections::{HashMap, HashSet};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -140,6 +140,8 @@ impl App {
         opts.use_parser = settings.use_parser;
         opts.use_scenes = settings.use_scenes;
         opts.check = settings.check;
+        opts.engine = engine_from(&settings.scene_engine);
+        opts.speed_gate = settings.speed_gate;
         opts.cache = settings.disk_cache;
         opts.tile_budget = settings.tile_budget_mb << 20;
         let mut viewer = Viewer::new(gpu, opts)?;
@@ -716,7 +718,22 @@ impl App {
                     .checkbox(&mut self.settings.use_parser, "Read pages with our own parser")
                     .changed();
                 changed |= ui
-                    .checkbox(&mut self.settings.use_scenes, "Draw pages on the GPU")
+                    .checkbox(&mut self.settings.use_scenes, "Draw pages from our own scenes")
+                    .changed();
+                ui.indent("engine", |ui| {
+                    for (name, label) in [
+                        ("auto", "On the GPU (the CPU on a software GPU)"),
+                        ("gpu", "Always on the GPU"),
+                        ("cpu", "Always on the CPU"),
+                    ] {
+                        if ui.radio(self.settings.scene_engine == name, label).clicked() {
+                            self.settings.scene_engine = name.into();
+                            changed = true;
+                        }
+                    }
+                });
+                changed |= ui
+                    .checkbox(&mut self.settings.speed_gate, "Use PDFium for pages it draws faster")
                     .changed();
                 changed |= ui
                     .checkbox(&mut self.settings.check, "Check pages against PDFium")
@@ -726,6 +743,8 @@ impl App {
                     self.viewer.opts.use_parser = self.settings.use_parser;
                     self.viewer.opts.use_scenes = self.settings.use_scenes;
                     self.viewer.opts.check = self.settings.check;
+                    self.viewer.opts.engine = engine_from(&self.settings.scene_engine);
+                    self.viewer.opts.speed_gate = self.settings.speed_gate;
                     self.settings.save();
                 }
                 ui.horizontal(|ui| {
@@ -777,12 +796,14 @@ impl App {
             ui.label(format!("{zoom:.0}%"));
             ui.separator();
             if let Some(info) = self.viewer.page_info(cur) {
+                let engine = if info.engine == Some(Engine::Cpu) { "CPU" } else { "GPU" };
                 let how = match (info.mode, info.source) {
                     (PageMode::Loading, _) => "loading".to_string(),
+                    (PageMode::Raster, _) if info.gate.is_some() => "PDFium raster (faster here)".to_string(),
                     (PageMode::Raster, _) => "PDFium raster".to_string(),
-                    (PageMode::Scene, Some(Source::Cache)) => "GPU (cached)".to_string(),
-                    (PageMode::Scene, Some(Source::Parser)) => "GPU (own parser)".to_string(),
-                    (PageMode::Scene, _) => "GPU (PDFium extraction)".to_string(),
+                    (PageMode::Scene, Some(Source::Cache)) => format!("{engine} (cached)"),
+                    (PageMode::Scene, Some(Source::Parser)) => format!("{engine} (own parser)"),
+                    (PageMode::Scene, _) => format!("{engine} (PDFium extraction)"),
                 };
                 let verdict = match info.verdict {
                     Verdict::Pass => " ✔ matches PDFium",
@@ -1624,6 +1645,18 @@ impl App {
                         "page {}: {:?} from {:?}, {:?}\nparse {:.0} ms  build {:.0} ms  upload {:.0} ms  load {:.0} ms\n{} segments  {} triangles  {:.1} MB  diff {:.3}% / {:.3}%\nflags {:#x}  text by PDFium: {}",
                         cur + 1, i.mode, i.source, i.verdict, s.parse_ms, s.build_ms, s.upload_ms, s.load_ms, s.segments, s.triangles, s.gpu_bytes as f64 / 1e6, s.diffs[0] * 100.0, s.diffs[1] * 100.0, i.flags, i.lacks_text
                     ));
+                    ui.monospace(format!(
+                        "engine {:?}  scene tile {:.1} ms (median of {})  overlay {:.1} ms ({})  PDFium page {}",
+                        i.engine,
+                        s.tile_ms,
+                        s.tiles_timed,
+                        s.overlay_ms,
+                        s.overlays_timed,
+                        s.pdfium_ms.map_or("?".into(), |m| format!("{m:.1} ms"))
+                    ));
+                    if let Some(g) = &i.gate {
+                        ui.monospace(format!("speed gate: {g}"));
+                    }
                 }
             });
         }
@@ -1668,6 +1701,12 @@ impl App {
                         "uploadMs": i.stats.upload_ms,
                         "loadMs": i.stats.load_ms,
                         "segments": i.stats.segments,
+                        "engine": i.engine.map(|e| format!("{e:?}")),
+                        "tileMs": i.stats.tile_ms,
+                        "tilesTimed": i.stats.tiles_timed,
+                        "overlayMs": i.stats.overlay_ms,
+                        "pdfiumPageMs": i.stats.pdfium_ms,
+                        "gate": i.gate,
                     })),
                     "frameMs": self.viewer.diag.frame_ms,
                 });
@@ -1753,6 +1792,14 @@ impl eframe::App for App {
 fn show_pdf_appearances() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var_os("RC_PDF_APPEARANCES").is_some())
+}
+
+fn engine_from(name: &str) -> Engine {
+    match name {
+        "gpu" => Engine::Gpu,
+        "cpu" => Engine::Cpu,
+        _ => Engine::Auto,
+    }
 }
 
 fn filter_from(name: &str) -> PageFilter {

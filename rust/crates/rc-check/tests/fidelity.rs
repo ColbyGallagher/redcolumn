@@ -149,37 +149,50 @@ fn main() {
                 }
                 let scene = rc_scene::build_scene(&content, &Default::default());
                 let gs = renderer.upload(&gpu.device, &gpu.queue, &scene).unwrap();
-                let (verdict, gpus, refs) =
-                    check_blocking(&gpu.device, &gpu.queue, &renderer, &pool, doc, page, &scene, &gs).unwrap();
-                eprintln!(
-                    "fidelity: {name} p{} [{source}] {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {}",
-                    page + 1,
-                    scene.stats.segments,
-                    scene.stats.triangles,
-                    scene.flags,
-                    verdict.diffs[0],
-                    verdict.diffs[1],
-                    if verdict.ok { "ok" } else { "FAIL" }
-                );
-                if let Some(dir) = &out {
-                    let vs = views(scene.size, densest_point(&scene));
-                    for (i, v) in vs.iter().enumerate() {
-                        let save = |kind: &str, px: &[u8]| {
-                            image::save_buffer(
-                                dir.join(format!("{name}-p{}-{source}-v{i}-{kind}.png", page + 1)),
-                                px,
-                                v.width,
-                                v.height,
-                                image::ColorType::Rgba8,
-                            )
-                            .unwrap();
-                        };
-                        save("gpu", &gpus[i]);
-                        save("pdfium", &refs[i]);
+                let cpu = rc_raster::CpuScene::new(std::sync::Arc::new(scene.clone()));
+                // The same scene drawn two ways: by the GPU, and by the CPU (software GPUs).
+                for engine in ["gpu", "cpu"] {
+                    let t = std::time::Instant::now();
+                    let (verdict, drawn, refs) = if engine == "gpu" {
+                        check_blocking(&gpu.device, &gpu.queue, &renderer, &pool, doc, page, &scene, &gs).unwrap()
+                    } else {
+                        check_blocking_with(&pool, doc, page, &scene, |v| draw_scene_cpu(&cpu, v)).unwrap()
+                    };
+                    eprintln!(
+                        "fidelity: {name} p{} [{source}/{engine}] {} segs {} tris, flags {:#x}: diff {:.4} / {:.4} {} ({:.0} ms)",
+                        page + 1,
+                        scene.stats.segments,
+                        scene.stats.triangles,
+                        scene.flags,
+                        verdict.diffs[0],
+                        verdict.diffs[1],
+                        if verdict.ok { "ok" } else { "FAIL" },
+                        t.elapsed().as_secs_f64() * 1000.0
+                    );
+                    if let Some(dir) = &out {
+                        let vs = views(scene.size, densest_point(&scene));
+                        for (i, v) in vs.iter().enumerate() {
+                            let save = |kind: &str, px: &[u8]| {
+                                image::save_buffer(
+                                    dir.join(format!("{name}-p{}-{source}-v{i}-{kind}.png", page + 1)),
+                                    px,
+                                    v.width,
+                                    v.height,
+                                    image::ColorType::Rgba8,
+                                )
+                                .unwrap();
+                            };
+                            save(engine, &drawn[i]);
+                            save("pdfium", &refs[i]);
+                        }
                     }
-                }
-                if !verdict.ok {
-                    failures.push(format!("{name} page {} [{source}]: {:?}", page + 1, verdict.diffs));
+                    if !verdict.ok {
+                        failures.push(format!(
+                            "{name} page {} [{source}/{engine}]: {:?}",
+                            page + 1,
+                            verdict.diffs
+                        ));
+                    }
                 }
             }
         }
@@ -193,7 +206,7 @@ fn main() {
         );
         std::process::exit(1);
     }
-    eprintln!("fidelity: all pages match PDFium");
+    eprintln!("fidelity: all pages match PDFium (GPU and CPU)");
 }
 
 fn wait(pool: &Pool, id: u64) -> JobResult {

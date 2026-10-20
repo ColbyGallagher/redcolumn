@@ -1,0 +1,13 @@
+[package]
+name = "rc-raster"
+description = "Scene tiles drawn on the CPU, by the GPU renderer's rules, for software GPUs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rc-scene.workspace = true
+
+[lints]
+workspace = true

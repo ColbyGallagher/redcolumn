@@ -4,13 +4,17 @@
 //! - **Loading** a page tries, in order: the disk cache (scene and fidelity verdict), our own
 //!   parser, and PDFium's page object API. Loading runs on the rayon pool; scenes are built and
 //!   uploaded there, so the interface thread never waits for a page.
-//! - **Drawing** a page uses tiles at the zoom level the view needs: drawn by the GPU from the
-//!   page's scene (milliseconds), or by PDFium (the raster path) when the page has no trusted
-//!   scene. Missing tiles are covered by coarser or finer ones already made, or the page's preview,
-//!   until they arrive, so the view never waits either.
+//! - **Drawing** a page uses tiles at the zoom level the view needs: drawn from the page's scene
+//!   by the GPU (milliseconds) or, on a software GPU, by the CPU on every core (`rc-raster`), or
+//!   by PDFium (the raster path) when the page has no trusted scene. Missing tiles are covered by
+//!   coarser or finer ones already made, or the page's preview, until they arrive, so the view
+//!   never waits either.
 //! - **The fidelity check** compares each new scene with PDFium's render in the background. A
 //!   scene from our parser that fails is replaced by one from PDFium's extraction; a scene that
 //!   still fails sends the page to the raster path. Verdicts are cached with the scene.
+//! - **The speed gate** sends a page to the raster path when its scene tiles take longer to draw
+//!   than PDFium takes to draw the whole page (a page of thousands of clip paths, say): the scene
+//!   must be faster as well as right. That verdict is cached too.
 
 use crate::layout::{self, Camera, Layout, Mode, apply, invert, page_to_screen};
 use crate::tiles::{self, Kind, TILE, TileKey, level_for, level_scale, tile_rect, tile_size, tile_transform};
@@ -18,6 +22,7 @@ use crossbeam_channel::{Receiver, Sender, unbounded};
 use rc_cache::DiskCache;
 use rc_gpu::{Affine2, Draw, GpuScene, GpuTexture, PageFilter, Renderer, Target, wgpu};
 use rc_pdf::{DocId, Job, JobId, JobResult, Layer, Pool, PoolOptions, RenderRequest};
+use rc_raster::CpuScene;
 use rc_scene::content::flags;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -30,8 +35,17 @@ pub struct GpuCtx {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub sample_count: u32,
-    /// A software adapter (WARP, llvmpipe): pages are drawn by the raster path only.
+    /// A software adapter (WARP, llvmpipe): with [`Engine::Auto`], scenes are drawn on the CPU.
     pub software: bool,
+}
+
+/// What draws a page's scene tiles.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Engine {
+    /// The GPU, or the CPU when the GPU is a software rasteriser.
+    Auto,
+    Gpu,
+    Cpu,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +72,16 @@ pub struct ViewerOptions {
     pub prefetch: usize,
     /// Supersampling for scene tiles (2 matches PDFium's antialiasing within the check's limits).
     pub supersample: u32,
+    pub engine: Engine,
+    /// CPU scene tiles drawn at once (each on its own thread).
+    pub cpu_tiles_in_flight: usize,
+    /// The speed gate: a page goes to the raster path when the median of its scene tile times
+    /// (over `gate_samples` tiles) exceeds `gate_factor` × PDFium's time for the whole page, and
+    /// `gate_floor_ms`.
+    pub speed_gate: bool,
+    pub gate_samples: usize,
+    pub gate_factor: f64,
+    pub gate_floor_ms: f64,
 }
 
 impl ViewerOptions {
@@ -76,6 +100,12 @@ impl ViewerOptions {
             tile_ms_per_frame: 10.0,
             prefetch: 2,
             supersample: rc_check::SUPERSAMPLE,
+            engine: Engine::Auto,
+            cpu_tiles_in_flight: std::thread::available_parallelism().map_or(4, |n| n.get()),
+            speed_gate: true,
+            gate_samples: 4,
+            gate_factor: 1.0,
+            gate_floor_ms: 5.0,
         }
     }
 }
@@ -83,7 +113,7 @@ impl ViewerOptions {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageMode {
     Loading,
-    /// Drawn from the GPU scene.
+    /// Drawn from the page's scene (by the GPU or the CPU: [`PageInfo::engine`]).
     Scene,
     /// Drawn by PDFium.
     Raster,
@@ -115,6 +145,15 @@ pub struct PageStats {
     pub triangles: usize,
     pub gpu_bytes: u64,
     pub diffs: [f32; 2],
+    /// Median time to draw one of the page's scene tiles, and how many were timed.
+    pub tile_ms: f64,
+    pub tiles_timed: usize,
+    /// PDFium's time to draw the whole page (its preview), for the speed gate.
+    pub pdfium_ms: Option<f64>,
+    /// Median time PDFium takes for one of the page's overlay tiles (its text, when the scene
+    /// cannot draw it, and annotations): part of what a scene tile costs.
+    pub overlay_ms: f64,
+    pub overlays_timed: usize,
 }
 
 /// What the interface can know about a page.
@@ -133,11 +172,50 @@ pub struct PageInfo {
     pub layers: Vec<String>,
     pub annots: Vec<rc_parse::Annotation>,
     pub annots_loaded: bool,
+    /// What draws the scene (when the page has one).
+    pub engine: Option<Engine>,
+    /// Why the speed gate sent the page to the raster path.
+    pub gate: Option<String>,
+}
+
+/// A page's scene, where the engine that draws it wants it.
+#[derive(Clone)]
+enum SceneData {
+    Gpu(Arc<GpuScene>),
+    Cpu(Arc<CpuScene>),
+}
+
+impl SceneData {
+    fn bytes(&self) -> u64 {
+        match self {
+            SceneData::Gpu(g) => g.bytes,
+            SceneData::Cpu(c) => c.bytes(),
+        }
+    }
+
+    fn densest_point(&self) -> [f32; 2] {
+        match self {
+            SceneData::Gpu(g) => g.densest_point(),
+            SceneData::Cpu(c) => rc_check::densest_point(&c.scene),
+        }
+    }
+
+    fn engine(&self) -> Engine {
+        match self {
+            SceneData::Gpu(_) => Engine::Gpu,
+            SceneData::Cpu(_) => Engine::Cpu,
+        }
+    }
 }
 
 struct Page {
     info: PageInfo,
-    gpu: Option<Arc<GpuScene>>,
+    scene: Option<SceneData>,
+    /// Scene and overlay tile times so far (for the speed gate).
+    tile_times: Vec<f64>,
+    overlay_times: Vec<f64>,
+    /// A new scene waiting for its fidelity check (started once the view is sharp).
+    check_wanted: bool,
     loading: bool,
     load_started: Option<Instant>,
     preview_requested: bool,
@@ -172,6 +250,8 @@ enum Msg {
         source: Source,
         stats: PageStats,
         verdict: Verdict,
+        /// The speed gate's verdict from the disk cache: drawn by the raster path.
+        gate: Option<String>,
     },
     Annots {
         doc: DocId,
@@ -183,10 +263,20 @@ enum Msg {
         page: usize,
         verdict: rc_check::Verdict,
     },
+    /// A scene tile drawn on the CPU.
+    CpuTile {
+        doc: DocId,
+        key: TileKey,
+        size: [u32; 2],
+        rgba: Vec<u8>,
+        ms: f64,
+        /// [`Viewer::epoch`] when it was asked for: tiles dropped since are not wanted.
+        epoch: u64,
+    },
 }
 
 struct LoadedScene {
-    gpu: Arc<GpuScene>,
+    scene: SceneData,
     layers: Vec<String>,
     lacks_text: bool,
 }
@@ -251,6 +341,12 @@ pub struct Viewer {
     loading_count: usize,
     /// Fidelity comparisons running on the rayon pool.
     checks_running: usize,
+    /// CPU scene tiles being drawn, on their own threads: tiles are what the user waits for, so
+    /// they never queue behind loading and checking on the shared pool.
+    cpu_in_flight: HashSet<TileKey>,
+    tile_pool: Arc<rayon::ThreadPool>,
+    /// Counts tile drops, so a CPU tile asked for before one is thrown away when it arrives.
+    epoch: u64,
     /// Timing events for `--bench`: (name, milliseconds since the viewer started).
     pub events: Vec<(&'static str, f64)>,
     t0: Instant,
@@ -267,6 +363,12 @@ impl Viewer {
         let mut cache = DiskCache::new(opts.cache_root.clone(), opts.cache_budget);
         cache.enabled = opts.cache;
         let (tx, rx) = unbounded();
+        let tile_pool = Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(opts.cpu_tiles_in_flight.max(1))
+                .thread_name(|i| format!("rc-tile-{i}"))
+                .build()?,
+        );
         Ok(Self {
             gpu,
             renderer,
@@ -294,6 +396,9 @@ impl Viewer {
             canvas: None,
             loading_count: 0,
             checks_running: 0,
+            cpu_in_flight: HashSet::new(),
+            tile_pool,
+            epoch: 0,
             events: Vec::new(),
             t0: Instant::now(),
             first_paint: false,
@@ -405,8 +510,13 @@ impl Viewer {
                     layers: Vec::new(),
                     annots: Vec::new(),
                     annots_loaded: false,
+                    engine: None,
+                    gate: None,
                 },
-                gpu: None,
+                scene: None,
+                tile_times: Vec::new(),
+                overlay_times: Vec::new(),
+                check_wanted: false,
                 loading: false,
                 load_started: None,
                 preview_requested: false,
@@ -612,8 +722,11 @@ impl Viewer {
         let mut changed = Vec::new();
         if let Some(d) = &self.doc {
             for (i, p) in d.pages.iter().enumerate() {
-                if let (Some(g), Some(li)) = (&p.gpu, p.info.layers.iter().position(|l| l == name)) {
-                    g.set_layer_visible(&self.gpu.queue, li, visible);
+                if let (Some(sc), Some(li)) = (&p.scene, p.info.layers.iter().position(|l| l == name)) {
+                    // CPU tiles read the hidden layers when they are drawn.
+                    if let SceneData::Gpu(g) = sc {
+                        g.set_layer_visible(&self.gpu.queue, li, visible);
+                    }
                     changed.push(i);
                 }
             }
@@ -622,6 +735,7 @@ impl Viewer {
     }
 
     fn drop_tiles(&mut self, pred: impl Fn(&TileKey) -> bool) {
+        self.epoch += 1;
         let mut freed = 0;
         self.tiles.retain(|k, t| {
             let keep = !pred(k);
@@ -674,6 +788,7 @@ impl Viewer {
                 source,
                 stats,
                 verdict,
+                gate,
             } => {
                 self.loading_count = self.loading_count.saturating_sub(1);
                 if Some(doc) != doc_id {
@@ -688,13 +803,19 @@ impl Viewer {
                 p.info.flags = content_flags;
                 p.info.stats = PageStats {
                     load_ms: p.load_started.map_or(0.0, |t| t.elapsed().as_secs_f64() * 1000.0),
+                    pdfium_ms: p.info.stats.pdfium_ms,
                     ..stats
                 };
+                if gate.is_some() {
+                    p.info.gate = gate;
+                }
                 match result {
                     Ok(Some(s)) => {
-                        for (i, l) in s.layers.iter().enumerate() {
-                            if hidden.contains(l) {
-                                s.gpu.set_layer_visible(&queue, i, false);
+                        if let SceneData::Gpu(g) = &s.scene {
+                            for (i, l) in s.layers.iter().enumerate() {
+                                if hidden.contains(l) {
+                                    g.set_layer_visible(&queue, i, false);
+                                }
                             }
                         }
                         p.info.layers = s.layers;
@@ -702,12 +823,13 @@ impl Viewer {
                         p.info.source = Some(source);
                         p.info.mode = PageMode::Scene;
                         p.info.verdict = verdict;
-                        p.gpu = Some(s.gpu);
-                        let start_check = check && verdict == Verdict::Unknown;
+                        p.info.engine = Some(s.scene.engine());
+                        p.tile_times.clear();
+                        p.overlay_times.clear();
+                        p.scene = Some(s.scene);
+                        // The check waits until the view is sharp (see `render`).
+                        p.check_wanted = check && verdict == Verdict::Unknown;
                         self.drop_tiles(|k| k.page as usize == page && k.kind == Kind::Scene);
-                        if start_check {
-                            self.start_check(page);
-                        }
                     }
                     Ok(None) | Err(_) => {
                         // Nothing the scene can draw faithfully (or reading failed): PDFium draws it.
@@ -722,10 +844,35 @@ impl Viewer {
                             self.pending.insert(id, Pending::Extract(doc, page));
                         } else {
                             p.info.mode = PageMode::Raster;
-                            p.gpu = None;
+                            p.scene = None;
                         }
                     }
                 }
+            }
+            Msg::CpuTile {
+                doc,
+                key,
+                size,
+                rgba,
+                ms,
+                epoch,
+            } => {
+                self.cpu_in_flight.remove(&key);
+                if Some(doc) != doc_id || epoch != self.epoch {
+                    return;
+                }
+                let texture = self
+                    .renderer
+                    .texture(&self.gpu.device, &self.gpu.queue, size[0], size[1], &rgba);
+                self.tile_bytes += (size[0] * size[1] * 4) as u64;
+                self.tiles.insert(
+                    key,
+                    Tile {
+                        texture,
+                        last_used: self.frame,
+                    },
+                );
+                self.record_tile_time(key.page as usize, ms);
             }
             Msg::Annots { doc, page, annots } => {
                 if Some(doc) != doc_id {
@@ -744,20 +891,21 @@ impl Viewer {
                 let key = self.doc.as_ref().unwrap().key.clone();
                 let p = &mut self.doc.as_mut().unwrap().pages[page];
                 p.check = None;
+                let engine = p.info.engine.unwrap_or(Engine::Gpu);
                 p.info.stats.diffs = verdict.diffs;
                 let source = p.info.source;
                 if verdict.ok {
                     p.info.verdict = Verdict::Pass;
                     if let Some(k) = &key {
-                        let _ = self.cache.put(k, &format!("verdict-{page}"), b"pass");
+                        let _ = self.cache.put(k, &verdict_key(engine, page), b"pass");
                     }
                     return;
                 }
                 tracing::info!(page, ?verdict, ?source, "scene differs from PDFium");
                 if let Some(k) = &key {
-                    let _ = self.cache.put(k, &format!("verdict-{page}"), b"fail");
+                    let _ = self.cache.put(k, &verdict_key(engine, page), b"fail");
                 }
-                p.gpu = None;
+                p.scene = None;
                 if source != Some(Source::Pdfium) && !p.tried_pdfium {
                     p.tried_pdfium = true;
                     p.info.mode = PageMode::Loading;
@@ -782,10 +930,31 @@ impl Viewer {
             Pending::Tile(key) => {
                 self.requested.remove(&key);
                 if let JobResult::Rendered {
-                    width, height, rgba, ..
+                    width,
+                    height,
+                    rgba,
+                    timing,
                 } = e.result
                     && doc_id.is_some()
                 {
+                    // A scene page's text overlay is part of what its tiles cost.
+                    if key.kind == Kind::Overlay
+                        && let Some(p) = self.doc.as_mut().and_then(|d| d.pages.get_mut(key.page as usize))
+                        && p.scene.is_some()
+                    {
+                        // What the tile cost, including preparing the page's text layer.
+                        p.overlay_times.push(timing.parse_ms + timing.work_ms);
+                        p.info.stats.overlay_ms = median(&p.overlay_times);
+                        p.info.stats.overlays_timed = p.overlay_times.len();
+                        self.speed_gate(key.page as usize);
+                    }
+                    // The whole-page preview says what PDFium takes to draw the page.
+                    if key.kind == Kind::Preview {
+                        if let Some(p) = self.doc.as_mut().and_then(|d| d.pages.get_mut(key.page as usize)) {
+                            p.info.stats.pdfium_ms = Some(timing.work_ms);
+                        }
+                        self.speed_gate(key.page as usize);
+                    }
                     let texture = self
                         .renderer
                         .texture(&self.gpu.device, &self.gpu.queue, width, height, &rgba);
@@ -835,6 +1004,7 @@ impl Viewer {
                             source: Source::Pdfium,
                             stats: PageStats::default(),
                             verdict: Verdict::Unknown,
+                            gate: None,
                         });
                     }
                 }
@@ -911,9 +1081,19 @@ impl Viewer {
         }
     }
 
+    /// What draws scene tiles here.
+    pub fn engine(&self) -> Engine {
+        match self.opts.engine {
+            Engine::Auto if self.gpu.software => Engine::Cpu,
+            Engine::Auto => Engine::Gpu,
+            e => e,
+        }
+    }
+
     /// Starts loading a page's scene (cache, parser or PDFium) if it is not loaded or loading.
     fn ensure_page(&mut self, page: usize) {
-        let use_scenes = self.opts.use_scenes && !self.gpu.software;
+        let use_scenes = self.opts.use_scenes;
+        let engine = self.engine();
         let Some(d) = self.doc.as_mut() else { return };
         let doc = d.id;
         let Some(p) = d.pages.get_mut(page) else { return };
@@ -942,7 +1122,7 @@ impl Viewer {
             p.info.mode = PageMode::Raster;
             return;
         }
-        if p.gpu.is_some() || p.loading || p.info.mode == PageMode::Raster {
+        if p.scene.is_some() || p.loading || p.info.mode == PageMode::Raster {
             return;
         }
         let max_loading = (rayon::current_num_threads() / 2).max(2);
@@ -975,11 +1155,25 @@ impl Viewer {
                     source,
                     stats,
                     verdict,
+                    gate: None,
                 });
             };
-            // The disk cache first: a scene and its verdict.
+            // The disk cache first: the speed gate, a scene and its verdict.
             if let Some(k) = &key {
-                let verdict = cache.get(k, &format!("verdict-{page}"));
+                if let Some(reason) = cache.get(k, &gate_key(engine, page)) {
+                    let _ = tx.send(Msg::Scene {
+                        doc,
+                        page,
+                        result: Ok(None),
+                        flags: flags::UNSUPPORTED,
+                        source: Source::Cache,
+                        stats: PageStats::default(),
+                        verdict: Verdict::Unknown,
+                        gate: Some(String::from_utf8_lossy(&reason).into_owned()),
+                    });
+                    return;
+                }
+                let verdict = cache.get(k, &verdict_key(engine, page));
                 if verdict.as_deref() == Some(b"fail") {
                     send(
                         Ok(None),
@@ -998,8 +1192,9 @@ impl Viewer {
                     } else {
                         Verdict::Unknown
                     };
-                    let (loaded, stats) = upload(&renderer, &gpu, &scene, PageStats::default());
-                    send(loaded, scene.flags, Source::Cache, stats, verdict);
+                    let flags = scene.flags;
+                    let (loaded, stats) = prepare(&renderer, &gpu, scene, PageStats::default(), engine);
+                    send(loaded, flags, Source::Cache, stats, verdict);
                     return;
                 }
             }
@@ -1041,12 +1236,14 @@ impl Viewer {
                 let _ = cache.put(k, &format!("scene-{page}"), &rc_scene::scene_io::encode(&scene));
                 cache.evict();
             }
-            let (loaded, stats) = upload(&renderer, &gpu, &scene, stats);
-            send(loaded, scene.flags, Source::Parser, stats, Verdict::Unknown);
+            let flags = scene.flags;
+            let (loaded, stats) = prepare(&renderer, &gpu, scene, stats, engine);
+            send(loaded, flags, Source::Parser, stats, Verdict::Unknown);
         });
     }
 
     fn spawn_build(&mut self, page: usize, content: rc_scene::PageContent, source: Source, parse_ms: f64) {
+        let engine = self.engine();
         let Some(d) = self.doc.as_ref() else { return };
         let (doc, key) = (d.id, d.key.clone());
         let (tx, cache, gpu, renderer) = (
@@ -1065,6 +1262,7 @@ impl Viewer {
                     source,
                     stats,
                     verdict: Verdict::Unknown,
+                    gate: None,
                 });
             };
             if content.flags & flags::NEEDS_RASTER != 0 {
@@ -1088,8 +1286,9 @@ impl Viewer {
             if let Some(k) = &key {
                 let _ = cache.put(k, &format!("scene-{page}"), &rc_scene::scene_io::encode(&scene));
             }
-            let (loaded, stats) = upload(&renderer, &gpu, &scene, stats);
-            send(loaded, scene.flags, stats);
+            let flags = scene.flags;
+            let (loaded, stats) = prepare(&renderer, &gpu, scene, stats, engine);
+            send(loaded, flags, stats);
         });
     }
 
@@ -1097,8 +1296,8 @@ impl Viewer {
         let Some(d) = self.doc.as_mut() else { return };
         let doc = d.id;
         let p = &mut d.pages[page];
-        let Some(g) = &p.gpu else { return };
-        let views = rc_check::views(p.info.size, g.densest_point());
+        let Some(sc) = &p.scene else { return };
+        let views = rc_check::views(p.info.size, sc.densest_point());
         p.info.verdict = Verdict::Checking;
         p.check = Some(CheckRun {
             views,
@@ -1125,15 +1324,19 @@ impl Viewer {
         let Some(d) = self.doc.as_mut() else { return };
         let doc = d.id;
         let p = &mut d.pages[page];
-        let (Some(run), Some(g)) = (p.check.take(), p.gpu.clone()) else {
+        let (Some(run), Some(sc)) = (p.check.take(), p.scene.clone()) else {
             return;
         };
         let (tx, gpu, renderer) = (self.tx.clone(), self.gpu.clone(), self.renderer.clone());
         self.checks_running += 1;
         rayon::spawn(move || {
             let [r0, r1, o0, o1] = run.images.map(Option::unwrap);
-            let mut g0 = rc_check::draw_scene(&gpu.device, &gpu.queue, &renderer, &g, run.views[0]);
-            let mut g1 = rc_check::draw_scene(&gpu.device, &gpu.queue, &renderer, &g, run.views[1]);
+            let draw = |v| match &sc {
+                SceneData::Gpu(g) => rc_check::draw_scene(&gpu.device, &gpu.queue, &renderer, g, v),
+                SceneData::Cpu(c) => rc_check::draw_scene_cpu(c, v),
+            };
+            let mut g0 = draw(run.views[0]);
+            let mut g1 = draw(run.views[1]);
             rc_check::composite(&mut g0, &o0);
             rc_check::composite(&mut g1, &o1);
             let verdict = rc_check::judge([&g0, &g1], [&r0, &r1]);
@@ -1177,18 +1380,9 @@ impl Viewer {
             .shown()
             .filter(|&i| overlaps(self.layout.rects[i], visible_layout))
             .collect();
-        // Load what is in view, then neighbours.
+        // Load what is in view (neighbours wait until the view is sharp, below).
         for &i in &shown {
             self.ensure_page(i);
-        }
-        let n = self.page_count();
-        for k in 1..=self.opts.prefetch {
-            if center + k < n {
-                self.ensure_page(center + k);
-            }
-            if center >= k {
-                self.ensure_page(center - k);
-            }
         }
         // Per page: background, base tiles (fallbacks first), overlay tiles.
         struct PageDraw {
@@ -1318,46 +1512,91 @@ impl Viewer {
         for (k, prio) in raster_wanted {
             self.request_raster(k, prio);
         }
-        // Draw the nearest missing scene tiles now, within the frame's budget.
+        // Draw the nearest missing scene tiles: on the GPU now, within the frame's budget; on the
+        // CPU in the background, as many at once as there are cores.
         scene_jobs.sort_by(|a, b| a.0.total_cmp(&b.0));
         let t_tiles = Instant::now();
         let mut drawn_now = 0;
-        for &(_, k) in scene_jobs.iter().take(self.opts.tiles_per_frame) {
-            let Some(g) = self.doc.as_ref().and_then(|d| d.pages[k.page as usize].gpu.clone()) else {
+        let mut timed: Vec<(usize, f64)> = Vec::new();
+        for &(_, k) in &scene_jobs {
+            let page = k.page as usize;
+            let Some(sc) = self.doc.as_ref().and_then(|d| d.pages[page].scene.clone()) else {
                 continue;
             };
-            let texture = self.renderer.render_tile(
-                &self.gpu.device,
-                &self.gpu.queue,
-                &g,
-                tile_transform(&self.layout, &k),
-                tile_size(&self.layout, &k),
-                self.opts.supersample,
-                self.thin,
-                &mut self.scratch,
-            );
-            self.tile_bytes += (texture.width * texture.height * 4) as u64;
-            self.tiles.insert(
-                k,
-                Tile {
-                    texture,
-                    last_used: frame,
-                },
-            );
-            if let Some(pd) = page_draws.iter_mut().find(|p| p.page == k.page as usize) {
-                pd.base.push((k, tile_dest(&self.layout, &self.camera, &k)));
+            match sc {
+                SceneData::Gpu(g) => {
+                    if drawn_now >= self.opts.tiles_per_frame
+                        || (drawn_now > 0 && t_tiles.elapsed().as_secs_f64() * 1000.0 > self.opts.tile_ms_per_frame)
+                    {
+                        continue;
+                    }
+                    let t = Instant::now();
+                    let texture = self.renderer.render_tile(
+                        &self.gpu.device,
+                        &self.gpu.queue,
+                        &g,
+                        tile_transform(&self.layout, &k),
+                        tile_size(&self.layout, &k),
+                        self.opts.supersample,
+                        self.thin,
+                        &mut self.scratch,
+                    );
+                    // Wait for the tile so its time is real GPU time (for the frame's budget and
+                    // the speed gate).
+                    let _ = self.gpu.device.poll(wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: None,
+                    });
+                    timed.push((page, t.elapsed().as_secs_f64() * 1000.0));
+                    self.tile_bytes += (texture.width * texture.height * 4) as u64;
+                    self.tiles.insert(
+                        k,
+                        Tile {
+                            texture,
+                            last_used: frame,
+                        },
+                    );
+                    if let Some(pd) = page_draws.iter_mut().find(|p| p.page == page) {
+                        pd.base.push((k, tile_dest(&self.layout, &self.camera, &k)));
+                    }
+                    drawn_now += 1;
+                    missing -= 1;
+                }
+                SceneData::Cpu(c) => {
+                    if self.cpu_in_flight.contains(&k) || self.cpu_in_flight.len() >= self.opts.cpu_tiles_in_flight {
+                        continue;
+                    }
+                    let info = &self.doc.as_ref().unwrap().pages[page].info;
+                    let hidden: Vec<usize> = info
+                        .layers
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, l)| self.hidden_layers.contains(*l))
+                        .map(|(i, _)| i)
+                        .collect();
+                    let layers = rc_raster::layer_mask(&c.scene, &hidden);
+                    let (transform, size) = (tile_transform(&self.layout, &k), tile_size(&self.layout, &k));
+                    let (ss, thin, tx, epoch) = (self.opts.supersample, self.thin, self.tx.clone(), self.epoch);
+                    let doc = self.doc.as_ref().unwrap().id;
+                    self.cpu_in_flight.insert(k);
+                    self.tile_pool.spawn(move || {
+                        let t = Instant::now();
+                        let rgba = rc_raster::render_tile(&c, transform, size, ss, thin, &layers);
+                        let ms = t.elapsed().as_secs_f64() * 1000.0;
+                        let _ = tx.send(Msg::CpuTile {
+                            doc,
+                            key: k,
+                            size,
+                            rgba,
+                            ms,
+                            epoch,
+                        });
+                    });
+                }
             }
-            drawn_now += 1;
-            missing -= 1;
-            // Wait for the tile so the time spent is real GPU time, and stop once the frame's
-            // budget is spent (a slow GPU draws fewer tiles a frame instead of freezing).
-            let _ = self.gpu.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            });
-            if t_tiles.elapsed().as_secs_f64() * 1000.0 > self.opts.tile_ms_per_frame {
-                break;
-            }
+        }
+        for (page, ms) in timed {
+            self.record_tile_time(page, ms);
         }
         self.diag.scene_tiles_this_frame = drawn_now;
         self.diag.scene_tile_ms = t_tiles.elapsed().as_secs_f64() * 1000.0;
@@ -1393,7 +1632,10 @@ impl Viewer {
                 });
             }
             for (k, dest) in pd.base.iter().chain(&pd.overlay) {
-                let t = &self.tiles[k].texture;
+                // The speed gate can drop a page's scene tiles during the frame.
+                let Some(t) = self.tiles.get(k).map(|t| &t.texture) else {
+                    continue;
+                };
                 let straight = k.kind != Kind::Scene;
                 draws.push(Draw::Quad {
                     texture: t,
@@ -1440,6 +1682,28 @@ impl Viewer {
         {
             self.event(name);
         }
+        // Work for later only once what is in view is sharp, so it never competes for the cores
+        // with what the user is waiting for: loading the neighbours, then the fidelity checks.
+        if missing == 0 && !loading && self.cpu_in_flight.is_empty() {
+            let n = self.page_count();
+            for k in 1..=self.opts.prefetch {
+                if center + k < n {
+                    self.ensure_page(center + k);
+                }
+                if center >= k {
+                    self.ensure_page(center - k);
+                }
+            }
+            let wanted: Vec<usize> = self.doc.as_ref().map_or(vec![], |d| {
+                let mut w: Vec<usize> = (0..d.pages.len()).filter(|&i| d.pages[i].check_wanted).collect();
+                w.sort_by_key(|&i| i.abs_diff(center));
+                w
+            });
+            for i in wanted {
+                self.doc.as_mut().unwrap().pages[i].check_wanted = false;
+                self.start_check(i);
+            }
+        }
         self.evict_tiles(frame);
         self.evict_scenes(center);
         self.diag.missing = missing;
@@ -1451,12 +1715,21 @@ impl Viewer {
         self.diag.scenes_mb = self.doc.as_ref().map_or(0.0, |d| {
             d.pages
                 .iter()
-                .filter_map(|p| p.gpu.as_ref())
-                .map(|g| g.bytes)
+                .filter_map(|p| p.scene.as_ref())
+                .map(SceneData::bytes)
                 .sum::<u64>() as f64
                 / 1e6
         });
-        let more = missing > 0 || busy || self.loading_count > 0 || self.checks_running > 0 || !self.pending.is_empty();
+        let more = missing > 0
+            || busy
+            || self.loading_count > 0
+            || self.checks_running > 0
+            || !self.cpu_in_flight.is_empty()
+            || !self.pending.is_empty()
+            || self
+                .doc
+                .as_ref()
+                .is_some_and(|d| d.pages.iter().any(|p| p.check_wanted));
         (self.canvas.as_ref().unwrap(), more)
     }
 
@@ -1547,7 +1820,7 @@ impl Viewer {
         let [w, h] = p.info.size;
         let s = SIDE / w.max(h);
         let size = [(w * s).ceil().max(1.0) as u32, (h * s).ceil().max(1.0) as u32];
-        if let Some(g) = p.gpu.clone() {
+        if let Some(SceneData::Gpu(g)) = p.scene.clone() {
             let t = self.renderer.render_tile(
                 &self.gpu.device,
                 &self.gpu.queue,
@@ -1611,12 +1884,17 @@ impl Viewer {
         let budget = self.opts.scene_budget;
         let frame = self.frame;
         let Some(d) = self.doc.as_mut() else { return };
-        let mut total: u64 = d.pages.iter().filter_map(|p| p.gpu.as_ref()).map(|g| g.bytes).sum();
+        let mut total: u64 = d
+            .pages
+            .iter()
+            .filter_map(|p| p.scene.as_ref())
+            .map(SceneData::bytes)
+            .sum();
         if total <= budget {
             return;
         }
         let mut order: Vec<usize> = (0..d.pages.len())
-            .filter(|&i| d.pages[i].gpu.is_some() && d.pages[i].last_seen < frame)
+            .filter(|&i| d.pages[i].scene.is_some() && d.pages[i].last_seen < frame)
             .collect();
         order.sort_by_key(|&i| std::cmp::Reverse(i.abs_diff(center)));
         for i in order {
@@ -1624,11 +1902,78 @@ impl Viewer {
                 break;
             }
             let p = &mut d.pages[i];
-            if let Some(g) = p.gpu.take() {
-                total -= g.bytes.min(total);
+            if let Some(sc) = p.scene.take() {
+                total -= sc.bytes().min(total);
                 p.info.mode = PageMode::Loading;
             }
         }
+    }
+
+    /// Records how long one of a page's scene tiles took, and applies the speed gate.
+    fn record_tile_time(&mut self, page: usize, ms: f64) {
+        let Some(p) = self.doc.as_mut().and_then(|d| d.pages.get_mut(page)) else {
+            return;
+        };
+        p.tile_times.push(ms);
+        p.info.stats.tile_ms = median(&p.tile_times);
+        p.info.stats.tiles_timed = p.tile_times.len();
+        self.speed_gate(page);
+    }
+
+    /// The speed gate: a page whose scene tiles take longer than PDFium takes to draw the whole
+    /// page goes to the raster path, and the disk cache remembers it (for this engine).
+    fn speed_gate(&mut self, page: usize) {
+        if !self.opts.speed_gate {
+            return;
+        }
+        let (samples, factor, floor) = (
+            self.opts.gate_samples.max(1),
+            self.opts.gate_factor,
+            self.opts.gate_floor_ms,
+        );
+        let Some(d) = self.doc.as_mut() else { return };
+        let key = d.key.clone();
+        let Some(p) = d.pages.get_mut(page) else { return };
+        let (Some(sc), Some(pdfium)) = (&p.scene, p.info.stats.pdfium_ms) else {
+            return;
+        };
+        if p.tile_times.len() < samples {
+            return;
+        }
+        // A page whose text the scene cannot draw also needs PDFium's text layer on every tile
+        // (annotations are drawn over either path, so they do not count).
+        let text_layer = p.info.lacks_text;
+        if text_layer && p.overlay_times.is_empty() {
+            return;
+        }
+        let overlay = if text_layer { p.info.stats.overlay_ms } else { 0.0 };
+        let tile = p.info.stats.tile_ms + overlay;
+        if tile <= (pdfium * factor).max(floor) {
+            return;
+        }
+        let engine = sc.engine();
+        let reason = if text_layer {
+            format!(
+                "{} scene tiles take {:.0} ms plus {overlay:.0} ms for PDFium's text layer; PDFium draws the whole page in {pdfium:.0} ms",
+                if engine == Engine::Cpu { "CPU" } else { "GPU" },
+                p.info.stats.tile_ms
+            )
+        } else {
+            format!(
+                "{} scene tiles take {tile:.0} ms; PDFium draws the whole page in {pdfium:.0} ms",
+                if engine == Engine::Cpu { "CPU" } else { "GPU" }
+            )
+        };
+        tracing::info!(page, %reason, "speed gate: page goes to the raster path");
+        p.scene = None;
+        p.check = None;
+        p.info.mode = PageMode::Raster;
+        p.info.engine = None;
+        p.info.gate = Some(reason.clone());
+        if let Some(k) = &key {
+            let _ = self.cache.put(k, &gate_key(engine, page), reason.as_bytes());
+        }
+        self.drop_tiles(|k| k.page as usize == page && k.kind == Kind::Scene);
     }
 
     /// Emits `name` the next time everything in view is drawn at full sharpness.
@@ -1642,32 +1987,57 @@ impl Viewer {
     }
 }
 
-fn upload(
+/// The disk cache entry for the fidelity check's verdict on a page drawn by an engine.
+fn verdict_key(engine: Engine, page: usize) -> String {
+    format!("verdict-{}-{page}", if engine == Engine::Cpu { "cpu" } else { "gpu" })
+}
+
+/// The disk cache entry for the speed gate's verdict on a page for an engine.
+fn gate_key(engine: Engine, page: usize) -> String {
+    format!("gate-{}-{page}", if engine == Engine::Cpu { "cpu" } else { "gpu" })
+}
+
+/// Puts a scene where `engine` draws it: uploaded to the GPU, or prepared for the CPU.
+fn prepare(
     renderer: &Renderer,
     gpu: &GpuCtx,
-    scene: &rc_scene::Scene,
+    scene: rc_scene::Scene,
     mut stats: PageStats,
+    engine: Engine,
 ) -> (Result<Option<LoadedScene>, String>, PageStats) {
     let t = Instant::now();
-    let r = renderer.upload(&gpu.device, &gpu.queue, scene);
-    stats.upload_ms = t.elapsed().as_secs_f64() * 1000.0;
     stats.segments = scene.stats.segments;
     stats.triangles = scene.stats.triangles;
-    match r {
-        Ok(g) => {
-            stats.gpu_bytes = g.bytes;
-            let lacks_text = scene.flags & flags::TEXT_NOT_EXTRACTED != 0;
-            (
-                Ok(Some(LoadedScene {
-                    gpu: Arc::new(g),
-                    layers: scene.layers.clone(),
-                    lacks_text,
-                })),
-                stats,
-            )
+    let lacks_text = scene.flags & flags::TEXT_NOT_EXTRACTED != 0;
+    let layers = scene.layers.clone();
+    let data = if engine == Engine::Cpu {
+        let c = CpuScene::new(Arc::new(scene));
+        stats.gpu_bytes = c.bytes();
+        SceneData::Cpu(Arc::new(c))
+    } else {
+        match renderer.upload(&gpu.device, &gpu.queue, &scene) {
+            Ok(g) => {
+                stats.gpu_bytes = g.bytes;
+                SceneData::Gpu(Arc::new(g))
+            }
+            Err(e) => return (Err(e.to_string()), stats),
         }
-        Err(e) => (Err(e.to_string()), stats),
-    }
+    };
+    stats.upload_ms = t.elapsed().as_secs_f64() * 1000.0;
+    (
+        Ok(Some(LoadedScene {
+            scene: data,
+            layers,
+            lacks_text,
+        })),
+        stats,
+    )
+}
+
+fn median(v: &[f64]) -> f64 {
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    s.get(s.len() / 2).copied().unwrap_or(0.0)
 }
 
 fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {

@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
                 segments: opt("--segments").map_or(Ok(1_000_000), |v| v.parse())?,
                 pages: opt("--pages").map_or(Ok(1), |v| v.parse())?,
                 rotate: opt("--rotate").map_or(Ok(0), |v| v.parse())?,
+                text: !args.iter().any(|a| a == "--no-text"),
                 ..Default::default()
             };
             let t = Instant::now();

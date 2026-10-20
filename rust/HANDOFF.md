@@ -32,7 +32,11 @@
   - Menus, thumbnails, layers, a markups list, properties, a status bar, F12 diagnostics, settings and recent files.
   - Tools: Select, Rectangle and Text (keys V, R, T).
   - `--bench FILE --bench-out x.jsonl` writes timing events: `first-paint`, `page-sharp`, `zoom-sharp`, `pan-sharp`, then `done`.
-- `rc-bench`: `gen|parse|scene|render` tools for generating test sheets and timing each stage.
+- `rc-raster`: scene tiles drawn on the CPU by the GPU shader's rules (the approach open-pdf-studio's tile renderer uses), one tile per core on its own thread pool. Used automatically on software GPUs; checked against PDFium in the fidelity test like the GPU.
+- The speed gate (in `rc-view`): a page whose scene tiles take longer than PDFium's whole-page time goes to PDFium's raster. The text layer's cost counts too, when the scene can't draw the page's text. The verdict is cached per engine.
+- Background work (prefetching neighbouring pages, the fidelity check) waits until the view is sharp.
+- `rc-bench`: `gen|parse|scene|render` tools for generating test sheets and timing each stage (`gen --no-text` for sheets without text).
+- `cargo run --release -p rc-view --example trace -- FILE [cpu|gpu]` prints what the view waits on, frame by frame.
 - `rust/README.md` explains how to build, run and benchmark.
 
 ## Build and test

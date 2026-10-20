@@ -127,6 +127,14 @@ pub fn draw_scene(
     rc_gpu::read_texture(device, queue, &tile.texture, v.width, v.height)
 }
 
+/// [`draw_scene`] on the CPU: the same view, drawn by `rc-raster` as the view draws its tiles on
+/// a software GPU.
+pub fn draw_scene_cpu(scene: &rc_raster::CpuScene, v: View) -> Vec<u8> {
+    let t = rc_gpu::scale_offset(pdfium_scale(scene.scene.size, v.scale), [-v.x as f32, -v.y as f32]);
+    let layers = rc_raster::layer_mask(&scene.scene, &[]);
+    rc_raster::render_tile(scene, t, [v.width, v.height], SUPERSAMPLE, false, &layers)
+}
+
 /// Averages `f` × `f` blocks of RGBA pixels.
 pub fn box_down(px: &[u8], w: u32, h: u32, f: u32) -> Vec<u8> {
     let (nw, nh) = (w / f, h / f);
@@ -194,6 +202,19 @@ pub fn check_blocking(
     scene: &rc_scene::Scene,
     gpu_scene: &GpuScene,
 ) -> anyhow::Result<(Verdict, [Vec<u8>; 2], [Vec<u8>; 2])> {
+    check_blocking_with(pool, doc, page, scene, |v| {
+        draw_scene(device, queue, renderer, gpu_scene, v)
+    })
+}
+
+/// [`check_blocking`] for any way of drawing the scene (the GPU, or the CPU's [`draw_scene_cpu`]).
+pub fn check_blocking_with(
+    pool: &Pool,
+    doc: u32,
+    page: u32,
+    scene: &rc_scene::Scene,
+    draw: impl Fn(View) -> Vec<u8>,
+) -> anyhow::Result<(Verdict, [Vec<u8>; 2], [Vec<u8>; 2])> {
     let vs = views(scene.size, densest_point(scene));
     let with_text = scene.flags & rc_scene::content::flags::TEXT_NOT_EXTRACTED != 0;
     let mut refs: Vec<Vec<u8>> = Vec::new();
@@ -203,7 +224,7 @@ pub fn check_blocking(
             pool,
             pool.submit(Job::Render(request(doc, page, v, Layer::Full, vec![])), 0),
         )?;
-        let mut g = draw_scene(device, queue, renderer, gpu_scene, v);
+        let mut g = draw(v);
         // The overlay carries annotations (and text when the scene has none), as on screen.
         let overlay = wait(
             pool,

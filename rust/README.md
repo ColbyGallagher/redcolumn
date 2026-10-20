@@ -12,10 +12,16 @@ and runs on Linux.
 2. **The scene** (`rc-scene`) turns them into GPU-ready data: line segments and triangles sorted
    into 128 pt cells, with clipping and dashes resolved. Scenes go to the **disk cache**
    (`rc-cache`), so the next open of the file skips steps 1 and 2.
-3. **The GPU** (`rc-gpu`, wgpu) draws tiles from the scene in milliseconds at any zoom.
+3. **The GPU** (`rc-gpu`, wgpu) draws tiles from the scene in milliseconds at any zoom. On a
+   software GPU (WARP, llvmpipe) **the CPU** draws them instead (`rc-raster`): the GPU's rules in
+   software, one tile per core at a time, using the scene's 128 pt cells to touch only what a
+   tile covers (the approach open-pdf-studio's tile renderer takes over its display list).
 4. **The fidelity check** (`rc-check`) compares each new scene with PDFium's own render in the
-   background. A page that differs is drawn by PDFium instead (the raster path), so the GPU
-   path never shows a page wrong.
+   background, once the view is sharp. A page that differs is drawn by PDFium instead (the
+   raster path), so the scene path never shows a page wrong.
+5. **The speed gate** sends a page to the raster path when its scene tiles (plus PDFium's text
+   layer, when the scene cannot draw the page's text) take longer than PDFium takes to draw the
+   whole page: the scene must be faster as well as right. Both verdicts are cached per engine.
 
 The viewer (`rc-view`) schedules all of this around the camera, and shows coarser tiles or a
 preview until the sharp ones arrive. The app (`rc-app`) is egui on the same wgpu device.
@@ -52,9 +58,12 @@ line per event (`first-paint`, `page-sharp`, `zoom-sharp`, `pan-sharp`, then `do
 page's parse, build and upload times) and exits. Run it twice to see a cold and a warm (disk
 cache) open. `rc-bench parse|scene|render FILE` time the stages alone.
 
-Settings live in `%APPDATA%\redcolumn-rs\settings.json` (Settings menu): our parser, GPU scenes,
-the fidelity check and the disk cache can each be turned off to compare. On a software GPU
-adapter (WARP, llvmpipe) pages use the raster path; `RC_FORCE_SCENES=1` draws scenes anyway.
+Settings live in `%APPDATA%\redcolumn-rs\settings.json` (Settings menu): our parser, scenes
+(drawn on the GPU, the CPU, or automatically), the speed gate, the fidelity check and the disk
+cache can each be turned off or switched to compare. `RC_FORCE_SCENES=1` treats a software GPU
+as a real one (scenes on the GPU rather than the CPU).
+`cargo run --release -p rc-view --example trace -- FILE [cpu|gpu]` prints, frame by frame, what
+the view is still waiting for until it is sharp.
 `RC_PDF_APPEARANCES=1` shows markups as PDFium draws their saved appearances.
 
 ## Tests
@@ -64,6 +73,7 @@ cargo test --workspace
 ```
 
 Besides unit tests: `rc-check`'s fidelity test (every fixture and generated sheet, both
-parsers, against PDFium), `rc-view`'s viewer test (open, zoom, rotate, layers, the disk cache,
-reopen), and `rc-pdfwrite`'s round trip (save, read back with our parser and PDFium, check where
-PDFium draws the markups, edit, delete, save again).
+parsers, drawn by the GPU and by the CPU, against PDFium), `rc-view`'s viewer test (open, zoom,
+rotate, layers, the disk cache, reopen, the CPU engine, the speed gate), and `rc-pdfwrite`'s
+round trip (save, read back with our parser and PDFium, check where PDFium draws the markups,
+edit, delete, save again).

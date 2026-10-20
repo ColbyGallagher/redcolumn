@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 rc-scene.workspace = true
 rc-gpu.workspace = true
+rc-raster.workspace = true
 rc-pdf.workspace = true
 anyhow.workspace = true
 crossbeam-channel.workspace = true
