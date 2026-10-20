@@ -412,6 +412,32 @@ async function unlock(bytes: ArrayBuffer, password: string): Promise<ArrayBuffer
 }
 
 async function extractPages(bytes: ArrayBuffer, pages: number[]): Promise<ArrayBuffer> {
+  try {
+    return await importPages(bytes, pages);
+  } catch (err) {
+    // Importing pages can trap in PDFium on some heavy sheets. Deleting the other pages from a copy
+    // avoids the importer, but only keeps the pages in document order.
+    const ordered = pages.every((p, i) => i === 0 || p > pages[i - 1]!);
+    if (!isAbort(err) || !ordered) throw err;
+    resetLib();
+    return await keepPages(bytes, pages);
+  }
+}
+
+async function keepPages(bytes: ArrayBuffer, pages: number[]): Promise<ArrayBuffer> {
+  const m = await lib();
+  const src = loadForEdit(m, bytes);
+  try {
+    const keep = new Set(pages);
+    for (let i = m.FPDF_GetPageCount(src.handle) - 1; i >= 0; i--) if (!keep.has(i)) m.FPDFPage_Delete(src.handle, i);
+    return saveDocument(m, src.handle, 'rewrite');
+  } finally {
+    m.FPDF_CloseDocument(src.handle);
+    m.pdfium.wasmExports.free(src.ptr);
+  }
+}
+
+async function importPages(bytes: ArrayBuffer, pages: number[]): Promise<ArrayBuffer> {
   const m = await lib();
   const src = loadForEdit(m, bytes);
   const out = m.FPDF_CreateNewDocument();
