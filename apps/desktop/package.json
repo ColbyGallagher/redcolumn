@@ -4,6 +4,7 @@
   "private": true,
   "license": "Apache-2.0",
   "description": "PDF markup and takeoff for construction drawings",
+  "desktopName": "redcolumn.desktop",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p .",
@@ -11,7 +12,8 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "node --experimental-strip-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
     "package": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs && electron-builder --win --publish never",
-    "package:mac": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=arm64 && electron-builder --mac --arm64 --publish never && node scripts/fetch-assistant-node.mjs --arch=x64 && electron-builder --mac --x64 --publish never"
+    "package:mac": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=arm64 && electron-builder --mac --arm64 --publish never && node scripts/fetch-assistant-node.mjs --arch=x64 && electron-builder --mac --x64 --publish never",
+    "package:linux": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=x64 && electron-builder --linux --x64 --publish never"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

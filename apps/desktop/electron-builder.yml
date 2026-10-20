@@ -70,6 +70,14 @@ mac:
   category: public.app-category.productivity
 dmg:
   artifactName: redcolumn-${arch}.${ext}
+# The executable name is set because the package name (@nb/desktop) would otherwise become
+# @nbdesktop, which AppImage rejects. The AppImage name stays fixed, like the other installers.
+# executableArgs is empty: electron-builder otherwise writes --no-sandbox into the menu entry, which
+# turns off Chromium's sandbox on every launch. AppRun adds --no-sandbox only when the system
+# cannot create user namespaces (the sandbox cannot run there).
 linux:
   target: AppImage
   category: Office
+  executableName: redcolumn
+  executableArgs: []
+  artifactName: redcolumn-x86_64.${ext}
