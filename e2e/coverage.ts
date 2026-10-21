@@ -49,6 +49,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.deletePages': { spec: 'document' },
   'document.extractPages': { spec: 'document' },
   'document.flatten': { spec: 'document' },
+  'document.geospatial': { spec: 'geospatial' },
   'document.headerFooter': { spec: 'document' },
   'document.insertBlank': { spec: 'document' },
   'document.insertPages': { spec: 'document' },

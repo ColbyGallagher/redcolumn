@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFString, type PDFContext } from 'pdf-lib';
-import { calibratedScale, geoAt } from '@nb/measure';
+import { calibratedScale, crsProjection, crsWkt, findCrs, geoAt, gridToLatLon, type GeoRegion } from '@nb/measure';
 import { exportWithAnnotations } from './export.ts';
 import { importGeoRegions, projectionOfWkt } from './geo.ts';
 import { readPdfExtras } from './pdfExtras.ts';
@@ -73,4 +73,45 @@ test('setting a page scale keeps the page’s map registration', async () => {
   const vp = out.getPage(0).node.lookup(PDFName.of('VP'), PDFArray);
   const subtypes = vp.asArray().map((v) => out.context.lookup(v, PDFDict).lookup(PDFName.of('Measure'), PDFDict).get(PDFName.of('Subtype'))?.toString());
   assert.deepEqual(subtypes.sort(), ['/GEO', '/RL']);
+});
+
+/** A page registered in the app: grid metres = (x, -y) × 2 + (330000, 6250000), in MGA zone 56. */
+function appRegion(): GeoRegion {
+  const crs = findCrs('EPSG:7856')!;
+  const grid = ([x, y]: [number, number]) => gridToLatLon(crs, 330000 + 2 * x, 6250000 - 2 * y);
+  const at: [number, number][] = [[0, 0], [612, 0], [612, 792], [0, 792], [306, 396]];
+  return {
+    id: 'geo-test',
+    pageIndex: 0,
+    name: 'Site',
+    bounds: [[0, 0], [612, 0], [612, 792], [0, 792]],
+    points: at.map((p) => ({ at: p, ...grid(p) })),
+    projection: crsProjection(crs),
+    crs: crs.name,
+    epsg: crs.epsg,
+    wkt: crsWkt(crs),
+  };
+}
+
+test('a page registered in the app is written as a geospatial viewport and reads back', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([612, 792]);
+  const region = appRegion();
+  const bytes = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [], { geo: { 0: [region] } });
+  const regions = importGeoRegions(0, (await readPdfExtras(bytes))!.pages[0]!);
+  assert.equal(regions.length, 1);
+  assert.equal(regions[0]!.crs, 'GDA2020 / MGA zone 56');
+  assert.equal(regions[0]!.epsg, 7856);
+  assert.equal(regions[0]!.name, 'Site');
+  const expected = gridToLatLon(findCrs(7856)!, 330000 + 2 * 100, 6250000 - 2 * 200);
+  const got = geoAt(regions, 0, [100, 200])!;
+  assert.ok(Math.abs(got.lat - expected.lat) < 1e-8 && Math.abs(got.lon - expected.lon) < 1e-8, `${got.lat},${got.lon}`);
+});
+
+test('a registration made in the app replaces the file’s, and an empty one removes it', async () => {
+  const source = (await geoPdf({ Type: 'PROJCS', EPSG: 28356, WKT: PDFString.of(MGA56) })).buffer as ArrayBuffer;
+  const replaced = importGeoRegions(0, (await readPdfExtras(await exportWithAnnotations(source, [], { geo: { 0: [appRegion()] } })))!.pages[0]!);
+  assert.deepEqual(replaced.map((r) => r.crs), ['GDA2020 / MGA zone 56']);
+  const removed = await PDFDocument.load(await exportWithAnnotations(source, [], { geo: { 0: [] } }));
+  assert.equal(removed.getPage(0).node.get(PDFName.of('VP')), undefined);
 });

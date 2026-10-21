@@ -13,6 +13,7 @@ import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDra
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
+import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
@@ -671,6 +672,7 @@ async function annotatedBytes(
     imported: cur.store.importedAnnotations(),
     importedSpaces: cur.store.importedSpaces(),
     pageScales: cur.store.allScales(),
+    geo: cur.store.editedGeo(),
     columns: cur.store.columnSet().columns,
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
@@ -1110,6 +1112,8 @@ export function App() {
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
   const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
+  /** The Geospatial panel's handlers for drags and picks on the page (null while it is closed). */
+  const geoHandlersRef = useRef<GeoHandlers | null>(null);
   /** The match line picked in the Stitching panel (drawn thicker; Move Sheet moves its sheet). */
   const [stitchSelected, setStitchSelected] = useState<string | null>(null);
   /** Move Sheet slides a sheet only along its match line. */
@@ -1245,6 +1249,8 @@ export function App() {
       onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
       onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
       onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
+      onGeoMoved: (dx, dy) => geoHandlersRef.current?.moved(dx, dy),
+      onGeoPick: (target, p) => geoHandlersRef.current?.pick(target, p),
       onEditComment: (id) => setCommentEdit({ pane, id }),
       onEditHyperlink: (id) => setHyperlinkEdit({ pane, id }),
       onEditStamp: (id) => setStampEdit({ pane, id }),
@@ -4220,6 +4226,7 @@ export function App() {
                 imported: store.importedAnnotations(),
                 importedSpaces: store.importedSpaces(),
                 pageScales: store.allScales(),
+                geo: store.editedGeo(),
                 columns: store.columnSet().columns,
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
@@ -7009,6 +7016,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     fullScreen: toggleFullScreen,
     stitch: () => openStitch(activeMode === 'stitch' ? null : currentStitch, pageIndex),
     stitching: () => showPanel('stitching'),
+    geospatial: () => showPanel('geospatial'),
     stitchToPage: () => {
       if (currentStitch) void stitchToNewPage(currentStitch, true);
     },
@@ -7890,6 +7898,33 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               activeOpen?.store.checkpoint();
               activeOpen?.store.remove([id]);
             }}
+          />
+        ) : tab === 'geospatial' ? (
+          <GeospatialPanel
+            docKey={activeOpen?.file.hash ?? null}
+            store={activeOpen?.store ?? null}
+            tools={activeTools ?? null}
+            handlers={geoHandlersRef}
+            pageIndex={pageIndex}
+            pageLabel={(i) => pageLabelFor(activeOpen, i)}
+            pageSize={(i) => v?.pageSize(i) ?? null}
+            metersPerPoint={(i) => scales[i]?.metersPerPoint ?? null}
+            stitchGroups={stitchGroups}
+            stitched={activeMode === 'stitch'}
+            onOpenStitched={(p) => {
+              const group = stitchGroups.find((g) => g.placements.some((x) => x.pageIndex === p));
+              if (group && activeMode !== 'stitch') openStitch(group, p);
+            }}
+            onShowStitching={() => showPanel('stitching')}
+            matchLines={(paneB ? manualStitchB : manualStitchA).lines}
+            onSetScale={() => {
+              setCustomScalePage(pageIndex);
+              setCustomScalePane(paneB ? 'b' : 'a');
+            }}
+            onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
+            editable={!!activeOpen && !activeReadOnly}
+            onGoTo={(p) => v?.goToPage(p)}
+            onNotice={setNotice}
           />
         ) : tab === 'stitching' ? (
           <StitchPanel
@@ -9656,6 +9691,16 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.5" d="M8 1.5v13" />
+      </svg>
+    ),
+  },
+  {
+    id: 'geospatial',
+    title: 'Geospatial',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.1" d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
       </svg>
     ),
   },

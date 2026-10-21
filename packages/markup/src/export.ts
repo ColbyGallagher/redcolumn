@@ -2,7 +2,7 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexStr
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
-import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from '@nb/measure';
+import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
 import { flatten, markupShape, type PathCmd } from './geometry';
 import { connectorLabel } from './flowchart';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
@@ -1733,11 +1733,12 @@ const sameScale = (a: Scale | null, b: Scale | null) =>
  * Writes the page's scale and viewports as Bluebeam's /VP when they differ from what the file
  * already says, so Bluebeam measures at the same scale.
  */
-function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scale: Scale | null, viewports: readonly Viewport[]) {
+function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scale: Scale | null, viewports: readonly Viewport[], geoRegions: readonly GeoRegion[] | null = null) {
   const matrix = pageMatrix(page);
   const existing = page.node.lookupMaybe(PDFName.of('VP'), PDFArray);
-  // Map registrations (geospatial PDFs) are not scales: they stay as the file has them.
-  const geo = existing?.asArray().filter((v) => isGeoViewport(toPdfDict(doc.context, v))) ?? [];
+  // Map registrations (geospatial PDFs) are not scales: they stay as the file has them, unless
+  // the page was registered in the app, which replaces the file's.
+  const geo = geoRegions ? geoRegions.map((r) => geoViewport(doc, matrix, r)) : (existing?.asArray().filter((v) => isGeoViewport(toPdfDict(doc.context, v))) ?? []);
   const crop = page.getCropBox();
   const turned = page.getRotation().angle % 180 !== 0;
   if (existing) {
@@ -1758,8 +1759,8 @@ function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scal
       sameScale(current.scale, scale) &&
       current.viewports.length === viewports.length &&
       viewports.every((v) => current.viewports.some((c) => sameScale(c.scale, v.scale) && near(c.rect.x, v.rect.x) && near(c.rect.y, v.rect.y) && near(c.rect.w, v.rect.w) && near(c.rect.h, v.rect.h)));
-    if (same) return;
-  } else if (!scale && !viewports.length) return;
+    if (same && !geoRegions) return;
+  } else if (!scale && !viewports.length && !geo.length) return;
   const entries = [
     ...(scale ? [doc.context.obj({ Type: 'Viewport', BBox: [crop.x, crop.y, crop.x + crop.width, crop.y + crop.height], Measure: measureDict(scale) })] : []),
     ...viewports.map((v) => doc.context.obj({ Type: 'Viewport', BBox: userRect(matrix, v.rect), Name: pdfText(v.name), Measure: measureDict(v.scale) })),
@@ -1767,6 +1768,41 @@ function writeViewports(doc: PDFDocument, page: PDFPage, pageIndex: number, scal
   ];
   if (entries.length) page.node.set(PDFName.of('VP'), doc.context.obj(entries));
   else page.node.delete(PDFName.of('VP'));
+}
+
+/**
+ * A map registration as a geospatial viewport (ISO 32000-2 §12.10): its box is the region's
+ * extent, and /LPTS and /Bounds lie in the unit square over that box, from its lower-left corner.
+ */
+function geoViewport(doc: PDFDocument, matrix: Matrix, region: GeoRegion): PDFObject {
+  const user = (p: readonly [number, number]) => apply(matrix, [p[0], p[1]]);
+  const corners = region.bounds.map(user);
+  const xs = corners.map((p) => p[0]);
+  const ys = corners.map((p) => p[1]);
+  const [x0, y0, x1, y1] = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const w = x1 - x0 || 1;
+  const h = y1 - y0 || 1;
+  const unit = (p: readonly [number, number]) => {
+    const [x, y] = user(p);
+    return [(x - x0) / w, (y - y0) / h];
+  };
+  const gcs: LiteralObject = { Type: region.projection.kind === 'geographic' ? 'GEOGCS' : 'PROJCS' };
+  if (region.epsg) gcs.EPSG = region.epsg;
+  if (region.wkt) gcs.WKT = PDFString.of(region.wkt);
+  return doc.context.obj({
+    Type: 'Viewport',
+    BBox: [x0, y0, x1, y1],
+    Name: pdfText(region.name),
+    Measure: {
+      Type: 'Measure',
+      Subtype: 'GEO',
+      Bounds: region.bounds.flatMap(unit),
+      GPTS: region.points.flatMap((q) => [q.lat, q.lon]),
+      LPTS: region.points.flatMap((q) => unit(q.at)),
+      GCS: gcs,
+      PDU: [PDFName.of('M'), PDFName.of('SQM'), PDFName.of('DEG')],
+    },
+  });
 }
 
 export interface ExportOptions {
@@ -1794,6 +1830,11 @@ export interface ExportOptions {
    * from the file's, so other tools measure at the same scale.
    */
   pageScales?: Readonly<Record<number, Scale>>;
+  /**
+   * Map registrations made in the app, by page: they replace the page's own geospatial viewports
+   * (an empty list takes them out). Pages left out keep what the file has.
+   */
+  geo?: Readonly<Record<number, readonly GeoRegion[]>>;
   /** The document's custom columns, written as Bluebeam's columns and each markup's values. */
   columns?: readonly CustomColumn[];
   /** The document's statuses, for the names of review states. */
@@ -1921,8 +1962,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
   const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
   if (options.assemblies) writeAssemblies(doc, options.assemblies);
-  if (options.pageScales || options.viewports?.length) {
-    pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i)));
+  if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
+    pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }
   const layerRefs = addMarkupLayers(doc, written);
 

@@ -66,13 +66,13 @@ export function projectionOfWkt(wkt: string): GeoProjection | null {
 }
 
 /** A coordinate system dictionary's projection and name. */
-function readGcs(gcs: PdfDictValue | null): { projection: GeoProjection; crs?: string } {
+function readGcs(gcs: PdfDictValue | null): { projection: GeoProjection; crs?: string; epsg?: number; wkt?: string } {
   const wkt = str(gcs?.WKT) ?? '';
   const epsg = num(gcs?.EPSG);
   const name = /^\s*\w+\s*\[\s*"([^"]+)"/.exec(wkt)?.[1];
   const crs = name ?? (epsg ? `EPSG:${epsg}` : undefined);
   const projection = (wkt && projectionOfWkt(wkt)) || (epsg && projectionOfEpsg(epsg)) || (nameOf(gcs?.Type) === 'GEOGCS' ? { kind: 'geographic' as const } : { kind: 'local' as const });
-  return { projection, ...(crs ? { crs } : {}) };
+  return { projection, ...(crs ? { crs } : {}), ...(epsg ? { epsg } : {}), ...(wkt ? { wkt } : {}) };
 }
 
 /** Flat numbers taken pairwise. */
@@ -109,15 +109,13 @@ export function importGeoRegions(pageIndex: number, page: Pick<PdfPageExtras, 'm
       points.push({ at: onPage(local[k]!), lat, lon });
     }
     if (points.length < 3) return;
-    const { projection, crs } = readGcs(dict(m.GCS));
     out.push({
       id: `pdf-geo-${pageIndex}-${i}`,
       pageIndex,
       name: str(vp.Name) || 'Map',
       bounds,
       points,
-      projection,
-      ...(crs ? { crs } : {}),
+      ...readGcs(dict(m.GCS)),
     });
   });
   return out;
