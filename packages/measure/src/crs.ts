@@ -52,12 +52,14 @@ export const crsById = (id: string): ProjectedCrs | null => PROJECTED_CRS.find((
  */
 export function findCrs(text: string | number | null | undefined): ProjectedCrs | null {
   if (text == null) return null;
-  const s = String(text).trim();
-  const code = /^(?:EPSG\s*:+\s*)?(\d{4,5})$/i.exec(s)?.[1] ?? /EPSG\D{0,3}(\d{4,5})/i.exec(s)?.[1];
+  // The name comes from the file: bounded, with runs of spaces and dashes as one space, so every
+  // pattern below matches in linear time.
+  const s = String(text).slice(0, 256).replace(/[\s-]+/g, ' ').trim();
+  const code = /^(?:EPSG ?:+ ?)?(\d{4,5})$/i.exec(s)?.[1] ?? /EPSG\D{0,3}(\d{4,5})/i.exec(s)?.[1];
   if (code) return PROJECTED_CRS.find((c) => c.epsg === Number(code)) ?? null;
   // MGA2020 / GDA2020 by zone; GDA94's MGA zones (MGA94) are not GDA2020, so they are not matched.
-  if (/(GDA|MGA)\s*-?\s*2020/i.test(s)) {
-    const zone = /zone\s*(\d{2})|\bz\s*(\d{2})\b|\bMGA\s*(?:2020)?\s*-?\s*(\d{2})\b/i.exec(s);
+  if (/(GDA|MGA) ?2020/i.test(s)) {
+    const zone = /zone ?(\d{2})|\bz ?(\d{2})\b|\bMGA ?(?:2020)? ?(\d{2})\b/i.exec(s);
     const n = Number(zone?.[1] ?? zone?.[2] ?? zone?.[3]);
     return GDA2020_MGA.find((c) => c.epsg === 7800 + n) ?? null;
   }
