@@ -5530,11 +5530,20 @@ export function App() {
           <button
             type="button"
             className="doc-tab-add"
-            title="Open a PDF in a new tab"
-            onClick={() => {
+            title="New or open PDF"
+            aria-label="New or open PDF"
+            onClick={(e) => {
               setActivePane(pane);
               activePaneRef.current = pane;
-              openFromDisk();
+              const r = e.currentTarget.getBoundingClientRect();
+              setCtxMenu({
+                x: r.left,
+                y: r.bottom,
+                items: [
+                  { label: 'New PDF…', shortcut: shortcutLabel('file.newPdf'), onClick: () => commandsRef.current.get('file.newPdf')?.run() },
+                  { label: 'Open PDF…', shortcut: shortcutLabel('file.open'), onClick: () => openFromDisk() },
+                ],
+              });
             }}
           >
             +
