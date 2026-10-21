@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_STATUSES, DEFAULT_STYLES, type Assembly, type Bookmark, type ColumnSet, type Place, type Viewport, type Markup, type MarkupStore, type StoredLink, type StoredManualStitch, type StoredStitchGroup } from '@nb/markup';
-import type { Scale } from '@nb/measure';
+import type { GeoRegion, Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import type { MarkupTools, ToolsState } from './MarkupTools';
 
@@ -70,4 +70,11 @@ const NO_ASSEMBLIES: Assembly[] = [];
 
 export function useAssemblies(store: MarkupStore | null): Assembly[] {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.assemblies() ?? NO_ASSEMBLIES);
+}
+
+const NO_GEO: GeoRegion[] = [];
+
+/** The document's map registrations (geospatial PDF regions), from the file and made here. */
+export function useGeoRegions(store: MarkupStore | null): GeoRegion[] {
+  return useSyncExternalStore(store ? (l) => store.subscribe(l) : noopSubscribe, () => store?.allGeoRegions() ?? NO_GEO);
 }

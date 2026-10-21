@@ -101,6 +101,7 @@ import {
 import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
+import { applyAffine, type Affine } from '../viewer/affine';
 import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
@@ -153,6 +154,21 @@ export interface StitchGuides {
   lines: { id: string; pageIndex: number; p0: Point; p1: Point; contentSide: 1 | -1; name: string; paired: boolean; problem?: boolean }[];
   regions: Record<number, Point[]>;
   selected?: string | null;
+}
+
+/**
+ * A model or CAD file laid over sheets while the Geospatial panel aligns it. It is placed in a
+ * "world" (a sheet's own page space, or a stitched view's space); each layer is a sheet with the
+ * model drawn on it in page space and the sheet's page → world map. Alignment pairs are in world
+ * space. `mode` says what a press on a sheet does: drag the model ('move'), or pick a point on the
+ * model ('pickModel') or on the drawing ('pickPage').
+ */
+export interface GeoOverlay {
+  layers: { pageIndex: number; paths: Point[][]; points: Point[]; bounds: Point[]; toWorld: Affine; fromWorld: Affine }[];
+  pairs: { model?: Point; page?: Point }[];
+  mode: 'none' | 'move' | 'pickModel' | 'pickPage';
+  /** Draw each layer only inside its bounds (stitched sheets overlap at their match lines). */
+  clip?: boolean;
 }
 
 /** A form field's widget, for clicking to fill it in. */
@@ -229,6 +245,8 @@ type Gesture =
   | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
   /** Move Sheet: dragging a stitched sheet; `start` is where the drag began in the view's world space. */
   | { kind: 'stitchMove'; start: Point }
+  /** Dragging the Geospatial panel's model across the page. */
+  | { kind: 'geoMove'; start: Point; dx: number; dy: number; pageIndex: number }
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
@@ -445,6 +463,10 @@ export interface MarkupToolsOptions {
   onMatchLineEdited?: (id: string, p0: Point, p1: Point) => boolean | void;
   /** Move Sheet: the pointer has dragged `delta` (world space) since the press; `done` on release. */
   onStitchDrag?: (delta: Point, done: boolean) => void;
+  /** The Geospatial panel's model was dragged by an offset in its world (see GeoOverlay). */
+  onGeoMoved?: (dx: number, dy: number) => void;
+  /** A point (in the model's world) was picked for the Geospatial panel's alignment: on the model (its nearest vertex) or on the drawing (snapped). */
+  onGeoPick?: (target: 'model' | 'page', p: Point) => void;
   /** The user outlined the part of a sheet holding the drawing, for stitching (`stitchRegion`, `stitchPolygon`). */
   onStitchRegion?: (pageIndex: number, points: Point[]) => void;
   /** A short message for the user (e.g. Smart Fill found no enclosed region). */
@@ -1621,6 +1643,7 @@ export class MarkupTools implements ViewerOverlay {
       const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
       if (line) line[g.end ? 'p1' : 'p0'] = g.from;
     } else if (g?.kind === 'stitchMove') this.options.onStitchDrag?.([0, 0], false);
+    if (g?.kind === 'geoMove') this.viewer.invalidate();
     if (g) this.setGesture(null);
     else if (this.state.tool !== 'select') this.setTool('select');
     else this.select([]);
@@ -1787,6 +1810,7 @@ export class MarkupTools implements ViewerOverlay {
     this.drawLinks(ctx, pageIndex, zoom);
     this.drawRegions(ctx, zoom);
     this.drawStitchGuides(ctx, pageIndex, zoom);
+    this.drawGeoOverlay(ctx, pageIndex, zoom);
     const g = this.gesture;
     if (g?.kind === 'textMark' && g.markup.pageIndex === pageIndex && g.markup.type !== 'textHighlight') {
       // The words under the pointer show as a highlight while an underline, strikeout or other text tool drags.
@@ -2065,6 +2089,128 @@ export class MarkupTools implements ViewerOverlay {
     ctx.restore();
   }
 
+  private geoOverlay: GeoOverlay | null = null;
+
+  /** Shows (or, with null, hides) the Geospatial panel's model over its sheets. */
+  setGeoOverlay(overlay: GeoOverlay | null) {
+    this.geoOverlay = overlay;
+    this.viewer.invalidate();
+  }
+
+  private geoLayer(pageIndex: number) {
+    return this.geoOverlay?.layers.find((l) => l.pageIndex === pageIndex) ?? null;
+  }
+
+  /** The model vertex nearest a page point, within reach on screen. */
+  private geoVertexAt(p: Point, pageIndex: number): Point | null {
+    const layer = this.geoLayer(pageIndex);
+    if (!layer) return null;
+    const reach = (this.hitPx * 2.5) / this.viewer.zoomFor(pageIndex);
+    let best: Point | null = null;
+    let dist = reach;
+    const consider = (q: Point) => {
+      const d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (d <= dist) {
+        dist = d;
+        best = q;
+      }
+    };
+    for (const path of layer.paths) for (const q of path) consider(q);
+    for (const q of layer.points) consider(q);
+    return best;
+  }
+
+  /** The drag so far, as an offset on one sheet (through the world, from the sheet pressed). */
+  private geoDragOn(pageIndex: number): Point {
+    const g = this.gesture;
+    if (g?.kind !== 'geoMove' || (!g.dx && !g.dy)) return [0, 0];
+    const from = this.geoLayer(g.pageIndex);
+    const to = this.geoLayer(pageIndex);
+    if (!from || !to) return [0, 0];
+    const vec = (m: Affine, [x, y]: Point): Point => {
+      const o = applyAffine(m, [0, 0]);
+      const v = applyAffine(m, [x, y]);
+      return [v[0] - o[0], v[1] - o[1]];
+    };
+    return vec(to.fromWorld, vec(from.toWorld, [g.dx, g.dy]));
+  }
+
+  private drawGeoOverlay(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const o = this.geoOverlay;
+    const layer = this.geoLayer(pageIndex);
+    if (!o || !layer) return;
+    const [dx, dy] = this.geoDragOn(pageIndex);
+    ctx.save();
+    const outline = () => {
+      ctx.beginPath();
+      layer.bounds.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.closePath();
+    };
+    if (layer.bounds.length) {
+      ctx.strokeStyle = '#0891b2';
+      ctx.lineWidth = 1 / zoom;
+      ctx.setLineDash([4 / zoom, 4 / zoom]);
+      outline();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (o.clip) {
+        outline();
+        ctx.clip();
+      }
+    }
+    ctx.translate(dx, dy);
+    ctx.strokeStyle = 'rgba(8, 145, 178, 0.9)';
+    ctx.lineWidth = 1.25 / zoom;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    for (const path of layer.paths) path.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(8, 145, 178, 0.9)';
+    const r = 2 / zoom;
+    for (const p of layer.points) ctx.fillRect(p[0] - r, p[1] - r, 2 * r, 2 * r);
+    ctx.translate(-dx, -dy);
+    // Alignment pairs: the model's point (cyan ring), the drawing's (red cross), joined by a line.
+    ctx.font = `600 ${11 / zoom}px system-ui, sans-serif`;
+    const onPage = (w: Point): Point => applyAffine(layer.fromWorld, w);
+    o.pairs.forEach((pair, i) => {
+      const model = pair.model && onPage(pair.model);
+      const page = pair.page && onPage(pair.page);
+      if (model && page) {
+        ctx.strokeStyle = '#7c3aed';
+        ctx.lineWidth = 1 / zoom;
+        ctx.setLineDash([3 / zoom, 3 / zoom]);
+        ctx.beginPath();
+        ctx.moveTo(model[0], model[1]);
+        ctx.lineTo(page[0], page[1]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (model) {
+        ctx.strokeStyle = '#0891b2';
+        ctx.lineWidth = 2 / zoom;
+        ctx.beginPath();
+        ctx.arc(model[0], model[1], 6 / zoom, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.fillStyle = '#0891b2';
+        ctx.fillText(`M${i + 1}`, model[0] + 8 / zoom, model[1] - 8 / zoom);
+      }
+      if (page) {
+        const sz = 7 / zoom;
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 2 / zoom;
+        ctx.beginPath();
+        ctx.moveTo(page[0] - sz, page[1]);
+        ctx.lineTo(page[0] + sz, page[1]);
+        ctx.moveTo(page[0], page[1] - sz);
+        ctx.lineTo(page[0], page[1] + sz);
+        ctx.stroke();
+        ctx.fillStyle = '#dc2626';
+        ctx.fillText(`P${i + 1}`, page[0] + 8 / zoom, page[1] + 14 / zoom);
+      }
+    });
+    ctx.restore();
+  }
+
   private stitchGuides: StitchGuides | null = null;
 
   /** Shows (or, with null, hides) the hand-placed match lines and stitch regions. */
@@ -2156,6 +2302,18 @@ export class MarkupTools implements ViewerOverlay {
     this.pointerKind = e.pointerType || 'mouse';
     if (!this.store) return false;
     const { tool } = this.state;
+
+    // The Geospatial panel's model: dragged, or a point on it or the sheet picked for alignment.
+    const geo = this.geoOverlay;
+    const layer = this.geoLayer(pageIndex);
+    if (e.button === 0 && geo && layer && geo.mode !== 'none') {
+      const p = toPoint(pt);
+      const world = (q: Point): Point => applyAffine(layer.toWorld, q);
+      if (geo.mode === 'move') this.setGesture({ kind: 'geoMove', start: p, dx: 0, dy: 0, pageIndex });
+      else if (geo.mode === 'pickModel') this.options.onGeoPick?.('model', world(this.geoVertexAt(p, pageIndex) ?? p));
+      else this.options.onGeoPick?.('page', world(this.resolve(pt, e, null)));
+      return true;
+    }
 
     // With the Stitching panel open, the ends of its match lines can be dragged.
     if (e.button === 0 && !this.store.readOnly && (tool === 'select' || (tool === 'matchLine' && this.gesture?.kind !== 'multi'))) {
@@ -2493,6 +2651,13 @@ export class MarkupTools implements ViewerOverlay {
       this.options.onStitchDrag?.([w[0] - g.start[0], w[1] - g.start[1]], false);
       return;
     }
+    if (g.kind === 'geoMove') {
+      const p = toPoint(pt);
+      g.dx = p[0] - g.start[0];
+      g.dy = p[1] - g.start[1];
+      this.viewer.invalidate();
+      return;
+    }
     if (g.kind === 'hyperlink') {
       const p = toPoint(pt);
       if (Math.hypot(p[0] - g.start[0], p[1] - g.start[1]) * this.viewer.zoomFor(this.page) < this.dragPx) return;
@@ -2630,6 +2795,25 @@ export class MarkupTools implements ViewerOverlay {
       this.setGesture(null);
       const w = this.viewer.pageToWorld(pageIndex, pt);
       this.options.onStitchDrag?.([w[0] - g.start[0], w[1] - g.start[1]], true);
+      return;
+    }
+    if (g.kind === 'geoMove') {
+      const o = this.geoOverlay;
+      const from = this.geoLayer(g.pageIndex);
+      if (o && from && (g.dx || g.dy)) {
+        // Drawn where it was dropped until the panel places it there.
+        const shifted = o.layers.map((l) => {
+          const [dx, dy] = this.geoDragOn(l.pageIndex);
+          const shift = (q: Point): Point => [q[0] + dx, q[1] + dy];
+          return { ...l, paths: l.paths.map((path) => path.map(shift)), points: l.points.map(shift) };
+        });
+        const a = applyAffine(from.toWorld, g.start);
+        const b = applyAffine(from.toWorld, [g.start[0] + g.dx, g.start[1] + g.dy]);
+        this.geoOverlay = { ...o, layers: shifted };
+        this.options.onGeoMoved?.(b[0] - a[0], b[1] - a[1]);
+      }
+      this.setGesture(null);
+      this.viewer.invalidate();
       return;
     }
     if (g.kind === 'pendingHighlight') {
@@ -2780,6 +2964,15 @@ export class MarkupTools implements ViewerOverlay {
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
       this.viewer.invalidate();
       return null;
+    }
+    const geo = this.geoOverlay;
+    if (geo && geo.mode !== 'none' && this.geoLayer(pageIndex)) {
+      if (geo.mode === 'move') return this.gesture?.kind === 'geoMove' ? 'grabbing' : 'move';
+      if (geo.mode === 'pickPage') {
+        this.resolve(pt, lastModifiers, null);
+        this.viewer.invalidate();
+      }
+      return 'crosshair';
     }
     this.updatePickTargets(pageIndex, toPoint(pt));
     if (tool === 'stitchMove') return this.viewer.isStitched ? 'move' : 'not-allowed';

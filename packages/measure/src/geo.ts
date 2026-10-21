@@ -46,6 +46,9 @@ export interface GeoRegion {
   projection: GeoProjection;
   /** The coordinate system's name ("GDA94 / MGA zone 56", "EPSG:4326"), when the file gives one. */
   crs?: string;
+  /** The coordinate system's EPSG code and OGC WKT, as the file gives them (written back to /GCS). */
+  epsg?: number;
+  wkt?: string;
 }
 
 const RAD = Math.PI / 180;

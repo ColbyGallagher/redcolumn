@@ -116,6 +116,7 @@ export interface CommandActions {
   stitch: () => void;
   /** Opens the Stitching panel (match lines and regions placed by hand). */
   stitching: () => void;
+  geospatial: () => void;
   /** Writes the current sheet's stitched group as one new page. */
   stitchToPage: () => void;
   split: () => void;
@@ -450,6 +451,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.compare', 'Document', 'Compare Documents…', a.compare, s.libraryCount > 1),
     cmd('document.overlay', 'Document', 'Overlay Pages…', a.overlay, s.libraryCount > 1),
     cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
+    cmd('document.geospatial', 'Document', 'Geospatial…', a.geospatial, doc, sidePanelOpen('geospatial')),
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),

@@ -378,13 +378,43 @@ export class MarkupStore {
     return this.meta.get('geoChecked') === true;
   }
 
-  /** Records the file's map registrations, read from its bytes. */
+  /** Records the file's map registrations, read from its bytes (pages registered here keep theirs). */
   setGeoRegions(regions: GeoRegion[]) {
     if (this.locked) return;
+    const edited = new Set(this.geoEditedPages());
     this.doc.transact(() => {
-      this.meta.set('geo', regions);
+      this.meta.set('geo', [...regions.filter((r) => !edited.has(r.pageIndex)), ...this.geoSnapshot.filter((r) => edited.has(r.pageIndex))]);
       this.meta.set('geoChecked', true);
     }, DETECTION);
+  }
+
+  /** Pages whose map registration was made (or removed) here, which replaces the file's on export. */
+  geoEditedPages(): number[] {
+    return (this.meta.get('geoEdited') as number[] | undefined) ?? [];
+  }
+
+  /** The registrations made here, by page, for export (an empty list removes the file's). */
+  editedGeo(): Record<number, GeoRegion[]> {
+    return Object.fromEntries(this.geoEditedPages().map((p) => [p, this.geoSnapshot.filter((r) => r.pageIndex === p)]));
+  }
+
+  /** Registers a page to the earth (Geospatial panel), replacing what it had; an empty list removes it. */
+  setPageGeo(pageIndex: number, regions: GeoRegion[]) {
+    this.setPagesGeo({ [pageIndex]: regions });
+  }
+
+  /** Registers several pages at once (a stitch's sheets), as one undo step. */
+  setPagesGeo(byPage: Readonly<Record<number, GeoRegion[]>>) {
+    if (this.locked) return;
+    const pages = new Set(Object.keys(byPage).map(Number));
+    if (!pages.size) return;
+    this.undoManager.stopCapturing();
+    const edited = this.geoEditedPages();
+    this.doc.transact(() => {
+      const added = [...pages].flatMap((p) => byPage[p]!.map((r) => ({ ...r, pageIndex: p })));
+      this.meta.set('geo', [...this.geoSnapshot.filter((r) => !pages.has(r.pageIndex)), ...added]);
+      this.meta.set('geoEdited', [...new Set([...edited, ...pages])]);
+    }, LOCAL);
   }
 
   /** Every viewport (stable until the next change). */
@@ -713,6 +743,7 @@ export class MarkupStore {
           const p = (q: readonly [number, number]) => turn(g.pageIndex, q);
           return [{ ...g, pageIndex: n, bounds: g.bounds.map(p), points: g.points.map((c) => ({ ...c, at: p(c.at) })) }];
         }));
+      if (this.meta.has('geoEdited')) this.meta.set('geoEdited', this.geoEditedPages().flatMap((p) => { const n = to(p); return n === null ? [] : [n]; }));
       if (this.outline.has('bookmarks')) this.outline.set('bookmarks', remapBookmarks(this.bookmarkSnapshot, to, turnRect));
       if (this.outline.has('places'))
         this.outline.set('places', this.placeSnapshot.flatMap((p) => {
@@ -789,6 +820,7 @@ export class MarkupStore {
       this.meta.set('importedSpaces', spaces);
       // The new pages may be maps of their own: read the file again for them.
       if (this.meta.has('geo')) this.meta.set('geo', this.geoSnapshot.filter((g) => !replaced.has(g.pageIndex)));
+      if (this.meta.has('geoEdited')) this.meta.set('geoEdited', this.geoEditedPages().filter((p) => !replaced.has(p)));
       this.meta.delete('geoChecked');
     }, DETECTION);
   }
@@ -1101,7 +1133,7 @@ function describeChange(
   if (changed.has(outline as never)) return 'Edit bookmarks';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
-    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('manualStitch') ? 'Edit stitching' : 'Edit columns';
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : 'Edit columns';
   }
   return 'Edit';
 }
