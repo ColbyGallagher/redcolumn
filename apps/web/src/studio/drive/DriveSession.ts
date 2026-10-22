@@ -162,6 +162,8 @@ export interface DriveSessionOptions {
   authorize: () => Promise<void>;
   /** Poll interval while visible; 0 disables the timers (tests drive `poll`/`flush` directly). */
   pollMs?: number;
+  /** How long after the last edit it is saved; 1200 ms when absent. */
+  flushMs?: number;
   onRemoved: (docId: string) => void;
   /** The attendee's Microsoft email, which identifies them for access (Drive sessions are all signed in). */
   email?: string | null;
@@ -732,7 +734,7 @@ export class DriveSession implements CollabSession {
     this.dirty = true;
     if (this.opts.pollMs === 0 || this.destroyed) return;
     clearTimeout(this.flushTimer);
-    this.flushTimer = this.later(FLUSH_DELAY_MS, () => void this.flush());
+    this.flushTimer = this.later(this.opts.flushMs ?? FLUSH_DELAY_MS, () => void this.flush());
   }
 
   /** Saves our edits (debounced after edits): each changed room's delta, or a new snapshot of it. */
