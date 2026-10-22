@@ -169,6 +169,9 @@ seats every few seconds, over Microsoft Graph, and merges them. Code: `apps/web/
    returns are pre-authorised and get no token.
 4. Put the **Application (client) ID** in `VITE_MICROSOFT_CLIENT_ID` (`apps/web/.env.local`
    locally, an Actions variable for GitHub Pages).
+5. OneDrive **sharing** (Projects and Live Sessions kept in OneDrive) is off by default. Set
+   `VITE_ENABLE_ONEDRIVE_SHARING=true` to turn it on. Folders on this computer (desktop app) work
+   either way, and Sheet Sync and profile backup only need the client ID.
 
 ## Markups to a spreadsheet (Excel in OneDrive)
 

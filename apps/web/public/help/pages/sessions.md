@@ -42,4 +42,4 @@ If your connection drops, keep working. The panel says **Offline**, and your mar
 - [Host a session](#sessions-host)
 - [Join a session](#sessions-join)
 
-> **Note:** Sessions need the site to be set up for OneDrive sign-in. If the Start dialog says OneDrive is *not set up in this build*, ask whoever runs your redcolumn site (see `docs/CLOUD-SETUP.md`).
+> **Note:** OneDrive sessions and Projects are switched off unless the site sets `VITE_ENABLE_ONEDRIVE_SHARING=true` (see `docs/CLOUD-SETUP.md`). Without it, use a shared folder on your computer in the desktop app.

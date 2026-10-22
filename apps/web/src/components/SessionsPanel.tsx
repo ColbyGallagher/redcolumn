@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { microsoftUser, oneDriveConfigured, setStaySignedInToMicrosoft, signInWithMicrosoft, signOutOfMicrosoft, staySignedInToMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
+import { microsoftUser, oneDriveSharingEnabled, setStaySignedInToMicrosoft, signInWithMicrosoft, signOutOfMicrosoft, staySignedInToMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
 import { forgetRecentSession, recentSessions, restoreRecentSession, type SessionRef } from '../studio/local';
 import { allows, policyOf, sameName, type RecordEntry, type SessionMeta } from '../studio/protocol';
 import { attendeeColor, myAccess, type CollabSession, type StudioSnapshot } from '../studio/types';
@@ -263,7 +263,7 @@ function SessionList({
           <p>
             {oneDriveAvailable
               ? 'Joining signs you in to Microsoft (a personal, work or school account).'
-              : 'This copy of the app is not set up for OneDrive, so it cannot join. Open the link on the site the host uses.'}
+              : 'OneDrive sharing is turned off in this copy of the app, so it cannot join this session.'}
           </p>
           <div className="row">
             <button className="btn primary" disabled={busy || !oneDriveAvailable} onClick={() => void onJoin(invite)}>
@@ -284,7 +284,7 @@ function SessionList({
       ) : (
         <ul className="rc-list">
           {shown.map(({ ref, joined: j, meta, status, usable, access }) => {
-            const blocked = busy || !usable || (!j && !oneDriveAvailable);
+            const blocked = busy || !usable || (!j && ref.backend !== 'folder' && !oneDriveAvailable);
             const name = meta?.name ?? ref.name;
             return (
               <StudioRow
@@ -724,7 +724,7 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
   const user = useSyncExternalStore(subscribeMicrosoftUser, microsoftUser);
   const [error, setError] = useState<string | null>(null);
   const [stay, setStay] = useState(staySignedInToMicrosoft);
-  if (!oneDriveConfigured) return null;
+  if (!oneDriveSharingEnabled) return null;
   return (
     <div className="cloud-identity">
       {user ? (
