@@ -163,4 +163,13 @@ test(`stress: ${ATTENDEES} attendees edit and chat concurrently and converge`, {
     for (let r = 0; r < ROUNDS; r++) for (const n of names) assert.ok(texts.has(`${n} round ${r}`), `${names[i]} has "${n} round ${r}"`);
   });
   assert.equal(host.meta.attendees.length, ATTENDEES);
+
+  // Someone who arrives after all of it reads the snapshots and chunks from scratch.
+  const late = await DriveSession.join(new Drive(drive, 'Late'), host.id, 'Late', { ...opts, interactive: true });
+  await late.poll();
+  const lateStore = markupStore();
+  await late.attach(doc.id, lateStore.store);
+  assert.equal(JSON.stringify([...lateStore.markups.entries()].sort()), reference, 'a late joiner has exactly what everyone has');
+  const lateTexts = new Set(late.getSnapshot().record.map((e) => e.text));
+  for (let r = 0; r < ROUNDS; r++) for (const n of names) assert.ok(lateTexts.has(`${n} round ${r}`), `the late joiner has "${n} round ${r}"`);
 });

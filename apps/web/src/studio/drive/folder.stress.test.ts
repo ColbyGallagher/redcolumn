@@ -153,6 +153,14 @@ test(`folder stress: ${ATTENDEES} attendees on a real folder converge`, { timeou
       for (let r = 0; r < ROUNDS; r++) for (const n of names) assert.ok(texts.has(`${n} round ${r}`), `${names[i]} has "${n} round ${r}"`);
     });
     assert.equal(host.meta.attendees.length, ATTENDEES);
+
+    // Someone who arrives after all of it reads the snapshots and chunks from scratch.
+    const lateDisk = new FolderStore();
+    const late = await DriveSession.join(new SessionFolderDrive(null, computer(lateDisk, counts)), await lateDisk.addRoot(folder), 'Late', { ...opts, interactive: true });
+    await late.poll();
+    const lateStore = markupStore();
+    await late.attach(doc.id, lateStore.store);
+    assert.equal(JSON.stringify([...lateStore.markups.entries()].sort()), reference, 'a late joiner has exactly what everyone has');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
