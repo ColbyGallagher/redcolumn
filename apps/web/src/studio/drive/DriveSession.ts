@@ -47,8 +47,6 @@ const BINARY = 'application/octet-stream';
 const DELTA_MAX = 64 * 1024;
 /** Chunk files a room keeps per seat; the next save after they are all used folds them into a snapshot. */
 const CHUNKS_MAX = 8;
-/** An update that changes nothing: what a folded chunk file is reset to. */
-const EMPTY_UPDATE = Y.encodeStateAsUpdate(new Y.Doc());
 /** Downloads at once while reading the folder. */
 const READ_CONCURRENCY = 4;
 /** A seat not heard from for this long shows as away. */
@@ -677,7 +675,7 @@ export class DriveSession implements CollabSession {
 
   /**
    * Our own room file, written on an earlier visit. A chunk's edits are not in our snapshot, so
-   * the next save goes in the chunk after the last one that holds edits, rather than over them.
+   * the next save goes in the chunk after the last one there is, rather than over them.
    */
   private adoptOwn(room: string, kind: string, slot: number, bytes: Uint8Array) {
     // Once read, our files change only by our own writes (one tab per seat).
@@ -686,7 +684,7 @@ export class DriveSession implements CollabSession {
     o.own.push(bytes);
     if (kind === SNAPSHOT) return void (o.snapshotSize = bytes.byteLength);
     (o.chunks[slot] ??= { size: 0 }).size = bytes.byteLength;
-    if (bytes.byteLength > EMPTY_UPDATE.byteLength) o.used = Math.max(o.used, slot + 1);
+    o.used = Math.max(o.used, slot + 1);
   }
 
   private buildMeta(files: DriveFile[]): SessionMeta {
@@ -781,21 +779,15 @@ export class DriveSession implements CollabSession {
     o.compact = false;
     o.snapshotSize = bytes.byteLength;
     o.pending.splice(0, taken);
-    // The chunks' edits are in the snapshot now: empty them, except the first, which takes the edits made since.
-    const n = o.pending.length;
-    const rest = n ? Y.mergeUpdates(o.pending) : null;
-    const reset = Math.max(o.used, o.chunks.filter((c) => c?.id).length ? 1 : 0, rest ? 1 : 0);
+    // The chunks' edits are in the snapshot now. They are left as they are (readers would only have to
+    // download them again to learn nothing) and written over as the chunks are used again, from the first.
     o.used = 0;
-    for (let i = 0; i < reset; i++) {
-      const next = i === 0 && rest ? rest : EMPTY_UPDATE;
-      // A chunk already empty (or never made) need not be written again.
-      if (next === EMPTY_UPDATE && (o.chunks[i]?.size ?? 0) <= EMPTY_UPDATE.byteLength) continue;
-      await this.writeRoomFile(room, o, DELTA, i, next);
-    }
-    if (rest) {
-      o.pending.splice(0, n);
-      o.used = 1;
-    }
+    const n = o.pending.length;
+    if (!n) return;
+    // Edits made during the upload go in the first chunk.
+    await this.writeRoomFile(room, o, DELTA, 0, Y.mergeUpdates(o.pending));
+    o.pending.splice(0, n);
+    o.used = 1;
   }
 
   private async writeRoomFile(room: string, o: Outbox, kind: RoomWrite['kind'], slot: number, plain: Uint8Array) {
