@@ -111,14 +111,14 @@ const PDF = new TextEncoder().encode('%PDF-1.7').buffer as ArrayBuffer;
 test(`stress: ${ATTENDEES} attendees edit and chat concurrently and converge`, { timeout: 300_000 }, async () => {
   const drive = new Store();
   const names = Array.from({ length: ATTENDEES }, (_, i) => `User${i + 1}`);
-  const host = await DriveSession.create(new Drive(drive, names[0]), 'Stress', names[0], { markup: true, addDocuments: true }, { ...opts, linkCanEdit: true });
+  const host = await DriveSession.create(new Drive(drive, names[0]!), 'Stress', names[0]!, { markup: true, addDocuments: true }, { ...opts, linkCanEdit: true });
   const sessions: DriveSession[] = [host];
   for (const name of names.slice(1)) sessions.push(await DriveSession.join(new Drive(drive, name), host.id, name, { ...opts, interactive: true }));
 
   const doc = await host.addDocument('A-101.pdf', PDF);
   await Promise.all(sessions.map((s) => s.poll()));
   const stores = sessions.map(() => markupStore());
-  await Promise.all(sessions.map((s, i) => s.attach(doc.id, stores[i].store)));
+  await Promise.all(sessions.map((s, i) => s.attach(doc.id, stores[i]!.store)));
   const setup = { ...drive.counts };
 
   const started = performance.now();
@@ -128,7 +128,7 @@ test(`stress: ${ATTENDEES} attendees edit and chat concurrently and converge`, {
     sessions.forEach((s, i) => {
       for (let k = 0; k < MARKUPS; k++) {
         const id = `m-${i}-${round}-${k}`;
-        stores[i].markups.set(id, { id, type: 'cloud', pageIndex: k, status: 'none' });
+        stores[i]!.markups.set(id, { id, type: 'cloud', pageIndex: k, status: 'none' });
       }
       s.sendChat(`${names[i]} round ${round}`);
       chats++;
@@ -156,7 +156,7 @@ test(`stress: ${ATTENDEES} attendees edit and chat concurrently and converge`, {
   );
 
   stores.forEach((s, i) => assert.equal(s.markups.size, expected, `${names[i]} sees every markup`));
-  const reference = JSON.stringify([...stores[0].markups.entries()].sort());
+  const reference = JSON.stringify([...stores[0]!.markups.entries()].sort());
   stores.forEach((s, i) => assert.equal(JSON.stringify([...s.markups.entries()].sort()), reference, `${names[i]} matches ${names[0]}`));
   sessions.forEach((s, i) => {
     const texts = new Set(s.getSnapshot().record.map((e) => e.text));
