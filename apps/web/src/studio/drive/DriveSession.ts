@@ -18,7 +18,8 @@ import { appFolderHostKeys, forgetSessionKeys, myIdentity, rememberSessionKeys, 
  *     *.pdf                            the session's documents
  *     <attendee>.nbseat                one per attendee browser: who they are and where they are
  *     <seat>.<room>.nbsnap             that seat's full Yjs state of one room, now and then
- *     <seat>.<room>.nbdelta            that seat's own edits to the room since its snapshot
+ *     <seat>.<room>.nbdelta            that seat's own edits to the room since its snapshot, in chunks:
+ *     <seat>.<room>.<n>.nbdelta        this one and the numbered ones each hold only the edits of one save
  *
  * Each attendee writes only their own seat's files, so nobody's writes collide. A room is the
  * Record and chat, or one document's markups. Reading everyone else's room files and merging them
@@ -39,11 +40,13 @@ const DOCUMENT = 'document';
 const SEAT_V2 = '2';
 const SNAPSHOT = 'nbsnap';
 const DELTA = 'nbdelta';
-/** `<seat>.<room>.<kind>`; OneDrive may add " 1" before the extension when a name is taken. */
-const ROOM_FILE = /^([^.]+)\.([^.]+?)(?: \d+)?\.(nbsnap|nbdelta)$/;
+/** `<seat>.<room>[.<chunk>].<kind>`; OneDrive may add " 1" before the extension when a name is taken. */
+const ROOM_FILE = /^([^.]+)\.([^.]+?)(?:\.(\d+))?(?: \d+)?\.(nbsnap|nbdelta)$/;
 const BINARY = 'application/octet-stream';
-/** A delta past this size, or a quarter of its snapshot if larger, is folded into a new snapshot. */
+/** Chunks past this many bytes in all, or a quarter of the snapshot if larger, are folded into a new snapshot. */
 const DELTA_MAX = 64 * 1024;
+/** Chunk files a room keeps per seat; the next save after they are all used folds them into a snapshot. */
+const CHUNKS_MAX = 8;
 /** Downloads at once while reading the folder. */
 const READ_CONCURRENCY = 4;
 /** A seat not heard from for this long shows as away. */
@@ -90,13 +93,18 @@ interface SeatContent {
 
 /** What this browser has saved of one room, and what it has not yet. */
 interface Outbox {
-  /** Our own updates to the room since our last snapshot of it. */
+  /** Our own updates to the room that no file holds yet. */
   pending: Uint8Array[];
-  /** How many of `pending` (from the start) our delta file holds. */
-  saved: number;
   snapshotId?: string;
-  deltaId?: string;
   snapshotSize: number;
+  /** Our chunk files by number (0 is the one without a number), as far as we know them. */
+  chunks: { id?: string; size: number }[];
+  /** Chunks from 0 up that hold edits since our snapshot; the next save goes in this one. */
+  used: number;
+  /** Every update of ours to the room, ever (merged into one at each snapshot): what our snapshot holds. */
+  own: Uint8Array[];
+  /** Write the whole room into the snapshot, as older versions did: set when some of our own files could not be read. */
+  full: boolean;
   /** Write a full snapshot next save (our v1 seat held this room). */
   compact: boolean;
 }
@@ -105,6 +113,8 @@ interface RoomWrite {
   room: string;
   o: Outbox;
   kind: typeof SNAPSHOT | typeof DELTA;
+  /** The chunk a delta goes in. */
+  slot: number;
   bytes: Uint8Array;
   /** How many pending updates `bytes` covers. */
   taken: number;
@@ -145,13 +155,15 @@ function hash(s: string): number {
 const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'application/json' });
 const binary = (bytes: Uint8Array) => new Blob([bytes as Uint8Array<ArrayBuffer>], { type: BINARY });
 
-const roomFileName = (seatId: string, room: string, kind: typeof SNAPSHOT | typeof DELTA) => `${seatId}.${room}.${kind}`;
+const roomFileName = (seatId: string, room: string, kind: typeof SNAPSHOT | typeof DELTA, slot = 0) => (slot ? `${seatId}.${room}.${slot}.${kind}` : `${seatId}.${room}.${kind}`);
 
 export interface DriveSessionOptions {
   /** Signs the user in (Microsoft's popup); only succeeds from a click. */
   authorize: () => Promise<void>;
   /** Poll interval while visible; 0 disables the timers (tests drive `poll`/`flush` directly). */
   pollMs?: number;
+  /** How long after the last edit it is saved; 1200 ms when absent. */
+  flushMs?: number;
   onRemoved: (docId: string) => void;
   /** The attendee's Microsoft email, which identifies them for access (Drive sessions are all signed in). */
   email?: string | null;
@@ -452,7 +464,9 @@ export class DriveSession implements CollabSession {
       doc = new Y.Doc();
       doc.on('update', (u: Uint8Array, origin: unknown) => {
         if (origin === REMOTE) return;
-        this.outbox(name).pending.push(u);
+        const o = this.outbox(name);
+        o.pending.push(u);
+        o.own.push(u);
         this.markDirty();
       });
       this.rooms.set(name, doc);
@@ -463,7 +477,7 @@ export class DriveSession implements CollabSession {
   private outbox(room: string): Outbox {
     let o = this.outboxes.get(room);
     if (!o) {
-      o = { pending: [], saved: 0, snapshotSize: 0, compact: false };
+      o = { pending: [], snapshotSize: 0, chunks: [], used: 0, own: [], full: false, compact: false };
       this.outboxes.set(room, o);
     }
     return o;
@@ -518,8 +532,8 @@ export class DriveSession implements CollabSession {
         const room = ROOM_FILE.exec(f.name);
         if (!room || room[1] !== this.seatId) continue;
         const o = this.outbox(room[2]!);
-        if (room[3] === SNAPSHOT) o.snapshotId ??= f.id;
-        else o.deltaId ??= f.id;
+        if (room[4] === SNAPSHOT) o.snapshotId ??= f.id;
+        else (o.chunks[Number(room[3] ?? 0)] ??= { size: f.size }).id ??= f.id;
       }
       const changed = files.filter((f) => this.seen.get(f.id) !== f.version && (f.properties.nbRole === SEAT || ROOM_FILE.test(f.name)));
       await inPool(changed, READ_CONCURRENCY, (f) => this.readFile(f));
@@ -532,6 +546,11 @@ export class DriveSession implements CollabSession {
       for (const a of this.attached.values()) this.applyRights(a.store);
       for (const d of before) if (!meta.documents.some((n) => n.id === d.id)) this.opts.onRemoved(d.id);
       if (!this.synced) {
+        // A snapshot of only our own edits is whole only if we read every file of ours; otherwise it holds the room.
+        for (const f of files) {
+          const room = ROOM_FILE.exec(f.name);
+          if (room && room[1] === this.seatId && !this.seen.has(f.id)) this.outbox(room[2]!).full = true;
+        }
         this.synced = true;
         if (this.dirty) this.markDirty();
       }
@@ -566,7 +585,7 @@ export class DriveSession implements CollabSession {
 
   /** Writes every room we have written before again, as snapshots under the newest key. */
   private rewriteRooms() {
-    for (const o of this.outboxes.values()) if (o.snapshotId || o.deltaId) o.compact = true;
+    for (const o of this.outboxes.values()) if (o.snapshotId || o.chunks.some((c) => c?.id)) o.compact = true;
     this.markDirty();
   }
 
@@ -637,14 +656,14 @@ export class DriveSession implements CollabSession {
         if (room) {
           const bytes = new Uint8Array(data);
           Y.applyUpdate(this.room(room[2]!), bytes, REMOTE);
-          if (room[1] === this.seatId) this.adoptOwn(room[2]!, room[3]!, bytes);
+          if (room[1] === this.seatId) this.adoptOwn(room[2]!, room[4]!, Number(room[3] ?? 0), bytes);
         } else {
           const rooms = Object.entries((JSON.parse(new TextDecoder().decode(data)) as SeatContent).rooms ?? {});
           for (const [name, b64] of rooms) Y.applyUpdate(this.room(name), fromBase64(b64), REMOTE);
           // Our own seat from before room files: its rooms go into snapshots on the next save.
           if (f.id === this.seatId && rooms.length) {
             this.seatV1 = true;
-            for (const [name] of rooms) this.outbox(name).compact = true;
+            for (const [name] of rooms) Object.assign(this.outbox(name), { compact: true, full: true });
             this.markDirty();
           }
         }
@@ -657,18 +676,17 @@ export class DriveSession implements CollabSession {
   }
 
   /**
-   * Our own room file, written on an earlier visit. A delta's edits are not in our snapshot, so
-   * they stay pending: the next save writes them again rather than over them.
+   * Our own room file, written on an earlier visit. A chunk's edits are not in our snapshot, so
+   * the next save goes in the chunk after the last one there is, rather than over them.
    */
-  private adoptOwn(room: string, kind: string, bytes: Uint8Array) {
+  private adoptOwn(room: string, kind: string, slot: number, bytes: Uint8Array) {
     // Once read, our files change only by our own writes (one tab per seat).
     if (this.synced) return;
     const o = this.outbox(room);
-    if (kind === SNAPSHOT) o.snapshotSize = bytes.byteLength;
-    else if (o.saved === 0) {
-      o.pending.unshift(bytes);
-      o.saved = 1;
-    }
+    o.own.push(bytes);
+    if (kind === SNAPSHOT) return void (o.snapshotSize = bytes.byteLength);
+    (o.chunks[slot] ??= { size: 0 }).size = bytes.byteLength;
+    o.used = Math.max(o.used, slot + 1);
   }
 
   private buildMeta(files: DriveFile[]): SessionMeta {
@@ -716,7 +734,7 @@ export class DriveSession implements CollabSession {
     this.dirty = true;
     if (this.opts.pollMs === 0 || this.destroyed) return;
     clearTimeout(this.flushTimer);
-    this.flushTimer = this.later(FLUSH_DELAY_MS, () => void this.flush());
+    this.flushTimer = this.later(this.opts.flushMs ?? FLUSH_DELAY_MS, () => void this.flush());
   }
 
   /** Saves our edits (debounced after edits): each changed room's delta, or a new snapshot of it. */
@@ -729,7 +747,7 @@ export class DriveSession implements CollabSession {
     if (!this.dirty || !this.writable || this.snap.needsAuth || !this.synced) return Promise.resolve();
     this.dirty = false;
     // Encoded now, synchronously, so a flush started just before leaving still has everything.
-    const writes = [...this.outboxes].filter(([, o]) => o.compact || o.pending.length > o.saved).map(([room, o]) => this.planWrite(room, o));
+    const writes = [...this.outboxes].filter(([, o]) => o.compact || o.pending.length).map(([room, o]) => this.planWrite(room, o));
     const migrating = this.seatV1;
     this.flushing = inPool(writes, READ_CONCURRENCY, (w) => this.saveRoom(w))
       .then(() => (migrating ? this.finishMigration() : undefined))
@@ -742,48 +760,51 @@ export class DriveSession implements CollabSession {
   private planWrite(room: string, o: Outbox): RoomWrite {
     const taken = o.pending.length;
     const delta = Y.mergeUpdates(o.pending);
-    if (o.compact || delta.byteLength > Math.max(DELTA_MAX, o.snapshotSize / 4)) {
-      return { room, o, kind: SNAPSHOT, bytes: Y.encodeStateAsUpdate(this.room(room)), taken };
+    const held = o.chunks.slice(0, o.used).reduce((n, c) => n + (c?.size ?? 0), 0);
+    if (o.compact || o.used >= CHUNKS_MAX || held + delta.byteLength > Math.max(DELTA_MAX, o.snapshotSize / 4)) {
+      // Our own edits only, so a snapshot costs what we wrote rather than the whole room for every reader.
+      const bytes = o.full ? Y.encodeStateAsUpdate(this.room(room)) : Y.mergeUpdates(o.own);
+      if (!o.full) o.own = [bytes];
+      return { room, o, kind: SNAPSHOT, slot: 0, bytes, taken };
     }
-    return { room, o, kind: DELTA, bytes: delta, taken };
+    return { room, o, kind: DELTA, slot: o.used, bytes: delta, taken };
   }
 
-  private async saveRoom({ room, o, kind, bytes, taken }: RoomWrite) {
-    await this.writeRoomFile(room, o, kind, bytes);
+  private async saveRoom({ room, o, kind, slot, bytes, taken }: RoomWrite) {
+    await this.writeRoomFile(room, o, kind, slot, bytes);
     if (kind === DELTA) {
-      // Keep what was saved as one update; edits made during the upload follow it.
-      o.pending.splice(0, taken, bytes);
-      o.saved = 1;
+      // Only this save's edits went up; edits made during the upload follow in the next chunk.
+      o.pending.splice(0, taken);
+      o.used = slot + 1;
       return;
     }
     o.compact = false;
     o.snapshotSize = bytes.byteLength;
     o.pending.splice(0, taken);
-    o.saved = 0;
-    if (!o.deltaId && !o.pending.length) return;
-    // The delta's edits are in the snapshot now: reset it to the edits made since.
+    // The chunks' edits are in the snapshot now. They are left as they are (readers would only have to
+    // download them again to learn nothing) and written over as the chunks are used again, from the first.
+    o.used = 0;
     const n = o.pending.length;
-    const rest = Y.mergeUpdates(o.pending);
-    await this.writeRoomFile(room, o, DELTA, rest);
-    if (n) {
-      o.pending.splice(0, n, rest);
-      o.saved = 1;
-    }
+    if (!n) return;
+    // Edits made during the upload go in the first chunk.
+    await this.writeRoomFile(room, o, DELTA, 0, Y.mergeUpdates(o.pending));
+    o.pending.splice(0, n);
+    o.used = 1;
   }
 
-  private async writeRoomFile(room: string, o: Outbox, kind: RoomWrite['kind'], plain: Uint8Array) {
-    const id = kind === SNAPSHOT ? o.snapshotId : o.deltaId;
+  private async writeRoomFile(room: string, o: Outbox, kind: RoomWrite['kind'], slot: number, plain: Uint8Array) {
+    const id = kind === SNAPSHOT ? o.snapshotId : o.chunks[slot]?.id;
     // Encrypted sessions sign each file with our key, then seal it with the newest session key.
     const bytes = this.crypto ? await this.crypto.sealRoom(plain) : plain;
     if (this.crypto) this.writtenEpoch = Math.max(this.writtenEpoch, this.crypto.latest);
-    if (id) {
-      this.ownVersions.add(`${id}@${await this.api.updateContent(id, binary(bytes))}`);
-      return;
+    if (id) this.ownVersions.add(`${id}@${await this.api.updateContent(id, binary(bytes))}`);
+    else {
+      const f = await this.api.createFile(this.folderId, roomFileName(this.seatId!, room, kind, slot), BINARY, binary(bytes), {});
+      if (kind === SNAPSHOT) o.snapshotId = f.id;
+      else (o.chunks[slot] ??= { size: 0 }).id = f.id;
+      this.ownVersions.add(`${f.id}@${f.version}`);
     }
-    const f = await this.api.createFile(this.folderId, roomFileName(this.seatId!, room, kind), BINARY, binary(bytes), {});
-    if (kind === SNAPSHOT) o.snapshotId = f.id;
-    else o.deltaId = f.id;
-    this.ownVersions.add(`${f.id}@${f.version}`);
+    if (kind === DELTA) (o.chunks[slot] ??= { size: 0 }).size = plain.byteLength;
   }
 
   /** Our v1 seat's rooms are all in snapshots now: empty the seat, so it is small to rewrite and read. */

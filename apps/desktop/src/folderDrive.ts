@@ -39,6 +39,15 @@ const PROPS_FILE = /\.(json|nbseat)$/i;
 const BINARY_FILE = /\.(nbsnap|nbdelta)$/i;
 const REMOVABLE = /^lock-[\w@.-]+\.json$/i;
 const PREFIX = 'lf:';
+/**
+ * A file whose size, times and inode are what they were when we last read it is taken to be what it
+ * was, so a listing does not read and hash every file. A file changed within this long of our
+ * reading it could change again without its timestamps showing it (coarse clocks, network shares),
+ * so it is read again until it has been still for this long (as git treats a "racy" file).
+ */
+const RACY_MS = 2000;
+/** Files remembered at most; the cache is dropped when it grows past this (a folder of this size is not a session). */
+const CACHE_MAX = 20_000;
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
 const unb64 = (s: string) => Buffer.from(s, 'base64url').toString('utf8');
@@ -46,6 +55,8 @@ const unb64 = (s: string) => Buffer.from(s, 'base64url').toString('utf8');
 export class FolderStore {
   /** Root token to absolute path; persisted by the caller. */
   private roots = new Map<string, string>();
+  /** What was read of each file, by ID, and the stat it was read at (see RACY_MS). */
+  private seen = new Map<string, { stat: string; at: number; file: FolderFile }>();
   readonly owner: string;
 
   constructor(roots: Record<string, string> = {}, owner = randomBytes(12).toString('base64url')) {
@@ -94,6 +105,10 @@ export class FolderStore {
     const name = path.basename(abs);
     if (st.isDirectory()) return { id: this.idFor(root, rel), name, mimeType: 'folder', version: String(st.mtimeMs), size: 0, createdTime: st.birthtime.toISOString(), properties: {} };
     if (!APP_FILE.test(name)) return null;
+    const stat = `${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.ino}`;
+    const key = this.idFor(root, rel);
+    const known = this.seen.get(key);
+    if (known && known.stat === stat && st.mtimeMs + RACY_MS < known.at) return { ...known.file, properties: { ...known.file.properties } };
     const raw = await fs.readFile(abs);
     let properties: Record<string, string> = {};
     if (PROPS_FILE.test(name)) {
@@ -103,7 +118,7 @@ export class FolderStore {
         return null; // Half-synced or damaged: listed once it is whole.
       }
     } else if (!BINARY_FILE.test(name)) properties = { nbRole: 'document' };
-    return {
+    const file: FolderFile = {
       id: this.idFor(root, rel),
       name,
       mimeType: /\.pdf$/i.test(name) ? 'application/pdf' : BINARY_FILE.test(name) ? 'application/octet-stream' : 'application/json',
@@ -112,6 +127,9 @@ export class FolderStore {
       createdTime: st.birthtime.toISOString(),
       properties,
     };
+    if (this.seen.size >= CACHE_MAX) this.seen.clear();
+    this.seen.set(key, { stat, at: Date.now(), file });
+    return { ...file, properties: { ...properties } };
   }
 
   async list(folderId: string): Promise<FolderFile[]> {

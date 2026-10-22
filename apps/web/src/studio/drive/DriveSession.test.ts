@@ -318,10 +318,10 @@ test('an edit uploads only the delta of the room it touched; seats stay small', 
   a1.markups.set('m1', { ...a1.markups.get('m1')!, status: 'accepted' });
   await hana.flush();
   const names = drive.writes.map((w) => w.name);
-  assert.ok(names.includes(roomFile(hana, d1.id, 'nbdelta')), 'the edited document’s delta');
+  assert.deepEqual(names.filter((n) => n.includes(d1.id)), [`${roomFile(hana, d1.id, 'nbdelta').replace(/\.nbdelta$/, '')}.1.nbdelta`], 'the edit goes in a new chunk of the edited document, and the first is left alone');
   assert.ok(!names.some((n) => n.includes(d2.id)), 'not the other document');
   assert.ok(!names.some((n) => n.endsWith('.nbseat')), 'not the seat');
-  assert.ok(fileNamed(drive, roomFile(hana, d1.id, 'nbdelta'))!.body.byteLength < 1000);
+  assert.ok(fileNamed(drive, `${seatOf(hana)}.${d1.id}.1.nbdelta`)!.body.byteLength < 1000);
 
   const seat = drive.files.get(seatOf(hana))!;
   assert.deepEqual(JSON.parse(new TextDecoder().decode(seat.body)), { v: 2 }, 'the seat holds no markups');
@@ -348,7 +348,7 @@ test('a delta past its limit is folded into a snapshot, which late joiners read'
   await hana.flush();
   const snapshot = fileNamed(drive, roomFile(hana, doc.id, 'nbsnap'));
   assert.ok(snapshot && snapshot.body.byteLength > 64 * 1024, 'a snapshot was written');
-  assert.ok(fileNamed(drive, roomFile(hana, doc.id, 'nbdelta'))!.body.byteLength < 16, 'and the delta emptied');
+  assert.ok(fileNamed(drive, roomFile(hana, doc.id, 'nbdelta'))!.body.byteLength < 1000, 'the first delta is left as it was, its edit being in the snapshot too');
 
   a.markups.set('after', { id: 'after', type: 'cloud', pageIndex: 1, status: 'none' });
   drive.writes.length = 0;
@@ -359,6 +359,102 @@ test('a delta past its limit is folded into a snapshot, which late joiners read'
   const k = fakeStore();
   await kai.attach(doc.id, k.store);
   assert.equal(k.markups.size, 82, 'the snapshot and the delta together');
+});
+
+test('each save is its own chunk; a full set of chunks is folded into a snapshot and reused from the first', async () => {
+  const { drive, hana, sam } = await twoAttendees();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  const a = fakeStore();
+  await hana.attach(doc.id, a.store);
+  const chunk = (n: number) => fileNamed(drive, n ? `${seatOf(hana)}.${doc.id}.${n}.nbdelta` : roomFile(hana, doc.id, 'nbdelta'));
+  for (let i = 0; i < 8; i++) {
+    a.markups.set(`m${i}`, { id: `m${i}`, type: 'cloud', pageIndex: i, status: 'none' });
+    await hana.flush();
+  }
+  for (let n = 0; n < 8; n++) assert.ok(chunk(n) && chunk(n)!.body.byteLength > 16, `chunk ${n} holds its own edit`);
+  assert.equal(fileNamed(drive, roomFile(hana, doc.id, 'nbsnap')), undefined, 'no snapshot yet');
+  const first = chunk(0)!.body.slice();
+
+  a.markups.set('m8', { id: 'm8', type: 'cloud', pageIndex: 8, status: 'none' });
+  await hana.flush();
+  assert.ok(fileNamed(drive, roomFile(hana, doc.id, 'nbsnap')), 'the ninth save folds them into a snapshot');
+  const stale = [1, 2, 3, 4, 5, 6, 7].map((n) => chunk(n)!.body.slice());
+  assert.ok(Buffer.from(chunk(0)!.body).equals(Buffer.from(first)), 'the chunks are left as they were, not rewritten');
+
+  await sam.poll();
+  const b = fakeStore();
+  await sam.attach(doc.id, b.store);
+  assert.equal(b.markups.size, 9, 'a late joiner has every edit from the snapshot');
+  a.markups.set('after', { id: 'after', type: 'cloud', pageIndex: 9, status: 'none' });
+  drive.writes.length = 0;
+  await hana.flush();
+  assert.deepEqual(drive.writes.map((w) => w.name).filter((n) => n.includes(doc.id)), [roomFile(hana, doc.id, 'nbdelta')], 'small edits start again from the first chunk');
+  assert.ok(!Buffer.from(chunk(0)!.body).equals(Buffer.from(first)), 'which is written over');
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map((n) => chunk(n)!.body), stale, 'and the rest wait their turn');
+  await sam.poll();
+  assert.equal(b.markups.size, 10);
+
+  const kai = await DriveSession.join(new FakeDrive(drive, 'kai'), hana.id, 'Kai', { ...opts, interactive: true });
+  const k = fakeStore();
+  await kai.attach(doc.id, k.store);
+  assert.equal(k.markups.size, 10, 'a late joiner reading the snapshot and the old chunks too gets exactly the same');
+});
+
+test('a snapshot holds only its seat’s own edits, and a late joiner still gets everyone’s', async () => {
+  const { drive, hana, sam } = await twoAttendees();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  await sam.poll();
+  const a = fakeStore();
+  const b = fakeStore();
+  await hana.attach(doc.id, a.store);
+  await sam.attach(doc.id, b.store);
+  b.markups.set('sam1', { id: 'sam1', type: 'arrow', pageIndex: 0, status: 'none' });
+  await sam.flush();
+  await hana.poll();
+  // Hana's saves fill her chunks, then fold into a snapshot, with Sam's markup already in her room.
+  for (let i = 0; i < 9; i++) {
+    a.markups.set(`h${i}`, { id: `h${i}`, type: 'cloud', pageIndex: i, status: 'none' });
+    await hana.flush();
+  }
+  const snapshot = fileNamed(drive, roomFile(hana, doc.id, 'nbsnap'));
+  assert.ok(snapshot, 'Hana folded');
+  const only = new Y.Doc();
+  Y.applyUpdate(only, snapshot!.body);
+  assert.deepEqual([...only.getMap('markups').keys()].sort(), Array.from({ length: 9 }, (_, i) => `h${i}`).sort(), 'her snapshot has her markups and not Sam’s');
+
+  const kai = await DriveSession.join(new FakeDrive(drive, 'kai'), hana.id, 'Kai', { ...opts, interactive: true });
+  const k = fakeStore();
+  await kai.attach(doc.id, k.store);
+  assert.equal(k.markups.size, 10, 'a late joiner has Hana’s from her snapshot and Sam’s from his');
+  assert.ok(k.markups.has('sam1'));
+});
+
+test('rejoining adds to the chunks it left rather than writing over them', async () => {
+  const { drive, hana } = await twoAttendees();
+  const doc = await hana.addDocument('A-101.pdf', PDF);
+  const a = fakeStore();
+  await hana.attach(doc.id, a.store);
+  for (let i = 0; i < 3; i++) {
+    a.markups.set(`m${i}`, { id: `m${i}`, type: 'cloud', pageIndex: i, status: 'none' });
+    await hana.flush();
+  }
+  const seatId = seatOf(hana);
+  hana.destroy();
+  const before = [0, 1, 2].map((n) => fileNamed(drive, n ? `${seatId}.${doc.id}.${n}.nbdelta` : roomFile(hana, doc.id, 'nbdelta'))!.body.slice());
+
+  const again = await remembering(hana.id, seatId, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, interactive: true }));
+  const b = fakeStore();
+  await again.attach(doc.id, b.store);
+  b.markups.set('m3', { id: 'm3', type: 'arrow', pageIndex: 3, status: 'none' });
+  drive.writes.length = 0;
+  await again.flush();
+  assert.deepEqual(drive.writes.map((w) => w.name).filter((n) => n.includes(doc.id)), [`${seatId}.${doc.id}.3.nbdelta`], 'the new edit is the fourth chunk');
+  assert.deepEqual([0, 1, 2].map((n) => fileNamed(drive, n ? `${seatId}.${doc.id}.${n}.nbdelta` : roomFile(hana, doc.id, 'nbdelta'))!.body), before, 'the old chunks are untouched');
+
+  const kai = await DriveSession.join(new FakeDrive(drive, 'kai'), hana.id, 'Kai', { ...opts, interactive: true });
+  const k = fakeStore();
+  await kai.attach(doc.id, k.store);
+  assert.deepEqual([...k.markups.keys()].sort(), ['m0', 'm1', 'm2', 'm3']);
 });
 
 test('rejoining on the same seat keeps edits that were only in its delta', async () => {

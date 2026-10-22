@@ -101,3 +101,64 @@ test('only a session folder this install made can be removed', async () => {
   await assert.rejects(store.sessionFolderToRemove(project), /only removes session folders it made/);
   await assert.rejects(store.sessionFolderToRemove(root), /only removes session folders it made/);
 });
+
+/** Counts the files the store reads from disk while `fn` runs. */
+async function countingReads<T>(fn: () => Promise<T>): Promise<{ result: T; reads: number }> {
+  const real = fs.readFile;
+  let reads = 0;
+  (fs as { readFile: unknown }).readFile = (...args: Parameters<typeof real>) => {
+    reads++;
+    return real(...args);
+  };
+  try {
+    return { result: await fn(), reads };
+  } finally {
+    (fs as { readFile: unknown }).readFile = real;
+  }
+}
+
+const settle = (file: string, secondsAgo = 10) => fs.utimes(file, new Date(Date.now() - secondsAgo * 1000), new Date(Date.now() - secondsAgo * 1000));
+
+test('a listing does not read files that have not changed since the last one', async () => {
+  const { dir, store, root } = await setup();
+  const project = await store.createFolder(root, 'Level 2 (redcolumn session)');
+  const folder = path.join(dir, 'Level 2 (redcolumn session)');
+  const room = await store.createFile(project, 'seat1.room.nbdelta', Buffer.from('one'), {});
+  const seat = await store.createFile(project, 'Hana (x1y2).nbseat', json({ v: 2 }), { nbRole: 'seat', nbName: 'Hana' });
+  await settle(path.join(folder, 'seat1.room.nbdelta'));
+  await settle(path.join(folder, 'Hana (x1y2).nbseat'));
+
+  const first = await countingReads(() => store.list(project));
+  assert.equal(first.reads, 2, 'the first listing reads both files');
+  const again = await countingReads(() => store.list(project));
+  assert.equal(again.reads, 0, 'the next reads neither');
+  assert.deepEqual(again.result, first.result, 'and says the same');
+  assert.equal(again.result.find((f) => f.id === seat.id)?.properties.nbName, 'Hana');
+  assert.equal(again.result.find((f) => f.id === room.id)?.version, first.result.find((f) => f.id === room.id)?.version);
+});
+
+test('a changed file is read again, and one changed a moment ago is read every time until it settles', async () => {
+  const { dir, store, root } = await setup();
+  const project = await store.createFolder(root, 'Level 2 (redcolumn session)');
+  const file = path.join(dir, 'Level 2 (redcolumn session)', 'seat1.room.nbdelta');
+  const made = await store.createFile(project, 'seat1.room.nbdelta', Buffer.from('aaaa'), {});
+  // Just written: not trusted yet, however many times it is listed.
+  assert.equal((await countingReads(() => store.list(project))).reads, 1);
+  assert.equal((await countingReads(() => store.list(project))).reads, 1, 'still read: it may change again within the same clock tick');
+
+  await settle(file);
+  const settled = (await store.list(project)).find((f) => f.id === made.id)!;
+  assert.equal((await countingReads(() => store.list(project))).reads, 0, 'once still for a while, trusted');
+
+  // Same size, new content, written over by a sync client: a new file on disk, so a new version.
+  await fs.writeFile(`${file}.new`, 'bbbb');
+  await fs.rename(`${file}.new`, file);
+  await settle(file, 5);
+  const after = (await store.list(project)).find((f) => f.id === made.id)!;
+  assert.notEqual(after.version, settled.version);
+  assert.equal(text(await store.download(made.id)), 'bbbb');
+
+  // The same file read twice has the same version, and a file written through the store shows its new version at once.
+  const v = await store.updateContent(made.id, Buffer.from('cccc'));
+  assert.equal((await store.list(project)).find((f) => f.id === made.id)!.version, v);
+});
