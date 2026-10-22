@@ -19,6 +19,16 @@ const ATTENDEES = Number(process.env.STRESS_ATTENDEES ?? 5);
 const ROUNDS = Number(process.env.STRESS_ROUNDS ?? 10);
 const MARKUPS = Number(process.env.STRESS_MARKUPS ?? 10);
 
+/** Every file the store reads from disk (listings, downloads, property updates), counted by patching readFile. */
+const disk = { reads: 0, bytes: 0 };
+const realReadFile = fs.readFile;
+(fs as { readFile: unknown }).readFile = async (...args: Parameters<typeof realReadFile>) => {
+  const data = await realReadFile(...args);
+  disk.reads++;
+  disk.bytes += data.length;
+  return data;
+};
+
 Object.defineProperty(globalThis, 'navigator', { value: undefined, configurable: true, writable: true });
 
 interface Counts {
@@ -109,6 +119,7 @@ test(`folder stress: ${ATTENDEES} attendees on a real folder converge`, { timeou
     const stores = sessions.map(() => markupStore());
     await Promise.all(sessions.map((s, i) => s.attach(doc.id, stores[i]!.store)));
     const setup = { ...counts };
+    const diskSetup = { ...disk };
 
     const started = performance.now();
     let pollMs = 0;
@@ -141,7 +152,8 @@ test(`folder stress: ${ATTENDEES} attendees on a real folder converge`, { timeou
     console.log(
       `\n  FOLDER attendees=${ATTENDEES} rounds=${ROUNDS} markups/round=${MARKUPS} (${expected} markups, ${chats} chats)\n` +
         `  folder: ${entries.length} files (${kind('.nbseat')} seats, ${kind('.nbsnap')} snapshots, ${kind('.nbdelta')} deltas), ${kib(sizes.reduce((a, b) => a + b, 0))} KiB\n` +
-        `  traffic after setup: ${d('list')} lists (read+hashed ${kib(d('listedBytes'))} KiB of disk), ${d('download')} downloads (${kib(d('downloadBytes'))} KiB), ${d('create')} creates, ${d('update')} updates (${kib(d('uploadBytes'))} KiB up)\n` +
+        `  traffic after setup: ${d('list')} lists, ${d('download')} downloads (${kib(d('downloadBytes'))} KiB), ${d('create')} creates, ${d('update')} updates (${kib(d('uploadBytes'))} KiB up)\n` +
+        `  disk reads after setup: ${disk.reads - diskSetup.reads} files, ${kib(disk.bytes - diskSetup.bytes)} KiB (listings hash every file they list)\n` +
         `  wall: ${elapsed.toFixed(0)} ms total, ${(pollMs / ROUNDS).toFixed(0)} ms per all-attendee poll round\n`,
     );
 
