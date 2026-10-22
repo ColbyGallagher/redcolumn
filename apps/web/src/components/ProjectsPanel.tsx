@@ -125,7 +125,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
       return dir * a.id.localeCompare(b.id);
     });
   const blocked = busy || !online || !oneDriveAvailable;
-  const why = !oneDriveAvailable ? 'This build is not set up for OneDrive.' : !online ? offlineReason('Projects') : undefined;
+  const why = !oneDriveAvailable ? 'OneDrive sharing is turned off.' : !online ? offlineReason('Projects') : undefined;
 
   /** `local`: a folder on this computer that a sync client shares, instead of OneDrive. */
   const make = (local = false) =>
@@ -160,8 +160,12 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
           <StudioMenu
             label="New project"
             items={[
-              { label: 'New project', onClick: () => void make(), disabled: blocked },
-              { label: 'Open from link…', onClick: () => void join(), disabled: blocked },
+              ...(oneDriveAvailable
+                ? [
+                    { label: 'New project', onClick: () => void make(), disabled: blocked },
+                    { label: 'Open from link…', onClick: () => void join(), disabled: blocked },
+                  ]
+                : []),
               // A folder this computer syncs (OneDrive, Dropbox, a file server): no sign-in, works offline.
               ...(localFoldersAvailable()
                 ? [
@@ -233,7 +237,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
           </div>
         )}
         {shown.length === 0 ? (
-          <p className="rc-empty">{rows.length === 0 && why ? why : tab === 'joined' ? 'Projects you have open are listed here.' : 'Projects you have not opened are listed here.'}</p>
+          <p className="rc-empty">{rows.length === 0 && why && !localFoldersAvailable() ? why : tab === 'joined' ? 'Projects you have open are listed here.' : 'Projects you have not opened are listed here.'}</p>
         ) : (
           <ul className="rc-list">
             {shown.map((r) => {
@@ -247,8 +251,8 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
                   name={name}
                   id={r.id}
                   selected={r.id === selectedId}
-                  disabled={!!r.removed || (!r.open && blocked)}
-                  title={r.open ? name : (why ?? name)}
+                  disabled={!!r.removed || (!r.open && (isLocalFolderId(r.id) ? busy : blocked))}
+                  title={r.open || isLocalFolderId(r.id) ? name : (why ?? name)}
                   onClick={() => {
                     if (r.removed) return;
                     onShowFiles();

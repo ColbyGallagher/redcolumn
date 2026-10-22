@@ -18,6 +18,13 @@ const TENANT = (import.meta.env.VITE_MICROSOFT_TENANT as string | undefined) || 
 export const oneDriveConfigured = !!CLIENT_ID;
 
 /**
+ * Whether Projects and Live Sessions may be kept in OneDrive and shared through it. Off unless the
+ * build sets VITE_ENABLE_ONEDRIVE_SHARING=true; folders on this computer work either way. Sheet
+ * Sync and profile backup only need `oneDriveConfigured`.
+ */
+export const oneDriveSharingEnabled = oneDriveConfigured && import.meta.env.VITE_ENABLE_ONEDRIVE_SHARING === 'true';
+
+/**
  * Least access first, stepping up only for sharing or opening someone else's folder, and only for
  * those calls (MSAL adds openid, profile and offline_access for sign-in):
  *   0. Files.ReadWrite.AppFolder: only the app's own folder, Apps/redcolumn, where sessions live.

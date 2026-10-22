@@ -17,7 +17,7 @@ import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel'
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
-import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
+import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
 import { allows, canAddMarkups, policyOf, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
@@ -7967,7 +7967,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : tab === 'projects' ? (
           <ProjectsPanel
             me={author}
-            oneDriveAvailable={oneDriveConfigured}
+            oneDriveAvailable={oneDriveSharingEnabled}
             invite={projectInvite}
             onDismissInvite={() => setProjectInvite(null)}
             localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
@@ -7999,7 +7999,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
             openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
             library={library.map((f) => ({ id: f.id, name: f.name }))}
-            oneDriveAvailable={oneDriveConfigured}
+            oneDriveAvailable={oneDriveSharingEnabled}
             folderAvailable={folderSessionsAvailable()}
             onJoinFolder={folderSessionsAvailable() ? joinFolderStudio : undefined}
             onShowFolder={(id) => void desktop()?.folder.show(id).catch((err) => setStudioError(err instanceof Error ? err.message : String(err)))}
@@ -8885,7 +8885,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               projects={knownProjects()
                 .filter((p) => !p.removed)
                 .map((p) => ({ id: p.id, name: projectById(p.id)?.getSnapshot().manifest.name ?? p.name }))}
-              oneDriveAvailable={oneDriveConfigured}
+              oneDriveAvailable={oneDriveSharingEnabled}
               sendBack={session.meta.documents.flatMap((d) => {
                 const src = sourceOf(endFor.sessionId, d.id);
                 return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];

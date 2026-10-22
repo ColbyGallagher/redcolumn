@@ -182,11 +182,11 @@ export function StartSessionDialog({
               Session name
               <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="Level 2 coordination" maxLength={120} required />
             </label>
-            {folderAvailable ? (
+            {folderAvailable && oneDriveAvailable ? (
               <fieldset className="stack">
                 <legend>Where the session lives</legend>
-                <label className="check" title={oneDriveAvailable ? undefined : 'This build is not set up for OneDrive.'}>
-                  <input type="radio" name="session-backend" checked={!inFolder} disabled={!oneDriveAvailable} onChange={() => setBackend('onedrive')} />
+                <label className="check">
+                  <input type="radio" name="session-backend" checked={!inFolder} onChange={() => setBackend('onedrive')} />
                   OneDrive (everyone signs in with Microsoft)
                 </label>
                 <label className="check">
@@ -200,7 +200,7 @@ export function StartSessionDialog({
                 ? 'You choose a folder everyone in the session can reach; the session gets its own folder inside it. No sign-in: anyone who can open that folder joins by choosing it in Join Session.'
                 : oneDriveAvailable
                   ? 'The session is a shared folder in your OneDrive; everyone signs in with Microsoft.'
-                  : 'Live Sessions need OneDrive, which is not set up in this build.'}
+                  : 'OneDrive sharing is turned off, so Live Sessions need a shared folder on this computer (the desktop app).'}
             </p>
             <fieldset className="stack">
               <legend>Options</legend>
@@ -358,7 +358,7 @@ export function JoinSessionDialog({
         }}
       >
         <p>You join as {me}. The easiest way in is the invite link from the host.</p>
-        {!oneDriveAvailable && !onJoinFolder && <p className="hint">Live Sessions need OneDrive, which is not set up in this build.</p>}
+        {!oneDriveAvailable && !onJoinFolder && <p className="hint">OneDrive sharing is turned off, so joining a Live Session needs the desktop app and a shared folder.</p>}
         {oneDriveAvailable && (
           <div className="row">
             <input
@@ -767,10 +767,12 @@ export function EndSessionDialog({
             <input type="radio" name="end-dest" checked={destination === 'local'} onChange={() => setDestination('local')} />
             This computer (you choose a folder)
           </label>
-          <label className="check" title={oneDriveAvailable ? undefined : 'This build is not set up for OneDrive.'}>
-            <input type="radio" name="end-dest" checked={destination === 'onedrive'} disabled={!oneDriveAvailable} onChange={() => setDestination('onedrive')} />
-            OneDrive (a new folder in Apps/redcolumn)
-          </label>
+          {oneDriveAvailable && (
+            <label className="check">
+              <input type="radio" name="end-dest" checked={destination === 'onedrive'} onChange={() => setDestination('onedrive')} />
+              OneDrive (a new folder in Apps/redcolumn)
+            </label>
+          )}
           <label className="check" title={projects.length ? undefined : 'You have no Projects. Make one in the Projects panel first.'}>
             <input type="radio" name="end-dest" checked={destination === 'project'} disabled={!projects.length} onChange={() => setDestination('project')} />
             A redcolumn Project
