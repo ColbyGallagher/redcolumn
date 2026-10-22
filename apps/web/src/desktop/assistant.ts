@@ -136,7 +136,8 @@ function measurement(doc: AssistantDocument, markup: Markup): string | undefined
   return measureLabel(markup.type, markup.points, doc.store.scaleOf(markup), measureProps(markup));
 }
 
-function publicMarkup(doc: AssistantDocument, markup: Markup) {
+/** `brief` leaves out the geometry, style, and author: what a list needs to pick markups, at a fraction of the size. */
+function publicMarkup(doc: AssistantDocument, markup: Markup, brief = false) {
   const columns = doc.store.columnSet();
   const status = columns.statuses.find((s) => s.id === markup.status)?.name ?? markup.status;
   const fields: Record<string, string> = {};
@@ -144,19 +145,19 @@ function publicMarkup(doc: AssistantDocument, markup: Markup) {
     const value = markup.fields?.[column.id];
     if (value) fields[column.name] = value;
   }
+  const measured = measurement(doc, markup);
   return {
     id: markup.id,
     ...(markup.seq !== undefined ? { seq: markup.seq } : {}),
     type: markup.type,
     page: markup.pageIndex + 1,
-    points: markup.points,
-    style: { stroke: markup.style.stroke, fill: markup.style.fill, width: markup.style.width },
+    ...(brief ? {} : { points: markup.points, style: { stroke: markup.style.stroke, fill: markup.style.fill, width: markup.style.width } }),
     ...(markup.text ? { text: markup.text } : {}),
     ...(markup.subject ? { subject: markup.subject } : {}),
     ...(markup.comment ? { comment: markup.comment } : {}),
     status,
-    author: markup.author,
-    ...(measurement(doc, markup) ? { measurement: measurement(doc, markup) } : {}),
+    ...(brief ? {} : { author: markup.author }),
+    ...(measured ? { measurement: measured } : {}),
     ...(Object.keys(fields).length ? { fields } : {}),
     ...(markup.hidden ? { hidden: true } : {}),
     ...(markup.locked ? { locked: true } : {}),
@@ -189,6 +190,30 @@ function pageIndexOf(doc: AssistantDocument, raw: unknown): number {
   return page - 1;
 }
 
+/** A list without a limit stops here, and says where to carry on from. */
+const DEFAULT_LIST_LIMIT = 500;
+const MAX_LIST_LIMIT = 2000;
+
+/** The most markups, or items, one batch call changes. A bigger job is several calls. */
+const MAX_BATCH = 500;
+
+function wholeNumber(raw: unknown, name: string, min: number): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(n) || n < min) throw new Error(`${name} has to be a whole number, ${min} or more.`);
+  return n;
+}
+
+function statusOf(doc: AssistantDocument, raw: string) {
+  const wanted = raw.trim().toLowerCase();
+  const status = doc.store.columnSet().statuses.find((s) => s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted);
+  if (!status) throw new Error(`"${raw}" is not a status on ${doc.name}.`);
+  return status;
+}
+
+function tally(counts: Record<string, number>, key: string) {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
 function listMarkups(docs: readonly AssistantDocument[], params: unknown) {
   const args = record(params);
   const doc = findDocument(docs, args.document);
@@ -197,7 +222,43 @@ function listMarkups(docs: readonly AssistantDocument[], params: unknown) {
     const index = pageIndexOf(doc, args.page);
     markups = markups.filter((m) => m.pageIndex === index);
   }
-  return { document: doc.name, id: doc.id, markups: markups.map((m) => publicMarkup(doc, m)) };
+  if (args.type !== undefined) {
+    const type = markupType(args.type);
+    markups = markups.filter((m) => m.type === type);
+  }
+  if (typeof args.status === 'string' && args.status.trim()) {
+    const status = statusOf(doc, args.status);
+    markups = markups.filter((m) => m.status === status.id);
+  }
+  if (typeof args.search === 'string' && args.search.trim()) {
+    const wanted = args.search.trim().toLowerCase();
+    markups = markups.filter((m) => [m.text, m.subject, m.comment].some((value) => value?.toLowerCase().includes(wanted)));
+  }
+  if (args.summary === true) {
+    const statuses = doc.store.columnSet().statuses;
+    const byType: Record<string, number> = {};
+    const byStatus: Record<string, number> = {};
+    const byPage: Record<string, number> = {};
+    for (const m of markups) {
+      tally(byType, m.type);
+      tally(byStatus, statuses.find((s) => s.id === m.status)?.name ?? m.status);
+      tally(byPage, String(m.pageIndex + 1));
+    }
+    return { document: doc.name, id: doc.id, total: markups.length, byType, byStatus, byPage };
+  }
+  const limit = args.limit === undefined ? DEFAULT_LIST_LIMIT : Math.min(wholeNumber(args.limit, 'Limit', 1), MAX_LIST_LIMIT);
+  const offset = args.offset === undefined ? 0 : wholeNumber(args.offset, 'Offset', 0);
+  const brief = args.detail === 'brief';
+  const shown = markups.slice(offset, offset + limit);
+  const next = offset + shown.length;
+  return {
+    document: doc.name,
+    id: doc.id,
+    total: markups.length,
+    offset,
+    ...(next < markups.length ? { nextOffset: next } : {}),
+    markups: shown.map((m) => publicMarkup(doc, m, brief)),
+  };
 }
 
 function findMarkup(doc: AssistantDocument, args: Record<string, unknown>): Markup {
@@ -215,18 +276,10 @@ function findMarkup(doc: AssistantDocument, args: Record<string, unknown>): Mark
   throw new Error('Say which markup to change: its id or its number (seq) from list_markups.');
 }
 
-function setMarkup(docs: readonly AssistantDocument[], params: unknown) {
-  const args = record(params);
-  const doc = findDocument(docs, args.document);
-  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
-  const markup = findMarkup(doc, args);
+/** The change `set_markup` makes to one markup. Throws before anything is touched. */
+function setPatch(doc: AssistantDocument, markup: Markup, args: Record<string, unknown>): Partial<Omit<Markup, 'id'>> {
   const patch: Partial<Omit<Markup, 'id'>> = {};
-  if (typeof args.status === 'string') {
-    const wanted = args.status.trim().toLowerCase();
-    const status = doc.store.columnSet().statuses.find((s) => s.id.toLowerCase() === wanted || s.name.toLowerCase() === wanted);
-    if (!status) throw new Error(`"${args.status}" is not a status on ${doc.name}.`);
-    patch.status = status.id;
-  }
+  if (typeof args.status === 'string') patch.status = statusOf(doc, args.status).id;
   if (typeof args.comment === 'string') patch.comment = args.comment ? args.comment : undefined;
   if (typeof args.subject === 'string') patch.subject = args.subject ? args.subject : undefined;
   if (typeof args.field === 'string' && args.field) {
@@ -238,19 +291,90 @@ function setMarkup(docs: readonly AssistantDocument[], params: unknown) {
     patch.fields = { ...markup.fields, [column.id]: args.value };
   }
   if (!('status' in patch) && !('comment' in patch) && !('subject' in patch) && !patch.fields) throw new Error('Say what to change: status, comment, subject, or a column.');
-  doc.store.checkpoint();
-  doc.store.update(markup.id, patch);
-  const next = doc.store.get(markup.id);
-  if (!next) throw new Error(`No markup ${markup.id} is on ${doc.name}.`);
+  return patch;
+}
+
+/** The markup after `set_markup` wrote `patch`, or why the store refused it (someone else's markup, say). */
+function appliedSet(doc: AssistantDocument, id: string, patch: Partial<Omit<Markup, 'id'>>): Markup {
+  const next = doc.store.get(id);
+  if (!next) throw new Error(`No markup ${id} is on ${doc.name}.`);
   if (patch.status !== undefined && next.status !== patch.status) throw new Error('That markup cannot be changed.');
   if ('comment' in patch && (next.comment ?? '') !== (patch.comment ?? '')) throw new Error('That markup cannot be changed.');
   if ('subject' in patch && (next.subject ?? '') !== (patch.subject ?? '')) throw new Error('That markup cannot be changed.');
   if (patch.fields) {
-    for (const [id, value] of Object.entries(patch.fields)) {
-      if ((next.fields?.[id] ?? '') !== value) throw new Error('That markup cannot be changed.');
+    for (const [fieldId, value] of Object.entries(patch.fields)) {
+      if ((next.fields?.[fieldId] ?? '') !== value) throw new Error('That markup cannot be changed.');
     }
   }
-  return { document: doc.name, markup: publicMarkup(doc, next) };
+  return next;
+}
+
+function setMarkup(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const markup = findMarkup(doc, args);
+  const patch = setPatch(doc, markup, args);
+  doc.store.checkpoint();
+  doc.store.update(markup.id, patch);
+  return { document: doc.name, markup: publicMarkup(doc, appliedSet(doc, markup.id, patch)) };
+}
+
+function errorText(err: unknown): string {
+  return err instanceof Error && err.message ? err.message : 'That markup cannot be changed.';
+}
+
+function batchItems(raw: unknown, empty: string): Record<string, unknown>[] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) throw new Error(empty);
+  if (raw.length > MAX_BATCH) throw new Error(`That is ${raw.length} at once. The most is ${MAX_BATCH}: send the rest in another call.`);
+  return raw as Record<string, unknown>[];
+}
+
+/** Markups named by id or by number, each once, in the order given. */
+function pickMarkups(doc: AssistantDocument, args: Record<string, unknown>): Markup[] {
+  const picked: Markup[] = [];
+  const seen = new Set<string>();
+  const add = (markup: Markup) => {
+    if (seen.has(markup.id)) return;
+    seen.add(markup.id);
+    picked.push(markup);
+  };
+  const named = (Array.isArray(args.ids) ? args.ids.length : 0) + (Array.isArray(args.seqs) ? args.seqs.length : 0);
+  if (named > MAX_BATCH) throw new Error(`That is ${named} markups at once. The most is ${MAX_BATCH}: send the rest in another call.`);
+  if (args.ids !== undefined) for (const id of idsOf(args.ids, 'ids has to be a list of markup ids from list_markups.')) add(findMarkup(doc, { id }));
+  if (args.seqs !== undefined) {
+    if (!Array.isArray(args.seqs) || args.seqs.some((seq) => typeof seq !== 'number' || !Number.isInteger(seq))) throw new Error('seqs has to be a list of markup numbers from list_markups.');
+    for (const seq of args.seqs as number[]) add(findMarkup(doc, { seq }));
+  }
+  if (!picked.length) throw new Error('Say which markups to change: ids or seqs from list_markups.');
+  return picked;
+}
+
+/**
+ * One status, comment, subject, or column value for many markups, as one undo step. Every markup
+ * is checked first, so a bad name changes nothing. Only what the store refuses afterwards is
+ * listed in `failed`.
+ */
+function setMarkups(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const plan = pickMarkups(doc, args).map((markup) => ({ markup, patch: setPatch(doc, markup, args) }));
+  doc.store.checkpoint();
+  doc.store.batch(() => {
+    for (const { markup, patch } of plan) doc.store.update(markup.id, patch);
+  });
+  const updated: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const { markup, patch } of plan) {
+    try {
+      appliedSet(doc, markup.id, patch);
+      updated.push(markup.id);
+    } catch (err) {
+      failed.push({ id: markup.id, error: errorText(err) });
+    }
+  }
+  return { document: doc.name, updated, ...(failed.length ? { failed } : {}) };
 }
 
 function markupType(raw: unknown): MarkupType {
@@ -377,6 +501,50 @@ async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, 
   return { document: doc.name, markup: publicMarkup(doc, markup) };
 }
 
+/**
+ * Several markups drawn as one undo step. Each item is what `place_markup` takes, with `page`
+ * optional when the call gives one for all. Every item is checked first, so one bad item
+ * draws nothing. Cloud+ and Smart Fill are gestures on the screen, so they stay in `place_markup`.
+ */
+function placeMarkups(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const items = batchItems(args.markups, 'Give markups: a list of what to draw, each with a type, a page, and points.');
+  const plan = items.map((item, i) => {
+    const where = `Markup ${i + 1}`;
+    try {
+      const page = item.page ?? args.page;
+      if (page === undefined) throw new Error('Say which page to draw on.');
+      const pageIndex = pageIndexOf(doc, page);
+      if (typeof item.type === 'string' && GESTURE_TOOLS.has(item.type)) throw new Error(`${item.type} is one gesture on the screen. Use place_markup for it.`);
+      const type = markupType(item.type);
+      refuseFileType(type);
+      const points = pointsOf(item.points);
+      requirePoints(type, points);
+      return { type, pageIndex, points, extras: extrasOf(item) };
+    } catch (err) {
+      throw new Error(`${where}: ${errorText(err)}`);
+    }
+  });
+  const tools = env.toolsFor?.(doc.id) ?? null;
+  const owned = tools?.owns(doc.store) ? tools : null;
+  const placed: Markup[] = [];
+  doc.store.checkpoint();
+  doc.store.batch(() => {
+    for (const { type, pageIndex, points, extras } of plan) {
+      placed.push(owned ? owned.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras));
+    }
+  });
+  return {
+    document: doc.name,
+    placed: placed.map((m) => {
+      const seq = doc.store.get(m.id)?.seq;
+      return { id: m.id, ...(seq !== undefined ? { seq } : {}), type: m.type, page: m.pageIndex + 1 };
+    }),
+  };
+}
+
 function colorOf(value: unknown, name: string): string {
   if (typeof value !== 'string' || !/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value)) throw new Error(`${name} has to be a color like #ff0000.`);
   return value;
@@ -410,11 +578,8 @@ function samePoints(a: readonly Point[], b: readonly Point[]): boolean {
   return a.length === b.length && a.every((p, i) => p[0] === b[i]?.[0] && p[1] === b[i]?.[1]);
 }
 
-function updateMarkup(docs: readonly AssistantDocument[], params: unknown) {
-  const args = record(params);
-  const doc = findDocument(docs, args.document);
-  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
-  const markup = findMarkup(doc, args);
+/** The change `update_markup` makes to one markup. Throws before anything is touched. */
+function updatePatch(doc: AssistantDocument, markup: Markup, args: Record<string, unknown>): Partial<Omit<Markup, 'id'>> {
   if (markup.locked) throw new Error('That markup is locked.');
   if (!doc.store.mayEdit(markup)) throw new Error('That markup cannot be changed.');
   const patch: Partial<Omit<Markup, 'id'>> = {};
@@ -426,10 +591,13 @@ function updateMarkup(docs: readonly AssistantDocument[], params: unknown) {
   if (typeof args.text === 'string') patch.text = args.text ? args.text : undefined;
   if (args.style !== undefined) patch.style = { ...markup.style, ...styleOf(args.style) };
   if (!('points' in patch) && !('text' in patch) && !patch.style) throw new Error('Say what to change: points, text, or style.');
-  doc.store.checkpoint();
-  doc.store.update(markup.id, patch);
-  const next = doc.store.get(markup.id);
-  if (!next) throw new Error(`No markup ${markup.id} is on ${doc.name}.`);
+  return patch;
+}
+
+/** The markup after `update_markup` wrote `patch`, or why the store refused it. */
+function appliedUpdate(doc: AssistantDocument, id: string, patch: Partial<Omit<Markup, 'id'>>): Markup {
+  const next = doc.store.get(id);
+  if (!next) throw new Error(`No markup ${id} is on ${doc.name}.`);
   if (patch.points && !samePoints(next.points, patch.points)) throw new Error('That markup cannot be changed.');
   if ('text' in patch && (next.text ?? '') !== (patch.text ?? '')) throw new Error('That markup cannot be changed.');
   if (patch.style) {
@@ -437,7 +605,48 @@ function updateMarkup(docs: readonly AssistantDocument[], params: unknown) {
     if (patch.style.opacity !== undefined && next.style.opacity !== patch.style.opacity) throw new Error('That markup cannot be changed.');
     if (patch.style.fontSize !== undefined && next.style.fontSize !== patch.style.fontSize) throw new Error('That markup cannot be changed.');
   }
-  return { document: doc.name, markup: publicMarkup(doc, next) };
+  return next;
+}
+
+function updateMarkup(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const markup = findMarkup(doc, args);
+  const patch = updatePatch(doc, markup, args);
+  doc.store.checkpoint();
+  doc.store.update(markup.id, patch);
+  return { document: doc.name, markup: publicMarkup(doc, appliedUpdate(doc, markup.id, patch)) };
+}
+
+/** Several markups changed as one undo step: each item is what `update_markup` takes. Checked first, like `set_markups`. */
+function updateMarkups(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const items = batchItems(args.markups, 'Give markups: a list of changes, each with an id or seq and points, text, or style.');
+  const seen = new Set<string>();
+  const plan = items.map((item) => {
+    const markup = findMarkup(doc, item);
+    if (seen.has(markup.id)) throw new Error(`Markup ${markup.seq ?? markup.id} is in the list twice.`);
+    seen.add(markup.id);
+    return { markup, patch: updatePatch(doc, markup, item) };
+  });
+  doc.store.checkpoint();
+  doc.store.batch(() => {
+    for (const { markup, patch } of plan) doc.store.update(markup.id, patch);
+  });
+  const updated: string[] = [];
+  const failed: { id: string; error: string }[] = [];
+  for (const { markup, patch } of plan) {
+    try {
+      appliedUpdate(doc, markup.id, patch);
+      updated.push(markup.id);
+    } catch (err) {
+      failed.push({ id: markup.id, error: errorText(err) });
+    }
+  }
+  return { document: doc.name, updated, ...(failed.length ? { failed } : {}) };
 }
 
 function idsOf(raw: unknown, empty: string): string[] {
@@ -503,7 +712,15 @@ function listCommands(params: unknown, env: AssistantEnv) {
   if (!commands) throw new Error('Commands are not available.');
   const categoryRaw = record(params).category;
   const category = typeof categoryRaw === 'string' ? categoryRaw.trim().toLowerCase() : '';
-  const list = [...commands.values()].filter((command) => !category || command.category.toLowerCase() === category);
+  const queryRaw = record(params).query;
+  const query = typeof queryRaw === 'string' ? queryRaw.trim().toLowerCase() : '';
+  const onlyAvailable = record(params).available === true;
+  const list = [...commands.values()].filter(
+    (command) =>
+      (!category || command.category.toLowerCase() === category) &&
+      (!onlyAvailable || command.enabled) &&
+      (!query || command.id.toLowerCase().includes(query) || command.label.toLowerCase().includes(query)),
+  );
   return {
     commands: list.map((command) => ({
       id: command.id,
@@ -560,9 +777,12 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'list_open_documents') return { documents: assistantDocuments(docs).map(publicDocument) };
   if (method === 'list_markups') return listMarkups(docs, params);
   if (method === 'set_markup') return setMarkup(docs, params);
+  if (method === 'set_markups') return setMarkups(docs, params);
   if (method === 'get_page') return getPage(docs, params);
   if (method === 'place_markup') return placeMarkup(docs, params, env);
+  if (method === 'place_markups') return placeMarkups(docs, params, env);
   if (method === 'update_markup') return updateMarkup(docs, params);
+  if (method === 'update_markups') return updateMarkups(docs, params);
   if (method === 'delete_markups') return deleteMarkups(docs, params, env);
   if (method === 'select_markups') return selectMarkups(docs, params, env);
   if (method === 'list_commands') return listCommands(params, env);

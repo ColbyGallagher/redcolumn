@@ -46,21 +46,38 @@ test('initialize and tools/list answer even when the app is closed', async () =>
   assert.equal(parsed.result.protocolVersion, '2025-03-26');
   assert.equal(parsed.result.serverInfo.name, 'redcolumn');
 
-  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; annotations?: { destructiveHint?: boolean } }[] } };
+  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; title: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint?: boolean; openWorldHint: boolean } }[] } };
   assert.deepEqual(list.result.tools.map((t) => t.name), [
     'list_open_documents',
     'list_markups',
     'set_markup',
+    'set_markups',
     'list_commands',
     'run_command',
     'get_page',
     'select_markups',
     'place_markup',
+    'place_markups',
     'update_markup',
+    'update_markups',
     'delete_markups',
   ]);
-  assert.equal(list.result.tools.find((t) => t.name === 'delete_markups')?.annotations?.destructiveHint, true);
-  assert.equal(list.result.tools.find((t) => t.name === 'run_command')?.annotations, undefined);
+  const tool = (name: string) => list.result.tools.find((t) => t.name === name)!;
+  assert.equal(tool('delete_markups').annotations.destructiveHint, true);
+  assert.equal(tool('run_command').annotations.destructiveHint, true);
+  for (const t of list.result.tools) {
+    assert.ok(t.title, `${t.name} has a title`);
+    assert.equal(t.annotations.openWorldHint, false, `${t.name} says it stays on this computer`);
+  }
+});
+
+test('reads say they are read-only, and nothing else does', async () => {
+  const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean } }[] } };
+  const reads = list.result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
+  assert.deepEqual(reads, ['list_open_documents', 'list_markups', 'list_commands', 'get_page']);
+  // Only the tools that remove things, or run any command, are flagged destructive.
+  const flagged = list.result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name);
+  assert.deepEqual(flagged, ['run_command', 'delete_markups']);
 });
 
 test('a tool call reaches the app, and a closed app is a plain message', async () => {

@@ -88,6 +88,174 @@ test('placing and updating a markup are each one undo step', async () => {
   assert.equal(drawing.store.get('door')?.style.stroke, '#000');
 });
 
+async function crowded(count: number) {
+  const drawing = await doc('A-101.pdf', true);
+  for (let i = 0; i < count; i++) {
+    drawing.store.add(markup({ id: `r${i}`, type: i % 2 ? 'rect' : 'cloud', pageIndex: i % 2, text: `Item ${i}`, comment: i === 3 ? 'Check the Header' : undefined }));
+  }
+  return drawing;
+}
+
+test('list_markups filters, pages, trims, and counts', async () => {
+  const drawing = await crowded(10);
+  type Listed = { total: number; offset: number; nextOffset?: number; markups: { id: string; type: string; points?: unknown; style?: unknown; author?: string; text?: string }[] };
+  const list = (params: unknown) => assistantCall([drawing], 'list_markups', params) as Promise<Listed>;
+
+  const all = await list({});
+  assert.equal(all.total, 11);
+  assert.equal(all.nextOffset, undefined);
+
+  const clouds = await list({ type: 'cloud' });
+  assert.ok(clouds.markups.length > 0 && clouds.markups.every((m) => m.type === 'cloud'));
+  assert.equal(clouds.total, clouds.markups.length);
+  const found = await list({ search: 'header' });
+  assert.deepEqual(found.markups.map((m) => m.id), ['r3']);
+  assert.equal((await list({ page: 2, type: 'rect' })).total, 5);
+  assert.equal((await list({ status: 'Accepted' })).total, 0);
+  await assert.rejects(() => list({ status: 'Nonsense' }), /not a status/);
+  await assert.rejects(() => list({ type: 'nonsense' }), /Unknown markup type/);
+
+  const first = await list({ limit: 4 });
+  assert.equal(first.markups.length, 4);
+  assert.equal(first.total, 11);
+  assert.equal(first.nextOffset, 4);
+  const last = await list({ limit: 4, offset: 8 });
+  assert.equal(last.markups.length, 3);
+  assert.equal(last.nextOffset, undefined);
+  assert.deepEqual([...first.markups, ...(await list({ limit: 4, offset: 4 })).markups, ...last.markups].map((m) => m.id), all.markups.map((m) => m.id));
+  await assert.rejects(() => list({ limit: 0 }), /Limit has to be a whole number/);
+  await assert.rejects(() => list({ offset: -1 }), /Offset has to be a whole number/);
+
+  const brief = await list({ detail: 'brief' });
+  assert.equal(brief.markups[0]!.points, undefined);
+  assert.equal(brief.markups[0]!.style, undefined);
+  assert.equal(brief.markups[0]!.author, undefined);
+  assert.ok(JSON.stringify(brief).length < JSON.stringify(all).length);
+  assert.equal(all.markups[0]!.author, 'Ada');
+
+  const summary = (await assistantCall([drawing], 'list_markups', { summary: true })) as { total: number; markups?: unknown; byType: Record<string, number>; byStatus: Record<string, number>; byPage: Record<string, number> };
+  assert.equal(summary.total, 11);
+  assert.equal(summary.markups, undefined);
+  assert.equal(Object.values(summary.byType).reduce((a, b) => a + b, 0), 11);
+  assert.deepEqual(summary.byStatus, { None: 11 });
+  assert.deepEqual(summary.byPage, { 1: 6, 2: 5 });
+});
+
+test('list_commands narrows by text and by what can run now', async () => {
+  const commands = () =>
+    new Map<string, AssistantCommand>([
+      ['view.zoomIn', { id: 'view.zoomIn', label: 'Zoom In', category: 'View', enabled: true, run: () => {} }],
+      ['view.zoomOut', { id: 'view.zoomOut', label: 'Zoom Out', category: 'View', enabled: false, run: () => {} }],
+      ['edit.undo', { id: 'edit.undo', label: 'Undo', category: 'Edit', enabled: true, run: () => {} }],
+    ]);
+  const ids = async (params: unknown) => ((await assistantCall([], 'list_commands', params, { commands })) as { commands: { id: string }[] }).commands.map((c) => c.id);
+  assert.deepEqual(await ids({}), ['view.zoomIn', 'view.zoomOut', 'edit.undo']);
+  assert.deepEqual(await ids({ query: 'ZOOM' }), ['view.zoomIn', 'view.zoomOut']);
+  assert.deepEqual(await ids({ query: 'undo' }), ['edit.undo']);
+  assert.deepEqual(await ids({ query: 'zoom', available: true }), ['view.zoomIn']);
+  assert.deepEqual(await ids({ category: 'view', available: true }), ['view.zoomIn']);
+});
+
+test('set_markups changes many markups as one undo step, and checks them all first', async () => {
+  const drawing = await crowded(5);
+  const done = (await assistantCall([drawing], 'set_markups', { ids: ['r0', 'r1'], seqs: [4, 2], status: 'Accepted', comment: 'ok' })) as { updated: string[]; failed?: unknown };
+  // seq 2 is r0 and seq 4 is r2: r0 is named twice and is changed once.
+  assert.deepEqual(done.updated, ['r0', 'r1', 'r2']);
+  assert.equal(done.failed, undefined);
+  for (const id of done.updated) {
+    assert.equal(drawing.store.get(id)?.status, 'accepted');
+    assert.equal(drawing.store.get(id)?.comment, 'ok');
+  }
+  assert.equal(drawing.store.get('r3')?.status, 'none');
+  drawing.store.undo();
+  for (const id of done.updated) assert.equal(drawing.store.get(id)?.status, 'none');
+  assert.equal(drawing.store.get('r0')?.comment, undefined);
+
+  await assert.rejects(() => assistantCall([drawing], 'set_markups', { ids: ['r0'], status: 'Nonsense' }), /not a status/);
+  await assert.rejects(() => assistantCall([drawing], 'set_markups', { ids: ['r0', 'missing'], status: 'Accepted' }), /No markup missing/);
+  assert.equal(drawing.store.get('r0')?.status, 'none');
+  await assert.rejects(() => assistantCall([drawing], 'set_markups', { status: 'Accepted' }), /ids or seqs/);
+  await assert.rejects(() => assistantCall([drawing], 'set_markups', { ids: ['r0'] }), /Say what to change/);
+  await assert.rejects(() => assistantCall([drawing], 'set_markups', { ids: Array.from({ length: 501 }, (_, i) => `r${i}`), status: 'Accepted' }), /The most is 500/);
+});
+
+test('place_markups draws many markups as one undo step, and none when one is wrong', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const placed = (await assistantCall([drawing], 'place_markups', {
+    page: 2,
+    markups: [
+      { type: 'rect', points: [[0, 0], [10, 10]], text: 'A' },
+      { type: 'rect', page: 1, points: [[20, 20], [30, 30]], subject: 'B' },
+      { type: 'note', points: [[5, 5]] },
+    ],
+  })) as { placed: { id: string; seq: number; type: string; page: number }[] };
+  assert.deepEqual(placed.placed.map((p) => [p.type, p.page]), [['rect', 2], ['rect', 1], ['note', 2]]);
+  assert.deepEqual(placed.placed.map((p) => p.seq), [2, 3, 4]);
+  assert.equal(drawing.store.all().length, 4);
+  assert.equal(drawing.store.get(placed.placed[0]!.id)?.text, 'A');
+  assert.equal(drawing.store.get(placed.placed[1]!.id)?.subject, 'B');
+  drawing.store.undo();
+  assert.equal(drawing.store.all().length, 1);
+
+  const refuses = (markups: unknown, message: RegExp, page?: number) => assert.rejects(() => assistantCall([drawing], 'place_markups', { ...(page ? { page } : {}), markups }), message);
+  await refuses([{ type: 'rect', page: 1, points: [[0, 0], [1, 1]] }, { type: 'rect', page: 1, points: [[0, 0]] }], /Markup 2: .*two opposite corners/);
+  await refuses([{ type: 'rect', points: [[0, 0], [1, 1]] }], /Markup 1: Say which page/);
+  await refuses([{ type: 'rect', page: 3, points: [[0, 0], [1, 1]] }], /Markup 1: Page 3 is not in/);
+  await refuses([{ type: 'nonsense', page: 1, points: [[0, 0]] }], /Markup 1: Unknown markup type/);
+  await refuses([{ type: 'stamp', page: 1, points: [[0, 0], [1, 1]] }], /Markup 1: .*needs a file/);
+  await refuses([{ type: 'cloudPlus', page: 1, points: [[0, 0], [1, 1]] }], /Markup 1: .*Use place_markup/);
+  await refuses([], /Give markups/);
+  await refuses(Array.from({ length: 501 }, () => ({ type: 'rect', page: 1, points: [[0, 0], [1, 1]] })), /The most is 500/);
+  assert.equal(drawing.store.all().length, 1);
+});
+
+test('place_markups draws through the tools on screen when it owns the drawing', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const calls: string[] = [];
+  const tools: AssistantTools = {
+    owns: (store) => store === drawing.store,
+    place: (type, page, points) => {
+      calls.push(`${type} ${page} ${points.length}`);
+      const m = markup({ id: `p${calls.length}`, type, pageIndex: page, points });
+      drawing.store.add(m);
+      return m;
+    },
+    select: () => {},
+  };
+  await assistantCall([drawing], 'place_markups', { page: 1, markups: [{ type: 'rect', points: [[0, 0], [5, 5]] }, { type: 'ellipse', points: [[1, 1], [6, 6]] }] }, { toolsFor: () => tools });
+  assert.deepEqual(calls, ['rect 0 2', 'ellipse 0 2']);
+  drawing.store.undo();
+  assert.equal(drawing.store.all().length, 1);
+});
+
+test('update_markups changes many markups as one undo step, and checks them all first', async () => {
+  const drawing = await crowded(3);
+  const done = (await assistantCall([drawing], 'update_markups', {
+    markups: [
+      { id: 'r0', text: 'First', style: { stroke: '#ff0000' } },
+      { seq: 3, points: [[1, 1], [9, 9]] },
+    ],
+  })) as { updated: string[]; failed?: unknown };
+  assert.deepEqual(done.updated, ['r0', 'r1']);
+  assert.equal(drawing.store.get('r0')?.text, 'First');
+  assert.equal(drawing.store.get('r0')?.style.stroke, '#ff0000');
+  assert.deepEqual(drawing.store.get('r1')?.points, [[1, 1], [9, 9]]);
+  drawing.store.undo();
+  assert.equal(drawing.store.get('r0')?.text, 'Item 0');
+  assert.equal(drawing.store.get('r0')?.style.stroke, '#000');
+  assert.deepEqual(drawing.store.get('r1')?.points, [[0, 0], [72, 0]]);
+
+  drawing.store.update('r2', { locked: true });
+  const refuses = (markups: unknown, message: RegExp) => assert.rejects(() => assistantCall([drawing], 'update_markups', { markups }), message);
+  await refuses([{ id: 'r0', text: 'Changed' }, { id: 'r2', text: 'Locked' }], /locked/);
+  await refuses([{ id: 'r0', text: 'Changed' }, { id: 'r0', text: 'Again' }], /in the list twice/);
+  await refuses([{ id: 'r0', text: 'Changed' }, { id: 'r1' }], /Say what to change/);
+  await refuses([{ id: 'r0', text: 'Changed' }, { id: 'r1', style: { stroke: 'red' } }], /color/);
+  await refuses([{ id: 'r0', text: 'Changed' }, { id: 'nope', text: 'x' }], /No markup nope/);
+  await refuses([], /Give markups/);
+  assert.equal(drawing.store.get('r0')?.text, 'Item 0');
+});
+
 test('deleting asks first and does nothing when denied', async () => {
   const drawing = await doc('A-101.pdf', true);
   let asked = '';
