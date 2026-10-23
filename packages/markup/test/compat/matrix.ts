@@ -138,7 +138,8 @@ export function renderMatrix(r: Results): string {
     '- BAX leaves out links and form fields, as Revu does. Pop-ups are nested inside their markup and are counted.',
     '- The BAX column checks our export against the PDF it came from. A Revu BAX is only a reference when it was exported from that same PDF; a mismatch is listed under Not run.',
     '- PDF and BAX rows count annotations; XFDF rows count markups. One markup can be several annotations (a count group, or a markup with replies and states), so the two counts differ.',
-    '- Settings files are read only. No writer exists for .btx, .blx, .bhx or .bpx yet, so their Write cells are Not yet.',
+    '- Settings files are written back and read again. A Write item passes when it reads back the same as it was read. Tools are written here from their type and style; in the app, a tool imported from Revu and not restyled is written back as Revu stored it.',
+    '- A .bpx is written with its markup list only. Revu keeps its own settings for the rest of the profile.',
     '- A fixture only proves what it contains. Add Revu-produced files for each feature before a cell can read Supported.',
     '',
   );

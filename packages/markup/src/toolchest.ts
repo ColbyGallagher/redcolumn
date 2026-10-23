@@ -33,6 +33,28 @@ export interface ToolChestItem {
   template?: Markup[];
   /** Numbers each copy's text on from the last one in the document (Revu's <Sequence>). */
   sequence?: { start: number; increment: number };
+  /** The tool as Revu stored it, so an unchanged tool is written back to a .btx the same. */
+  source?: RevuToolSource;
+}
+
+/** A Revu tool as its .btx stored it, kept beside what it was read as. */
+export interface RevuToolSource {
+  /** The annotation class, e.g. Bluebeam.PDF.Annotations.AnnotationSquare. */
+  revuType: string;
+  /** The tool's annotation dictionary as text (its <Raw>, unpacked). */
+  raw: string;
+  /** The <Name> Revu gave it. */
+  name: string;
+  x: number;
+  y: number;
+  mode?: string;
+  /** Its <Child> and <Resources> elements as they were in the file. */
+  children?: string;
+  resources?: string;
+  /** What it was read as: a tool still of this type, style and subject is written back as it was. */
+  type: MarkupType | null;
+  style: MarkupStyle;
+  subject: string;
 }
 
 export interface ToolSet {
@@ -256,6 +278,7 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
         ? await contentTemplate(type, dict, style, await loadResources(body), subject || named)
         : undefined;
     const template = grouped ?? content;
+    const elements = (re: RegExp) => [...m[1]!.matchAll(re)].map((e) => `    ${e[0]}`).join('\r\n');
     const label = cloudPlus ? 'Cloud+' : template && sequence ? 'Numbered ' + MARKUP_LABELS[type!] : type ? MARKUP_LABELS[type] : '';
     const name = named || (given === 'CopyItem' && subject ? subject : '') || label || subject || str(dict.T) || 'Tool';
     const item = `${items.length + 1}. ${name}`;
@@ -275,6 +298,23 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
       ...(cloudPlus ? { tool: 'cloudPlus' as const } : {}),
       ...(template ? { template } : {}),
       ...(template && sequence ? { sequence } : {}),
+      ...(raw && !unread
+        ? {
+            source: {
+              revuType,
+              raw: await decodeRaw(raw),
+              name: given,
+              x: self.x,
+              y: self.y,
+              ...(tag(body, 'Mode') ? { mode: tag(body, 'Mode')! } : {}),
+              ...(children.length ? { children: elements(/<Child\b[^>]*>[\s\S]*?<\/Child>/gi) } : {}),
+              ...(/<Resources\b/i.test(body) ? { resources: elements(/<Resources\b[^>]*>[\s\S]*?<\/Resources>/gi) } : {}),
+              type,
+              style: structuredClone(style),
+              subject: subject || name,
+            },
+          }
+        : {}),
     });
   }
   if (!items.length) throw new Error('This tool set has no tools in it.');
@@ -421,6 +461,7 @@ export function toolType(revuType: string, d: PdfDict): MarkupType | null {
   if (/stamp/.test(t) || sub === 'Stamp') return 'stamp';
   if (/link|file/.test(t)) return null;
   if (/count/.test(t) || /Count/i.test(it)) return 'count';
+  if (it === 'LineArrow') return 'arrow';
   if (/angle/.test(t) || /Angle/i.test(it)) return 'angle';
   if (/polylength/.test(t)) return 'polylength';
   if (/perimeter/.test(t)) return 'perimeter';
