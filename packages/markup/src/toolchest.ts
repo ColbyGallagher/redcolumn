@@ -243,7 +243,8 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
     const style = type ? toolStyle(type, dict, defaults) : { ...defaults.rect };
     // A cloud with a callout child is Revu's Cloud+ (ours draws the callout itself).
     const cloudPlus = type === 'cloud' && (nm(dict.ITEx) === 'PolyText' || parts.some((c) => c.type === 'callout'));
-    const grouped = type && !cloudPlus && parts.length ? groupTemplate({ type, dict, x: 0, y: 0 }, parts, style, defaults, sequence?.start) : undefined;
+    const self: Part = { type, dict, x: Number(tag(body, 'X')) || 0, y: Number(tag(body, 'Y')) || 0 };
+    const grouped = type && !cloudPlus && parts.length ? groupTemplate(self, parts, style, defaults, sequence?.start) : undefined;
     // Revu (2017 on) names tools with a generated id, e.g. QRGOYETREOFCJYJO: what the tool is says more.
     // CopyItem is the name Revu stores when a markup is copied into a set; the subject says what it is.
     const given = tag(body, 'Name') ?? '';
@@ -260,7 +261,10 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
     const item = `${items.length + 1}. ${name}`;
     if (unread) dropped.push({ item, reason: 'the tool dictionary could not be read' });
     if (!type && !unread) dropped.push({ item, reason: `tool type "${revuType || 'unknown'}" is not supported yet` });
-    if (parts.length && !grouped && !cloudPlus && !content) dropped.push({ item, reason: 'group members other than plain boxes are not kept' });
+    if (parts.length && !grouped && !cloudPlus && !content) {
+      const kinds = [...new Set([self, ...parts].filter((p) => !placeable(p)).map((p) => (p.type ? MARKUP_LABELS[p.type].toLowerCase() : 'unsupported')))];
+      dropped.push({ item, reason: `group members not kept: ${kinds.join(', ') || 'unknown'}` });
+    }
     items.push({
       id: newId('t'),
       name,
@@ -305,13 +309,36 @@ async function rawDict(raw: string | null): Promise<PdfDict> {
 interface Part {
   type: MarkupType | null;
   dict: PdfDict;
-  /** Revu's offset of the child from its parent, in points (y up). */
+  /**
+   * Revu's <X>/<Y> for the part: its /Rect's lower-left corner sits at (-x, -y) in a frame the
+   * tool and all its children share, in points (y up).
+   */
   x: number;
   y: number;
 }
 
 /** Types placed from a box: their two points are its corners. */
 const BOX_TYPES = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter']);
+/** Types placed from their own points: /L for lines, /Vertices for polygons and polylines. */
+const PATH_TYPES = new Set<MarkupType>(['line', 'arrow', 'polygon', 'polyline']);
+
+/** A path part's points, in its own /Rect's space (y up). Null when it has too few. */
+function pathOf(p: Part): number[] | null {
+  const src = p.type === 'line' || p.type === 'arrow' ? p.dict.L : p.dict.Vertices;
+  const n = Array.isArray(src) ? src.map(num) : [];
+  if (n.some((v) => v === null)) return null;
+  const min = p.type === 'polygon' ? 6 : 4;
+  return n.length >= min && n.length % 2 === 0 ? (n as number[]) : null;
+}
+
+/** Whether a group member can be drawn by one of our tools. */
+const placeable = (p: Part) => !!p.type && ((BOX_TYPES.has(p.type) && !!boxOf(p.dict)) || (PATH_TYPES.has(p.type) && !!pathOf(p) && !!rectOf(p.dict)));
+
+/** An annotation's /Rect as [x0, y0, x1, y1], or null. */
+function rectOf(d: PdfDict): [number, number, number, number] | null {
+  const r = Array.isArray(d.Rect) ? (d.Rect as PdfValue[]).map(num) : [];
+  return r.length === 4 && r.every((v) => v !== null) ? (r as [number, number, number, number]) : null;
+}
 
 /** The box an annotation draws in, from its /Rect less its /RD insets, at the origin. */
 function boxOf(d: PdfDict): { w: number; h: number; inset: [number, number, number, number] } | null {
@@ -325,30 +352,43 @@ function boxOf(d: PdfDict): { w: number; h: number; inset: [number, number, numb
 }
 
 /**
- * A tool and its children as one group of markups: each is a box centred on the parent's centre
- * plus its offset. Null when a part is not a box we can place (lines, callouts, ...).
+ * A tool and its children as one group of markups, each placed where Revu's <X>/<Y> put its /Rect.
+ * Boxes keep their /RD insets; lines and polygons keep their own points. Null when a part is not
+ * one we can place (callouts, measurements, ...).
  */
 function groupTemplate(parent: Part, children: Part[], parentStyle: MarkupStyle, defaults: Defaults, number?: number): Markup[] | undefined {
   const parts = [parent, ...children];
-  if (parts.some((p) => !p.type || !BOX_TYPES.has(p.type) || !boxOf(p.dict))) return undefined;
-  const pb = boxOf(parent.dict)!;
-  const cx = pb.w / 2;
-  const cy = pb.h / 2;
+  if (!parts.every(placeable)) return undefined;
+  const frames = parts.map((p) => {
+    const r = rectOf(p.dict)!;
+    return { x0: -p.x, y0: -p.y, rx: Math.min(r[0], r[2]), ry: Math.min(r[1], r[3]), h: Math.abs(r[3] - r[1]) };
+  });
+  const left = Math.min(...frames.map((f) => f.x0));
+  const top = Math.max(...frames.map((f) => f.y0 + f.h));
   return parts.map((p, i): Markup => {
-    const { w, h, inset } = boxOf(p.dict)!;
-    // Page space is y down; Revu's offsets are y up.
-    const x = cx + (i ? p.x : 0) - w / 2;
-    const y = cy - (i ? p.y : 0) - h / 2;
+    const f = frames[i]!;
+    // A point in the part's /Rect space (y up) to page space (y down), the group's top left at 0, 0.
+    const at = (x: number, y: number): [number, number] => [f.x0 + x - f.rx - left, top - (f.y0 + y - f.ry)];
+    let points: [number, number][];
+    if (PATH_TYPES.has(p.type!)) {
+      const n = pathOf(p)!;
+      points = [];
+      for (let k = 0; k < n.length; k += 2) points.push(at(n[k]!, n[k + 1]!));
+    } else {
+      const { w, h, inset } = boxOf(p.dict)!;
+      const [x, y] = at(f.rx, f.ry + h);
+      points = [
+        [x + inset[0], y + inset[3]],
+        [x + w - inset[2], y + h - inset[1]],
+      ];
+    }
     const style = i ? toolStyle(p.type!, p.dict, defaults) : parentStyle;
     const text = p.type === 'text' || p.type === 'typewriter' ? (number !== undefined ? String(number) : str(p.dict.Contents)) : undefined;
     return {
       id: '',
       type: p.type!,
       pageIndex: 0,
-      points: [
-        [x + inset[0], y + inset[3]],
-        [x + w - inset[2], y + h - inset[1]],
-      ],
+      points,
       style,
       ...(text !== undefined ? { text } : {}),
       groupId: 'group',

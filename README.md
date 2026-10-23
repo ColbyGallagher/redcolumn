@@ -109,7 +109,7 @@ rather than unsupported):
 
 Revu tool sets and markup settings files can be imported:
 
-- `.btx` tool sets: read. Most tools come through; a few group shapes are not yet kept.
+- `.btx` tool sets: read. Group shapes keep their boxes, lines, polygons and text.
 - `.blx` line styles: read in full.
 - `.bhx` hatch sets: read in full.
 - `.bpx` markup-list profiles: read in full.
