@@ -4,6 +4,8 @@ Everything is in the {{Help}} menu:
 
 ![The Help menu](img/menu-help.png)
 
+**Help**, **Technical Support** and **Make a Suggestion** also have buttons in the top bar, next to the search box, so you can reach them without opening the menu. On a narrow window the buttons are hidden; use the {{Help}} menu instead.
+
 | Command | Does |
 |---|---|
 | **Find Tools + Commands…** | Search for any command. See [Find any tool](#find-tools). |

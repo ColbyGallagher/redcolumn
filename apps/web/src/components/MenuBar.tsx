@@ -20,6 +20,9 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
   { label: 'Other', tools: ['image', 'legend', 'table', 'space'] },
 ];
 
+/** Help menu commands also shown as buttons in the top bar. */
+const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest'] as const;
+
 export type LeftTab =
   | 'files'
   | 'pages'
@@ -650,6 +653,18 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />
+      <div className="menubar-help" role="group" aria-label="Help and feedback">
+        {HELP_BUTTONS.map((id) => {
+          const c = commands.get(id);
+          if (!c) return null;
+          const shortcut = shortcutLabel(id);
+          return (
+            <button key={id} type="button" className="menubar-help-btn" title={shortcut ? `${c.label} (${shortcut})` : c.label} disabled={!c.enabled} onClick={c.run}>
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
       {updateBtn && (
         <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
