@@ -1,5 +1,18 @@
 import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point } from '@nb/markup';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
+import type { PageRegion, TextWord } from '@nb/pdf-core';
+
+/** A picture of part of a page, as `get_page_image` returns it. */
+export interface PageImage {
+  /** PNG bytes, base64. */
+  png: string;
+  width: number;
+  height: number;
+  /** Pixels per PDF point. */
+  scale: number;
+  /** The part of the page drawn, in PDF points, after clipping to the page. */
+  region: PageRegion;
+}
 
 /** One open drawing the assistant can see. Page indexes are 0-based, as the viewer stores them. */
 export interface AssistantDocument {
@@ -11,6 +24,13 @@ export interface AssistantDocument {
   store: MarkupStore;
   /** Displayed page size in PDF points. Absent in tests that never ask for a page. */
   pageSize?: (pageIndex: number) => { width: number; height: number } | null;
+  /**
+   * Part of a page as a picture at `scale` pixels per point, with its markups when asked. Null
+   * when the region is off the page. Absent in tests, and in a browser without a renderer.
+   */
+  render?: (pageIndex: number, region: PageRegion, scale: number, withMarkups: boolean) => Promise<PageImage | null>;
+  /** The words on a page, in page space. Absent in tests. */
+  text?: (pageIndex: number) => Promise<TextWord[]>;
 }
 
 /** A menu command the assistant can list and run. */
@@ -707,6 +727,127 @@ function getPage(docs: readonly AssistantDocument[], params: unknown) {
   return { document: doc.name, id: doc.id, page: pageIndex + 1, width: size.width, height: size.height, ...(scale ? { scale } : {}) };
 }
 
+/** A whole page scaled to fit this many pixels on its longer side, unless the call says otherwise. */
+const DEFAULT_IMAGE_SIZE = 1600;
+const MAX_IMAGE_SIZE = 4096;
+const DEFAULT_IMAGE_DPI = 200;
+const MIN_IMAGE_DPI = 18;
+const MAX_IMAGE_DPI = 600;
+
+const DEFAULT_TEXT_LIMIT = 1000;
+const MAX_TEXT_LIMIT = 5000;
+
+function finite(raw: unknown, name: string): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`${name} has to be a number.`);
+  return n;
+}
+
+/** The page the call names, the one on screen when it names none. */
+function pageOf(doc: AssistantDocument, args: Record<string, unknown>): { pageIndex: number; size: { width: number; height: number } } {
+  const pageIndex = args.page === undefined ? doc.pageIndex : pageIndexOf(doc, args.page);
+  if (pageIndex < 0 || pageIndex >= doc.pageCount) throw new Error(`Page ${pageIndex + 1} is not in ${doc.name} (1–${doc.pageCount}).`);
+  const size = doc.pageSize?.(pageIndex) ?? null;
+  if (!size) throw new Error(`Page size is not available for page ${pageIndex + 1} of ${doc.name}.`);
+  return { pageIndex, size };
+}
+
+/** The region asked for, clipped to the page; the whole page when the call gives none. */
+function regionOf(raw: unknown, size: { width: number; height: number }): PageRegion {
+  if (raw === undefined || raw === null) return { x: 0, y: 0, w: size.width, h: size.height };
+  if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Region has to be x, y, w, and h in PDF points.');
+  const r = raw as Record<string, unknown>;
+  const x = finite(r.x, 'Region x');
+  const y = finite(r.y, 'Region y');
+  const w = finite(r.w, 'Region w');
+  const h = finite(r.h, 'Region h');
+  if (w <= 0 || h <= 0) throw new Error('Region w and h have to be more than 0.');
+  const x0 = Math.max(0, x);
+  const y0 = Math.max(0, y);
+  const x1 = Math.min(size.width, x + w);
+  const y1 = Math.min(size.height, y + h);
+  if (x1 <= x0 || y1 <= y0) throw new Error(`That region is off the page (${Math.round(size.width)} × ${Math.round(size.height)} points).`);
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+function bounded(raw: unknown, name: string, min: number, max: number, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = finite(raw, name);
+  if (n < min || n > max) throw new Error(`${name} has to be between ${min} and ${max}.`);
+  return n;
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+async function getPageImage(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (!doc.render) throw new Error(`${doc.name} cannot be drawn here.`);
+  const { pageIndex, size } = pageOf(doc, args);
+  const region = regionOf(args.region, size);
+  const dpi = bounded(args.dpi, 'dpi', MIN_IMAGE_DPI, MAX_IMAGE_DPI, DEFAULT_IMAGE_DPI);
+  const maxSize = bounded(args.maxSize, 'maxSize', 256, MAX_IMAGE_SIZE, DEFAULT_IMAGE_SIZE);
+  const scale = Math.min(dpi / 72, maxSize / Math.max(region.w, region.h));
+  const withMarkups = args.markups !== false;
+  const image = await doc.render(pageIndex, region, scale, withMarkups);
+  if (!image) throw new Error(`That region is off page ${pageIndex + 1} of ${doc.name}.`);
+  return {
+    document: doc.name,
+    id: doc.id,
+    page: pageIndex + 1,
+    region: { x: round1(image.region.x), y: round1(image.region.y), w: round1(image.region.w), h: round1(image.region.h) },
+    width: image.width,
+    height: image.height,
+    scale: image.scale,
+    dpi: round1(image.scale * 72),
+    markups: withMarkups,
+    image: { mimeType: 'image/png', data: image.png },
+  };
+}
+
+function inRegion(word: TextWord, region: PageRegion): boolean {
+  const cx = (word.x0 + word.x1) / 2;
+  const cy = (word.y0 + word.y1) / 2;
+  return cx >= region.x && cx <= region.x + region.w && cy >= region.y && cy <= region.y + region.h;
+}
+
+/** Reading order for a drawing: by line (top to bottom), then left to right within one. */
+function readingOrder(a: TextWord, b: TextWord): number {
+  const tolerance = Math.min(a.y1 - a.y0, b.y1 - b.y0) / 2;
+  if (Math.abs(a.y0 - b.y0) > tolerance) return a.y0 - b.y0;
+  return a.x0 - b.x0;
+}
+
+async function getPageText(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  if (!doc.text) throw new Error(`${doc.name} has no text here.`);
+  const { pageIndex, size } = pageOf(doc, args);
+  let words = await doc.text(pageIndex);
+  if (args.region !== undefined && args.region !== null) {
+    const region = regionOf(args.region, size);
+    words = words.filter((w) => inRegion(w, region));
+  }
+  if (typeof args.search === 'string' && args.search.trim()) {
+    const wanted = args.search.trim().toLowerCase();
+    words = words.filter((w) => w.text.toLowerCase().includes(wanted));
+  }
+  words = [...words].sort(readingOrder);
+  const limit = args.limit === undefined ? DEFAULT_TEXT_LIMIT : Math.min(wholeNumber(args.limit, 'Limit', 1), MAX_TEXT_LIMIT);
+  const offset = args.offset === undefined ? 0 : wholeNumber(args.offset, 'Offset', 0);
+  const shown = words.slice(offset, offset + limit);
+  const next = offset + shown.length;
+  return {
+    document: doc.name,
+    id: doc.id,
+    page: pageIndex + 1,
+    total: words.length,
+    offset,
+    ...(next < words.length ? { nextOffset: next } : {}),
+    words: shown.map((w) => ({ text: w.text, x0: round1(w.x0), y0: round1(w.y0), x1: round1(w.x1), y1: round1(w.y1), size: round1(w.size) })),
+  };
+}
+
 function listCommands(params: unknown, env: AssistantEnv) {
   const commands = env.commands?.();
   if (!commands) throw new Error('Commands are not available.');
@@ -779,6 +920,8 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'set_markup') return setMarkup(docs, params);
   if (method === 'set_markups') return setMarkups(docs, params);
   if (method === 'get_page') return getPage(docs, params);
+  if (method === 'get_page_image') return getPageImage(docs, params);
+  if (method === 'get_page_text') return getPageText(docs, params);
   if (method === 'place_markup') return placeMarkup(docs, params, env);
   if (method === 'place_markups') return placeMarkups(docs, params, env);
   if (method === 'update_markup') return updateMarkup(docs, params);

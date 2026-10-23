@@ -154,7 +154,8 @@ turn it on under File › Preferences › MCP.
   this computer only. The redcolumn project does not receive the drawing, the questions, or the
   replies.
 - The client you use sends what you ask to its own vendor, the same as any other local tool you
-  connect to it.
+  connect to it. That includes what the tools return: the markup list, and, when the assistant asks
+  to see or read a page, a picture of that page or part of it and its text.
 - Turning the assistant off stops the app listening. Quitting the desktop app stops it too.
 
 ## Children

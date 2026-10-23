@@ -359,8 +359,10 @@ Both are experimental, need a Microsoft account and a OneDrive, and only start w
 
 The desktop app can let GitHub Copilot, Claude, Codex or Cursor read the open drawing and answer
 questions about it. Turn it on in **File › Preferences › MCP**, which shows the command for each client.
-Deletes and document changes wait for your approval in redcolumn, and the assistant runs on your
-computer. The website does not run it. See [PRIVACY.md](PRIVACY.md).
+The assistant can list and change markups, run menu commands, and see the drawing itself: a page or
+part of one as a picture, and the page's text with where each word sits. Deletes and document changes
+wait for your approval in redcolumn, and the assistant runs on your computer. The website does not run
+it. See [PRIVACY.md](PRIVACY.md).
 
 ## Install the desktop app
 
