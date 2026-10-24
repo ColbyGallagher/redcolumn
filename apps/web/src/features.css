@@ -6308,6 +6308,127 @@ tr.hidden-markup td {
   width: 80px;
 }
 
+/* Comments table (a Project's or Live Session's comments) */
+.comments-table th .th-sort {
+  all: unset;
+  cursor: pointer;
+}
+
+.comments-table tbody tr {
+  cursor: pointer;
+}
+
+.comments-table tbody tr:hover,
+.comments-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.comments-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
+.comments-table tr.reply td {
+  color: var(--muted);
+}
+
+.comments-table tr.reply .comment-text {
+  color: inherit;
+}
+
+/* Link previews: the sheet or detail a link points to, floating beside the plan */
+.link-preview {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #172339);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.link-preview.pinned {
+  border-color: var(--brand, #14a39a);
+}
+
+.link-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  cursor: move;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.link-preview-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.link-preview-btn {
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link-preview-btn:hover,
+.link-preview-btn.on {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.link-preview-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.link-preview-host {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.link-preview-canvas {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.link-preview-status {
+  position: absolute;
+  color: #555;
+  font-size: 12px;
+}
+
+.link-preview-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--muted, #8892a6) 50%, var(--muted, #8892a6) 60%, transparent 60%, transparent 70%, var(--muted, #8892a6) 70%, var(--muted, #8892a6) 80%, transparent 80%);
+}
+
 /* Scripts (Tools › Scripts) */
 .modal.scripts-dialog {
   display: flex;

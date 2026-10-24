@@ -42,5 +42,7 @@ Changes are saved to the profile as you make them. Click **Done**.
 
 Revu columns we have no equivalent for (such as *Label*, *Count* and *Legend*) are named in the message and left out. Revu's other panel layouts are not read. The profile can also be added from the Tool Library's **Import…**, which adds it without switching to it.
 
+**Export for Revu** saves the active profile's **Markup List** as a Revu profile (`.bpx`): its columns, order, widths and hidden columns, and its custom columns. Only the markup list is written; Revu keeps its own settings for everything else. Export the profile's tool sets from the [Tool Library](#tool-sets).
+
 
 > **Warning:** Profiles are saved in this browser (or this desktop app) only. Clearing the browser's site data, or uninstalling the app and its data, removes them. **Export** them to keep a copy.

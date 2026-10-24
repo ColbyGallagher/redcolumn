@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 
@@ -29,6 +29,8 @@ export interface ToolChestItem {
   tool?: 'cloudPlus';
   /** Each placed copy's number goes on from the last one in the document (a numbered circle). */
   sequence?: { start: number; increment: number };
+  /** The tool as a Revu tool set stored it: exported back to a .btx unchanged unless restyled. */
+  revu?: RevuToolSource;
 }
 
 /** A markup script (see scripts/script.ts): its name and text. */
