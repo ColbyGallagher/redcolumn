@@ -205,5 +205,6 @@ jobs:
         run: |
           flag=""
           case "$GITHUB_REF_NAME" in *-*) flag="--prerelease" ;; esac
+          notes="Windows: download redcolumn-Setup.exe. On a Windows on Arm PC (Snapdragon), download redcolumn-Setup-arm64.exe instead. The arm64 app does not update itself yet, so download the new installer from this page."
           gh release create "$GITHUB_REF_NAME" redcolumn-Setup.exe redcolumn-Setup.exe.blockmap latest.yml redcolumn-Setup-arm64.exe redcolumn-arm64.dmg redcolumn-x64.dmg redcolumn-x86_64.AppImage \
-            --title "redcolumn ${GITHUB_REF_NAME#v}" --generate-notes $flag
+            --title "redcolumn ${GITHUB_REF_NAME#v}" --notes "$notes" --generate-notes $flag

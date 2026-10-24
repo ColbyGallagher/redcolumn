@@ -8,11 +8,10 @@
 //
 // electron-builder reads ELECTRON_BUILDER_7Z_FILTER when it writes the archive, after this hook.
 
-/** builder-util's Arch enum: ia32 0, x64 1, armv7l 2, arm64 3, universal 4. */
-const ARM64 = 3;
+const { Arch } = require('electron-builder');
 
 exports.default = async function beforePack(context) {
-  if (context.electronPlatformName === 'win32' && context.arch === ARM64 && !process.env.ELECTRON_BUILDER_7Z_FILTER) {
+  if (context.electronPlatformName === 'win32' && context.arch === Arch.arm64 && !process.env.ELECTRON_BUILDER_7Z_FILTER) {
     process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ';
   }
 };

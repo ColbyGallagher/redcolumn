@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { UpdateService, type NativeUpdater } from './update-service';
+import { UpdateService, canSelfUpdate, type NativeUpdater } from './update-service';
 
 /** The repository whose releases carry the installer. */
 const RELEASES_API = 'https://api.github.com/repos/ColbyGallagher/redcolumn/releases/latest';
@@ -38,7 +38,7 @@ async function fetchLatest(): Promise<{ tag: string; url: string } | null> {
  * replace it with the x64 build.
  */
 function nativeUpdater(): NativeUpdater | null {
-  if (!app.isPackaged || process.platform !== 'win32' || process.arch !== 'x64') return null;
+  if (!canSelfUpdate({ packaged: app.isPackaged, platform: process.platform, arch: process.arch })) return null;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
