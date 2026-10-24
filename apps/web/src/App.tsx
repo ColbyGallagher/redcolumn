@@ -4909,7 +4909,12 @@ export function App() {
   const openPreview = (id: string) => {
     const p = linkPreviews.find((x) => x.id === id);
     if (!p) return;
-    if (activeOpen?.file.id === p.fileId) navigate(p.link.targetPage, p.link.targetRect);
+    if (activeOpen?.file.id !== p.fileId) {
+      // Its document is open in another tab: the view cannot go there from here.
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      return;
+    }
+    navigate(p.link.targetPage, p.link.targetRect);
     if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
@@ -8649,6 +8654,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         onChange={(w) => setLinkPreviews((ps) => ps.map((p) => (p.id === w.id ? { ...p, ...w } : p)))}
         onOpen={openPreview}
         onClose={(id) => setLinkPreviews((ps) => ps.filter((p) => p.id !== id))}
+        revision={markups}
       />
       {spellOpen && activeOpen && (
         <SpellCheckDialog
