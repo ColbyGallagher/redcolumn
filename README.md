@@ -334,7 +334,10 @@ folder of scans, stamp every sheet, set page labels, sign, or print summaries.
 
 The **Diagram** tab draws basic flowcharts on any page, or on a blank one: process, decision, start and
 end, data, document and other standard shapes, each with its text inside. **Connectors** glue to the
-shapes they join and re-route with right-angled bends when a shape moves. **Add Step** puts the next
+shapes they join and re-route with right-angled bends when a shape moves. As in Visio, drag the yellow
+handle on a selected connector's middle segment to move it, Ctrl+double-click a segment to add a bend, and
+Alt-click a handle to take that segment out; a connector routed by hand keeps its route as shapes move
+while it still fits. Right-click a connector to set its own route (right-angle, straight, or reset). **Add Step** puts the next
 shape beside the selected one, already connected, so a flowchart grows a step at a time. Shapes and
 connectors save as ordinary PDF annotations, like every other markup.
 

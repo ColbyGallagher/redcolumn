@@ -15,7 +15,7 @@ export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownersh
 export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
-export { anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, nearestSide, relinkCopies, routeConnector } from './flowchart';
+export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
