@@ -93,6 +93,8 @@ const NO_PLACES: Place[] = [];
 
 /** Detected links at or above this confidence are active without review. */
 const LINK_AUTO_CONFIDENCE = 0.75;
+/** Ids of links found from taught marks (see setMarkLinks). */
+const MARK_LINK = 'mark-';
 
 /** Transaction origin for edits made by this client; the undo manager only tracks these. */
 const LOCAL = Symbol('local');
@@ -486,6 +488,11 @@ export class MarkupStore {
     return this.meta.get('linksDetected') === true;
   }
 
+  /** Ids of the taught marks this document was last searched for (see setMarkLinks). */
+  marksSearched(): string[] {
+    return (this.meta.get('marksSearched') as string[] | undefined) ?? [];
+  }
+
   /**
    * Replaces automatically detected links with a new detection run. Links a person accepted or
    * rejected keep that decision (matched by stable id); stale undecided links are removed.
@@ -503,7 +510,7 @@ export class MarkupStore {
     this.doc.transact(() => {
       const fresh = new Set(detected.map((l) => l.id));
       for (const [id, link] of this.links) {
-        if (!fresh.has(id) && !id.startsWith('pdf-') && (link.status === 'auto' || link.status === 'review')) this.links.delete(id);
+        if (!fresh.has(id) && !id.startsWith('pdf-') && !id.startsWith(MARK_LINK) && (link.status === 'auto' || link.status === 'review')) this.links.delete(id);
       }
       for (const l of detected) {
         const current = this.links.get(l.id);
@@ -512,6 +519,33 @@ export class MarkupStore {
         this.links.set(l.id, { ...l, status });
       }
       this.meta.set('linksDetected', true);
+    }, DETECTION);
+  }
+
+  /**
+   * Replaces the link candidates found from taught marks (ids starting `mark-`). Every one waits
+   * in review until a person keeps it; decisions stick across runs, as for detected links. Places
+   * already linked another way (from the text or the PDF) are not suggested again. `markIds` are
+   * the taught marks searched for.
+   */
+  setMarkLinks(found: readonly DetectedLink[], markIds: readonly string[]) {
+    if (this.locked) return;
+    const others = [...this.links.values()].filter((l) => !l.id.startsWith(MARK_LINK) && l.status !== 'rejected');
+    const overlaps = (a: DetectedLink, b: DetectedLink) => {
+      const w = Math.min(a.rect.x + a.rect.w, b.rect.x + b.rect.w) - Math.max(a.rect.x, b.rect.x);
+      const h = Math.min(a.rect.y + a.rect.h, b.rect.y + b.rect.h) - Math.max(a.rect.y, b.rect.y);
+      return w > 0 && h > 0 && w * h > 0.5 * Math.min(a.rect.w * a.rect.h, b.rect.w * b.rect.h);
+    };
+    found = found.filter((l) => l.id.startsWith(MARK_LINK) && !others.some((o) => o.pageIndex === l.pageIndex && overlaps(o, l)));
+    this.doc.transact(() => {
+      const fresh = new Set(found.map((l) => l.id));
+      for (const [id, link] of this.links) if (id.startsWith(MARK_LINK) && !fresh.has(id) && link.status === 'review') this.links.delete(id);
+      for (const l of found) {
+        const current = this.links.get(l.id);
+        const decided = current && (current.status === 'accepted' || current.status === 'rejected');
+        this.links.set(l.id, { ...l, status: decided ? current.status : 'review' });
+      }
+      this.meta.set('marksSearched', [...markIds]);
     }, DETECTION);
   }
 

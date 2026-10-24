@@ -1255,6 +1255,8 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     const page = pages[link.pageIndex];
     const target = pages[link.targetPage];
     if (!page || !target || link.status === 'rejected') continue;
+    // A match of a taught mark is only a suggestion until a person keeps it.
+    if (link.status === 'review' && link.id.startsWith('mark-')) continue;
     const dest = link.targetRect ? [target.ref, 'FitR', ...userRect(pageMatrix(target), link.targetRect)] : [target.ref, 'Fit'];
     const annot = doc.context.obj({
       Type: 'Annot',

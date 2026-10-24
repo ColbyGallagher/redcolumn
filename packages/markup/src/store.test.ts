@@ -226,6 +226,28 @@ test('hand-placed stitching follows page operations and is undoable', async () =
   }
 });
 
+test('links from taught marks wait in review, keep decisions, and survive text re-detection', async () => {
+  const store = await MarkupStore.open('test', { persist: false });
+  const link = (id: string, x: number, confidence = 0.9) => ({ id, pageIndex: 0, rect: { x, y: 0, w: 20, h: 20 }, label: '3/A-501', kind: 'detail' as const, detail: '3', targetPage: 1, targetRect: null, confidence });
+  store.setDetectedLinks([link('0:3/A-501:0:0', 0)]);
+  // Even a confident match waits for a person; one where text already found a link is left out.
+  store.setMarkLinks([link('mark-a', 100), link('mark-b', 200), link('mark-dup', 2)], ['t1']);
+  const status = () => Object.fromEntries(store.allLinks().map((l) => [l.id, l.status]));
+  assert.deepEqual(status(), { '0:3/A-501:0:0': 'auto', 'mark-a': 'review', 'mark-b': 'review' });
+  store.setLinkStatus('mark-a', 'accepted');
+  store.setLinkStatus('mark-b', 'rejected');
+  // A later run keeps the decisions and drops undecided candidates it no longer finds.
+  store.setMarkLinks([link('mark-c', 300)], ['t1']);
+  store.setMarkLinks([link('mark-a', 100), link('mark-b', 200)], ['t1']);
+  assert.deepEqual(status(), { '0:3/A-501:0:0': 'auto', 'mark-a': 'accepted', 'mark-b': 'rejected' });
+  // Detecting links from the text again leaves the taught marks' links alone.
+  store.setMarkLinks([link('mark-a', 100), link('mark-b', 200), link('mark-c', 300)], ['t1']);
+  store.setDetectedLinks([]);
+  assert.deepEqual(status(), { 'mark-a': 'accepted', 'mark-b': 'rejected', 'mark-c': 'review' });
+  assert.deepEqual(store.marksSearched(), ['t1']);
+  await store.destroy();
+});
+
 test('another assembly drops the quantities set by hand and the AI approval made for the old one', async () => {
   const store = await MarkupStore.open(`assembly-change-${Math.random()}`, { persist: false });
   store.add({ id: 'w', type: 'length', pageIndex: 0, points: [[0, 0], [10, 0]], style: { stroke: '#f00', fill: null, width: 1, opacity: 1 }, status: 'none', author: 'me', createdAt: 0, modifiedAt: 0 });

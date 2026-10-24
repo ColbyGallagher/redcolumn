@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
+import type { TaughtMark } from '../sheets/marks';
 
 /**
  * Profiles: a named arrangement of the workspace (which tools the toolbar shows, which
@@ -114,6 +115,8 @@ export interface WorkspaceState {
   hatchSets: HatchSet[];
   /** Imported Revu bookmark templates, offered in the Bookmarks panel (the built-in one is always there). */
   bookmarkTemplates: BookmarkTemplate[];
+  /** Section marks, titles and detail callouts the user taught, found in every set to suggest links (kept on this device). */
+  taughtMarks: TaughtMark[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
@@ -153,6 +156,7 @@ export function defaultWorkspace(): WorkspaceState {
     lineSets: [],
     hatchSets: [],
     bookmarkTemplates: [],
+    taughtMarks: [],
   };
 }
 
