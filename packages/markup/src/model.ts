@@ -80,6 +80,20 @@ export interface ConnectorEnd {
   side?: Side;
 }
 
+/** A person's approval of an AI takeoff proposal, kept on the measurement as the document's record of it. */
+export interface TakeoffApproval {
+  /** Who approved it. */
+  by: string;
+  at: number;
+  /** The proposal it came from. */
+  proposalId: string;
+  /** The AI client that proposed it. */
+  source: string;
+  reasoning?: string;
+  /** The assembly or a quantity was changed before approving. */
+  edited?: boolean;
+}
+
 /** What a connector joins; its points are routed between them again whenever either moves. */
 export interface ConnectorLinks {
   from?: ConnectorEnd;
@@ -305,6 +319,10 @@ export interface Markup {
   depth?: number;
   /** Measurements: the document assembly (see `Assembly`) whose quantities it stands for. */
   assemblyId?: string;
+  /** Measurements: per assembly item id, a quantity (before waste) set by hand instead of the item's formula. */
+  assemblyOverrides?: Record<string, number>;
+  /** Measurements: who approved its takeoff from an AI proposal, and when (Takeoff Review). */
+  takeoffApproval?: TakeoffApproval;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
   /** Polylength, area, perimeter and volume: curved segments (per segment, its bulge; see @nb/measure's arcSegment). */

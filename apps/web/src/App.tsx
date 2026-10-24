@@ -41,6 +41,8 @@ import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
 import { LinkPreviews, type LinkPreviewWindow } from './components/LinkPreview';
 import { ScriptsDialog } from './components/ScriptsDialog';
+import { TakeoffReview } from './components/TakeoffReview';
+import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -884,6 +886,7 @@ export function App() {
     hidden?: boolean;
   } | null>(null);
   const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -5306,6 +5309,26 @@ export function App() {
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
+  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
+  const activeHash = activeOpen?.store.fileHash ?? null;
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
+    let seen = waiting();
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
+    return takeoffProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
+
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean) => {
     const cur = activeOpen;
@@ -7342,6 +7365,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     manageAssemblies: () => setAssembliesOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
+    takeoffReview: () => setTakeoffReviewOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -9687,6 +9711,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
           }}
           onClose={() => setScriptsOpen(false)}
+        />
+      )}
+      {takeoffReviewOpen && activeOpen && (
+        <TakeoffReview
+          store={activeOpen.store}
+          me={author}
+          ctx={cellContext}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          onShow={(m) => selectFromList(m)}
+          onMessage={setNotice}
+          onClose={() => setTakeoffReviewOpen(false)}
         />
       )}
       {quantitiesOpen && activeOpen && (

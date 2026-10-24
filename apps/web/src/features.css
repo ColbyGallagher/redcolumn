@@ -6537,3 +6537,153 @@ tr.hidden-markup td {
   align-self: flex-start;
   margin-top: 4px;
 }
+
+/* Takeoff Review: AI proposals beside the sheet */
+.takeoff-review {
+  position: fixed;
+  z-index: 55;
+  top: 110px;
+  right: 16px;
+  bottom: 40px;
+  width: min(600px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #172339);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.takeoff-review-head,
+.takeoff-review-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.takeoff-review-head {
+  border-bottom: 1px solid var(--border);
+}
+
+.takeoff-review-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.takeoff-review-foot {
+  border-top: 1px solid var(--border);
+}
+
+.takeoff-review-note {
+  margin: 6px 10px;
+}
+
+.takeoff-review-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.takeoff-proposal {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.takeoff-proposal.approved {
+  border-color: rgba(22, 163, 74, 0.6);
+}
+
+.takeoff-proposal.rejected {
+  opacity: 0.7;
+}
+
+.tp-head,
+.tp-assembly,
+.tp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tp-actions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.tp-measure {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline dotted;
+}
+
+.tp-value {
+  color: var(--muted);
+}
+
+.tp-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.tp-state.approved {
+  background: rgba(22, 163, 74, 0.25);
+}
+
+.tp-state.rejected {
+  background: rgba(220, 38, 38, 0.25);
+}
+
+.tp-assembly {
+  margin: 6px 0 2px;
+}
+
+.tp-vars {
+  margin-bottom: 4px;
+}
+
+.tp-items {
+  margin: 4px 0;
+}
+
+.tp-items input {
+  width: 80px;
+  text-align: right;
+}
+
+.tp-items input.tp-set {
+  border-color: var(--brand, #14a39a);
+}
+
+.tp-reason {
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--border);
+}
+
+.takeoff-proposal .warn {
+  color: #f59e0b;
+}
+
+.tp-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* A takeoff quantity set by hand (it does not follow the measurement) */
+.set-by-hand {
+  color: #f59e0b;
+  font-size: 11px;
+  white-space: nowrap;
+}

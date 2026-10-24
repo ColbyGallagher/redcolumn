@@ -783,8 +783,16 @@ function AssemblyPicker({
         <ul className="ms-asm-items" aria-label="Assembly quantities">
           {rows.map((r) => (
             <li key={r.key}>
-              <span>{r.item}</span>
-              <span className={r.errors ? 'qty err' : 'qty'} title={r.errors ? 'The formula could not be worked out' : undefined}>
+              <span>
+                {r.item}
+                {r.setByHand > 0 && (
+                  <span className="set-by-hand" title="Set by hand when the takeoff was approved: it does not follow changes to the measurement">
+                    {' '}
+                    ✎
+                  </span>
+                )}
+              </span>
+              <span className={r.errors ? 'qty err' : 'qty'} title={r.errors ? 'The formula could not be worked out' : r.setByHand ? 'Set by hand' : undefined}>
                 {r.errors ? '⚠' : `${formatNumber(r.total, r.total % 1 ? 2 : 0)} ${r.unit}`}
               </span>
             </li>

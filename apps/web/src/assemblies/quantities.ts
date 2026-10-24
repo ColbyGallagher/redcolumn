@@ -55,6 +55,8 @@ export interface ItemQuantity {
   rounded: number | null;
   cost: number | null;
   error?: string;
+  /** The quantity was set by hand (when approving a takeoff), not worked out: it does not follow the measurement. */
+  set?: boolean;
 }
 
 /** `base` with the item's waste added, and rounded up when it rounds. */
@@ -68,12 +70,15 @@ export function withWaste(item: AssemblyItem, base: number): { quantity: number;
 export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Record<string, Cell>>, columns: readonly CustomColumn[]): ItemQuantity[] {
   const lookup = lookupFor(m, cells, columns, assembly);
   return assembly.items.map((item) => {
-    const res = item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' };
+    // A quantity set by hand (when approving a takeoff) stands in for the formula; waste still applies.
+    const set = m.assemblyOverrides?.[item.id];
+    const byHand = typeof set === 'number' && Number.isFinite(set) ? { value: set } : null;
+    const res = byHand ?? (item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' });
     if ('error' in res) return { item, base: null, quantity: null, rounded: null, cost: null, error: res.error };
     const base = typeof res.value === 'number' ? res.value : Number(res.value);
     if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: 'Not a number' };
     const { quantity, rounded } = withWaste(item, base);
-    return { item, base, quantity, rounded, cost: item.unitCost !== undefined ? rounded * item.unitCost : null };
+    return { item, base, quantity, rounded, cost: item.unitCost !== undefined ? rounded * item.unitCost : null, ...(byHand ? { set: true } : {}) };
   });
 }
 
@@ -106,6 +111,8 @@ export interface RollupRow {
   cost: number | null;
   /** Measurements whose formula failed (left out of the totals). */
   errors: number;
+  /** Measurements whose quantity was set by hand rather than worked out (see ItemQuantity.set). */
+  setByHand: number;
 }
 
 /**
@@ -123,7 +130,7 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
       const key = by === 'assembly' ? `${q.assembly.id}\u0000${r.item.id}` : by === 'page' ? `${m.pageIndex}\u0000${itemKey}` : itemKey;
       let row = rows.get(key);
       if (!row) {
-        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, rounds: false, costs: new Set(), costSum: 0 };
+        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, setByHand: 0, rounds: false, costs: new Set(), costSum: 0 };
         rows.set(key, row);
       }
       row.measurements++;
@@ -131,6 +138,7 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
         row.errors++;
         continue;
       }
+      if (r.set) row.setByHand++;
       row.base += r.base;
       row.quantity += r.quantity;
       row.rounds ||= !!r.item.roundUp;
@@ -156,9 +164,9 @@ const csvCell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"
 
 /** Rolled-up quantities as CSV (the caller adds a BOM for Excel). */
 export function rollupToCsv(rows: readonly RollupRow[], by: RollupBy): string {
-  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost'];
+  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost', 'Set by hand'];
   const n = (v: number | null, d = 2) => (v === null ? '' : formatNumber(v, d));
-  const lines = rows.map((r) => [...(by === 'item' ? [] : [r.group]), r.item, r.unit, String(r.measurements), n(r.base), n(r.quantity), n(r.total), n(r.unitCost), n(r.cost)].map(csvCell).join(','));
+  const lines = rows.map((r) => [...(by === 'item' ? [] : [r.group]), r.item, r.unit, String(r.measurements), n(r.base), n(r.quantity), n(r.total), n(r.unitCost), n(r.cost), String(r.setByHand)].map(csvCell).join(','));
   return [head.map(csvCell).join(','), ...lines].join('\r\n');
 }
 

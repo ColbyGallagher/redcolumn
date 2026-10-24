@@ -987,6 +987,8 @@ export class MarkupStore {
       const state = def?.name ?? (patch.status === 'none' ? 'None' : patch.status);
       patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: MarkupStore.author, at: Date.now() }] };
     }
+    // Another assembly: quantities set by hand and an AI approval were for the old one.
+    if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     this.doc.transact(() => {
