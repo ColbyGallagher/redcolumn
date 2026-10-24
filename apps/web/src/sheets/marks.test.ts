@@ -216,3 +216,15 @@ test('a title rule gives the extent of the section above it', () => {
   assert.equal(sectionFrame([0, 520, 1100, 520], box, 1224), null);
   assert.equal(sectionFrame([], box, 1224), null);
 });
+
+test('a section title with no underline, and a detail callout with the same letter, do not stand in for a cut', () => {
+  const numbers = ['A-101'];
+  // A detail callout "2" and a section title "2" on one sheet, taught as a callout and a title only: no cut exists.
+  const callout = { segments: [...bubble(300, 600, '2', null).segments], words: [word('2', 300, 594, 8)] };
+  const title = { segments: [], words: [word('SECTION', 480, 200, 8), word('2', 510, 200, 8)] };
+  const sheet = page(callout, title);
+  const c = teachMark(sheet, box(300, 600), 'detailCallout', '', numbers);
+  const t = teachMark(sheet, { x: 450, y: 190, w: 90, h: 20 }, 'sectionTitle', '', numbers);
+  const links = findMarks([sheet], numbers, [c, t]);
+  assert.ok(!links.some((l) => l.rect.y < 400), JSON.stringify(links));
+});

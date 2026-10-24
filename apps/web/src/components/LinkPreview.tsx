@@ -42,7 +42,7 @@ interface Props {
 }
 
 const MIN_ZOOM = 0.02;
-const MAX_ZOOM = 60;
+const MAX_ZOOM = 16;
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 const MIN_W = 220;
 const MIN_H = 160;

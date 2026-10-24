@@ -4624,9 +4624,11 @@ export function App() {
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
       showPanel('sessions');
     }
-    const current = currentSessions();
+    // Sessions only run in the desktop app: the web build neither rejoins them nor takes invites.
+    const current = desktop() ? currentSessions() : [];
     void (async () => {
       for (const ref of current) await joinStudio(ref, false);
+      if (!desktop()) return;
       if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: 'onedrive', id: driveInvite });
       else if (driveInvite) setFocusedSession(driveInvite);
       // After rejoining several, start on the list rather than whichever joined last.
@@ -5044,8 +5046,9 @@ export function App() {
     // Fitted to the link's target until the person zooms or pans.
     const view: PreviewView = asked ?? { cx: area.x + area.w / 2, cy: area.y + area.h / 2, zoom: Math.min(width / area.w, height / area.h) };
     const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
-    const region = await renderRegion(o, p.link.targetPage, seen, () => Math.min(8, Math.max(0.1, view.zoom * dpr)));
-    if (!region) return null;
+    const region = await renderRegion(o, p.link.targetPage, seen, () => Math.min(16, Math.max(0.1, view.zoom * dpr)));
+    // Panned or zoomed right off the page: draw nothing, but still report the view so the old picture goes.
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
     region.canvas.style.width = `${region.w * view.zoom}px`;
     region.canvas.style.height = `${region.h * view.zoom}px`;
     return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };

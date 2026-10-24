@@ -130,7 +130,8 @@ export function sectionFrame(segments: ArrayLike<number>, box: Rect, pageWidth: 
     const x1 = Math.max(segments[i]!, segments[i + 2]!);
     const y = (y1 + y2) / 2;
     if (x1 - x0 < 1) continue;
-    rules.push({ y, x0, x1 });
+    // Only a rule in the title's band can be its underline, or a piece of one.
+    if (y >= band.top - tol && y <= band.bottom + tol) rules.push({ y, x0, x1 });
     if (y < band.top || y > band.bottom || x1 < box.x || x0 > box.x + box.w || x1 - x0 < box.w * 0.5) continue;
     if (!best || x1 - x0 > best.x1 - best.x0) best = { y, x0, x1 };
   }
@@ -286,14 +287,19 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
   /** Where each taught title was found: the preview zooms to it. */
   const titleRects = new Map<string, Rect>();
   const callouts = new Map<string, Rect>();
+  /** Section marks alone: a section title on its own sheet goes to its cut, not to a detail callout with the same letter. */
+  const cuts = new Map<string, Rect>();
   for (const h of hits) {
     if (!h.detail) continue;
     const key = `${h.pageIndex}:${idOf(h.detail.text)}`;
     if (isTitleKind(h.mark.kind)) {
       titles.set(key, h.detail);
-      titleRects.set(key, h.frame ?? h.rect);
+      titleRects.set(key, h.frame ?? detailFrame(h.detail));
     }
-    else callouts.set(key, h.rect);
+    else {
+      callouts.set(key, h.rect);
+      if (h.mark.kind === 'sectionMark') cuts.set(key, h.rect);
+    }
   }
 
   const links: DetectedLink[] = [];
@@ -308,7 +314,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
       const own = h.mark.kind === 'sectionTitle' && (!h.sheet || named === h.pageIndex);
       if (!own && (named === null || named === h.pageIndex)) continue;
       targetPage = own ? h.pageIndex : named!;
-      const cut = detail ? callouts.get(`${targetPage}:${detail}`) : undefined;
+      const cut = detail ? (own ? cuts : callouts).get(`${targetPage}:${detail}`) : undefined;
       // On its own sheet, a title with no cut mark to go to is a destination, not a link.
       if (own && !cut) continue;
       if (cut) targetRect = cut;
