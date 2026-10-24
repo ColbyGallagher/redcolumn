@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -37,6 +37,8 @@ import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
+import { CommentsTableDialog } from './components/CommentsTableDialog';
+import { commentRows, type CommentRow } from './studio/comments';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -868,6 +870,17 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
+  const [commentsTable, setCommentsTable] = useState<{
+    key: string;
+    title: string;
+    rows: CommentRow[] | null;
+    progress: { done: number; total: number } | null;
+    failed: string[];
+    open: (row: CommentRow) => void;
+    refresh: () => void;
+    hidden?: boolean;
+  } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -4759,6 +4772,105 @@ export function App() {
     tools.select(ids);
   }, [ctl, ctlB]);
 
+  // --- Comments table: every comment and reply across a Project's or Live Session's files -------
+
+  /** A markup to select once its document is open (a Comments table row opens the file first). */
+  const pendingFocusRef = useRef<{ markupId: string; until: number } | null>(null);
+  useEffect(() => {
+    const f = pendingFocusRef.current;
+    if (!f) return;
+    if (Date.now() > f.until) {
+      pendingFocusRef.current = null;
+      return;
+    }
+    const m = markups.find((x) => x.id === f.markupId);
+    if (!m) return;
+    pendingFocusRef.current = null;
+    selectFromList(m);
+  }, [markups, selectFromList]);
+
+  const panesRef = useRef({ ctl, ctlB });
+  panesRef.current = { ctl, ctlB };
+
+  /** Opens a row's file, then its page and markup. */
+  const openCommentRow = useCallback(
+    async (open: () => Promise<void>, row: CommentRow) => {
+      setCommentsTable((t) => (t ? { ...t, hidden: true } : t));
+      pendingFocusRef.current = { markupId: row.markupId, until: Date.now() + 15_000 };
+      await open();
+      // A markup that is not in the open copy (not synced yet): at least show its page.
+      setTimeout(() => {
+        if (pendingFocusRef.current?.markupId !== row.markupId) return;
+        pendingFocusRef.current = null;
+        (activePaneRef.current === 'b' ? panesRef.current.ctlB : panesRef.current.ctl)?.viewer.goToPage(row.pageIndex);
+      }, 2500);
+    },
+    [],
+  );
+
+  /** Reads every file of a Project for its comments: the shared markups, and the markups other tools wrote into the PDF. */
+  const showProjectComments = useCallback(async (project: Project) => {
+    const key = `project:${project.id}`;
+    const title = `Project ${project.getSnapshot().manifest.name}`;
+    const files = project.getSnapshot().files;
+    const statuses = profiles.active().state.columnTemplate?.statuses ?? DEFAULT_STATUSES;
+    const rows: CommentRow[] = [];
+    const failed: string[] = [];
+    const open = (row: CommentRow) => {
+      const file = project.getSnapshot().files.find((f) => f.id === row.fileId);
+      if (file) void openCommentRow(() => openProjectFile(project, file), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    };
+    setCommentsTable({ key, title, rows: null, progress: { done: 0, total: files.length }, failed, open, refresh: () => void showProjectComments(project) });
+    for (const [i, file] of files.entries()) {
+      try {
+        // The folder is read once, for the first file; the rest use what it read.
+        const shared = await project.sharedMarkups(file.id, i === 0);
+        const { bytes } = await project.download(file.id);
+        const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false });
+        try {
+          const found = await readPdfAnnotations(bytes, scratch);
+          // Markups this app wrote come back from the shared copy; the PDF adds other tools' ones.
+          const byId = new Map([...(shared.length ? found.markups.filter(fromOtherTools) : found.markups), ...shared].map((m) => [m.id, m]));
+          // The file's own custom statuses (from Revu, say) name their states too.
+          rows.push(...commentRows({ fileId: file.id, file: file.name, markups: [...byId.values()], pageLabel: (p) => found.labels[p] || `Page ${p + 1}` }, [...statuses, ...(found.extras.statuses ?? [])]));
+        } finally {
+          await scratch.destroy();
+        }
+      } catch (err) {
+        failed.push(`${file.name} (${err instanceof Error ? err.message : String(err)})`);
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: files.length } } : t));
+    }
+    setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+  }, [openCommentRow, openProjectFile]);
+
+  /** A Live Session's comments, from each document's shared markups. */
+  const showSessionComments = useCallback(
+    async (session: CollabSession) => {
+      const key = `session:${session.id}`;
+      const docs = session.getSnapshot().meta.documents;
+      const rows: CommentRow[] = [];
+      const failed: string[] = [];
+      const open = (row: CommentRow) => void openCommentRow(() => openSessionDocument(session.id, row.fileId), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      setCommentsTable({ key, title: `Live Session ${session.meta.name}`, rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
+      for (const [i, d] of docs.entries()) {
+        try {
+          rows.push(
+            ...(await withSessionMarkups(session, d.id, (store) => {
+              const sheets = store.allSheets();
+              return commentRows({ fileId: d.id, file: d.name, markups: store.all(), pageLabel: (p) => sheets[p]?.number || `Page ${p + 1}` }, store.columnSet().statuses);
+            })),
+          );
+        } catch (err) {
+          failed.push(`${d.name} (${err instanceof Error ? err.message : String(err)})`);
+        }
+        setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: docs.length } } : t));
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+    },
+    [openCommentRow, openSessionDocument, withSessionMarkups],
+  );
+
   // Stable handlers for the Markups list, so it re-renders only when its data changes.
   const listRowMenuRef = useRef<(m: Markup, x: number, y: number) => void>(() => {});
   listRowMenuRef.current = (m, x, y) => {
@@ -7978,6 +8090,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onCheckIn={checkInProjectFile}
             onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+            onShowComments={(project) => (commentsTable?.key === `project:${project.id}` ? setCommentsTable({ ...commentsTable, hidden: false }) : void showProjectComments(project))}
             onAddCurrent={async (project, folderId, onProgress) => {
               const cur = activeOpen;
               if (!cur) return;
@@ -8017,6 +8130,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onReport={(id, format) => {
               const snap = snapshots.find((x) => x.meta.id === id);
               if (!snap) return;
+              if (format === 'comments') {
+                const session = sessionById(id);
+                if (commentsTable?.key === `session:${id}`) setCommentsTable({ ...commentsTable, hidden: false });
+                else if (session) void showSessionComments(session);
+                return;
+              }
               if (format === 'pdf') {
                 void runStudio(() => sessionReport(id));
                 return;
@@ -9475,6 +9594,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {commentsTable && !commentsTable.hidden && (
+        <CommentsTableDialog
+          title={commentsTable.title}
+          rows={commentsTable.rows}
+          progress={commentsTable.progress}
+          failed={commentsTable.failed}
+          onOpen={commentsTable.open}
+          onRefresh={commentsTable.rows ? commentsTable.refresh : undefined}
+          onExportCsv={(csv) => download(`${commentsTable.title} comments.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
+          onClose={() => setCommentsTable(null)}
         />
       )}
       {columnsOpen && activeOpen && (

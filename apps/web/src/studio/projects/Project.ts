@@ -1,4 +1,5 @@
-import { ownMarkupsOnly, type EditRule, type MarkupStore } from '@nb/markup';
+import * as Y from 'yjs';
+import { ownMarkupsOnly, type EditRule, type Markup, type MarkupStore } from '@nb/markup';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission } from '../drive/DriveApi';
 import { claimSeat, RoomFiles } from '../drive/rooms';
 import { attendeeColor } from '../types';
@@ -285,6 +286,22 @@ export class Project {
     const rooms = await this.rooms();
     await rooms.ready();
     return rooms.hasState(fileId);
+  }
+
+  /**
+   * A file's shared markups as they are now, for reading (the Comments table); none when nobody has
+   * shared any. `fresh` false skips reading the folder again (after a fresh read for another file).
+   */
+  async sharedMarkups(fileId: string, fresh = true): Promise<Markup[]> {
+    const state = await (await this.rooms()).state(fileId, fresh);
+    if (!state) return [];
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, state);
+      return [...doc.getMap<Markup>('markups').values()];
+    } finally {
+      doc.destroy();
+    }
   }
 
   /** Saves markups not yet written (tests, and before leaving). */

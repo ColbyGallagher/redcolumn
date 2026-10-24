@@ -6307,3 +6307,32 @@ tr.hidden-markup td {
 .geo-number {
   width: 80px;
 }
+
+/* Comments table (a Project's or Live Session's comments) */
+.comments-table th .th-sort {
+  all: unset;
+  cursor: pointer;
+}
+
+.comments-table tbody tr {
+  cursor: pointer;
+}
+
+.comments-table tbody tr:hover,
+.comments-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.comments-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
+.comments-table tr.reply td {
+  color: var(--muted);
+}
+
+.comments-table tr.reply .comment-text {
+  color: inherit;
+}
