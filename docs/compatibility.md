@@ -21,13 +21,13 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 | --- | --- | --- | --- | --- |
 | Shapes & lines | **Supported** 35/35 | **Supported** 35/35 | **Supported** 35/35 | **Supported** 34/34 |
 | Measurements | **Supported** 19/19 | **Supported** 19/19 | **Supported** 19/19 | **Supported** 16/16 |
-| Text markup | — | — | — | **Supported** 1/1 |
+| Text markup | **Not run** revu-text-markup.pdf not found | **Not run** revu-text-markup.pdf not found | — | **Supported** 1/1 |
 | Notes & text | **Supported** 10/10 | **Supported** 10/10 | **Supported** 10/10 | **Supported** 6/6 |
-| Stamps | **Supported** 3/3 | **Supported** 3/3 | **Supported** 3/3 | — |
+| Stamps | **Supported** 3/3 | **Supported** 3/3 | **Supported** 3/3 | **Not run** revu-stamps.xfdf not found |
 | Images | **Supported** 1/1 | **Supported** 1/1 | **Supported** 1/1 | **Supported** 3/3 |
-| Attachments | — | — | — | — |
-| Form fields | **Supported** 14/14 | **Supported** 14/14 | — | — |
-| Pop-ups | **Supported** 1/1 | **Supported** 1/1 | **Supported** 1/1 | — |
+| Attachments | **Not run** revu-attachments.pdf not found | **Not run** revu-attachments.pdf not found | — | **Not run** revu-attachments.xfdf not found |
+| Form fields | **Supported** 14/14 | **Supported** 14/14 | — | **Not run** revu-forms.xfdf not found |
+| Pop-ups | **Supported** 1/1 | **Supported** 1/1 | **Supported** 1/1 | **Not run** revu-popups.xfdf not found |
 | Other | — | — | — | **Supported** 2/2 |
 | Document structure | **Supported** 1/1 | — | — | — |
 | Page render | **Supported** 3/3 | — | — | — |
@@ -48,6 +48,16 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 | revu-sample-pdf | pdf | revu | bluebeam-sample-do-not-edit.pdf | ok | 83 |
 | revu-sample-bax | bax | revu | bluebeam-sample-do-not-edit.bax | ok | 46 |
 | revu-markups-xfdf | xfdf | revu | revu-markups.xfdf | missing: file not found | 0 |
+| revu-stamps-pdf | pdf | revu | revu-stamps.pdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-stamps-xfdf | xfdf | revu | revu-stamps.xfdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-text-markup-pdf | pdf | revu | revu-text-markup.pdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-text-markup-xfdf | xfdf | revu | revu-text-markup.xfdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-popups-pdf | pdf | revu | revu-popups.pdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-popups-xfdf | xfdf | revu | revu-popups.xfdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-attachments-pdf | pdf | revu | revu-attachments.pdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-attachments-xfdf | xfdf | revu | revu-attachments.xfdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-forms-pdf | pdf | revu | revu-forms.pdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
+| revu-forms-xfdf | xfdf | revu | revu-forms.xfdf | missing: file not found (see test/compat/revu-fixtures.md) | 0 |
 | revu-settings-btx | btx | revu | Architect Review.btx | ok | 8 |
 | revu-settings-btx | btx | revu | Concrete.btx | ok | 5 |
 | revu-settings-btx | btx | revu | Construction Symbols.btx | ok | 7 |

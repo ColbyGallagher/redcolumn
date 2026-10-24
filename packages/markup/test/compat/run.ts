@@ -142,6 +142,8 @@ interface ManifestEntry {
   ext?: string;
   /** For a BAX file: the id of the manifest entry for the PDF it was exported from. */
   pair?: string;
+  /** The rows a fixture was made to cover: while it is missing, only they read Not run (test/compat/revu-fixtures.md says how to make it). */
+  covers?: string[];
   source: 'revu' | 'synthetic';
 }
 
@@ -536,6 +538,13 @@ async function main() {
   for (const fx of fixtures) {
     const rec: FixtureRecord = { id: fx.id, format: fx.format, source: fx.source, file: fx.name, status: 'ok', items: 0 };
     results.fixtures.push(rec);
+    if (!existsSync(fx.file) && fx.covers) {
+      rec.status = 'missing';
+      rec.reason = 'file not found (see test/compat/revu-fixtures.md)';
+      const cols = fx.format === 'pdf' ? ['PDF save (unedited)', 'PDF save (edited)'] : fx.format === 'xfdf' ? ['XFDF round trip'] : [];
+      for (const row of fx.covers) for (const col of cols) notRun(results.annotations, col, `${fx.name} not found`, row);
+      continue;
+    }
     if (!existsSync(fx.file)) {
       rec.status = 'missing';
       rec.reason = 'file not found';
