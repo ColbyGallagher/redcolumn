@@ -22,6 +22,7 @@ Click the **⋯** (Tool set options) button at the right of a set's heading:
 | **Rename…** | Renames the set. |
 | **Scale Tools to Page Scale** | Tools keep their real-world size: copies grow or shrink with each page's scale. |
 | **Export Tool Set…** | Saves the set as a file to share. |
+| **Export for Revu (.btx)…** | Saves the set as a Bluebeam® Revu® tool set. See [Export to Revu](#tool-sets). |
 | **Move Up / Move Down** | Changes the order of sets. |
 | **Hide Tool Set** | Hides it from the panel. |
 | **Delete Tool Set…** | Deletes the set and its tools. |
@@ -41,6 +42,15 @@ redcolumn reads its own `.json` tool sets and Bluebeam® Revu® tool sets (`.btx
 - **Hatches** appear in the **Hatch** list the same way. Revu's *Standard* hatch set is already built in, so importing it adds nothing new.
 
 Each set is listed as a tag under the Import button. Click **×** on a tag to remove the set from your profile. Markups that already use a style or hatch keep it, because the pattern is saved with the markup.
+
+## Export to Revu
+
+Tool sets, line styles and hatches go back to Bluebeam® Revu® as its own files:
+
+- **Tool sets**: right-click a set and choose **Export for Revu (.btx)…**. Tools that came from Revu and were not restyled go back exactly as Revu stored them. Other tools are written from their type and look. Tools Revu has no equivalent for (such as dimensions or flowchart shapes) are named in the message and left out.
+- **Line styles and hatches**: click **⤓** on the set's tag to save it as a `.blx` or `.bhx`.
+
+In Revu, import the file from its Tool Chest, Line Style or Hatch Pattern manager.
 
 ## Share with your team
 

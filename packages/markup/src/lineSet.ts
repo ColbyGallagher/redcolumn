@@ -1,5 +1,5 @@
 import type { Dropped } from './diagnostics';
-import { decodeRaw } from './toolchest';
+import { decodeRaw, utf8OrLatin1 } from './toolchest';
 import type { CustomLine } from './lineStyle';
 import type { Markup } from './model';
 import { parseXml, type XmlElement } from './xml';
@@ -23,7 +23,7 @@ export async function setTitle(raw: string | undefined, fallback: string): Promi
   if (!text) return fallback;
   if (!/^78(01|5e|9c|da)[0-9a-f]*$/i.test(text) || text.length % 2) return text;
   try {
-    return (await decodeRaw(text)).trim() || fallback;
+    return utf8OrLatin1(await decodeRaw(text)).trim() || fallback;
   } catch {
     return text;
   }

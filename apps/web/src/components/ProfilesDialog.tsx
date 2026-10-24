@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import type { ColumnSet } from '@nb/markup';
+import { writeBpx, type ColumnSet } from '@nb/markup';
+import { bpxFromLayout } from '../columns/bpxLayout';
 import { listColumns, resolveLayout } from '../columns/listColumns';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { availableBackends, backendLabel, backUpProfiles, hasBackup, restoreProfiles, stopBackingUp, useProfileBackup } from '../workspace/profileBackup';
@@ -177,6 +178,17 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
               </button>
               <button className="btn small" onClick={() => onDownload(`${active.name}.nbprofile.json`, profiles.exportJson(activeId))}>
                 Export
+              </button>
+              <button
+                className="btn small"
+                title="The markup list's columns as a Revu profile (.bpx). Export tool sets for Revu from the Tool Library."
+                onClick={() => {
+                  const { profile, skipped } = bpxFromLayout(active.name, layout, documentColumns?.columns ?? ws.columnTemplate?.columns ?? []);
+                  onDownload(`${active.name}.bpx`, writeBpx(profile));
+                  setMessage(`Exported ${active.name}.bpx (${profile.columns.filter((c) => c.visible).length} markup list columns).${skipped.length ? ` Revu has no column for ${skipped.join(', ')}.` : ''}`);
+                }}
+              >
+                Export for Revu
               </button>
             </div>
             <CloudBackup onMessage={setMessage} />

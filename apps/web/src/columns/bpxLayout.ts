@@ -83,3 +83,34 @@ export function layoutFromBpx(p: BpxProfile, newId: () => string): BpxImport {
   }
   return { layout, custom, skipped };
 }
+
+/** Our columns as Revu's, for writing a profile: the first Revu column that reads back as each. */
+const REVU_KEYS: Record<string, string> = { ...Object.fromEntries(Object.entries(COLUMN_KEYS).reverse().map(([revu, ours]) => [ours, revu])), page: 'Page Index' };
+
+/** Our custom column types as Revu's (the reverse of CUSTOM_TYPES). */
+const REVU_TYPES: Partial<Record<ColumnType, string>> = { number: 'Number', date: 'Date', checkmark: 'Checkbox', choice: 'Choice' };
+
+/**
+ * Our markup list as a Revu profile's (the reverse of `layoutFromBpx`). Custom columns become
+ * UserDefined0, 1, …; columns Revu has no equivalent for are listed in `skipped`.
+ */
+export function bpxFromLayout(name: string, layout: readonly ColumnLayout[], customColumns: readonly CustomColumn[]): { profile: BpxProfile; skipped: string[] } {
+  const columns: BpxProfile['columns'] = [];
+  const custom: BpxProfile['customColumns'] = [];
+  const skipped: string[] = [];
+  for (const c of layout) {
+    const def = customColumns.find((d) => customKey(d.id) === c.key);
+    let key = REVU_KEYS[c.key];
+    if (def) {
+      const index = custom.length;
+      custom.push({ index, name: def.name, subtype: REVU_TYPES[def.type] ?? 'Text', multiline: def.type === 'multiline', deleted: false });
+      key = `UserDefined${index}`;
+    }
+    if (!key) {
+      if (!c.hidden && c.key !== 'seq') skipped.push(c.key);
+      continue;
+    }
+    columns.push({ key, width: c.width, visible: !c.hidden, added: true });
+  }
+  return { profile: { name, columns, customColumns: custom }, skipped };
+}

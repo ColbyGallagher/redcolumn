@@ -36,10 +36,10 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 
 | Feature | Read | Write |
 | --- | --- | --- |
-| .btx tool sets | **Partial** 98/105 | **Not yet** 0/105 (no writer yet) |
-| .blx line styles | **Supported** 9/9 | **Not yet** 0/9 (no writer yet) |
-| .bhx hatch sets | **Supported** 11/11 | **Not yet** 0/11 (no writer yet) |
-| .bpx profiles (markup list) | **Supported** 274/274 | **Not yet** 0/274 (no writer yet) |
+| .btx tool sets | **Supported** 105/105 | **Partial** 104/105 |
+| .blx line styles | **Supported** 9/9 | **Supported** 9/9 |
+| .bhx hatch sets | **Supported** 11/11 | **Supported** 11/11 |
+| .bpx profiles (markup list) | **Supported** 274/274 | **Supported** 274/274 |
 
 ## Fixtures
 
@@ -74,20 +74,16 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 
 ## Items that did not come through
 
-### .btx tool sets · Read
+### .btx tool sets · Write
 
-- missing: Construction Symbols.btx · 3. Rectangle: group members other than plain boxes are not kept
-- missing: Construction Symbols.btx · 4. Rectangle: group members other than plain boxes are not kept
-- missing: Construction Symbols.btx · 6. Polygon: group members other than plain boxes are not kept
-- missing: Design Symbols.btx · 1. Text Box: group members other than plain boxes are not kept
-- missing: Design Symbols.btx · 2. Ellipse: group members other than plain boxes are not kept
-- …and 2 more missing
+- missing: Design Symbols.btx · 7. Image: the image has no content to write
 
 ## Known limits
 
 - BAX leaves out links and form fields, as Revu does. Pop-ups are nested inside their markup and are counted.
 - The BAX column checks our export against the PDF it came from. A Revu BAX is only a reference when it was exported from that same PDF; a mismatch is listed under Not run.
 - PDF and BAX rows count annotations; XFDF rows count markups. One markup can be several annotations (a count group, or a markup with replies and states), so the two counts differ.
-- Settings files are read only. No writer exists for .btx, .blx, .bhx or .bpx yet, so their Write cells are Not yet.
+- Settings files are written back and read again. A Write item passes when it reads back the same as it was read. Tools are written here from their type and style; in the app, a tool imported from Revu and not restyled is written back as Revu stored it.
+- A .bpx is written with its markup list only. Revu keeps its own settings for the rest of the profile.
 - A fixture only proves what it contains. Add Revu-produced files for each feature before a cell can read Supported.
 
