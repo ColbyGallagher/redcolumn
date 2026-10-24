@@ -12,6 +12,7 @@
     "typecheck": "tsc -p . --noEmit",
     "test": "node --experimental-strip-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
     "package": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs && electron-builder --win --publish never",
+    "package:win-arm64": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=arm64 && electron-builder --win --arm64 --publish never -c.nsis.artifactName=redcolumn-Setup-arm64.${ext}",
     "package:mac": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=arm64 && electron-builder --mac --arm64 --publish never && node scripts/fetch-assistant-node.mjs --arch=x64 && electron-builder --mac --x64 --publish never",
     "package:linux": "pnpm --filter @nb/web build && tsc -p . && node scripts/fetch-assistant-node.mjs --arch=x64 && electron-builder --linux --x64 --publish never"
   },

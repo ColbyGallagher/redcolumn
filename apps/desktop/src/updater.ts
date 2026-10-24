@@ -32,9 +32,13 @@ async function fetchLatest(): Promise<{ tag: string; url: string } | null> {
  * and runs it when the app quits (or when the person restarts into it). Anywhere else (the Mac
  * app, which is not signed with a Developer ID, and a build run from source) the person is told
  * and opens the release page.
+ *
+ * Windows on Arm is told and sent to the release page too. The NSIS updater does not look at the
+ * architecture: latest.yml describes the x64 installer, so self-updating an arm64 install would
+ * replace it with the x64 build.
  */
 function nativeUpdater(): NativeUpdater | null {
-  if (!app.isPackaged || process.platform !== 'win32') return null;
+  if (!app.isPackaged || process.platform !== 'win32' || process.arch !== 'x64') return null;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
