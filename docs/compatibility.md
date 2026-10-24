@@ -36,7 +36,7 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 
 | Feature | Read | Write |
 | --- | --- | --- |
-| .btx tool sets | **Partial** 98/105 | **Not yet** 0/105 (no writer yet) |
+| .btx tool sets | **Supported** 105/105 | **Not yet** 0/105 (no writer yet) |
 | .blx line styles | **Supported** 9/9 | **Not yet** 0/9 (no writer yet) |
 | .bhx hatch sets | **Supported** 11/11 | **Not yet** 0/11 (no writer yet) |
 | .bpx profiles (markup list) | **Supported** 274/274 | **Not yet** 0/274 (no writer yet) |
@@ -71,17 +71,6 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 
 - bluebeam-sample-do-not-edit.bax: has 2 pages, its PDF bluebeam-sample-do-not-edit.pdf has 3. It was exported from another version of the PDF, so it is not used as a reference. Re-export the BAX from Revu for this PDF.
 - revu-markups.xfdf not found: no Revu-made XFDF is checked (add one to manifest.json)
-
-## Items that did not come through
-
-### .btx tool sets · Read
-
-- missing: Construction Symbols.btx · 3. Rectangle: group members other than plain boxes are not kept
-- missing: Construction Symbols.btx · 4. Rectangle: group members other than plain boxes are not kept
-- missing: Construction Symbols.btx · 6. Polygon: group members other than plain boxes are not kept
-- missing: Design Symbols.btx · 1. Text Box: group members other than plain boxes are not kept
-- missing: Design Symbols.btx · 2. Ellipse: group members other than plain boxes are not kept
-- …and 2 more missing
 
 ## Known limits
 

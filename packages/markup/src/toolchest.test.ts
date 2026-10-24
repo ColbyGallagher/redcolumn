@@ -3,6 +3,7 @@ import { deflateSync, inflateSync } from 'node:zlib';
 import { test } from 'node:test';
 import { parseBtx as parse, parsePdfObject } from './toolchest.ts';
 import type { MarkupStyle, MarkupType } from './model.ts';
+import type { Dropped } from './diagnostics.ts';
 
 const base: MarkupStyle = { stroke: '#e11d48', fill: null, width: 1, opacity: 1 };
 const defaults = new Proxy({} as Record<MarkupType, MarkupStyle>, { get: (_, k) => (k === 'area' ? { ...base, fill: '#16a34a' } : base) });
@@ -69,7 +70,7 @@ test('Revu 2017+ tool sets: compressed title, generated names, Cloud+, callouts 
 <ToolChestItem Version="2"><Name>QRGOYETREOFCJYJO</Name><Type>Bluebeam.PDF.Annotations.AnnotationPolygon</Type><Raw>${hexZ('<</IT/PolygonCloud/ITEx/PolyText/Subj(Architect)/Subtype/Polygon/C[1 0 0]/BE<</S/C/I 2>>>>')}</Raw>${child('Bluebeam.PDF.Annotations.AnnotationFreeText', '<</IT/FreeTextCallout/Subj(Cloud+)/Subtype/FreeText/C[]>>', -100, 5)}<Mode>properties</Mode></ToolChestItem>
 ${item('VFFZOEUQBEIQILSU', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DA(1 0 0 rg /Helv 12 Tf)/IT/FreeTextCallout/DS(font: Helvetica 12pt; text-align:left; color:#FF0000)/Subj(Architect)/Subtype/FreeText/C[]/BS<</W 0>>>>')}
 ${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS(font: Helvetica 12pt; color:#FF0000)/Subj(Architect)/Subtype/FreeText/C[]/BS<</W 0>>>>')}
-<ToolChestItem Version="1"><Name>INHFCFBPUYYOUOFL</Name><Type>Bluebeam.PDF.Annotations.AnnotationCircle</Type><Raw>${hexZ('<</IC[1 0 0]/RD[1 1 1 1]/Subj(Architect)/Subtype/Circle/Rect[0 0 38 38]/C[1 0 0]/BS<</W 2>>>>')}</Raw>${child('Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS(font: Helvetica 12pt; text-align:center; text-valign:middle; color:#000000)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 36 34]/C[]/BS<</W 0>>>>', 0, -1)}<Mode>drawing</Mode><Sequence><Enabled>True</Enabled><Style>Number</Style><Start>1</Start><Increment>1</Increment></Sequence></ToolChestItem>
+<ToolChestItem Version="1"><Name>INHFCFBPUYYOUOFL</Name><Type>Bluebeam.PDF.Annotations.AnnotationCircle</Type><Raw>${hexZ('<</IC[1 0 0]/RD[1 1 1 1]/Subj(Architect)/Subtype/Circle/Rect[0 0 38 38]/C[1 0 0]/BS<</W 2>>>>')}</Raw><X>1</X><Y>1</Y>${child('Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS(font: Helvetica 12pt; text-align:center; text-valign:middle; color:#000000)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 36 34]/C[]/BS<</W 0>>>>', 0, -1)}<Mode>drawing</Mode><Sequence><Enabled>True</Enabled><Style>Number</Style><Start>1</Start><Increment>1</Increment></Sequence></ToolChestItem>
 </BluebeamRevuToolSet>`;
   const set = await parseBtx(xml);
   assert.equal(set.title, 'Architect Review');
@@ -81,11 +82,52 @@ ${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS
   assert.equal(bubble!.type, 'ellipse');
   assert.deepEqual(bubble!.sequence, { start: 1, increment: 1 });
   const [circle, number] = bubble!.template!;
-  // The circle is inset by its /RD; the number is centred in it (1 pt lower, as Revu has it).
+  // The circle is inset by its /RD; the number's box is centred in it, where Revu's <X>/<Y> put it.
   assert.deepEqual(circle!.points, [[1, 1], [37, 37]]);
-  assert.deepEqual(number!.points, [[1, 3], [37, 37]]);
+  assert.deepEqual(number!.points, [[1, 2], [37, 36]]);
   assert.deepEqual([number!.type, number!.text, number!.style.textAlign, number!.style.verticalAlign, number!.style.noBox], ['text', '1', 'center', 'middle', true]);
   assert.ok(circle!.groupId && circle!.groupId === number!.groupId);
+});
+
+test('group shapes keep their lines, polygons and text (Revu Construction and Design Symbols)', async () => {
+  const child = (type: string, dict: string, x: number, y: number) => `<Child><Type>Bluebeam.PDF.Annotations.${type}</Type><Raw>${hexZ(dict)}</Raw><X>${x}</X><Y>${y}</Y><Index>1</Index></Child>`;
+  const tool = (type: string, dict: string, x: number, y: number, children: string) =>
+    `<ToolChestItem Version="1"><Name>QRGOYETREOFCJYJO</Name><Type>Bluebeam.PDF.Annotations.${type}</Type><Raw>${hexZ(dict)}</Raw>${children}<X>${x}</X><Y>${y}</Y><Mode>drawing</Mode></ToolChestItem>`;
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<BluebeamRevuToolSet Version="1"><Title>Symbols</Title>
+${tool('AnnotationSquare', '<</RD[1 1 1 1]/Subj(Rectangle)/Subtype/Square/Rect[0 0 56 110]/C[1 0 0]/BS<</W 2/S/S>>>>', 1, 1,
+  child('AnnotationLine', '<</L[6.5 114.5 60.5 6.5]/Subj(Line)/Subtype/Line/Rect[0 0 67 121]/C[1 0 0]/BS<</W 2/S/S>>>>', 6.5, 6.5) +
+    child('AnnotationLine', '<</L[6.5 6.5 60.5 114.5]/Subj(Line)/Subtype/Line/Rect[0 0 67 121]/C[1 0 0]/BS<</W 2/S/S>>>>', 6.5, 6.5))}
+${tool('AnnotationFreeText', '<</DA(1 0 0 rg /Helv 15 Tf)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 11 18]/Contents(4)>>', -10, -40,
+  child('AnnotationPolygon', '<</Vertices[50 95 5 50 50 5 95 50]/Subj(Polygon)/Subtype/Polygon/Rect[0 0 100 100]/C[1 0 0]>>', 5, 5) +
+    child('AnnotationFreeText', '<</DA(1 0 0 rg /Helv 15 Tf)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 11 18]/Contents(2)>>', -69, -40))}
+</BluebeamRevuToolSet>`;
+  const dropped: Dropped[] = [];
+  const set = await parse(xml, defaults, 'T', dropped);
+  assert.deepEqual(dropped, []);
+  const [blocking, section] = set.items;
+  // A box with an X: the lines run corner to corner of the box's inner edge.
+  assert.deepEqual(blocking!.template!.map((m) => m.type), ['rect', 'line', 'line']);
+  const [box, a, b] = blocking!.template!;
+  assert.deepEqual(box!.points, [[6.5, 6.5], [60.5, 114.5]]);
+  assert.deepEqual(a!.points, [[6.5, 6.5], [60.5, 114.5]]);
+  assert.deepEqual(b!.points, [[6.5, 114.5], [60.5, 6.5]]);
+  assert.equal(a!.style.width, 2);
+  // A diamond with a number at its left and right points.
+  assert.deepEqual(section!.template!.map((m) => [m.type, m.text]), [['text', '4'], ['polygon', undefined], ['text', '2']]);
+  const [left, diamond, right] = section!.template!;
+  assert.deepEqual(diamond!.points, [[50, 5], [5, 50], [50, 95], [95, 50]]);
+  assert.deepEqual(left!.points, [[15, 37], [26, 55]]);
+  assert.deepEqual(right!.points, [[74, 37], [85, 55]]);
+  assert.ok(new Set(section!.template!.map((m) => m.groupId)).size === 1);
+});
+
+test('group members we cannot draw are reported by kind', async () => {
+  const dropped: Dropped[] = [];
+  const xml = `<BluebeamRevuToolSet><Title>T</Title><ToolChestItem><Name>Box</Name><Type>Bluebeam.PDF.Annotations.AnnotationSquare</Type><Raw>${hexZ('<</Subtype/Square/Rect[0 0 10 10]>>')}</Raw><Child><Type>Bluebeam.PDF.Annotations.AnnotationMeasureCount</Type><Raw>${hexZ('<</Subtype/Circle/IT/CircleCount/Rect[0 0 10 10]>>')}</Raw><X>0</X><Y>0</Y></Child></ToolChestItem></BluebeamRevuToolSet>`;
+  const set = await parse(xml, defaults, 'T', dropped);
+  assert.equal(set.items[0]!.template, undefined);
+  assert.deepEqual(dropped, [{ item: '1. Box', reason: 'group members not kept: count' }]);
 });
 
 const hexBuf = (b: Buffer) => deflateSync(b).toString('hex').toUpperCase();
@@ -164,4 +206,14 @@ ${item('Widget', 'Bluebeam.PDF.Annotations.AnnotationSymbol', '<</Subtype/Stamp>
   const embedded = attachment!.template?.[0]?.attachment;
   assert.deepEqual(embedded && { name: embedded.name, mime: embedded.mime, size: embedded.size, text: Buffer.from(embedded.data, 'base64').toString() }, { name: 'notes.txt', mime: 'text/plain', size: 5, text: 'hello' });
   assert.equal(set.items.filter((i) => !i.type).length, 1);
+});
+
+test('a group box keeps /RD as left, top, right, bottom; a sequence numbers only the text that holds a number', async () => {
+  const child = (type: string, dict: string, x: number, y: number) => `<Child><Type>Bluebeam.PDF.Annotations.${type}</Type><Raw>${hexZ(dict)}</Raw><X>${x}</X><Y>${y}</Y><Index>1</Index></Child>`;
+  const xml = `<BluebeamRevuToolSet Version="1"><Title>T</Title><ToolChestItem Version="1"><Name>QRGOYETREOFCJYJO</Name><Type>Bluebeam.PDF.Annotations.AnnotationSquare</Type><Raw>${hexZ('<</RD[0 6 0 1]/Subtype/Square/Rect[0 0 40 40]>>')}</Raw>${child('AnnotationFreeText', '<</Subtype/FreeText/Rect[0 0 20 10]/Contents(1)>>', 0, -30)}${child('AnnotationFreeText', '<</Subtype/FreeText/Rect[0 0 20 10]/Contents(A101)>>', 0, -5)}<X>0</X><Y>0</Y><Sequence><Enabled>True</Enabled><Start>7</Start><Increment>1</Increment></Sequence></ToolChestItem></BluebeamRevuToolSet>`;
+  const [tool] = (await parseBtx(xml)).items;
+  const [box, num, title] = tool!.template!;
+  // Top inset 6, bottom 1, in page space (y down) where the box's top is y 0.
+  assert.deepEqual(box!.points, [[0, 6], [40, 39]]);
+  assert.deepEqual([num!.text, title!.text], ['7', 'A101']);
 });
