@@ -247,3 +247,14 @@ test('links from taught marks wait in review, keep decisions, and survive text r
   assert.deepEqual(store.marksSearched(), ['t1']);
   await store.destroy();
 });
+
+test('another assembly drops the quantities set by hand and the AI approval made for the old one', async () => {
+  const store = await MarkupStore.open(`assembly-change-${Math.random()}`, { persist: false });
+  store.add({ id: 'w', type: 'length', pageIndex: 0, points: [[0, 0], [10, 0]], style: { stroke: '#f00', fill: null, width: 1, opacity: 1 }, status: 'none', author: 'me', createdAt: 0, modifiedAt: 0 });
+  store.update('w', { assemblyId: 'wall', assemblyOverrides: { studs: 14 }, takeoffApproval: { by: 'Hana', at: 1, proposalId: 'p1', source: 'Claude' } });
+  store.update('w', { comment: 'checked' });
+  assert.deepEqual(store.get('w')!.assemblyOverrides, { studs: 14 }, 'other edits keep them');
+  store.update('w', { assemblyId: 'slab' });
+  assert.equal(store.get('w')!.assemblyOverrides, undefined);
+  assert.equal(store.get('w')!.takeoffApproval, undefined);
+});

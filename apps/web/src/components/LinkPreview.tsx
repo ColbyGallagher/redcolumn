@@ -20,21 +20,30 @@ interface Props {
   onChange: (w: LinkPreviewWindow) => void;
   onOpen: (id: string) => void;
   onClose: (id: string) => void;
+  /** Changes when the markups may have changed, so the previews draw again. */
+  revision?: unknown;
 }
 
 const MIN_W = 220;
 const MIN_H = 160;
 
 /** Previews of linked sections and details beside the plan: moved by the title bar, resized from a corner, closed with Esc. */
-export function LinkPreviews({ windows, render, onChange, onOpen, onClose }: Props) {
-  // Esc closes the newest preview, before the page takes it (but not from a dialog or a field being typed in).
+export function LinkPreviews({ windows, render, onChange, onOpen, onClose, revision }: Props) {
+  // Esc closes the preview being used, or else the newest one (not from a dialog or a field being typed in).
   useEffect(() => {
     if (!windows.length) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || document.querySelector('.modal-backdrop')) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      e.stopPropagation();
+      const inside = t?.closest?.('.link-preview')?.getAttribute('data-preview');
+      if (inside) {
+        // Esc in a preview is for it alone.
+        e.stopPropagation();
+        onClose(inside);
+        return;
+      }
+      // Elsewhere the page still gets Esc too (to cancel a markup being drawn, say).
       onClose(windows[windows.length - 1]!.id);
     };
     window.addEventListener('keydown', onKey, true);
@@ -43,13 +52,13 @@ export function LinkPreviews({ windows, render, onChange, onOpen, onClose }: Pro
   return (
     <>
       {windows.map((w) => (
-        <PreviewWindow key={w.id} win={w} render={render} onChange={onChange} onOpen={onOpen} onClose={onClose} />
+        <PreviewWindow key={w.id} win={w} render={render} onChange={onChange} onOpen={onOpen} onClose={onClose} revision={revision} />
       ))}
     </>
   );
 }
 
-function PreviewWindow({ win, render, onChange, onOpen, onClose }: { win: LinkPreviewWindow } & Omit<Props, 'windows'>) {
+function PreviewWindow({ win, render, onChange, onOpen, onClose, revision }: { win: LinkPreviewWindow } & Omit<Props, 'windows'>) {
   const body = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
@@ -79,7 +88,7 @@ function PreviewWindow({ win, render, onChange, onOpen, onClose }: { win: LinkPr
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [win.id, win.w, win.h, render]);
+  }, [win.id, win.w, win.h, render, revision]);
 
   const start = (kind: 'move' | 'size') => (e: ReactPointerEvent) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
@@ -107,7 +116,7 @@ function PreviewWindow({ win, render, onChange, onOpen, onClose }: { win: LinkPr
   };
 
   return (
-    <div className={`link-preview${win.pinned ? ' pinned' : ''}`} role="dialog" aria-label={`Preview of ${win.title}`} style={{ left: live.x, top: live.y, width: live.w, height: live.h }}>
+    <div className={`link-preview${win.pinned ? ' pinned' : ''}`} data-preview={win.id} role="dialog" aria-label={`Preview of ${win.title}`} style={{ left: live.x, top: live.y, width: live.w, height: live.h }}>
       <div className="link-preview-head" onPointerDown={start('move')} onPointerMove={onMove} onPointerUp={onUp}>
         <span className="link-preview-title" title={win.title}>
           {win.title}

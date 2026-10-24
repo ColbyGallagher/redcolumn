@@ -1,13 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, type Markup, type MarkupType, type Point } from '@nb/markup';
+import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, writeBhx, writeBlx, type Dropped, type Markup, type MarkupType, type Point } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { importRevuFiles, isRevuLibraryFile, REVU_LIBRARY_ACCEPT } from '../toolchest/revuLibraries';
-import { toolSetFile } from '../toolchest/toolSets';
+import { revuToolSetFile, toolSetFile } from '../toolchest/toolSets';
 import { RECENT_TOOLS_ID, updateWorkspace, useWorkspace, type ToolChestItem, type ToolSet } from '../workspace/profiles';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
 import { useSettings } from '../settings/settings';
 import { InlineName } from './InlineName';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from './ToolBar';
+
+/** Saves `blob` as a download named after `name` (characters a file name cannot hold become _). */
+function download(blob: Blob, name: string, ext: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name.replace(/[\\/:*?"<>|]+/g, '_')}.${ext}`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** `Exported Gas.blx.` and what it left out, for the panel's message line. */
+const exported = (file: string, dropped: Dropped[]) =>
+  `Exported ${file}.${dropped.length ? ` Not exported: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`;
 
 /** Drag data type for a Tool Library tool dragged onto a page (the value is the tool's id). */
 export const TOOL_DRAG_TYPE = 'application/x-nb-tool';
@@ -242,14 +256,16 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
         {
           label: 'Export Tool Set…',
           disabled: !set.items.length,
-          onClick: () => {
-            const url = URL.createObjectURL(toolSetFile(set));
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${set.name.replace(/[\\/:*?"<>|]+/g, '_')}.json`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          },
+          onClick: () => download(toolSetFile(set), set.name, 'json'),
+        },
+        {
+          label: 'Export for Revu (.btx)…',
+          disabled: !set.items.length,
+          onClick: () =>
+            void revuToolSetFile(set).then(({ blob, dropped }) => {
+              download(blob, set.name, 'btx');
+              setMessage(exported(`${set.name}.btx`, dropped));
+            }),
         },
         { label: 'Move Up', disabled: index === 0, onClick: () => moveSet(set.id, -1) },
         { label: 'Move Down', disabled: index === ws.toolChests.length - 1, onClick: () => moveSet(set.id, 1) },
@@ -368,6 +384,20 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
           {ws.lineSets.map((s) => (
             <span key={`l:${s.title}`} className="toolchest-lib" title={`${s.styles.length} line styles, in the Line style pickers`}>
               {s.title} · lines
+              <button
+                type="button"
+                aria-label={`Export the line style set ${s.title} for Revu`}
+                title="Export for Revu (.blx)"
+                onClick={() => {
+                  const dropped: Dropped[] = [];
+                  void writeBlx(s, dropped).then((xml) => {
+                    download(new Blob([xml], { type: 'application/xml' }), s.title, 'blx');
+                    setMessage(exported(`${s.title}.blx`, dropped));
+                  });
+                }}
+              >
+                ⤓
+              </button>
               <button type="button" aria-label={`Remove the line style set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((x) => x !== s) }))}>
                 ×
               </button>
@@ -376,6 +406,20 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
           {ws.hatchSets.map((s) => (
             <span key={`h:${s.title}`} className="toolchest-lib" title={`${s.hatches.length} hatches, in the Hatch pickers`}>
               {s.title} · hatches
+              <button
+                type="button"
+                aria-label={`Export the hatch set ${s.title} for Revu`}
+                title="Export for Revu (.bhx)"
+                onClick={() => {
+                  const dropped: Dropped[] = [];
+                  void writeBhx(s, dropped).then((xml) => {
+                    download(new Blob([xml], { type: 'application/xml' }), s.title, 'bhx');
+                    setMessage(exported(`${s.title}.bhx`, dropped));
+                  });
+                }}
+              >
+                ⤓
+              </button>
               <button type="button" aria-label={`Remove the hatch set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, hatchSets: w.hatchSets.filter((x) => x !== s) }))}>
                 ×
               </button>

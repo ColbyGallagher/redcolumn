@@ -30,6 +30,7 @@ interface Window {
       setTool(tool: string): void;
       getState(): { tool: string; selected: Set<string>; measuring: unknown };
       select(ids: string[]): void;
+      setRouteOf(id: string, route: 'elbow' | 'straight' | 'reset'): void;
       store: {
         all(): NbMarkup[];
         remove(ids: string[]): void;

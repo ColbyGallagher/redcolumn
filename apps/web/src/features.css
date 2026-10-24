@@ -6353,6 +6353,35 @@ tr.hidden-markup td {
   width: 80px;
 }
 
+/* Comments table (a Project's or Live Session's comments) */
+.comments-table th .th-sort {
+  all: unset;
+  cursor: pointer;
+}
+
+.comments-table tbody tr {
+  cursor: pointer;
+}
+
+.comments-table tbody tr:hover,
+.comments-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.comments-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
+.comments-table tr.reply td {
+  color: var(--muted);
+}
+
+.comments-table tr.reply .comment-text {
+  color: inherit;
+}
+
 /* Link previews: the sheet or detail a link points to, floating beside the plan */
 .link-preview {
   position: fixed;
@@ -6443,4 +6472,263 @@ tr.hidden-markup td {
   height: 14px;
   cursor: nwse-resize;
   background: linear-gradient(135deg, transparent 50%, var(--muted, #8892a6) 50%, var(--muted, #8892a6) 60%, transparent 60%, transparent 70%, var(--muted, #8892a6) 70%, var(--muted, #8892a6) 80%, transparent 80%);
+}
+
+/* Scripts (Tools › Scripts) */
+.modal.scripts-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.scripts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.scripts-list {
+  width: 220px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+}
+
+.scripts-row {
+  all: unset;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.scripts-row:hover,
+.scripts-row.on {
+  background: rgba(20, 163, 154, 0.15);
+}
+
+.scripts-row.example {
+  color: var(--muted);
+}
+
+.scripts-examples-title {
+  margin-top: 12px;
+}
+
+.scripts-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scripts-edit textarea {
+  flex: 1;
+  min-height: 160px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  resize: none;
+}
+
+.scripts-help {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scripts-help code {
+  font-size: 11px;
+}
+
+.scripts-result {
+  max-height: 34%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.scripts-result p {
+  margin: 0 0 4px;
+}
+
+.scripts-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: #f87171;
+}
+
+.scripts-changes {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.scripts-changes .what {
+  font-weight: 600;
+}
+
+/* Beats the dialogs' input rule, which lets an input grow. */
+.modal.scripts-dialog .scripts-edit > input:not([type='checkbox']):not([type='radio']) {
+  flex: none;
+}
+
+.scripts-list > .btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* Takeoff Review: AI proposals beside the sheet */
+.takeoff-review {
+  position: fixed;
+  z-index: 55;
+  top: 110px;
+  right: 16px;
+  bottom: 40px;
+  width: min(600px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #172339);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.takeoff-review-head,
+.takeoff-review-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.takeoff-review-head {
+  border-bottom: 1px solid var(--border);
+}
+
+.takeoff-review-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.takeoff-review-foot {
+  border-top: 1px solid var(--border);
+}
+
+.takeoff-review-note {
+  margin: 6px 10px;
+}
+
+.takeoff-review-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.takeoff-proposal {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.takeoff-proposal.approved {
+  border-color: rgba(22, 163, 74, 0.6);
+}
+
+.takeoff-proposal.rejected {
+  opacity: 0.7;
+}
+
+.tp-head,
+.tp-assembly,
+.tp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tp-actions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.tp-measure {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline dotted;
+}
+
+.tp-value {
+  color: var(--muted);
+}
+
+.tp-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.tp-state.approved {
+  background: rgba(22, 163, 74, 0.25);
+}
+
+.tp-state.rejected {
+  background: rgba(220, 38, 38, 0.25);
+}
+
+.tp-assembly {
+  margin: 6px 0 2px;
+}
+
+.tp-vars {
+  margin-bottom: 4px;
+}
+
+.tp-items {
+  margin: 4px 0;
+}
+
+.tp-items input {
+  width: 80px;
+  text-align: right;
+}
+
+.tp-items input.tp-set {
+  border-color: var(--brand, #14a39a);
+}
+
+.tp-reason {
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--border);
+}
+
+.takeoff-proposal .warn {
+  color: #f59e0b;
+}
+
+.tp-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* A takeoff quantity set by hand (it does not follow the measurement) */
+.set-by-hand {
+  color: #f59e0b;
+  font-size: 11px;
+  white-space: nowrap;
 }

@@ -529,8 +529,10 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="Takeoff">
               <Cmd id="tools.assemblies" />
               <Cmd id="tools.quantities" />
+              <Cmd id="tools.takeoffReview" />
             </Submenu>
             <Cmd id="tools.sketchToScale" />
+            <Cmd id="tools.scripts" />
             <Submenu label="Sign & Certify">
               <Cmd id="tools.sign" />
               <Cmd id="tools.digitalIds" />

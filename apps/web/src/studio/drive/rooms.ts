@@ -173,6 +173,17 @@ export class RoomFiles {
     return this.known.has(room);
   }
 
+  /**
+   * A room's state as an update, read fresh from the folder, without linking a store to it (an open
+   * store stays linked as it was). Null when nobody has saved any. `fresh` false uses what the last
+   * read of the folder found, for reading many rooms after one read.
+   */
+  async state(room: string, fresh = true): Promise<Uint8Array | null> {
+    await this.ready();
+    if (fresh) await this.poll();
+    return this.hasState(room) ? Y.encodeStateAsUpdate(this.room(room)) : null;
+  }
+
   /** Resolves once the folder has been read (or failed to be) for the first time. */
   ready(): Promise<void> {
     if (!this.synced) void this.poll();

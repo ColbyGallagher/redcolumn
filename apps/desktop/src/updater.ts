@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { autoUpdater } from 'electron-updater';
-import { UpdateService, type NativeUpdater } from './update-service';
+import { UpdateService, canSelfUpdate, updateChannel, type NativeUpdater } from './update-service';
 
 /** The repository whose releases carry the installer. */
 const RELEASES_API = 'https://api.github.com/repos/ColbyGallagher/redcolumn/releases/latest';
@@ -32,12 +32,21 @@ async function fetchLatest(): Promise<{ tag: string; url: string } | null> {
  * and runs it when the app quits (or when the person restarts into it). Anywhere else (the Mac
  * app, which is not signed with a Developer ID, and a build run from source) the person is told
  * and opens the release page.
+ *
+ * Windows on Arm updates itself from latest-arm64.yml instead (see updateChannel). The NSIS
+ * updater does not look at the architecture, so it must never read latest.yml: that describes the
+ * x64 installer and would replace the native arm64 install with the x64 build.
  */
 function nativeUpdater(): NativeUpdater | null {
-  if (!app.isPackaged || process.platform !== 'win32') return null;
+  if (!canSelfUpdate({ packaged: app.isPackaged, platform: process.platform, arch: process.arch })) return null;
+  const channel = updateChannel(process.arch);
+  if (channel) autoUpdater.channel = channel;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Keep this false: with it on, a release that lacks latest-arm64.yml makes electron-updater fall
+  // back to latest.yml, which is the x64 installer. Off, the check fails and nothing is replaced.
   autoUpdater.allowPrerelease = false;
+  // Setting a channel turns this on, so it is set after.
   autoUpdater.allowDowngrade = false;
   return autoUpdater;
 }

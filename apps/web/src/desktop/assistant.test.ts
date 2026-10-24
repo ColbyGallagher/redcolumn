@@ -417,3 +417,27 @@ test('a development launch still passes ELECTRON_RUN_AS_NODE through', () => {
   assert.match(clients[2]!.copy, /--env ELECTRON_RUN_AS_NODE=1 /);
   assert.match(clients[3]!.copy, /\[mcp_servers\.redcolumn\.env\]\nELECTRON_RUN_AS_NODE = "1"/);
 });
+
+test('an AI client proposes takeoff assemblies; they wait for a person, and the drawing is unchanged', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  drawing.store.setAssemblies([{ id: 'wall', name: 'Stud Wall', variables: [{ name: 'Spacing', value: 16 }], items: [{ id: 'studs', name: 'Studs', unit: 'ea', formula: '[Length] / [Spacing] + 1', roundUp: true }] }]);
+  drawing.store.add(markup({ id: 'note', type: 'text', text: 'hi', seq: 2 }));
+  const listed = (await assistantCall([drawing], 'list_assemblies', {})) as { assemblies: { name: string; items: { formula: string }[] }[]; formulaNames: string[] };
+  assert.equal(listed.assemblies[0]!.name, 'Stud Wall');
+  assert.equal(listed.assemblies[0]!.items[0]!.formula, '[Length] / [Spacing] + 1');
+  assert.ok(listed.formulaNames.includes('Length'));
+
+  // Every proposal is checked first: one bad one keeps them all out.
+  await assert.rejects(() => assistantCall([drawing], 'propose_takeoff', { proposals: [{ seq: 1, assembly: 'Stud Wall', reasoning: 'wall' }, { seq: 2, assembly: 'Stud Wall', reasoning: 'x' }] }), /Proposal 2: markup 2 is a text, not a measurement/);
+  await assert.rejects(() => assistantCall([drawing], 'propose_takeoff', { proposals: [{ seq: 1, assembly: 'Slab' }] }), /no assembly "Slab"/);
+  await assert.rejects(() => assistantCall([drawing], 'propose_takeoff', { proposals: [{ seq: 1, assembly: 'Stud Wall' }] }), /say why/);
+  const none = (await assistantCall([drawing], 'list_takeoff_proposals', {})) as { proposals: unknown[] };
+  assert.equal(none.proposals.length, 0);
+
+  const made = (await assistantCall([drawing], 'propose_takeoff', { source: 'Claude', proposals: [{ seq: 1, assembly: 'stud wall', reasoning: 'The run is labelled as a partition wall.', expected: [{ item: 'Studs', quantity: 5 }] }] })) as { proposed: number; note: string };
+  assert.equal(made.proposed, 1);
+  assert.match(made.note, /Nothing is added to the takeoff until they approve it/);
+  assert.equal(drawing.store.get('door')!.assemblyId, undefined, 'the drawing is unchanged');
+  const pending = (await assistantCall([drawing], 'list_takeoff_proposals', {})) as { proposals: { state: string; assembly: string; markup: { seq: number } }[] };
+  assert.deepEqual(pending.proposals.map((p) => [p.state, p.assembly, p.markup.seq]), [['pending', 'Stud Wall', 1]]);
+});
