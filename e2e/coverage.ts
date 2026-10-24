@@ -234,6 +234,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'tools.forms': { spec: 'forms-sign-stamps' },
   'tools.nextMeasure': { spec: 'measure' },
   'tools.quantities': { spec: 'measure' },
+  'tools.takeoffReview': { spec: 'measure' },
   'tools.sign': { spec: 'forms-sign-stamps' },
   'tools.signatures': { spec: 'forms-sign-stamps' },
   'tools.sketchToScale': { spec: 'measure' },

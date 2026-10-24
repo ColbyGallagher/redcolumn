@@ -362,6 +362,11 @@ questions about it. Turn it on in **File › Preferences › MCP**, which shows 
 Deletes and document changes wait for your approval in redcolumn, and the assistant runs on your
 computer. The website does not run it. See [PRIVACY.md](PRIVACY.md).
 
+An assistant can also **propose a takeoff**: the assembly for each measurement, with its reasoning.
+Proposals wait in **Tools › Takeoff › Review AI Proposals**, beside the sheet, where you check each one
+against its formula and quantities, change the assembly or a quantity, and approve or reject it. Nothing
+is added to the takeoff until you approve it, and each approval records who approved which proposal.
+
 ## Install the desktop app
 
 You can use redcolumn in any modern browser at

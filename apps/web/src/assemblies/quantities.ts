@@ -68,7 +68,9 @@ export function withWaste(item: AssemblyItem, base: number): { quantity: number;
 export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Record<string, Cell>>, columns: readonly CustomColumn[]): ItemQuantity[] {
   const lookup = lookupFor(m, cells, columns, assembly);
   return assembly.items.map((item) => {
-    const res = item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' };
+    // A quantity set by hand (when approving a takeoff) stands in for the formula; waste still applies.
+    const set = m.assemblyOverrides?.[item.id];
+    const res = typeof set === 'number' && Number.isFinite(set) ? { value: set } : item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' };
     if ('error' in res) return { item, base: null, quantity: null, rounded: null, cost: null, error: res.error };
     const base = typeof res.value === 'number' ? res.value : Number(res.value);
     if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: 'Not a number' };

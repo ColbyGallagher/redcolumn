@@ -50,6 +50,18 @@ Choose {{Tools > Takeoff > Takeoff Quantities…}} to add up every measurement's
 
 **Measured** is before waste, **With waste** adds it, and **Total** rounds up where the item rounds. Totals round up once, on the total, as you order: two walls of 3.1 sheets each come to 7 sheets, not 8. **Export CSV** saves the table for a spreadsheet.
 
+## Review a takeoff an AI proposed
+
+In the desktop app, an AI client connected through the local MCP server (File › Preferences › MCP) can **propose** a takeoff: which assembly each measurement should use, why, and the quantities it expects. A proposal changes nothing. It waits for you in {{Tools > Takeoff > Review AI Proposals…}}, a panel beside the sheet that opens by itself when proposals arrive.
+
+For each proposal you see the measurement (click its name to show it on the sheet), the proposed assembly, its variables, each item's formula and quantity, and the AI's reasoning. Where the AI expected a different quantity than the assembly works out, it is marked ⚠.
+
+- **Approve** puts the measurement in the takeoff with that assembly. Change the **Assembly** first to use another one, or type a **Quantity** to set it by hand (waste and rounding still apply).
+- **Reject** keeps it out. Choose **All, with decisions** to see rejected proposals and **Review again**.
+- To approve several at once, tick them (or **Select all waiting**) and click **Approve Selected**. Nothing is ever approved by itself.
+
+Each approval is saved on the measurement: who approved it, when, and which AI proposal it came from. [[Ctrl+Z]] takes an approval back, and the proposal waits for review again. Proposals and rejections stay on this device.
+
 ## Share assemblies
 
 - Assemblies are saved in the PDF, so they open with it, and everyone in a [Live Session](#sessions) shares them.

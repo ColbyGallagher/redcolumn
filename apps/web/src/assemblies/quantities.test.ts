@@ -154,3 +154,11 @@ test('starter assemblies have no problems in either unit system', () => {
     for (const a of list) assert.deepEqual([...assemblyProblems(a, list, [])], [], `${system}: ${a.name}`);
   }
 });
+
+test('a quantity set by hand stands in for the formula, with waste and rounding still applied', () => {
+  const m = markup('length', [[0, 0], [20, 0]], { assemblyId: 'wall', assemblyOverrides: { studs: 20 } });
+  const [studs, board] = markupQuantities(m, [wall], ctx([wall]))!.items;
+  near(studs!.base, 20);
+  assert.equal(studs!.rounded, 22, '20 + 10% waste');
+  assert.equal(board!.rounded, 7, 'the other item still uses its formula');
+});

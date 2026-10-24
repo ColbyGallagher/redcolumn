@@ -37,6 +37,8 @@ import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
+import { TakeoffReview } from './components/TakeoffReview';
+import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -868,6 +870,7 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -5129,6 +5132,24 @@ export function App() {
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
+  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
+  const activeHash = activeOpen?.store.fileHash ?? null;
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
+    let seen = waiting();
+    return takeoffProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
+
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean) => {
     const cur = activeOpen;
@@ -7145,6 +7166,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
+    takeoffReview: () => setTakeoffReviewOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -9460,6 +9482,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
           onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
+        />
+      )}
+      {takeoffReviewOpen && activeOpen && (
+        <TakeoffReview
+          store={activeOpen.store}
+          me={author}
+          ctx={cellContext}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          onShow={(m) => selectFromList(m)}
+          onMessage={setNotice}
+          onClose={() => setTakeoffReviewOpen(false)}
         />
       )}
       {quantitiesOpen && activeOpen && (
