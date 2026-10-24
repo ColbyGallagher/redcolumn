@@ -9468,7 +9468,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {scriptsOpen && activeOpen && (
         <ScriptsDialog
           markups={activeOpen.store.all()}
-          ctx={{ statuses: activeOpen.store.columnSet().statuses, columns: activeOpen.store.columnSet().columns, pageLabel: (p) => activeOpen.store.allSheets()[p]?.number || String(p + 1) }}
+          ctx={{ statuses: activeOpen.store.columnSet().statuses, columns: activeOpen.store.columnSet().columns, pageLabel: (p) => activeOpen.store.allSheets()[p]?.number || String(p + 1), mayEdit: (m) => activeOpen.store.mayEdit(m) }}
           readOnly={activeReadOnly}
           onApply={(changes) => {
             const store = activeOpen.store;

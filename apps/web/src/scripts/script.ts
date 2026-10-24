@@ -51,6 +51,8 @@ export interface ScriptContext {
   statuses: readonly MarkupStatusDef[];
   columns: readonly CustomColumn[];
   pageLabel: (pageIndex: number) => string;
+  /** Whether the person may change a markup (a Live Session lets people change only their own). */
+  mayEdit?: (m: Markup) => boolean;
 }
 
 /** One markup's changes, for the preview and then the store. */
@@ -125,14 +127,16 @@ function tokenize(src: string): Tok[] {
     } else if ('()'.includes(c)) {
       out.push({ t: 'sym', v: c });
       i++;
-    } else if ('<>=!'.includes(c)) {
+    } else if ('<>='.includes(c) || (c === '!' && src[i + 1] === '=')) {
       const two = src.slice(i, i + 2);
       const v = ['<=', '>=', '!=', '=='].includes(two) ? two : c;
       i += v.length;
-      out.push({ t: 'sym', v: v === '==' || v === '=' ? 'is' : v === '!=' ? 'is not' : v });
+      // = and == read as "is", != as "is not" (two words, as the parser takes them).
+      if (v === '!=') out.push({ t: 'sym', v: 'is' }, { t: 'sym', v: 'not' });
+      else out.push({ t: 'sym', v: v === '==' || v === '=' ? 'is' : v });
     } else {
       let v = '';
-      while (i < src.length && !/[\s()<>=!"“]/.test(src[i]!)) v += src[i++];
+      while (i < src.length && !/[\s()<>="“]/.test(src[i]!) && !(src[i] === '!' && src[i + 1] === '=')) v += src[i++];
       out.push({ t: /^-?\d+(\.\d+)?%?$/.test(v) ? 'num' : 'word', v });
     }
   }
@@ -189,7 +193,7 @@ class Parser {
     this.i++;
     // Several bare words read as one value: set layer Review notes.
     let v = t.v;
-    if (t.t === 'word') while (this.peek()?.t === 'word' && !['and', 'or', 'to'].includes(this.word()!)) v += ' ' + this.toks[this.i++]!.v;
+    if (t.t === 'word' || t.t === 'num') while ((this.peek()?.t === 'word' || this.peek()?.t === 'num') && !['and', 'or', 'to'].includes(this.peek()!.v.toLowerCase())) v += ' ' + this.toks[this.i++]!.v;
     return v;
   }
 
@@ -247,14 +251,28 @@ class Parser {
   }
 }
 
+/** A line without its comment: all of it when it starts with # or //, else what follows ' // ' outside quotes. */
+function withoutComment(raw: string): string {
+  if (/^\s*(#|\/\/)/.test(raw)) return '';
+  let quote: string | null = null;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i]!;
+    if (quote) {
+      if (c === '\\') i++;
+      else if (c === quote) quote = null;
+    } else if (c === '"' || c === '\u201c') quote = c === '"' ? '"' : '\u201d';
+    else if (c === '/' && raw[i + 1] === '/' && /\s/.test(raw[i - 1] ?? '') && /\s|$/.test(raw[i + 2] ?? '')) return raw.slice(0, i);
+  }
+  return raw;
+}
+
 /** Reads a script. Every line that cannot be read is listed, with why. */
 export function parseScript(source: string): { program: Program; errors: ScriptError[] } {
   const rules: Rule[] = [];
   const errors: ScriptError[] = [];
   source.split(/\r?\n/).forEach((raw, n) => {
     const line = n + 1;
-    // Comments: a line starting with # or //, or the rest of a line after ' // '.
-    const text = (/^\s*(#|\/\/)/.test(raw) ? '' : raw.replace(/\s\/\/\s.*$/, '')).trim();
+    const text = withoutComment(raw).trim();
     if (!text) return;
     try {
       const p = new Parser(tokenize(text));
@@ -447,7 +465,7 @@ export function runScript(program: Program, markups: readonly Markup[], ctx: Scr
     for (const m of [...now.values()]) {
       if (!test(rule.where, m, ctx)) continue;
       n++;
-      if (m.locked) {
+      if (m.locked || (ctx.mayEdit && !ctx.mayEdit(m))) {
         skipped.add(name(m));
         continue;
       }

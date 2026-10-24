@@ -93,3 +93,14 @@ test('mistakes are reported with their line, and nothing runs', () => {
   // Comments and blank lines are fine; a colour with # is not a comment.
   assert.deepEqual(errs('// tidy up\n\nwhere type is cloud // only clouds\nset color #00ff00'), []);
 });
+
+test('values with numbers and "!", " // " inside quotes, and markups someone else may not change', () => {
+  assert.deepEqual(run('where type is cloud\nset layer Level 2').changes.map((c) => c.patch.layer), ['Level 2', 'Level 2']);
+  assert.deepEqual(run('where type is text\nset comment Fix this!').changes.map((c) => c.patch.comment), ['Fix this!']);
+  assert.deepEqual(run('where type is text\nset comment "see A-101 // B" // a note').changes.map((c) => c.patch.comment), ['see A-101 // B']);
+  assert.deepEqual(run('where author != Sam\nset width 4').changes.map((c) => c.id), ['b', 'e']);
+  // Only Hana's own markups may change (a Live Session's rule): Sam's are left alone and named.
+  const r = previewScript('every markup\nset status open', doc, { ...ctx, mayEdit: (m) => m.author === 'Hana' }).run!;
+  assert.deepEqual(r.changes.map((c) => c.id), ['b', 'e']);
+  assert.equal(r.skipped.length, 3);
+});
