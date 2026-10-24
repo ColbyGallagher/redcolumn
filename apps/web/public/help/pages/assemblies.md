@@ -56,7 +56,7 @@ In the desktop app, an AI client connected through the local MCP server (File �
 
 For each proposal you see the measurement (click its name to show it on the sheet), the proposed assembly, its variables, each item's formula and quantity, and the AI's reasoning. Where the AI expected a different quantity than the assembly works out, it is marked ⚠.
 
-- **Approve** puts the measurement in the takeoff with that assembly. Change the **Assembly** first to use another one, or type a **Quantity** to set it by hand (waste and rounding still apply).
+- **Approve** puts the measurement in the takeoff with that assembly. Change the **Assembly** first to use another one, or type a **Quantity** to set it by hand (waste and rounding still apply). A quantity set by hand stays as it is if the measurement is changed later, and is marked **✎ set by hand** in Takeoff Quantities and the Measurements panel. Picking another assembly for the measurement clears it.
 - **Reject** keeps it out. Choose **All, with decisions** to see rejected proposals and **Review again**.
 - To approve several at once, tick them (or **Select all waiting**) and click **Approve Selected**. Nothing is ever approved by itself.
 

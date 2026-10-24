@@ -6450,3 +6450,10 @@ tr.hidden-markup td {
   gap: 6px;
   font-size: 12px;
 }
+
+/* A takeoff quantity set by hand (it does not follow the measurement) */
+.set-by-hand {
+  color: #f59e0b;
+  font-size: 11px;
+  white-space: nowrap;
+}

@@ -243,6 +243,16 @@ test.describe('assemblies', () => {
     expect(approved.assemblyOverrides).toEqual({ studs: 14 });
     expect(approved.takeoffApproval).toMatchObject({ source: 'Claude', edited: true });
     await expect(review.locator('.takeoff-proposal')).toHaveCount(0);
+    // The hand-set quantity is marked where quantities show: the totals and the Measurements panel.
+    await review.getByRole('button', { name: 'Close takeoff review' }).click();
+    await app.cmd('tools.quantities');
+    const totals = page.getByRole('dialog', { name: 'Takeoff quantities' });
+    await expect(totals.locator('tbody tr', { hasText: 'Studs' }).locator('.set-by-hand')).toContainText('set by hand');
+    await totals.getByRole('button', { name: 'Close', exact: true }).click();
+    await app.panel('Measurements');
+    await page.evaluate((id) => window.__nb.tools.select([id]), run!.id as string);
+    await expect(page.getByRole('list', { name: 'Assembly quantities' }).locator('li', { hasText: 'Studs' }).locator('.set-by-hand')).toBeVisible();
+    await app.cmd('tools.takeoffReview');
     // Undo takes the approval back: the proposal is waiting again.
     await app.cmd('edit.undo');
     await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBeUndefined();
