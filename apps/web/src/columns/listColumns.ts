@@ -436,7 +436,7 @@ export function groupRows(rows: readonly ListRowData[], key: string): { label: s
   return [...groups].map(([label, rows]) => ({ label, rows }));
 }
 
-function csvCell(v: string) {
+export function csvCell(v: string) {
   return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 

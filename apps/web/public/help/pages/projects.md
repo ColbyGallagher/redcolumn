@@ -47,3 +47,7 @@ If OneDrive can't be reached, check-ins are queued. Click **Send now** when you 
 ## Project Record
 
 **Project Record** lists every check-out, check-in, note and change, with who and when.
+
+## All comments
+
+Click **Comments** to see every comment and reply on the Project's files in one table. The files are read from OneDrive, so a big Project takes a moment. See [Comments](#comments).
