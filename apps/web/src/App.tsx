@@ -39,6 +39,7 @@ import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
+import { LinkPreviews, type LinkPreviewWindow } from './components/LinkPreview';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -1163,6 +1164,9 @@ export function App() {
   const future = useRef<ViewState[]>([]);
   const [canGoForward, setCanGoForward] = useState(false);
   const followLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  const previewLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  /** Previews of linked sheets and details, floating beside the plan (see LinkPreviews). */
+  const [linkPreviews, setLinkPreviews] = useState<(LinkPreviewWindow & { link: StoredLink; fileId: string })[]>([]);
   const viewportRef = useRef<(pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
   const [author, setAuthor] = useState(loadAuthor);
   const authorRef = useRef(author);
@@ -1559,7 +1563,7 @@ export function App() {
     [ctl, ctlB],
   );
 
-  followLinkRef.current = (link: StoredLink) => navigate(link.targetPage, link.targetRect);
+  followLinkRef.current = (link: StoredLink) => (settings.get().linkClick === 'jump' ? navigate(link.targetPage, link.targetRect) : previewLinkRef.current(link));
   /** Runs a link action (of a markup or a bookmark): a web page, another document, a Place or a page. */
   const followAction = (link: LinkAction) => {
     if (link.kind === 'url') {
@@ -4965,6 +4969,65 @@ export function App() {
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
     return { canvas, x0, y0, w, h };
+  };
+
+  // --- Link previews ------------------------------------------------------------------------------
+
+  /** A link's target as a preview: replaces the unpinned one, beside the pinned ones. */
+  previewLinkRef.current = (link: StoredLink) => {
+    const o = paneParts(activePaneRef.current).o;
+    if (!o) return;
+    const sheet = o.store.allSheets()[link.targetPage];
+    const target = [sheet?.number ?? `Page ${link.targetPage + 1}`, sheet?.title].filter(Boolean).join(' ');
+    const title = link.detail ? `${link.label} → ${target}` : target;
+    setLinkPreviews((ps) => {
+      const kept = ps.filter((p) => p.pinned);
+      const k = kept.length;
+      const w = Math.min(520, window.innerWidth - 48);
+      const h = Math.min(380, window.innerHeight - 160);
+      return [...kept, { id: crypto.randomUUID(), title, pinned: false, x: Math.max(8, window.innerWidth - w - 32 - k * 28), y: 120 + k * 28, w, h, link, fileId: o.file.id }];
+    });
+  };
+
+  // A preview goes when its document is closed.
+  useEffect(() => {
+    const open = new Set([...tabsA, ...tabsB].map((t) => t.file.id));
+    setLinkPreviews((ps) => (ps.every((p) => open.has(p.fileId)) ? ps : ps.filter((p) => open.has(p.fileId))));
+  }, [tabsA, tabsB]);
+
+  /** The open document a preview belongs to. */
+  const previewFile = (fileId: string) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+
+  const renderPreviewRef = useRef<(id: string, width: number, height: number) => Promise<HTMLCanvasElement | null>>(async () => null);
+  renderPreviewRef.current = async (id, width, height) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    const o = p && previewFile(p.fileId);
+    const size = p && o?.doc.pages[p.link.targetPage];
+    if (!p || !o || !size) return null;
+    // The detail with some of the sheet around it, or the whole sheet.
+    const t = p.link.targetRect;
+    const pad = t ? Math.max(36, 0.25 * Math.max(t.w, t.h)) : 0;
+    const area = t ? { x: t.x - pad, y: t.y - pad, w: t.w + 2 * pad, h: t.h + 2 * pad } : { x: 0, y: 0, w: size.width, h: size.height };
+    const dpr = window.devicePixelRatio || 1;
+    const region = await renderRegion(o, p.link.targetPage, area, (w, h) => Math.min(8, Math.max(0.1, Math.min(width / w, height / h)) * dpr));
+    if (!region) return null;
+    region.canvas.style.width = `${region.canvas.width / dpr}px`;
+    region.canvas.style.height = `${region.canvas.height / dpr}px`;
+    return region.canvas;
+  };
+  const renderPreview = useCallback((id: string, width: number, height: number) => renderPreviewRef.current(id, width, height), []);
+
+  /** Opens a preview's sheet in the view (as following the link used to), and closes the preview unless it is pinned. */
+  const openPreview = (id: string) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    if (!p) return;
+    if (activeOpen?.file.id !== p.fileId) {
+      // Its document is open in another tab: the view cannot go there from here.
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      return;
+    }
+    navigate(p.link.targetPage, p.link.targetRect);
+    if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
@@ -8723,6 +8786,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <PublishDialog mode={publishFor} pageCount={activeOpen.doc.pages.length} currentPage={pageIndex} busy={publishing} onRun={(req) => void runPublish(req)} onClose={() => setPublishFor(null)} />
       )}
       {whatsNewOpen && <WhatsNewDialog onClose={() => setWhatsNewOpen(false)} />}
+      <LinkPreviews
+        windows={linkPreviews}
+        render={renderPreview}
+        onChange={(w) => setLinkPreviews((ps) => ps.map((p) => (p.id === w.id ? { ...p, ...w } : p)))}
+        onOpen={openPreview}
+        onClose={(id) => setLinkPreviews((ps) => ps.filter((p) => p.id !== id))}
+        revision={markups}
+      />
       {spellOpen && activeOpen && (
         <SpellCheckDialog
           store={activeOpen.store}
