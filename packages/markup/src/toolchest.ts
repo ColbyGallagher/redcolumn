@@ -342,9 +342,9 @@ function rectOf(d: PdfDict): [number, number, number, number] | null {
 
 /** The box an annotation draws in, from its /Rect less its /RD insets, at the origin. */
 function boxOf(d: PdfDict): { w: number; h: number; inset: [number, number, number, number] } | null {
-  const r = Array.isArray(d.Rect) ? (d.Rect as PdfValue[]).map(num) : [];
-  if (r.length !== 4 || r.some((v) => v === null)) return null;
-  const [x0, y0, x1, y1] = r as number[];
+  const r = rectOf(d);
+  if (!r) return null;
+  const [x0, y0, x1, y1] = r;
   const rd = Array.isArray(d.RD) ? (d.RD as PdfValue[]).map((v) => num(v) ?? 0) : [0, 0, 0, 0];
   const w = Math.abs(x1! - x0!);
   const h = Math.abs(y1! - y0!);
@@ -377,13 +377,16 @@ function groupTemplate(parent: Part, children: Part[], parentStyle: MarkupStyle,
     } else {
       const { w, h, inset } = boxOf(p.dict)!;
       const [x, y] = at(f.rx, f.ry + h);
+      // /RD is left, top, right, bottom; page space is y down, so the top inset is added to y.
       points = [
-        [x + inset[0], y + inset[3]],
-        [x + w - inset[2], y + h - inset[1]],
+        [x + inset[0], y + inset[1]],
+        [x + w - inset[2], y + h - inset[3]],
       ];
     }
     const style = i ? toolStyle(p.type!, p.dict, defaults) : parentStyle;
-    const text = p.type === 'text' || p.type === 'typewriter' ? (number !== undefined ? String(number) : str(p.dict.Contents)) : undefined;
+    // A sequence numbers the text that holds a number (or none yet); other text keeps its words.
+    const own = str(p.dict.Contents);
+    const text = p.type === 'text' || p.type === 'typewriter' ? (number !== undefined && /^\s*\d*\s*$/.test(own) ? String(number) : own) : undefined;
     return {
       id: '',
       type: p.type!,
