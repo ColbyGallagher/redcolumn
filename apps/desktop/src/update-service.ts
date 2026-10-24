@@ -45,12 +45,19 @@ export interface UpdateServiceOptions {
 
 export type InstallResult = { ok: true } | { ok: false; reason: string };
 
-/**
- * Whether this build updates itself. Only the packaged x64 Windows app does: latest.yml describes
- * the x64 installer, so a native arm64 install that followed it would be replaced by the x64 build.
- */
+/** Whether this build updates itself: the packaged Windows app, on x64 or on Arm. */
 export function canSelfUpdate(opts: { packaged: boolean; platform: string; arch: string }): boolean {
-  return opts.packaged && opts.platform === 'win32' && opts.arch === 'x64';
+  return opts.packaged && opts.platform === 'win32' && (opts.arch === 'x64' || opts.arch === 'arm64');
+}
+
+/**
+ * The update file electron-updater reads from the release, without the .yml. Null is the default,
+ * latest.yml, which describes the x64 installer. Windows on Arm reads latest-arm64.yml instead:
+ * following latest.yml would replace a native arm64 install with the x64 build. The arm64 package
+ * script sets the same name as the channel, so the release workflow uploads that file.
+ */
+export function updateChannel(arch: string): string | null {
+  return arch === 'arm64' ? 'latest-arm64' : null;
 }
 
 /**

@@ -4,7 +4,7 @@ name: Release
 # Linux AppImage, and publish them as a GitHub release. Running it by hand (workflow_dispatch)
 # builds them as workflow artifacts without publishing. The web app's Install button links to
 # releases/latest/download/redcolumn-Setup.exe and redcolumn-{arm64,x64}.dmg. The installed app
-# checks the latest release at every launch (Windows updates itself from latest.yml and the
+# checks the latest release at every launch (Windows updates itself from latest.yml, or latest-arm64.yml on Arm, and the
 # blockmap; the Mac app links to the release page) and compares its tag with the app's version,
 # so the tag must be `v` plus the version in apps/desktop/package.json. A tag with a suffix
 # (v0.3.0-beta.1) is published as a pre-release, which none of those looks at.
@@ -73,9 +73,10 @@ jobs:
             apps/desktop/release/latest.yml
           if-no-files-found: error
 
-  # Windows on Arm, built natively on GitHub's arm64 runner. Its own file name, so the x64
+  # Windows on Arm, built natively on GitHub's arm64 runner. Its own file names, so the x64
   # redcolumn-Setup.exe link and latest.yml stay as they are. latest.yml only describes the x64
-  # installer, so the arm64 app does not update itself: it opens the release page (updater.ts).
+  # installer, so the arm64 app updates itself from latest-arm64.yml (the package script sets that
+  # as the channel; updater.ts reads it). Both must be on every release or arm64 apps cannot update.
   build-win-arm64:
     runs-on: windows-11-arm
     timeout-minutes: 30
@@ -102,7 +103,10 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: installer-win-arm64
-          path: apps/desktop/release/redcolumn-Setup-arm64.exe
+          path: |
+            apps/desktop/release/redcolumn-Setup-arm64.exe
+            apps/desktop/release/redcolumn-Setup-arm64.exe.blockmap
+            apps/desktop/release/latest-arm64.yml
           if-no-files-found: error
 
   # Typecheck and tests run in the Windows job. Both DMGs are built on one Apple Silicon runner;
@@ -205,6 +209,6 @@ jobs:
         run: |
           flag=""
           case "$GITHUB_REF_NAME" in *-*) flag="--prerelease" ;; esac
-          notes="Windows: download redcolumn-Setup.exe. On a Windows on Arm PC (Snapdragon), download redcolumn-Setup-arm64.exe instead. The arm64 app does not update itself yet, so download the new installer from this page."
-          gh release create "$GITHUB_REF_NAME" redcolumn-Setup.exe redcolumn-Setup.exe.blockmap latest.yml redcolumn-Setup-arm64.exe redcolumn-arm64.dmg redcolumn-x64.dmg redcolumn-x86_64.AppImage \
+          notes="Windows: download redcolumn-Setup.exe. On a Windows on Arm PC (Snapdragon), download redcolumn-Setup-arm64.exe instead."
+          gh release create "$GITHUB_REF_NAME" redcolumn-Setup.exe redcolumn-Setup.exe.blockmap latest.yml redcolumn-Setup-arm64.exe redcolumn-Setup-arm64.exe.blockmap latest-arm64.yml redcolumn-arm64.dmg redcolumn-x64.dmg redcolumn-x86_64.AppImage \
             --title "redcolumn ${GITHUB_REF_NAME#v}" --notes "$notes" --generate-notes $flag
