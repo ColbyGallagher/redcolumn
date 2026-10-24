@@ -3,9 +3,10 @@ import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, i
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
+import { findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
 
 export interface IndexProgress {
-  phase: 'annotations' | 'text' | 'links' | 'stitch';
+  phase: 'annotations' | 'text' | 'links' | 'marks' | 'stitch';
   done: number;
   total: number;
 }
@@ -117,6 +118,33 @@ export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: Mar
   onProgress({ phase: 'links', done: 0, total: 1 });
   const sheets = store.allSheets();
   store.setDetectedLinks(detectLinks(pages, pages.map((_, i) => sheets[i]?.number ?? null)));
+}
+
+/**
+ * Finds the user's taught marks (section marks, titles, detail callouts) in the document and puts
+ * every match in the Links tab's Needs review list. Line work is read one page at a time, and only
+ * for pages whose text could hold a mark's label. `bytes` must return a fresh buffer on each call.
+ */
+export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, marks: readonly TaughtMark[], onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
+  const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
+  const sheets = store.allSheets();
+  const numbers = pages.map((_, i) => sheets[i]?.number ?? null);
+  const lookup = new SheetLookup(numbers);
+  const hits: MarkHit[] = [];
+  const wanted = marks.length ? pages.flatMap((p, i) => (mayHoldMarks(p, lookup, marks) ? [i] : [])) : [];
+  const shapes = marks.some((m) => m.lines.length >= 8);
+  const search = async (doc: PdfDocument | null) => {
+    let done = 0;
+    for (const i of wanted) {
+      signal?.throwIfAborted();
+      const segments = doc ? (await doc.geometry(i)).segments : new Float32Array();
+      hits.push(...findMarksOnPage({ ...pages[i]!, segments }, i, lookup, marks));
+      onProgress({ phase: 'marks', done: ++done, total: wanted.length });
+    }
+  };
+  if (wanted.length && shapes) await withBackgroundDoc(await bytes(), search);
+  else await search(null);
+  store.setMarkLinks(marksToLinks(pages, numbers, hits), marks.map((m) => m.id));
 }
 
 /**

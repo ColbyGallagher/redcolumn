@@ -72,6 +72,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.splitDocument': { spec: 'document' },
   'document.stitchToPage': { spec: 'manual-stitch' },
   'document.stitching': { spec: 'manual-stitch' },
+  'document.teachMark': { spec: 'view' },
   'document.thumbnails': { spec: 'document' },
   'document.unflatten': { spec: 'document' },
   'edit.alignBottom': { spec: 'edit' },

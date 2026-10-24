@@ -411,6 +411,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.polarTracking" />
             <Cmd id="view.objectSnapTracking" />
             <Cmd id="view.showLinks" />
+            <Cmd id="document.teachMark" />
             <Sep />
             <Cmd id="view.darkPages" />
             <Cmd id="view.dimmer" />

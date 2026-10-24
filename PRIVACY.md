@@ -24,7 +24,7 @@ someone else runs their own copy, their policy applies to it.
 The app keeps these in your browser's storage, on your device only:
 
 - documents you open or save to the library, with their markups, measurements and revisions;
-- your settings, profiles, tool sets, signatures and stamps;
+- your settings, profiles, tool sets, signatures and stamps, and the sheet-link marks you teach the app;
 - a list of Live Sessions and Projects you have started or joined, which library files came from
   a Project, and check-ins and notes waiting to be sent;
 - the app itself and its OCR language data, so it works offline.

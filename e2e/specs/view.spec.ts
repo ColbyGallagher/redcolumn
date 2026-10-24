@@ -1,4 +1,5 @@
 import { expect, test, type App } from '../support/app.ts';
+import { PLAN } from '../support/driver.ts';
 
 const page = async (app: App) => (await app.documents()).find((d) => d.active)!.page;
 
@@ -119,6 +120,49 @@ test.describe('view', () => {
     await expect.poll(() => page(app)).toBe(3);
     await previews.first().getByRole('button', { name: 'Close preview' }).click();
     await expect(previews).toHaveCount(0);
+  });
+
+  test('teach a mark: the example is kept in the profile and marks like it wait in Needs review', async ({ app }) => {
+    const { sheetNumbers, radius: r, callouts } = PLAN.marks;
+    await app.open('marks.pdf');
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
+    // Sheet numbers as the Pages panel would have them (the fixture has no title blocks).
+    await app.page.evaluate((numbers) => {
+      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
+      store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
+    }, sheetNumbers);
+    await app.cmd('document.teachMark');
+    const panel = app.page.locator('.links');
+    await expect(panel).toBeVisible();
+    // Box the first callout, with its label.
+    const [first] = callouts;
+    await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
+    const dialog = app.page.locator('.modal.teach-mark-dialog');
+    await dialog.getByLabel('Detail callout').check();
+    await dialog.getByLabel('Name').fill('Split bubble');
+    await dialog.locator('button[type=submit]').click();
+    await expect(dialog).toHaveCount(0);
+    // Every callout (the example too) is a link to review, with how sure the match is; the grid bubble is not.
+    await expect(panel.locator('h3', { hasText: 'Needs review' })).toHaveText(`Needs review (${callouts.length})`);
+    const rows = panel.locator('li', { has: app.page.locator('button[title="Keep this link"]') });
+    await expect(rows).toHaveCount(callouts.length);
+    for (const c of callouts) await expect(rows.filter({ hasText: `${c.detail}/${c.sheet}` })).toContainText(/A-101 → A-501\s*\d+%/);
+    // Kept in the profile, on this device.
+    const taught = await app.page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: { name: string; kind: string }[] } }[] };
+      return saved.profiles.find((p) => p.id === saved.activeId)!.state.taughtMarks.map((m) => [m.name, m.kind]);
+    });
+    expect(taught).toEqual([['Split bubble', 'detailCallout']]);
+    await expect(panel.locator('h3', { hasText: 'Taught marks' })).toHaveText('Taught marks (1)');
+    // Nothing is applied until a person keeps it.
+    await rows.filter({ hasText: '2/A-501' }).locator('button[title="Keep this link"]').click();
+    await expect(rows).toHaveCount(callouts.length - 1);
+    const kept = await app.page.evaluate(() => (window.__nb.tools as unknown as { store: { allLinks(): { label: string; status: string }[] } }).store.allLinks().filter((l) => l.status === 'accepted').map((l) => l.label));
+    expect(kept).toEqual(['2/A-501']);
+    // Forgetting the mark takes back the links still waiting, not the one kept.
+    await panel.getByRole('button', { name: 'Forget Split bubble' }).click();
+    await expect(panel.locator('h3', { hasText: 'Needs review' })).toHaveCount(0);
+    await expect(panel.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
   });
 
   test('next and previous document', async ({ app }) => {

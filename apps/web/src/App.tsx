@@ -157,7 +157,9 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { TeachMarkDialog } from './components/TeachMarkDialog';
+import { teachMark, type MarkKind, type TaughtMark } from './sheets/marks';
+import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -759,7 +761,7 @@ function startCellEdit(tools: MarkupTools, typed?: string): boolean {
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
-const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', stitch: 'Stitching sheets' };
+const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', marks: 'Finding taught marks', stitch: 'Stitching sheets' };
 
 /** Jobs that rewrite a document's pages; while one runs, page operations are turned off. */
 const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
@@ -996,6 +998,7 @@ export function App() {
   const [bookmarkAction, setBookmarkAction] = useState<string | null>(null);
   // Symbol Search › Hyperlinks…: the copies found, waiting for where their links go.
   const [vsLinks, setVsLinks] = useState<{ pane: Pane; hits: VisualSearchHit[] } | null>(null);
+  const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -1263,6 +1266,7 @@ export function App() {
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
+      onTeachMark: (pageIndex, rect) => setTeachBox({ pane, pageIndex, rect }),
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
@@ -1516,6 +1520,10 @@ export function App() {
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal);
         }
+        // Marks taught since this document was last searched (or ever, for a new set).
+        const marks = profiles.active().state.taughtMarks;
+        const searched = cur.store.marksSearched();
+        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal);
         // Documents imported before maps were read: read the file for them once.
         if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
@@ -1525,7 +1533,25 @@ export function App() {
   );
 
   const redetectLinks = useCallback(
-    (doc: OpenFile | null = openRef.current) => runIndexJob(doc, (cur, signal, report) => linkFromText(() => readFile(cur.file.hash), cur.store, report, signal)),
+    (doc: OpenFile | null = openRef.current) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+        // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
+        const marks = profiles.active().state.taughtMarks;
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
+      }),
+    [runIndexJob],
+  );
+
+  /** Looks for the taught marks in a document again (after teaching or forgetting one); `announce` says how many links wait for review. */
+  const findTaughtMarks = useCallback(
+    (doc: OpenFile | null = openRef.current, announce = false) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        await linkFromMarks(() => readFile(cur.file.hash), cur.store, profiles.active().state.taughtMarks, report, signal);
+        if (!announce) return;
+        const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
+        setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
+      }),
     [runIndexJob],
   );
 
@@ -6654,6 +6680,33 @@ export function App() {
     },
   ];
 
+  /** Links › Teach a mark: shows the Links tab and turns on the tool for boxing an example mark. */
+  const startTeachMark = () => {
+    if (!activeTools) return;
+    showBottomPanel('links');
+    activeTools.setTool('teachMark');
+    setNotice('Drag a box around one section mark, section title, detail callout or detail title, with its label.');
+  };
+
+  /** Saves the boxed example in the profile and finds marks like it; resolves to a message when it cannot be used. */
+  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string): Promise<string | null> => {
+    const { o } = paneParts(box.pane);
+    if (!o) return 'The document was closed.';
+    const size = o.doc.pages[box.pageIndex]!;
+    const sheets = o.store.allSheets();
+    let mark: TaughtMark;
+    try {
+      const [words, geometry] = await Promise.all([o.doc.text(box.pageIndex), o.doc.geometry(box.pageIndex)]);
+      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null));
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
+    setTeachBox(null);
+    void findTaughtMarks(o, true);
+    return null;
+  };
+
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
@@ -7197,6 +7250,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
+    teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
@@ -8253,6 +8307,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFollow={(l) => navigate(l.targetPage, l.targetRect)}
             onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
             onRedetect={() => void redetectLinks()}
+            marks={ws.taughtMarks}
+            editable={!!activeOpen && !activeOpen.store.readOnly}
+            onTeach={startTeachMark}
+            onForget={(id) => {
+              updateWorkspace((s) => ({ ...s, taughtMarks: s.taughtMarks.filter((m) => m.id !== id) }));
+              void findTaughtMarks(activeOpen);
+            }}
           />
         ) : markupsPopped ? (
           <div className="popout-note">
@@ -9153,6 +9214,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {teachBox && <TeachMarkDialog onTeach={(kind, name) => teachBoxedMark(teachBox, kind, name)} onCancel={() => setTeachBox(null)} />}
       {visualSearchBox &&
         (() => {
           const { c, o } = paneParts(visualSearchBox.pane);
