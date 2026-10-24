@@ -385,7 +385,9 @@ Only download redcolumn from the release page above.
 ### Windows
 
 1. Go to the [latest release](https://github.com/ColbyGallagher/redcolumn/releases/latest), or click
-   **Install app** at the top right of the web app, and download **redcolumn-Setup.exe**.
+   **Install app** at the top right of the web app, and download **redcolumn-Setup.exe**. On a Windows on Arm
+   PC (Snapdragon, such as a Surface Pro or Copilot+ PC), download **redcolumn-Setup-arm64.exe** instead, which
+   runs natively rather than under emulation. **Settings › System › About** shows which processor you have.
 2. Open the file from your Downloads folder. Windows SmartScreen shows **Windows protected your PC**
    because the publisher is unknown. Click **More info**, then **Run anyway**.
 3. Follow the steps. The installer does not need administrator rights. It installs for your user
@@ -437,7 +439,8 @@ The AppImage does not install anything, so deleting the file removes the app.
 
 - **Windows:** the installed app checks for a new release a few seconds after launch. When one is ready
   it downloads in the background and shows **Restart to update**. It never restarts over unsaved work,
-  and otherwise installs the update when you close the app.
+  and otherwise installs the update when you close the app. The arm64 installer updates itself the same
+  way, from its own update file (`latest-arm64.yml`), so it stays on the native build.
 - **Mac and Linux:** the app shows **Update to x.y.z** when a new release exists. That button opens the
   release page, and you download the new version and replace the old one. Your documents and markups are kept.
 - You can check at any time with **Help › Check for Updates**. That asks GitHub for the latest release
@@ -473,7 +476,8 @@ pnpm test
 pnpm typecheck
 ```
 
-To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows,
+To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows (or
+`pnpm --filter @nb/desktop package:win-arm64` for Windows on Arm),
 `pnpm --filter @nb/desktop package:mac` on a Mac, or `pnpm --filter @nb/desktop package:linux` on Linux.
 The output is written to `apps/desktop/release/`.
 
@@ -506,15 +510,15 @@ git push origin v0.2.0
 ```
 
 The `Release` workflow (`.github/workflows/release.yml`) checks that the tag is `v` plus the desktop
-version, runs the typecheck and tests, builds the Windows installer, both Mac DMGs and the Linux AppImage,
-and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`),
+version, runs the typecheck and tests, builds the Windows installers (x64, and arm64 on a Windows on Arm runner), both Mac DMGs and the Linux AppImage,
+and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`), `redcolumn-Setup-arm64.exe` (plus `redcolumn-Setup-arm64.exe.blockmap` and `latest-arm64.yml`),
 `redcolumn-arm64.dmg`, `redcolumn-x64.dmg` and `redcolumn-x86_64.AppImage` attached. The file names stay fixed so the web app's Install
 button, which links to `releases/latest/download/<file>`, always gets the newest release. A tag with a
 suffix such as `v0.3.0-beta.1` is published as a pre-release, which the Install button and the update
 check ignore.
 
-`latest.yml` and the `.blockmap` must stay attached to the release, or installed Windows apps cannot
-update. Running the workflow by hand from the Actions tab builds the installers as workflow artifacts
+`latest.yml`, `latest-arm64.yml` and the `.blockmap` files must stay attached to the release, or installed
+Windows apps cannot update. Running the workflow by hand from the Actions tab builds the installers as workflow artifacts
 without publishing. The publish step waits for approval in the `release` environment.
 
 ## Security
