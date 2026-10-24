@@ -6307,3 +6307,112 @@ tr.hidden-markup td {
 .geo-number {
   width: 80px;
 }
+
+/* Scripts (Tools › Scripts) */
+.modal.scripts-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.scripts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.scripts-list {
+  width: 220px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+}
+
+.scripts-row {
+  all: unset;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.scripts-row:hover,
+.scripts-row.on {
+  background: rgba(20, 163, 154, 0.15);
+}
+
+.scripts-row.example {
+  color: var(--muted);
+}
+
+.scripts-examples-title {
+  margin-top: 12px;
+}
+
+.scripts-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scripts-edit textarea {
+  flex: 1;
+  min-height: 160px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  resize: none;
+}
+
+.scripts-help {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scripts-help code {
+  font-size: 11px;
+}
+
+.scripts-result {
+  max-height: 34%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.scripts-result p {
+  margin: 0 0 4px;
+}
+
+.scripts-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: #f87171;
+}
+
+.scripts-changes {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.scripts-changes .what {
+  font-weight: 600;
+}
+
+/* Beats the dialogs' input rule, which lets an input grow. */
+.modal.scripts-dialog .scripts-edit > input:not([type='checkbox']):not([type='radio']) {
+  flex: none;
+}
+
+.scripts-list > .btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}

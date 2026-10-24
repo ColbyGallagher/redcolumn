@@ -31,6 +31,13 @@ export interface ToolChestItem {
   sequence?: { start: number; increment: number };
 }
 
+/** A markup script (see scripts/script.ts): its name and text. */
+export interface SavedScript {
+  id: string;
+  name: string;
+  source: string;
+}
+
 export interface ToolSet {
   id: string;
   name: string;
@@ -99,6 +106,8 @@ export interface WorkspaceState {
   lastStampId: string | null;
   /** Imported Revu line style sets (.blx), offered in the Line style pickers. */
   lineSets: LineSet[];
+  /** Markup scripts saved from Tools › Scripts (kept on this device, with the profile). */
+  scripts?: SavedScript[];
   /** Imported Revu hatch sets (.bhx), offered in the Hatch pickers. */
   hatchSets: HatchSet[];
   /** Imported Revu bookmark templates, offered in the Bookmarks panel (the built-in one is always there). */
