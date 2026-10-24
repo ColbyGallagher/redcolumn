@@ -5139,6 +5139,8 @@ export function App() {
     const store = activeOpen.store;
     const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
     let seen = waiting();
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
     return takeoffProposals.subscribe(() => {
       const now = waiting();
       if (now > seen) {

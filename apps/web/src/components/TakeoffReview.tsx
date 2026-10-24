@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { MARKUP_LABELS, type Assembly, type Markup, type MarkupStore } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
 import { approveProposals, stateOf, takeoffProposals, useTakeoffProposals, type ApprovalEdit, type TakeoffProposal } from '../assemblies/proposals';
@@ -31,7 +31,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onMessage, on
   const [show, setShow] = useState<'pending' | 'all'>('pending');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [edits, setEdits] = useState<Record<string, ApprovalEdit>>({});
-  const rows = useMemo(() => proposals.map((p) => ({ p, m: store.get(p.markupId), state: stateOf(p, store.get(p.markupId)) })), [proposals, store, store.all()]);
+  const rows = proposals.map((p) => ({ p, m: store.get(p.markupId), state: stateOf(p, store.get(p.markupId)) }));
   const shown = rows.filter((r) => show === 'all' || r.state === 'pending');
   const pending = rows.filter((r) => r.state === 'pending');
   const pickedPending = pending.filter((r) => picked.has(r.p.id));
