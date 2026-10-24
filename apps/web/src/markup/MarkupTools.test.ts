@@ -1153,3 +1153,21 @@ test('a connector segment drags across, as in Visio; bends are added and taken o
   h.tools.setRouteOf('c', 'reset');
   assert.equal(h.store.get('c')!.connect?.bends, undefined);
 });
+
+test('a connector end dragged onto another shape drops the route set by hand', async () => {
+  const h = await setup();
+  const shape = (id: string, x: number, y: number): Markup => ({ id, type: 'flowShape', flowShape: 'process', pageIndex: 0, points: [[x, y], [x + 100, y + 50]], style: { ...DEFAULT_STYLES.flowShape }, status: 'none', author: 'Tester', createdAt: 1, modifiedAt: 1 });
+  h.store.add(shape('a', 0, 0));
+  h.store.add(shape('b', 300, 200));
+  h.store.add(shape('c', 300, 400));
+  h.store.add({ id: 'k', type: 'connector', pageIndex: 0, points: [[100, 25], [300, 225]], style: { ...DEFAULT_STYLES.connector }, status: 'none', author: 'Tester', createdAt: 2, modifiedAt: 2 });
+  h.store.update('k', { connect: { from: { id: 'a', side: 'right' }, to: { id: 'b', side: 'left' }, route: 'elbow', bends: { first: 'h', mids: [40] } } });
+  assert.deepEqual(h.store.get('k')!.connect?.bends, { first: 'h', mids: [40] });
+  h.tools.setTool('select');
+  h.tools.select(['k']);
+  const end = h.store.get('k')!.points.at(-1)!;
+  drag(h.tools, end, [350, 425]);
+  const k = h.store.get('k')!;
+  assert.equal(k.connect?.to?.id, 'c');
+  assert.equal(k.connect?.bends, undefined);
+});

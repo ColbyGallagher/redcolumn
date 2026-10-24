@@ -1160,6 +1160,9 @@ export class MarkupTools implements ViewerOverlay {
     const connect: ConnectorLinks = { ...m.connect };
     if (glue) connect[key] = { id: glue.shape.id, ...(glue.side ? { side: glue.side } : {}) };
     else delete connect[key];
+    // A route set by hand was for the old end: glued elsewhere, the connector is routed afresh.
+    const was = m.connect?.[key];
+    if (connect.bends && (was?.id !== connect[key]?.id || was?.side !== connect[key]?.side)) delete connect.bends;
     const next = { ...m, points: end === 0 ? [p, m.points[m.points.length - 1]!] : [m.points[0]!, p], connect };
     return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
   }
