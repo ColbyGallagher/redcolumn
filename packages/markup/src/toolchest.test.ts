@@ -207,3 +207,13 @@ ${item('Widget', 'Bluebeam.PDF.Annotations.AnnotationSymbol', '<</Subtype/Stamp>
   assert.deepEqual(embedded && { name: embedded.name, mime: embedded.mime, size: embedded.size, text: Buffer.from(embedded.data, 'base64').toString() }, { name: 'notes.txt', mime: 'text/plain', size: 5, text: 'hello' });
   assert.equal(set.items.filter((i) => !i.type).length, 1);
 });
+
+test('a group box keeps /RD as left, top, right, bottom; a sequence numbers only the text that holds a number', async () => {
+  const child = (type: string, dict: string, x: number, y: number) => `<Child><Type>Bluebeam.PDF.Annotations.${type}</Type><Raw>${hexZ(dict)}</Raw><X>${x}</X><Y>${y}</Y><Index>1</Index></Child>`;
+  const xml = `<BluebeamRevuToolSet Version="1"><Title>T</Title><ToolChestItem Version="1"><Name>QRGOYETREOFCJYJO</Name><Type>Bluebeam.PDF.Annotations.AnnotationSquare</Type><Raw>${hexZ('<</RD[0 6 0 1]/Subtype/Square/Rect[0 0 40 40]>>')}</Raw>${child('AnnotationFreeText', '<</Subtype/FreeText/Rect[0 0 20 10]/Contents(1)>>', 0, -30)}${child('AnnotationFreeText', '<</Subtype/FreeText/Rect[0 0 20 10]/Contents(A101)>>', 0, -5)}<X>0</X><Y>0</Y><Sequence><Enabled>True</Enabled><Start>7</Start><Increment>1</Increment></Sequence></ToolChestItem></BluebeamRevuToolSet>`;
+  const [tool] = (await parseBtx(xml)).items;
+  const [box, num, title] = tool!.template!;
+  // Top inset 6, bottom 1, in page space (y down) where the box's top is y 0.
+  assert.deepEqual(box!.points, [[0, 6], [40, 39]]);
+  assert.deepEqual([num!.text, title!.text], ['7', 'A101']);
+});
