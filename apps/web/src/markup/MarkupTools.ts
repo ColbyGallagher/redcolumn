@@ -93,8 +93,15 @@ import {
   canConnect,
   FLOW_SHAPES,
   relinkCopies,
+  addBend,
+  connectorLabel,
+  moveSegment,
+  removeSegment,
   routeConnector,
+  routeHandles,
+  editableRoute,
   type ConnectorLinks,
+  type ManualRoute,
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
@@ -257,6 +264,8 @@ type Gesture =
   | { kind: 'handle'; id: string; index: number; point: Point }
   /** Alt-dragging a segment's midpoint knob of a measurement: the segment curves through the pointer. */
   | { kind: 'bend'; id: string; segment: number; bulge: number }
+  /** Dragging a middle segment of an elbow connector across (to `to`, a y or an x), as Visio's segment handles do. */
+  | { kind: 'segment'; id: string; route: ManualRoute; mid: number; runs: 'h' | 'v'; to: number; start: Point }
   /** Turning a selected markup by its rotate handle; `angle` in degrees. */
   | { kind: 'rotate'; id: string; angle: number }
   /**
@@ -1032,6 +1041,26 @@ export class MarkupTools implements ViewerOverlay {
     ctx.restore();
   }
 
+  /** A diamond on each middle segment of a selected elbow connector: drag one to move the segment. */
+  private drawSegmentHandles(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+    const r = 4 / zoom;
+    ctx.save();
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = '#a16207';
+    ctx.fillStyle = '#facc15';
+    for (const { at } of routeHandles(m.points, m.connect?.bends)) {
+      ctx.beginPath();
+      ctx.moveTo(at[0], at[1] - r);
+      ctx.lineTo(at[0] + r, at[1]);
+      ctx.lineTo(at[0], at[1] + r);
+      ctx.lineTo(at[0] - r, at[1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /** Picks a Tool Library tool: its markup type, drawing with its own style until another tool is chosen. */
   /** Arms the Flowchart Shape tool with `kind` (Diagram tab). */
   setFlowShape(kind: FlowShapeKind) {
@@ -1048,6 +1077,38 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const m of changing) store.update(m.id, { flowShape: kind });
     });
+  }
+
+  /** Whether a connector's segments can be moved by hand: an elbow connector that can be edited. */
+  private reroutable(m: Markup): boolean {
+    return m.type === 'connector' && (m.connect?.route ?? 'elbow') === 'elbow' && !this.frozen(m) && !this.store?.readOnly;
+  }
+
+  /** The connector with a hand-set route (or none: routed automatically again), its points routed by it. */
+  private withBends(m: Markup, bends: ManualRoute | undefined): Markup {
+    const { bends: _, ...rest } = m.connect ?? {};
+    const connect: ConnectorLinks = bends ? { ...rest, bends } : rest;
+    const next = { ...m, connect };
+    return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
+  }
+
+  private setBends(m: Markup, bends: ManualRoute | undefined) {
+    const next = this.withBends(m, bends);
+    this.store?.update(m.id, { connect: next.connect, points: next.points });
+  }
+
+  /**
+   * One connector's route, whatever else is selected: right angles, straight, or `reset` to drop the
+   * segments set by hand and route it automatically again.
+   */
+  setRouteOf(id: string, route: 'elbow' | 'straight' | 'reset') {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || store.readOnly || !m || m.type !== 'connector' || this.frozen(m)) return;
+    store.checkpoint();
+    if (route === 'reset') return this.setBends(m, undefined);
+    const next = { ...m, connect: { ...m.connect, route } };
+    store.update(id, { connect: next.connect, points: routeConnector(next, (x) => store.get(x)) });
   }
 
   /** How connectors bend: new ones, and the selected ones as one undo step. */
@@ -1801,6 +1862,7 @@ export class MarkupTools implements ViewerOverlay {
       if (this.state.selected.has(m.id)) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
         if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
+        if (editable.has(m.id) && this.reroutable(m)) this.drawSegmentHandles(ctx, shown, zoom);
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
@@ -2528,6 +2590,18 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'handle', id: m.id, index, point: p });
         return true;
       }
+      const seg = m && this.reroutable(m) ? routeHandles(m.points, m.connect?.bends).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol * 1.5) : undefined;
+      if (m && seg) {
+        const route = editableRoute(m.points, m.connect?.bends)!;
+        if (e.ctrlKey || e.metaKey || e.altKey) {
+          // Ctrl- or Alt-click takes the segment out, if the route stays at right angles.
+          const next = removeSegment(route, seg.mid, m.points[0]!, m.points[m.points.length - 1]!);
+          if (next !== null) this.setBends(m, next);
+          return true;
+        }
+        this.setGesture({ kind: 'segment', id: m.id, route, mid: seg.mid, runs: seg.runs, to: seg.runs === 'h' ? seg.at[1] : seg.at[0], start: m.points[0]! });
+        return true;
+      }
       const mid = m && !this.frozen(m) ? midpoints(m).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol) : undefined;
       if (m && mid && e.altKey && ARC_TYPES.has(m.type)) {
         // Alt-dragging a midpoint knob curves that segment (arc segments in measurements).
@@ -2717,6 +2791,9 @@ export class MarkupTools implements ViewerOverlay {
         const region = REGION_TOOLS.has(this.state.tool);
         m.points = [m.points[0]!, m.type === 'text' || region ? toPoint(pt) : this.resolve(pt, e, null)];
       }
+    } else if (g.kind === 'segment') {
+      const p = toPoint(pt);
+      g.to = g.runs === 'h' ? p[1] : p[0];
     } else if (g.kind === 'bend') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -2896,6 +2973,9 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g.kind === 'bend') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { bulges: withBulge(m, g.segment, g.bulge) });
+    } else if (g.kind === 'segment') {
+      const m = this.store.get(g.id);
+      if (m) this.setBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     } else if (g.kind === 'rotate') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { rotation: g.angle || undefined });
@@ -2918,6 +2998,18 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const hit = this.state.tool === 'select' ? this.hitAt(toPoint(pt)) : undefined;
+    // Ctrl+double-click on a selected elbow connector (away from its text) adds a bend there; a plain one edits its text.
+    if (hit && lastModifiers.ctrlKey && this.state.selected.has(hit.id) && this.reroutable(hit)) {
+      const p = toPoint(pt);
+      const label = connectorLabel(hit);
+      const onLabel = label && Math.abs(p[0] - label.at[0]) <= label.size * Math.max(2, label.text.length * 0.35) && Math.abs(p[1] - label.at[1]) <= label.size;
+      const bends = onLabel ? null : addBend(hit.points, p, this.hitPx / this.viewer.zoomFor(pageIndex));
+      if (bends) {
+        this.store?.checkpoint();
+        this.setBends(hit, bends);
+        return;
+      }
+    }
     if (hit && isTextType(hit.type) && !this.frozen(hit)) this.options.onEditText(hit.id);
     else if (hit?.type === 'note' || hit?.type === 'flag') this.options.onEditComment?.(hit.id);
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
@@ -3963,6 +4055,7 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
+    if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
       const factor = scaleFactor(g);

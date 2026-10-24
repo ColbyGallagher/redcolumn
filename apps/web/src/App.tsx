@@ -5775,7 +5775,7 @@ export function App() {
    * order, alignment, action, capture, flatten, group, lock, hide and legend; review; Tool Library;
    * defaults and properties.
    */
-  const markupMenu = (pane: Pane, ids: string[], at?: Point): MenuEntry[] => {
+  const markupMenu = (pane: Pane, ids: string[], at?: Point, hitId?: string): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return [];
     const store = o.store;
@@ -5795,6 +5795,24 @@ export function App() {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, { status: s })));
     };
+    // The connector right-clicked (or the one selected): its route is set on its own, whatever else is selected.
+    const connector = [hitId ? store.get(hitId) : undefined, one ? first : undefined].find((m) => m?.type === 'connector');
+    const connectorItems = (): MenuEntry[] =>
+      connector
+        ? [
+            SEP,
+            {
+              label: 'Connector',
+              disabled: ro || !!connector.locked,
+              items: [
+                { label: 'Right-Angle', checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
+                { label: 'Straight', checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
+                SEP,
+                { label: 'Reset Route', disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
+              ],
+            },
+          ]
+        : [];
     const setAll = (patch: (m: Markup) => Partial<Markup>) => {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, patch(m))));
@@ -5885,6 +5903,7 @@ export function App() {
             { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
           ]
         : []),
+      ...connectorItems(),
       SEP,
       {
         label: 'Layer',
@@ -6147,7 +6166,7 @@ export function App() {
       c.tools.select([hit.id]);
       ids = [hit.id];
     }
-    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]]));
+    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]], hit.id));
   };
 
   const copyMarkups = (pane: Pane) => {
