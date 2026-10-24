@@ -530,6 +530,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="tools.quantities" />
             </Submenu>
             <Cmd id="tools.sketchToScale" />
+            <Cmd id="tools.scripts" />
             <Submenu label="Sign & Certify">
               <Cmd id="tools.sign" />
               <Cmd id="tools.digitalIds" />

@@ -40,6 +40,7 @@ import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
 import { LinkPreviews, type LinkPreviewWindow } from './components/LinkPreview';
+import { ScriptsDialog } from './components/ScriptsDialog';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -882,6 +883,7 @@ export function App() {
     refresh: () => void;
     hidden?: boolean;
   } | null>(null);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -7339,6 +7341,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
+    scripts: () => setScriptsOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -9669,6 +9672,21 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
           onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
+        />
+      )}
+      {scriptsOpen && activeOpen && (
+        <ScriptsDialog
+          markups={activeOpen.store.all()}
+          ctx={{ statuses: activeOpen.store.columnSet().statuses, columns: activeOpen.store.columnSet().columns, pageLabel: (p) => activeOpen.store.allSheets()[p]?.number || String(p + 1), mayEdit: (m) => activeOpen.store.mayEdit(m) }}
+          readOnly={activeReadOnly}
+          onApply={(changes) => {
+            const store = activeOpen.store;
+            // One undo step for the whole script.
+            store.checkpoint();
+            store.batch(() => changes.forEach((c) => store.update(c.id, c.patch)));
+            setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
+          }}
+          onClose={() => setScriptsOpen(false)}
         />
       )}
       {quantitiesOpen && activeOpen && (
