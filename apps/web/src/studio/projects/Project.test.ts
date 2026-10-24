@@ -483,3 +483,22 @@ test('on a folder a sync client shares, a check-out waits for earlier claims to 
   assert.equal(samResult.status, 'fulfilled', 'the earlier claim wins');
   assert.equal(hanaResult.status, 'rejected');
 });
+
+test('shared markups can be read for the Comments table without unlinking an open file', async () => {
+  const { owner, member } = await twoPeople();
+  const f = await owner.addFile('A-101.pdf', null, pdf('one'));
+  assert.deepEqual(await member.sharedMarkups(f.id), [], 'nothing shared yet');
+  const a = fakeStore();
+  const b = fakeStore();
+  await owner.attachMarkups(f.id, a.store);
+  await member.attachMarkups(f.id, b.store);
+  a.markups.set('m1', { id: 'm1', type: 'cloud', status: 'none', comment: 'Door swing' } as never);
+  await owner.flushMarkups();
+  const read = await member.sharedMarkups(f.id);
+  assert.deepEqual(read.map((m) => [m.id, m.comment]), [['m1', 'Door swing']]);
+  // Sam's open copy is still linked: Hana's next change reaches it.
+  a.markups.set('m2', { id: 'm2', type: 'arrow', status: 'none' });
+  await owner.flushMarkups();
+  await member.pollMarkups();
+  assert.equal(b.markups.get('m2')?.type, 'arrow');
+});

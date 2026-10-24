@@ -209,6 +209,62 @@ test.describe('assemblies', () => {
     await app.calibrate();
   });
 
+  test('tools.takeoffReview: an AI proposal waits for a person, who edits and approves it; undo makes it wait again', async ({ app }) => {
+    const { page } = app;
+    // A wall assembly and a 20 ft run (as an AI client would find them through the assistant).
+    await page.evaluate(() => {
+      const store = (window.__nb.tools as unknown as { store: { setAssemblies(a: unknown[]): void } }).store;
+      store.setAssemblies([{ id: 'wall', name: 'Stud wall', variables: [{ name: 'Spacing', value: 2 }], items: [{ id: 'studs', name: 'Studs', unit: 'ea', formula: '[Length] / [Spacing] + 1', roundUp: true }] }]);
+    });
+    await app.tool('length');
+    await app.clicks([
+      [300, 450],
+      [500, 450],
+    ]);
+    const [run] = await app.raw();
+    expect(run!.assemblyId).toBeUndefined();
+    const made = await app.assistant<{ proposed: number }>('propose_takeoff', { source: 'Claude', proposals: [{ id: run!.id, assembly: 'Stud wall', reasoning: 'A partition run.', expected: [{ item: 'Studs', quantity: 11 }] }] });
+    expect(made.proposed).toBe(1);
+    // The review opens by itself; the drawing is unchanged until a person approves.
+    const review = page.getByRole('complementary', { name: 'Takeoff review' });
+    await expect(review).toBeVisible();
+    const proposal = review.locator('.takeoff-proposal');
+    await expect(proposal).toHaveCount(1);
+    await expect(proposal).toContainText('A partition run.');
+    // 22 ft at 2 ft spacing: 12 studs, where the AI expected 11 (flagged).
+    await expect(proposal.locator('td.num').nth(1)).toHaveText('12.00');
+    await expect(proposal.locator('td.num').nth(2)).toHaveText('11.00 ⚠');
+    expect((await app.raw())[0]!.assemblyId).toBeUndefined();
+    // Set the stud count by hand, then approve.
+    await proposal.getByLabel('Studs quantity').fill('14');
+    await proposal.getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBe('wall');
+    const approved = (await app.raw())[0] as unknown as { assemblyOverrides: Record<string, number>; takeoffApproval: { proposalId: string; source: string; edited: boolean } };
+    expect(approved.assemblyOverrides).toEqual({ studs: 14 });
+    expect(approved.takeoffApproval).toMatchObject({ source: 'Claude', edited: true });
+    await expect(review.locator('.takeoff-proposal')).toHaveCount(0);
+    // The hand-set quantity is marked where quantities show: the totals and the Measurements panel.
+    await review.getByRole('button', { name: 'Close takeoff review' }).click();
+    await app.cmd('tools.quantities');
+    const totals = page.getByRole('dialog', { name: 'Takeoff quantities' });
+    await expect(totals.locator('tbody tr', { hasText: 'Studs' }).locator('.set-by-hand')).toContainText('set by hand');
+    await totals.getByRole('button', { name: 'Close', exact: true }).click();
+    await app.panel('Measurements');
+    await page.evaluate((id) => window.__nb.tools.select([id]), run!.id as string);
+    await expect(page.getByRole('list', { name: 'Assembly quantities' }).locator('li', { hasText: 'Studs' }).locator('.set-by-hand')).toBeVisible();
+    await app.cmd('tools.takeoffReview');
+    // Undo takes the approval back: the proposal is waiting again.
+    await app.cmd('edit.undo');
+    await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBeUndefined();
+    await expect(review.locator('.takeoff-proposal')).toHaveCount(1);
+    // Rejecting keeps it out of the takeoff.
+    await review.locator('.takeoff-proposal').getByRole('button', { name: 'Reject', exact: true }).click();
+    await expect(review.locator('.takeoff-proposal')).toHaveCount(0);
+    const states = await app.assistant<{ proposals: { state: string }[] }>('list_takeoff_proposals');
+    expect(states.proposals.map((p) => p.state)).toEqual(['rejected']);
+    expect((await app.raw())[0]!.assemblyId).toBeUndefined();
+  });
+
   test('tools.assemblies and tools.quantities: a wall taken off as studs and board', async ({ app }) => {
     const { page } = app;
     await app.cmd('tools.assemblies');

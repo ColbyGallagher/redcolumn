@@ -1,4 +1,4 @@
-import { boundsOf, rotatePoint, rotationCentre, type FlowShapeKind, type Markup, type Point, type Rect, type Side } from './model';
+import { boundsOf, rotatePoint, rotationCentre, type FlowShapeKind, type ManualRoute, type Markup, type Point, type Rect, type Side } from './model';
 import { TYPE_INFO } from './types';
 
 /** The flowchart shapes in palette order, with what each means and the size a click places it at (points). */
@@ -109,11 +109,143 @@ export function routeConnector(c: Pick<Markup, 'points' | 'connect' | 'pageIndex
   const a: End = from ? anchorOf(from, links.from?.side ?? sideA) : { at: first, dir: null };
   const b: End = to ? anchorOf(to, links.to?.side ?? sideB) : { at: last, dir: null };
   if (links.route === 'straight') return [a.at, b.at];
-  return elbowRoute(a, b, [from ? fromRect : null, to ? toRect : null].filter((r): r is Rect => !!r));
+  const boxes = [from ? fromRect : null, to ? toRect : null].filter((r): r is Rect => !!r);
+  // A route set by hand is kept while it still leaves and enters the right way and misses the shapes.
+  const manual = links.bends && manualRoute(a, b, links.bends);
+  if (manual && routeCost(manual, a, b, boxes) < 1e4) return manual;
+  return elbowRoute(a, b, boxes);
+}
+
+const turn = (o: 'h' | 'v'): 'h' | 'v' => (o === 'h' ? 'v' : 'h');
+
+/** The points of a hand-set route between two ends (null when it cannot leave or enter them along their sides). */
+export function manualRoute(a: End, b: End, route: ManualRoute): Point[] | null {
+  const n = route.mids.length + 2;
+  const orient = (i: number) => (i % 2 ? turn(route.first) : route.first);
+  const axisOf = (d: Point | null) => (!d ? null : d[0] !== 0 && d[1] === 0 ? 'h' : d[1] !== 0 && d[0] === 0 ? 'v' : 'x');
+  const da = axisOf(a.dir);
+  const db = axisOf(b.dir);
+  if ((da && da !== orient(0)) || (db && db !== orient(n - 1))) return null;
+  return simplify(routePath(a.at, b.at, route));
+}
+
+/** Every vertex of a hand-set route from `a` to `b`, segments of no length included. */
+function routePath(a: Point, b: Point, route: ManualRoute): Point[] {
+  const n = route.mids.length + 2;
+  const orient = (i: number) => (i % 2 ? turn(route.first) : route.first);
+  const base = (i: number) => (orient(i) === 'h' ? a[1] : a[0]);
+  const coord = (i: number) => (i === 0 ? base(0) : i === n - 1 ? (orient(n - 1) === 'h' ? b[1] : b[0]) : base(i) + route.mids[i - 1]!);
+  const path: Point[] = [a];
+  for (let i = 1; i < n; i++) path.push(orient(i - 1) === 'h' ? [coord(i), coord(i - 1)] : [coord(i - 1), coord(i)]);
+  path.push(b);
+  return path;
+}
+
+const samePath = (p: readonly Point[], q: readonly Point[]) => p.length === q.length && p.every((a, i) => Math.abs(a[0] - q[i]![0]) < 1e-6 && Math.abs(a[1] - q[i]![1]) < 1e-6);
+
+/**
+ * The route to edit on a connector drawn along `points`: its hand-set one while that is what is
+ * drawn (keeping segments of no length, such as a bend just added), else the drawn path's own.
+ */
+export function editableRoute(points: readonly Point[], bends?: ManualRoute): ManualRoute | null {
+  const a = points[0];
+  const b = points[points.length - 1];
+  if (bends && a && b && samePath(simplify(routePath(a, b, bends)), simplify([...points]))) return bends;
+  return routeOf(points);
+}
+
+/** A right-angled path by its segments: which way the first runs, and where each runs. Null when a piece is slanted or doubles back. */
+function segmentsOf(points: readonly Point[]): { first: 'h' | 'v'; coords: number[]; path: Point[] } | null {
+  const path = simplify([...points]);
+  if (path.length < 2) return null;
+  const orients: ('h' | 'v')[] = [];
+  const coords: number[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const [s, e] = [path[i - 1]!, path[i]!];
+    if (Math.abs(s[1] - e[1]) < 1e-6) {
+      orients.push('h');
+      coords.push(s[1]);
+    } else if (Math.abs(s[0] - e[0]) < 1e-6) {
+      orients.push('v');
+      coords.push(s[0]);
+    } else return null;
+  }
+  // Simplified, each piece turns from the last; two running the same way are a U-turn.
+  if (orients.some((o, i) => i > 0 && o === orients[i - 1])) return null;
+  return { first: orients[0]!, coords, path };
+}
+
+/** Segment coordinates (where each runs) as a route's `mids`: those of the middle segments, measured from the start. */
+function midsOf(first: 'h' | 'v', coords: readonly number[], start: Point): number[] {
+  return coords.slice(1, -1).map((c, i) => c - ((i % 2 ? first : turn(first)) === 'h' ? start[1] : start[0]));
+}
+
+/** A right-angled path as a route to edit by hand. Null when a piece is slanted, or it has no middle segment to move. */
+export function routeOf(points: readonly Point[]): ManualRoute | null {
+  const segs = segmentsOf(points);
+  return segs && segs.coords.length >= 3 ? { first: segs.first, mids: midsOf(segs.first, segs.coords, segs.path[0]!) } : null;
+}
+
+/**
+ * The handle on each middle segment of a connector drawn along `points` (by `bends` while that is its
+ * route): where it is drawn, its index in the route's `mids`, and which way the segment runs.
+ */
+export function routeHandles(points: readonly Point[], bends?: ManualRoute): { mid: number; at: Point; runs: 'h' | 'v' }[] {
+  const route = editableRoute(points, bends);
+  if (!route || points.length < 2) return [];
+  const path = routePath(points[0]!, points[points.length - 1]!, route);
+  return route.mids.map((_, i) => {
+    const [s, e] = [path[i + 1]!, path[i + 2]!];
+    return { mid: i, at: [(s[0] + e[0]) / 2, (s[1] + e[1]) / 2] as Point, runs: (i % 2 ? route.first : turn(route.first)) as 'h' | 'v' };
+  });
+}
+
+/** A middle segment moved across to `to` (a y for an across segment, an x for an up-and-down one) on a route from `start`. */
+export function moveSegment(route: ManualRoute, mid: number, to: number, start: Point): ManualRoute {
+  const across = (mid % 2 ? route.first : turn(route.first)) === 'h';
+  return { ...route, mids: route.mids.map((c, i) => (i === mid ? to - (across ? start[1] : start[0]) : c)) };
+}
+
+/**
+ * A bend added where `at` falls on a right-angled path: the segment there splits in two with a step
+ * of no length between them, to be dragged out. Null when `at` is not on a segment.
+ */
+export function addBend(points: readonly Point[], at: Point, tolerance = 4): ManualRoute | null {
+  const segs = segmentsOf(points);
+  if (!segs) return null;
+  const { path, coords } = segs;
+  for (let k = 0; k < coords.length; k++) {
+    const [s, e] = [path[k]!, path[k + 1]!];
+    const across = (k % 2 ? turn(segs.first) : segs.first) === 'h';
+    const [lo, hi] = across ? [Math.min(s[0], e[0]), Math.max(s[0], e[0])] : [Math.min(s[1], e[1]), Math.max(s[1], e[1])];
+    const along = across ? at[0] : at[1];
+    const off = Math.abs((across ? at[1] : at[0]) - coords[k]!);
+    if (off > tolerance || along < lo || along > hi) continue;
+    const next = [...coords.slice(0, k + 1), along, coords[k]!, ...coords.slice(k + 1)];
+    return { first: segs.first, mids: midsOf(segs.first, next, path[0]!) };
+  }
+  return null;
+}
+
+/**
+ * The route with middle segment `mid` taken out, the segments either side joining up: where an end
+ * segment runs if one of them is one, else where the one before ran. `undefined` when the two ends
+ * then meet in one straight run (no route to keep), null when they would not line up.
+ */
+export function removeSegment(route: ManualRoute, mid: number, a: Point, b: Point): ManualRoute | null | undefined {
+  const n = route.mids.length + 2;
+  const orient = (i: number) => (i % 2 ? turn(route.first) : route.first);
+  const base = (i: number) => (orient(i) === 'h' ? a[1] : a[0]);
+  const c = [base(0), ...route.mids.map((m, i) => base(i + 1) + m), orient(n - 1) === 'h' ? b[1] : b[0]];
+  const s = mid + 1;
+  if (s - 1 === 0 && s + 1 === n - 1) return Math.abs(c[0]! - c[n - 1]!) < 1e-6 ? undefined : null;
+  const joined = s + 1 === n - 1 ? c[n - 1]! : s - 1 === 0 ? c[0]! : c[s - 1]!;
+  const next = [...c.slice(0, s - 1), joined, ...c.slice(s + 2)];
+  return { first: route.first, mids: midsOf(route.first, next, a) };
 }
 
 /** An end of a route: where it is, and the way it must leave or enter (any way when null). */
-type End = { at: Point; dir: Point | null };
+export type End = { at: Point; dir: Point | null };
 
 /**
  * An orthogonal path from `a` to `b`: out of each glued end along its direction, then whichever

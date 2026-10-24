@@ -93,6 +93,34 @@ test.describe('view', () => {
     await expect.poll(() => page(app)).toBe(3);
   });
 
+  test('a sheet link previews its target beside the plan: pin, Esc and Open', async ({ app }) => {
+    // A detail link on page 1 to page 3 (as auto-linking finds them).
+    await app.page.evaluate(() => {
+      const store = (window.__nb.tools as unknown as { store: { setDetectedLinks(l: unknown[]): void } }).store;
+      store.setDetectedLinks([
+        { id: 'L1', pageIndex: 0, rect: { x: 300, y: 450, w: 120, h: 40 }, label: '3/A-103', kind: 'detail', detail: '3', targetPage: 2, targetRect: { x: 200, y: 200, w: 200, h: 150 }, confidence: 1 },
+        { id: 'L2', pageIndex: 0, rect: { x: 300, y: 550, w: 120, h: 40 }, label: 'A-102', kind: 'sheet', detail: null, targetPage: 1, targetRect: null, confidence: 1 },
+      ]);
+      window.__nb.tools.select([]);
+    });
+    await app.tool('select');
+    await app.clicks([[360, 470]]);
+    const previews = app.page.locator('.link-preview');
+    await expect(previews).toHaveCount(1);
+    await expect(previews.locator('canvas')).toHaveCount(1);
+    expect(await page(app)).toBe(1);
+    // Pinned, it stays when the next link is clicked; the next one opens beside it.
+    await previews.first().locator('button[aria-pressed]').click();
+    await app.clicks([[360, 570]]);
+    await expect(previews).toHaveCount(2);
+    await app.page.keyboard.press('Escape');
+    await expect(previews).toHaveCount(1);
+    await previews.first().getByRole('button', { name: 'Open', exact: true }).click();
+    await expect.poll(() => page(app)).toBe(3);
+    await previews.first().getByRole('button', { name: 'Close preview' }).click();
+    await expect(previews).toHaveCount(0);
+  });
+
   test('next and previous document', async ({ app }) => {
     await app.open('plan-rev1.pdf');
     const active = async () => (await app.documents()).find((d) => d.active)!.name;

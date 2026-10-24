@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -37,6 +37,12 @@ import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
+import { CommentsTableDialog } from './components/CommentsTableDialog';
+import { commentRows, type CommentRow } from './studio/comments';
+import { LinkPreviews, type LinkPreviewWindow } from './components/LinkPreview';
+import { ScriptsDialog } from './components/ScriptsDialog';
+import { TakeoffReview } from './components/TakeoffReview';
+import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -868,6 +874,19 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
+  const [commentsTable, setCommentsTable] = useState<{
+    key: string;
+    title: string;
+    rows: CommentRow[] | null;
+    progress: { done: number; total: number } | null;
+    failed: string[];
+    open: (row: CommentRow) => void;
+    refresh: () => void;
+    hidden?: boolean;
+  } | null>(null);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -1150,6 +1169,9 @@ export function App() {
   const future = useRef<ViewState[]>([]);
   const [canGoForward, setCanGoForward] = useState(false);
   const followLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  const previewLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  /** Previews of linked sheets and details, floating beside the plan (see LinkPreviews). */
+  const [linkPreviews, setLinkPreviews] = useState<(LinkPreviewWindow & { link: StoredLink; fileId: string })[]>([]);
   const viewportRef = useRef<(pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
   const [author, setAuthor] = useState(loadAuthor);
   const authorRef = useRef(author);
@@ -1546,7 +1568,7 @@ export function App() {
     [ctl, ctlB],
   );
 
-  followLinkRef.current = (link: StoredLink) => navigate(link.targetPage, link.targetRect);
+  followLinkRef.current = (link: StoredLink) => (settings.get().linkClick === 'jump' ? navigate(link.targetPage, link.targetRect) : previewLinkRef.current(link));
   /** Runs a link action (of a markup or a bookmark): a web page, another document, a Place or a page. */
   const followAction = (link: LinkAction) => {
     if (link.kind === 'url') {
@@ -4759,6 +4781,105 @@ export function App() {
     tools.select(ids);
   }, [ctl, ctlB]);
 
+  // --- Comments table: every comment and reply across a Project's or Live Session's files -------
+
+  /** A markup to select once its document is open (a Comments table row opens the file first). */
+  const pendingFocusRef = useRef<{ markupId: string; until: number } | null>(null);
+  useEffect(() => {
+    const f = pendingFocusRef.current;
+    if (!f) return;
+    if (Date.now() > f.until) {
+      pendingFocusRef.current = null;
+      return;
+    }
+    const m = markups.find((x) => x.id === f.markupId);
+    if (!m) return;
+    pendingFocusRef.current = null;
+    selectFromList(m);
+  }, [markups, selectFromList]);
+
+  const panesRef = useRef({ ctl, ctlB });
+  panesRef.current = { ctl, ctlB };
+
+  /** Opens a row's file, then its page and markup. */
+  const openCommentRow = useCallback(
+    async (open: () => Promise<void>, row: CommentRow) => {
+      setCommentsTable((t) => (t ? { ...t, hidden: true } : t));
+      pendingFocusRef.current = { markupId: row.markupId, until: Date.now() + 15_000 };
+      await open();
+      // A markup that is not in the open copy (not synced yet): at least show its page.
+      setTimeout(() => {
+        if (pendingFocusRef.current?.markupId !== row.markupId) return;
+        pendingFocusRef.current = null;
+        (activePaneRef.current === 'b' ? panesRef.current.ctlB : panesRef.current.ctl)?.viewer.goToPage(row.pageIndex);
+      }, 2500);
+    },
+    [],
+  );
+
+  /** Reads every file of a Project for its comments: the shared markups, and the markups other tools wrote into the PDF. */
+  const showProjectComments = useCallback(async (project: Project) => {
+    const key = `project:${project.id}`;
+    const title = `Project ${project.getSnapshot().manifest.name}`;
+    const files = project.getSnapshot().files;
+    const statuses = profiles.active().state.columnTemplate?.statuses ?? DEFAULT_STATUSES;
+    const rows: CommentRow[] = [];
+    const failed: string[] = [];
+    const open = (row: CommentRow) => {
+      const file = project.getSnapshot().files.find((f) => f.id === row.fileId);
+      if (file) void openCommentRow(() => openProjectFile(project, file), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    };
+    setCommentsTable({ key, title, rows: null, progress: { done: 0, total: files.length }, failed, open, refresh: () => void showProjectComments(project) });
+    for (const [i, file] of files.entries()) {
+      try {
+        // The folder is read once, for the first file; the rest use what it read.
+        const shared = await project.sharedMarkups(file.id, i === 0);
+        const { bytes } = await project.download(file.id);
+        const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false });
+        try {
+          const found = await readPdfAnnotations(bytes, scratch);
+          // Markups this app wrote come back from the shared copy; the PDF adds other tools' ones.
+          const byId = new Map([...(shared.length ? found.markups.filter(fromOtherTools) : found.markups), ...shared].map((m) => [m.id, m]));
+          // The file's own custom statuses (from Revu, say) name their states too.
+          rows.push(...commentRows({ fileId: file.id, file: file.name, markups: [...byId.values()], pageLabel: (p) => found.labels[p] || `Page ${p + 1}` }, [...statuses, ...(found.extras.statuses ?? [])]));
+        } finally {
+          await scratch.destroy();
+        }
+      } catch (err) {
+        failed.push(`${file.name} (${err instanceof Error ? err.message : String(err)})`);
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: files.length } } : t));
+    }
+    setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+  }, [openCommentRow, openProjectFile]);
+
+  /** A Live Session's comments, from each document's shared markups. */
+  const showSessionComments = useCallback(
+    async (session: CollabSession) => {
+      const key = `session:${session.id}`;
+      const docs = session.getSnapshot().meta.documents;
+      const rows: CommentRow[] = [];
+      const failed: string[] = [];
+      const open = (row: CommentRow) => void openCommentRow(() => openSessionDocument(session.id, row.fileId), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      setCommentsTable({ key, title: `Live Session ${session.meta.name}`, rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
+      for (const [i, d] of docs.entries()) {
+        try {
+          rows.push(
+            ...(await withSessionMarkups(session, d.id, (store) => {
+              const sheets = store.allSheets();
+              return commentRows({ fileId: d.id, file: d.name, markups: store.all(), pageLabel: (p) => sheets[p]?.number || `Page ${p + 1}` }, store.columnSet().statuses);
+            })),
+          );
+        } catch (err) {
+          failed.push(`${d.name} (${err instanceof Error ? err.message : String(err)})`);
+        }
+        setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: docs.length } } : t));
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+    },
+    [openCommentRow, openSessionDocument, withSessionMarkups],
+  );
+
   // Stable handlers for the Markups list, so it re-renders only when its data changes.
   const listRowMenuRef = useRef<(m: Markup, x: number, y: number) => void>(() => {});
   listRowMenuRef.current = (m, x, y) => {
@@ -4853,6 +4974,65 @@ export function App() {
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
     return { canvas, x0, y0, w, h };
+  };
+
+  // --- Link previews ------------------------------------------------------------------------------
+
+  /** A link's target as a preview: replaces the unpinned one, beside the pinned ones. */
+  previewLinkRef.current = (link: StoredLink) => {
+    const o = paneParts(activePaneRef.current).o;
+    if (!o) return;
+    const sheet = o.store.allSheets()[link.targetPage];
+    const target = [sheet?.number ?? `Page ${link.targetPage + 1}`, sheet?.title].filter(Boolean).join(' ');
+    const title = link.detail ? `${link.label} → ${target}` : target;
+    setLinkPreviews((ps) => {
+      const kept = ps.filter((p) => p.pinned);
+      const k = kept.length;
+      const w = Math.min(520, window.innerWidth - 48);
+      const h = Math.min(380, window.innerHeight - 160);
+      return [...kept, { id: crypto.randomUUID(), title, pinned: false, x: Math.max(8, window.innerWidth - w - 32 - k * 28), y: 120 + k * 28, w, h, link, fileId: o.file.id }];
+    });
+  };
+
+  // A preview goes when its document is closed.
+  useEffect(() => {
+    const open = new Set([...tabsA, ...tabsB].map((t) => t.file.id));
+    setLinkPreviews((ps) => (ps.every((p) => open.has(p.fileId)) ? ps : ps.filter((p) => open.has(p.fileId))));
+  }, [tabsA, tabsB]);
+
+  /** The open document a preview belongs to. */
+  const previewFile = (fileId: string) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+
+  const renderPreviewRef = useRef<(id: string, width: number, height: number) => Promise<HTMLCanvasElement | null>>(async () => null);
+  renderPreviewRef.current = async (id, width, height) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    const o = p && previewFile(p.fileId);
+    const size = p && o?.doc.pages[p.link.targetPage];
+    if (!p || !o || !size) return null;
+    // The detail with some of the sheet around it, or the whole sheet.
+    const t = p.link.targetRect;
+    const pad = t ? Math.max(36, 0.25 * Math.max(t.w, t.h)) : 0;
+    const area = t ? { x: t.x - pad, y: t.y - pad, w: t.w + 2 * pad, h: t.h + 2 * pad } : { x: 0, y: 0, w: size.width, h: size.height };
+    const dpr = window.devicePixelRatio || 1;
+    const region = await renderRegion(o, p.link.targetPage, area, (w, h) => Math.min(8, Math.max(0.1, Math.min(width / w, height / h)) * dpr));
+    if (!region) return null;
+    region.canvas.style.width = `${region.canvas.width / dpr}px`;
+    region.canvas.style.height = `${region.canvas.height / dpr}px`;
+    return region.canvas;
+  };
+  const renderPreview = useCallback((id: string, width: number, height: number) => renderPreviewRef.current(id, width, height), []);
+
+  /** Opens a preview's sheet in the view (as following the link used to), and closes the preview unless it is pinned. */
+  const openPreview = (id: string) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    if (!p) return;
+    if (activeOpen?.file.id !== p.fileId) {
+      // Its document is open in another tab: the view cannot go there from here.
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      return;
+    }
+    navigate(p.link.targetPage, p.link.targetRect);
+    if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
@@ -5128,6 +5308,26 @@ export function App() {
   const pageSize = activeOpen?.doc.pages[pageIndex] ?? null;
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
+
+  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
+  const activeHash = activeOpen?.store.fileHash ?? null;
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
+    let seen = waiting();
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
+    return takeoffProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean) => {
@@ -5775,7 +5975,7 @@ export function App() {
    * order, alignment, action, capture, flatten, group, lock, hide and legend; review; Tool Library;
    * defaults and properties.
    */
-  const markupMenu = (pane: Pane, ids: string[], at?: Point): MenuEntry[] => {
+  const markupMenu = (pane: Pane, ids: string[], at?: Point, hitId?: string): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return [];
     const store = o.store;
@@ -5795,6 +5995,24 @@ export function App() {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, { status: s })));
     };
+    // The connector right-clicked (or the one selected): its route is set on its own, whatever else is selected.
+    const connector = [hitId ? store.get(hitId) : undefined, one ? first : undefined].find((m) => m?.type === 'connector');
+    const connectorItems = (): MenuEntry[] =>
+      connector
+        ? [
+            SEP,
+            {
+              label: 'Connector',
+              disabled: ro || !!connector.locked,
+              items: [
+                { label: 'Right-Angle', checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
+                { label: 'Straight', checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
+                SEP,
+                { label: 'Reset Route', disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
+              ],
+            },
+          ]
+        : [];
     const setAll = (patch: (m: Markup) => Partial<Markup>) => {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, patch(m))));
@@ -5885,6 +6103,7 @@ export function App() {
             { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
           ]
         : []),
+      ...connectorItems(),
       SEP,
       {
         label: 'Layer',
@@ -6147,7 +6366,7 @@ export function App() {
       c.tools.select([hit.id]);
       ids = [hit.id];
     }
-    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]]));
+    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]], hit.id));
   };
 
   const copyMarkups = (pane: Pane) => {
@@ -7145,6 +7364,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
+    scripts: () => setScriptsOpen(true),
+    takeoffReview: () => setTakeoffReviewOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -7978,6 +8199,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onCheckIn={checkInProjectFile}
             onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+            onShowComments={(project) => (commentsTable?.key === `project:${project.id}` ? setCommentsTable({ ...commentsTable, hidden: false }) : void showProjectComments(project))}
             onAddCurrent={async (project, folderId, onProgress) => {
               const cur = activeOpen;
               if (!cur) return;
@@ -8017,6 +8239,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onReport={(id, format) => {
               const snap = snapshots.find((x) => x.meta.id === id);
               if (!snap) return;
+              if (format === 'comments') {
+                const session = sessionById(id);
+                if (commentsTable?.key === `session:${id}`) setCommentsTable({ ...commentsTable, hidden: false });
+                else if (session) void showSessionComments(session);
+                return;
+              }
               if (format === 'pdf') {
                 void runStudio(() => sessionReport(id));
                 return;
@@ -8585,6 +8813,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <PublishDialog mode={publishFor} pageCount={activeOpen.doc.pages.length} currentPage={pageIndex} busy={publishing} onRun={(req) => void runPublish(req)} onClose={() => setPublishFor(null)} />
       )}
       {whatsNewOpen && <WhatsNewDialog onClose={() => setWhatsNewOpen(false)} />}
+      <LinkPreviews
+        windows={linkPreviews}
+        render={renderPreview}
+        onChange={(w) => setLinkPreviews((ps) => ps.map((p) => (p.id === w.id ? { ...p, ...w } : p)))}
+        onOpen={openPreview}
+        onClose={(id) => setLinkPreviews((ps) => ps.filter((p) => p.id !== id))}
+        revision={markups}
+      />
       {spellOpen && activeOpen && (
         <SpellCheckDialog
           store={activeOpen.store}
@@ -9462,6 +9698,32 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setAssembliesOpen(false)}
         />
       )}
+      {scriptsOpen && activeOpen && (
+        <ScriptsDialog
+          markups={activeOpen.store.all()}
+          ctx={{ statuses: activeOpen.store.columnSet().statuses, columns: activeOpen.store.columnSet().columns, pageLabel: (p) => activeOpen.store.allSheets()[p]?.number || String(p + 1), mayEdit: (m) => activeOpen.store.mayEdit(m) }}
+          readOnly={activeReadOnly}
+          onApply={(changes) => {
+            const store = activeOpen.store;
+            // One undo step for the whole script.
+            store.checkpoint();
+            store.batch(() => changes.forEach((c) => store.update(c.id, c.patch)));
+            setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
+          }}
+          onClose={() => setScriptsOpen(false)}
+        />
+      )}
+      {takeoffReviewOpen && activeOpen && (
+        <TakeoffReview
+          store={activeOpen.store}
+          me={author}
+          ctx={cellContext}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          onShow={(m) => selectFromList(m)}
+          onMessage={setNotice}
+          onClose={() => setTakeoffReviewOpen(false)}
+        />
+      )}
       {quantitiesOpen && activeOpen && (
         <QuantitiesDialog
           markups={markups}
@@ -9475,6 +9737,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {commentsTable && !commentsTable.hidden && (
+        <CommentsTableDialog
+          title={commentsTable.title}
+          rows={commentsTable.rows}
+          progress={commentsTable.progress}
+          failed={commentsTable.failed}
+          onOpen={commentsTable.open}
+          onRefresh={commentsTable.rows ? commentsTable.refresh : undefined}
+          onExportCsv={(csv) => download(`${commentsTable.title} comments.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
+          onClose={() => setCommentsTable(null)}
         />
       )}
       {columnsOpen && activeOpen && (

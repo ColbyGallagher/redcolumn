@@ -19,7 +19,8 @@ import { exportBax, parseBax, type BaxMarkup } from '../../src/bax.ts';
 import { parseBhx } from '../../src/hatchSet.ts';
 import { parseBlx } from '../../src/lineSet.ts';
 import { parseBpx } from '../../src/bpx.ts';
-import { parseBtx } from '../../src/toolchest.ts';
+import { parseBtx, type ToolChestItem } from '../../src/toolchest.ts';
+import { writeBhx, writeBlx, writeBpx, writeBtx } from '../../src/revuWrite.ts';
 import { exportWithAnnotations, type Matrix } from '../../src/export.ts';
 import { importAnnotations } from '../../src/import.ts';
 import { importColumns } from '../../src/bluebeam.ts';
@@ -466,22 +467,52 @@ function differences(a: Markup, b: Markup | undefined): string | null {
 const TOOL_DEFAULT: MarkupStyle = { stroke: '#e11d48', fill: null, width: 1, opacity: 1 };
 const DEFAULTS = new Proxy({} as Record<MarkupType, MarkupStyle>, { get: () => TOOL_DEFAULT });
 
-/** Counts the XML units each reader works through, and the readers' own record of what it dropped. */
-async function readSettings(fx: Fixture, xml: string): Promise<{ items: number; dropped: Dropped[] }> {
+/**
+ * Counts the XML units each reader works through, and the readers' own record of what it dropped.
+ * Then writes what was read back out and reads it again: `unwritten` names each item that did not
+ * come back the same. Tools are written from their type and style (not Revu's stored original), so
+ * the check is of the writer itself.
+ */
+async function readSettings(fx: Fixture, xml: string): Promise<{ items: number; dropped: Dropped[]; unwritten: string[] }> {
   const dropped: Dropped[] = [];
+  const unwritten: string[] = [];
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
   switch (fx.format) {
-    case 'btx':
-      await parseBtx(xml, DEFAULTS, 'Imported tools', dropped);
-      return { items: count(xml, /<ToolChestItem\b/g), dropped };
-    case 'blx':
-      await parseBlx(xml, 'Imported line styles', dropped);
-      return { items: count(xml, /<LineStyle\b/g), dropped };
-    case 'bhx':
-      await parseBhx(xml, 'Imported hatches', dropped);
-      return { items: count(xml, /<Hatch\b/g), dropped };
-    case 'bpx':
-      parseBpx(xml, 'Imported profile', dropped);
-      return { items: count(xml, /<Column\b/g) + count(xml, /<BSIColumnItem\b/g), dropped };
+    case 'btx': {
+      const set = await parseBtx(xml, DEFAULTS, 'Imported tools', dropped);
+      // Without the original, everything comes from the writer.
+      const items = set.items.map(({ source: _, ...i }): ToolChestItem => i);
+      const writeDropped: Dropped[] = [];
+      const back = await parseBtx(await writeBtx({ ...set, items }, writeDropped), DEFAULTS);
+      const norm = (i: ToolChestItem | undefined) => i && { type: i.type, subject: i.subject, style: i.style, tool: i.tool, sequence: i.sequence, parts: i.template?.map((m) => [m.type, m.text]) };
+      let at = 0;
+      items.forEach((it, n) => {
+        const label = `${n + 1}. ${it.name}`;
+        const skip = writeDropped.find((d) => d.item === label);
+        if (skip) unwritten.push(`${label}: ${skip.reason}`);
+        else if (!same(norm(it), norm(back.items[at++]))) unwritten.push(`${label}: read back differently`);
+      });
+      return { items: count(xml, /<ToolChestItem\b/g), dropped, unwritten };
+    }
+    case 'blx': {
+      const set = await parseBlx(xml, 'Imported line styles', dropped);
+      const back = await parseBlx(await writeBlx(set));
+      set.styles.forEach((s, n) => same(s, back.styles[n]) || unwritten.push(`${n + 1}. ${s.name}: read back differently`));
+      return { items: count(xml, /<LineStyle\b/g), dropped, unwritten };
+    }
+    case 'bhx': {
+      const set = await parseBhx(xml, 'Imported hatches', dropped);
+      const back = await parseBhx(await writeBhx(set));
+      set.hatches.forEach((h, n) => same(h.spec, back.hatches[n]?.spec) || unwritten.push(`${n + 1}. ${h.name}: read back differently`));
+      return { items: count(xml, /<Hatch\b/g), dropped, unwritten };
+    }
+    case 'bpx': {
+      const p = parseBpx(xml, 'Imported profile', dropped);
+      const back = parseBpx(writeBpx(p));
+      p.columns.forEach((c, n) => same(c, back.columns[n]) || unwritten.push(`Column ${c.key}: read back differently`));
+      p.customColumns.forEach((c, n) => same(c, back.customColumns[n]) || unwritten.push(`Custom column ${c.name}: read back differently`));
+      return { items: count(xml, /<Column\b/g) + count(xml, /<BSIColumnItem\b/g), dropped, unwritten };
+    }
     default:
       throw new Error(`no settings reader for ${fx.format}`);
   }
@@ -503,15 +534,14 @@ async function recordSettings(results: Results, fx: Fixture) {
   const revu = fx.source === 'revu';
   const xml = readFileSync(fx.file, 'utf8');
   try {
-    const { items, dropped } = await readSettings(fx, xml);
+    const { items, dropped, unwritten } = await readSettings(fx, xml);
     // One failed item per top-level element that lost something, named with the first reason it gave.
     const firstReason = new Map<string, string>();
     for (const d of dropped) if (!firstReason.has(d.item)) firstReason.set(d.item, d.reason);
     const failed = [...firstReason].map(([item, reason]) => `${fx.name} · ${item}: ${reason}`);
     add(t, row, 'Read', items, failed, revu);
-    // No writer exists yet for these formats, so every item is not yet written.
-    add(t, row, 'Write', items, [], revu);
-    cellOf(t, row, 'Write').writer = false;
+    // An item that could not be read is not written either.
+    add(t, row, 'Write', items, [...failed, ...unwritten.map((u) => `${fx.name} · ${u}`)], revu);
   } catch (e) {
     failRow(t, row, 'Read', (e as Error).message);
   }

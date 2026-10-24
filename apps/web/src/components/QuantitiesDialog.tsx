@@ -100,6 +100,12 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
                               ⚠
                             </span>
                           )}
+                          {r.setByHand > 0 && (
+                            <span className="set-by-hand" title={`Set by hand for ${r.setByHand} measurement${r.setByHand === 1 ? '' : 's'} when approving a takeoff: it does not follow changes to the measurement`}>
+                              {' '}
+                              ✎ set by hand{r.setByHand < r.measurements ? ` (${r.setByHand} of ${r.measurements})` : ''}
+                            </span>
+                          )}
                         </td>
                         <td>{r.unit}</td>
                         <td className="num">{r.measurements}</td>

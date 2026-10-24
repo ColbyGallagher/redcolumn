@@ -33,6 +33,8 @@ interface Props {
   onCheckIn: (project: Project, file: ProjectFile, comment: string) => Promise<void>;
   /** Sends what was queued offline. */
   onSendQueued: () => void;
+  /** Shows every comment and reply across the Project's files in one table. */
+  onShowComments: (project: Project) => void;
 }
 
 /** How far adding files to a Project has got: `done` of `total` are up, and `name` is being sent. */
@@ -320,7 +322,7 @@ function tileLabel(kind: string) {
   return kind.slice(0, 4).toUpperCase();
 }
 
-function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddCurrent, onCheckIn, onSendQueued, onOpened }: Props & { project: Project; onOpened: () => void }) {
+function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddCurrent, onCheckIn, onSendQueued, onShowComments, onOpened }: Props & { project: Project; onOpened: () => void }) {
   const { busy, error, setError, run } = useRun();
   const online = useOnline();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -386,6 +388,9 @@ function ProjectView({ project, me, localDocName, onOpenFile, onAddFiles, onAddC
         <span className="spacer" />
         <button type="button" className="rc-linkish" disabled={busy || !online} title={net('Refreshing') ?? 'Check OneDrive for changes now'} onClick={() => void run(() => project.poll())}>
           Refresh
+        </button>
+        <button type="button" className="rc-linkish" disabled={!snap.files.length} title="Every comment and reply on the Project's files, in one table" onClick={() => onShowComments(project)}>
+          Comments
         </button>
         <button type="button" className="rc-linkish" onClick={() => setManaging(true)}>
           Settings

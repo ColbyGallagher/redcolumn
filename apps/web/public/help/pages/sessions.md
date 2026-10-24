@@ -26,7 +26,7 @@ Once you are in a session, the panel shows:
 | **Documents** | The session's PDFs. Click one to open it. Session tabs show a **Live** badge. |
 | **Attendees** | Who is in the session and who is online now. |
 | **Chat** | Type in **Message everyone** and click **Send**. |
-| **Record** | Everything that happened: who joined, markups added and changed, statuses, messages. **Report** makes a PDF Session Report; **CSV** downloads the Record. |
+| **Record** | Everything that happened: who joined, markups added and changed, statuses, messages. **Report** makes a PDF Session Report; **CSV** downloads the Record. **All comments** (in the **⋮** menu) lists every comment and reply across the session's documents in one table. |
 | **Leave session** | Leaves and closes its documents. You can rejoin later. |
 
 ## Markup alerts

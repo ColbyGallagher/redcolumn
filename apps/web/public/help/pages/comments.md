@@ -42,3 +42,12 @@ The status, who set it and when, is recorded in the **Status** column of the lis
 ## Show reply bubbles on the page
 
 Choose {{View > Always Show Reply Indicators}} to show a small bubble with a count on markups that have replies.
+
+## See every comment in a Project or Live Session
+
+To review feedback spread across several files, open all their comments in one table:
+
+- **Project**: click **Comments** at the top of the [Projects](#projects) panel.
+- **Live Session**: open the session's **⋮** menu and choose **All comments** (see [Live Sessions](#sessions)).
+
+Each comment and reply is a row, with its file, sheet, author, text, status and date. Filter by **Status** (*Open* is no status yet, *Resolved* is any status) or by **File**, or type to find text or an author. Click a column heading to sort by it; click again to reverse. Click a row to open that sheet at the markup. **Export CSV** saves the rows you see as a spreadsheet.

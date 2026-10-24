@@ -121,6 +121,41 @@ test.describe('diagram', () => {
     expect(pts(bc)).toEqual([[450, 230], [450, 370]]);
   });
 
+  test('a connector segment drags across by its handle, a bend is added with Ctrl+double-click, and the route can be reset', async ({ app }) => {
+    await button(app, 'diagram.process').click();
+    await app.clicks([[200, 200]]);
+    await typeAndCommit(app, 'A');
+    await button(app, 'diagram.process').click();
+    await app.clicks([[500, 420]]);
+    await typeAndCommit(app, 'B');
+    await button(app, 'tool.connector').click();
+    await app.drag([200, 200], [500, 420]);
+    await app.tool('select');
+    let c = (await raw(app)).find((m) => m.type === 'connector')!;
+    await select(app, [c.id]);
+    // Across, down, across: the down segment's handle is halfway down it.
+    const [, p1, p2] = c.points as [number, number][];
+    expect(p1![0]).toBe(p2![0]);
+    await app.drag([p1![0], (p1![1] + p2![1]) / 2], [p1![0] + 60, (p1![1] + p2![1]) / 2]);
+    c = (await raw(app)).find((m) => m.type === 'connector')! as Raw & { connect?: { bends?: { first: string; mids: number[] } } };
+    expect(round(c.points[1]![0])).toBe(round(p1![0] + 60));
+    expect((c.connect as { bends?: unknown }).bends).toBeTruthy();
+    // One undo step for the drag.
+    await app.cmd('edit.undo');
+    expect(round((await raw(app)).find((m) => m.type === 'connector')!.points[1]![0])).toBe(round(p1![0]));
+    await app.cmd('edit.redo');
+    // Ctrl+double-click on the first segment adds a bend (two more segments).
+    await select(app, [c.id]);
+    const first = await app.at([(c.points[0]![0] + c.points[1]![0]) / 2, c.points[0]![1]]);
+    await app.page.keyboard.down('Control');
+    await app.page.mouse.dblclick(first.x, first.y);
+    await app.page.keyboard.up('Control');
+    await expect.poll(async () => ((await raw(app)).find((m) => m.type === 'connector')!.connect as { bends?: { mids: number[] } }).bends?.mids.length).toBe(3);
+    // Reset Route (right-click) routes it automatically again.
+    await app.page.evaluate((id) => window.__nb.tools.setRouteOf(id, 'reset'), c.id);
+    expect(((await raw(app)).find((m) => m.type === 'connector')!.connect as { bends?: unknown }).bends).toBeUndefined();
+  });
+
   test('shapes and connectors save into the PDF', async ({ app }) => {
     await button(app, 'diagram.process').click();
     await app.clicks([[300, 200]]);

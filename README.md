@@ -107,14 +107,13 @@ rather than unsupported):
 </tbody>
 </table>
 
-Revu tool sets and markup settings files can be imported:
+Revu tool sets and markup settings files can be imported and exported:
 
-- `.btx` tool sets: read. Most tools come through; a few group shapes are not yet kept.
-- `.blx` line styles: read in full.
-- `.bhx` hatch sets: read in full.
-- `.bpx` markup-list profiles: read in full.
-
-Writing these settings files back out is not built yet.
+- `.btx` tool sets: read and written. Group shapes keep their boxes, lines, polygons and text. Tools
+  that came from Revu and were not restyled are written back as Revu stored them.
+- `.blx` line styles: read and written in full.
+- `.bhx` hatch sets: read and written in full.
+- `.bpx` markup-list profiles: read and written in full (only the markup list is written).
 
 Compatibility is not a promise that every Revu feature comes through unchanged. Anything that does not
 map is listed in the compatibility report, not dropped silently. If you find a file that does not
@@ -335,7 +334,10 @@ folder of scans, stamp every sheet, set page labels, sign, or print summaries.
 
 The **Diagram** tab draws basic flowcharts on any page, or on a blank one: process, decision, start and
 end, data, document and other standard shapes, each with its text inside. **Connectors** glue to the
-shapes they join and re-route with right-angled bends when a shape moves. **Add Step** puts the next
+shapes they join and re-route with right-angled bends when a shape moves. As in Visio, drag the yellow
+handle on a selected connector's middle segment to move it, Ctrl+double-click a segment to add a bend, and
+Alt-click a handle to take that segment out; a connector routed by hand keeps its route as shapes move
+while it still fits. Right-click a connector to set its own route (right-angle, straight, or reset). **Add Step** puts the next
 shape beside the selected one, already connected, so a flowchart grows a step at a time. Shapes and
 connectors save as ordinary PDF annotations, like every other markup.
 
@@ -361,6 +363,11 @@ The desktop app can let GitHub Copilot, Claude, Codex or Cursor read the open dr
 questions about it. Turn it on in **File › Preferences › MCP**, which shows the command for each client.
 Deletes and document changes wait for your approval in redcolumn, and the assistant runs on your
 computer. The website does not run it. See [PRIVACY.md](PRIVACY.md).
+
+An assistant can also **propose a takeoff**: the assembly for each measurement, with its reasoning.
+Proposals wait in **Tools › Takeoff › Review AI Proposals**, beside the sheet, where you check each one
+against its formula and quantities, change the assembly or a quantity, and approve or reject it. Nothing
+is added to the takeoff until you approve it, and each approval records who approved which proposal.
 
 ## Install the desktop app
 
