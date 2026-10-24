@@ -24,7 +24,7 @@ Give every markup a short comment, and set a status on a few, so replies and sta
 When the files are in place:
 
 ```bash
-REDCOLUMN_COMPAT_DIR=../../reference_data pnpm --filter @nb/markup compat
+pnpm --filter @nb/markup compat
 ```
 
 Then look at **Items that did not come through** in `docs/compatibility.md`. Fix what fails to round

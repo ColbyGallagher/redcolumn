@@ -21,11 +21,11 @@ A cell is never rounded to a percentage. An item that is neither mapped nor kept
 | --- | --- | --- | --- | --- |
 | Shapes & lines | **Supported** 35/35 | **Supported** 35/35 | **Supported** 35/35 | **Supported** 34/34 |
 | Measurements | **Supported** 19/19 | **Supported** 19/19 | **Supported** 19/19 | **Supported** 16/16 |
-| Text markup | **Not run** revu-text-markup.pdf not found | **Not run** revu-text-markup.pdf not found | — | **Supported** 1/1 |
+| Text markup | **Not run** revu-text-markup.pdf not found | **Not run** revu-text-markup.pdf not found | **Not run** revu-text-markup.pdf not found | **Supported** 1/1 |
 | Notes & text | **Supported** 10/10 | **Supported** 10/10 | **Supported** 10/10 | **Supported** 6/6 |
 | Stamps | **Supported** 3/3 | **Supported** 3/3 | **Supported** 3/3 | **Not run** revu-stamps.xfdf not found |
 | Images | **Supported** 1/1 | **Supported** 1/1 | **Supported** 1/1 | **Supported** 3/3 |
-| Attachments | **Not run** revu-attachments.pdf not found | **Not run** revu-attachments.pdf not found | — | **Not run** revu-attachments.xfdf not found |
+| Attachments | **Not run** revu-attachments.pdf not found | **Not run** revu-attachments.pdf not found | **Not run** revu-attachments.pdf not found | **Not run** revu-attachments.xfdf not found |
 | Form fields | **Supported** 14/14 | **Supported** 14/14 | — | **Not run** revu-forms.xfdf not found |
 | Pop-ups | **Supported** 1/1 | **Supported** 1/1 | **Supported** 1/1 | **Not run** revu-popups.xfdf not found |
 | Other | — | — | — | **Supported** 2/2 |

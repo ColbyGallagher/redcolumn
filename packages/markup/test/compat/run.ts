@@ -541,8 +541,9 @@ async function main() {
     if (!existsSync(fx.file) && fx.covers) {
       rec.status = 'missing';
       rec.reason = 'file not found (see test/compat/revu-fixtures.md)';
-      const cols = fx.format === 'pdf' ? ['PDF save (unedited)', 'PDF save (edited)'] : fx.format === 'xfdf' ? ['XFDF round trip'] : [];
-      for (const row of fx.covers) for (const col of cols) notRun(results.annotations, col, `${fx.name} not found`, row);
+      const cols = fx.format === 'pdf' ? ['PDF save (unedited)', 'PDF save (edited)', 'BAX export'] : fx.format === 'xfdf' ? ['XFDF round trip'] : [];
+      // BAX leaves form fields out, as Revu does (a Known limit), so that cell stays a dash.
+      for (const row of fx.covers) for (const col of cols) if (!(col === 'BAX export' && row === 'Form fields')) notRun(results.annotations, col, `${fx.name} not found`, row);
       continue;
     }
     if (!existsSync(fx.file)) {
