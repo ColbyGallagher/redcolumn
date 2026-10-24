@@ -175,6 +175,8 @@ export interface CommandActions {
   manageAssemblies: () => void;
   /** Tools › Takeoff › Takeoff Quantities… */
   takeoffQuantities: () => void;
+  /** Tools › Scripts: rules that find markups and change them. */
+  scripts: () => void;
   /** Tools › Takeoff › Review AI Proposals. */
   takeoffReview: () => void;
   signatures: () => void;
@@ -486,6 +488,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
+    cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),

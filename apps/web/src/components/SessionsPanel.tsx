@@ -58,7 +58,8 @@ interface Props {
   onGoTo: (sessionId: string, docId: string, page: number | null) => void;
   /** Runs a session action, showing its error in the panel. */
   onRun: (job: () => Promise<void>) => void;
-  onReport: (sessionId: string, format: 'pdf' | 'csv') => void;
+  /** The session report (PDF), the Record (CSV), or every comment in one table. */
+  onReport: (sessionId: string, format: 'pdf' | 'csv' | 'comments') => void;
   /** Invites people by email (the user's mail app sends it). */
   onInviteEmail?: (sessionId: string) => void;
   /** Host: replace a document with a new revision (markups stay). */
@@ -459,6 +460,7 @@ function InSession({
               ...(inFolder && onShowFolder ? [{ label: 'Show session folder', onClick: () => onShowFolder(session.id) }] : []),
               { label: 'Session report', onClick: () => onReport(session.id, 'pdf') },
               { label: 'Record as CSV', onClick: () => onReport(session.id, 'csv') },
+              { label: 'All comments', onClick: () => onReport(session.id, 'comments') },
               { label: 'Leave session', onClick: () => onLeave(session.id), danger: true },
               ...(isHost && session.end && !ended ? [{ label: 'End session…', onClick: () => onEnd(session.id), disabled: busy || !online, danger: true }] : []),
             ]}

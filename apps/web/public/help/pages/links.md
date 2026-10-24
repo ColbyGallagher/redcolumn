@@ -6,7 +6,14 @@ When you open a drawing set, redcolumn finds references to other sheets (for exa
 
 ## Follow a link
 
-Click it. redcolumn jumps to that sheet, even in another file of the same [Set](#sets). Press [[Alt+Left]] to come back.
+Click it. The sheet or detail it points to opens in a **preview** beside the plan, so you can read it without losing your place:
+
+- Drag the preview's title bar to move it, and its bottom-right corner to resize it.
+- Click **📌** to pin it. A pinned preview stays when you click another link, so you can compare two details; an unpinned one is replaced by the next link.
+- Click **Open** (or double-click the preview) to go to the sheet. Press [[Alt+Left]] to come back.
+- Press [[Esc]] or click **×** to close it.
+
+To jump straight to the sheet instead, choose **Clicking a Sheet Link › Jumps to the sheet** in {{File > Preferences…}} (Display).
 
 ## Show or hide the outlines
 

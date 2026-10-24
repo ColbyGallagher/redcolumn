@@ -142,6 +142,8 @@ export interface Settings {
   snapToGeometry: boolean;
   /** Hyperlink areas are outlined when a document opens. */
   showHyperlinks: boolean;
+  /** Clicking a sheet link shows the sheet or detail in a preview beside the plan, or jumps to it. */
+  linkClick: 'preview' | 'jump';
   /** Tool Library tools saved from a markup place an exact copy of it, or draw new markups in its style. */
   toolChestMode: 'copy' | 'style';
   /** After placing a Tool Library copy, keep the tool armed to place more (Esc to stop). */
@@ -404,6 +406,7 @@ export const DEFAULT_SETTINGS: Settings = {
   buttonZoomStep: 10,
   snapToGeometry: true,
   showHyperlinks: true,
+  linkClick: 'preview',
   toolChestMode: 'copy',
   toolChestSticky: false,
   confirmDelete: false,

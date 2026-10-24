@@ -100,6 +100,22 @@ export interface ConnectorLinks {
   to?: ConnectorEnd;
   /** Right-angled bends (the default) or one straight line. */
   route?: 'elbow' | 'straight';
+  /**
+   * An elbow route set by hand (its segments dragged): kept as the shapes move while it still fits,
+   * else the connector is routed again for the time being.
+   */
+  bends?: ManualRoute;
+}
+
+/**
+ * A right-angled route by its segments: the first runs `first` (h across, v up and down) out of the
+ * start, each next one turns, and `mids` are where the segments between the first and the last run
+ * (a y for an across one, an x for an up-and-down one), measured from the start end so the route
+ * moves with it. The first and last run through the ends.
+ */
+export interface ManualRoute {
+  first: 'h' | 'v';
+  mids: number[];
 }
 
 /** Count markers (Bluebeam's count styles). */

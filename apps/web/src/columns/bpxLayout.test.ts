@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { parseBpx } from '@nb/markup';
-import { layoutFromBpx } from './bpxLayout.ts';
+import { parseBpx, writeBpx } from '@nb/markup';
+import { bpxFromLayout, layoutFromBpx } from './bpxLayout.ts';
 
 const BPX = `﻿<?xml version="1.0" encoding="utf-8"?>
 <RevuProfile Version="1" Name="Field Issues">
@@ -106,4 +106,36 @@ test('Revu\'s own profiles all read, and their visible columns come across', { s
   assert.ok(qto.layout.some((c) => c.key === 'length' && !c.hidden));
   const issues = layoutFromBpx(parseBpx(readFileSync(`${dir}/Field Issues.bpx`, 'utf8')), ids());
   assert.deepEqual(issues.custom.map((c) => c.name), ['Responsibility']);
+});
+
+test('our markup list goes out as a Revu profile and comes back the same', () => {
+  const custom = [
+    { id: 'c1', name: 'Responsibility', type: 'text' as const },
+    { id: 'c2', name: 'Cost', type: 'number' as const },
+  ];
+  const layout = [
+    { key: 'subject', width: 200, hidden: false },
+    { key: 'page', width: 60, hidden: false },
+    { key: 'custom:c2', width: 90, hidden: false },
+    { key: 'status', width: 120, hidden: true },
+    { key: 'custom:c1', width: 150, hidden: false },
+    { key: 'seq', width: 40, hidden: false },
+  ];
+  const { profile, skipped } = bpxFromLayout('Office', layout, custom);
+  assert.deepEqual(skipped, []);
+  assert.deepEqual(
+    profile.columns.map((c) => [c.key, c.visible]),
+    [['Subject', true], ['Page Index', true], ['UserDefined0', true], ['Status', false], ['UserDefined1', true]],
+  );
+  assert.deepEqual(profile.customColumns.map((c) => [c.index, c.name, c.subtype]), [[0, 'Cost', 'Number'], [1, 'Responsibility', 'Text']]);
+  let n = 0;
+  const back = layoutFromBpx(parseBpx(writeBpx(profile)), () => `n${n++}`);
+  assert.deepEqual(back.layout.map((l) => [l.key.startsWith('custom:') ? back.custom.find((c) => `custom:${c.id}` === l.key)!.name : l.key, l.width, l.hidden]), [
+    ['subject', 200, false],
+    ['page', 60, false],
+    ['Cost', 90, false],
+    ['status', 120, true],
+    ['Responsibility', 150, false],
+  ]);
+  assert.deepEqual(back.custom.map((c) => c.type), ['number', 'text']);
 });
