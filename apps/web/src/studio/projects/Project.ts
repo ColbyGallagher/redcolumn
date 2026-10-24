@@ -288,9 +288,12 @@ export class Project {
     return rooms.hasState(fileId);
   }
 
-  /** A file's shared markups as they are now, for reading (the Comments table); none when nobody has shared any. */
-  async sharedMarkups(fileId: string): Promise<Markup[]> {
-    const state = await (await this.rooms()).state(fileId);
+  /**
+   * A file's shared markups as they are now, for reading (the Comments table); none when nobody has
+   * shared any. `fresh` false skips reading the folder again (after a fresh read for another file).
+   */
+  async sharedMarkups(fileId: string, fresh = true): Promise<Markup[]> {
+    const state = await (await this.rooms()).state(fileId, fresh);
     if (!state) return [];
     const doc = new Y.Doc();
     try {

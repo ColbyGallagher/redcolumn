@@ -4779,7 +4779,10 @@ export function App() {
   useEffect(() => {
     const f = pendingFocusRef.current;
     if (!f) return;
-    if (Date.now() > f.until) pendingFocusRef.current = null;
+    if (Date.now() > f.until) {
+      pendingFocusRef.current = null;
+      return;
+    }
     const m = markups.find((x) => x.id === f.markupId);
     if (!m) return;
     pendingFocusRef.current = null;
@@ -4820,14 +4823,16 @@ export function App() {
     setCommentsTable({ key, title, rows: null, progress: { done: 0, total: files.length }, failed, open, refresh: () => void showProjectComments(project) });
     for (const [i, file] of files.entries()) {
       try {
-        const shared = await project.sharedMarkups(file.id);
+        // The folder is read once, for the first file; the rest use what it read.
+        const shared = await project.sharedMarkups(file.id, i === 0);
         const { bytes } = await project.download(file.id);
         const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false });
         try {
           const found = await readPdfAnnotations(bytes, scratch);
           // Markups this app wrote come back from the shared copy; the PDF adds other tools' ones.
           const byId = new Map([...(shared.length ? found.markups.filter(fromOtherTools) : found.markups), ...shared].map((m) => [m.id, m]));
-          rows.push(...commentRows({ fileId: file.id, file: file.name, markups: [...byId.values()], pageLabel: (p) => found.labels[p] || `Page ${p + 1}` }, statuses));
+          // The file's own custom statuses (from Revu, say) name their states too.
+          rows.push(...commentRows({ fileId: file.id, file: file.name, markups: [...byId.values()], pageLabel: (p) => found.labels[p] || `Page ${p + 1}` }, [...statuses, ...(found.extras.statuses ?? [])]));
         } finally {
           await scratch.destroy();
         }
