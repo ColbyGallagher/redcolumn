@@ -50,14 +50,16 @@ export interface MarkPage extends PageText {
   segments: ArrayLike<number>;
 }
 
-/** Detail/section identifiers (as in links.ts): 3, 12, 3A, A, B2. */
-const DETAIL_ID = /^(\d{1,3}[A-Z]?|[A-Z]\d{0,2})$/;
+/** Detail/section identifiers (as in links.ts): 3, 12, 3A, A, B2; section titles repeat theirs (A-A, 1-1). */
+const DETAIL_ID = /^(\d{1,3}[A-Z]?|[A-Z]\d{0,2})(?:[-–—/]\1)?$/;
 /** Sheet-number shape (as in links.ts), for examples taught before the set's sheet numbers are known. */
 const SHEET_SHAPE = /^[A-Z]{1,3}[-.]?\d{1,3}(?:[.-]\d{1,3})?[A-Z]?$/;
 /** More line work than this in the box means it holds more than one mark. */
 const MAX_LINES = 600;
 
 const clean = (t: string) => t.trim().toUpperCase().replace(/^\(+/, '').replace(/[,;:.)]+$/, '');
+/** A section title's A-A names the same identifier as the cut mark's A. */
+const idOf = (t: string) => clean(t).replace(/^(.+?)[-–—/]\1$/, '$1');
 const center = (w: Word): [number, number] => [(w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2];
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -75,7 +77,13 @@ export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: strin
   // The sheet number: the longest sheet-like word. The identifier: the largest other short label.
   const sheet = inside.filter((w) => isSheet(clean(w.text)) && !(DETAIL_ID.test(clean(w.text)) && lookup.find(w.text, true) === null)).sort((a, b) => clean(b.text).length - clean(a.text).length)[0];
   const detail = inside.filter((w) => w !== sheet && DETAIL_ID.test(clean(w.text))).sort((a, b) => b.size - a.size || a.y0 - b.y0)[0];
-  if (!detail && !sheet) throw new Error('There is no label text in the box. Box the whole mark, with its number, and try again.');
+  if (!detail && !sheet) {
+    throw new Error(
+      inside.length === 0
+        ? `There is no selectable text in the box (${page.words.length} word${page.words.length === 1 ? '' : 's'} on this page). If the drawing's text is drawn as lines, as CAD plots often do, run Document › OCR… on the pages first, then teach the mark again.`
+        : `There is no label text in the box. Box the whole mark, with its number, and try again. Text found in the box: ${inside.map((w) => `"${w.text}"`).join(', ')}.`,
+    );
+  }
   const words: MarkWord[] = inside.flatMap((w) => {
     const role = w === detail ? 'detail' : w === sheet ? 'sheet' : 'text';
     // Other words with digits (scales, dimensions) change from one mark to the next.
@@ -100,6 +108,50 @@ export interface MarkHit {
   text: number;
   detail: Word | null;
   sheet: Word | null;
+  /** For a title: the section or detail it names, as far as its underline suggests; `rect` is the title alone. */
+  frame?: Rect;
+}
+
+/**
+ * The drawing a title names. Titles are underlined with a rule as wide as the drawing above them,
+ * so the section runs from that rule up, about three quarters as high as it is wide. Null when no
+ * such rule is found (or it runs most of the sheet's width, as a border does).
+ */
+export function sectionFrame(segments: ArrayLike<number>, box: Rect, pageWidth: number): Rect | null {
+  const tol = 0.8;
+  const band = { top: box.y + box.h * 0.4, bottom: box.y + box.h * 1.6 };
+  let best: { y: number; x0: number; x1: number } | null = null;
+  const rules: { y: number; x0: number; x1: number }[] = [];
+  for (let i = 0; i + 3 < segments.length; i += 4) {
+    const y1 = segments[i + 1]!;
+    const y2 = segments[i + 3]!;
+    if (Math.abs(y1 - y2) > 0.5) continue;
+    const x0 = Math.min(segments[i]!, segments[i + 2]!);
+    const x1 = Math.max(segments[i]!, segments[i + 2]!);
+    const y = (y1 + y2) / 2;
+    if (x1 - x0 < 1) continue;
+    // Only a rule in the title's band can be its underline, or a piece of one.
+    if (y >= band.top - tol && y <= band.bottom + tol) rules.push({ y, x0, x1 });
+    if (y < band.top || y > band.bottom || x1 < box.x || x0 > box.x + box.w || x1 - x0 < box.w * 0.5) continue;
+    if (!best || x1 - x0 > best.x1 - best.x0) best = { y, x0, x1 };
+  }
+  if (!best) return null;
+  // Chain on the pieces of a rule drawn in several strokes.
+  const y = best.y;
+  let { x0, x1 } = best;
+  const same = rules.filter((r) => Math.abs(r.y - y) <= tol);
+  for (let grown = true; grown; ) {
+    grown = false;
+    for (const r of same) {
+      if (r.x0 < x0 - 1 && r.x1 >= x0 - 1) (x0 = r.x0), (grown = true);
+      if (r.x1 > x1 + 1 && r.x0 <= x1 + 1) (x1 = r.x1), (grown = true);
+    }
+  }
+  const w = x1 - x0;
+  if (w > pageWidth * 0.6 || w < box.w * 0.5) return null;
+  const top = Math.max(0, y - w * 0.75);
+  const bottom = Math.max(y, box.y + box.h) + 2;
+  return { x: x0, y: top, w, h: bottom - top };
 }
 
 function overlap(a: Rect, b: Rect): number {
@@ -166,7 +218,7 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
     const ty = Math.min(...segs.flatMap((s) => [s[1], s[3]]));
     for (const m of visualSearch(page.segments, segs, { minScore: 0.8 })) {
       const read = readLabel(mark, page, m.rect.x - tx, m.rect.y - ty, 1, lookup);
-      if (needs(read)) hits.push({ mark, pageIndex, rect: read.box, shape: m.score, text: read.text, detail: read.detail, sheet: read.sheet });
+      if (needs(read)) hits.push({ mark, pageIndex, rect: read.box, shape: m.score, text: read.text, detail: read.detail, sheet: read.sheet, frame: isTitleKind(mark.kind) ? (sectionFrame(page.segments, read.box, page.width) ?? undefined) : undefined });
     }
     return hits;
   }
@@ -181,7 +233,7 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
     const [cx, cy] = center(w);
     const read = readLabel(mark, page, cx - anchor.x * k, cy - anchor.y * k, k, lookup);
     // Fixed words or a second label must back the anchor up: one number alone is not a mark.
-    if (needs(read) && (mark.words.length < 2 || read.text > 1 / mark.words.length + 0.01)) hits.push({ mark, pageIndex, rect: read.box, shape: null, text: read.text, detail: read.detail, sheet: read.sheet });
+    if (needs(read) && (mark.words.length < 2 || read.text > 1 / mark.words.length + 0.01)) hits.push({ mark, pageIndex, rect: read.box, shape: null, text: read.text, detail: read.detail, sheet: read.sheet, frame: isTitleKind(mark.kind) ? (sectionFrame(page.segments, read.box, page.width) ?? undefined) : undefined });
   }
   return hits;
 }
@@ -232,34 +284,48 @@ export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: Sheet
 export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly (string | null)[], hits: readonly MarkHit[]): DetectedLink[] {
   const lookup = new SheetLookup(sheetNumbers);
   const titles = new Map<string, Word>();
+  /** Where each taught title was found: the preview zooms to it. */
+  const titleRects = new Map<string, Rect>();
   const callouts = new Map<string, Rect>();
+  /** Section marks alone: a section title on its own sheet goes to its cut, not to a detail callout with the same letter. */
+  const cuts = new Map<string, Rect>();
   for (const h of hits) {
     if (!h.detail) continue;
-    const key = `${h.pageIndex}:${clean(h.detail.text)}`;
-    if (isTitleKind(h.mark.kind)) titles.set(key, h.detail);
-    else callouts.set(key, h.rect);
+    const key = `${h.pageIndex}:${idOf(h.detail.text)}`;
+    if (isTitleKind(h.mark.kind)) {
+      titles.set(key, h.detail);
+      titleRects.set(key, h.frame ?? detailFrame(h.detail));
+    }
+    else {
+      callouts.set(key, h.rect);
+      if (h.mark.kind === 'sectionMark') cuts.set(key, h.rect);
+    }
   }
 
   const links: DetectedLink[] = [];
   for (const h of hits) {
-    const detail = h.detail ? clean(h.detail.text) : null;
+    const detail = h.detail ? idOf(h.detail.text) : null;
     const sheetText = h.sheet ? clean(h.sheet.text) : null;
     const named = h.sheet ? lookup.find(h.sheet.text, true) : null;
     let targetPage: number;
     let targetRect: Rect | null = null;
     if (isTitleKind(h.mark.kind)) {
-      // A title only links somewhere when it names another sheet (the one it is cut on).
-      if (named === null || named === h.pageIndex) continue;
-      targetPage = named;
-      const cut = detail ? callouts.get(`${named}:${detail}`) : undefined;
-      if (cut) targetRect = { x: cut.x - cut.w * 4, y: cut.y - cut.h * 3, w: cut.w * 9, h: cut.h * 7 };
+      // A title names the sheet it is cut on; with no sheet named (a dash), it is cut on its own sheet.
+      const own = h.mark.kind === 'sectionTitle' && (!h.sheet || named === h.pageIndex);
+      if (!own && (named === null || named === h.pageIndex)) continue;
+      targetPage = own ? h.pageIndex : named!;
+      const cut = detail ? (own ? cuts : callouts).get(`${targetPage}:${detail}`) : undefined;
+      // On its own sheet, a title with no cut mark to go to is a destination, not a link.
+      if (own && !cut) continue;
+      if (cut) targetRect = cut;
     } else {
       targetPage = named ?? h.pageIndex;
       if (detail) {
         const title = titles.get(`${targetPage}:${detail}`) ?? findDetailTitle(pages[targetPage]!, detail, sheetNumbers[targetPage] ?? null, lookup, targetPage);
         // On its own sheet, the callout must not take itself for the title.
         const own = title && targetPage === h.pageIndex && overlap({ x: title.x0, y: title.y0, w: title.x1 - title.x0, h: title.y1 - title.y0 }, h.rect) > 0;
-        if (title && !own) targetRect = detailFrame(title);
+        // A taught title is framed as taught; one found by its text gets a frame for the whole detail.
+        if (title && !own) targetRect = titleRects.get(`${targetPage}:${detail}`) ?? detailFrame(title);
       }
     }
     if (!detail && targetPage === h.pageIndex) continue;

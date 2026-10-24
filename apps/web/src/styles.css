@@ -4517,6 +4517,21 @@ select[size] {
   line-height: 1.45;
 }
 
+.rc-desktop-only-banner {
+  margin: 6px 10px;
+  padding: 8px 10px;
+  border: 1px solid #c9a227;
+  border-radius: 4px;
+  background: rgba(201, 162, 39, 0.14);
+  color: #f0f2f6;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.rc-desktop-only-banner p {
+  margin: 4px 0 0;
+}
+
 .rc-help summary {
   cursor: pointer;
   color: #f0f2f6;

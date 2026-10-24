@@ -39,7 +39,7 @@ import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
-import { LinkPreviews, type LinkPreviewWindow } from './components/LinkPreview';
+import { LinkPreviews, type LinkPreviewWindow, type PreviewDrawing, type PreviewView } from './components/LinkPreview';
 import { ScriptsDialog } from './components/ScriptsDialog';
 import { TakeoffReview } from './components/TakeoffReview';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
@@ -145,6 +145,7 @@ import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
+import { DesktopOnlyNotice } from './components/studio/DesktopOnlyNotice';
 import { PopOutWindow } from './components/PopOutWindow';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
 import { idFromText, onProjectOpened, openProject, openProjects, projectAuthor, projectById } from './studio/projects/store';
@@ -4623,9 +4624,11 @@ export function App() {
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
       showPanel('sessions');
     }
-    const current = currentSessions();
+    // Sessions only run in the desktop app: the web build neither rejoins them nor takes invites.
+    const current = desktop() ? currentSessions() : [];
     void (async () => {
       for (const ref of current) await joinStudio(ref, false);
+      if (!desktop()) return;
       if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: 'onedrive', id: driveInvite });
       else if (driveInvite) setFocusedSession(driveInvite);
       // After rejoining several, start on the list rather than whichever joined last.
@@ -5029,8 +5032,8 @@ export function App() {
   /** The open document a preview belongs to. */
   const previewFile = (fileId: string) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
 
-  const renderPreviewRef = useRef<(id: string, width: number, height: number) => Promise<HTMLCanvasElement | null>>(async () => null);
-  renderPreviewRef.current = async (id, width, height) => {
+  const renderPreviewRef = useRef<(id: string, width: number, height: number, view?: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
+  renderPreviewRef.current = async (id, width, height, asked) => {
     const p = linkPreviews.find((x) => x.id === id);
     const o = p && previewFile(p.fileId);
     const size = p && o?.doc.pages[p.link.targetPage];
@@ -5040,13 +5043,17 @@ export function App() {
     const pad = t ? Math.max(36, 0.25 * Math.max(t.w, t.h)) : 0;
     const area = t ? { x: t.x - pad, y: t.y - pad, w: t.w + 2 * pad, h: t.h + 2 * pad } : { x: 0, y: 0, w: size.width, h: size.height };
     const dpr = window.devicePixelRatio || 1;
-    const region = await renderRegion(o, p.link.targetPage, area, (w, h) => Math.min(8, Math.max(0.1, Math.min(width / w, height / h)) * dpr));
-    if (!region) return null;
-    region.canvas.style.width = `${region.canvas.width / dpr}px`;
-    region.canvas.style.height = `${region.canvas.height / dpr}px`;
-    return region.canvas;
+    // Fitted to the link's target until the person zooms or pans.
+    const view: PreviewView = asked ?? { cx: area.x + area.w / 2, cy: area.y + area.h / 2, zoom: Math.min(width / area.w, height / area.h) };
+    const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
+    const region = await renderRegion(o, p.link.targetPage, seen, () => Math.min(16, Math.max(0.1, view.zoom * dpr)));
+    // Panned or zoomed right off the page: draw nothing, but still report the view so the old picture goes.
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
+    region.canvas.style.width = `${region.w * view.zoom}px`;
+    region.canvas.style.height = `${region.h * view.zoom}px`;
+    return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };
   };
-  const renderPreview = useCallback((id: string, width: number, height: number) => renderPreviewRef.current(id, width, height), []);
+  const renderPreview = useCallback((id: string, width: number, height: number, view?: PreviewView) => renderPreviewRef.current(id, width, height, view), []);
 
   /** Opens a preview's sheet in the view (as following the link used to), and closes the preview unless it is pinned. */
   const openPreview = (id: string) => {
@@ -5058,6 +5065,18 @@ export function App() {
       return;
     }
     navigate(p.link.targetPage, p.link.targetRect);
+    if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
+  };
+
+  /** Shows where a preview's link was clicked: the mark for a title's link, the title for a mark's. */
+  const backFromPreview = (id: string) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    if (!p) return;
+    if (activeOpen?.file.id !== p.fileId) {
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to go back.`);
+      return;
+    }
+    navigate(p.link.pageIndex, p.link.rect);
     if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
@@ -6508,6 +6527,8 @@ export function App() {
       SEP,
       sessionDoc
         ? { label: 'Show in Session', onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
+        : !desktop()
+        ? { label: 'Add to Session (desktop app only)', disabled: true, onClick: () => {} }
         : {
             label: 'Add to Session',
             items: [
@@ -6809,7 +6830,7 @@ export function App() {
       }) },
     {
       label: 'Add to Session',
-      disabled: !sessions.some((s) => s.canAddDocuments),
+      disabled: !desktop() || !sessions.some((s) => s.canAddDocuments),
       items: sessions
         .filter((s) => s.canAddDocuments)
         .map((s) => ({ label: s.meta.name, onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: f.id, name: f.name }])) })),
@@ -8239,6 +8260,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
+        ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (
+          <DesktopOnlyNotice kind={tab} />
         ) : tab === 'projects' ? (
           <ProjectsPanel
             me={author}
@@ -8879,6 +8902,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         render={renderPreview}
         onChange={(w) => setLinkPreviews((ps) => ps.map((p) => (p.id === w.id ? { ...p, ...w } : p)))}
         onOpen={openPreview}
+        onBack={backFromPreview}
         onClose={(id) => setLinkPreviews((ps) => ps.filter((p) => p.id !== id))}
         revision={markups}
       />

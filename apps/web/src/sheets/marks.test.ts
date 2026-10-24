@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { detectLinks, type Word } from '@nb/sheets';
-import { findMarks, teachMark, type MarkPage } from './marks.ts';
+import { findMarks, sectionFrame, teachMark, type MarkPage } from './marks.ts';
 
 const word = (text: string, cx: number, cy: number, size = 6): Word => {
   const w = text.length * size * 0.55;
@@ -47,7 +47,7 @@ test('teaching reads the label roles and keeps the line work', () => {
 
 test('teaching needs a label in the box', () => {
   const p = page(bubble(100, 100, null, null));
-  assert.throws(() => teachMark(p, box(100, 100), 'sectionMark', 'Cut', []), /no label text/);
+  assert.throws(() => teachMark(p, box(100, 100), 'sectionMark', 'Cut', []), /no selectable text/);
 });
 
 test('finds every copy of a taught callout and links each to the sheet it names', () => {
@@ -152,4 +152,79 @@ test('a mark with no line work is found by the arrangement of its words', () => 
 
 test('no taught marks, no candidates', () => {
   assert.deepEqual(findMarks([page(bubble(100, 100, '3', 'A-501'))], ['A-501'], []), []);
+});
+
+test('a section title that repeats its identifier (A-A) can be taught', () => {
+  const p = page({ segments: [], words: [word('SECTION', 480, 200, 8), word('A-A', 510, 200, 8)] });
+  const mark = teachMark(p, { x: 450, y: 190, w: 90, h: 20 }, 'sectionTitle', '', ['A-101']);
+  assert.deepEqual(
+    mark.words.map((w) => [w.role, w.text]),
+    [
+      ['text', 'SECTION'],
+      ['detail', 'A-A'],
+    ],
+  );
+});
+
+test('a section title cut on its own sheet (a dash) links to the section mark with the same number', () => {
+  const numbers = ['A-101'];
+  const cutMark = (cx: number, cy: number, id: string) => ({ segments: [...bubble(cx, cy, id, null).segments], words: [word(id, cx, cy - 6, 8), word('-', cx, cy + 6, 8)] });
+  const titleAt = (cx: number, cy: number, id: string) => ({ segments: [cx - 60, cy + 12, cx + 20, cy + 12], words: [word('SECTION', cx - 30, cy, 8), word(id, cx + 20, cy - 6, 8), word('-', cx + 20, cy + 6, 8)] });
+  const sheet = page(cutMark(300, 600, '2'), cutMark(700, 600, '3'), titleAt(300, 200, '2'), titleAt(700, 200, '3'));
+  const cut = teachMark(sheet, box(300, 600), 'sectionMark', '', numbers);
+  const title = teachMark(sheet, { x: 255, y: 185, w: 100, h: 40 }, 'sectionTitle', '', numbers);
+  const links = findMarks([sheet], numbers, [cut, title]);
+  const back = links.find((l) => l.rect.y < 400 && l.detail === '2');
+  assert.ok(back, JSON.stringify(links));
+  assert.equal(back.targetPage, 0);
+  const r = back.targetRect!;
+  assert.ok(r.x <= 300 && r.x + r.w >= 300 && r.y <= 600 && r.y + r.h >= 600, JSON.stringify(r));
+  assert.ok(r.x + r.w < 700, JSON.stringify(r));
+});
+
+test('a section mark and its title link to each other, each framing the other as taught', () => {
+  const numbers = ['A-101'];
+  const cutMark = (cx: number, cy: number, id: string) => ({ segments: [...bubble(cx, cy, id, null).segments], words: [word(id, cx, cy - 6, 8), word('-', cx, cy + 6, 8)] });
+  const titleAt = (cx: number, cy: number, id: string) => ({ segments: [cx - 60, cy + 12, cx + 20, cy + 12], words: [word('SECTION', cx - 30, cy, 8), word(id, cx + 20, cy - 6, 8), word('-', cx + 20, cy + 6, 8)] });
+  const sheet = page(cutMark(300, 600, '2'), titleAt(300, 200, '2'));
+  const cutBox = box(300, 600);
+  const titleBox = { x: 255, y: 185, w: 100, h: 40 };
+  const cut = teachMark(sheet, cutBox, 'sectionMark', '', numbers);
+  const title = teachMark(sheet, titleBox, 'sectionTitle', '', numbers);
+  const links = findMarks([sheet], numbers, [cut, title]);
+  const toTitle = links.find((l) => l.rect.y > 400)!;
+  const toMark = links.find((l) => l.rect.y < 400)!;
+  // The mark's link shows the section the title's rule sits under, which holds the title.
+  const frame = toTitle.targetRect!;
+  // The rule runs 240 to 320, so the section is that wide and rises above the title.
+  assert.ok(frame.x === 240 && frame.w === 80 && frame.y < toMark.rect.y && frame.y + frame.h >= toMark.rect.y + toMark.rect.h, JSON.stringify(frame));
+  assert.ok(frame.h > toMark.rect.h * 1.5, JSON.stringify(frame));
+  // The title's link goes to the mark itself.
+  assert.deepEqual(toMark.targetRect, toTitle.rect);
+});
+
+test('a title rule gives the extent of the section above it', () => {
+  const box = { x: 100, y: 500, w: 90, h: 24 };
+  // The rule is drawn in two strokes and runs a little past the title's box.
+  const segs = [90, 520, 150, 520, 150, 520, 210, 520, 0, 40, 1000, 40];
+  const f = sectionFrame(segs, box, 1224)!;
+  assert.equal(f.x, 90);
+  assert.equal(f.w, 120);
+  assert.equal(f.y, 520 - 120 * 0.75);
+  assert.ok(f.y + f.h >= 524);
+  // A rule across most of the sheet is a border, not an underline.
+  assert.equal(sectionFrame([0, 520, 1100, 520], box, 1224), null);
+  assert.equal(sectionFrame([], box, 1224), null);
+});
+
+test('a section title with no underline, and a detail callout with the same letter, do not stand in for a cut', () => {
+  const numbers = ['A-101'];
+  // A detail callout "2" and a section title "2" on one sheet, taught as a callout and a title only: no cut exists.
+  const callout = { segments: [...bubble(300, 600, '2', null).segments], words: [word('2', 300, 594, 8)] };
+  const title = { segments: [], words: [word('SECTION', 480, 200, 8), word('2', 510, 200, 8)] };
+  const sheet = page(callout, title);
+  const c = teachMark(sheet, box(300, 600), 'detailCallout', '', numbers);
+  const t = teachMark(sheet, { x: 450, y: 190, w: 90, h: 20 }, 'sectionTitle', '', numbers);
+  const links = findMarks([sheet], numbers, [c, t]);
+  assert.ok(!links.some((l) => l.rect.y < 400), JSON.stringify(links));
 });
