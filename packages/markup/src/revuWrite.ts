@@ -39,17 +39,19 @@ async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 const latin1Bytes = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0) & 255);
 
-/** Text as Revu stores a set title or a tool's <Raw>: hex of zlib-compressed bytes (Latin-1 when it fits, else UTF-8). */
+/** Bytes held as Latin-1 characters (a PDF dictionary or object) as Revu stores them: hex of zlib-compressed bytes. */
 export async function packText(text: string): Promise<string> {
-  const bytes = /^[\0-\xff]*$/.test(text) ? latin1Bytes(text) : new TextEncoder().encode(text);
-  return hex(await deflate(bytes));
+  return hex(await deflate(latin1Bytes(text)));
 }
+
+/** A set's title as Revu stores it: hex of zlib-compressed UTF-8 (read back as UTF-8, else Latin-1). */
+const packTitle = async (title: string) => hex(await deflate(new TextEncoder().encode(title)));
 
 // --- .blx -----------------------------------------------------------------------------------
 
 /** A line style set as a .blx file. Components that are not dashes, gaps, text or symbols are left out. */
 export async function writeBlx(set: LineSet, dropped: Dropped[] = []): Promise<string> {
-  const out = [HEAD, '<BluebeamRevuLineStyleSet Version="1">', `  <Title>${await packText(set.title)}</Title>`];
+  const out = [HEAD, '<BluebeamRevuLineStyleSet Version="1">', `  <Title>${await packTitle(set.title)}</Title>`];
   set.styles.forEach((style, n) => {
     const item = `${n + 1}. ${style.name}`;
     const [scaled, ...lines] = style.spec;
@@ -115,7 +117,7 @@ type HatchEntry = Pick<HatchSet['hatches'][number], 'name' | 'spec'>;
 
 /** A hatch set as a .bhx file. A tile size Revu has no name for is written as the nearest one, and reported. */
 export async function writeBhx(set: { title: string; hatches: readonly HatchEntry[] }, dropped: Dropped[] = []): Promise<string> {
-  const out = [HEAD, '<BluebeamRevuHatchSet Version="1">', `  <Title>${await packText(set.title)}</Title>`];
+  const out = [HEAD, '<BluebeamRevuHatchSet Version="1">', `  <Title>${await packTitle(set.title)}</Title>`];
   set.hatches.forEach((h, n) => {
     const s = h.spec;
     const nearest = TILE_NAMES.reduce((a, b) => (Math.abs(b[0] - s.size) < Math.abs(a[0] - s.size) ? b : a));
@@ -519,7 +521,7 @@ async function contentOf(it: Pick<ToolChestItem, 'type' | 'template' | 'subject'
  * listed in `dropped` and left out.
  */
 export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: Dropped[] = []): Promise<string> {
-  const out = [HEAD, '<BluebeamRevuToolSet Version="1">', `  <Title>${await packText(set.title)}</Title>`];
+  const out = [HEAD, '<BluebeamRevuToolSet Version="1">', `  <Title>${await packTitle(set.title)}</Title>`];
   let index = 0;
   for (const [n, it] of set.items.entries()) {
     const item = `${n + 1}. ${it.name}`;
@@ -567,9 +569,9 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
     const [self, ...children] = parts;
     out.push('  <ToolChestItem Version="1">');
     if (resources) out.push(resources);
-    out.push(`    <Name>${esc(verbatim && src?.name ? src.name : it.name)}</Name>`, `    <Type>${esc(self!.type)}</Type>`, `    <Raw>${await packText(self!.raw)}</Raw>`, `    <X>${fmt(self!.x)}</X>`, `    <Y>${fmt(self!.y)}</Y>`, `    <Index>${index++}</Index>`);
+    out.push(`    <Name>${esc(verbatim && src?.name && it.name === src.shown ? src.name : it.name)}</Name>`, `    <Type>${esc(self!.type)}</Type>`, `    <Raw>${await packText(self!.raw)}</Raw>`, `    <X>${fmt(self!.x)}</X>`, `    <Y>${fmt(self!.y)}</Y>`, `    <Index>${index++}</Index>`);
     // Revu's own children stay as they were, restyled or not.
-    if (src?.children) out.push(src.children);
+    if (src?.children) out.push(src.children.replace(/<Index>\s*\d+\s*<\/Index>/g, () => `<Index>${index++}</Index>`));
     else
       for (const c of children)
         out.push('    <Child>', `      <Type>${esc(c.type)}</Type>`, `      <Raw>${await packText(c.raw)}</Raw>`, `      <X>${fmt(c.x)}</X>`, `      <Y>${fmt(c.y)}</Y>`, `      <Index>${index++}</Index>`, '    </Child>');

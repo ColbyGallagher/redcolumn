@@ -45,6 +45,8 @@ export interface RevuToolSource {
   raw: string;
   /** The <Name> Revu gave it. */
   name: string;
+  /** The name it was shown under when read: renamed since, it is written under its new name. */
+  shown?: string;
   x: number;
   y: number;
   mode?: string;
@@ -214,6 +216,16 @@ const latin1 = (b: Uint8Array) => {
   return s;
 };
 
+/** Unpacked title bytes (as Latin-1 characters) as text: UTF-8 when they are valid UTF-8, else Latin-1. */
+export function utf8OrLatin1(bytes: string): string {
+  if (!/[\x80-\xff]/.test(bytes)) return bytes;
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(Uint8Array.from(bytes, (c) => c.charCodeAt(0) & 255));
+  } catch {
+    return bytes;
+  }
+}
+
 /** A tool's <Raw>: hex (or base64) of zlib-compressed or plain dictionary text. */
 export async function decodeRaw(raw: string): Promise<string> {
   if (raw.trim().startsWith('<<')) return raw.trim();
@@ -304,6 +316,7 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
               revuType,
               raw: await decodeRaw(raw),
               name: given,
+              shown: name,
               x: self.x,
               y: self.y,
               ...(tag(body, 'Mode') ? { mode: tag(body, 'Mode')! } : {}),
@@ -329,7 +342,7 @@ async function decodedText(v: string | null): Promise<string> {
   if (!v) return '';
   if (!/^78[0-9a-f]+$/i.test(v) || v.length % 2) return v;
   try {
-    return await decodeRaw(v);
+    return utf8OrLatin1(await decodeRaw(v));
   } catch {
     return v;
   }

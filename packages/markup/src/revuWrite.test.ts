@@ -117,7 +117,7 @@ test('.btx: an imported tool is written back as Revu stored it; a restyled one k
   const set = await parseBtx(xml, defaults);
   const again = await writeBtx(set);
   assert.ok(again.includes('<Name>INHFCFBPUYYOUOFL</Name>'));
-  assert.ok(again.includes(child), 'the child is kept as it was');
+  assert.ok(again.includes(child.replace('<Index>4</Index>', '<Index>1</Index>')), 'the child is kept as it was, numbered in order');
   const reread = await parseBtx(again, defaults);
   assert.deepEqual(reread.items.map(shape), set.items.map(shape));
   assert.equal(reread.items[0]!.source!.raw, dict, 'the dictionary is byte for byte the same');
@@ -160,4 +160,18 @@ test('.btx: stamps, pictures and files are written with what they place', async 
   assert.deepEqual(file!.template![0]!.attachment, { name: 'notes.txt', mime: 'text/plain', size: 5, data: btoa('hello') });
   assert.match(pic!.template![0]!.image!, /^data:image\/png;base64,/);
   assert.deepEqual(back.items.map((i) => [i.type, i.template![0]!.points]), tools.map((i) => [i.type, [[0, 0], [80, 30]]]));
+});
+
+test('titles round trip in any script; a renamed Revu tool keeps its new name; indexes stay unique', async () => {
+  for (const title of ['Café notes', 'Δ ducts – level 2']) assert.equal((await parseBlx(await writeBlx({ title, styles: [{ name: 'Gas', spec: [true, [0, 10, -2]] }] }))).title, title);
+  const child = `<Child><Type>Bluebeam.PDF.Annotations.AnnotationFreeText</Type><Raw>${hexZ('<</Subtype/FreeText/Rect[0 0 36 34]/Contents(1)>>')}</Raw><X>0</X><Y>-1</Y><Index>4</Index></Child>`;
+  const xml = `<BluebeamRevuToolSet Version="1"><Title>T</Title><ToolChestItem Version="1"><Name>INHFCFBPUYYOUOFL</Name><Type>Bluebeam.PDF.Annotations.AnnotationCircle</Type><Raw>${hexZ('<</RD[1 1 1 1]/Subtype/Circle/Rect[0 0 38 38]/C[1 0 0]>>')}</Raw><X>1</X><Y>1</Y><Index>3</Index>${child}</ToolChestItem></BluebeamRevuToolSet>`;
+  const [tool] = (await parseBtx(xml, defaults)).items;
+  const fresh: ToolChestItem = { id: 'n', name: 'Box', subject: 'Box', type: 'rect', revuType: '', style: defaults.rect };
+  const out = await writeBtx({ title: 'T', items: [fresh, { ...tool!, name: 'Grid bubble' }, tool!] });
+  const indexes = [...out.matchAll(/<Index>(\d+)<\/Index>/g)].map((m) => Number(m[1]));
+  assert.deepEqual(indexes, [0, 1, 2, 3, 4]);
+  const back = await parseBtx(out, defaults);
+  assert.deepEqual(back.items.map((i) => i.name), ['Box', 'Grid bubble', tool!.name]);
+  assert.ok(out.includes('<Name>INHFCFBPUYYOUOFL</Name>'), 'the unchanged one keeps Revu’s name');
 });
