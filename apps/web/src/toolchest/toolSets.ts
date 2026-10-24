@@ -1,4 +1,4 @@
-import { DEFAULT_STYLES, parseBtx, type ToolSet as RevuToolSet } from '@nb/markup';
+import { DEFAULT_STYLES, parseBtx, writeBtx, type Dropped, type ToolChestItem as RevuTool, type ToolSet as RevuToolSet } from '@nb/markup';
 import { updateWorkspace, type ToolSet } from '../workspace/profiles';
 
 /**
@@ -24,6 +24,7 @@ function fromRevu(set: RevuToolSet): { set: ToolSet; skipped: number } {
         // Grouped tools (a circle and its number) place copies, as tools saved from the page do.
         ...(i.template ? { markups: i.template.map((m) => (i.subject ? { ...m, subject: i.subject } : m)) } : {}),
         ...(i.sequence ? { sequence: i.sequence } : {}),
+        ...(i.source ? { revu: i.source } : {}),
       })),
     },
     skipped: set.items.length - usable.length,
@@ -33,6 +34,30 @@ function fromRevu(set: RevuToolSet): { set: ToolSet; skipped: number } {
 /** A tool set as a file to share: our own format, read back by `importToolSets`. */
 export function toolSetFile(set: ToolSet): Blob {
   return new Blob([JSON.stringify({ format: 'redcolumn-toolset', version: 1, set: { ...set, hidden: undefined } }, null, 2)], { type: 'application/json' });
+}
+
+/**
+ * A tool set as a Revu .btx file. Tools that came from Revu and were not restyled go back as Revu
+ * stored them. `dropped` lists the tools Revu has no equivalent for.
+ */
+export async function revuToolSetFile(set: ToolSet): Promise<{ blob: Blob; dropped: Dropped[] }> {
+  const dropped: Dropped[] = [];
+  const items = set.items.map(
+    (i): RevuTool => ({
+      id: i.id,
+      name: i.label,
+      subject: i.subject ?? i.label,
+      type: i.type,
+      style: i.style,
+      revuType: i.revu?.revuType ?? '',
+      ...(i.tool ? { tool: i.tool } : {}),
+      ...(i.markups?.length ? { template: i.markups } : {}),
+      ...(i.sequence ? { sequence: i.sequence } : {}),
+      ...(i.revu ? { source: i.revu } : {}),
+    }),
+  );
+  const xml = await writeBtx({ title: set.name, items }, dropped);
+  return { blob: new Blob([xml], { type: 'application/xml' }), dropped };
 }
 
 function fromFile(json: string): ToolSet {
