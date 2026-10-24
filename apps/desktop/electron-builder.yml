@@ -16,6 +16,8 @@ productName: redcolumn
 copyright: Copyright © redcolumn contributors
 directories:
   output: release
+# Sets the 7z filter for Windows arm64 so the installer can extract its binaries (see the script).
+beforePack: scripts/before-pack.cjs
 files:
   - dist/**
   - package.json

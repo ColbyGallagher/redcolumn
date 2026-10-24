@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
-import { UpdateService, type NativeUpdater, type UpdateState } from './update-service.ts';
+import { UpdateService, canSelfUpdate, type NativeUpdater, type UpdateState } from './update-service.ts';
 
 class FakeNative extends EventEmitter {
   installs: [boolean, boolean][] = [];
@@ -245,4 +245,13 @@ test('a stalled download that will not stop is left to the next launch', async (
   // It may still finish; then it is ready to install.
   native.finishDownload('0.2.0');
   assert.equal(svc.state.status, 'ready');
+});
+
+test('only the packaged x64 Windows app updates itself', () => {
+  assert.equal(canSelfUpdate({ packaged: true, platform: 'win32', arch: 'x64' }), true);
+  // latest.yml describes the x64 installer, so an arm64 install must not follow it.
+  assert.equal(canSelfUpdate({ packaged: true, platform: 'win32', arch: 'arm64' }), false);
+  assert.equal(canSelfUpdate({ packaged: false, platform: 'win32', arch: 'x64' }), false);
+  assert.equal(canSelfUpdate({ packaged: true, platform: 'darwin', arch: 'arm64' }), false);
+  assert.equal(canSelfUpdate({ packaged: true, platform: 'linux', arch: 'x64' }), false);
 });

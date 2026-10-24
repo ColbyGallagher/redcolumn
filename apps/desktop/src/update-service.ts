@@ -46,6 +46,14 @@ export interface UpdateServiceOptions {
 export type InstallResult = { ok: true } | { ok: false; reason: string };
 
 /**
+ * Whether this build updates itself. Only the packaged x64 Windows app does: latest.yml describes
+ * the x64 installer, so a native arm64 install that followed it would be replaced by the x64 build.
+ */
+export function canSelfUpdate(opts: { packaged: boolean; platform: string; arch: string }): boolean {
+  return opts.packaged && opts.platform === 'win32' && opts.arch === 'x64';
+}
+
+/**
  * Checks for a newer release and, where the platform allows, downloads it in the background and
  * installs it when the app next quits or when the person restarts into it.
  */
