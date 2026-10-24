@@ -107,14 +107,13 @@ rather than unsupported):
 </tbody>
 </table>
 
-Revu tool sets and markup settings files can be imported:
+Revu tool sets and markup settings files can be imported and exported:
 
-- `.btx` tool sets: read. Group shapes keep their boxes, lines, polygons and text.
-- `.blx` line styles: read in full.
-- `.bhx` hatch sets: read in full.
-- `.bpx` markup-list profiles: read in full.
-
-Writing these settings files back out is not built yet.
+- `.btx` tool sets: read and written. Group shapes keep their boxes, lines, polygons and text. Tools
+  that came from Revu and were not restyled are written back as Revu stored them.
+- `.blx` line styles: read and written in full.
+- `.bhx` hatch sets: read and written in full.
+- `.bpx` markup-list profiles: read and written in full (only the markup list is written).
 
 Compatibility is not a promise that every Revu feature comes through unchanged. Anything that does not
 map is listed in the compatibility report, not dropped silently. If you find a file that does not
