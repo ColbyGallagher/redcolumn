@@ -1,7 +1,8 @@
 # Unsigned installers: an NSIS setup for Windows and a DMG per architecture for macOS. The Release
 # workflow attaches them to a GitHub release when a v* tag is pushed (see README). The app checks
 # the latest release at every launch. The installed Windows app downloads and installs the update
-# itself (electron-updater, from latest.yml and the .blockmap beside the installer); the Mac app
+# itself (electron-updater, from latest.yml and the .blockmap beside the installer; the arm64
+# installer reads latest-arm64.yml, see package:win-arm64); the Mac app
 # links to the release page, since Squirrel.Mac needs a Developer ID signature.
 # The fixed file names keep releases/latest/download/redcolumn-Setup.exe, redcolumn-arm64.dmg and
 # redcolumn-x64.dmg stable download links.
@@ -16,6 +17,8 @@ productName: redcolumn
 copyright: Copyright © redcolumn contributors
 directories:
   output: release
+# Sets the 7z filter for Windows arm64 so the installer can extract its binaries (see the script).
+beforePack: scripts/before-pack.cjs
 files:
   - dist/**
   - package.json
