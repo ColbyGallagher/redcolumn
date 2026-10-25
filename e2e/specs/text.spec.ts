@@ -147,16 +147,49 @@ test.describe('PDF text', () => {
     expect((await app.documents())[0]!.pageCount).toBe(PLAN.pageCount);
   });
 
-  test('Select Text copies words without adding a markup', async ({ app }) => {
+  // "DOOR 1   HOLLOW CORE" is 146 pt wide in 12 pt Helvetica, so it ends at x 206. (Ending the
+  // drag much further right, at x 215, selects nothing.)
+  const selectDoor = async (app: App) => {
     await app.cmd('edit.selectText');
     expect((await app.toolState()).tool).toBe('selectText');
-    // "DOOR 1   HOLLOW CORE" is 146 pt wide in 12 pt Helvetica, so it ends at x 206. (Ending the
-    // drag much further right, at x 215, copies nothing.)
     await app.drag([58, 95], [210, 95]);
-    await expect(app.page.getByText(/^Copied \d+ characters?\.$/)).toBeVisible();
+    const bar = app.page.getByRole('toolbar', { name: 'Selected text' });
+    await expect(bar).toBeVisible();
+    return bar;
+  };
+
+  test('Select Text highlights words without adding a markup, and Copy copies them', async ({ app }) => {
+    const bar = await selectDoor(app);
+    await expect(bar.locator('.text-selection-count')).toHaveText(/^\d+ characters?$/);
     expect(await app.markups()).toEqual([]);
+    await bar.getByRole('button', { name: 'Copy' }).click();
+    await expect(app.page.getByText(/^Copied \d+ characters?\.$/)).toBeVisible();
     if (app.kind === 'web') expect(await app.page.evaluate(() => navigator.clipboard.readText())).toMatch(/DOOR 1\s+HOLLOW CORE/);
+    // Esc lets the words go, still without a markup.
+    await app.page.keyboard.press('Escape');
+    await expect(bar).toBeHidden();
+    expect(await app.markups()).toEqual([]);
   });
+
+  for (const [button, type] of [
+    ['Highlight', 'textHighlight'],
+    ['Underline', 'underline'],
+    ['Strikethrough', 'strikeout'],
+    ['Squiggly', 'squiggly'],
+  ] as const) {
+    test(`Select Text: ${button} on the selection bar marks the selected words`, async ({ app }) => {
+      const bar = await selectDoor(app);
+      await bar.getByRole('button', { name: button, exact: true }).click();
+      await expect(bar).toBeHidden();
+      const [m, ...rest] = await app.markups();
+      expect(rest).toEqual([]);
+      expect(m).toMatchObject({ type, page: 2 });
+      // It covers the words selected: from the "D" just right of x 58 to past "CORE" at x 206.
+      const xs = m!.points.map(([x]) => x);
+      expect(Math.min(...xs)).toBeGreaterThanOrEqual(57);
+      expect(Math.max(...xs)).toBeGreaterThan(200);
+    });
+  }
 
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
