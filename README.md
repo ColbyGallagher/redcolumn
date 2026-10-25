@@ -61,8 +61,8 @@ send it somewhere yourself.
 - **No analytics, advertising, tracking or error reporting.** The app sets no cookies of its own.
 - **Works offline.** Once loaded, the app and your documents work with no internet connection.
   Installed, it runs from its own icon and window.
-- **Cloud features are optional and use your own OneDrive.** Live Sessions, Projects and spreadsheet
-  sync only start when you sign in to Microsoft, and the files go to your OneDrive, not to us. Live Sessions are encrypted end to end unless the host turns that off. See
+- **Cloud features are optional and use your own OneDrive.** Live Sessions and Projects
+  only start when you sign in to Microsoft, and the files go to your OneDrive, not to us. Live Sessions are encrypted end to end unless the host turns that off. See
   [PRIVACY.md](PRIVACY.md) for exactly what each feature sends and to whom.
 - **The local MCP server stays on your computer.** The desktop app can let an AI client you already use
   read the open drawing. It is off until you turn it on, and deletes and document changes wait for
@@ -304,12 +304,13 @@ a revision.
 ### Markups list and spreadsheets
 
 The Markups list has custom columns, statuses, filters and grouping. Export it as CSV, or as a PDF
-summary. **Sync to Excel** writes the list to a workbook in your OneDrive and keeps it up to date as
-markups change. Measurements go in as numbers, so the sheet can total them.
+summary. **Sync to Excel** (desktop app on Windows) writes the list to a workbook on your computer and
+keeps it up to date as markups change, even while it is open in Excel. Measurements go in as numbers,
+so the sheet can total them.
 
 <img src="docs/media/readme/list-grouped.png" alt="The Markups list grouped by subject" width="760">
 
-<img src="docs/media/sync/sync-to-excel.png" alt="The Sync Markups to Excel window, with the Excel in OneDrive workbook" width="420">
+<img src="docs/media/sync/sync-to-excel.png" alt="The Sync Markups to Excel window" width="420">
 
 ### Documents
 

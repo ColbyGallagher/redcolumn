@@ -38,6 +38,6 @@ The bottom of the list shows totals, for example **Area ×2: 1,128.13 sf**.
 | 9 | **Status ▾** | How the status column shows history. | [Statuses](#list-status) |
 | 10 | **Manage Columns…** | Your own columns and statuses. | [Columns](#list-columns) |
 | 11 | **Export…** | CSV or PDF report. | [Export the list](#list-export) |
-| 12 | **Sync…** | Keeps the list in an Excel workbook in OneDrive. | [Keep the list in a spreadsheet](#sheet-sync) |
+| 12 | **Sync…** | Keeps the list in an Excel workbook on your computer (desktop app on Windows). | [Keep the list in a spreadsheet](#sheet-sync) |
 
 > **Tip:** The **Links** tab next to **Markups** lists the sheet links in the document. See [Sheet links](#links).

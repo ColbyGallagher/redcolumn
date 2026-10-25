@@ -99,14 +99,13 @@ sign in to Microsoft.
 
 Microsoft handles these files under its own terms and privacy policies.
 
-## Spreadsheet sync (OneDrive)
+## Spreadsheet sync
 
-If you turn on **Sync** in the Markups list, redcolumn writes that list (the columns, filter and
-sort you see: subjects, comments, authors, dates, measurements) to an Excel
-workbook in `Apps/redcolumn` in your OneDrive, under your own account, and rewrites it when markups
-change. Nothing goes to us. The spreadsheet is yours: share or delete it in OneDrive.
-Stopping the sync, or clearing site data, does not delete it. The app keeps the spreadsheet's link
-in your browser's storage so it can carry on after a reload.
+If you turn on **Sync to Excel** in the Markups list (desktop app on Windows), redcolumn writes that
+list (the columns, filter and sort you see: subjects, comments, authors, dates, measurements) to an
+Excel workbook you choose on your computer, and rewrites it when markups change. It works locally
+only: nothing is uploaded, and nothing goes to us. Stopping the sync does not delete the workbook.
+The app keeps the workbook's link on this computer so it can carry on after a restart.
 
 ## Projects (OneDrive)
 

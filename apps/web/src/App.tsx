@@ -17,7 +17,7 @@ import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel'
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
-import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
+import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
 import { allows, canAddMarkups, policyOf, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
@@ -9889,14 +9889,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           link={sheetSync.link}
           status={sheetSync.status}
           rowCount={Math.max(0, syncTable.length - 1)}
-          oneDriveAvailable={oneDriveConfigured}
           localExcelAvailable={!!localExcel()}
-          onConnect={(title) => void sheetSync.connect(title, syncTable)}
+          inDesktopApp={!!desktop()}
           onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
+          onInstall={() => {
+            setSyncOpen(false);
+            setInstallOpen(true);
+          }}
           onClose={() => setSyncOpen(false)}
         />
       )}

@@ -171,23 +171,13 @@ seats every few seconds, over Microsoft Graph, and merges them. Code: `apps/web/
    locally, an Actions variable for GitHub Pages).
 5. OneDrive **sharing** (Projects and Live Sessions kept in OneDrive) is off by default. Set
    `VITE_ENABLE_ONEDRIVE_SHARING=true` to turn it on. Folders on this computer (desktop app) work
-   either way, and Sheet Sync and profile backup only need the client ID.
+   either way, and profile backup only needs the client ID.
 
-## Markups to a spreadsheet (Excel in OneDrive)
+## Markups to a spreadsheet
 
-In the Markups list, **Sync…** keeps the list (its visible columns, filter and sort) in a
-spreadsheet and rewrites it about a second and a half after each change. Measurements go in as
-numbers, so the sheet can total them. Each document has its own link, remembered by file name in
-this browser.
-
-- **Excel in OneDrive:** writes an `.xlsx` to `Apps/redcolumn`, replacing the same file each
-  time, with the app-folder permission sessions already use. Excel for the web reloads a workbook
-  that changed; the desktop app picks it up when the file syncs. It is a file replace, not a
-  cell-by-cell edit, so changes you make in that sheet are overwritten by the next update.
-- A sign-in that has expired is renewed with a click on **Reconnect**: the
-  browser will not open a sign-in popup on its own. Sync runs only while the document is open.
-
-Code: `apps/web/src/sheetsync/`.
+**Sync to Excel** needs no cloud setup: it runs only in the Windows desktop app and writes a workbook
+on the same computer (see `apps/desktop/src/excel.ts`). The web version points people to the desktop
+app instead.
 
 ## Projects (OneDrive)
 

@@ -1,4 +1,12 @@
 // Markups List: the list and its bar, filtering, grouping, columns, statuses, export and sync.
+
+// Sync to Excel only works in the Windows desktop app: stand in for its Excel bridge so the window
+// shows what desktop users see (the web version shows a download prompt instead).
+const stubDesktopExcel = (page) =>
+  page.evaluate(() => {
+    window.redcolumn = { excel: { pick: async () => null, write: async () => 'live', open: async () => {}, show: async () => {} } };
+  });
+
 module.exports = async function (h) {
   const { page } = h;
   const P = h.plan;
@@ -133,6 +141,7 @@ module.exports = async function (h) {
   await h.closeModal();
 
   // Sync.
+  await stubDesktopExcel(page);
   await b('Sync').click();
   await h.wait(400);
   await h.shot('sheet-sync', { around: ['.modal'], pad: 20 });
