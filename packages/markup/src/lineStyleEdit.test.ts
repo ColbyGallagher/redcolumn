@@ -79,6 +79,8 @@ test('draftProblem says what would stop a style drawing', () => {
   const sym = { ...(newComponent('vector') as Extract<ReturnType<typeof newComponent>, { kind: 'vector' }>), left: 0, right: 0 };
   assert.match(draftProblem(base([sym]))!, /no length/);
   assert.equal(draftProblem(base([sym, { kind: 'space', width: 2 }])), null);
+  // A symbol with no points is left out when saved, so its length does not count.
+  assert.match(draftProblem(base([sym, { ...sym, left: 4, points: [] }]))!, /no length/);
   const curve = { ...sym, left: 1, points: [{ type: 'start' as const, x: 0, y: 0 }, { type: 'curve' as const, x: 1, y: 1 }, { type: 'curve' as const, x: 2, y: 1 }] };
   assert.match(draftProblem(base([curve]))!, /curve/);
 });

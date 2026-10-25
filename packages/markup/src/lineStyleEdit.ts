@@ -139,7 +139,8 @@ export function draftProblem(d: LineStyleDraft): string | null {
       }
     }
     // A pattern that takes no room along the line draws once and stops.
-    const advance = l.components.reduce((s, c) => s + (c.kind === 'text' ? (c.text ? 1 : 0) : c.kind === 'vector' ? (c.left + c.right) * c.scale : c.width), 0);
+    // Only components that are saved count (fromDraft leaves out empty ones).
+    const advance = l.components.reduce((s, c) => s + (writeComponent(c) === null ? 0 : c.kind === 'text' ? 1 : c.kind === 'vector' ? (c.left + c.right) * c.scale : c.width), 0);
     if (l.components.length && advance <= 0) return `The pattern${at} takes no length along the line: give a symbol a left or right length, or add a gap.`;
   }
   return null;

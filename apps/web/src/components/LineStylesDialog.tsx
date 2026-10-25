@@ -34,10 +34,13 @@ const MY_SET = 'My Line Styles';
 type SetRef = { builtIn: true; index: number } | { builtIn: false; index: number };
 
 interface Editing {
-  /** Where the style goes when saved: a user set, and the style it replaces (null: added at the end). */
-  setIndex: number;
+  /** The user set the style goes in when saved (null: a new "My Line Styles", made on save). */
+  setIndex: number | null;
+  /** The style it replaces (null: added at the end). */
   styleIndex: number | null;
   draft: LineStyleDraft;
+  /** The stored style being edited: saved back as it was when nothing is changed, so an imported pattern keeps every detail. */
+  original?: CustomLine;
 }
 
 function download(text: string, name: string) {
@@ -102,8 +105,10 @@ function Num({ value, onChange, step = 0.5, min, label, width = 64 }: { value: n
       onChange={(e) => {
         setText(e.target.value);
         const n = Number(e.target.value);
-        if (e.target.value.trim() !== '' && Number.isFinite(n)) onChange(min !== undefined ? Math.max(min, n) : n);
+        // Below the minimum is taken as a number still being typed (0 on the way to 0.5).
+        if (e.target.value.trim() !== '' && Number.isFinite(n) && (min === undefined || n >= min)) onChange(n);
       }}
+      onBlur={() => setText(String(value))}
     />
   );
 }
@@ -336,67 +341,77 @@ function LineEditor({ line, index, count, onChange, onMove, onRemove }: { line: 
 
 function StyleEditor({ editing, takenNames, onSave, onCancel }: { editing: Editing; takenNames: string[]; onSave: (style: CustomLine) => void; onCancel: () => void }) {
   const [draft, setDraft] = useState(editing.draft);
+  const changed = JSON.stringify(draft) !== JSON.stringify(editing.draft);
+  /** Leaves the editor, asking first when there are changes to lose. */
+  const cancel = () => {
+    if (!changed || confirm('Discard the changes to this line style?')) onCancel();
+  };
   const [lineWidth, setLineWidth] = useState(2);
   const problem = draftProblem(draft) ?? (takenNames.includes(draft.name.trim()) ? 'Another line style in this set has that name.' : null);
   const preview = fromDraft(draft);
   const setLines = (lines: DraftLine[]) => setDraft({ ...draft, lines });
   return (
-    <form
-      className="ls-editor"
-      // The number boxes' steps are for the arrows only: any value is fine, and draftProblem says what is not.
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (!problem) onSave(fromDraft(draft));
-      }}
-    >
-      <div className="form-grid">
-        <label htmlFor="ls-name">Name</label>
-        <input id="ls-name" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-        <span />
-        <label className="ls-check" title="Lengths, offsets and text sizes are multiples of the line width, so the pattern keeps its proportions on thicker lines">
-          <input type="checkbox" checked={draft.scaleWithWidth} onChange={(e) => setDraft({ ...draft, scaleWithWidth: e.target.checked })} /> Scale with line width
-        </label>
+    <div className="modal-backdrop" onMouseDown={cancel}>
+      <div className="modal line-styles-dialog" role="dialog" aria-label="Edit line style" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && cancel()}>
+        <h3>{editing.styleIndex === null ? 'New line style' : 'Edit line style'}</h3>
+        <form
+          className="ls-editor"
+          // The number boxes' steps are for the arrows only: any value is fine, and draftProblem says what is not.
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!problem) onSave(!changed && editing.original ? editing.original : fromDraft(draft));
+          }}
+        >
+          <div className="form-grid">
+            <label htmlFor="ls-name">Name</label>
+            <input id="ls-name" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            <span />
+            <label className="ls-check" title="Lengths, offsets and text sizes are multiples of the line width, so the pattern keeps its proportions on thicker lines">
+              <input type="checkbox" checked={draft.scaleWithWidth} onChange={(e) => setDraft({ ...draft, scaleWithWidth: e.target.checked })} /> Scale with line width
+            </label>
+          </div>
+          <div className="ls-preview-box">
+            <LineStylePreview style={preview} width={420} height={90} lineWidth={lineWidth} />
+            <label className="ls-field">
+              Preview line width
+              <input type="range" min={0.5} max={6} step={0.5} value={lineWidth} onChange={(e) => setLineWidth(Number(e.target.value))} aria-label="Preview line width" />
+              <span>{lineWidth} pt</span>
+            </label>
+          </div>
+          <div className="ls-lines">
+            {draft.lines.map((l, i) => (
+              <LineEditor
+                key={i}
+                line={l}
+                index={i}
+                count={draft.lines.length}
+                onChange={(n) => setLines(draft.lines.map((x, j) => (j === i ? n : x)))}
+                onMove={(to) => setLines(move(draft.lines, i, to))}
+                onRemove={() => setLines(draft.lines.filter((_, j) => j !== i))}
+              />
+            ))}
+            <button type="button" className="btn small" onClick={() => setLines([...draft.lines, { offset: draft.lines.length ? draft.lines[draft.lines.length - 1]!.offset - 2 : 0, components: [] }])}>
+              Add line
+            </button>
+          </div>
+          {problem && (
+            <p className="pref-hint ls-problem" role="status">
+              {problem}
+            </p>
+          )}
+          <div className="actions">
+            <button type="button" className="btn" onClick={cancel}>
+              Cancel
+            </button>
+            <span className="spacer" />
+            <button type="submit" className="btn primary" disabled={!!problem}>
+              Save
+            </button>
+          </div>
+        </form>
       </div>
-      <div className="ls-preview-box">
-        <LineStylePreview style={preview} width={420} height={90} lineWidth={lineWidth} />
-        <label className="ls-field">
-          Preview line width
-          <input type="range" min={0.5} max={6} step={0.5} value={lineWidth} onChange={(e) => setLineWidth(Number(e.target.value))} aria-label="Preview line width" />
-          <span>{lineWidth} pt</span>
-        </label>
-      </div>
-      <div className="ls-lines">
-        {draft.lines.map((l, i) => (
-          <LineEditor
-            key={i}
-            line={l}
-            index={i}
-            count={draft.lines.length}
-            onChange={(n) => setLines(draft.lines.map((x, j) => (j === i ? n : x)))}
-            onMove={(to) => setLines(move(draft.lines, i, to))}
-            onRemove={() => setLines(draft.lines.filter((_, j) => j !== i))}
-          />
-        ))}
-        <button type="button" className="btn small" onClick={() => setLines([...draft.lines, { offset: draft.lines.length ? draft.lines[draft.lines.length - 1]!.offset - 2 : 0, components: [] }])}>
-          Add line
-        </button>
-      </div>
-      {problem && (
-        <p className="pref-hint ls-problem" role="status">
-          {problem}
-        </p>
-      )}
-      <div className="actions">
-        <button type="button" className="btn" onClick={onCancel}>
-          Cancel
-        </button>
-        <span className="spacer" />
-        <button type="submit" className="btn primary" disabled={!!problem}>
-          Save
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }
 
@@ -411,6 +426,8 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState(0);
   const [editing, setEditing] = useState<Editing | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** Set by Escape so the rename box's blur, as it goes, does not save what was typed. */
+  const renameCancelled = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -425,13 +442,9 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
   };
   const editSet = (index: number, fn: (s: LineSet) => LineSet) => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.map((s, i) => (i === index ? fn(s) : s)) }));
 
-  /** A user set to put a copied style in: the one picked, else the first, else a new one. */
-  const targetSet = (): number => {
-    if (!setRef.builtIn) return setRef.index;
-    if (userSets.length) return 0;
-    updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets, { title: uniqueName(MY_SET, titles), styles: [] }] }));
-    return 0;
-  };
+  /** The user set a new or copied style goes in: the one picked, else the first, else (null) one made on save. */
+  const targetSet = (): number | null => (!setRef.builtIn ? setRef.index : userSets.length ? 0 : null);
+  const namesIn = (index: number | null) => (index === null ? [] : (userSets[index]?.styles ?? []).map((s) => s.name));
 
   const newSet = () => {
     const title = uniqueName('New Line Style Set', titles);
@@ -442,43 +455,45 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
 
   const startNew = () => {
     const index = targetSet();
-    const names = (userSets[index]?.styles ?? []).map((s) => s.name);
-    setEditing({ setIndex: index, styleIndex: null, draft: { name: uniqueName('New Line Style', names), scaleWithWidth: true, lines: [{ offset: 0, components: [newComponent('dash'), newComponent('space')] }] } });
+    setEditing({ setIndex: index, styleIndex: null, draft: { name: uniqueName('New Line Style', namesIn(index)), scaleWithWidth: true, lines: [{ offset: 0, components: [newComponent('dash'), newComponent('space')] }] } });
   };
 
   const startCopy = () => {
     if (!style) return;
     const index = targetSet();
-    const names = (userSets[index]?.styles ?? []).map((s) => s.name);
-    setEditing({ setIndex: index, styleIndex: null, draft: { ...toDraft(style), name: uniqueName(style.name, names) } });
+    setEditing({ setIndex: index, styleIndex: null, draft: { ...toDraft(style), name: uniqueName(style.name, namesIn(index)) } });
   };
 
   const save = (saved: CustomLine) => {
     if (!editing) return;
-    const { setIndex, styleIndex } = editing;
-    const at = styleIndex ?? userSets[setIndex]?.styles.length ?? 0;
-    editSet(setIndex, (s) => ({ ...s, styles: styleIndex === null ? [...s.styles, saved] : s.styles.map((x, i) => (i === styleIndex ? saved : x)) }));
+    const { styleIndex } = editing;
+    let setIndex = editing.setIndex;
+    let title: string;
+    let at: number;
+    if (setIndex === null) {
+      title = uniqueName(MY_SET, titles);
+      setIndex = userSets.length;
+      at = 0;
+      updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets, { title, styles: [saved] }] }));
+    } else {
+      title = userSets[setIndex]?.title ?? MY_SET;
+      at = styleIndex ?? userSets[setIndex]?.styles.length ?? 0;
+      editSet(setIndex, (s) => ({ ...s, styles: styleIndex === null ? [...s.styles, saved] : s.styles.map((x, i) => (i === styleIndex ? saved : x)) }));
+    }
     setEditing(null);
     setSetRef({ builtIn: false, index: setIndex });
     setPicked(at);
-    setMessage(`Saved ${saved.name}. It is in the Line style pickers under ${userSets[setIndex]?.title ?? MY_SET}.`);
+    setMessage(`Saved ${saved.name}. It is in the Line style pickers under ${title}.`);
   };
 
   if (editing) {
-    const names = (userSets[editing.setIndex]?.styles ?? []).filter((_, i) => i !== editing.styleIndex).map((s) => s.name);
-    return (
-      <div className="modal-backdrop" onMouseDown={() => setEditing(null)}>
-        <div className="modal line-styles-dialog" role="dialog" aria-label="Edit line style" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}>
-          <h3>{editing.styleIndex === null ? 'New line style' : 'Edit line style'}</h3>
-          <StyleEditor editing={editing} takenNames={names} onSave={save} onCancel={() => setEditing(null)} />
-        </div>
-      </div>
-    );
+    const names = namesIn(editing.setIndex).filter((_, i) => i !== editing.styleIndex);
+    return <StyleEditor editing={editing} takenNames={names} onSave={save} onCancel={() => setEditing(null)} />;
   }
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal line-styles-dialog" role="dialog" aria-label="Line styles" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && !renaming && onClose()}>
+      <div className="modal line-styles-dialog" role="dialog" aria-label="Line styles" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && renaming === null && onClose()}>
         <h3>Line styles</h3>
         <div className="ls-manager">
           <div className="ls-sets">
@@ -497,12 +512,21 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                         aria-label="Set name"
                         autoFocus
                         value={renaming}
+                        // Clicks in the box stay in it, rather than reselecting the row (which ends the rename).
+                        onClick={(e) => e.stopPropagation()}
                         onChange={(e) => setRenaming(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Escape') setRenaming(null);
+                          if (e.key === 'Escape') {
+                            // Cancels the rename only; the dialog stays open.
+                            e.stopPropagation();
+                            renameCancelled.current = true;
+                            setRenaming(null);
+                          }
                           if (e.key === 'Enter') e.currentTarget.blur();
                         }}
+                        onFocus={() => (renameCancelled.current = false)}
                         onBlur={() => {
+                          if (renameCancelled.current) return;
                           const title = renaming.trim();
                           if (title && title !== s.title) editSet(i, (x) => ({ ...x, title: uniqueName(title, titles.filter((t) => t !== s.title)) }));
                           setRenaming(null);
@@ -570,10 +594,11 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                         const dropped: Dropped[] = [];
                         const parsed = await parseBlx(await f.text(), f.name.replace(/\.blx$/i, ''), dropped);
                         if (!parsed.styles.length) throw new Error('no line styles in it');
-                        // Importing a set again replaces the one of the same name.
-                        sets = [...sets.filter((s) => s.title !== parsed.title), parsed];
-                        updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets.filter((s) => s.title !== parsed.title), parsed] }));
-                        out.push(`Imported ${parsed.styles.length} line style${parsed.styles.length === 1 ? '' : 's'} (${parsed.title}).${dropped.length ? ` Left out: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`);
+                        // A set of the same name may hold styles made here: the import goes beside it, never over it.
+                        const imported = { ...parsed, title: uniqueName(parsed.title, [...DEFAULT_LINE_SETS, ...sets].map((s) => s.title)) };
+                        sets = [...sets, imported];
+                        updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets, imported] }));
+                        out.push(`Imported ${parsed.styles.length} line style${parsed.styles.length === 1 ? '' : 's'} (${imported.title}).${dropped.length ? ` Left out: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`);
                       } catch (err) {
                         out.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
                       }
@@ -594,7 +619,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                   aria-selected={i === picked}
                   className={i === picked ? 'picked' : ''}
                   onClick={() => setPicked(i)}
-                  onDoubleClick={() => (setRef.builtIn ? startCopy() : setEditing({ setIndex: setRef.index, styleIndex: i, draft: toDraft(s) }))}
+                  onDoubleClick={() => (setRef.builtIn ? startCopy() : setEditing({ setIndex: setRef.index, styleIndex: i, draft: toDraft(s), original: s }))}
                 >
                   <span className="name">{s.name}</span>
                   <LineStylePreview style={s} width={200} height={28} />
@@ -612,7 +637,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                 </button>
               ) : (
                 <>
-                  <button className="btn small" disabled={!style} onClick={() => style && setEditing({ setIndex: setRef.index, styleIndex: picked, draft: toDraft(style) })}>
+                  <button className="btn small" disabled={!style} onClick={() => style && setEditing({ setIndex: setRef.index, styleIndex: picked, draft: toDraft(style), original: style })}>
                     Edit…
                   </button>
                   <button className="btn small" disabled={!style} onClick={startCopy}>
