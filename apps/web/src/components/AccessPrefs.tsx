@@ -21,7 +21,7 @@ export const MICROSOFT_LEVELS = [
   {
     name: "The app's own folder (Apps/redcolumn)",
     allows: 'Read and change files in Apps/redcolumn only.',
-    usedFor: 'Session and Project folders and their files, settings backup, spreadsheet sync.',
+    usedFor: 'Session and Project folders and their files, settings backup.',
   },
   {
     name: 'Your OneDrive',

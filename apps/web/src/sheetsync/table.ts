@@ -24,14 +24,6 @@ export function toTable(rows: readonly ListRowData[], columns: readonly ListColu
   return [header, ...body];
 }
 
-/**
- * Text a spreadsheet would read as a formula gets a leading apostrophe, which Excel keeps as "this
- * is text" and does not show. For cells written through Excel; a built .xlsx stores text as text.
- */
-export function asText(cell: TableCell): TableCell {
-  return typeof cell === 'string' && /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
-}
-
 /** A cheap fingerprint, so an unchanged table is not sent again. */
 export function tableKey(table: readonly (readonly TableCell[])[]): string {
   return JSON.stringify(table);

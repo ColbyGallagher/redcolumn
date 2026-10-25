@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DriveAuthError, DriveForbiddenError } from '../studio/drive/DriveApi';
-import { signInWithMicrosoft } from '../studio/drive/onedrive';
-import { LocalExcelTarget, localExcel, OneDriveWorkbookTarget, SyncStoppedError, targetFor, type SyncLink, type SyncTarget } from './targets';
+import { LocalExcelTarget, localExcel, SyncStoppedError, targetFor, type SyncLink, type SyncTarget } from './targets';
 import { tableKey, type TableCell } from './table';
 
-/** `reconnect`: only signing in again (from a click) fixes it; otherwise it retries by itself at `retryAt`. */
-export type SyncStatus = { kind: 'idle' } | { kind: 'syncing' } | { kind: 'synced'; at: number } | { kind: 'error'; message: string; reconnect: boolean; retryAt?: number };
+/** An error with `retryAt` is tried again by itself then; without one, only a click tries again. */
+export type SyncStatus = { kind: 'idle' } | { kind: 'syncing' } | { kind: 'synced'; at: number } | { kind: 'error'; message: string; retryAt?: number };
 
 type Table = readonly (readonly TableCell[])[];
 
@@ -18,8 +16,8 @@ const RETRY_MS = [5_000, 15_000, 30_000, 60_000];
 function load(): Record<string, SyncLink> {
   try {
     const all = JSON.parse(localStorage.getItem(STORE) ?? '{}') as Record<string, SyncLink>;
-    // Older builds could also sync to Google Sheets; those links are no longer followed.
-    return Object.fromEntries(Object.entries(all).filter(([, l]) => l?.provider === 'onedrive' || l?.provider === 'excel-local'));
+    // Older builds could also sync to Google Sheets and OneDrive; those links are no longer followed.
+    return Object.fromEntries(Object.entries(all).filter(([, l]) => l?.provider === 'excel-local'));
   } catch {
     return {};
   }
@@ -110,20 +108,15 @@ export function useSheetSync(docKey: string | null) {
         if (gen !== generation.current) return;
         target.current = null;
         const message = err instanceof Error ? err.message : 'Could not update the spreadsheet.';
-        // A lapsed sign-in needs a click (it may open a popup); anything else is tried again by itself.
-        if (err instanceof DriveAuthError) {
-          setStatus({ kind: 'error', message, reconnect: true });
-          return;
-        }
-        // Refused, or a link this app cannot follow: retrying would only repeat the same answer.
-        if (err instanceof SyncStoppedError || err instanceof DriveForbiddenError) {
-          setStatus({ kind: 'error', message, reconnect: false });
+        // A link this app cannot follow: retrying would only repeat the same answer.
+        if (err instanceof SyncStoppedError) {
+          setStatus({ kind: 'error', message });
           return;
         }
         const wait = RETRY_MS[Math.min(failures.current, RETRY_MS.length - 1)]!;
         failures.current++;
         retryTimer.current = setTimeout(() => void flushRef.current(), wait);
-        setStatus({ kind: 'error', message, reconnect: false, retryAt: Date.now() + wait });
+        setStatus({ kind: 'error', message, retryAt: Date.now() + wait });
       }
     });
     return running.current;
@@ -154,27 +147,6 @@ export function useSheetSync(docKey: string | null) {
     [docKey, flush],
   );
 
-  /** Creates the spreadsheet and starts syncing. Call from a click: it may open a sign-in popup. */
-  const connect = useCallback(
-    async (title: string, table: Table) => {
-      if (!docKey) return;
-      setStatus({ kind: 'syncing' });
-      try {
-        await signInWithMicrosoft();
-        const made = await OneDriveWorkbookTarget.create(title, table);
-        target.current = made.target;
-        latest.current = table;
-        written.current = tableKey(table);
-        save(docKey, made.link);
-        setLink(made.link);
-        setStatus({ kind: 'synced', at: Date.now() });
-      } catch (err) {
-        setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not create the spreadsheet.', reconnect: false });
-      }
-    },
-    [docKey],
-  );
-
   /** Asks where to save a workbook on this computer, then starts syncing to it (Windows desktop app). */
   const connectLocal = useCallback(
     async (title: string, table: Table) => {
@@ -195,23 +167,15 @@ export function useSheetSync(docKey: string | null) {
         setLink(made.link);
         setStatus({ kind: 'synced', at: Date.now() });
       } catch (err) {
-        setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not create the workbook.', reconnect: false });
+        setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not create the workbook.' });
       }
     },
     [docKey],
   );
 
-  /** Write now, signing in again first if the last write needed it. Call from a click. */
+  /** Write now. */
   const syncNow = useCallback(async () => {
     if (!docKey || !link) return;
-    if (link.provider === 'onedrive') {
-      try {
-        await signInWithMicrosoft();
-      } catch (err) {
-        setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Sign-in failed.', reconnect: true });
-        return;
-      }
-    }
     written.current = null;
     failures.current = 0;
     await flush();
@@ -231,5 +195,5 @@ export function useSheetSync(docKey: string | null) {
     setStatus({ kind: 'idle' });
   }, [docKey]);
 
-  return { link, status, update, connect, connectLocal, syncNow, disconnect };
+  return { link, status, update, connectLocal, syncNow, disconnect };
 }
