@@ -1,4 +1,4 @@
-import { parseBhx, parseBlx, parseBookmarkTemplate, parseCategoriesXml } from '@nb/markup';
+import { DEFAULT_LINE_SETS, parseBhx, parseBlx, parseBookmarkTemplate, parseCategoriesXml, uniqueName } from '@nb/markup';
 import { settings } from '../settings/settings';
 import { importBpxProfile } from '../workspace/revuProfile';
 import { updateWorkspace } from '../workspace/profiles';
@@ -34,9 +34,13 @@ export async function importRevuFiles(files: File[]): Promise<string> {
       if (/\.blx$/i.test(f.name)) {
         const set = await parseBlx(await f.text(), f.name.replace(/\.blx$/i, ''));
         if (!set.styles.length) throw new Error('no line styles in it');
-        // Importing a set again replaces the one of the same name.
-        updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets.filter((s) => s.title !== set.title), set] }));
-        out.push(said(set.styles.length, 'line style', set.title));
+        // A set of the same name may hold styles made in the line style editor: the import goes beside it, never over it.
+        let title = set.title;
+        updateWorkspace((w) => {
+          title = uniqueName(set.title, [...DEFAULT_LINE_SETS, ...w.lineSets].map((s) => s.title));
+          return { ...w, lineSets: [...w.lineSets, { ...set, title }] };
+        });
+        out.push(said(set.styles.length, 'line style', title));
       } else if (/\.bhx$/i.test(f.name)) {
         const set = await parseBhx(await f.text(), f.name.replace(/\.bhx$/i, ''));
         if (!set.hatches.length) throw new Error('no hatches in it');
