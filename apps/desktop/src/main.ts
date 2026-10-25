@@ -279,9 +279,13 @@ async function start() {
 }
 
 function createWindow() {
+  // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
+  // out of the taskbar and never takes focus, so the machine stays usable while it runs.
+  const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
+    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : {}),
     minWidth: 800,
     minHeight: 600,
     title: 'redcolumn',
@@ -297,13 +301,15 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
       webviewTag: false,
+      // An off-screen window counts as hidden; without this its timers and rendering would be throttled.
+      ...(background ? { backgroundThrottling: false } : {}),
     },
   });
   mainWindow = win;
   unsavedChanges = false;
   closeConfirmed = false;
   launches.attach(win);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;
