@@ -64,7 +64,7 @@ sign in to Microsoft.
   first, and for more only when sharing a folder or opening someone else's needs it. Before
   Microsoft's window opens for more, the app says why in its own dialog, and you can cancel.
   1. **The app's own folder** (`Apps/redcolumn`). This is all most people ever grant. Sessions,
-     Projects, spreadsheet sync and settings backup live here.
+     Projects and settings backup live here.
   2. **Your OneDrive.** Needed to share a session or Project folder by link or by email. This
      permission lets the app read and change any file in your OneDrive. redcolumn uses it only on
      the session or Project folder you are sharing.

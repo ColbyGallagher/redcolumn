@@ -159,7 +159,7 @@ seats every few seconds, over Microsoft Graph, and merges them. Code: `apps/web/
 
    | Level | Lets the app | Used for |
    |---|---|---|
-   | `Files.ReadWrite.AppFolder` | Read and write `Apps/redcolumn` only | Find the app folder; create session and Project folders; upload, read, list and replace their files; settings backup (`profiles.json`); spreadsheet sync (`.xlsx`); end-of-session copies |
+   | `Files.ReadWrite.AppFolder` | Read and write `Apps/redcolumn` only | Find the app folder; create session and Project folders; upload, read, list and replace their files; settings backup (`profiles.json`); end-of-session copies |
    | `Files.ReadWrite` | Read and write anything in the person's OneDrive | Make a sharing link for a folder (`createLink`); invite by email (`invite`); list, change and remove who a Project folder is shared with (`permissions`) |
    | `Files.ReadWrite.All` | Also files others have shared with them | Open a folder from an invite (`/shares/…`) and read and write it when it lives in someone else's OneDrive |
 

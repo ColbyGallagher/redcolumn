@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { INSTALLER_URL } from '../offline/install';
 import type { SyncLink } from '../sheetsync/targets';
 import type { SyncStatus } from '../sheetsync/useSheetSync';
 
@@ -17,8 +18,6 @@ interface Props {
   onShowLocal: () => void;
   onSyncNow: () => void;
   onStop: () => void;
-  /** Offers the desktop app download. */
-  onInstall: () => void;
   onClose: () => void;
 }
 
@@ -30,7 +29,7 @@ function statusText(s: SyncStatus): string {
 }
 
 /** Keep the Markups list in an Excel workbook on this computer, updated as markups change (Windows desktop app). */
-export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onOpenLocal, onShowLocal, onSyncNow, onStop, onInstall, onClose }: Props) {
+export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onOpenLocal, onShowLocal, onSyncNow, onStop, onClose }: Props) {
   const [title, setTitle] = useState(`${docName.replace(/\.pdf$/i, '')} markups`);
   const busy = status.kind === 'syncing';
   return (
@@ -96,7 +95,7 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
               {inDesktopApp ? (
                 <b>Sync to Excel works in the redcolumn desktop app on Windows, with Excel installed on the same computer.</b>
               ) : (
-                <b>Sync to Excel only works in the redcolumn desktop app. To use this feature, download the desktop app.</b>
+                <b>Sync to Excel only works in the redcolumn desktop app for Windows. To use this feature, download the desktop app.</b>
               )}
             </p>
             <p className="hint-text">It keeps the Markups list in an Excel workbook on your computer, updated as markups are added, edited or removed, even while the workbook is open in Excel.</p>
@@ -105,9 +104,10 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
                 Close
               </button>
               {!inDesktopApp && (
-                <button className="btn primary" onClick={onInstall}>
-                  Download the Desktop App
-                </button>
+                // Straight to the Windows installer: Excel sync needs that build, whatever this computer is.
+                <a className="btn primary" href={INSTALLER_URL} onClick={onClose}>
+                  Download for Windows
+                </a>
               )}
             </div>
           </>

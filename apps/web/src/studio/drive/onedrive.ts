@@ -19,8 +19,8 @@ export const oneDriveConfigured = !!CLIENT_ID;
 
 /**
  * Whether Projects and Live Sessions may be kept in OneDrive and shared through it. Off unless the
- * build sets VITE_ENABLE_ONEDRIVE_SHARING=true; folders on this computer work either way. Sheet
- * Sync and profile backup only need `oneDriveConfigured`.
+ * build sets VITE_ENABLE_ONEDRIVE_SHARING=true; folders on this computer work either way. Profile
+ * backup only needs `oneDriveConfigured`.
  */
 export const oneDriveSharingEnabled = oneDriveConfigured && import.meta.env.VITE_ENABLE_ONEDRIVE_SHARING === 'true';
 

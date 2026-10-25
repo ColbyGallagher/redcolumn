@@ -1,7 +1,7 @@
 # Security hardening: Live Sessions and Projects
 
 > **Note (14 October 2026):** Google Drive, Google sign-in and Google Sheets sync have been removed;
-> Live Sessions, Projects and spreadsheet sync are OneDrive only. Google items below are historical.
+> Live Sessions and Projects are OneDrive only (spreadsheet sync is now local, desktop app only). Google items below are historical.
 
 A plan for tightening how redcolumn uses Google Drive and OneDrive, without adding a redcolumn
 server. It covers four things:
@@ -61,7 +61,7 @@ permission allows from what the app does. Draft:
 > sign-in window opens.
 >
 > 1. **The app's own folder** (`Apps/redcolumn`). This is all most people ever grant. Sessions,
->    Projects, spreadsheet sync and settings backup live here.
+>    Projects and settings backup live here.
 > 2. **Your OneDrive.** Needed to share a session or Project folder by link or by email. This
 >    permission lets the app read and change any file in your OneDrive. redcolumn uses it only on
 >    the session or Project folder you are sharing.
@@ -92,7 +92,7 @@ What each level is used for, from the code trace (for this page and for CLOUD-SE
 
 | Level | Used for |
 |---|---|
-| App folder | Find the app folder; create session and Project folders; upload, read, list and replace their files; settings backup (`profiles.json`); spreadsheet sync (`.xlsx`); end-of-session copies |
+| App folder | Find the app folder; create session and Project folders; upload, read, list and replace their files; settings backup (`profiles.json`); end-of-session copies |
 | Your OneDrive | Make a sharing link for a folder (`createLink`); invite by email (`invite`); list, change and remove who a Project folder is shared with (`permissions`) |
 | Shared with you | Open a folder from an invite (`/shares/…`) and read and write it when it lives in someone else's OneDrive |
 

@@ -9896,10 +9896,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
-          onInstall={() => {
-            setSyncOpen(false);
-            setInstallOpen(true);
-          }}
           onClose={() => setSyncOpen(false)}
         />
       )}

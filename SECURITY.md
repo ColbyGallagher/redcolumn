@@ -56,8 +56,8 @@ as you find something. Research done in good faith within these rules will not b
 
 ## How redcolumn is kept secure
 
-- The app has no server; your files stay in your browser unless you use Live Sessions, Projects or
-  spreadsheet sync (see [PRIVACY.md](PRIVACY.md)).
+- The app has no server; your files stay in your browser unless you use Live Sessions or Projects
+  (see [PRIVACY.md](PRIVACY.md)).
 - The published pages carry a Content-Security-Policy that limits the scripts, frames and
   connections they can use (`apps/web/src/security/csp.ts`).
 - Every pull request runs the tests, a production build, a dependency audit and CodeQL code
