@@ -14,7 +14,7 @@ Some browsers (Firefox, Safari) don't let web apps write to files. In those, Sav
 
 ### Can I use redcolumn without internet?
 
-Yes, once it has loaded once. [Install it](#install) to be sure. Live Sessions, Projects and spreadsheet sync need the internet.
+Yes, once it has loaded once. [Install it](#install) to be sure. Live Sessions and Projects in OneDrive need the internet.
 
 ### Can I open my Bluebeam markups?
 

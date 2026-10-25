@@ -8,6 +8,13 @@ const path = require('node:path');
 process.env.URL = process.env.URL || 'http://localhost:5173/';
 const { launch, ROOT } = require('../help/lib.cjs');
 
+// Sync to Excel only works in the Windows desktop app: stand in for its Excel bridge so the window
+// shows what desktop users see (the web version shows a download prompt instead).
+const stubDesktopExcel = (page) =>
+  page.evaluate(() => {
+    window.redcolumn = { excel: { pick: async () => null, write: async () => 'live', open: async () => {}, show: async () => {} } };
+  });
+
 const OUT = path.join(ROOT, 'docs/media/sync');
 fs.mkdirSync(OUT, { recursive: true });
 
@@ -22,6 +29,7 @@ fs.mkdirSync(OUT, { recursive: true });
     await h.wait(400);
     await h.tool('select');
     await h.wait(300);
+    await stubDesktopExcel(page);
     await page.locator('button', { hasText: /^Sync to Excel/ }).first().click();
     await page.locator('.modal').first().waitFor();
     await h.wait(400);
