@@ -71,6 +71,13 @@ export const STYLE_ICONS = {
       <path d="M13.6 10.2c.7 1 1 1.6 1 2.1a1 1 0 0 1-2 0c0-.5.3-1.1 1-2.1z" fill="currentColor" />
     </>,
   ),
+  // A pen drawing an outline.
+  line: icon(
+    <>
+      <path d="m10.8 2.4 2.8 2.8-7.4 7.4-3.4.6.6-3.4z" />
+      <path d="m9.2 4 2.8 2.8" />
+    </>,
+  ),
   // Three strokes, thin to thick.
   width: icon(
     <>

@@ -75,6 +75,7 @@ import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
+import { TextSelectionBar } from './components/TextSelectionBar';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -1291,12 +1292,6 @@ export function App() {
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
       onFormField: (w) => formFieldRef.current(pane, w),
       onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current(pane, pageIndex, rect),
-      onTextSelected: (text) => {
-        void navigator.clipboard?.writeText(text).then(
-          () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
-          () => setNotice('The browser did not allow copying to the clipboard.'),
-        );
-      },
       onFollowHyperlink: (m) => followHyperlinkRef.current(m),
       requestImage: pickImage,
       defaultStamp: lastStamp,
@@ -6416,6 +6411,15 @@ export function App() {
 
   const copyMarkups = (pane: Pane) => {
     const tools = paneParts(pane).c?.tools;
+    // Selected PDF text copies as text; markups copy as markups.
+    const text = tools?.selectedPdfText();
+    if (text) {
+      void navigator.clipboard?.writeText(text).then(
+        () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
+        () => setNotice('The browser did not allow copying to the clipboard.'),
+      );
+      return true;
+    }
     const copied = tools?.copySelected() ?? [];
     if (copied.length) {
       clipboard.current = copied;
@@ -8713,6 +8717,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {ctl && open && toolsStateA.textSelection && (
+                  <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
+                )}
                 {notice && (
                   <div className="notice" onClick={() => setNotice(null)}>
                     {notice}
@@ -8770,6 +8777,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {ctlB && openB && toolsStateB.textSelection && (
+                      <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
+                    )}
                   </main>
                   {pageNav('b')}
                 </div>

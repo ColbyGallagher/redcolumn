@@ -158,7 +158,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     `color:${textColor(s).toUpperCase()}`,
     ...(s.bold ? ['font-weight:bold'] : []),
     ...(s.italic ? ['font-style:italic'] : []),
-    ...(s.underline ? ['text-decoration:underline'] : []),
+    ...(s.underline || s.strikethrough ? [`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`] : []),
   ].join('; ');
   const paragraphs = (m.text ?? '').split('\n').map(richParagraph);
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
@@ -439,6 +439,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       'ET',
     );
     if (style.underline) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, y + size * 0.45, textW, size));
+    if (style.strikethrough) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, y, textW, size));
     if (label.angle) ops.push('Q');
     resources.Font = { F0: font.ref };
   }
@@ -497,6 +498,10 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     if (style.underline) {
       ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`);
       for (const line of lines) if (line.text) ops.push(underlineOps(line.x, line.y + size * 0.98, line.width, size));
+    }
+    if (style.strikethrough) {
+      ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`);
+      for (const line of lines) if (line.text) ops.push(underlineOps(line.x, line.y + size * 0.55, line.width, size));
     }
     resources.Font = { F0: font.ref };
   }
@@ -1033,7 +1038,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         // A FreeText's /C is its background, not its border.
-        C: fill && !m.style.noBox && m.type === 'text' ? fill : [],
+        C: fill && m.type === 'text' ? fill : [],
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
       };
@@ -1103,7 +1108,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         DA: PDFString.of(`/${font} ${m.style.fontSize ?? 12} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
-        C: fill && !m.style.noBox ? fill : [],
+        C: fill ? fill : [],
       };
       delete base.IC;
       break;
