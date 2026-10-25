@@ -191,7 +191,7 @@ export interface StepUp {
 
 /**
  * The access each kind of call has needed in this tab. Not kept across visits, and only the calls
- * of that kind ask for it: settings backup, spreadsheet sync and the app's own folders always ask
+ * of that kind ask for it: settings backup and the app's own folders always ask
  * for the app folder alone (docs/SECURITY-HARDENING.md, 3.4).
  */
 let reached: Record<AccessKind, number> = { own: 0, share: 0, shared: 0 };
