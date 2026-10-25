@@ -193,6 +193,7 @@ export interface CommandActions {
   install: () => void;
   help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
+  manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
   flowShape: (kind: FlowShapeKind) => void;
   /** Diagram: adds the next step beside the selected shape, joined to it. */
@@ -473,6 +474,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.eraserWhole', 'Tools', 'Annotation Eraser (Whole Markups)', () => a.setSettings({ eraserWhole: !s.settings.eraserWhole }), true, s.settings.eraserWhole),
     cmd('tools.sketchToScale', 'Tools', 'Draw to Scale', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
     cmd('tools.stamps', 'Tools', 'Manage Stamps…', a.manageStamps, doc),
+    cmd('tools.lineStyles', 'Tools', 'Line Styles…', a.manageLineStyles, true),
     cmd('tools.nextMeasure', 'Tools', 'Next Measure Tool', () => {
       const order = MEASURE_TOOLS.map((t) => t.tool);
       const at = order.indexOf(s.tool);
