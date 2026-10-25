@@ -135,7 +135,7 @@ Microsoft handles these files under its own terms and privacy policy.
 These only run when you use them:
 
 - **Digital signatures:** if you turn on trusted time stamps, or check whether a certificate has
-  been revoked, your browser contacts the certificate service named in your settings or in the
+  been revoked, the desktop app contacts the certificate service named in your settings or in the
   certificate (for example DigiCert). It sends a fingerprint of the signature or certificate, not
   the document.
 - **Email invitations** to a Live Session or Project are sent by OneDrive when the

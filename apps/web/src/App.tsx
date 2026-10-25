@@ -573,18 +573,21 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
 
 /** A JPEG re-encoded at `quality` through a canvas; null if the browser cannot decode it. */
 /**
- * Certificate services (time stamp servers, OCSP responders, revocation lists), reached straight from
- * the browser. Many do not allow that (CORS); then the step fails with a clear reason and signing or
- * validating carries on without it.
+ * Certificate services (time stamp servers, OCSP responders, revocation lists). The desktop app
+ * reaches them from its main process. In a browser the page's security policy only allows its own
+ * site and Microsoft, and most of these services refuse browsers (CORS) anyway, so the step fails
+ * with that reason and signing or validating carries on without it.
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
   requireOnline('Time stamps and revocation checks');
   const host = new URL(url).host;
+  const viaDesktop = desktop()?.pkiFetch;
+  if (viaDesktop) return viaDesktop(url, body, type);
   let res: Response;
   try {
     res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
   } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
+    throw new Error(`${host} cannot be reached from the browser: certificate services need the desktop app`);
   }
   if (!res.ok) throw new Error(`${host} answered ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());

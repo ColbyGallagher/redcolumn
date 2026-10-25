@@ -168,8 +168,10 @@ Notes:
 - OneDrive download and upload-session URLs come back from Graph on hosts that differ between
   personal and work accounts. Record the hosts actually used in testing and list only those.
 - **Signature checks** (trusted time stamps, certificate status) contact servers the person or the
-  certificate names, which a fixed `connect-src` cannot list. Decide between listing the common
-  time stamp and status servers, or showing a clear message when one is blocked (open question).
+  certificate names, which a fixed `connect-src` cannot list. Decided: they are not listed. The
+  desktop app fetches them in its main process (`apps/desktop/src/pki.ts`: http(s) only, GET or a
+  time stamp / OCSP POST, never loopback, bounded size). In the browser the time stamp option is
+  greyed out and revocation checks fail with a message.
 - `msal-redirect.html` gets the same policy without the Google hosts. The help gets
   `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none';
   base-uri 'none'`.
@@ -527,8 +529,8 @@ on iPad. Electron first, then the browser if it proves useful.
    4.1.
 3. Does `expirationDateTime` on `createLink` work on personal OneDrive accounts without Microsoft
    365?
-4. Signature checks and `connect-src`: list common time stamp and certificate status servers, or
-   block and explain? See 2.1.
+4. ~~Signature checks and `connect-src`~~: decided, see 2.1 (desktop main process; blocked and
+   explained in the browser).
 5. Hosting: which address is the main one, GitHub Pages or Vercel? See 2.4.
 6. For local-folder Live Sessions, is sync-client latency acceptable, or is a direct connection
    between computers (WebRTC) worth the work? Direct connections need someone to introduce the two

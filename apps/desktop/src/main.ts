@@ -15,6 +15,7 @@ import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
+import { pkiRequest } from './pki';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
@@ -131,6 +132,8 @@ async function start() {
     }
     return broker.request(request as GraphRequest);
   });
+  // Time stamp servers and revocation checks for digital signatures (pki.ts).
+  handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
   handle('auth:microsoft-account', (clientId) => {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
