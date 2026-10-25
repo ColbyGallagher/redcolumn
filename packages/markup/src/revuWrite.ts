@@ -286,7 +286,7 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
   // Only what the style sets: the reader takes any size, font or colour it finds as the tool's own,
   // for every type (a measurement's label too).
   const text = TEXT_TYPES.has(type);
-  if (text || s.fontSize !== undefined || s.fontFamily || s.bold || s.italic) {
+  if (text || s.fontSize !== undefined || s.fontFamily || s.bold || s.italic || s.underline || s.strikethrough) {
     const [font, family] = s.fontFamily === 'serif' ? ['TiRo', 'Times New Roman'] : s.fontFamily === 'mono' ? ['Cour', 'Courier New'] : ['Helv', 'Helvetica'];
     const ds = [`font: ${family}${s.fontSize !== undefined ? ` ${fmt(s.fontSize)}pt` : ''}`];
     if (text && type !== 'typewriter' && s.textAlign) ds.push(`text-align:${s.textAlign}`);
@@ -294,6 +294,7 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
     if (text && s.textColor) ds.push(`color:${s.textColor.toUpperCase()}`);
     if (s.bold) ds.push('font-weight:bold');
     if (s.italic) ds.push('font-style:italic');
+    if (s.underline || s.strikethrough) ds.push(`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`);
     d.DS = ds.join('; ');
     // A size of 0 is read as none.
     if (text) d.DA = `${s.textColor ? `${rgb(s.textColor).map(fmt).join(' ')} rg ` : ''}/${font} ${fmt(s.fontSize ?? 0)} Tf`;

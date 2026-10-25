@@ -1548,6 +1548,59 @@ select[size] {
   min-width: 0;
 }
 
+.overflow-pop {
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.overflow-item {
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overflow-item:hover:not(:disabled) {
+  background: #25375a;
+}
+
+.overflow-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.overflow-item.separated {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 4px 4px;
+}
+
+/* Narrow panel: the page buttons live in one menu and the scale picker shrinks to fit. */
+.pages-head.narrow .sheet-actions {
+  flex-wrap: nowrap;
+}
+
+.pages-head.narrow .field.scale {
+  min-width: 0;
+  flex: 1;
+}
+
+.pages-head.narrow .field.scale select {
+  min-width: 0;
+  flex: 1;
+}
+
 /* The page and scale buttons stay in view while the thumbnails scroll under them. */
 .pages-head {
   position: sticky;
@@ -2674,6 +2727,129 @@ select[size] {
 
 .seg-btn.u {
   text-decoration: underline;
+}
+
+.seg-btn.s {
+  text-decoration: line-through;
+}
+
+.color-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.color-menu.wide {
+  display: flex;
+}
+
+.color-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.color-menu.wide .color-btn {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.color-btn.open {
+  border-color: var(--accent);
+}
+
+.color-btn-icon {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.color-bar {
+  width: 16px;
+  height: 4px;
+  border-radius: 1px;
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.55);
+}
+
+.color-bar.none,
+.color-swatch.none {
+  background: repeating-linear-gradient(135deg, transparent 0 2px, #dc2626 2px 3px), #fff;
+}
+
+.color-caret {
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.color-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 168px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.color-pop-title {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.color-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.color-swatch:hover {
+  outline: 2px solid var(--accent);
+}
+
+.color-swatch.on {
+  outline: 2px solid var(--text);
+}
+
+.color-none,
+.color-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.color-none:hover,
+.color-none.on,
+.color-more:hover {
+  background: #25375a;
+}
+
+.color-more input[type='color'] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  background: none;
 }
 
 .props-actions {
@@ -3850,6 +4026,73 @@ select[size] {
   background: #14532d;
   transform: translateX(-50%);
   cursor: pointer;
+}
+
+.rb-customize {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+}
+
+.rb-customize-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.rb-customize-list fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 4px 8px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.rb-customize-list legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rb-customize-list .field {
+  display: flex;
+  margin-top: 2px;
+}
+
+.text-selection-bar {
+  position: absolute;
+  bottom: 56px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px;
+  max-width: calc(100% - 24px);
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+}
+
+.text-selection-count {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.text-selection-bar .btn.u {
+  text-decoration: underline;
+}
+
+.text-selection-bar .btn.s {
+  text-decoration: line-through;
 }
 
 /* Tool Library */

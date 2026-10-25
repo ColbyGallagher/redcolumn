@@ -322,6 +322,22 @@ test('a read-only document draws nothing', async () => {
   await h.store.destroy();
 });
 
+test('Set as Default on a text highlight is what the next Highlight uses', async () => {
+  const h = await setup();
+  h.tools.setTool('highlighter');
+  await settle();
+  drag(h.tools, [50, 106], [160, 106]);
+  const first = h.store.all()[0]!;
+  h.store.update(first.id, { style: { ...first.style, stroke: '#a855f7', opacity: 0.5 } });
+  h.tools.setDefaultStyle('textHighlight', h.store.get(first.id)!.style);
+
+  drag(h.tools, [50, 106], [160, 106]);
+  const second = h.store.all().find((m) => m.id !== first.id)!;
+  assert.equal(second.type, 'textHighlight');
+  assert.equal(second.style.stroke, '#a855f7');
+  assert.equal(second.style.opacity, 0.5);
+});
+
 test('the highlighter marks words under the pointer and draws a stroke everywhere else', async () => {
   const h = await setup();
   h.tools.setTool('highlighter');

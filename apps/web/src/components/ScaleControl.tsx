@@ -9,21 +9,24 @@ interface Props {
   onCustom: () => void;
   /** Opens the Bulk Scales dialog. */
   onBulk?: () => void;
+  /** Drops the "Scale" caption, for a narrow panel. */
+  compact?: boolean;
 }
 
 const CURRENT = '__current__';
 const CUSTOM = '__custom__';
 
 /** Page scale picker: presets, the current (e.g. calibrated) scale, and a Custom option. */
-export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk }: Props) {
+export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, compact }: Props) {
   const groups = SCALE_GROUPS[useSettings().unitSystem];
   // A preset from the other measurement system (e.g. 1:500 read from a title block while working in
   // imperial) has no option in the list, so it is shown like a custom scale.
   const isPreset = !!scale && SCALE_PRESETS.some((p) => p.label === scale.label && groups.includes(p.group));
   return (
     <label className="field scale" title="Drawing scale for this page">
-      Scale
+      {!compact && 'Scale'}
       <select
+        aria-label="Scale"
         disabled={disabled}
         value={scale ? (isPreset ? scale.label : CURRENT) : ''}
         onChange={(e) => {
