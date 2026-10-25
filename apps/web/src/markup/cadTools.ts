@@ -26,7 +26,10 @@ import {
   stretchMarkup,
   transformMarkup,
   translation,
+  trimmedPart,
   trimPath,
+  closesOnItself,
+  cornerClosing,
   type Affine,
   type Markup,
   type MarkupType,
@@ -230,9 +233,11 @@ function cornerClick(ctx: CadContext, tool: 'fillet' | 'chamfer', picks: CadPick
   let vertex = -1;
   if (closed ? (s1 + 1) % n === s2 : s1 + 1 === s2) vertex = s2;
   else if (closed ? (s2 + 1) % n === s1 : s2 + 1 === s1) vertex = s1;
-  if (vertex < 0) return { error: 'Pick two segments that meet' };
+  // The first and last segments of a path that ends where it starts meet at its closing corner.
+  const closing = vertex < 0 && closesOnItself(hit) && Math.min(s1, s2) === 0 && Math.max(s1, s2) === n - 2;
+  if (vertex < 0 && !closing) return { error: 'Pick two segments that meet' };
   if (!size) return { error: `Set a ${tool === 'fillet' ? 'radius' : 'distance'} to round a corner of one path` };
-  const r = cornerVertex(hit, vertex, size, tool === 'chamfer');
+  const r = closing ? cornerClosing(hit, size, tool === 'chamfer') : cornerVertex(hit, vertex, size, tool === 'chamfer');
   if (!r) return { error: 'Too big for that corner' };
   return { done: { update: [[hit.id, { points: r.points, ...(r.bulges ? { bulges: r.bulges } : {}) }]], add: [], remove: [] }, select: [hit.id], again: true };
 }
@@ -527,7 +532,22 @@ export function cadPrompt(tool: CadTool, picks: CadPick[], ctx: Pick<CadContext,
  * A preview of the click at `hover`: the markups as they would be. Steps that need more clicks show
  * what they can (Align's move, Stretch's window).
  */
-export function cadPreview(tool: CadTool, picks: CadPick[], hover: Point, ctx: CadContext): { ghosts: Markup[]; guides: Point[][] } {
+export function cadPreview(tool: CadTool, picks: CadPick[], hover: Point, ctx: CadContext): { ghosts: Markup[]; guides: Point[][]; removed: Point[][] } {
+  const preview = trimPreview(tool, hover, ctx);
+  const result = cadPreviewOf(tool, picks, hover, ctx);
+  return { ...result, removed: preview };
+}
+
+/** Trim: the stretch of line the click under the pointer would cut away (none while Shift makes it Extend). */
+function trimPreview(tool: CadTool, hover: Point, ctx: CadContext): Point[][] {
+  if (tool !== 'trim' || ctx.shift) return [];
+  const hit = ctx.hit(hover);
+  if (!hit || ctx.frozen(hit) || !canCut(hit)) return [];
+  const part = trimmedPart(hit.points, edges(ctx, hit), hover);
+  return part ? [part] : [];
+}
+
+function cadPreviewOf(tool: CadTool, picks: CadPick[], hover: Point, ctx: CadContext): { ghosts: Markup[]; guides: Point[][] } {
   const guides: Point[][] = [];
   if (tool === 'stretch' && picks.length === 1) {
     const w = windowOf(picks[0]!.at, hover);

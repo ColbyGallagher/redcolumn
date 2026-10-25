@@ -12,6 +12,7 @@ import { STYLE_ICONS, TOOL_ICONS } from './toolIcons';
 import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
+import { ColorMenu } from './ColorMenu';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -336,35 +337,39 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
       )}
       {style && styleType && (
         <>
-          <label className="field" title="Color">
-            <input
-              type="color"
-              value={style.stroke}
-              onChange={(e) => tools.setStyle(styleType, { stroke: e.target.value })}
-            />
-          </label>
-          <label className="field" title="Fill">
-            <FieldTag icon={STYLE_ICONS.fill} />
-            <input
-              type="checkbox"
-              disabled={!styleCapabilities(styleType).fill}
-              checked={!!style.fill}
-              onChange={(e) => tools.setStyle(styleType, { fill: e.target.checked ? '#fef9c3' : null })}
-            />
-            Fill
-          </label>
-          <label className="field" title="Line width">
-            <FieldTag icon={STYLE_ICONS.width} label="Width" />
-            <ComboField
-              title="Line width"
-              value={style.width}
-              options={styleType === 'highlighter' ? HIGHLIGHT_WIDTHS : WIDTHS}
-              min={0}
-              max={200}
-              unit="pt"
-              onChange={(w) => tools.setStyle(styleType, { width: w })}
-            />
-          </label>
+          <ColorMenu
+            label="Line color"
+            short="Line"
+            title="Line color: the outline of the shape, or the line itself"
+            icon={STYLE_ICONS.line}
+            value={style.stroke}
+            onChange={(c) => c && tools.setStyle(styleType, { stroke: c })}
+          />
+          <ColorMenu
+            label="Fill color"
+            short="Fill"
+            title="Fill color: the inside of the shape"
+            icon={STYLE_ICONS.fill}
+            value={style.fill ?? null}
+            noneLabel="No fill"
+            disabled={!styleCapabilities(styleType).fill}
+            onChange={(c) => tools.setStyle(styleType, { fill: c })}
+          />
+          {/* A text box drawn without its border has no outline to give a width to. */}
+          {!(styleType === 'text' && (style.noBox || style.borderless)) && (
+            <label className="field" title="Line width">
+              <FieldTag icon={STYLE_ICONS.width} label="Width" />
+              <ComboField
+                title="Line width"
+                value={style.width}
+                options={styleType === 'highlighter' ? HIGHLIGHT_WIDTHS : WIDTHS}
+                min={0}
+                max={200}
+                unit="pt"
+                onChange={(w) => tools.setStyle(styleType, { width: w })}
+              />
+            </label>
+          )}
           {styleCapabilities(styleType).dash && (
             <label className="field" title="Line style">
               <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
@@ -408,14 +413,12 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
         </label>
       )}
       {textStyle && (textType === 'text' || textType === 'callout') && (
-        <label className="field" title="Draw the box around the text (outline and fill)">
-          <input type="checkbox" checked={!textStyle.noBox} onChange={(e) => tools.setStyle(textType, { noBox: e.target.checked ? undefined : true })} />
-          Box
-        </label>
-      )}
-      {textStyle && (textType === 'text' || textType === 'callout') && !textStyle.noBox && (
         <label className="field" title="Draw an outline around the text box (its fill draws either way)">
-          <input type="checkbox" checked={!textStyle.borderless} onChange={(e) => tools.setStyle(textType, { borderless: e.target.checked ? undefined : true })} />
+          <input
+            type="checkbox"
+            checked={!textStyle.noBox && !textStyle.borderless}
+            onChange={(e) => tools.setStyle(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+          />
           Border
         </label>
       )}
@@ -446,7 +449,23 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           pt
         </label>
       )}
+      {textStyle && textType && styleCapabilities(textType).font && (
+        <span className="seg" role="group" aria-label="Text style">
+          <FormatToggle on={!!textStyle.bold} label="B" title="Bold" className="b" onChange={(v) => tools.setStyle(textType, { bold: v })} />
+          <FormatToggle on={!!textStyle.italic} label="I" title="Italic" className="i" onChange={(v) => tools.setStyle(textType, { italic: v || undefined })} />
+          <FormatToggle on={!!textStyle.underline} label="U" title="Underline" className="u" onChange={(v) => tools.setStyle(textType, { underline: v || undefined })} />
+          <FormatToggle on={!!textStyle.strikethrough} label="S" title="Strikethrough" className="s" onChange={(v) => tools.setStyle(textType, { strikethrough: v || undefined })} />
+        </span>
+      )}
     </>
+  );
+}
+
+function FormatToggle({ on, label, title, className, onChange }: { on: boolean; label: string; title: string; className: string; onChange: (on: boolean) => void }) {
+  return (
+    <button type="button" className={`seg-btn ${className}${on ? ' active' : ''}`} title={title} aria-label={title} aria-pressed={on} onClick={() => onChange(!on)}>
+      {label}
+    </button>
   );
 }
 

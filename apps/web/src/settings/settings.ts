@@ -230,6 +230,8 @@ export interface Settings {
   restoreTabs: boolean;
   /** The start screen (no document open) shows a step-by-step tip from the help. */
   startTips: boolean;
+  /** Ribbon groups the user switched off, as "tab/Group name" (Customize Ribbon). */
+  hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
 
@@ -452,6 +454,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentDays: 0,
   restoreTabs: false,
   startTips: true,
+  hiddenRibbonGroups: [],
   snapshotDpi: 200,
 
   tabTruncation: 'end',

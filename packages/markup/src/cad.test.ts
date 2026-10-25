@@ -6,6 +6,8 @@ import {
   breakPath,
   canCut,
   canExplode,
+  closesOnItself,
+  cornerClosing,
   cornerCut,
   cornerVertex,
   divisionPoints,
@@ -22,6 +24,7 @@ import {
   stretchMarkup,
   transformMarkup,
   trimPath,
+  trimmedPart,
   bulgeMidpoint,
   canReverse,
   reversedMarkup,
@@ -54,6 +57,12 @@ test('trim cuts out the piece clicked between the nearest crossings', () => {
   // Polylines trim across their corners.
   const l = trimPath([[0, 0], [50, 0], [50, 50]], [[[25, -10], [25, 10]]], [50, 20])!;
   assert.ok(nearPts(l[0]!, [[0, 0], [25, 0]]));
+});
+
+test('the part trim would remove is the piece clicked, to the crossings either side', () => {
+  assert.ok(nearPts(trimmedPart(line, cutters, [50, 52])!, [[30, 50], [70, 50]]));
+  assert.ok(nearPts(trimmedPart(line, cutters, [90, 50])!, [[70, 50], [100, 50]]));
+  assert.equal(trimmedPart(line, [], [50, 50]), null);
 });
 
 test('extend reaches the nearest edge ahead of the end clicked', () => {
@@ -104,6 +113,18 @@ test('a polygon corner rounds with traced points, an area corner with a curve', 
   const cham = cornerVertex(markup('polygon', square), 0, 10, true)!;
   assert.ok(nearPts(cham.points, [[0, 10], [10, 0], [100, 0], [100, 100], [0, 100]]));
   assert.equal(cornerVertex(markup('polyline', [[0, 0], [10, 0], [10, 10]]), 0, 2, false), null, 'an open end is no corner');
+});
+
+test('a polyline that ends where it starts has a corner there to chamfer or round', () => {
+  const loop: Point[] = [[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]];
+  const m = markup('polyline', loop);
+  assert.ok(closesOnItself(m));
+  assert.ok(!closesOnItself(markup('polyline', [[0, 0], [100, 0], [100, 100]])));
+  const cham = cornerClosing(m, 10, true)!;
+  assert.ok(nearPts(cham.points, [[10, 0], [100, 0], [100, 100], [0, 100], [0, 10], [10, 0]]));
+  const round = cornerClosing(m, 10, false)!;
+  assert.ok(near(round.points[0]!, round.points.at(-1)!), 'still closes');
+  assert.ok(round.points.length > 6);
 });
 
 test('join chains touching paths in order, reversing as needed, and closes loops', () => {

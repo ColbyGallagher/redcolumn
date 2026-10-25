@@ -369,6 +369,8 @@ export interface ToolsState {
   flowShape: FlowShapeKind;
   /** How new connectors bend: at right angles, or straight from shape to shape. */
   connectorRoute: 'elbow' | 'straight';
+  /** PDF text the user selected by dragging over it: it stays highlighted until they copy it, mark it or click away. */
+  textSelection: { text: string; pageIndex: number } | null;
 }
 
 export interface SketchState {
@@ -435,8 +437,6 @@ export interface MarkupToolsOptions {
   onScaleRequired?: (pageIndex: number, tool: Tool) => void;
   /** The user clicked PDF text with the `editText` tool. */
   onEditPdfText?: (pageIndex: number, at: Point) => void;
-  /** The user selected PDF text with the `selectText` tool. */
-  onTextSelected?: (text: string) => void;
   /** The user drew an area to erase the PDF content in (the `eraseContent` tool). */
   onEraseContent?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew where a new form field goes (the `formField` tool). */
@@ -558,7 +558,9 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow' };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
+  /** The lines of the selected PDF text (see `ToolsState.textSelection`). */
+  private pickedText: Markup | null = null;
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
   /** The pointer while drawing or dragging a connector end: the shape under it shows its connection points. */
@@ -853,6 +855,32 @@ export class MarkupTools implements ViewerOverlay {
     return markup;
   }
 
+  /** Lets go of the selected PDF text. */
+  clearTextSelection() {
+    if (!this.pickedText) return;
+    this.pickedText = null;
+    this.setState({ textSelection: null });
+  }
+
+  /** The selected PDF text, to copy. */
+  selectedPdfText(): string | null {
+    return this.pickedText?.comment ?? null;
+  }
+
+  /** Turns the selected PDF text into a text markup (highlight, underline, strikeout or squiggly). */
+  markSelectedText(type: 'textHighlight' | 'underline' | 'strikeout' | 'squiggly') {
+    const picked = this.pickedText;
+    if (!picked || !this.store || this.store.readOnly) return;
+    const markup = type === 'textHighlight' ? this.textHighlightFromTool(picked.pageIndex) : this.newMarkup(type, picked.pageIndex, []);
+    markup.points = picked.points;
+    // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
+    markup.comment = settings.get().copyHighlightedText ? picked.comment : undefined;
+    this.store.checkpoint();
+    this.store.add({ ...markup, createdAt: Date.now(), modifiedAt: Date.now() });
+    this.options.onCreated?.(markup);
+    this.clearTextSelection();
+  }
+
   /** The words from `from` to `to` become `markup`'s lines and comment. */
   private applyTextMark(markup: Markup, from: Point, to: Point) {
     const words = this.wordsFor(markup.pageIndex);
@@ -902,6 +930,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Chooses a tool; `preset` arms it with a tool library look or a signature image. */
   setTool(tool: Tool, preset?: ToolPreset) {
     // Pan and the zoom tools are the viewer's own.
+    if (tool !== this.state.tool) this.clearTextSelection();
     this.viewer.setNavTool(tool === 'pan' || tool === 'zoomBox' || tool === 'dynamicZoom' ? tool : null);
     if (tool === 'stamp' && !preset?.stamp && !preset?.template) {
       const stamp = this.options.defaultStamp?.();
@@ -1475,6 +1504,12 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Changes the default style for new markups of `type`, without touching existing markups. */
   setDefaultStyle(type: MarkupType, patch: Partial<MarkupStyle>) {
+    // A text highlight is made by the Highlight tool: it takes that tool's colour and opacity.
+    if (type === 'textHighlight') {
+      const look: Partial<MarkupStyle> = { stroke: patch.stroke, opacity: patch.opacity };
+      type = 'highlighter';
+      patch = Object.fromEntries(Object.entries(look).filter(([, v]) => v !== undefined));
+    }
     this.setState({ styles: { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], patch) } });
     saveToolStyles(this.state.styles);
   }
@@ -1698,6 +1733,10 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
+    if (this.pickedText) {
+      this.clearTextSelection();
+      return;
+    }
     if (this.cad?.picks.length) {
       // Escape steps back to the tool's first pick, then leaves it.
       this.cad.picks = [];
@@ -1880,6 +1919,12 @@ export class MarkupTools implements ViewerOverlay {
     this.drawStitchGuides(ctx, pageIndex, zoom);
     this.drawGeoOverlay(ctx, pageIndex, zoom);
     const g = this.gesture;
+    if (this.pickedText?.pageIndex === pageIndex && !g) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.35)';
+      for (const r of markupLines(this.pickedText.points)) ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.restore();
+    }
     if (g?.kind === 'textMark' && g.markup.pageIndex === pageIndex && g.markup.type !== 'textHighlight') {
       // The words under the pointer show as a highlight while an underline, strikeout or other text tool drags.
       ctx.save();
@@ -2370,6 +2415,8 @@ export class MarkupTools implements ViewerOverlay {
     this.pointerKind = e.pointerType || 'mouse';
     if (!this.store) return false;
     const { tool } = this.state;
+    // Pressing anywhere else lets go of selected text (a drag over words picks new text).
+    if (e.button === 0) this.clearTextSelection();
 
     // The Geospatial panel's model: dragged, or a point on it or the sheet picked for alignment.
     const geo = this.geoOverlay;
@@ -2936,7 +2983,11 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'textMark') {
       if (g.markup.points.length < 2) return;
       if (g.copyOnly || this.state.tool === 'selectText') {
-        if (g.markup.comment) this.options.onTextSelected?.(g.markup.comment);
+        // The words stay highlighted; copying or marking them is the user's next step.
+        if (g.markup.comment) {
+          this.pickedText = g.markup;
+          this.setState({ textSelection: { text: g.markup.comment, pageIndex: g.markup.pageIndex } });
+        }
         return;
       }
       // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
@@ -4012,12 +4063,26 @@ export class MarkupTools implements ViewerOverlay {
     const c = this.cad;
     if (!c || c.pageIndex !== pageIndex || !this.store || c.tool !== this.state.tool) return;
     if (c.hover) {
-      const { ghosts, guides } = cadPreview(c.tool, c.picks, c.hover, this.cadContext(pageIndex, c.shift));
+      const { ghosts, guides, removed } = cadPreview(c.tool, c.picks, c.hover, this.cadContext(pageIndex, c.shift));
       ctx.save();
       ctx.globalAlpha = 0.6;
       // At least 2 px wide so the preview reads at any zoom.
       for (const m of ghosts) drawMarkup(ctx, { ...m, style: { ...m.style, stroke: CAD_PREVIEW, width: Math.max(m.style.width, 2 / zoom) } }, zoom, this.store.scaleOf(m));
       ctx.restore();
+      // Trim: the section that goes, over what stays.
+      if (removed.length) {
+        ctx.save();
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 4 / zoom;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const path of removed) {
+          ctx.beginPath();
+          path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
       for (const g of guides) drawGuide(ctx, g, zoom);
     }
     for (const pick of c.picks) drawPickMark(ctx, pick.at, zoom);

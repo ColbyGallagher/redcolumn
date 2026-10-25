@@ -1,9 +1,11 @@
-import { createContext, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
+import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
+import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { StampMenu } from './StampsDialog';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
@@ -320,12 +322,74 @@ function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
   );
 }
 
+/** The tab whose groups are being drawn: with a group's name it is the key Customize Ribbon stores. */
+const TabCtx = createContext<TabId>('home');
+
+const groupKey = (tab: TabId, label: string) => `${tab}/${label}`;
+
 function Group({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+  const tab = useContext(TabCtx);
+  const { hiddenRibbonGroups } = useSettings();
+  if (hiddenRibbonGroups.includes(groupKey(tab, label))) return null;
   return (
   <div className={`rb-group${wide ? ' wide' : ''}`} role="group" aria-label={label}>
     <div className="rb-items">{children}</div>
     <div className="rb-group-label">{label}</div>
   </div>
+  );
+}
+
+/** The names of the groups in a tab's content (what the Customize Ribbon dialog lists). */
+function groupLabels(node: ReactNode): string[] {
+  return Children.toArray(node).flatMap((child) => {
+    if (!isValidElement<{ label?: string; children?: ReactNode }>(child)) return [];
+    if (child.type === Group) return child.props.label ? [child.props.label] : [];
+    return child.type === Fragment ? groupLabels(child.props.children) : [];
+  });
+}
+
+/** Customize Ribbon: every tab's groups, each switched on or off. */
+function RibbonCustomizer({ tabs, onClose }: { tabs: { id: TabId; label: string; groups: string[] }[]; onClose: () => void }) {
+  const { hiddenRibbonGroups } = useSettings();
+  const toggle = (key: string, on: boolean) =>
+    settings.set({ hiddenRibbonGroups: on ? hiddenRibbonGroups.filter((k) => k !== key) : [...hiddenRibbonGroups, key] });
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <div
+        className="modal rb-customize"
+        role="dialog"
+        aria-label="Customize Ribbon"
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Escape') onClose();
+        }}
+      >
+        <h3>Customize Ribbon</h3>
+        <p>Tick the groups to show on each tab.</p>
+        <div className="rb-customize-list">
+          {tabs.map((t) => (
+            <fieldset key={t.id}>
+              <legend>{t.label}</legend>
+              {t.groups.map((g) => (
+                <label key={g} className="field">
+                  <input type="checkbox" checked={!hiddenRibbonGroups.includes(groupKey(t.id, g))} onChange={(e) => toggle(groupKey(t.id, g), e.target.checked)} />
+                  {g}
+                </label>
+              ))}
+            </fieldset>
+          ))}
+        </div>
+        <div className="actions">
+          <button type="button" className="btn" disabled={!hiddenRibbonGroups.length} onClick={() => settings.set({ hiddenRibbonGroups: [] })}>
+            Reset
+          </button>
+          <button type="button" className="btn primary" onClick={onClose} autoFocus>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -365,6 +429,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const [tab, setTab] = useState<TabId>(savedTab);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
+  const [customizing, setCustomizing] = useState(false);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
   const { state } = toolbar;
 
@@ -386,7 +452,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
       // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .combo-list')) return;
+      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -897,7 +963,23 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const showBody = !collapsed || dropped;
   return (
     <Ctx.Provider value={{ commands, toolbar, done }}>
-    <div className={`ribbon${collapsed ? ' collapsed' : ''}`} ref={root}>
+    <TabCtx.Provider value={tab}>
+    <div
+      className={`ribbon${collapsed ? ' collapsed' : ''}`}
+      ref={root}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu({
+          x: e.clientX,
+          y: e.clientY,
+          items: [
+            { label: 'Customize Ribbon…', onClick: () => setCustomizing(true) },
+            { sep: true },
+            { label: collapsed ? 'Keep the Ribbon Open' : 'Collapse the Ribbon', onClick: () => onCollapsedChange(!collapsed) },
+          ],
+        });
+      }}
+    >
       <div className="rb-tabs" role="tablist" aria-label="Ribbon" onKeyDown={onTabKey}>
         {TABS.map((t) => (
           <button
@@ -920,6 +1002,11 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           </button>
         ))}
         <span className="grow" />
+        <div className="rb-display">
+          <button type="button" className="btn rb-display-btn" title="Customize Ribbon: show or hide groups" aria-label="Customize Ribbon" onClick={() => setCustomizing(true)}>
+            {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}
+          </button>
+        </div>
         {displayMenu}
       </div>
       {showBody && (
@@ -938,7 +1025,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           )}
         </div>
       )}
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+      {customizing && <RibbonCustomizer tabs={TABS.map((t) => ({ id: t.id, label: t.label, groups: groupLabels(body(t.id)) }))} onClose={() => setCustomizing(false)} />}
     </div>
+    </TabCtx.Provider>
     </Ctx.Provider>
   );
 }

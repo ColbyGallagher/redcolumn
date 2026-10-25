@@ -29,6 +29,8 @@ import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/Marku
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
 import { LineStyleSelect } from './LineStyleSelect';
+import { ColorMenu } from './ColorMenu';
+import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
 
@@ -383,12 +385,14 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
   return (
     <fieldset className="props-style" disabled={disabled}>
       <Section title="Appearance">
-        <Row label="Color">
-          <input type="color" value={style.stroke} onChange={(e) => set('stroke', e.target.value)} />
+        <Row label="Line color" title="The outline of the shape, or the line itself">
+          <ColorMenu wide label="Line color" short="Line" icon={STYLE_ICONS.line} value={style.stroke} onChange={(c) => c && set('stroke', c)} />
         </Row>
-        <Row label="Line width">
-          <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
-        </Row>
+        {!(type === 'text' && (style.noBox || style.borderless)) && (
+          <Row label="Line width">
+            <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
+          </Row>
+        )}
         {caps.dash && (
           <Row label="Line style">
             <LineStyleSelect style={style} markups={markups} onChange={onChange} />
@@ -399,12 +403,8 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
         </Row>
         {caps.fill && (
           <>
-            <Row label="Fill">
-              <label className="inline">
-                <input type="checkbox" checked={!!style.fill} onChange={(e) => set('fill', e.target.checked ? fillFor(style) : null)} />
-                {style.fill ? '' : 'None'}
-              </label>
-              {style.fill && <input type="color" value={style.fill} onChange={(e) => set('fill', e.target.value)} />}
+            <Row label="Fill color" title="The inside of the shape">
+              <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} />
             </Row>
             {(style.fill || hatchOn) && (
               <Row label="Fill opacity">
@@ -534,6 +534,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               <Toggle on={style.bold ?? measure} label="B" title="Bold" className="b" onChange={(v) => set('bold', v)} />
               <Toggle on={!!style.italic} label="I" title="Italic" className="i" onChange={(v) => set('italic', v || undefined)} />
               <Toggle on={!!style.underline} label="U" title="Underline" className="u" onChange={(v) => set('underline', v || undefined)} />
+              <Toggle on={!!style.strikethrough} label="S" title="Strikethrough" className="s" onChange={(v) => set('strikethrough', v || undefined)} />
             </span>
           </Row>
           <Row label="Text color">
@@ -590,14 +591,6 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
 
 const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '↔', right: '⇥' };
 const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle: '↕', bottom: '⤓' };
-
-/** A pale version of the line color, as a starting fill. */
-function fillFor(style: MarkupStyle): string {
-  const n = parseInt(style.stroke.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
-  const mix = (c: number) => Math.round(c + (255 - c) * 0.75);
-  const [r, g, b] = [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)];
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
-}
 
 const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
   { value: 'pitch', label: 'Pitch', unit: ':12' },

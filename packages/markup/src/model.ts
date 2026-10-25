@@ -173,6 +173,7 @@ export interface MarkupStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   /** Text and label color; the line color when unset. */
   textColor?: string;
   textAlign?: TextAlign;
