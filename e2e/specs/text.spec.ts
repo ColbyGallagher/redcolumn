@@ -155,15 +155,19 @@ test.describe('PDF text', () => {
     await app.drag([58, 95], [210, 95]);
     const bar = app.page.getByRole('toolbar', { name: 'Selected text' });
     await expect(bar).toBeVisible();
-    return bar;
+    // The words selected, on web and desktop alike (the clipboard is only read back on web).
+    const text = await app.page.evaluate(() => window.__nb.tools.getState().textSelection?.text ?? '');
+    expect(text).toMatch(/^DOOR 1\s+HOLLOW CORE$/);
+    return { bar, text };
   };
 
   test('Select Text highlights words without adding a markup, and Copy copies them', async ({ app }) => {
-    const bar = await selectDoor(app);
-    await expect(bar.locator('.text-selection-count')).toHaveText(/^\d+ characters?$/);
+    const { bar, text } = await selectDoor(app);
+    const count = `${text.length} character${text.length === 1 ? '' : 's'}`;
+    await expect(bar.locator('.text-selection-count')).toHaveText(count);
     expect(await app.markups()).toEqual([]);
     await bar.getByRole('button', { name: 'Copy' }).click();
-    await expect(app.page.getByText(/^Copied \d+ characters?\.$/)).toBeVisible();
+    await expect(app.page.getByText(`Copied ${count}.`, { exact: true })).toBeVisible();
     if (app.kind === 'web') expect(await app.page.evaluate(() => navigator.clipboard.readText())).toMatch(/DOOR 1\s+HOLLOW CORE/);
     // Esc lets the words go, still without a markup.
     await app.page.keyboard.press('Escape');
@@ -178,16 +182,22 @@ test.describe('PDF text', () => {
     ['Squiggly', 'squiggly'],
   ] as const) {
     test(`Select Text: ${button} on the selection bar marks the selected words`, async ({ app }) => {
-      const bar = await selectDoor(app);
+      const { bar } = await selectDoor(app);
       await bar.getByRole('button', { name: button, exact: true }).click();
       await expect(bar).toBeHidden();
       const [m, ...rest] = await app.markups();
       expect(rest).toEqual([]);
       expect(m).toMatchObject({ type, page: 2 });
-      // It covers the words selected: from the "D" just right of x 58 to past "CORE" at x 206.
+      // It covers the words selected and no more: from the "D" just right of x 58 to the end of
+      // "CORE" at x 206, on the 12 pt line at y 95.
       const xs = m!.points.map(([x]) => x);
+      const ys = m!.points.map(([, y]) => y);
       expect(Math.min(...xs)).toBeGreaterThanOrEqual(57);
+      expect(Math.min(...xs)).toBeLessThan(65);
       expect(Math.max(...xs)).toBeGreaterThan(200);
+      expect(Math.max(...xs)).toBeLessThan(212);
+      expect(Math.min(...ys)).toBeGreaterThan(80);
+      expect(Math.max(...ys)).toBeLessThan(110);
     });
   }
 
