@@ -119,6 +119,7 @@ import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
+import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
@@ -1043,6 +1044,13 @@ export function App() {
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
+  const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  useEffect(() => {
+    // The Line style pickers open the manager from wherever they sit.
+    const open = () => setLineStylesOpen(true);
+    window.addEventListener(MANAGE_LINE_STYLES_EVENT, open);
+    return () => window.removeEventListener(MANAGE_LINE_STYLES_EVENT, open);
+  }, []);
   /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
   const [stampsCreating, setStampsCreating] = useState(false);
   /** The current commands by id, for the keyboard handler (rebuilt every render). */
@@ -7456,6 +7464,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       setStampsCreating(false);
       setStampsOpen(true);
     },
+    manageLineStyles: () => setLineStylesOpen(true),
     flowShape: (kind) => activeTools?.setFlowShape(kind),
     addNextShape: (side) => activeTools?.addNextShape(side),
     connectShapes: () => {
@@ -9680,6 +9689,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         />
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}

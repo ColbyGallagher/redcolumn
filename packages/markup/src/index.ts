@@ -4,6 +4,7 @@ export * from './style';
 export { lineArt, lineStyleFonts, lineStyleHasText, lineStyleReach, readLineStyle, styledParts, type ArtText, type CustomLine, type LineArt, type TextMeasure } from './lineStyle';
 export { documentLineStyles, parseBlx, setTitle, type LineSet } from './lineSet';
 export { DEFAULT_LINE_SETS } from './defaultLines';
+export { DRAFT_COMPONENT_KINDS, draftProblem, fromDraft, newComponent, toDraft, uniqueName, type DraftComponent, type DraftLine, type LineStyleDraft, type SymbolPoint, type SymbolPointType } from './lineStyleEdit';
 export { parseBhx, type HatchSet } from './hatchSet';
 export { applyBookmarkTemplate, DEFAULT_BOOKMARK_TEMPLATE, parseBookmarkTemplate, sheetSeries, type BookmarkTemplate, type BookmarkTemplateNode, type TemplatePage } from './bookmarkTemplate';
 export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCategorySet } from './setCategories';

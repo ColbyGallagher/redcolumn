@@ -20,6 +20,24 @@ Text tools also show font controls. See [Format text](#text-formatting).
 
 The [Properties panel](#properties) has everything: fill colour and fill opacity, hatch patterns, arrowheads and more.
 
+## Make your own line styles
+
+A line style can be dashes and gaps, text (such as *G* for gas), small symbols, or several lines side by side.
+
+1. Open {{Tools > Line Styles…}}, or pick **Manage line styles…** at the bottom of the **Line style** list.
+2. Click **New…**. Built-in styles can't be changed: pick one and click **Copy and Edit…** to start from it.
+3. Give it a **Name**.
+4. Under **Line 1**, add **components** in the order they repeat along the line:
+   - **Dash** and **Gap**: how long each is.
+   - **Text**: the letters, font and size. **Keep upright** stops it reading upside down.
+   - **Symbol**: click the grid to draw its outline. Shift-click starts a new stroke. **Left** and **Right** set how much line it takes.
+5. **Add line** draws another line beside the first. **Offset** moves it to one side (minus for the other side).
+6. Watch the preview, then click **Save**.
+
+**Scale with line width** makes the pattern grow with thicker lines. Untick it to keep sizes in points.
+
+Your styles are in sets, listed on the left. **New set**, **Rename** and **Remove** organise them. **Export…** saves a set as a `.blx` file to share; **Import…** reads one back. Markups keep their style even if you delete it, because the pattern is saved with the markup.
+
 ## Make a look the default
 
 Right-click a markup you like and choose **Set as Default**. New markups of that type are drawn that way.

@@ -233,6 +233,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'tools.eraserWhole': { spec: 'markup-tools' },
   'tools.formField': { spec: 'forms-sign-stamps' },
   'tools.forms': { spec: 'forms-sign-stamps' },
+  'tools.lineStyles': { spec: 'markup-tools' },
   'tools.nextMeasure': { spec: 'measure' },
   'tools.quantities': { spec: 'measure' },
   'tools.scripts': { spec: 'edit' },

@@ -531,6 +531,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="tools.quantities" />
               <Cmd id="tools.takeoffReview" />
             </Submenu>
+            <Cmd id="tools.lineStyles" />
             <Cmd id="tools.sketchToScale" />
             <Cmd id="tools.scripts" />
             <Submenu label="Sign & Certify">

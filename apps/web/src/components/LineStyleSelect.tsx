@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { documentLineStyles, LINE_DASHES, type CustomLine, type LineDash, type Markup, type MarkupStyle } from '@nb/markup';
 import { lineSetLibrary, useWorkspace } from '../workspace/profiles';
+import { openLineStyles } from './LineStylesDialog';
 
 interface Props {
   style: MarkupStyle;
@@ -39,6 +40,12 @@ export function LineStyleSelect({ style, markups, onChange }: Props) {
       onChange={(e) => {
         const v = e.target.value;
         if (v === 'custom') return;
+        if (v === 'manage') {
+          // The select snaps back to the current style: nothing is picked by opening the manager.
+          e.target.value = value;
+          openLineStyles();
+          return;
+        }
         // A style from a line set ('line:<set>:<style>') or from the document ('doc:<style>').
         const [kind, a, b] = v.split(':');
         const picked = kind === 'line' ? sets[Number(a)]?.styles[Number(b)] : kind === 'doc' ? inDocument[Number(a)] : undefined;
@@ -71,6 +78,7 @@ export function LineStyleSelect({ style, markups, onChange }: Props) {
           ))}
         </optgroup>
       ))}
+      <option value="manage">Manage line styles…</option>
     </select>
   );
 }

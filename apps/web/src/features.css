@@ -6741,3 +6741,247 @@ tr.hidden-markup td {
   font-size: 11px;
   white-space: nowrap;
 }
+
+/* Line styles: the manager (sets beside their styles) and the style editor. */
+.modal.line-styles-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.ls-manager {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.ls-sets ul,
+.ls-styles ul {
+  height: min(360px, 50vh);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.ls-sets li,
+.ls-styles li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ls-sets li input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ls-sets li.picked,
+.ls-styles li.picked {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ls-styles li {
+  justify-content: space-between;
+}
+
+.ls-styles li .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ls-styles li.ls-empty {
+  color: var(--muted, #6b7280);
+  cursor: default;
+}
+
+.line-style-preview {
+  flex: none;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.ls-badge {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.ls-set-actions,
+.ls-style-actions,
+.ls-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ls-preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+}
+
+.ls-field,
+.ls-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ls-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ls-line {
+  align-self: stretch;
+  margin: 0;
+  padding: 6px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ls-line legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.ls-row-buttons {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.ls-components {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ls-components > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.ls-kind {
+  min-width: 52px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.ls-symbol {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ls-symbol-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ls-symbol-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ls-symbol-canvas {
+  flex: none;
+  border-radius: 4px;
+  background: #fff;
+  cursor: crosshair;
+}
+
+.ls-symbol-canvas .grid line {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+}
+
+.ls-symbol-canvas .grid line.axis {
+  stroke: #9ca3af;
+}
+
+.ls-symbol-canvas .extent {
+  fill: rgba(37, 99, 235, 0.08);
+}
+
+.ls-symbol-canvas .shape {
+  fill: none;
+  stroke: #111827;
+  stroke-width: 1.5;
+}
+
+.ls-symbol-canvas .shape.filled {
+  fill: rgba(17, 24, 39, 0.35);
+}
+
+.ls-symbol-canvas .pt {
+  fill: #2563eb;
+}
+
+.ls-symbol-canvas .pt.curve {
+  fill: #f59e0b;
+}
+
+.ls-points {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ls-points table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ls-points th {
+  text-align: left;
+  font-weight: 600;
+}
+
+.ls-points td,
+.ls-points th {
+  padding: 1px 4px 1px 0;
+}
+
+.ls-problem {
+  color: #b45309;
+}
+
+@media (max-width: 640px) {
+  .ls-manager {
+    grid-template-columns: 1fr;
+  }
+}
