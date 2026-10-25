@@ -370,6 +370,46 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l, i) => `${l} - SCALE: ${S.scales[i]}`));
   });
 
+  // Each sheet repeats "SHEET n OF 3" at the top and its room name and scale note at the bottom.
+  test('edit.eraseAcrossPages finds the repeated header and erases it from every page', async ({ app }) => {
+    expect(await app.search('SHEET')).toEqual([1, 2, 3]);
+    await app.cmd('edit.eraseAcrossPages');
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.locator('.lr-text')).toHaveText(['Header: SHEET 1 OF 3', `Footer 1: ${S.labels[0]}`, `Footer 2: SCALE: ${S.scales[0]}`]);
+    await expect(panel.locator('.lr-count')).toHaveText(['3/3', '3/3', '3/3']);
+    // Keep the header only.
+    await panel.getByRole('button', { name: 'Remove box' }).nth(2).click();
+    await panel.getByRole('button', { name: 'Remove box' }).nth(1).click();
+    await panel.getByRole('button', { name: 'Erase on 3 pages' }).click();
+    await expect(app.notice()).toHaveText(/^Erased: removed .* on 3 pages\. Checked: no text is left/, { timeout: 30_000 });
+    expect(await app.search('SHEET')).toEqual([]);
+    expect(await app.search(S.labels[1]!)).toEqual([2]);
+  });
+
+  test('edit.eraseAcrossPages erases a drawn box on even pages only', async ({ app }) => {
+    await app.cmd('edit.eraseAcrossPages');
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.locator('.lr-count')).toHaveCount(3);
+    for (let i = 0; i < 3; i++) await panel.getByRole('button', { name: 'Remove box' }).first().click();
+    await drawBox(app, S.labelBox);
+    await expect(panel.locator('.lr-text')).toHaveText([S.labels[0]!]);
+    await panel.getByLabel('Even').check();
+    await panel.getByRole('button', { name: 'Erase on 1 page' }).click();
+    await expect(app.notice()).toHaveText(/^Erased: removed .* on 1 page\./, { timeout: 30_000 });
+    expect(await app.search('ROOM')).toEqual([1, 3]);
+  });
+
+  test('tools.redactAcrossPages covers the boxes', async ({ app }) => {
+    await app.cmd('tools.redactAcrossPages');
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.getByLabel('Cover with')).toBeChecked();
+    await expect(panel.locator('.lr-count')).toHaveCount(3);
+    await panel.getByRole('button', { name: 'Redact on 3 pages' }).click();
+    await expect(app.notice()).toHaveText(/^Erased: removed .* on 3 pages\./, { timeout: 30_000 });
+    expect(await app.search('ROOM')).toEqual([]);
+    expect(await app.search('SCALE')).toEqual([]);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

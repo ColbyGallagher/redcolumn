@@ -1108,6 +1108,7 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
             if (textObjects.has(obj)) remove.push(obj);
             continue;
           }
+          if (req.textOnly) continue;
           if (!m.FPDFPageObj_GetBounds(obj, buf, buf + 4, buf + 8, buf + 12)) continue;
           const box = { l: f32(0), b: f32(1), r: f32(2), t: f32(3) };
           if (!hit(box)) continue;

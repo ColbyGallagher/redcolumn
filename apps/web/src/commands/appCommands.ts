@@ -170,6 +170,8 @@ export interface CommandActions {
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
+  /** Erase (or, with `cover`, redact) the same boxes on many pages. */
+  eraseRegions: (cover?: boolean) => void;
   thumbnails: () => void;
   setTool: (tool: Tool) => void;
   manageColumns: () => void;
@@ -481,12 +483,14 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
       a.setTool(order[(at + 1) % order.length]!);
     }, doc && s.editable),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
+    cmd('tools.redactAcrossPages', 'Tools', 'Redact Across Pages…', () => a.eraseRegions(true), s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),
     cmd('tools.digitalIds', 'Tools', 'Digital IDs…', a.digitalIds),
     cmd('tools.formField', 'Tools', 'Form Field', () => a.setTool('formField'), s.pagesEditable, s.tool === 'formField'),
     cmd('tools.forms', 'Tools', 'Forms Panel', () => a.showPanel('forms'), doc),
     cmd('tools.autoFields', 'Tools', 'Auto-Create Fields…', a.autoFields, s.pagesEditable && s.editable),
     cmd('edit.eraseContent', 'Edit', 'Erase Content', () => a.setTool('eraseContent'), s.pagesEditable && s.editable, s.tool === 'eraseContent'),
+    cmd('edit.eraseAcrossPages', 'Edit', 'Erase Across Pages…', () => a.eraseRegions(), s.pagesEditable && s.editable),
     cmd('edit.cutContent', 'Edit', 'Cut Content', () => a.setTool('cutContent'), s.pagesEditable && s.editable && s.canSaveCopy, s.tool === 'cutContent'),
     cmd('edit.editText', 'Edit', 'Edit Text', () => a.setTool('editText'), s.pagesEditable && s.editable, s.tool === 'editText'),
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),

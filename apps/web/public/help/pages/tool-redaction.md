@@ -25,4 +25,8 @@ Nothing is removed yet. You can still move, resize or delete the marks.
 4. Leave **Also remove the document's metadata** ticked to remove the title, author and other hidden details too.
 5. Click **Apply**.
 
+## Redact the same area on many pages
+
+To remove a header, footer or side note from every page in one go, choose {{Tools > Redaction > Redact Across Pages…}}. It opens [Erase Across Pages](#edit-content) set to cover each box: check the boxes it finds (or draw your own), choose the pages, and click **Redact on N pages**.
+
 > **Warning:** Applying redactions removes the text, pictures and lines under the boxes **for good** once you save. It cannot be undone after saving. Keep a copy of the original if you might need it.
