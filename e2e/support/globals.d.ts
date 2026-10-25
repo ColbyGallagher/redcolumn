@@ -28,7 +28,7 @@ interface Window {
     };
     tools: {
       setTool(tool: string): void;
-      getState(): { tool: string; selected: Set<string>; measuring: unknown };
+      getState(): { tool: string; selected: Set<string>; measuring: unknown; textSelection: { text: string; pageIndex: number } | null };
       select(ids: string[]): void;
       setRouteOf(id: string, route: 'elbow' | 'straight' | 'reset'): void;
       store: {
