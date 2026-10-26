@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { CHANGELOG } from '../help/changelog';
 import { TIP_PAGES, inlineParts, parseTip, type Tip } from '../help/startTips';
 
 interface Props {
@@ -119,6 +120,7 @@ export function StartScreen({ launchOpen, onOpen, onNew, showTip, onHideTip, onH
 
   return (
     <div className="start-screen">
+      <div className="start-layout">
       <div className="start-inner">
         <div className="start-actions">
           <button type="button" className="start-action primary" autoFocus={launchOpen} onClick={onOpen}>
@@ -208,6 +210,25 @@ export function StartScreen({ launchOpen, onOpen, onNew, showTip, onHideTip, onH
             </footer>
           </section>
         )}
+      </div>
+      <aside className="changelog-card" aria-label="What's new">
+        <h2>What's new</h2>
+        <div className="changelog-list">
+          {CHANGELOG.map((e) => (
+            <section key={e.version}>
+              <h3>
+                <span>v{e.version}</span>
+                <time dateTime={e.date}>{new Date(`${e.date}T00:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}</time>
+              </h3>
+              <ul>
+                {e.items.map((x, i) => (
+                  <li key={i}>{x}</li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      </aside>
       </div>
     </div>
   );
