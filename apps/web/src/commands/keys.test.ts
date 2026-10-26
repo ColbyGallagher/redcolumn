@@ -29,8 +29,9 @@ test('plus, minus and digits are named by key, whatever Shift does to the charac
   assert.equal(comboOf(ev('+', { code: 'NumpadAdd' })), 'Plus');
   assert.equal(comboOf(ev('_', { ctrl: true, shift: true, code: 'Minus' })), 'Ctrl+Shift+Minus');
   assert.equal(comboOf(ev('!', { shift: true, code: 'Digit1' })), 'Shift+1');
-  assert.equal(formatCombo('Ctrl+Shift+Plus'), 'Ctrl+Shift++');
-  assert.equal(formatCombo('Minus'), '−');
+  assert.equal(formatCombo('Ctrl+Shift+Plus', false), 'Ctrl+Shift++');
+  assert.equal(formatCombo('Ctrl+Shift+Plus', true), '⇧⌘+');
+  assert.equal(formatCombo('Minus', false), '−');
 });
 
 test('on a Mac shortcuts are written with ⌘ ⌥ ⇧', () => {

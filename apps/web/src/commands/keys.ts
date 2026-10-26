@@ -83,8 +83,8 @@ export function platformKeys(text: string, mac = isMac()): string {
 }
 
 /** A combo as shown in menus and tooltips: `Ctrl+Shift+Plus` → `Ctrl+Shift++` (`⇧⌘+` on a Mac). */
-export function formatCombo(combo: string): string {
-  return platformKeys(combo.replace(/Plus$/, '+').replace(/Minus$/, '−'));
+export function formatCombo(combo: string, mac = isMac()): string {
+  return platformKeys(combo.replace(/Plus$/, '+').replace(/Minus$/, '−'), mac);
 }
 
 /**
