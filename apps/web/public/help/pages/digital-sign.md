@@ -4,7 +4,7 @@
 2. Choose {{Tools > Sign & Certify > Sign with Digital ID…}} (or press [[X]]).
 
    ![The Sign window](img/digital-sign.png)
-3. Choose the Digital ID and type its password.
+3. Choose the Digital ID and type its password (or, for an ID on a [smart card or USB token](#digital-ids), its PIN).
 4. Choose how to sign:
    - **Approve (sign)** — an ordinary signature.
    - **Certify: no changes allowed** — the author's signature; any later change breaks it.

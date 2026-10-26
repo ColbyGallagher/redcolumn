@@ -3070,12 +3070,13 @@ export function App() {
           // Headers & Footers: Bates numbers carry on across the files.
           let batesDone = 0;
           // Sign & Seal: the ID is unlocked (and its password checked) before any file changes.
-          let signer: { id: import('./documents/digitalIds').UnlockedId; image?: Uint8Array } | null = null;
+          // An ID on a card is checked by the card at the first signature (its PIN is sent with each).
+          let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
-            const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
-            rememberPassword(record.id, command.sign.password);
+            const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
+            if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -3577,9 +3578,9 @@ export function App() {
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
       if (!record) throw new Error('That Digital ID is no longer on this device');
-      const { unlockId } = await import('./documents/digitalIds');
+      const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
-      const id = unlockId(record, c.password);
+      const id = signerFor(record, c.password);
       const picture = c.imageId ? signatures.get().find((p) => p.id === c.imageId) : undefined;
       const image = picture ? new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) : undefined;
       const ok = await editForm(
@@ -9148,11 +9149,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onManageIds={() => setIdsOpen(true)}
           onCancel={() => setSignFor(null)}
           onSign={async (c) => {
-            // The password is checked before anything else happens.
+            // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
-            (await import('./documents/digitalIds')).unlockId(record, c.password);
-            rememberPassword(record.id, c.password);
+            (await import('./documents/signers')).signerFor(record, c.password);
+            if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
@@ -9188,6 +9189,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDelete={(id) => {
             digitalIds.remove(id.id);
             setIdList(digitalIds.list());
+          }}
+          onAddCard={async (card) => {
+            const [{ tokenDigitalId }, { buildChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too).
+            const chain = await buildChain(card.certificate, card.others);
+            digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
           }}
         />
       )}

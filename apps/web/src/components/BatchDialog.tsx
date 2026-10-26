@@ -193,7 +193,8 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   };
   const toggle = (id: string, on: boolean) => setChosen((c) => (on ? [...c, id] : c.filter((x) => x !== id)));
   const ordered = files.filter((f) => chosen.includes(f.id)).map((f) => f.id);
-  const ready = kind === 'stamp' ? !!stamp.stampId : kind === 'headerFooter' ? !!hf : kind === 'sign' ? !!sign.idId && !!sign.password : true;
+  const card = ids.find((i) => i.id === sign.idId)?.token;
+  const ready = kind === 'stamp' ? !!stamp.stampId : kind === 'headerFooter' ? !!hf : kind === 'sign' ? !!sign.idId && (!!card?.pinPad || !!sign.password) : true;
   const enough = (kind === 'link' ? ordered.length >= 2 : ordered.length >= 1) && ready;
 
   if (hfOpen)
@@ -410,9 +411,14 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                       </option>
                     ))}
                   </select>
-                  Password
-                  <input type="password" autoComplete="off" value={sign.password} onChange={(e) => setSign({ ...sign, password: e.target.value })} />
+                  {!card?.pinPad && (
+                    <>
+                      {card ? 'PIN' : 'Password'}
+                      <input type="password" autoComplete="off" value={sign.password} title={card ? 'Sent to the card for each file’s signature while the batch runs; never stored' : undefined} onChange={(e) => setSign({ ...sign, password: e.target.value })} />
+                    </>
+                  )}
                 </label>
+                {card?.pinPad && <p className="print-hint">Enter the PIN on the card reader for each file when it asks.</p>}
                 <label className="row">
                   Reason
                   <input value={sign.reason} onChange={(e) => setSign({ ...sign, reason: e.target.value })} />
