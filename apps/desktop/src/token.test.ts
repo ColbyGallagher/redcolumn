@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createPublicKey, verify, X509Certificate } from 'node:crypto';
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -13,6 +13,12 @@ import { ecdsaToDer, TokenService } from './token.ts';
  * these tests are skipped when it is not installed.
  */
 const SOFTHSM = ['/usr/lib/softhsm/libsofthsm2.so', '/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so', '/opt/homebrew/lib/softhsm/libsofthsm2.so', '/usr/local/lib/softhsm/libsofthsm2.so'].find((p) => existsSync(p));
+// A private SoftHSM configuration and token folder: the system one is not readable by an ordinary
+// user (CI runs as one), and the tests must not touch it.
+const dir = mkdtempSync(path.join(os.tmpdir(), 'rc-token-'));
+mkdirSync(path.join(dir, 'tokens'));
+writeFileSync(path.join(dir, 'softhsm2.conf'), `directories.tokendir = ${path.join(dir, 'tokens')}\nobjectstore.backend = file\n`);
+process.env.SOFTHSM2_CONF = path.join(dir, 'softhsm2.conf');
 const tools = (() => {
   if (!SOFTHSM) return false;
   try {
@@ -32,11 +38,6 @@ const TOKEN = 'Test Card';
 
 /** A fresh SoftHSM token with an RSA key (ID 01) and a P-256 key (ID 02), each with a self-signed certificate. */
 function provision() {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'rc-token-'));
-  const conf = path.join(dir, 'softhsm2.conf');
-  execFileSync('mkdir', ['-p', path.join(dir, 'tokens')]);
-  writeFileSync(conf, `directories.tokendir = ${path.join(dir, 'tokens')}\nobjectstore.backend = file\n`);
-  process.env.SOFTHSM2_CONF = conf;
   const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: dir, stdio: 'pipe' });
   run('softhsm2-util', ['--init-token', '--free', '--label', TOKEN, '--pin', PIN, '--so-pin', '654321']);
   const certs: Record<string, X509Certificate> = {};
