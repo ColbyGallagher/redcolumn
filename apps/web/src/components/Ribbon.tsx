@@ -111,6 +111,7 @@ const ICONS: Record<string, ReactNode> = {
   'tools.sign': ic('M2 13c2-4 3-7 4-7s0 6 1.5 6 2-3 3-3 1 2 3 2M2 15h12'),
   'tools.digitalIds': ic('M1.5 3.5h13v9h-13zM4 6.5h3M4 9.5h5', <circle cx="11.5" cy="7.5" r="1.5" />),
   'tools.applyRedactions': ic('M2 4h12v3H2zM2 9h8v3H2z', <path d="M12 9.5l2 2M14 9.5l-2 2" />),
+  'tools.bulkRedact': ic('M4.5 1.5h9v10M2.5 3.5h9v11h-9zM4 5h6v2H4zM4 10h6v2H4z'),
   'document.pdfa': ic('M3 1.5h10v13H3zM5.5 11 8 4.5l2.5 6.5M6.3 9h3.4'),
   'tools.formField': ic('M1.5 5h13v6h-13zM4 7v2'),
   'tools.autoFields': ic('M1.5 2.5h13v4h-13zM1.5 9.5h13v4h-13zM4 4.5h1M4 11.5h1'),
@@ -855,6 +856,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="batch.split" />
                 <Cmd id="batch.pageLabels" />
               </Stack>
+            </Group>
+            <Group label="Redact">
+              <Cmd id="tools.bulkRedact" size="large" />
             </Group>
             <Group label="Sign">
               <Cmd id="batch.sign" size="large" />

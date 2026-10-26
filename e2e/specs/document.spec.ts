@@ -370,6 +370,52 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l, i) => `${l} - SCALE: ${S.scales[i]}`));
   });
 
+  // Each sheet repeats "SHEET n OF 3" at the top and its room name and scale note at the bottom.
+  test('tools.bulkRedact finds the repeated header and removes it from every page', async ({ app }) => {
+    expect(await app.search('SHEET')).toEqual([1, 2, 3]);
+    await app.cmd('tools.bulkRedact');
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.locator('.lr-text')).toHaveText(['Header: SHEET 1 OF 3', `Footer 1: ${S.labels[0]}`, `Footer 2: SCALE: ${S.scales[0]}`]);
+    await expect(panel.locator('.lr-count')).toHaveText(['3/3', '3/3', '3/3']);
+    // Keep the header only.
+    await panel.getByRole('button', { name: 'Remove box' }).nth(2).click();
+    await panel.getByRole('button', { name: 'Remove box' }).nth(1).click();
+    await panel.getByRole('button', { name: 'Redact 3 pages' }).click();
+    await expect(app.notice()).toHaveText(/^Redacted: removed .* on 3 pages\. Checked: no text is left/, { timeout: 30_000 });
+    expect(await app.search('SHEET')).toEqual([]);
+    expect(await app.search(S.labels[1]!)).toEqual([2]);
+  });
+
+  test('tools.bulkRedact removes a drawn box on even pages only', async ({ app }) => {
+    await app.cmd('tools.bulkRedact');
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.locator('.lr-count')).toHaveCount(3);
+    for (let i = 0; i < 3; i++) await panel.getByRole('button', { name: 'Remove box' }).first().click();
+    await drawBox(app, S.labelBox);
+    await expect(panel.locator('.lr-text')).toHaveText([S.labels[0]!]);
+    await panel.getByLabel('Even').check();
+    await panel.getByRole('button', { name: 'Redact 1 page' }).click();
+    await expect(app.notice()).toHaveText(/^Redacted: removed .* on 1 page\./, { timeout: 30_000 });
+    expect(await app.search('ROOM')).toEqual([1, 3]);
+  });
+
+  test.describe('from the ribbon', () => {
+    test.use({ toolbar: 'ribbon' });
+
+    test('tools.bulkRedact on the Bulk tab covers the boxes', async ({ app }) => {
+      const ribbon = app.page.locator('.ribbon');
+      await ribbon.getByRole('tab', { name: 'Bulk' }).click();
+      await ribbon.locator('[data-ribbon-command="tools.bulkRedact"]').click();
+      const panel = app.page.locator('.label-regions');
+      await expect(panel.locator('.lr-count')).toHaveCount(3);
+      await panel.getByLabel('Cover with').check();
+      await panel.getByRole('button', { name: 'Redact 3 pages' }).click();
+      await expect(app.notice()).toHaveText(/^Redacted: removed .* on 3 pages\./, { timeout: 30_000 });
+      expect(await app.search('ROOM')).toEqual([]);
+      expect(await app.search('SCALE')).toEqual([]);
+    });
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });
