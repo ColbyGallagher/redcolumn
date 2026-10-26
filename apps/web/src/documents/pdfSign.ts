@@ -3,7 +3,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRe
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
 import { saveIncremental, snapshot } from './incremental';
 import { binaryToBytes, bytesToBinary, readCertificate, type UnlockedId } from './digitalIds';
-import { buildChain, buildSignedData, readTimestamp, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type RawSign, type TimestampInfo } from './pki';
+import { buildChain, buildSignedData, certFacts, readTimestamp, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type RawSign, type TimestampInfo } from './pki';
 
 /**
  * PDF digital signatures: signing (a CMS detached signature over the file's bytes, written with
@@ -108,6 +108,7 @@ export function softwareSigner(id: UnlockedId): Signer {
 /** Signs a PDF with a Digital ID or another `Signer`. The input's bytes are kept; the signature is appended. */
 export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: SignRequest): Promise<Uint8Array> {
   const signerKey = 'sign' in id ? id : softwareSigner(id);
+  if (!signerKey.chainDer.length) throw new Error('This Digital ID has no certificate to sign with');
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const before = snapshot(doc, bytes);
   const ctx = doc.context;
@@ -190,7 +191,15 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const signed = new Uint8Array(a + (out.length - b));
   signed.set(out.subarray(0, a), 0);
   signed.set(out.subarray(b), a);
-  let der = await buildSignedData(signed, signerKey.chainDer, date, req.digest ?? 'SHA-256', signerKey.sign);
+  // A card or other Signer is checked against its certificate before its signature is written in:
+  // the wrong key or format would otherwise save a PDF whose signature can never be valid.
+  const spki = (await certFacts(signerKey.chainDer[0]!)).spki;
+  const checkedSign: RawSign = async (data, hash) => {
+    const value = await signerKey.sign(data, hash);
+    if (!(await verifySignature(spki, hash, data, value))) throw new Error('The signature does not match the certificate: the card or token signed with another key, or in a way this app cannot use');
+    return value;
+  };
+  let der = await buildSignedData(signed, signerKey.chainDer, date, req.digest ?? 'SHA-256', checkedSign);
   if (req.timestamp) der = withTimestamp(der, await req.timestamp(signatureValueOf(der)));
   const hexSig = [...der].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
   if (hexSig.length > zeros.length) throw new Error('The signature is larger than the space for it');
