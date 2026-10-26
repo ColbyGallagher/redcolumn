@@ -195,6 +195,8 @@ export interface RedactRequest {
   /** Text written on each overlay box (e.g. "REDACTED"), in `overlayTextColor`. */
   overlayText?: string;
   overlayTextColor?: [number, number, number];
+  /** Remove only characters; lines, shapes and pictures in the regions are left as they are. */
+  textOnly?: boolean;
 }
 
 export interface RedactReport {

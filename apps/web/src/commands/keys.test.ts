@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignKey, comboOf, DEFAULT_KEYS, formatCombo, keyMap, keysFor, removeKey, resetKeys } from './keys.ts';
+import { assignKey, comboOf, DEFAULT_KEYS, formatCombo, keyMap, platformKeys, keysFor, removeKey, resetKeys } from './keys.ts';
 
 const ev = (key: string, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean; meta?: boolean; code?: string } = {}) => ({
   key,
@@ -31,6 +31,16 @@ test('plus, minus and digits are named by key, whatever Shift does to the charac
   assert.equal(comboOf(ev('!', { shift: true, code: 'Digit1' })), 'Shift+1');
   assert.equal(formatCombo('Ctrl+Shift+Plus'), 'Ctrl+Shift++');
   assert.equal(formatCombo('Minus'), '−');
+});
+
+test('on a Mac shortcuts are written with ⌘ ⌥ ⇧', () => {
+  assert.equal(platformKeys('Ctrl+S', true), '⌘S');
+  assert.equal(platformKeys('Ctrl+Shift+S', true), '⇧⌘S');
+  assert.equal(platformKeys('Ctrl+Alt+L', true), '⌥⌘L');
+  assert.equal(platformKeys('Save (Ctrl+Shift++)', true), 'Save (⇧⌘+)');
+  assert.equal(platformKeys('Alt+←', true), '⌥←');
+  assert.equal(platformKeys('PgUp', true), 'PgUp');
+  assert.equal(platformKeys('Ctrl+Shift+S', false), 'Ctrl+Shift+S');
 });
 
 test('default shortcuts never give one combo to two commands', () => {

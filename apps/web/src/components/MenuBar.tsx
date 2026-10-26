@@ -363,6 +363,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="PDF Content">
               <Cmd id="edit.selectText" />
               <Cmd id="edit.eraseContent" />
+              <Cmd id="tools.bulkRedact" />
               <Cmd id="edit.cutContent" />
               <Cmd id="edit.editText" />
             </Submenu>
@@ -453,6 +454,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             </Submenu>
             <Cmd id="document.scaleRegions" label="Bulk Apply Page Scale…" />
             <Cmd id="document.headerFooter" />
+            <Cmd id="tools.bulkRedact" />
             <Cmd id="document.security" />
             <Sep />
             <Cmd id="document.compare" />
@@ -489,6 +491,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="batch.colour" />
             <Cmd id="batch.headerFooter" />
             <Cmd id="batch.removeHeaderFooter" />
+            <Cmd id="tools.bulkRedact" />
             <Cmd id="batch.stamp" />
             <Sep />
             <Cmd id="batch.crop" />
@@ -550,6 +553,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="Redaction">
               <Cmd id="tool.redaction" label="Mark for Redaction" />
               <Cmd id="tools.applyRedactions" />
+              <Cmd id="tools.bulkRedact" />
             </Submenu>
             <Cmd id="tool.hyperlink" />
             <Cmd id="tool.attachment" />
