@@ -259,7 +259,8 @@ export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate,
             {pw && pw2 && pw !== pw2 && <p className="print-hint">The passwords don’t match.</p>}
             <div className="actions">
               <span className="spacer" />
-              <button type="button" className="btn" disabled={busy} onClick={() => (ids.length ? setMode('list') : onClose())}>
+              {/* To the list even with no IDs yet: it offers importing and adding a card too. */}
+              <button type="button" className="btn" disabled={busy} onClick={() => setMode('list')}>
                 Back
               </button>
               <button type="submit" className="btn primary" disabled={busy || !name.trim() || !pw || pw !== pw2}>

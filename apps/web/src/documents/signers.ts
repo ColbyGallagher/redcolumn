@@ -14,11 +14,20 @@ export function signerFor(record: DigitalIdRecord, secret: string | null): Unloc
   const { ref, pinPad } = record.token;
   const pin = pinPad ? null : secret;
   if (pin === null && !pinPad) throw new Error('Enter the card’s PIN');
+  // Cards lock after a few wrong PINs (three on most): once the card refuses this PIN, the rest of
+  // a Bulk Sign fails here without trying it again.
+  let refused: Error | null = null;
   return {
     chainDer: tokenChain(record),
-    sign: (data, hash) => {
+    sign: async (data, hash) => {
       if (hash === 'SHA-1') throw new Error('Cards sign with SHA-256 or stronger');
-      return tokens.sign(ref, hash, data, pin);
+      if (refused) throw refused;
+      try {
+        return await tokens.sign(ref, hash, data, pin);
+      } catch (err) {
+        if (err instanceof Error && /\bPIN\b/.test(err.message)) refused = err;
+        throw err;
+      }
     },
   };
 }

@@ -3417,8 +3417,9 @@ export function App() {
 
   /** Form edits run one after another, each on the document's current contents. */
   const formQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /** `rethrow`: a failure goes back to the caller (a dialog that shows it and stays open) instead of the error bar. */
   const editForm = useCallback(
-    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string): Promise<boolean> => {
+    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string, rethrow = false): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
@@ -3438,10 +3439,12 @@ export function App() {
           );
         })
         .catch((err) => {
+          if (rethrow) throw err;
           setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
           return false;
         });
-      formQueue.current = run;
+      // The queue carries on after a failure.
+      formQueue.current = run.catch(() => false);
       return run;
     },
     [commitDocument],
@@ -3597,6 +3600,8 @@ export function App() {
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
+        // A card checks its PIN only now: a wrong one is shown in the Sign dialog, which stays open.
+        true,
       );
       if (!ok) return;
       setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);

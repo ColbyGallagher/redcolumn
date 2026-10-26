@@ -10,9 +10,10 @@ import { ecdsaToDer, TokenService } from './token.ts';
 /**
  * Against a real PKCS#11 driver: SoftHSM2, a software token, holding an RSA and an EC key with
  * their certificates. CI installs it (softhsm2, opensc, see .github/workflows/ci.yml); elsewhere
- * these tests are skipped when it is not installed.
+ * these tests are skipped when it is not installed. SOFTHSM2_LIB names the driver where it is
+ * somewhere else (Windows: the softhsm2-x64.dll of SoftHSM2 for Windows).
  */
-const SOFTHSM = ['/usr/lib/softhsm/libsofthsm2.so', '/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so', '/opt/homebrew/lib/softhsm/libsofthsm2.so', '/usr/local/lib/softhsm/libsofthsm2.so'].find((p) => existsSync(p));
+const SOFTHSM = [process.env.SOFTHSM2_LIB ?? '', '/usr/lib/softhsm/libsofthsm2.so', '/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so', '/opt/homebrew/lib/softhsm/libsofthsm2.so', '/usr/local/lib/softhsm/libsofthsm2.so'].find((p) => existsSync(p));
 // A private SoftHSM configuration and token folder: the system one is not readable by an ordinary
 // user (CI runs as one), and the tests must not touch it.
 const dir = mkdtempSync(path.join(os.tmpdir(), 'rc-token-'));
@@ -36,20 +37,34 @@ const skip = ready ? false : 'SoftHSM2 and OpenSC (pkcs11-tool) are not installe
 const PIN = '123456';
 const TOKEN = 'Test Card';
 
-/** A fresh SoftHSM token with an RSA key (ID 01) and a P-256 key (ID 02), each with a self-signed certificate. */
+/**
+ * A fresh SoftHSM token with an RSA key (ID 01) whose certificate a CA on the token issued (ID 03,
+ * no key), and a P-256 key (ID 02) with a self-signed certificate.
+ */
 function provision() {
   const run = (cmd: string, args: string[]) => execFileSync(cmd, args, { cwd: dir, stdio: 'pipe' });
   run('softhsm2-util', ['--init-token', '--free', '--label', TOKEN, '--pin', PIN, '--so-pin', '654321']);
+  const writeCert = (name: string, id: string) => {
+    run('openssl', ['x509', '-in', `${name}.pem`, '-outform', 'DER', '-out', `${name}.der`]);
+    run('pkcs11-tool', ['--module', SOFTHSM!, '--token-label', TOKEN, '--login', '--pin', PIN, '--write-object', `${name}.der`, '--type', 'cert', '--id', id, '--label', name]);
+  };
+  run('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.pem', '-days', '2', '-subj', '/CN=Token CA']);
+  writeCert('ca', '03');
   const certs: Record<string, X509Certificate> = {};
   for (const [name, id, keyArgs] of [
     ['rsa', '01', ['-newkey', 'rsa:2048']],
     ['ec', '02', ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256']],
   ] as const) {
-    run('openssl', ['req', '-x509', ...keyArgs, '-nodes', '-keyout', `${name}.key`, '-out', `${name}.pem`, '-days', '2', '-subj', `/CN=Token ${name.toUpperCase()}`]);
+    const subj = `/CN=Token ${name.toUpperCase()}`;
+    if (name === 'rsa') {
+      run('openssl', ['req', '-new', ...keyArgs, '-nodes', '-keyout', `${name}.key`, '-out', `${name}.csr`, '-subj', subj]);
+      run('openssl', ['x509', '-req', '-in', `${name}.csr`, '-CA', 'ca.pem', '-CAkey', 'ca.key', '-set_serial', '2', '-days', '2', '-out', `${name}.pem`]);
+    } else {
+      run('openssl', ['req', '-x509', ...keyArgs, '-nodes', '-keyout', `${name}.key`, '-out', `${name}.pem`, '-days', '2', '-subj', subj]);
+    }
     run('openssl', ['pkcs8', '-topk8', '-nocrypt', '-in', `${name}.key`, '-out', `${name}.p8`]);
-    run('openssl', ['x509', '-in', `${name}.pem`, '-outform', 'DER', '-out', `${name}.der`]);
     run('softhsm2-util', ['--import', `${name}.p8`, '--token', TOKEN, '--label', name, '--id', id, '--pin', PIN]);
-    run('pkcs11-tool', ['--module', SOFTHSM!, '--token-label', TOKEN, '--login', '--pin', PIN, '--write-object', `${name}.der`, '--type', 'cert', '--id', id, '--label', name]);
+    writeCert(name, id);
     certs[name] = new X509Certificate(readFileSync(path.join(dir, `${name}.pem`)));
   }
   return { dir, certs };
@@ -62,12 +77,13 @@ const toBeSigned = new TextEncoder().encode('the signed attributes of a PDF sign
 test('lists the certificates on the token, each with a reference to its key', { skip }, async () => {
   const { certificates, problems } = await service().certificates();
   assert.deepEqual(problems, []);
+  // Not the CA that issued the RSA certificate; the self-signed EC one (a CA too, as OpenSSL makes it) is kept.
   assert.deepEqual(certificates.map((c) => c.label).sort(), ['ec', 'rsa']);
   for (const c of certificates) {
     assert.equal(c.token, TOKEN);
     assert.equal(c.module, 'SoftHSM');
     assert.equal(c.pinPad, false);
-    assert.equal(c.others.length, 1, 'the other certificate on the token is offered for the chain');
+    assert.equal(c.others.length, 2, 'the other certificates on the token (the CA among them) are offered for the chain');
     assert.equal(new X509Certificate(Buffer.from(c.certificate)).fingerprint256, setup!.certs[c.label]!.fingerprint256);
   }
 });

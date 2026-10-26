@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, X509Certificate } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pkcs11js from 'pkcs11js';
@@ -306,6 +306,24 @@ function slotOf(lib: Lib, token: string): { slot: Handle; info: pkcs11js.TokenIn
   throw new Error('The card or token is not inserted.');
 }
 
+/** A CA certificate that issued another certificate on the same token: the chain, not an ID. */
+function issuerOfAnother(ders: Uint8Array[], k: number): boolean {
+  try {
+    const ca = new X509Certificate(ders[k]!);
+    if (!ca.ca) return false;
+    return ders.some((d, j) => {
+      if (j === k) return false;
+      try {
+        return new X509Certificate(d).checkIssued(ca);
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
 function listOn(lib: Lib, driver: Driver): TokenCertificate[] {
   const out: TokenCertificate[] = [];
   for (const slot of lib.C_GetSlotList(true)) {
@@ -331,6 +349,9 @@ function listOn(lib: Lib, driver: Driver): TokenCertificate[] {
       );
       const ders = certs.map((a) => new Uint8Array(a.get(pkcs11js.CKA_VALUE) as Buffer));
       certs.forEach((a, k) => {
+        // The issuing CAs a card carries complete the chain; they are not IDs to sign with. Keys
+        // usually only show after the PIN, so hasKey cannot tell them apart.
+        if (issuerOfAnother(ders, k)) return;
         const id = a.get(pkcs11js.CKA_ID);
         const keyId = Buffer.isBuffer(id) ? id.toString('hex') : '';
         const label = a.get(pkcs11js.CKA_LABEL);

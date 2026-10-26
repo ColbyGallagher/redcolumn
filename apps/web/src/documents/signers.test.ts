@@ -59,6 +59,26 @@ test('a reader with its own keypad gets no PIN from the app', async (t) => {
   assert.equal(calls[0]?.pin, null);
 });
 
+test('once the card refuses the PIN, a Bulk Sign does not try it again (cards lock after a few)', async (t) => {
+  t.after(() => delete (globalThis as { window?: unknown }).window);
+  const { chainDer } = await fakeCard();
+  let asked = 0;
+  (globalThis as { window?: unknown }).window = {
+    redcolumn: {
+      tokens: {
+        sign: async () => {
+          asked++;
+          throw new Error('The PIN is not right.');
+        },
+      },
+    },
+  };
+  const record = await tokenDigitalId({ ref: 'r', label: 'k', token: 'C', pinPad: false, chainDer });
+  const signer = signerFor(record, '000000');
+  for (let k = 0; k < 3; k++) await assert.rejects(signPdf(await sample(), signer, {}), /PIN is not right/);
+  assert.equal(asked, 1);
+});
+
 test('an ID on a card needs the desktop app; a .p12 ID still needs its password', async () => {
   delete (globalThis as { window?: unknown }).window;
   const unlocked = unlockId(await idPromise, 'pw');
