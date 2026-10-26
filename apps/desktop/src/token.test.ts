@@ -31,7 +31,9 @@ const tools = (() => {
   }
 })();
 const ready = !!SOFTHSM && tools;
-if (!ready && process.env.CI) throw new Error('SoftHSM2 and OpenSC must be installed in CI for the token tests');
+// The CI job that installs them sets REQUIRE_TOKEN_TESTS, so they cannot quietly stop running there;
+// other jobs (the macOS package, releases) skip them.
+if (!ready && process.env.REQUIRE_TOKEN_TESTS) throw new Error('SoftHSM2 and OpenSC must be installed for the token tests');
 const skip = ready ? false : 'SoftHSM2 and OpenSC (pkcs11-tool) are not installed';
 
 const PIN = '123456';

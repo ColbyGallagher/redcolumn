@@ -48,6 +48,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        # Only this job installs SoftHSM2 and OpenSC: here the token tests must run, not skip.
+        env:
+          REQUIRE_TOKEN_TESTS: '1'
 
       - name: Build
         run: pnpm build
