@@ -58,9 +58,33 @@ export function comboOf(e: KeyLike): string | null {
   return parts.join('+');
 }
 
-/** A combo as shown in menus and tooltips: `Ctrl+Shift+Plus` → `Ctrl+Shift++`. */
+/** True on Apple platforms, where shortcuts are written with ⌘ ⌥ ⇧. */
+export function isMac(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+}
+
+const MAC_MODIFIERS: Record<string, string> = { Alt: '⌥', Shift: '⇧', Ctrl: '⌘' };
+
+/**
+ * Rewrites the modifiers in shortcut text for the platform: on a Mac `Ctrl+Shift+S` reads `⇧⌘S`
+ * (Cmd counts as Ctrl, see comboOf). Elsewhere the text is returned as it is.
+ */
+export function platformKeys(text: string, mac = isMac()): string {
+  if (!mac) return text;
+  return text.replace(/(?:(?:Ctrl|Alt|Shift)\+)+/g, (run) =>
+    run
+      .split('+')
+      .filter(Boolean)
+      .sort((a, b) => 'Alt Shift Ctrl'.indexOf(a) - 'Alt Shift Ctrl'.indexOf(b))
+      .map((m) => MAC_MODIFIERS[m]!)
+      .join(''),
+  );
+}
+
+/** A combo as shown in menus and tooltips: `Ctrl+Shift+Plus` → `Ctrl+Shift++` (`⇧⌘+` on a Mac). */
 export function formatCombo(combo: string): string {
-  return combo.replace(/Plus$/, '+').replace(/Minus$/, '−');
+  return platformKeys(combo.replace(/Plus$/, '+').replace(/Minus$/, '−'));
 }
 
 /**

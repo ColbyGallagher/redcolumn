@@ -1,4 +1,5 @@
 import { RENDER_CANCELLED, type PdfDocument, type RenderResult } from '@nb/pdf-core';
+import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
 import { spreadRows } from './layout';
@@ -1575,6 +1576,8 @@ export class TileViewer {
   private onPointerDown = (e: PointerEvent) => {
     if (e.pointerType === 'pen') this.pens.pen('down', e.timeStamp);
     if (e.pointerType === 'touch' && this.touchDown(e)) return;
+    // Ctrl+click is a Mac's right-click: the menu follows, so it must not also start a drawing or a drag.
+    if (e.button === 0 && e.ctrlKey && e.pointerType === 'mouse' && isMac()) return;
     this.canvas.setPointerCapture(e.pointerId);
     const page = this.eventPage(e);
     if (e.button === 0 && this.doc && (this.navTool === 'zoomBox' || this.navTool === 'dynamicZoom')) {
