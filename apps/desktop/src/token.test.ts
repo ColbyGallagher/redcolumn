@@ -141,6 +141,13 @@ test('a picked driver is checked, kept across restarts, and can be removed', { s
   assert.deepEqual(await again.modules(), []);
 });
 
+test('picking a driver that is already one of the common install paths keeps its ID', { skip }, async () => {
+  const tokens = service();
+  const [known] = await tokens.modules();
+  assert.deepEqual(await tokens.addModule(SOFTHSM!), known);
+  assert.deepEqual(await tokens.modules(), [known]);
+});
+
 test('a driver that cannot load is reported, and the others still list', { skip }, async () => {
   const tokens = new TokenService(path.join(setup!.dir, 'drivers-bad.json'), [
     ['Broken', path.join(setup!.dir, 'rsa.pem')],

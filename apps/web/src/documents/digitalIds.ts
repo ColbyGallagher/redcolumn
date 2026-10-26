@@ -239,8 +239,9 @@ function write(key: string, value: unknown) {
 
 export const digitalIds = {
   list: (): DigitalIdRecord[] => read<DigitalIdRecord[]>(IDS_KEY, []),
+  /** Replaces an ID with the same certificate of the same kind: a .p12 and the same certificate on a card are both kept. */
   add(r: DigitalIdRecord) {
-    write(IDS_KEY, [...digitalIds.list().filter((x) => x.fingerprint !== r.fingerprint), r]);
+    write(IDS_KEY, [...digitalIds.list().filter((x) => x.fingerprint !== r.fingerprint || !!x.token !== !!r.token), r]);
   },
   remove(id: string) {
     write(IDS_KEY, digitalIds.list().filter((x) => x.id !== id));

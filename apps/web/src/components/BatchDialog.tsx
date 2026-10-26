@@ -153,7 +153,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   const [paper, setPaper] = useState(PAGE_SIZES.find((p) => p.id === 'tabloid')!.id);
   const [fit, setFit] = useState(true);
   const [split, setSplit] = useState<SplitSpec>(DEFAULT_SPLIT);
-  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
+  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && !ids[0].token && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
   const [tsa, setTsa] = useState(savedTsa);
   const [keepRevisions, setKeepRevisions] = useState(true);
   const [results, setResults] = useState<BatchResult[] | null>(null);
@@ -404,7 +404,14 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                 {!ids.length && <p className="print-error">Make or import a Digital ID first (Signatures panel › Digital IDs).</p>}
                 <label className="row">
                   Digital ID
-                  <select value={sign.idId} onChange={(e) => setSign({ ...sign, idId: e.target.value })}>
+                  <select
+                  value={sign.idId}
+                  onChange={(e) => {
+                    // A password typed for one ID is never sent to another: to a card it would use up a PIN try.
+                    const next = ids.find((i) => i.id === e.target.value);
+                    setSign({ ...sign, idId: e.target.value, password: (next && !next.token && recalledPassword(next.id)) || '' });
+                  }}
+                >
                     {ids.map((id) => (
                       <option key={id.id} value={id.id}>
                         {id.name}

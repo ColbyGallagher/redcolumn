@@ -13,9 +13,9 @@ export function signerFor(record: DigitalIdRecord, secret: string | null): Unloc
   if (!tokens) throw new Error('This Digital ID is on a smart card or USB token, which only the desktop app can use');
   const { ref, pinPad } = record.token;
   const pin = pinPad ? null : secret;
-  if (pin === null && !pinPad) throw new Error('Enter the card’s PIN');
-  // Cards lock after a few wrong PINs (three on most): once the card refuses this PIN, the rest of
-  // a Bulk Sign fails here without trying it again.
+  if (!pin && !pinPad) throw new Error('Enter the card’s PIN');
+  // Cards lock after a few wrong PINs (three on most): once the card refuses this PIN, or the
+  // person cancels on the reader, the rest of a Bulk Sign fails here without asking the card again.
   let refused: Error | null = null;
   return {
     chainDer: tokenChain(record),
@@ -25,7 +25,7 @@ export function signerFor(record: DigitalIdRecord, secret: string | null): Unloc
       try {
         return await tokens.sign(ref, hash, data, pin);
       } catch (err) {
-        if (err instanceof Error && /\bPIN\b/.test(err.message)) refused = err;
+        if (err instanceof Error && /\bPIN\b|Cancelled on the reader|card is locked/.test(err.message)) refused = err;
         throw err;
       }
     },

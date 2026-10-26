@@ -331,8 +331,9 @@ function CardPicker({ have, busy, onPick, onBack }: { have: DigitalIdRecord[]; b
   };
   useEffect(refresh, []);
   const mine = new Set(have.map((r) => r.token?.ref).filter(Boolean));
-  // Signing certificates first: those whose key is visible, then those whose key may show after the PIN.
-  const list = (found?.certificates ?? []).filter((c) => c.hasKey !== false).sort((a, b) => Number(b.hasKey === true) - Number(a.hasKey === true));
+  // Signing certificates first: those whose key is visible, then the rest. A card can show some keys
+  // and keep its signing key hidden until the PIN, so none is left out.
+  const list = [...(found?.certificates ?? [])].sort((a, b) => Number(b.hasKey === true) - Number(a.hasKey === true));
   return (
     <>
       <p className="print-hint">Insert the card or token. Its key never leaves it: the card signs, with its PIN, each time.</p>
@@ -498,7 +499,14 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           <>
             <label className="row">
               Digital ID
-              <select value={idId} onChange={(e) => setIdId(e.target.value)}>
+              <select
+                value={idId}
+                onChange={(e) => {
+                  setIdId(e.target.value);
+                  // A password typed for one ID is never sent to another: to a card it would use up a PIN try.
+                  setPassword('');
+                }}
+              >
                 {ids.map((id) => (
                   <option key={id.id} value={id.id}>
                     {id.name}

@@ -171,6 +171,9 @@ export class TokenService {
     if (!path.isAbsolute(file) || !(await fs.stat(file).then((s) => s.isFile(), () => false))) throw new Error('That driver file cannot be read.');
     const existing = this.added.find((a) => a.path === file);
     if (existing) return { id: existing.id, name: existing.name, added: true };
+    // One of the common install paths: keep its own ID, which card IDs already added refer to.
+    const known = this.known.find((k) => k.path.toLowerCase() === file.toLowerCase());
+    if (known) return { id: known.id, name: known.name, added: false };
     // Check it really is a PKCS#11 driver before keeping it.
     const name = await this.run({ id: '', name: '', path: file }, (lib) => {
       const info = lib.C_GetInfo();
@@ -207,16 +210,20 @@ export class TokenService {
         throw new Error(`The driver ${driver.name || path.basename(driver.path)} did not load: ${err instanceof Error ? err.message : String(err)}`);
       }
       try {
+        // Initialised by something else in this process (Chromium's NSS can load the same driver):
+        // use it, and leave finalising it to whoever set it up.
+        let mine = true;
         try {
           lib.C_Initialize({ flags: pkcs11js.CKF_OS_LOCKING_OK });
         } catch (err) {
           if ((err as { code?: number }).code !== pkcs11js.CKR_CRYPTOKI_ALREADY_INITIALIZED) throw err;
+          mine = false;
         }
         try {
           return job(lib);
         } finally {
           try {
-            lib.C_Finalize();
+            if (mine) lib.C_Finalize();
           } catch {
             // Already finalised or the card went away; unloading is what matters.
           }
@@ -380,11 +387,21 @@ function signOn(lib: Lib, token: string, keyId: Buffer, hash: TokenHash, digest:
   const session = lib.C_OpenSession(slot, pkcs11js.CKF_SERIAL_SESSION);
   let loggedIn = false;
   try {
-    try {
+    const login = () => {
       lib.C_Login(session, pkcs11js.CKU_USER, pin ?? undefined);
       loggedIn = true;
+    };
+    try {
+      login();
     } catch (err) {
       if ((err as { code?: number }).code !== pkcs11js.CKR_USER_ALREADY_LOGGED_IN) throw explain(err);
+      // Someone else's login would let any PIN sign: log out and check this one.
+      try {
+        lib.C_Logout(session);
+        login();
+      } catch (again) {
+        throw explain(again);
+      }
     }
     const [key] = find(lib, session, [
       { type: pkcs11js.CKA_CLASS, value: pkcs11js.CKO_PRIVATE_KEY },
