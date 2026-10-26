@@ -225,6 +225,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'tools.applyRedactions': { spec: 'forms-sign-stamps' },
   'tools.assemblies': { spec: 'measure' },
   'tools.autoFields': { spec: 'forms-sign-stamps' },
+  'tools.bulkRedact': { spec: 'document' },
   'tools.columns': 'todo',
   'tools.digitalIds': { spec: 'forms-sign-stamps' },
   'tools.eraserLarge': { spec: 'markup-tools' },
