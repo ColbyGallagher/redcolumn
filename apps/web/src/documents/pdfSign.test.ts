@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import forge from 'node-forge';
 import { PDFDocument } from 'pdf-lib';
 import { createSelfSignedId, importDigitalId, unlockId, readCertificate, binaryToBytes } from './digitalIds.ts';
-import { checkSignatures, signPdf, signedVersion } from './pdfSign.ts';
+import { checkSignatures, signPdf, signedVersion, type Signer } from './pdfSign.ts';
 import { saveIncremental, snapshot } from './incremental.ts';
 import { createFields } from './forms.ts';
 
@@ -146,4 +146,93 @@ test('an unsigned file is written again rather than appended to', async () => {
   const bytes = new Uint8Array(await setDocumentInfo(original.slice().buffer, { title: 'New', author: '', subject: '', keywords: '' }));
   assert.notDeepEqual(bytes.subarray(0, original.length), original);
   assert.equal((await PDFDocument.load(bytes)).getTitle(), 'New');
+});
+
+// --- Keys this app never holds (smart cards, USB tokens) --------------------------------------------
+
+const subtle = globalThis.crypto.subtle;
+const asn1 = forge.asn1;
+type Node = forge.asn1.Asn1;
+const node = (tag: number, constructed: boolean, value: Node[] | string) => asn1.create(asn1.Class.UNIVERSAL, tag, constructed, value);
+const seq = (...v: Node[]) => node(asn1.Type.SEQUENCE, true, v);
+const oidNode = (o: string) => node(asn1.Type.OID, false, asn1.oidToDer(o).getBytes());
+const toBin = (b: Uint8Array) => String.fromCharCode(...b);
+const derOf = (n: Node) => binaryToBytes(asn1.toDer(n).getBytes());
+/** An unsigned big-endian integer, as a DER INTEGER. */
+const uint = (b: Uint8Array) => {
+  let i = 0;
+  while (i < b.length - 1 && b[i] === 0) i++;
+  const v = b.subarray(i);
+  return node(asn1.Type.INTEGER, false, toBin(v[0]! & 0x80 ? new Uint8Array([0, ...v]) : v));
+};
+/** WebCrypto's ECDSA r‖s as the DER SEQUENCE a CMS carries (what a PKCS #11 token returns raw, too). */
+const ecdsaDer = (raw: Uint8Array) => derOf(seq(uint(raw.subarray(0, raw.length / 2)), uint(raw.subarray(raw.length / 2))));
+
+/** A self-signed P-256 certificate whose private key is non-extractable, like a token's. */
+async function ecToken(): Promise<Signer> {
+  const keys = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+  const spki = new Uint8Array(await subtle.exportKey('spki', keys.publicKey));
+  const ecdsaSha256 = seq(oidNode('1.2.840.10045.4.3.2'));
+  const name = node(asn1.Type.SEQUENCE, true, [node(asn1.Type.SET, true, [seq(oidNode('2.5.4.3'), node(asn1.Type.UTF8, false, 'Token Signer'))])]);
+  const now = Date.now();
+  const tbs = seq(
+    asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [node(asn1.Type.INTEGER, false, asn1.integerToDer(2).getBytes())]),
+    uint(new Uint8Array([0x2a])),
+    ecdsaSha256,
+    name,
+    seq(node(asn1.Type.UTCTIME, false, asn1.dateToUtcTime(new Date(now - 86_400_000))), node(asn1.Type.UTCTIME, false, asn1.dateToUtcTime(new Date(now + 86_400_000)))),
+    name,
+    asn1.fromDer(toBin(spki)),
+  );
+  const sig = ecdsaDer(new Uint8Array(await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, derOf(tbs) as BufferSource)));
+  const cert = derOf(seq(tbs, ecdsaSha256, node(asn1.Type.BITSTRING, false, '\x00' + toBin(sig))));
+  return {
+    chainDer: [cert],
+    sign: async (data, hash) => ecdsaDer(new Uint8Array(await subtle.sign({ name: 'ECDSA', hash }, keys.privateKey, data as BufferSource))),
+  };
+}
+
+test('a key held outside the app signs through a Signer (RSA in WebCrypto, never exported)', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const pkcs8 = derOf(forge.pki.wrapRsaPrivateKey(forge.pki.privateKeyToAsn1(unlocked.key)));
+  const key = await subtle.importKey('pkcs8', pkcs8 as BufferSource, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const seen: string[] = [];
+  const token: Signer = {
+    chainDer: unlocked.chainDer,
+    sign: async (data, hash) => {
+      seen.push(hash);
+      return new Uint8Array(await subtle.sign('RSASSA-PKCS1-v1_5', key, data as BufferSource));
+    },
+  };
+  const signed = await signPdf(await sample(), token, { area: { pageIndex: 0, rect: { x: 40, y: 40, w: 180, h: 50 } }, reason: 'Approved' });
+  assert.deepEqual(seen, ['SHA-256'], 'signed once, over the signed attributes');
+  const [check] = await checkSignatures(signed);
+  assert.equal(check?.problem, null);
+  assert.equal(check?.intact, true);
+  assert.equal(check?.signer, 'Jane Engineer');
+  assert.equal(check?.certificate?.fingerprint, (await idPromise).fingerprint);
+});
+
+for (const digest of ['SHA-256', 'SHA-384'] as const) {
+  test(`an ECDSA P-256 token key signs with ${digest} and checks out`, async () => {
+    const signed = await signPdf(await sample(), await ecToken(), { digest, reason: 'Checked' });
+    const [check] = await checkSignatures(signed);
+    assert.equal(check?.problem, null);
+    assert.equal(check?.intact, true);
+    assert.equal(check?.signer, 'Token Signer');
+    assert.equal(check?.certificate?.selfSigned, true);
+  });
+}
+
+test('a Signer that fails leaves no signed file', async () => {
+  const failing: Signer = { chainDer: unlockId(await idPromise, 'pw').chainDer, sign: async () => { throw new Error('The card was removed'); } };
+  await assert.rejects(signPdf(await sample(), failing, {}), /card was removed/);
+});
+
+test('an ECDSA signature over the wrong bytes does not check out', async () => {
+  const token = await ecToken();
+  const wrong: Signer = { chainDer: token.chainDer, sign: (data, hash) => token.sign(new Uint8Array([...data, 0]), hash) };
+  const [check] = await checkSignatures(await signPdf(await sample(), wrong, {}));
+  assert.equal(check?.intact, false);
+  assert.match(check?.problem ?? '', /does not match/);
 });
