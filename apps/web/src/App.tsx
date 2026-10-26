@@ -130,6 +130,7 @@ import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertKeepsSignatures } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
 import type { PageText, SheetInfo } from '@nb/sheets';
@@ -1137,7 +1138,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -2471,23 +2472,33 @@ export function App() {
    * Redaction and Erase Content: the content under the areas is removed from the file (text,
    * lines and shapes, picture pixels). Redaction also covers the areas in black and removes the
    * redaction marks and any markups over them. Afterwards the pages' text is read again to check
-   * nothing is left inside the areas.
+   * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
+   * the areas, and delete markups in them.
    */
   const runRedact = useCallback(
-    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[], options?: RedactOptions) => {
+    async (
+      cur: OpenFile,
+      intoB: boolean,
+      mode: 'redact' | 'erase',
+      areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[],
+      options?: RedactOptions,
+      erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
+    ) => {
       if (!ctl || !areas.length) return;
       if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
       if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
-      const hex = options?.fill ?? '#000000';
+      const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+      const covering = redacting || !!erase?.cover;
       const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
         regions,
-        fill: redacting ? fill : null,
-        imageFill: redacting ? fill : [1, 1, 1],
+        fill: covering ? fill : null,
+        imageFill: covering ? fill : [1, 1, 1],
         ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+        ...(erase?.textOnly ? { textOnly: true } : {}),
       });
       const report = redacted.report;
       let bytes = redacted.bytes;
@@ -2499,7 +2510,7 @@ export function App() {
         const b = boundsOf(m.points);
         return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
       };
-      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : [];
+      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : erase?.removeMarkups ? cur.store.all().filter(overlaps) : [];
       await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
       // Search matches that were redacted no longer exist.
       if (redacting) {
@@ -2522,8 +2533,9 @@ export function App() {
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
       const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
-      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${redacting ? ' (they are covered by the black box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}. Checked: no text is left in the ${redacting ? 'redacted' : 'erased'} areas.`);
+      const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
+      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
+      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
   );
@@ -6909,12 +6921,22 @@ export function App() {
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `erase` is Bulk Redact, which draws its boxes the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
+    if (kind === 'erase' && studioDocOf(o.file.id)) {
+      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      return;
+    }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    setLabelMode((m) => (m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed ? m : { pane, regions: m?.pane === pane ? m.regions : [], kind, ...opts }));
+    // Erase boxes are not label boxes, so switching between them starts with none.
+    setLabelMode((m) =>
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
+        ? m
+        : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
+    );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
     void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
@@ -7452,6 +7474,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     labelRegions: () => startLabelRegions(),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
+    bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
@@ -8825,6 +8848,26 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 const missed = scales.length - done;
                 setNotice(`Set the scale on ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no readable scale in the boxes and were left as they were` : ''}.`);
                 setLabelMode(null);
+              }}
+            />
+          )}
+          {labelMode?.kind === 'erase' && labelPaneParts?.o && (
+            <EraseRegionsPanel
+              key={labelPaneParts.o.file.id}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              pageCount={labelPaneParts.o.doc.pages.length}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              texts={labelTexts}
+              pageSize={(page) => labelPaneParts.c?.viewer.pageSize(page) ?? null}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={(regions) => setLabelMode({ ...labelMode, regions })}
+              onClose={() => setLabelMode(null)}
+              onApply={(spec) => {
+                const o = labelPaneParts.o!;
+                setLabelMode(null);
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
             />
           )}
