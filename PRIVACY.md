@@ -25,6 +25,9 @@ The app keeps these in your browser's storage, on your device only:
 
 - documents you open or save to the library, with their markups, measurements and revisions;
 - your settings, profiles, tool sets, signatures and stamps, and the sheet-link marks you teach the app;
+- your Digital IDs: each locked by its own password, or, for one on a smart card or USB token,
+  only its certificate and which card it is on (the key stays on the card, and its PIN is never
+  stored);
 - a list of Live Sessions and Projects you have started or joined, which library files came from
   a Project, and check-ins and notes waiting to be sent;
 - the app itself and its OCR language data, so it works offline.

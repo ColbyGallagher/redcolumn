@@ -36,6 +36,11 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      # SoftHSM2 is a software smart card, and OpenSC's pkcs11-tool loads certificates onto it: the
+      # desktop token tests sign with them (apps/desktop/src/token.test.ts).
+      - name: Install SoftHSM2 and OpenSC
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends softhsm2 opensc
+
       - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
@@ -43,6 +48,9 @@ jobs:
 
       - name: Test
         run: pnpm test
+        # Only this job installs SoftHSM2 and OpenSC: here the token tests must run, not skip.
+        env:
+          REQUIRE_TOKEN_TESTS: '1'
 
       - name: Build
         run: pnpm build

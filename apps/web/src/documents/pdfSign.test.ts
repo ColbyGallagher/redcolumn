@@ -229,10 +229,9 @@ test('a Signer that fails leaves no signed file', async () => {
   await assert.rejects(signPdf(await sample(), failing, {}), /card was removed/);
 });
 
-test('an ECDSA signature over the wrong bytes does not check out', async () => {
+test('a Signer whose signature does not match its certificate is refused before anything is written', async () => {
   const token = await ecToken();
   const wrong: Signer = { chainDer: token.chainDer, sign: (data, hash) => token.sign(new Uint8Array([...data, 0]), hash) };
-  const [check] = await checkSignatures(await signPdf(await sample(), wrong, {}));
-  assert.equal(check?.intact, false);
-  assert.match(check?.problem ?? '', /does not match/);
+  await assert.rejects(signPdf(await sample(), wrong, {}), /does not match the certificate/);
+  await assert.rejects(signPdf(await sample(), { chainDer: [], sign: token.sign }, {}), /no certificate/);
 });

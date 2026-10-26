@@ -501,6 +501,20 @@ on iPad. Electron first, then the browser if it proves useful.
   other windows could share.
 - Offer **Encrypt local data** using `safeStorage` for people on shared computers.
 
+### E5 Smart cards and USB tokens (M)
+
+Done in `apps/desktop/src/token.ts`. Signing keys on a card stay on it; the page sends the bytes
+to sign over IPC and gets the signature value back.
+
+- A PKCS#11 driver is native code loaded into the main process, so the page never names one.
+  Drivers are a fixed list of common install paths that exist on the computer, or files the person
+  picked in a native dialog (kept in userData). The page sees driver IDs, never paths. A key
+  reference from the page is checked against those drivers before anything is loaded.
+- The PIN crosses IPC for one signature and is not kept, logged or remembered (unlike a .p12
+  password's time-out). Readers with their own keypad get no PIN from the app.
+- The hash is made in the main process; the card only signs a digest of at most 8 KB of input.
+- Each operation loads the driver, works and unloads it, so nothing stays logged in to the card.
+
 ## Testing
 
 - **Unit (`node --test`, beside `onedrive.test.ts`):** scopes requested per call (3.4); no step-up from
