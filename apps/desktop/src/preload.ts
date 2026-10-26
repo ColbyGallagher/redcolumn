@@ -75,7 +75,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     show: (id: string) => call('folder:show', id),
     removeSession: (id: string) => call('folder:remove-session', id),
   },
-  pkiFetch: async (url: string, body?: Uint8Array, type?: string) => new Uint8Array(await call<Uint8Array>('pki:fetch', url, body, type)),
+  pkiFetch: (url: string, body?: Uint8Array, type?: string) => call<Uint8Array>('pki:fetch', url, body, type),
   microsoftAccount: (clientId: string) => call('auth:microsoft-account', clientId),
   signOut: (provider: 'microsoft') => call('auth:sign-out', provider),
   assistantInfo: () => call('assistant:get'),

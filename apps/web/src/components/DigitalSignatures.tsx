@@ -333,7 +333,9 @@ export function savedTsa(): { on: boolean; url: string } {
   }
   return canTimestamp() ? saved : { ...saved, on: false };
 }
+/** Remembers the choice, except where time stamps are unavailable (savedTsa reads it as off there). */
 export function saveTsa(v: { on: boolean; url: string }) {
+  if (!canTimestamp()) return;
   try {
     localStorage.setItem(TSA_KEY, JSON.stringify(v));
   } catch {
@@ -354,10 +356,10 @@ export function TimestampOption({ value, onChange }: { value: { on: boolean; url
       }
     >
       <label className="check">
-        <input type="checkbox" checked={value.on && available} disabled={!available} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
+        <input type="checkbox" checked={value.on} disabled={!available} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
         Trusted time stamp from
       </label>
-      <input aria-label="Time stamp server" value={value.url} disabled={!value.on || !available} style={{ flex: 1 }} onChange={(e) => onChange({ ...value, url: e.target.value })} />
+      <input aria-label="Time stamp server" value={value.url} disabled={!value.on} style={{ flex: 1 }} onChange={(e) => onChange({ ...value, url: e.target.value })} />
     </div>
   );
 }
