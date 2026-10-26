@@ -130,6 +130,7 @@ import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertKeepsSignatures } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
 import type { PageText, SheetInfo } from '@nb/sheets';
@@ -1132,7 +1133,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -2466,23 +2467,33 @@ export function App() {
    * Redaction and Erase Content: the content under the areas is removed from the file (text,
    * lines and shapes, picture pixels). Redaction also covers the areas in black and removes the
    * redaction marks and any markups over them. Afterwards the pages' text is read again to check
-   * nothing is left inside the areas.
+   * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
+   * the areas, and delete markups in them.
    */
   const runRedact = useCallback(
-    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[], options?: RedactOptions) => {
+    async (
+      cur: OpenFile,
+      intoB: boolean,
+      mode: 'redact' | 'erase',
+      areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[],
+      options?: RedactOptions,
+      erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
+    ) => {
       if (!ctl || !areas.length) return;
       if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
       if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
-      const hex = options?.fill ?? '#000000';
+      const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+      const covering = redacting || !!erase?.cover;
       const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
         regions,
-        fill: redacting ? fill : null,
-        imageFill: redacting ? fill : [1, 1, 1],
+        fill: covering ? fill : null,
+        imageFill: covering ? fill : [1, 1, 1],
         ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+        ...(erase?.textOnly ? { textOnly: true } : {}),
       });
       const report = redacted.report;
       let bytes = redacted.bytes;
@@ -2494,7 +2505,7 @@ export function App() {
         const b = boundsOf(m.points);
         return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
       };
-      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : [];
+      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : erase?.removeMarkups ? cur.store.all().filter(overlaps) : [];
       await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
       // Search matches that were redacted no longer exist.
       if (redacting) {
@@ -2517,8 +2528,9 @@ export function App() {
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
       const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
-      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${redacting ? ' (they are covered by the black box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}. Checked: no text is left in the ${redacting ? 'redacted' : 'erased'} areas.`);
+      const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
+      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
+      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
   );
@@ -3065,12 +3077,13 @@ export function App() {
           // Headers & Footers: Bates numbers carry on across the files.
           let batesDone = 0;
           // Sign & Seal: the ID is unlocked (and its password checked) before any file changes.
-          let signer: { id: import('./documents/digitalIds').UnlockedId; image?: Uint8Array } | null = null;
+          // An ID on a card is checked by the card at the first signature (its PIN is sent with each).
+          let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
-            const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
-            rememberPassword(record.id, command.sign.password);
+            const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
+            if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -3411,8 +3424,9 @@ export function App() {
 
   /** Form edits run one after another, each on the document's current contents. */
   const formQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /** `rethrow`: a failure goes back to the caller (a dialog that shows it and stays open) instead of the error bar. */
   const editForm = useCallback(
-    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string): Promise<boolean> => {
+    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string, rethrow = false): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
@@ -3432,10 +3446,12 @@ export function App() {
           );
         })
         .catch((err) => {
+          if (rethrow) throw err;
           setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
           return false;
         });
-      formQueue.current = run;
+      // The queue carries on after a failure.
+      formQueue.current = run.catch(() => false);
       return run;
     },
     [commitDocument],
@@ -3572,9 +3588,9 @@ export function App() {
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
       if (!record) throw new Error('That Digital ID is no longer on this device');
-      const { unlockId } = await import('./documents/digitalIds');
+      const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
-      const id = unlockId(record, c.password);
+      const id = signerFor(record, c.password);
       const picture = c.imageId ? signatures.get().find((p) => p.id === c.imageId) : undefined;
       const image = picture ? new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) : undefined;
       const ok = await editForm(
@@ -3591,6 +3607,8 @@ export function App() {
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
+        // A card checks its PIN only now: a wrong one is shown in the Sign dialog, which stays open.
+        true,
       );
       if (!ok) return;
       setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);
@@ -6898,12 +6916,22 @@ export function App() {
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `erase` is Bulk Redact, which draws its boxes the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
+    if (kind === 'erase' && studioDocOf(o.file.id)) {
+      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      return;
+    }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    setLabelMode((m) => (m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed ? m : { pane, regions: m?.pane === pane ? m.regions : [], kind, ...opts }));
+    // Erase boxes are not label boxes, so switching between them starts with none.
+    setLabelMode((m) =>
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
+        ? m
+        : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
+    );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
     void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
@@ -7441,6 +7469,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     labelRegions: () => startLabelRegions(),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
+    bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
@@ -8817,6 +8846,26 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
+          {labelMode?.kind === 'erase' && labelPaneParts?.o && (
+            <EraseRegionsPanel
+              key={labelPaneParts.o.file.id}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              pageCount={labelPaneParts.o.doc.pages.length}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              texts={labelTexts}
+              pageSize={(page) => labelPaneParts.c?.viewer.pageSize(page) ?? null}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={(regions) => setLabelMode({ ...labelMode, regions })}
+              onClose={() => setLabelMode(null)}
+              onApply={(spec) => {
+                const o = labelPaneParts.o!;
+                setLabelMode(null);
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
+              }}
+            />
+          )}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
               key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
@@ -9143,11 +9192,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onManageIds={() => setIdsOpen(true)}
           onCancel={() => setSignFor(null)}
           onSign={async (c) => {
-            // The password is checked before anything else happens.
+            // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
-            (await import('./documents/digitalIds')).unlockId(record, c.password);
-            rememberPassword(record.id, c.password);
+            (await import('./documents/signers')).signerFor(record, c.password);
+            if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
@@ -9183,6 +9232,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDelete={(id) => {
             digitalIds.remove(id.id);
             setIdList(digitalIds.list());
+          }}
+          onAddCard={async (card) => {
+            const [{ tokenDigitalId }, { buildChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too).
+            const chain = await buildChain(card.certificate, card.others);
+            digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
           }}
         />
       )}

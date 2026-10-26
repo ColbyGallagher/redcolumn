@@ -170,6 +170,8 @@ export interface CommandActions {
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
+  /** Bulk Redact: removes what is inside the same boxes on many pages. */
+  bulkRedact: () => void;
   thumbnails: () => void;
   setTool: (tool: Tool) => void;
   manageColumns: () => void;
@@ -481,6 +483,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
       a.setTool(order[(at + 1) % order.length]!);
     }, doc && s.editable),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
+    cmd('tools.bulkRedact', 'Bulk', 'Bulk Redact…', a.bulkRedact, s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),
     cmd('tools.digitalIds', 'Tools', 'Digital IDs…', a.digitalIds),
     cmd('tools.formField', 'Tools', 'Form Field', () => a.setTool('formField'), s.pagesEditable, s.tool === 'formField'),

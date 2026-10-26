@@ -2,7 +2,8 @@ import forge from 'node-forge';
 
 /**
  * Digital IDs: a private key with its certificate, used to sign PDFs. They are made here
- * (self-signed) or imported from a .p12/.pfx file, and kept as a password-protected PKCS#12.
+ * (self-signed) or imported from a .p12/.pfx file, and kept as a password-protected PKCS#12; or
+ * they are on a smart card or USB token (desktop app), and only the certificate is kept here.
  */
 
 export interface CertificateInfo {
@@ -22,8 +23,10 @@ export interface CertificateInfo {
 
 export interface DigitalIdRecord {
   id: string;
-  /** PKCS#12, base64, protected by the ID's password. */
+  /** PKCS#12, base64, protected by the ID's password. Empty for an ID on a card. */
   p12: string;
+  /** On a smart card or USB token: its key's reference (apps/desktop/src/token.ts) and the certificate chain (DER, base64). */
+  token?: { ref: string; label: string; pinPad: boolean; chain: string[] };
   /** For lists, without unlocking. */
   name: string;
   email: string;
@@ -183,12 +186,34 @@ export async function importDigitalId(bytes: Uint8Array, password: string): Prom
 }
 
 export function unlockId(record: DigitalIdRecord, password: string): UnlockedId {
+  if (record.token) throw new Error('This Digital ID is on a card: sign with its PIN');
   return unlockP12(forge.util.decode64(record.p12), password);
 }
 
-/** The ID's certificate as a .cer (DER), to give to people who check your signatures. */
+/** The ID's certificate as a .cer (DER), to give to people who check your signatures. A card's needs no password. */
 export function certificateOf(record: DigitalIdRecord, password: string): Uint8Array {
+  if (record.token) return tokenChain(record)[0]!;
   return unlockId(record, password).chainDer[0]!;
+}
+
+/** An ID on a card: its certificate chain, the signer's first. */
+export function tokenChain(record: DigitalIdRecord): Uint8Array[] {
+  return (record.token?.chain ?? []).map((c) => fromBinary(forge.util.decode64(c)));
+}
+
+/**
+ * A Digital ID for a certificate on a card. The chain is completed from the other certificates
+ * on the card where they issued it; the key stays on the card.
+ */
+export async function tokenDigitalId(card: { ref: string; label: string; token: string; pinPad: boolean; chainDer: Uint8Array[] }): Promise<DigitalIdRecord> {
+  const info = await recordFor('', card.chainDer);
+  return {
+    id: crypto.randomUUID(),
+    createdAt: Date.now(),
+    ...info,
+    name: info.name || card.label,
+    token: { ref: card.ref, label: card.token, pinPad: card.pinPad, chain: card.chainDer.map((c) => forge.util.encode64(toBinary(c))) },
+  };
 }
 
 // --- Stored IDs and trusted certificates ---------------------------------------------------------
@@ -214,8 +239,9 @@ function write(key: string, value: unknown) {
 
 export const digitalIds = {
   list: (): DigitalIdRecord[] => read<DigitalIdRecord[]>(IDS_KEY, []),
+  /** Replaces an ID with the same certificate of the same kind: a .p12 and the same certificate on a card are both kept. */
   add(r: DigitalIdRecord) {
-    write(IDS_KEY, [...digitalIds.list().filter((x) => x.fingerprint !== r.fingerprint), r]);
+    write(IDS_KEY, [...digitalIds.list().filter((x) => x.fingerprint !== r.fingerprint || !!x.token !== !!r.token), r]);
   },
   remove(id: string) {
     write(IDS_KEY, digitalIds.list().filter((x) => x.id !== id));
@@ -242,8 +268,10 @@ export function restoreIdBackup(json: string, kind: IdBackup['kind']): number {
   const b = JSON.parse(json) as Partial<IdBackup>;
   if (b.app !== 'RedColumn' || b.kind !== kind) throw new Error(kind === 'digital-ids' ? 'This is not a Digital IDs backup.' : 'This is not a trusted identities backup.');
   if (kind === 'digital-ids') {
-    const have = new Set(digitalIds.list().map((r) => r.fingerprint));
-    const add = (b.ids ?? []).filter((r) => r && typeof r.p12 === 'string' && typeof r.fingerprint === 'string' && !have.has(r.fingerprint));
+    // By certificate and kind, as digitalIds.add: a card ID for the same certificate does not stand in for its .p12.
+    const kindOf = (r: DigitalIdRecord) => `${r.fingerprint}\u0000${r.token ? 'card' : 'p12'}`;
+    const have = new Set(digitalIds.list().map(kindOf));
+    const add = (b.ids ?? []).filter((r) => r && typeof r.p12 === 'string' && typeof r.fingerprint === 'string' && !have.has(kindOf(r)));
     for (const r of add) digitalIds.add(r);
     return add.length;
   }

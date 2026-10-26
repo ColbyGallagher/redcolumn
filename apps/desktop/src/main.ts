@@ -16,6 +16,7 @@ import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
 import { pkiRequest } from './pki';
+import { TokenService } from './token';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
@@ -134,6 +135,25 @@ async function start() {
   });
   // Time stamp servers and revocation checks for digital signatures (pki.ts).
   handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
+  // Smart cards and USB tokens (token.ts). Drivers are only ever picked here, in a native dialog.
+  const tokens = new TokenService(path.join(app.getPath('userData'), 'token-drivers.json'));
+  await tokens.restore();
+  handle('token:modules', () => tokens.modules());
+  handle('token:add-module', async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose the card’s PKCS#11 driver',
+      properties: ['openFile'],
+      filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
+    };
+    const win = mainWindow;
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? null : tokens.addModule(result.filePaths[0]);
+  });
+  handle('token:remove-module', (id) => {
+    if (typeof id === 'string') return tokens.removeModule(id);
+  });
+  handle('token:certificates', () => tokens.certificates());
+  handle('token:sign', (ref, hash, data, pin) => tokens.sign(ref, hash, data, pin));
   handle('auth:microsoft-account', (clientId) => {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);

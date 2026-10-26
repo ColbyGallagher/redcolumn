@@ -4178,6 +4178,13 @@ select[size] {
   color: var(--muted);
 }
 
+.lr-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .lr-row {
   display: flex;
   flex-wrap: wrap;

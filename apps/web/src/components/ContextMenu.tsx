@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { platformKeys } from '../commands/keys';
 
 /** One entry in a right-click menu. `items` makes it a submenu; `sep` a separator line. */
 export type MenuEntry =
@@ -90,7 +91,7 @@ function MenuList({ items, onDone, sub, scroll }: { items: MenuEntry[]; onDone: 
               {it.lead != null && <span className="lead">{it.lead}</span>}
               {it.label}
             </span>
-            {it.shortcut ? <span className="sc">{it.shortcut}</span> : <span />}
+            {it.shortcut ? <span className="sc">{platformKeys(it.shortcut)}</span> : <span />}
           </button>
         );
       })}

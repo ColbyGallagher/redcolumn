@@ -170,8 +170,13 @@ Notes:
 - **Signature checks** (trusted time stamps, certificate status) contact servers the person or the
   certificate names, which a fixed `connect-src` cannot list. Decided: they are not listed. The
   desktop app fetches them in its main process (`apps/desktop/src/pki.ts`: http(s) only, GET or a
-  time stamp / OCSP POST, never loopback, bounded size). In the browser the time stamp option is
-  greyed out and revocation checks fail with a message.
+  time stamp / OCSP POST, no cookies, answers cut off at 16 MB as they arrive, 20 s time-out, at
+  most 3 redirects, a POST only repeated on 307/308, never https to http). Every address a name
+  resolves to is checked and the connection goes to the checked address: loopback, private
+  (RFC 1918), link-local, shared (100.64/10), multicast and reserved addresses, IPv4 and IPv6,
+  are refused. Two limits follow: a company CA's own OCSP or time stamp server on a private
+  address cannot be reached, and requests do not go through a system proxy yet. In the browser
+  the time stamp option is greyed out and revocation checks fail with a message.
 - `msal-redirect.html` gets the same policy without the Google hosts. The help gets
   `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none';
   base-uri 'none'`.
@@ -502,6 +507,20 @@ on iPad. Electron first, then the browser if it proves useful.
 - Keep the library, markups and settings in the app's data folder, not in a page storage that
   other windows could share.
 - Offer **Encrypt local data** using `safeStorage` for people on shared computers.
+
+### E5 Smart cards and USB tokens (M)
+
+Done in `apps/desktop/src/token.ts`. Signing keys on a card stay on it; the page sends the bytes
+to sign over IPC and gets the signature value back.
+
+- A PKCS#11 driver is native code loaded into the main process, so the page never names one.
+  Drivers are a fixed list of common install paths that exist on the computer, or files the person
+  picked in a native dialog (kept in userData). The page sees driver IDs, never paths. A key
+  reference from the page is checked against those drivers before anything is loaded.
+- The PIN crosses IPC for one signature and is not kept, logged or remembered (unlike a .p12
+  password's time-out). Readers with their own keypad get no PIN from the app.
+- The hash is made in the main process; the card only signs a digest of at most 8 KB of input.
+- Each operation loads the driver, works and unloads it, so nothing stays logged in to the card.
 
 ## Testing
 
