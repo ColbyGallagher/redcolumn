@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createPublicKey, verify, X509Certificate } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -50,7 +50,7 @@ function provision() {
     run('openssl', ['x509', '-in', `${name}.pem`, '-outform', 'DER', '-out', `${name}.der`]);
     run('softhsm2-util', ['--import', `${name}.p8`, '--token', TOKEN, '--label', name, '--id', id, '--pin', PIN]);
     run('pkcs11-tool', ['--module', SOFTHSM!, '--token-label', TOKEN, '--login', '--pin', PIN, '--write-object', `${name}.der`, '--type', 'cert', '--id', id, '--label', name]);
-    certs[name] = new X509Certificate(execFileSync('cat', [path.join(dir, `${name}.pem`)]));
+    certs[name] = new X509Certificate(readFileSync(path.join(dir, `${name}.pem`)));
   }
   return { dir, certs };
 }
