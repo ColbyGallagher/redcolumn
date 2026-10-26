@@ -574,21 +574,16 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
 
 /** A JPEG re-encoded at `quality` through a canvas; null if the browser cannot decode it. */
 /**
- * Certificate services (time stamp servers, OCSP responders, revocation lists), reached straight from
- * the browser. Many do not allow that (CORS); then the step fails with a clear reason and signing or
- * validating carries on without it.
+ * Certificate services (time stamp servers, OCSP responders, revocation lists), which the desktop
+ * app reaches from its main process (apps/desktop/src/pki.ts). A browser cannot: the page's
+ * security policy only allows its own site and Microsoft. The step then fails with that reason
+ * and signing or validating carries on without it.
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
+  const viaDesktop = desktop()?.pkiFetch;
+  if (!viaDesktop) throw new Error('Time stamps and revocation checks need the desktop app');
   requireOnline('Time stamps and revocation checks');
-  const host = new URL(url).host;
-  let res: Response;
-  try {
-    res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
-  } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
-  }
-  if (!res.ok) throw new Error(`${host} answered ${res.status}`);
-  return new Uint8Array(await res.arrayBuffer());
+  return viaDesktop(url, body, type);
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */

@@ -15,6 +15,7 @@ import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
+import { pkiRequest } from './pki';
 import { TokenService } from './token';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
@@ -132,6 +133,8 @@ async function start() {
     }
     return broker.request(request as GraphRequest);
   });
+  // Time stamp servers and revocation checks for digital signatures (pki.ts).
+  handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
   // Smart cards and USB tokens (token.ts). Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenService(path.join(app.getPath('userData'), 'token-drivers.json'));
   await tokens.restore();

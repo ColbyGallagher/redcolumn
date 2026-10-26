@@ -411,15 +411,25 @@ export interface SignChoice {
 }
 
 const TSA_KEY = 'nb.tsaUrl';
-/** The time stamp server last used (and whether one is used). */
+/**
+ * Time stamp servers are reached by the desktop app's main process (apps/desktop/src/pki.ts). A
+ * browser cannot reach them: the page's security policy only allows its own site, and most of
+ * these servers refuse browsers anyway.
+ */
+const canTimestamp = () => !!desktop()?.pkiFetch;
+/** The time stamp server last used (and whether one is used; never where it cannot be reached). */
 export function savedTsa(): { on: boolean; url: string } {
+  let saved: { on: boolean; url: string };
   try {
-    return { on: false, url: 'http://timestamp.digicert.com', ...JSON.parse(localStorage.getItem(TSA_KEY) ?? '{}') };
+    saved = { on: false, url: 'http://timestamp.digicert.com', ...JSON.parse(localStorage.getItem(TSA_KEY) ?? '{}') };
   } catch {
-    return { on: false, url: 'http://timestamp.digicert.com' };
+    saved = { on: false, url: 'http://timestamp.digicert.com' };
   }
+  return canTimestamp() ? saved : { ...saved, on: false };
 }
+/** Remembers the choice, except where time stamps are unavailable (savedTsa reads it as off there). */
 export function saveTsa(v: { on: boolean; url: string }) {
+  if (!canTimestamp()) return;
   try {
     localStorage.setItem(TSA_KEY, JSON.stringify(v));
   } catch {
@@ -429,10 +439,18 @@ export function saveTsa(v: { on: boolean; url: string }) {
 
 /** "Add a trusted time stamp" with the server's address; the choice is remembered. */
 export function TimestampOption({ value, onChange }: { value: { on: boolean; url: string }; onChange: (v: { on: boolean; url: string }) => void }) {
+  const available = canTimestamp();
   return (
-    <div className="row" title="A time stamp server vouches for when the document was signed, so the time does not rest on this computer’s clock. It is reached through the redcolumn server.">
+    <div
+      className="row"
+      title={
+        available
+          ? 'A time stamp server vouches for when the document was signed, so the time does not rest on this computer’s clock. This computer contacts the server directly and sends it a fingerprint of the signature, not the document.'
+          : 'Trusted time stamps need the desktop app: browsers cannot reach time stamp servers.'
+      }
+    >
       <label className="check">
-        <input type="checkbox" checked={value.on} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
+        <input type="checkbox" checked={value.on} disabled={!available} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
         Trusted time stamp from
       </label>
       <input aria-label="Time stamp server" value={value.url} disabled={!value.on} style={{ flex: 1 }} onChange={(e) => onChange({ ...value, url: e.target.value })} />
