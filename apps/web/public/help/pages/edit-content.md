@@ -15,11 +15,11 @@ Removes part of the drawing (lines, text and pictures) under a box.
 
    ![Dragging an erase box over a line of notes](img/erase-content.png)
 
-## Erase Across Pages
+## Bulk Redact
 
 Removes what is inside the same boxes on many pages at once, such as a header, footer or note along the side that repeats on every page.
 
-1. Choose {{Edit > PDF Content > Erase Across Pages…}} (or {{Document > Erase Headers & Footers…}}).
+1. Choose {{Bulk > Bulk Redact…}}, or click **Bulk Redact** on the **Bulk** ribbon tab. It is also in {{Edit > PDF Content}}, the **Document** menu and {{Tools > Redaction}}.
 2. The panel looks for text that repeats at the same place near the edges of most pages and adds a box for each: **Header**, **Footer**, **Left side** or **Right side**. Each box shows its text on the current page and how many of the chosen pages have text in it.
 3. Remove any box you want to keep with **×**, or add your own with **+ Draw box**. Boxes are outlined on every page, so scroll through to check them. **Find repeated text** looks again (for example after changing the pages).
 4. Choose what to **Remove**:
@@ -28,7 +28,7 @@ Removes what is inside the same boxes on many pages at once, such as a header, f
 5. Choose **Leave blank**, or **Cover with** a coloured box.
 6. Tick **Also delete markups inside the boxes** to delete markups there too.
 7. Choose the **Pages**: all, odd, even, or a range such as `2-10, 15`.
-8. Click **Erase on N pages**.
+8. Click **Redact N pages**.
 
 On pages of another size, each box keeps its distance from the nearest edge, so a footer stays at the bottom.
 

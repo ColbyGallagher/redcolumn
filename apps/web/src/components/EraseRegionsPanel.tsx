@@ -25,8 +25,6 @@ interface Props {
   /** Each page's size, for boxes on pages of another size. */
   pageSize: (page: number) => PageSize | null;
   readOnly: boolean;
-  /** Start set to cover the boxes (Tools › Redaction › Redact Across Pages). */
-  initialCover?: boolean;
   onDraw: () => void;
   onChange: (regions: Region[]) => void;
   onApply: (spec: EraseRegionsSpec) => void;
@@ -36,16 +34,16 @@ interface Props {
 const key = (r: Region) => `${r.x},${r.y},${r.w},${r.h}`;
 
 /**
- * Erase Across Pages: removes what is inside the same boxes on many pages at once, such as a
+ * Bulk Redact: removes what is inside the same boxes on many pages at once, such as a
  * header, footer or note along the side that repeats on every page. Boxes are drawn on the page
  * or found from text that repeats at the same place; every page shows them, and each box says how
  * many of the chosen pages have text in it.
  */
-export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, texts, pageSize, readOnly, initialCover = false, onDraw, onChange, onApply, onClose }: Props) {
+export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, texts, pageSize, readOnly, onDraw, onChange, onApply, onClose }: Props) {
   const [scope, setScope] = useState<'all' | 'odd' | 'even' | 'range'>('all');
   const [range, setRange] = useState('');
   const [textOnly, setTextOnly] = useState(true);
-  const [cover, setCover] = useState(initialCover);
+  const [cover, setCover] = useState(false);
   const [fill, setFill] = useState('#000000');
   const [removeMarkups, setRemoveMarkups] = useState(false);
   const [names, setNames] = useState<Map<string, string>>(new Map());
@@ -80,9 +78,9 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
   const onPage = (r: Region) => (ref && here ? regionOnPage(r, ref, here) : r);
 
   return (
-    <div className="label-regions" role="dialog" aria-label="Erase across pages">
+    <div className="label-regions" role="dialog" aria-label="Bulk redact">
       <div className="lr-head">
-        <b>Erase Across Pages</b>
+        <b>Bulk Redact</b>
         <button className="btn small flat" onClick={onClose} title="Close" aria-label="Close">
           ×
         </button>
@@ -191,7 +189,7 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
             })
           }
         >
-          {cover ? 'Redact' : 'Erase'} on {pages.length} page{pages.length === 1 ? '' : 's'}
+          Redact {pages.length} page{pages.length === 1 ? '' : 's'}
         </button>
       </div>
     </div>

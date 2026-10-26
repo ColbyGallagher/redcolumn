@@ -1138,7 +1138,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean; cover?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -2472,7 +2472,7 @@ export function App() {
    * Redaction and Erase Content: the content under the areas is removed from the file (text,
    * lines and shapes, picture pixels). Redaction also covers the areas in black and removes the
    * redaction marks and any markups over them. Afterwards the pages' text is read again to check
-   * nothing is left inside the areas. Erase Across Pages (`erase`) can take only the text, cover
+   * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
    * the areas, and delete markups in them.
    */
   const runRedact = useCallback(
@@ -2535,7 +2535,7 @@ export function App() {
       const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
       const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
       if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting ? 'redacted' : 'erased'} areas.`);
+      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
   );
@@ -6915,8 +6915,8 @@ export function App() {
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
-  /** `erase` is Erase Across Pages (`cover` for Redact Across Pages), which draws its boxes the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean; cover?: boolean } = {}) => {
+  /** `erase` is Bulk Redact, which draws its boxes the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
@@ -6927,7 +6927,7 @@ export function App() {
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
     // Erase boxes are not label boxes, so switching between them starts with none.
     setLabelMode((m) =>
-      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed && !!m.cover === !!opts.cover
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
         ? m
         : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
     );
@@ -7468,7 +7468,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     labelRegions: () => startLabelRegions(),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
-    eraseRegions: (cover) => startLabelRegions(undefined, 'erase', { cover }),
+    bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
@@ -8847,8 +8847,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           )}
           {labelMode?.kind === 'erase' && labelPaneParts?.o && (
             <EraseRegionsPanel
-              key={`${labelPaneParts.o.file.id}:${labelMode.cover ? 'c' : ''}`}
-              initialCover={labelMode.cover}
+              key={labelPaneParts.o.file.id}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
               pageCount={labelPaneParts.o.doc.pages.length}
@@ -8862,7 +8861,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={(spec) => {
                 const o = labelPaneParts.o!;
                 setLabelMode(null);
-                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Erase across pages failed: ${err instanceof Error ? err.message : String(err)}`));
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
             />
           )}
