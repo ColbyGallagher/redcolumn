@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import forge from 'node-forge';
 import { PDFDocument } from 'pdf-lib';
-import { binaryToBytes, certificateOf, createSelfSignedId, digitalIds, tokenChain, tokenDigitalId, unlockId } from './digitalIds.ts';
+import { binaryToBytes, certificateOf, createSelfSignedId, digitalIds, restoreIdBackup, tokenChain, tokenDigitalId, unlockId } from './digitalIds.ts';
 import { checkSignatures, signPdf } from './pdfSign.ts';
 import { signerFor } from './signers.ts';
 
@@ -91,6 +91,10 @@ test('adding the card copy of a .p12 certificate keeps the .p12 (and its key), a
   // The same kind again still replaces.
   digitalIds.add({ ...p12, id: 'again' });
   assert.deepEqual(digitalIds.list().map((r) => r.id).sort(), [card.id, 'again'].sort());
+  // A backup's .p12 is restored next to the card ID for the same certificate.
+  digitalIds.remove('again');
+  assert.equal(restoreIdBackup(JSON.stringify({ app: 'RedColumn', kind: 'digital-ids', ids: [p12] }), 'digital-ids'), 1);
+  assert.deepEqual(digitalIds.list().map((r) => !!r.token).sort(), [false, true]);
 });
 
 test('a blank PIN is asked for before anything is signed', async (t) => {

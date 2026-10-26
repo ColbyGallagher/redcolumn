@@ -268,8 +268,10 @@ export function restoreIdBackup(json: string, kind: IdBackup['kind']): number {
   const b = JSON.parse(json) as Partial<IdBackup>;
   if (b.app !== 'RedColumn' || b.kind !== kind) throw new Error(kind === 'digital-ids' ? 'This is not a Digital IDs backup.' : 'This is not a trusted identities backup.');
   if (kind === 'digital-ids') {
-    const have = new Set(digitalIds.list().map((r) => r.fingerprint));
-    const add = (b.ids ?? []).filter((r) => r && typeof r.p12 === 'string' && typeof r.fingerprint === 'string' && !have.has(r.fingerprint));
+    // By certificate and kind, as digitalIds.add: a card ID for the same certificate does not stand in for its .p12.
+    const kindOf = (r: DigitalIdRecord) => `${r.fingerprint}\u0000${r.token ? 'card' : 'p12'}`;
+    const have = new Set(digitalIds.list().map(kindOf));
+    const add = (b.ids ?? []).filter((r) => r && typeof r.p12 === 'string' && typeof r.fingerprint === 'string' && !have.has(kindOf(r)));
     for (const r of add) digitalIds.add(r);
     return add.length;
   }
