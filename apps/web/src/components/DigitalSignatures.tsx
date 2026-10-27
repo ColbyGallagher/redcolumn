@@ -77,6 +77,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                   {c.reason ? ` · ${c.reason}` : ''}
                   {c.location ? ` · ${c.location}` : ''}
                   {c.certify ? ` · ${CERTIFY[c.certify]}` : ''}
+                  {c.format === 'pades' ? (c.timestamp?.verified ? ' · PAdES B-T' : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
                 </div>
                 {c.certificate && (
                   <div className="print-hint">

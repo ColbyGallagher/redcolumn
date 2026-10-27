@@ -3282,6 +3282,7 @@ export function App() {
                     ...(c.certify ? { certify: c.certify } : {}),
                     ...(signer!.image ? { image: signer!.image } : {}),
                     digest: settings.get().signatureAlgorithm,
+                    format: settings.get().signatureFormat,
                     ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
                   });
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
@@ -3607,6 +3608,7 @@ export function App() {
             ...(c.certify ? { certify: c.certify } : {}),
             ...(image ? { image } : {}),
             digest: settings.get().signatureAlgorithm,
+            format: settings.get().signatureFormat,
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',

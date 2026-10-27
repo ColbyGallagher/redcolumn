@@ -400,7 +400,7 @@ export type RawSign = (data: Uint8Array, hash: HashName) => Promise<Uint8Array>;
 const RSA_KEY = '1.2.840.113549.1.1.1';
 const EC_KEY = '1.2.840.10045.2.1';
 const ECDSA_WITH: Partial<Record<HashName, string>> = { 'SHA-256': '1.2.840.10045.4.3.2', 'SHA-384': '1.2.840.10045.4.3.3', 'SHA-512': '1.2.840.10045.4.3.4' };
-const ATTR = { contentType: '1.2.840.113549.1.9.3', signingTime: '1.2.840.113549.1.9.5' };
+const ATTR = { contentType: '1.2.840.113549.1.9.3', signingTime: '1.2.840.113549.1.9.5', signingCertificateV2: '1.2.840.113549.1.9.16.2.47' };
 
 /** DER orders a SET OF by its members' encodings. */
 function derSorted(nodes: Node[]): Node[] {
@@ -416,8 +416,13 @@ function derSorted(nodes: Node[]): Node[] {
  * A detached CMS SignedData over `data`: the signed attributes (content type, signing time and
  * message digest) are built here and only their signature comes from `sign`. `chainDer` is the
  * signer's certificate first, then the rest of its chain, all carried in the signature.
+ *
+ * `pades`: a PAdES baseline signature (ETSI EN 319 142-1, for SubFilter ETSI.CAdES.detached). The
+ * signer's certificate is named in a signing-certificate-v2 attribute (its SHA-256 hash, issuer and
+ * serial number), so it cannot be swapped for another with the same key, and there is no
+ * signing-time attribute: the time the signer claims is the signature dictionary's /M.
  */
-export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8Array[], date: Date, hash: HashName, sign: RawSign): Promise<Uint8Array> {
+export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8Array[], date: Date, hash: HashName, sign: RawSign, opts: { pades?: boolean } = {}): Promise<Uint8Array> {
   const certNode = parse(chainDer[0]!);
   const tbs = kids(kids(certNode)[0]!);
   const i = isContext(tbs[0], 0) ? 1 : 0;
@@ -432,8 +437,12 @@ export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8
   const attr = (type: string, value: Node) => seq(oid(type), asn1.create(Class.UNIVERSAL, Type.SET, true, [value]));
   const attrs = derSorted([
     attr(ATTR.contentType, oid(OID.data)),
-    // UTCTime until 2050, GeneralizedTime after (RFC 5652, 11.3).
-    attr(ATTR.signingTime, date.getUTCFullYear() < 2050 ? asn1.create(Class.UNIVERSAL, Type.UTCTIME, false, asn1.dateToUtcTime(date)) : asn1.create(Class.UNIVERSAL, Type.GENERALIZEDTIME, false, asn1.dateToGeneralizedTime(date))),
+    opts.pades
+      ? // SigningCertificateV2 { certs SEQUENCE OF ESSCertIDv2 { certHash (SHA-256, the default algorithm), IssuerSerial { GeneralNames { [4] issuer }, serial } } }
+        // The hash is over the certificate as it is embedded below (certNode), which checkers hash.
+        attr(ATTR.signingCertificateV2, seq(seq(seq(octets(await digest('SHA-256', der(certNode))), seq(seq(asn1.create(Class.CONTEXT_SPECIFIC, 4, true, [issuer])), serial)))))
+      : // UTCTime until 2050, GeneralizedTime after (RFC 5652, 11.3).
+        attr(ATTR.signingTime, date.getUTCFullYear() < 2050 ? asn1.create(Class.UNIVERSAL, Type.UTCTIME, false, asn1.dateToUtcTime(date)) : asn1.create(Class.UNIVERSAL, Type.GENERALIZEDTIME, false, asn1.dateToGeneralizedTime(date))),
     attr(OID.messageDigest, octets(await digest(hash, data))),
   ]);
   // Signed as a SET (tag 0x31), stored as [0].
