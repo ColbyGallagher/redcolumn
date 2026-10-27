@@ -41,7 +41,8 @@ Vercel sends `apps/web/vercel.json`'s headers as well (`frame-ancestors 'none'`,
   sign-in on previews, use a separate test app registration with its own client IDs.
 - **Certificate services** (time stamps, OCSP, revocation lists) and **form submit addresses** in
   PDFs are not in the policy, so those requests are refused with a message and signing carries on
-  without them. Most of these services refuse browser requests anyway.
+  without them. Most of these services refuse browser requests anyway; the desktop app reaches
+  certificate services from its main process instead.
 
 ### End-to-end encrypted sessions
 
