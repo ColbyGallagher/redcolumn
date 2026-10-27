@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
-import { degrees, PDFDict, PDFDocument, PDFName } from 'pdf-lib';
+import { degrees, PDFDict, PDFDocument, PDFName, PDFRef } from 'pdf-lib';
 import { openForEdit } from './incremental.ts';
 import { addDss, onlyValidationAdded, readDss } from './ltv.ts';
 import { addValidationData, checkSignatures, signPdf } from './pdfSign.ts';
@@ -457,7 +457,7 @@ test('after a signature: no unlisted objects, no repeated catalog keys, and the 
   const { bytes: ltv } = await addValidationData(await signedPdf({ table: true }), ca());
   const signedLength = (await checkSignatures(ltv))[0]!.signedLength;
   const doc = await PDFDocument.load(ltv);
-  const rootNumber = doc.context.trailerInfo.Root!.objectNumber;
+  const rootNumber = (doc.context.trailerInfo.Root as PDFRef).objectNumber;
   const trailer = `/Root ${doc.context.trailerInfo.Root!.toString()} /Info ${doc.context.trailerInfo.Info!.toString()}`;
   const catalog = doc.catalog.toString();
   // An object in the update that its cross-reference does not list (a reader rebuilding the table would find it).
@@ -474,7 +474,7 @@ test('after a signature: no unlisted objects, no repeated catalog keys, and the 
   plain.addPage([300, 200]);
   const base = await plain.save({ useObjectStreams: false });
   const loaded = await PDFDocument.load(base);
-  const n = loaded.context.trailerInfo.Root!.objectNumber;
+  const n = (loaded.context.trailerInfo.Root as PDFRef).objectNumber;
   const decoy = loaded.catalog.toString().replace('<<', '<<\n/PageMode /UseOutlines');
   const signed = new Uint8Array([...base, ...new TextEncoder().encode(`${n} 0 obj\n${decoy}\nendobj\n`)]);
   const update = (body: string) => appendUpdate(signed, `/Root ${n} 0 R /Info ${loaded.context.trailerInfo.Info!.toString()}`, [{ n, g: 0, body }]);
