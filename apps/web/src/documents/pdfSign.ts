@@ -32,6 +32,11 @@ export interface SignRequest {
   timestamp?: (signatureValue: Uint8Array) => Promise<Uint8Array>;
   /** The digest the signature is made over (SHA-256 unless given). */
   digest?: 'SHA-256' | 'SHA-384' | 'SHA-512';
+  /**
+   * PAdES (ETSI.CAdES.detached, the default): the European standard Acrobat and eIDAS validators
+   * check, with a time stamp PAdES B-T. PKCS #7 (adbe.pkcs7.detached): the older Adobe format.
+   */
+  format?: 'pades' | 'pkcs7';
 }
 
 function pdfDate(d: Date): string {
@@ -115,6 +120,7 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const form = doc.getForm();
   const pages = doc.getPages();
   const date = req.date ?? new Date();
+  const pades = (req.format ?? 'pades') === 'pades';
   const signer = await readCertificate(signerKey.chainDer[0]!);
   const space = req.timestamp ? TIMESTAMPED_SPACE : SIGNATURE_SPACE;
 
@@ -144,7 +150,7 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const sig = ctx.obj({
     Type: 'Sig',
     Filter: 'Adobe.PPKLite',
-    SubFilter: 'adbe.pkcs7.detached',
+    SubFilter: pades ? 'ETSI.CAdES.detached' : 'adbe.pkcs7.detached',
     ByteRange: [0, PLACEHOLDER, PLACEHOLDER, PLACEHOLDER],
     Contents: PDFHexString.of('0'.repeat(space * 2)),
     M: PDFString.of(pdfDate(date)),
@@ -199,7 +205,7 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
     if (!(await verifySignature(spki, hash, data, value))) throw new Error('The signature does not match the certificate: the card or token signed with another key, or in a way this app cannot use');
     return value;
   };
-  let der = await buildSignedData(signed, signerKey.chainDer, date, req.digest ?? 'SHA-256', checkedSign);
+  let der = await buildSignedData(signed, signerKey.chainDer, date, req.digest ?? 'SHA-256', checkedSign, { pades });
   if (req.timestamp) der = withTimestamp(der, await req.timestamp(signatureValueOf(der)));
   const hexSig = [...der].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
   if (hexSig.length > zeros.length) throw new Error('The signature is larger than the space for it');
@@ -219,6 +225,8 @@ export interface SignatureCheck {
   signedAt: Date | null;
   reason: string;
   location: string;
+  /** PAdES (SubFilter ETSI.CAdES.detached) or the older Adobe PKCS #7 format. */
+  format: 'pades' | 'pkcs7';
   /** The signed bytes are unchanged and the signature matches them and the certificate. */
   intact: boolean;
   /** Why not, when not intact. */
@@ -246,6 +254,7 @@ const OIDS: Record<string, 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'> = {
 };
 const MESSAGE_DIGEST = '1.2.840.113549.1.9.4';
 const SIGNING_TIME = '1.2.840.113549.1.9.5';
+const SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
 
 type Node = forge.asn1.Asn1;
 const kids = (n: Node) => n.value as Node[];
@@ -277,7 +286,18 @@ function parseCms(der: Uint8Array) {
   }
   const md = attrs.get(MESSAGE_DIGEST);
   const time = attrs.get(SIGNING_TIME);
+  // PAdES/CAdES: SigningCertificateV2 { certs SEQUENCE OF ESSCertIDv2 { hashAlgorithm DEFAULT sha256, certHash, ... } }
+  let signingCert: { hash: 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'; value: Uint8Array } | null = null;
+  const scv2 = attrs.get(SIGNING_CERTIFICATE_V2);
+  if (scv2) {
+    const id = kids(kids(kids(scv2)[0]!)[0]!);
+    const hasAlg = id[0]!.type === forge.asn1.Type.SEQUENCE;
+    const hash = hasAlg ? OIDS[forge.asn1.derToOid(kids(id[0]!)[0]!.value as string)] : 'SHA-256';
+    if (!hash) throw new Error('The signature names its certificate with a digest this app cannot check');
+    signingCert = { hash, value: binaryToBytes(id[hasAlg ? 1 : 0]!.value as string) };
+  }
   return {
+    signingCert,
     certs,
     serial,
     digest: OIDS[digestOid] ?? null,
@@ -311,6 +331,7 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       signedAt: null,
       reason: text(v.lookup(PDFName.of('Reason'))),
       location: text(v.lookup(PDFName.of('Location'))),
+      format: v.get(PDFName.of('SubFilter')) === PDFName.of('ETSI.CAdES.detached') ? 'pades' : 'pkcs7',
       intact: false,
       problem: null,
       coversWholeFile: false,
@@ -331,8 +352,12 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
         }
       }
     const m = text(v.lookup(PDFName.of('M')));
-    const md = /D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?/.exec(m);
-    if (md) check.signedAt = new Date(Date.UTC(+md[1]!, +md[2]! - 1, +md[3]!, +(md[4] ?? 0), +(md[5] ?? 0), +(md[6] ?? 0)));
+    // D:YYYYMMDDHHmmSS then Z, or +HH'mm' / -HH'mm' from UTC (the time PAdES signatures claim).
+    const md = /D:(\d{4})(\d{2})(\d{2})(\d{2})?(\d{2})?(\d{2})?(?:([Zz+-])(\d{2})?'?(\d{2})?'?)?/.exec(m);
+    if (md) {
+      const offset = md[7] === '+' || md[7] === '-' ? (md[7] === '-' ? -1 : 1) * (+(md[8] ?? 0) * 60 + +(md[9] ?? 0)) : 0;
+      check.signedAt = new Date(Date.UTC(+md[1]!, +md[2]! - 1, +md[3]!, +(md[4] ?? 0), +(md[5] ?? 0), +(md[6] ?? 0)) - offset * 60_000);
+    }
     try {
       const range = v.lookup(PDFName.of('ByteRange'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
       const contents = v.lookup(PDFName.of('Contents'));
@@ -351,6 +376,9 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
         return signerDer ? readCertificate(signerDer) : null;
       })();
       if (!signerInfo) throw new Error('The signature has no certificate');
+      // A PAdES signature names its signer's certificate: it must be the one carried.
+      if (cms.signingCert && !same(cms.signingCert.value, new Uint8Array(await globalThis.crypto.subtle.digest(cms.signingCert.hash, signerInfo.der as BufferSource))))
+        throw new Error('The signature names a different certificate from the one it carries');
       check.signer = signerInfo.subject.name || check.signer;
       check.email = signerInfo.subject.email;
       check.org = signerInfo.subject.org;

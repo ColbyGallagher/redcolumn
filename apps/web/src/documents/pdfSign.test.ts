@@ -65,6 +65,60 @@ for (const digest of ['SHA-384', 'SHA-512'] as const) {
   });
 }
 
+/** The /Contents CMS and /SubFilter of the (only) signature in a signed PDF. */
+function signatureParts(signed: Uint8Array) {
+  const s = new TextDecoder('latin1').decode(signed);
+  const hex = /\/Contents\s*<([0-9A-Fa-f]+)>/.exec(s)![1]!;
+  return { subFilter: /\/SubFilter\s*\/([A-Za-z0-9.]+)/.exec(s)![1]!, hex, cms: forge.asn1.fromDer(forge.util.hexToBytes(hex), { parseAllBytes: false } as never) };
+}
+/** The signed attributes' types (OIDs) of a CMS. */
+function signedAttrTypes(cms: forge.asn1.Asn1): string[] {
+  const parts = (cms.value as forge.asn1.Asn1[])[1]!.value as forge.asn1.Asn1[];
+  const signedData = parts[0]!.value as forge.asn1.Asn1[];
+  const si = (signedData[signedData.length - 1]!.value as forge.asn1.Asn1[])[0]!.value as forge.asn1.Asn1[];
+  const attrs = si.find((n) => n.tagClass === forge.asn1.Class.CONTEXT_SPECIFIC && n.type === 0)!.value as forge.asn1.Asn1[];
+  return attrs.map((a) => forge.asn1.derToOid((a.value as forge.asn1.Asn1[])[0]!.value as string));
+}
+
+test('signatures are PAdES by default: ETSI.CAdES.detached, the signer’s certificate named, the time in /M', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const date = new Date(Date.UTC(2026, 9, 27, 3, 4, 5));
+  const signed = await signPdf(await sample(), unlocked, { date });
+  const { subFilter, cms } = signatureParts(signed);
+  assert.equal(subFilter, 'ETSI.CAdES.detached');
+  const types = signedAttrTypes(cms);
+  assert.ok(types.includes('1.2.840.113549.1.9.16.2.47'), 'signing-certificate-v2');
+  assert.ok(!types.includes('1.2.840.113549.1.9.5'), 'no signing-time attribute (PAdES baseline)');
+  const [check] = await checkSignatures(signed);
+  assert.equal(check?.problem, null);
+  assert.equal(check?.intact, true);
+  assert.equal(check?.format, 'pades');
+  assert.equal(check?.signedAt?.getTime(), date.getTime(), 'the time is read from /M');
+
+  // The older format is still there for old readers.
+  const old = await signPdf(await sample(), unlocked, { date, format: 'pkcs7' });
+  assert.equal(signatureParts(old).subFilter, 'adbe.pkcs7.detached');
+  assert.ok(signedAttrTypes(signatureParts(old).cms).includes('1.2.840.113549.1.9.5'));
+  const [oldCheck] = await checkSignatures(old);
+  assert.equal(oldCheck?.format, 'pkcs7');
+  assert.equal(oldCheck?.intact, true);
+});
+
+test('a PAdES signature that names another certificate than it carries does not check out', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const signed = await signPdf(await sample(), unlocked, {});
+  // The certificate hash in signing-certificate-v2 is the SHA-256 of the signer's certificate.
+  const certHash = forge.util.bytesToHex(forge.md.sha256.create().update(forge.util.binary.raw.encode(unlocked.chainDer[0]!)).digest().getBytes()).toUpperCase();
+  const s = new TextDecoder('latin1').decode(signed);
+  const at = s.indexOf(certHash);
+  assert.ok(at > 0, 'the hash is in the signature');
+  const tampered = signed.slice();
+  tampered[at] = tampered[at] === 0x30 ? 0x31 : 0x30;
+  const [check] = await checkSignatures(tampered);
+  assert.equal(check?.intact, false);
+  assert.match(check?.problem ?? '', /names a different certificate/);
+});
+
 test('changing a signed byte breaks the signature; appending keeps it but not the whole file', async () => {
   const unlocked = unlockId(await idPromise, 'pw');
   const signed = await signPdf(await sample(), unlocked, {});

@@ -346,6 +346,8 @@ export interface Settings {
   signaturePasswordTimeout: number;
   /** Digest new signatures are made over. */
   signatureAlgorithm: 'SHA-256' | 'SHA-384' | 'SHA-512';
+  /** PAdES (ETSI.CAdES.detached), the standard; or the older Adobe PKCS #7 format for old readers. */
+  signatureFormat: 'pades' | 'pkcs7';
   /** Refuse changes to a signed document that rewrite it (and so invalidate its signatures). */
   restrictSignedChanges: boolean;
   // Sets › Set Options (the Sets panel)
@@ -508,6 +510,7 @@ export const DEFAULT_SETTINGS: Settings = {
   formSingleKeys: false,
   signaturePasswordTimeout: 5,
   signatureAlgorithm: 'SHA-256',
+  signatureFormat: 'pades',
   restrictSignedChanges: true,
   setOpenDocuments: 'inPlace',
   setOpenEdited: 'newTab',
