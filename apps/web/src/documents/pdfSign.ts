@@ -4,7 +4,7 @@ import { applyMatrix, pageMatrix } from '@nb/markup/export';
 import { saveIncremental, snapshot } from './incremental';
 import { binaryToBytes, bytesToBinary, readCertificate, type UnlockedId } from './digitalIds';
 import { addDss, onlyValidationAdded, readDss, vriKey, type Dss, type ValidationEntry } from './ltv';
-import { buildChain, buildSignedData, certFacts, completeChain, crlStatus, ocspStatus, readTimestamp, revocationEvidence, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type Chain, type PkiFetch, type RawSign, type TimestampInfo } from './pki';
+import { buildChain, buildSignedData, certFacts, completeChain, crlStatus, ocspStatus, readTimestamp, revocationEvidence, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type Chain, type PkiFetch, type RawSign, type Revocation, type TimestampInfo } from './pki';
 
 /**
  * PDF digital signatures: signing (a CMS detached signature over the file's bytes, written with
@@ -513,19 +513,24 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
   return out;
 }
 
-/** How long before signing a revocation answer may have been made and still count, for a signature with no /VRI entry. */
+/** How long before signing a revocation answer may have been made and still count (responders cache their answers). */
 const ANSWER_GRACE_MS = 24 * 3600_000;
 
 /**
  * Whether the DSS holds a checked "not revoked" answer for every certificate in a complete chain
- * but its root: from the signature's own /VRI entry when it has one, else any in the DSS made no
- * earlier than a day before `signedAt` (another signature's answers may be older than this one).
+ * but its root, from the signature's own /VRI entry when it has one, else from anywhere in the DSS.
+ * Whoever appends to the file chooses what is there, so an answer counts only if it speaks for the
+ * signing time: made no earlier than a day before it, or current then (its next update due after).
  */
+/** A revocation answer speaks for `signedAt`: made no earlier than a day before it, or current then. */
+function speaksFor(r: Revocation, signedAt: Date): boolean {
+  return !!r.at && (r.at.getTime() >= signedAt.getTime() - ANSWER_GRACE_MS || (r.at <= signedAt && !!r.nextUpdate && r.nextUpdate >= signedAt));
+}
+
 async function revocationKept(chain: Chain, dss: Dss, vri: string, signedAt: Date): Promise<boolean> {
   if (!chain.complete || chain.certs.length < 2) return false;
   const own = dss.vri.get(vri);
   const pool = own ?? { ocsps: dss.ocsps, crls: dss.crls };
-  const recent = (at: Date | null) => !!own || (!!at && at.getTime() >= signedAt.getTime() - ANSWER_GRACE_MS);
   for (let i = 0; i < chain.certs.length - 1; i++) {
     const cert = chain.certs[i]!;
     const issuer = chain.certs[i + 1]!;
@@ -538,7 +543,7 @@ async function revocationKept(chain: Chain, dss: Dss, vri: string, signedAt: Dat
         try {
           const r = await read(answer, cert, issuer);
           if (!r.verified) continue;
-          if (r.status === 'good' && !recent(r.at)) continue;
+          if (r.status === 'good' && !speaksFor(r, signedAt)) continue;
           // A revoked certificate's signature is not LTV, whatever else is kept.
           if (r.status !== 'good') return false;
           ok = true;
@@ -580,7 +585,7 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
   const problems: string[] = [];
   const entries: ValidationEntry[] = [];
   /** The chain from `certs` (the first is the one to validate) and each link's revocation answer, into `entry`. */
-  const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, pool: readonly Uint8Array[] = []) => {
+  const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, signedAt: Date, pool: readonly Uint8Array[] = []) => {
     let chain = await buildChain(certs[0]!, [...certs, ...kept.certs, ...pool]);
     if (!chain.complete) chain = await completeChain(chain, fetcher, { pool: [...certs.slice(1), ...pool], anchors });
     if (!chain.complete) throw new Error(chain.problem ?? 'Its certificate chain is incomplete');
@@ -591,13 +596,14 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
       const { revocation, answer } = await revocationEvidence(cert, chain.certs[i + 1]!, fetcher);
       if (!revocation.verified) throw new Error(`The ${revocation.via} answer about ${cert.subjectName} is not signed by its issuer`);
       if (revocation.status !== 'good') throw new Error(`${cert.subjectName}’s certificate is ${revocation.status === 'revoked' ? 'revoked' : 'unknown to its CA'}`);
+      if (!speaksFor(revocation, signedAt)) throw new Error(`The ${revocation.via} answer about ${cert.subjectName} is older than the signature`);
       (revocation.via === 'OCSP' ? entry.ocsps : entry.crls).push(answer);
     }
   };
   for (const c of checks) {
     const entry: ValidationEntry = { vri: c.vri, certs: [], ocsps: [], crls: [] };
     try {
-      await gather(c.certificates, entry);
+      await gather(c.certificates, entry, c.signedAt ?? new Date());
     } catch (err) {
       problems.push(`${c.signer || c.field}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
@@ -609,7 +615,7 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
       const tsa: ValidationEntry = { vri: '', certs: [], ocsps: [], crls: [] };
       try {
         // Often the same CA as the signer's: its chain may finish the server's.
-        await gather(c.timestamp.certificates, tsa, entry.certs);
+        await gather(c.timestamp.certificates, tsa, c.timestamp.time, entry.certs);
         entries.push(tsa);
       } catch (err) {
         problems.push(`${c.timestamp.tsa || 'Time stamp server'}: ${err instanceof Error ? err.message : String(err)}`);
