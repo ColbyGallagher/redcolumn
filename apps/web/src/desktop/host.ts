@@ -113,6 +113,8 @@ export interface RedcolumnDesktop {
   localDataKey?: () => Promise<Uint8Array>;
   /** A certificate service (time stamp server, OCSP responder, revocation list) fetched by the main process (apps/desktop/src/pki.ts). */
   pkiFetch?(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array>;
+  /** The root CA certificates the desktop app knows (PEM, Mozilla's list as Node ships it). */
+  pkiRoots?(): Promise<string[]>;
   /** Smart cards and USB tokens through their PKCS#11 drivers (apps/desktop/src/token.ts). */
   tokens?: DesktopTokens;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;

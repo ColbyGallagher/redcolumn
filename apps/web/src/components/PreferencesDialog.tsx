@@ -606,6 +606,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['SHA-384', 'SHA-384'],
           ['SHA-512', 'SHA-512'],
         ])}
+        {select('signatureFormat', 'Format', [
+          ['pades', 'PAdES (ETSI.CAdES.detached)'],
+          ['pkcs7', 'PKCS #7 (adbe.pkcs7.detached, older readers)'],
+        ])}
         <C>{check('restrictSignedChanges', 'Restrict changes that invalidate digital signatures')}</C>
       </Grid>
     ),
