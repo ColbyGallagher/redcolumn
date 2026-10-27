@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -16,7 +16,7 @@ import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
 import { pkiRequest } from './pki';
-import { TokenService } from './token';
+import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
@@ -135,9 +135,17 @@ async function start() {
   });
   // Time stamp servers and revocation checks for digital signatures (pki.ts).
   handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
-  // Smart cards and USB tokens (token.ts). Drivers are only ever picked here, in a native dialog.
-  const tokens = new TokenService(path.join(app.getPath('userData'), 'token-drivers.json'));
-  await tokens.restore();
+  // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
+  // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
+  const tokens = new TokenClient(() => {
+    const child = utilityProcess.fork(path.join(__dirname, 'token-host.js'), [], { serviceName: 'redcolumn card service' });
+    return {
+      post: (message) => child.postMessage(message),
+      onMessage: (listener) => void child.on('message', listener),
+      onExit: (listener) => void child.once('exit', listener),
+      kill: () => void child.kill(),
+    };
+  }, { storeFile: path.join(app.getPath('userData'), 'token-drivers.json') });
   handle('token:modules', () => tokens.modules());
   handle('token:add-module', async () => {
     const options: Electron.OpenDialogOptions = {
