@@ -1,6 +1,7 @@
-import { PDFCheckBox, PDFDocument, PDFSignature, PDFTextField } from 'pdf-lib';
+import { PDFCheckBox, PDFDict, PDFDocument, PDFName, PDFSignature, PDFTextField } from 'pdf-lib';
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
+import { checkSignatures } from '../../apps/web/src/documents/pdfSign.ts';
 
 const modal = (app: App, title: string) => app.page.locator('.modal').filter({ has: app.page.locator('h3', { hasText: new RegExp(`^${title}$`) }) });
 
@@ -136,7 +137,8 @@ test.describe('signatures', () => {
     await expect(app.page.locator('.sig-placed .sig-state.valid')).toHaveCount(1);
   });
 
-  test('tools.digitalIds makes an ID; tools.sign signs with it', async ({ app }) => {
+  /** Makes a self-signed Digital ID and signs the document with it, invisibly. */
+  async function signWithNewId(app: App, certify?: string) {
     await app.cmd('tools.digitalIds');
     const ids = modal(app, 'Digital IDs');
     await ids.getByLabel('Name').fill('E2E Signer');
@@ -152,14 +154,53 @@ test.describe('signatures', () => {
     await sign.getByLabel('Password').fill('e2e-password');
     await sign.getByLabel('Location').fill('E2E Lab');
     await sign.getByLabel('Invisible (listed in Signatures only)').check();
+    if (certify) await sign.locator('select').filter({ hasText: certify }).selectOption({ label: certify });
     await sign.getByRole('button', { name: 'Sign' }).click();
     await expect(sign).toBeHidden({ timeout: 30_000 });
+    await expect(app.page.locator('.dsig-list .dsig')).toHaveCount(1, { timeout: 30_000 });
+  }
+
+  test('tools.digitalIds makes an ID; tools.sign signs with it', async ({ app }) => {
+    await signWithNewId(app);
     const sig = app.page.locator('.dsig-list .dsig');
     await expect(sig).toHaveCount(1, { timeout: 30_000 });
     await expect(sig.locator('b')).toHaveText('E2E Signer');
     await expect(sig).toContainText('I am approving this document · E2E Lab');
     await expect(sig.locator('.dsig-status')).toHaveText(/^Valid: unchanged since it was signed/);
     await expect(sig).toContainText('Certificate: E2E Signer (self-signed)');
+  });
+
+  test('Save As after signing writes the signed file as it is', async ({ app }) => {
+    await signWithNewId(app);
+    const [check] = await checkSignatures(await saveAs(app));
+    expect(check).toMatchObject({ signer: 'E2E Signer', intact: true, coversWholeFile: true });
+  });
+
+  test('a markup added after signing is saved after the signature, which stays valid', async ({ app }) => {
+    await signWithNewId(app);
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const bytes = await saveAs(app);
+    const [check] = await checkSignatures(bytes);
+    // The signed version is kept byte for byte; the markup is an incremental update after it.
+    expect(check).toMatchObject({ intact: true, coversWholeFile: false });
+    expect(check!.signedLength).toBeLessThan(bytes.length);
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPage(0).node.Annots()?.asArray().some((a) => doc.context.lookup(a, PDFDict).get(PDFName.of('Subtype'))?.toString() === '/Square')).toBe(true);
+  });
+
+  test('a document certified with no changes allowed does not save added markups', async ({ app }) => {
+    await signWithNewId(app, 'Certify: no changes allowed');
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const before = (await app.saved()).length;
+    await app.cmd('file.saveAs');
+    await expect(app.page.locator('.error')).toContainText('This document is certified');
+    expect((await app.saved()).length).toBe(before);
   });
 
   test('tools.sign without an ID offers to make one', async ({ app }) => {
@@ -169,6 +210,29 @@ test.describe('signatures', () => {
     await expect(sign.locator('button[type=submit]')).toBeDisabled();
     await sign.getByRole('button', { name: 'Make or import one…' }).click();
     await expect(modal(app, 'Digital IDs')).toBeVisible();
+  });
+
+  // The desktop app reaches cards through the card service (a utility process loading pkcs11.node);
+  // a browser cannot use cards at all.
+  test('smart cards: the desktop app looks for them through the card service', async ({ app }) => {
+    await app.cmd('tools.digitalIds');
+    const ids = modal(app, 'Digital IDs');
+    await ids.getByRole('button', { name: 'Back' }).click();
+    const add = ids.getByRole('button', { name: 'Add from smart card / token…' });
+    if (app.kind === 'web') {
+      await expect(add).toHaveCount(0);
+      return;
+    }
+    const found = await app.page.evaluate(async () => {
+      const tokens = (window as unknown as { redcolumn: { tokens: { modules(): Promise<unknown[]>; certificates(): Promise<{ certificates: unknown[]; problems: unknown[] }> } } }).redcolumn.tokens;
+      return { modules: await tokens.modules(), certificates: await tokens.certificates() };
+    });
+    expect(Array.isArray(found.modules)).toBe(true);
+    expect(Array.isArray(found.certificates.certificates)).toBe(true);
+    await add.click();
+    await expect(ids.getByText('Looking for cards…')).toBeHidden({ timeout: 30_000 });
+    await expect(ids.getByRole('button', { name: 'Choose driver file…' })).toBeVisible();
+    await expect(ids.locator('.print-error')).toHaveCount(0);
   });
 
   test.afterEach(async ({ app }) => {
