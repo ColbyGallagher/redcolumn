@@ -157,7 +157,8 @@ turn it on under File › Preferences › MCP.
   replies.
 - The client you use sends what you ask to its own vendor, the same as any other local tool you
   connect to it. That includes what the tools return: the markup list, and, when the assistant asks
-  to see or read a page, a picture of that page or part of it and its text.
+  to see or read a page, a picture of that page or part of it and its text, or a picture of stitched
+  sheets joined together.
 - Turning the assistant off stops the app listening. Quitting the desktop app stops it too.
 
 ## Children

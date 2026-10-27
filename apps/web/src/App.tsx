@@ -181,7 +181,8 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
-import { assistantCall, type AssistantDocument } from './desktop/assistant';
+import { assistantCall, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
+import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
@@ -5284,19 +5285,104 @@ export function App() {
         return { png, width: canvas.width, height: canvas.height, scale, region: { x: x0, y: y0, w, h } };
       },
       text: (pageIndex: number) => t.doc.text(pageIndex),
+      // get_stitch_image: each sheet drawn at the size it has in the group, cut at its region and
+      // match lines, outlined and numbered so the joins can be checked.
+      renderStitch: async (group: StoredStitchGroup, bounds: PageRegion, scale: number, withMarkups: boolean) => {
+        const W = Math.max(1, Math.ceil(bounds.w * scale));
+        const H = Math.max(1, Math.ceil(bounds.h * scale));
+        const out = document.createElement('canvas');
+        out.width = W;
+        out.height = H;
+        const g = out.getContext('2d')!;
+        g.fillStyle = '#fff';
+        g.fillRect(0, 0, W, H);
+        const worldToImage: Affine = [scale, 0, 0, scale, -bounds.x * scale, -bounds.y * scale];
+        const outlines: { page: number; poly: [number, number][]; m: Affine }[] = [];
+        for (const p of group.placements) {
+          const size = t.doc.pages[p.pageIndex];
+          if (!size) continue;
+          const poly = visiblePolygon({ clips: p.clips, region: p.region?.map((q): [number, number] => [q[0], q[1]]) }, size.width, size.height);
+          if (poly.length < 3) continue;
+          const m = composeAffine(worldToImage, p.toWorld as Affine);
+          outlines.push({ page: p.pageIndex, poly, m });
+          // Only the part of the sheet inside the picture is drawn.
+          const back = invertStitch(m);
+          const corners = [[0, 0], [W, 0], [W, H], [0, H]].map((c) => applyAffine(back, c as [number, number]));
+          const xs = poly.map((q) => q[0]);
+          const ys = poly.map((q) => q[1]);
+          const cx = corners.map((c) => c[0]);
+          const cy = corners.map((c) => c[1]);
+          const x0 = Math.max(Math.min(...xs), Math.min(...cx));
+          const y0 = Math.max(Math.min(...ys), Math.min(...cy));
+          const x1 = Math.min(Math.max(...xs), Math.max(...cx));
+          const y1 = Math.min(Math.max(...ys), Math.max(...cy));
+          if (x1 <= x0 || y1 <= y0) continue;
+          const sheetScale = Math.min(scale * affineScale(p.toWorld as Affine), 4096 / Math.max(x1 - x0, y1 - y0));
+          const drawn = await renderRegion(t, p.pageIndex, { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, () => sheetScale, withMarkups);
+          if (!drawn) continue;
+          g.save();
+          g.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+          g.beginPath();
+          poly.forEach((q, i) => (i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])));
+          g.closePath();
+          g.clip();
+          g.translate(drawn.x0, drawn.y0);
+          g.scale(1 / sheetScale, 1 / sheetScale);
+          g.drawImage(drawn.canvas, 0, 0);
+          g.restore();
+        }
+        g.lineWidth = 1.5;
+        g.font = 'bold 16px sans-serif';
+        for (const { page, poly, m } of outlines) {
+          const pts = poly.map((q) => applyAffine(m, q));
+          g.strokeStyle = 'rgba(37, 99, 235, 0.7)';
+          g.beginPath();
+          pts.forEach((q, i) => (i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])));
+          g.closePath();
+          g.stroke();
+          const [lx, ly] = [pts.reduce((a, q) => a + q[0], 0) / pts.length, pts.reduce((a, q) => a + q[1], 0) / pts.length];
+          const label = `p.${page + 1}`;
+          g.fillStyle = 'rgba(255, 255, 255, 0.85)';
+          g.fillRect(lx - 4, ly - 16, g.measureText(label).width + 8, 22);
+          g.fillStyle = 'rgba(37, 99, 235, 1)';
+          g.fillText(label, lx, ly);
+        }
+        return { png: out.toDataURL('image/png').replace(/^data:image\/png;base64,/, ''), width: W, height: H };
+      },
     }));
+  };
+  // The stitched view and Stitch to New Page, for the assistant: on whichever pane shows the drawing.
+  const assistantStitching: AssistantStitching = {
+    show: (id, group, focusPage) => {
+      const pane: Pane | null = activeOpen?.file.id === id ? (paneB ? 'b' : 'a') : open?.file.id === id ? 'a' : openB?.file.id === id ? 'b' : null;
+      const c = pane ? ctlOf(pane) : null;
+      if (!c) return false;
+      history.current.push(c.viewer.getView());
+      setCanGoBack(true);
+      future.current = [];
+      setCanGoForward(false);
+      c.viewer.setStitch(group?.placements ?? null, focusPage);
+      return true;
+    },
+    toPage: (id, group, withMarkups) => {
+      const intoB = activeOpen?.file.id === id ? paneB : open?.file.id === id ? false : openB?.file.id === id ? true : null;
+      const cur = intoB === null ? null : intoB ? openB : open;
+      return cur ? stitchToNewPage(group, withMarkups, cur, intoB!) : Promise.resolve(null);
+    },
   };
   const assistantRuntime = useRef({
     documents: () => assistantHost.current(),
     commands: () => commandsRef.current,
     toolsFor: (id: string) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
     confirm: confirmAssistant,
+    stitch: assistantStitching,
   });
   assistantRuntime.current = {
     documents: () => assistantHost.current(),
     commands: () => commandsRef.current,
     toolsFor: (id) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
     confirm: confirmAssistant,
+    stitch: assistantStitching,
   };
   useEffect(() => installAssistant(() => assistantRuntime.current), []);
 
@@ -5434,9 +5520,8 @@ export function App() {
 
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
-  const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean) => {
-    const cur = activeOpen;
-    if (!cur || activeReadOnly) return;
+  const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean, cur: OpenFile | null = activeOpen, intoB: boolean = paneB): Promise<{ pageIndex: number; markups: number } | null> => {
+    if (!cur || cur.store.readOnly) return null;
     try {
       const { stitchToPage, stitchedMarkups } = await import('./documents/stitchPages');
       const result = await stitchToPage(await readFile(cur.file.hash), group);
@@ -5445,7 +5530,7 @@ export function App() {
       let copied = 0;
       await swapDocument(
         cur,
-        paneB,
+        intoB,
         result.bytes.slice().buffer,
         () => {
           // Measurements on the new page read at the first sheet's scale (the others were scaled to it).
@@ -5459,8 +5544,10 @@ export function App() {
         'Stitch to New Page',
       );
       setNotice(`Stitched ${group.placements.length} sheets onto page ${result.pageIndex + 1}${withMarkups ? ` with ${copied} markup${copied === 1 ? '' : 's'}` : ''}.`);
+      return { pageIndex: result.pageIndex, markups: copied };
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      throw err;
     }
   };
 
@@ -7390,7 +7477,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitching: () => showPanel('stitching'),
     geospatial: () => showPanel('geospatial'),
     stitchToPage: () => {
-      if (currentStitch) void stitchToNewPage(currentStitch, true);
+      if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
     split: () => {
       setSplitHorizontal(false);
@@ -8322,7 +8409,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onSelectLine={setStitchSelected}
             onPreview={currentStitch || activeMode === 'stitch' ? () => openStitch(activeMode === 'stitch' ? null : currentStitch, pageIndex) : null}
             previewing={activeMode === 'stitch'}
-            onStitchToPage={currentStitch && activeOpen && !activeReadOnly ? (withMarkups) => void stitchToNewPage(currentStitch, withMarkups) : null}
+            onStitchToPage={currentStitch && activeOpen && !activeReadOnly ? (withMarkups) => void stitchToNewPage(currentStitch, withMarkups).catch(() => {}) : null}
             onNudge={nudgeStitch}
             onReset={resetStitch}
             moverPage={(id) => {

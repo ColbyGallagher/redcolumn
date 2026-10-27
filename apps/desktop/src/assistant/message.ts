@@ -26,6 +26,14 @@ export const ASSISTANT_METHODS = [
   'list_assemblies',
   'propose_takeoff',
   'list_takeoff_proposals',
+  'get_stitching',
+  'set_stitch_region',
+  'place_match_lines',
+  'update_match_lines',
+  'delete_match_lines',
+  'get_stitch_image',
+  'show_stitched_view',
+  'stitch_to_page',
 ] as const;
 
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number];
@@ -96,6 +104,18 @@ const setFields = {
   subject: { type: 'string' },
   field: { type: 'string', description: 'Custom column name or id.' },
   value: { type: 'string', description: 'Value for field.' },
+};
+
+const matchLineProp = {
+  type: 'object',
+  properties: {
+    page: { type: 'integer', description: '1-based page.' },
+    p0: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'One end, in PDF points from the top-left, y down.' },
+    p1: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'The other end.' },
+    keepSide: { type: 'string', enum: ['right', 'left'], description: 'The side of the line that stays, walking from p0 to p1.' },
+    keepPoint: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2, description: 'A point inside the part of the sheet that stays.' },
+  },
+  required: ['page', 'p0', 'p1'],
 };
 
 const TOOLS: ToolDef[] = [
@@ -414,6 +434,162 @@ const TOOLS: ToolDef[] = [
     description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
+  },
+  {
+    name: 'get_stitching',
+    title: 'Read stitching',
+    description:
+      'How the sheets are stitched: the hand-placed match lines (id, page, p0, p1, keepSide, name, matchTo, problem), the regions that leave out title blocks, and the stitched groups (pages in order; each sheet\'s scale and rotation relative to the first; the joins, byHand or found from MATCH LINE labels). Narrow it to one page with page.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page. Every page when omitted.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'set_stitch_region',
+    title: 'Set a stitch region',
+    description:
+      'The part of a sheet that holds the drawing, so the title block, legend, and notes are left out of the stitch: two opposite corners of a rectangle, or the corners of a polygon (an L-shaped drawing area). points null clears it, and the sheet falls back to its largest viewport, or the whole sheet. Match line ends have to lie inside the region. One undo step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page.' },
+        points: { ...pointsProp, type: ['array', 'null'] },
+      },
+      required: ['page'],
+    },
+    annotations: CHANGES,
+  },
+  {
+    name: 'place_match_lines',
+    title: 'Place match lines',
+    description:
+      'Joins sheets: each pair is the same match line on two pages, given by its two ends on each (a and b). The ends of the two lines meet, so a sheet at another scale is scaled to fit, and the order the ends are given in does not matter. keepSide says which side of each line stays ("right" or "left", walking from p0 to p1 as the page shows); keepPoint (any point inside the part that stays) does the same. Without either, the side with more of the sheet stays. Both lines take the pair\'s name (a station, such as STA 12+00; ML-n when omitted). Use get_page_image and get_page_text to find the match lines first. All pairs are one undo step, and one bad pair places nothing. The reply has the groups the sheets now form: check them with get_stitch_image.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        pairs: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              a: matchLineProp,
+              b: matchLineProp,
+            },
+            required: ['a', 'b'],
+          },
+        },
+      },
+      required: ['pairs'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'update_match_lines',
+    title: 'Adjust match lines',
+    description:
+      'Changes match lines by id: move their ends (p0, p1), change the side that stays (keepSide, keepPoint, or flip true), rename, pair with another line (matchTo an id, or null to unpair), or slide the sheet joined at the line by points (slide.along runs along the match line, slide.apart moves the sheets apart, negative closes the gap). resetSlide true puts the sheet back where the line ends place it. All changes are one undo step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        lines: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Match line id from get_stitching.' },
+              p0: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+              p1: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+              keepSide: { type: 'string', enum: ['right', 'left'] },
+              keepPoint: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+              flip: { type: 'boolean' },
+              name: { type: 'string' },
+              matchTo: { type: ['string', 'null'] },
+              slide: { type: 'object', properties: { along: { type: 'number' }, apart: { type: 'number' } } },
+              resetSlide: { type: 'boolean' },
+            },
+            required: ['id'],
+          },
+        },
+      },
+      required: ['lines'],
+    },
+    annotations: CHANGES,
+  },
+  {
+    name: 'delete_match_lines',
+    title: 'Remove match lines',
+    description:
+      'Removes match lines by id, clears the regions on regionPages, or with all true removes every match line and region. A line whose partner is removed waits for a new one. Pages made with stitch_to_page stay. redcolumn asks for Allow first; one undo step after Allow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        ids: { type: 'array', items: { type: 'string' } },
+        regionPages: { type: 'array', items: { type: 'integer' } },
+        all: { type: 'boolean' },
+      },
+    },
+    annotations: REMOVES,
+  },
+  {
+    name: 'get_stitch_image',
+    title: 'See stitched sheets',
+    description:
+      'A picture of the sheets stitched with page, as the stitched view joins them: each sheet cut at its region and match lines, outlined in blue and labelled with its page number. bounds is the whole group in its world space (the first sheet\'s page points); region (in the same space) picks part of it to look at a join closely. A pixel at (px, py) is the world point (region.x + px / scale, region.y + py / scale), and each sheet\'s toImage is the affine [a, b, c, d, e, f] from its page points to pixels (x\' = a·x + c·y + e, y\' = b·x + d·y + f).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: 'Any 1-based page in the group. The page on screen when omitted.' },
+        region: regionProp,
+        dpi: { type: 'number', minimum: 18, maximum: 600, description: 'Pixels per inch of the first sheet. 100 when omitted.' },
+        maxSize: { type: 'integer', minimum: 256, maximum: 4096, description: 'Most pixels on the longer side. 2000 when omitted.' },
+        markups: { type: 'boolean', description: 'false leaves the markups off.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'show_stitched_view',
+    title: 'Stitched view',
+    description: 'Shows the sheets stitched with page as one drawing in redcolumn (View › Stitched View), or the normal view with on false. The drawing has to be on screen.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: 'Any 1-based page in the group. The page on screen when omitted.' },
+        on: { type: 'boolean', description: 'false goes back to the normal view. true when omitted.' },
+      },
+    },
+    annotations: CHANGES,
+  },
+  {
+    name: 'stitch_to_page',
+    title: 'Stitch to new page',
+    description:
+      'Stitch to New Page: the sheets stitched with page drawn onto one new page at the end of the document, kept vector, with the first sheet\'s scale so measurements work across the joins. Markups on the kept parts are copied across unless markups is false. The drawing has to be on screen. redcolumn asks for Allow first; one undo step. The reply has the new page number: look at it with get_page_image.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: 'Any 1-based page in the group. The page on screen when omitted.' },
+        markups: { type: 'boolean', description: 'false leaves the markups off the new page. true when omitted.' },
+      },
+    },
+    annotations: ADDS,
   },
 ];
 

@@ -1,4 +1,5 @@
-import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point } from '@nb/markup';
+import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
+import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -33,6 +34,19 @@ export interface AssistantDocument {
   render?: (pageIndex: number, region: PageRegion, scale: number, withMarkups: boolean) => Promise<PageImage | null>;
   /** The words on a page, in page space. Absent in tests. */
   text?: (pageIndex: number) => Promise<TextWord[]>;
+  /**
+   * A stitched group drawn as one picture: `bounds` (the group's world space) at `scale` pixels
+   * per world unit, each sheet cut at its region and match lines. Absent in tests.
+   */
+  renderStitch?: (group: StoredStitchGroup, bounds: PageRegion, scale: number, withMarkups: boolean) => Promise<{ png: string; width: number; height: number } | null>;
+}
+
+/** The stitched view and Stitch to New Page, for a drawing on screen. */
+export interface AssistantStitching {
+  /** Shows `group` as the stitched view, or the normal view with null. False when the drawing is not on screen. */
+  show(documentId: string, group: StoredStitchGroup | null, focusPage: number): boolean;
+  /** Stitch to New Page. Null when the drawing is not on screen or is read-only. */
+  toPage(documentId: string, group: StoredStitchGroup, withMarkups: boolean): Promise<{ pageIndex: number; markups: number } | null>;
 }
 
 /** A menu command the assistant can list and run. */
@@ -71,6 +85,7 @@ export interface AssistantEnv {
   commands?: () => ReadonlyMap<string, AssistantCommand>;
   toolsFor?: (documentId: string) => AssistantTools | null;
   confirm?: (message: string) => Promise<boolean>;
+  stitch?: AssistantStitching;
 }
 
 /**
@@ -187,7 +202,7 @@ function publicMarkup(doc: AssistantDocument, markup: Markup, brief = false) {
   };
 }
 
-function findDocument(docs: readonly AssistantDocument[], name: unknown): AssistantDocument {
+export function findDocument(docs: readonly AssistantDocument[], name: unknown): AssistantDocument {
   const open = assistantDocuments(docs);
   if (!open.length) throw new Error('No document is open.');
   if (typeof name !== 'string' || !name.trim()) {
@@ -202,12 +217,12 @@ function findDocument(docs: readonly AssistantDocument[], name: unknown): Assist
   return found;
 }
 
-function record(params: unknown): Record<string, unknown> {
+export function record(params: unknown): Record<string, unknown> {
   if (!params || typeof params !== 'object' || Array.isArray(params)) return {};
   return params as Record<string, unknown>;
 }
 
-function pageIndexOf(doc: AssistantDocument, raw: unknown): number {
+export function pageIndexOf(doc: AssistantDocument, raw: unknown): number {
   const page = typeof raw === 'number' ? raw : Number(raw);
   if (!Number.isInteger(page) || page < 1 || page > doc.pageCount) throw new Error(`Page ${String(raw)} is not in ${doc.name} (1–${doc.pageCount}).`);
   return page - 1;
@@ -405,7 +420,7 @@ function markupType(raw: unknown): MarkupType {
   return raw as MarkupType;
 }
 
-function pointsOf(raw: unknown): Point[] {
+export function pointsOf(raw: unknown): Point[] {
   if (!Array.isArray(raw) || raw.length === 0) throw new Error('Give the points to draw.');
   return raw.map((point, i) => {
     if (!Array.isArray(point) || point.length < 2 || typeof point[0] !== 'number' || typeof point[1] !== 'number' || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) {
@@ -685,7 +700,7 @@ function markupsById(doc: AssistantDocument, ids: readonly string[]): Markup[] {
   });
 }
 
-async function ask(env: AssistantEnv, message: string) {
+export async function ask(env: AssistantEnv, message: string) {
   const ok = env.confirm ? await env.confirm(message) : false;
   if (!ok) throw new Error('Not confirmed.');
 }
@@ -740,14 +755,14 @@ const MAX_IMAGE_DPI = 600;
 const DEFAULT_TEXT_LIMIT = 1000;
 const MAX_TEXT_LIMIT = 5000;
 
-function finite(raw: unknown, name: string): number {
+export function finite(raw: unknown, name: string): number {
   const n = typeof raw === 'number' ? raw : Number(raw);
   if (!Number.isFinite(n)) throw new Error(`${name} has to be a number.`);
   return n;
 }
 
 /** The page the call names, the one on screen when it names none. */
-function pageOf(doc: AssistantDocument, args: Record<string, unknown>): { pageIndex: number; size: { width: number; height: number } } {
+export function pageOf(doc: AssistantDocument, args: Record<string, unknown>): { pageIndex: number; size: { width: number; height: number } } {
   const pageIndex = args.page === undefined ? doc.pageIndex : pageIndexOf(doc, args.page);
   if (pageIndex < 0 || pageIndex >= doc.pageCount) throw new Error(`Page ${pageIndex + 1} is not in ${doc.name} (1–${doc.pageCount}).`);
   const size = doc.pageSize?.(pageIndex) ?? null;
@@ -756,7 +771,7 @@ function pageOf(doc: AssistantDocument, args: Record<string, unknown>): { pageIn
 }
 
 /** The region asked for, clipped to the page; the whole page when the call gives none. */
-function regionOf(raw: unknown, size: { width: number; height: number }): PageRegion {
+export function regionOf(raw: unknown, size: { width: number; height: number }): PageRegion {
   if (raw === undefined || raw === null) return { x: 0, y: 0, w: size.width, h: size.height };
   if (typeof raw !== 'object' || Array.isArray(raw)) throw new Error('Region has to be x, y, w, and h in PDF points.');
   const r = raw as Record<string, unknown>;
@@ -773,14 +788,14 @@ function regionOf(raw: unknown, size: { width: number; height: number }): PageRe
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-function bounded(raw: unknown, name: string, min: number, max: number, fallback: number): number {
+export function bounded(raw: unknown, name: string, min: number, max: number, fallback: number): number {
   if (raw === undefined) return fallback;
   const n = finite(raw, name);
   if (n < min || n > max) throw new Error(`${name} has to be between ${min} and ${max}.`);
   return n;
 }
 
-const round1 = (n: number) => Math.round(n * 10) / 10;
+export const round1 = (n: number) => Math.round(n * 10) / 10;
 
 async function getPageImage(docs: readonly AssistantDocument[], params: unknown) {
   const args = record(params);
@@ -1016,5 +1031,6 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'list_assemblies') return listAssemblies(docs, params);
   if (method === 'propose_takeoff') return proposeTakeoff(docs, params);
   if (method === 'list_takeoff_proposals') return listTakeoffProposals(docs, params);
+  if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   throw new Error('Unknown tool.');
 }
