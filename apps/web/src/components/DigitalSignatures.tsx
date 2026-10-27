@@ -107,7 +107,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                     </div>
                   )}
                   {revocation[c.field] && <div className="print-hint dsig-revocation">{revocation[c.field]}</div>}
-                  {ltvNote[c.field] && <div className="print-hint dsig-revocation">{ltvNote[c.field]}</div>}
+                  {ltvNote[c.vri] && <div className="print-hint dsig-revocation">{ltvNote[c.vri]}</div>}
                   <div className="dsig-actions">
                     {c.intact && !unchanged(c) && (
                       <button className="btn small flat" onClick={() => onOpenSignedVersion(c)}>
@@ -144,10 +144,11 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                         className="btn small flat"
                         title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"
                         onClick={() => {
-                          setLtvNote((r) => ({ ...r, [c.field]: 'Adding long-term validation…' }));
+                          // Keyed by the signature itself: a field of the same name in another document is another signature.
+                          setLtvNote((r) => ({ ...r, [c.vri]: 'Adding long-term validation…' }));
                           void onAddLtv(c).then(
-                            (text) => setLtvNote((r) => ({ ...r, [c.field]: text })),
-                            (err) => setLtvNote((r) => ({ ...r, [c.field]: `LTV not added: ${err instanceof Error ? err.message : String(err)}` })),
+                            (text) => setLtvNote((r) => ({ ...r, [c.vri]: text })),
+                            (err) => setLtvNote((r) => ({ ...r, [c.vri]: `LTV not added: ${err instanceof Error ? err.message : String(err)}` })),
                           );
                         }}
                       >

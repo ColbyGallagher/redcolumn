@@ -443,7 +443,7 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       if (!check.coversWholeFile && dss.certs.length + dss.ocsps.length + dss.crls.length) {
         let only = laterOnlyValidation.get(check.signedLength);
         if (only === undefined) {
-          only = await onlyValidationAdded(bytes.subarray(0, check.signedLength), bytes).catch(() => false);
+          only = await onlyValidationAdded(bytes, check.signedLength);
           laterOnlyValidation.set(check.signedLength, only);
         }
         check.onlyValidationAdded = only;
@@ -471,11 +471,11 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       if (cms.signingTime) check.signedAt = cms.signingTime;
       // The signer's own certificate first.
       check.certificates = [signerInfo.der, ...cms.certs.filter((d) => d !== signerInfo.der)];
+      let chain: Chain | null = null;
       try {
         // Certificates kept for LTV fill in what the signature leaves out.
-        const chain = await buildChain(signerInfo.der, [...cms.certs, ...dss.certs]);
+        chain = await buildChain(signerInfo.der, [...cms.certs, ...dss.certs]);
         check.chain = { names: chain.certs.map((c) => c.subjectName), fingerprints: chain.certs.map((c) => c.fingerprint), complete: chain.complete, problem: chain.problem };
-        check.ltv = await revocationKept(chain, dss);
       } catch (err) {
         check.chain.problem = err instanceof Error ? err.message : String(err);
       }
@@ -503,6 +503,8 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
         throw new Error('The document was changed after it was signed');
       }
       check.intact = true;
+      // Only a valid signature can be LTV.
+      if (chain) check.ltv = await revocationKept(chain, dss, check.vri, check.signedAt ?? new Date());
     } catch (err) {
       check.problem = err instanceof Error ? err.message : String(err);
     }
@@ -511,21 +513,32 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
   return out;
 }
 
-/** Whether the DSS holds a checked "not revoked" answer for every certificate in a complete chain but its root. */
-async function revocationKept(chain: Chain, dss: Dss): Promise<boolean> {
+/** How long before signing a revocation answer may have been made and still count, for a signature with no /VRI entry. */
+const ANSWER_GRACE_MS = 24 * 3600_000;
+
+/**
+ * Whether the DSS holds a checked "not revoked" answer for every certificate in a complete chain
+ * but its root: from the signature's own /VRI entry when it has one, else any in the DSS made no
+ * earlier than a day before `signedAt` (another signature's answers may be older than this one).
+ */
+async function revocationKept(chain: Chain, dss: Dss, vri: string, signedAt: Date): Promise<boolean> {
   if (!chain.complete || chain.certs.length < 2) return false;
+  const own = dss.vri.get(vri);
+  const pool = own ?? { ocsps: dss.ocsps, crls: dss.crls };
+  const recent = (at: Date | null) => !!own || (!!at && at.getTime() >= signedAt.getTime() - ANSWER_GRACE_MS);
   for (let i = 0; i < chain.certs.length - 1; i++) {
     const cert = chain.certs[i]!;
     const issuer = chain.certs[i + 1]!;
     let ok = false;
     for (const [answers, read] of [
-      [dss.ocsps, ocspStatus],
-      [dss.crls, crlStatus],
+      [pool.ocsps, ocspStatus],
+      [pool.crls, crlStatus],
     ] as const) {
       for (const answer of answers) {
         try {
           const r = await read(answer, cert, issuer);
           if (!r.verified) continue;
+          if (r.status === 'good' && !recent(r.at)) continue;
           // A revoked certificate's signature is not LTV, whatever else is kept.
           if (r.status !== 'good') return false;
           ok = true;
@@ -553,12 +566,16 @@ export interface ValidationAdded {
  * whole chain (completed from CA Issuers addresses, `anchors` being known roots) and an OCSP answer
  * or CRL for each certificate in it but the root, checked, and the same for a time stamp's server
  * where it can be had. They go in the DSS, appended, so the signatures stay valid. `fields` limits
- * it to those signatures. Fails, adding nothing, when no signature could be given its data.
+ * it to those signatures, `newest` to the one covering the whole file (just made). Self-signed
+ * signatures have no authority to vouch for them and get none. Fails, adding nothing, when no
+ * signature could be given its data.
  */
-export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, opts: { anchors?: readonly Uint8Array[]; fields?: readonly string[] } = {}): Promise<ValidationAdded> {
-  const checks = (await checkSignatures(bytes)).filter((c) => c.intact && !c.ltv && c.certificates.length && (!opts.fields || opts.fields.includes(c.field)));
-  if (!checks.length) throw new Error('No signature needs validation data');
+export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, opts: { anchors?: readonly Uint8Array[]; fields?: readonly string[]; newest?: boolean } = {}): Promise<ValidationAdded> {
   const kept = readDss(await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }));
+  const asked = (await checkSignatures(bytes)).filter((c) => c.intact && c.certificates.length && (!opts.fields || opts.fields.includes(c.field)) && (!opts.newest || c.coversWholeFile));
+  // A signature with its own data already, or another's that covers it, needs none.
+  const checks = asked.filter((c) => !c.certificate?.selfSigned && !(c.ltv && kept.vri.has(c.vri)));
+  if (!checks.length) throw new Error(asked.length && asked.every((c) => c.certificate?.selfSigned) ? 'A self-signed certificate has no certificate authority to vouch for it' : 'No signature needs validation data');
   const anchors = opts.anchors ?? [];
   const problems: string[] = [];
   const entries: ValidationEntry[] = [];
@@ -567,6 +584,7 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
     let chain = await buildChain(certs[0]!, [...certs, ...kept.certs, ...pool]);
     if (!chain.complete) chain = await completeChain(chain, fetcher, { pool: [...certs.slice(1), ...pool], anchors });
     if (!chain.complete) throw new Error(chain.problem ?? 'Its certificate chain is incomplete');
+    if (chain.certs.length < 2) throw new Error('A self-signed certificate has no certificate authority to vouch for it');
     entry.certs.push(...chain.certs.map((c) => c.der));
     for (let i = 0; i < chain.certs.length - 1; i++) {
       const cert = chain.certs[i]!;
@@ -584,23 +602,23 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
       problems.push(`${c.signer || c.field}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
-    // The time stamp server's own, best effort: the signature's data stands without it.
+    entries.push(entry);
+    // The time stamp server's own, best effort: the signature's data stands without it. Kept in the
+    // DSS without a /VRI entry (the signature's entry is for the signature's own chain).
     if (c.timestamp?.verified && c.timestamp.certificates.length) {
-      const tsa: ValidationEntry = { vri: c.vri, certs: [], ocsps: [], crls: [] };
+      const tsa: ValidationEntry = { vri: '', certs: [], ocsps: [], crls: [] };
       try {
         // Often the same CA as the signer's: its chain may finish the server's.
         await gather(c.timestamp.certificates, tsa, entry.certs);
-        entry.certs.push(...tsa.certs);
-        entry.ocsps.push(...tsa.ocsps);
-        entry.crls.push(...tsa.crls);
+        entries.push(tsa);
       } catch (err) {
         problems.push(`${c.timestamp.tsa || 'Time stamp server'}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    entries.push(entry);
   }
-  if (!entries.length) throw new Error(problems.join('; '));
-  return { bytes: await addDss(bytes, entries), signatures: entries.length, problems };
+  const signatures = entries.filter((e) => e.vri).length;
+  if (!signatures) throw new Error(problems.join('; '));
+  return { bytes: await addDss(bytes, entries), signatures, problems };
 }
 
 /** The file as it was when a signature was made (its signed version). */

@@ -30,3 +30,14 @@ export function assertKeepsSignatures(before: ArrayBuffer | Uint8Array, after: A
   if (!hasSignature(a) || appends(a, b)) return;
   throw new Error('This document is digitally signed, and this change would invalidate its signatures. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.');
 }
+
+/**
+ * Preferences › Signature › Restrict changes that invalidate digital signatures: throws when
+ * `after` adds to a document whose certification does not allow annotations (DocMDP P 1 or 2).
+ */
+export async function assertCertificationAllowsMarkups(before: Uint8Array, after: Uint8Array) {
+  if (!settings.get().restrictSignedChanges || after.length <= before.length || !hasSignature(before)) return;
+  const { checkSignatures } = await import('./pdfSign');
+  if (!(await checkSignatures(before)).some((c) => c.certify === 1 || c.certify === 2)) return;
+  throw new Error('This document is certified, and its certification does not allow markups to be added. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.');
+}

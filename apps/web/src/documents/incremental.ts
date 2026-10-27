@@ -25,6 +25,17 @@ export async function openForEdit(bytes: ArrayBuffer | Uint8Array, load: LoadOpt
 }
 
 /**
+ * Loads a PDF so that `save` appends the changes as an incremental update whether or not it is
+ * signed, and gives back the bytes unchanged when nothing changed.
+ */
+export async function openAppending(bytes: ArrayBuffer | Uint8Array): Promise<{ doc: PDFDocument; save: () => Promise<Uint8Array> }> {
+  const original = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const doc = await PDFDocument.load(original, { updateMetadata: false });
+  const snap = snapshot(doc, original);
+  return { doc, save: () => saveIncremental(original, doc, snap) };
+}
+
+/**
  * Each indirect object's serialization before changes. Streams are kept by identity plus their
  * dictionary's serialization (cheaper than their contents), so a dictionary edited in place counts.
  */
@@ -46,7 +57,7 @@ const key = (ref: PDFRef) => `${ref.objectNumber} ${ref.generationNumber}`;
  * The highest object number the file uses, including objects pdf-lib drops after parsing (object
  * streams and cross-reference streams), from the object headers and every trailer's /Size.
  */
-function highestObjectNumber(bytes: Uint8Array): number {
+export function highestObjectNumber(bytes: Uint8Array): number {
   const text = new TextDecoder('latin1').decode(bytes);
   let max = 0;
   for (const m of text.matchAll(/(?:^|[^\d])(\d{1,9})\s+\d{1,5}\s+obj\b/g)) max = Math.max(max, Number(m[1]));
@@ -74,7 +85,7 @@ function changedObjects(doc: PDFDocument, before: Snapshot): [PDFRef, PDFObject]
 }
 
 /** Where the last cross-reference section starts, and whether it is a table (else a stream). */
-function lastXref(bytes: Uint8Array): { offset: number; table: boolean } {
+export function lastXref(bytes: Uint8Array): { offset: number; table: boolean } {
   const tail = new TextDecoder('latin1').decode(bytes.subarray(Math.max(0, bytes.length - 2048)));
   const m = /startxref\s+(\d+)\s+%%EOF\s*$/.exec(tail) ?? [...tail.matchAll(/startxref\s+(\d+)/g)].at(-1);
   if (!m) throw new Error('The PDF has no cross-reference position (startxref)');
@@ -93,6 +104,8 @@ export async function saveIncremental(original: Uint8Array, doc: PDFDocument, be
   // Fonts and pictures added since loading become objects now.
   await doc.flush();
   const changed = changedObjects(doc, before);
+  // Nothing to append: the file as it was.
+  if (!changed.length) return original;
   const { offset: prev, table } = lastXref(original);
   const parts: Uint8Array[] = [original];
   let at = original.length;

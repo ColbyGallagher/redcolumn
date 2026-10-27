@@ -129,6 +129,8 @@ export interface CertFacts {
   ocspUrls: string[];
   crlUrls: string[];
   caIssuerUrls: string[];
+  /** Extended key usage purposes (OIDs), empty when the certificate does not limit them. */
+  extendedKeyUsage: string[];
   fingerprint: string;
 }
 
@@ -153,6 +155,9 @@ function nameText(name: Node): string {
   return found.get(OID.commonName) ?? found.get(OID.org) ?? '';
 }
 
+const EXTENDED_KEY_USAGE = '2.5.29.37';
+const OCSP_SIGNING = '1.3.6.1.5.5.7.3.9';
+
 export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
   const node = parse(bytes);
   const fields = kids(kids(node)[0]!);
@@ -173,6 +178,7 @@ export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
     ocspUrls: [],
     crlUrls: [],
     caIssuerUrls: [],
+    extendedKeyUsage: [],
     fingerprint: hex(await digest('SHA-256', bytes)),
   };
   const extensions = fields.find((f) => isContext(f, 3));
@@ -188,6 +194,7 @@ export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
         else if (oidOf(method!) === OID.caIssuers) facts.caIssuerUrls.push(...uris);
       }
     else if (id === OID.crlDistributionPoints) facts.crlUrls.push(...urisIn(value));
+    else if (id === EXTENDED_KEY_USAGE) facts.extendedKeyUsage = kids(value).map(oidOf);
   }
   const web = (u: string) => /^https?:\/\//i.test(u);
   facts.ocspUrls = facts.ocspUrls.filter(web);
@@ -583,18 +590,22 @@ export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: 
   let found: Revocation | null = null;
   for (const single of kids(data[i]!)) {
     const [certId, status] = kids(single);
-    if (serialHex(kids(certId!)[3]!) !== cert.serial) continue;
+    const id = kids(certId!);
+    if (serialHex(id[3]!) !== cert.serial) continue;
+    // The same serial number from another CA is another certificate: the issuer's name and key hashes say which.
+    const idHash = HASH_OIDS[oidOf(kids(id[0]!)[0]!)];
+    if (!idHash || !same(bytesOf(id[1]!), await digest(idHash, cert.issuerDer)) || !same(bytesOf(id[2]!), await digest(idHash, issuer.keyBits))) continue;
     const state = status!.type === 0 ? 'good' : status!.type === 1 ? 'revoked' : 'unknown';
     found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, verified: false };
   }
   if (!found) throw new Error('The OCSP answer is about another certificate');
-  // Signed by the issuer, or by a responder certificate the issuer signed.
+  // Signed by the issuer, or by a responder certificate the issuer signed for OCSP (RFC 6960 4.2.2.2).
   let verified = await verifySigned(basicNode, issuer.spki);
   const certSet = basic.find((p) => isContext(p, 0));
   if (!verified && certSet)
     for (const c of kids(kids(certSet)[0]!)) {
       const responder = await certFacts(der(c));
-      if ((await issuedBy(responder, issuer)) && (await verifySigned(basicNode, responder.spki))) verified = true;
+      if (responder.extendedKeyUsage.includes(OCSP_SIGNING) && (await issuedBy(responder, issuer)) && (await verifySigned(basicNode, responder.spki))) verified = true;
     }
   found.verified = verified;
   return found;

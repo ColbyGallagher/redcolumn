@@ -4,7 +4,7 @@ import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
 import { degrees, PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { openForEdit } from './incremental.ts';
-import { readDss } from './ltv.ts';
+import { onlyValidationAdded, readDss } from './ltv.ts';
 import { addValidationData, checkSignatures, signPdf } from './pdfSign.ts';
 import { buildChain, certFacts, certificatesIn, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
 
@@ -212,11 +212,11 @@ test('the chain runs from the signer to a self-signed root; addresses are read',
   assert.match(alone.problem!, /issuer/);
 });
 
-function ocspResponse(request: Uint8Array, revoked: Date | null, signerKey = root.key.privateKey): Uint8Array {
+function ocspResponse(request: Uint8Array, revoked: Date | null, signerKey = root.key.privateKey, certs: Party[] = []): Uint8Array {
   const certId = (((asn1.fromDer(bytesToBinary(request)).value as Node[])[0]!.value as Node[])[0]!.value as Node[])[0]!.value as Node[];
   const status = revoked ? ctx(1, true, [gtime(revoked)]) : ctx(0, false, '');
   const data = seq(ctx(1, true, [forge.pki.distinguishedNameToAsn1(root.cert.subject)]), gtime(new Date()), seq(seq(certId[0]!, status, gtime(new Date()))));
-  const basic = seq(data, alg(SHA256_RSA), bits(signerKey.sign(sha256(toDer(data)))));
+  const basic = seq(data, alg(SHA256_RSA), bits(signerKey.sign(sha256(toDer(data)))), ...(certs.length ? [ctx(0, true, [seq(...certs.map((c) => forge.pki.certificateToAsn1(c.cert)))])] : []));
   return binaryToBytes(toDer(seq(asn1.create(Class.UNIVERSAL, Type.ENUMERATED, false, '\x00'), ctx(0, true, [seq(oid('1.3.6.1.5.5.7.48.1.1'), octets(toDer(basic)))]))));
 }
 
@@ -283,11 +283,11 @@ test('a PDF signed with a time stamp shows when the TSA says it was signed, and 
 });
 
 /** A small PDF signed by the signer, carrying only its own certificate (the root comes from CA Issuers). */
-async function signedPdf(opts: { timestamp?: boolean } = {}): Promise<Uint8Array> {
+async function signedPdf(opts: { timestamp?: boolean; table?: boolean; base?: Uint8Array } = {}): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
   doc.addPage([300, 200]);
   const id = { key: signer.key.privateKey, chain: [signer.cert], chainDer: [signer.der] };
-  return signPdf(await doc.save(), id, {
+  return signPdf(opts.base ?? (await doc.save({ useObjectStreams: !opts.table })), id, {
     reason: 'Approved',
     ...(opts.timestamp ? { timestamp: (value: Uint8Array) => fetchTimestamp('http://tsa.example/', value, async (_u, body) => tsaResponse(body!, new Date(Date.now() - 60_000))) } : {}),
   });
@@ -370,4 +370,85 @@ test('changes after the validation data still show as changes', async () => {
   edit.doc.getPage(0).setRotation(degrees(90));
   const withDss = await addValidationData(await edit.save(), ca());
   assert.equal((await checkSignatures(withDss.bytes))[0]!.onlyValidationAdded, false);
+});
+
+/** `bytes` with an incremental update (a cross-reference table) defining `objects` and freeing `free`; `trailer` names the catalog and info. */
+function appendUpdate(bytes: Uint8Array, trailer: string, objects: { n: number; g: number; body: string }[], free: { n: number; g: number }[] = [], extra = ''): Uint8Array {
+  const prev = [...new TextDecoder('latin1').decode(bytes).matchAll(/startxref\s+(\d+)/g)].at(-1)![1];
+  let s = '\n';
+  let xref = 'xref\n';
+  for (const o of objects) {
+    xref += `${o.n} 1\n${String(bytes.length + s.length).padStart(10, '0')} ${String(o.g).padStart(5, '0')} n \n`;
+    s += `${o.n} ${o.g} obj\n${o.body}\nendobj\n`;
+  }
+  for (const f of free) xref += `${f.n} 1\n0000000000 ${String(f.g).padStart(5, '0')} f \n`;
+  const at = bytes.length + s.length;
+  s += `${xref}trailer\n<< /Size 1000 ${trailer} /Prev ${prev} ${extra}>>\nstartxref\n${at}\n%%EOF\n`;
+  const out = new Uint8Array(bytes.length + s.length);
+  out.set(bytes);
+  out.set(new TextEncoder().encode(s), bytes.length);
+  return out;
+}
+
+test('after a signature, only new objects and the catalog may follow, read by the cross-reference', async () => {
+  for (const table of [false, true]) {
+    const { bytes: ltv } = await addValidationData(await signedPdf({ table }), ca());
+    assert.equal((await checkSignatures(ltv))[0]!.onlyValidationAdded, true, `table ${table}`);
+    const doc = await PDFDocument.load(ltv);
+    const page = doc.getPage(0).ref;
+    const info = `/Info ${doc.context.trailerInfo.Info!.toString()}`;
+    const root = `/Root ${doc.context.trailerInfo.Root!.toString()} ${info}`;
+    const body = doc.context.lookup(page)!.toString();
+    const only = async (b: Uint8Array) => (await checkSignatures(b))[0]!.onlyValidationAdded;
+    // A new object nothing refers to changes nothing.
+    assert.equal(await only(appendUpdate(ltv, root, [{ n: 900, g: 0, body: '<< /Note (x) >>' }])), true, `table ${table}`);
+    // Redefining a signed object, even unchanged, or under a new generation, or freeing one, is a change.
+    assert.equal(await only(appendUpdate(ltv, root, [{ n: page.objectNumber, g: 0, body }])), false);
+    assert.equal(await only(appendUpdate(ltv, root, [{ n: page.objectNumber, g: 1, body }])), false);
+    assert.equal(await only(appendUpdate(ltv, root, [], [{ n: page.objectNumber, g: 1 }])), false);
+    // Encrypting it scrambles what readers show.
+    assert.equal(await only(appendUpdate(ltv, root, [{ n: 900, g: 0, body: '<< /Filter /Standard /V 1 /R 2 /O <00> /U <00> /P -4 >>' }], [], '/Encrypt 900 0 R ')), false);
+    // Dropping the document information, or another catalog, is not this document.
+    assert.equal(await only(appendUpdate(ltv, `/Root ${doc.context.trailerInfo.Root!.toString()}`, [{ n: 900, g: 0, body: '<< >>' }])), false);
+    // Another catalog is not this document.
+    const signedLength = (await checkSignatures(ltv))[0]!.signedLength;
+    assert.equal(await onlyValidationAdded(appendUpdate(ltv, `/Root 900 0 R ${info}`, [{ n: 900, g: 0, body: '<< /Type /Catalog >>' }]), signedLength), false);
+  }
+});
+
+test('LTV: a later signature gets its own; a broken or self-signed one gets none', async () => {
+  const { bytes: first } = await addValidationData(await signedPdf(), ca());
+  const out = await addValidationData(await signedPdf({ base: first }), ca(), { newest: true });
+  assert.equal(out.signatures, 1);
+  const [a, b] = await checkSignatures(out.bytes);
+  assert.equal(b!.intact, true);
+  assert.equal(b!.ltv, true);
+  assert.equal(b!.onlyValidationAdded, true);
+  // The first is followed by a signature, which is more than validation data.
+  assert.equal(a!.onlyValidationAdded, false);
+  assert.equal(readDss(await PDFDocument.load(out.bytes)).vri.size, 2);
+  // A tampered signature is not LTV, whatever the DSS holds.
+  const broken = out.bytes.slice();
+  broken[12] = broken[12]! ^ 1;
+  const [x] = await checkSignatures(broken);
+  assert.equal(x!.intact, false);
+  assert.equal(x!.ltv, false);
+  // A self-signed certificate has no authority to ask.
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 200]);
+  const own = await signPdf(await doc.save(), { key: root.key.privateKey, chain: [root.cert], chainDer: [root.der] }, {});
+  await assert.rejects(addValidationData(own, ca()), /self-signed/);
+});
+
+test('an OCSP answer counts only from the issuer or a responder it appointed for OCSP, about this issuer’s certificate', async () => {
+  const cert = await certFacts(signer.der);
+  const issuer = await certFacts(root.der);
+  const req = await ocspRequest(cert, issuer);
+  const plain = party('Some Server', '3c', root);
+  const responder = party('OCSP Responder', '3d', root, [{ id: '2.5.29.37', value: toDer(seq(oid('1.3.6.1.5.5.7.3.9'))) }]);
+  assert.equal((await ocspStatus(ocspResponse(req, null, plain.key.privateKey, [plain]), cert, issuer)).verified, false);
+  assert.equal((await ocspStatus(ocspResponse(req, null, responder.key.privateKey, [responder]), cert, issuer)).verified, true);
+  // The same serial number from another CA is another certificate.
+  const other = party('Other CA', '02', null, [{ name: 'basicConstraints', cA: true }]);
+  await assert.rejects(ocspStatus(ocspResponse(req, null), cert, await certFacts(other.der)), /another certificate/);
 });

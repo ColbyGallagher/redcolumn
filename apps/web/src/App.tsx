@@ -128,7 +128,7 @@ import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertD
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
-import { assertKeepsSignatures } from './documents/signedBytes';
+import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
@@ -587,12 +587,12 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   return viaDesktop(url, body, type);
 }
 
-/** Adds long-term validation data to a PDF's signatures (all that lack it, or those named). */
-async function addLtv(bytes: Uint8Array, fields?: string[]) {
+/** Adds long-term validation data to a PDF's signatures: those named, the newest, or all that lack it. */
+async function addLtv(bytes: Uint8Array, which: { fields?: string[]; newest?: boolean } = {}) {
   const [{ addValidationData }, { certificatesIn }] = await Promise.all([import('./documents/pdfSign'), import('./documents/pki')]);
   // Known roots (the desktop app's list) end chains whose CA publishes no root address.
   const roots = (await desktop()?.pkiRoots?.().catch(() => [])) ?? [];
-  return addValidationData(bytes, pkiFetch, { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), ...(fields ? { fields } : {}) });
+  return addValidationData(bytes, pkiFetch, { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), ...which });
 }
 
 /**
@@ -601,7 +601,8 @@ async function addLtv(bytes: Uint8Array, fields?: string[]) {
  */
 async function withLtv(signed: Uint8Array): Promise<{ bytes: Uint8Array; note: string | null }> {
   try {
-    const out = await addLtv(signed);
+    // Only the signature just made: others in the file are their signers' to complete.
+    const out = await addLtv(signed, { newest: true });
     return { bytes: out.bytes, note: out.problems.length ? `LTV added, but not for all of it: ${out.problems.join('; ')}` : null };
   } catch (err) {
     return { bytes: signed, note: `Long-term validation not added: ${err instanceof Error ? err.message : String(err)}` };
@@ -682,17 +683,24 @@ async function recompressJpeg(jpeg: Uint8Array, quality: number): Promise<Uint8A
   }
 }
 
-/** The document with its markups written as PDF annotations. */
+/**
+ * The document with its markups written as PDF annotations. With `keepSigned`, a digitally signed
+ * file keeps every byte: the markups are appended as an incremental update (none to write leaves
+ * the file as it is), so its signatures stay valid.
+ */
 async function annotatedBytes(
   cur: OpenFile,
-  options: { links?: boolean; markups?: readonly Markup[]; embedFont?: ExportOptions['embedFont'] } = {},
+  options: { links?: boolean; markups?: readonly Markup[]; embedFont?: ExportOptions['embedFont']; keepSigned?: boolean } = {},
 ): Promise<Uint8Array> {
   // pdf-lib is only needed here; load it on demand (the service worker still precaches it).
   const { exportWithAnnotations } = await import('@nb/markup/export');
   // Preferences › Markup › Embed Fonts: markup text carries its font files, so every reader shows it alike.
   const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
-  return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
+  const stored = await readFile(cur.file.hash);
+  const appending = options.keepSigned && hasSignature(new Uint8Array(stored));
+  return exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
+    ...(appending ? { open: async (b: ArrayBuffer) => (await import('./documents/incremental')).openAppending(b) } : {}),
     // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it.
     fallbackFont: async (doc, name) => (await import('./documents/archiveFonts')).embedFontOrStandard(doc, name),
     scaleFor: (i) => cur.store.scaleFor(i),
@@ -3774,8 +3782,10 @@ export function App() {
       setNotice(`Saved ${fileName}.`);
     };
     try {
-      const out = await annotatedBytes(cur);
-      assertKeepsSignatures(await readFile(cur.file.hash), out);
+      const out = await annotatedBytes(cur, { keepSigned: true });
+      const stored = new Uint8Array(await readFile(cur.file.hash));
+      assertKeepsSignatures(stored, out);
+      await assertCertificationAllowsMarkups(stored, out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const handle = saveAs ? null : await recallHandle(cur.file.id);
       if (handle) {
@@ -8485,7 +8495,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       activeOpen.file.id,
                       'Adding long-term validation',
                       async (bytes) => {
-                        const out = await addLtv(new Uint8Array(bytes), [c.field]);
+                        const out = await addLtv(new Uint8Array(bytes), { fields: [c.field] });
                         note = out.problems.length ? `Added, but not for all of it: ${out.problems.join('; ')}` : null;
                         return out.bytes;
                       },
