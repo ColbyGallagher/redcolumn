@@ -181,6 +181,7 @@ const ICONS: Record<string, ReactNode> = {
 
 // Bulk jobs share their single-document command's icon.
 Object.assign(ICONS, {
+  'document.bulkInsertPages': MENU_ICONS.pageInsert,
   'file.combine': ic('M2 2h5v6H2zM9 2h5v6H9zM4.5 8v2.5h7V8M8 10.5V14M6 12l2 2 2-2'),
   'batch.link': ICONS['view.showLinks'],
   'batch.flatten': ICONS['document.flatten'],
@@ -819,6 +820,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           <>
             <Group label="Combine & Compare">
               <Cmd id="file.combine" size="large" label="Combine PDFs" />
+              <Cmd id="document.bulkInsertPages" size="large" label="Bulk Insert" />
               <Stack>
                 <Cmd id="batch.link" />
                 <Cmd id="document.slipSheet" label="Slip Sheet" />

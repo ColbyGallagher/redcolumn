@@ -99,6 +99,16 @@ test.describe('document pages', () => {
     expect(await app.search('DOOR SCHEDULE')).toEqual([3, 5]);
   });
 
+  test('document.bulkInsertPages puts several PDFs after the current page', async ({ app }) => {
+    const chooser = app.page.waitForEvent('filechooser');
+    await app.cmd('document.bulkInsertPages');
+    await (await chooser).setFiles([app.fixture('plan-rev1.pdf'), app.fixture('plan-rev1.pdf')]);
+    const dialog = modal(app, 'Bulk Insert PDFs');
+    await dialog.locator('button[type=submit]').click();
+    // 3 + 3 + 3 pages.
+    await expectPages(app, Array.from({ length: 9 }, () => [W, H]));
+  });
+
   test('document.insertBlank adds pages the size of the current one', async ({ app }) => {
     await app.cmd('document.insertBlank');
     const dialog = modal(app, 'Insert Blank Pages');

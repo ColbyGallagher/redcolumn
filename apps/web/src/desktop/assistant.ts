@@ -71,6 +71,7 @@ const DESTRUCTIVE_COMMANDS = new Set([
   'document.rotatePages',
   'document.rotateCounterclockwise',
   'document.insertPages',
+  'document.bulkInsertPages',
   'document.insertBlank',
   'document.deletePages',
   'document.replacePages',
