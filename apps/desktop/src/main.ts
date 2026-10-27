@@ -143,6 +143,7 @@ async function start() {
       post: (message) => child.postMessage(message),
       onMessage: (listener) => void child.on('message', listener),
       onExit: (listener) => void child.once('exit', listener),
+      kill: () => void child.kill(),
     };
   }, { storeFile: path.join(app.getPath('userData'), 'token-drivers.json') });
   handle('token:modules', () => tokens.modules());

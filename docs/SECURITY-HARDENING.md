@@ -515,12 +515,17 @@ to sign over IPC and gets the signature value back.
 
 - PKCS#11 drivers load in the card service, an Electron utility process (`token-host.ts`), never
   in the main process: a call that waits for a PIN typed on the reader, or a driver that crashes,
-  holds up only that process, which the main process starts again on the next call. The main
-  process only passes the page's calls through (`token-ipc.ts`, TokenService's five calls and no
-  others); the card service checks every argument.
-- A driver is native code, so the page never names one. Drivers are a fixed list of common install paths that exist on the computer, or files the person
-  picked in a native dialog (kept in userData). The page sees driver IDs, never paths. A key
-  reference from the page is checked against those drivers before anything is loaded.
+  holds up only that process. The main process (`token-ipc.ts`) starts it again on the next call
+  after it stops, and stops it when a call takes too long (3 minutes to sign, so a PIN can be
+  typed on the reader; a minute otherwise), so a stuck driver does not hold up later calls.
+- The main process's IPC handlers answer only the app's own page, check the argument types they
+  use themselves (a driver ID to forget), and open the native dialog for a driver file; the card
+  service answers TokenService's five calls and no others, and TokenService checks the key
+  reference, digest, data and PIN of every signature.
+- A driver is native code, so the page never names one. Drivers are a fixed list of common
+  install paths that exist on the computer, or files the person picked in a native dialog (kept
+  in userData). The page sees driver IDs, never paths. A key reference from the page is checked
+  against those drivers before anything is loaded.
 - The PIN crosses IPC for one signature and is not kept, logged or remembered (unlike a .p12
   password's time-out). Readers with their own keypad get no PIN from the app.
 - The hash is made in the card service; the card only signs a digest of at most 8 KB of input.

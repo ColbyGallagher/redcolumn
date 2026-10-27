@@ -210,8 +210,8 @@ export class TokenService {
         throw new Error(`The driver ${driver.name || path.basename(driver.path)} did not load: ${err instanceof Error ? err.message : String(err)}`);
       }
       try {
-        // Initialised by something else in this process (Chromium's NSS can load the same driver):
-        // use it, and leave finalising it to whoever set it up.
+        // Already initialised by something else in the same process (a driver can be shared by
+        // more than one user of PKCS#11): use it, and leave finalising it to whoever set it up.
         let mine = true;
         try {
           lib.C_Initialize({ flags: pkcs11js.CKF_OS_LOCKING_OK });
