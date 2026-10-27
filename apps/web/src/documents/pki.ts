@@ -564,6 +564,8 @@ export interface Revocation {
   revokedAt: Date | null;
   /** When the answer was made. */
   at: Date | null;
+  /** The time the status is given for (OCSP thisUpdate, a CRL's thisUpdate). */
+  thisUpdate: Date | null;
   /** Until when it says it stands (the next answer is due), if it says. */
   nextUpdate: Date | null;
   /** The answer is signed by the issuer (or a responder it appointed). */
@@ -591,14 +593,14 @@ export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: 
   const producedAt = timeOf(data[i++]!);
   let found: Revocation | null = null;
   for (const single of kids(data[i]!)) {
-    const [certId, status, , after] = kids(single);
+    const [certId, status, statusAt, after] = kids(single);
     const id = kids(certId!);
     if (serialHex(id[3]!) !== cert.serial) continue;
     // The same serial number from another CA is another certificate: the issuer's name and key hashes say which.
     const idHash = HASH_OIDS[oidOf(kids(id[0]!)[0]!)];
     if (!idHash || !same(bytesOf(id[1]!), await digest(idHash, cert.issuerDer)) || !same(bytesOf(id[2]!), await digest(idHash, issuer.keyBits))) continue;
     const state = status!.type === 0 ? 'good' : status!.type === 1 ? 'revoked' : 'unknown';
-    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, nextUpdate: after && isContext(after, 0) ? timeOf(kids(after)[0]!) : null, verified: false };
+    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, thisUpdate: statusAt ? timeOf(statusAt) : null, nextUpdate: after && isContext(after, 0) ? timeOf(kids(after)[0]!) : null, verified: false };
   }
   if (!found) throw new Error('The OCSP answer is about another certificate');
   // Signed by the issuer, or by a responder certificate the issuer signed for OCSP (RFC 6960 4.2.2.2).
@@ -630,7 +632,7 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
     const [serial, when] = kids(entry);
     if (serialHex(serial!) === cert.serial) revokedAt = timeOf(when!);
   }
-  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, nextUpdate, verified: await verifySigned(node, issuer.spki) };
+  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, thisUpdate, nextUpdate, verified: await verifySigned(node, issuer.spki) };
 }
 
 /**
@@ -663,24 +665,39 @@ export interface RevocationEvidence {
   answer: Uint8Array;
 }
 
-/** Asks `cert`'s OCSP responder whether it was revoked, else fetches its CRL. */
-export async function revocationEvidence(cert: CertFacts, issuer: CertFacts, fetcher: PkiFetch): Promise<RevocationEvidence> {
+/**
+ * Asks `cert`'s OCSP responder whether it was revoked, else fetches its CRL. `accept` can turn an
+ * answer down (returning why), and the next source is tried; if it throws, the search ends there
+ * (a revocation is not something another source can undo).
+ */
+export async function revocationEvidence(cert: CertFacts, issuer: CertFacts, fetcher: PkiFetch, accept: (r: Revocation) => string | null = () => null): Promise<RevocationEvidence> {
   const problems: string[] = [];
+  let found: RevocationEvidence;
   for (const url of cert.ocspUrls) {
     try {
       const answer = await fetcher(url, await ocspRequest(cert, issuer), 'application/ocsp-request');
-      return { revocation: await ocspStatus(answer, cert, issuer), answer };
+      const revocation = await ocspStatus(answer, cert, issuer);
+      found = { revocation, answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
+      continue;
     }
+    const why = accept(found.revocation);
+    if (!why) return found;
+    problems.push(why);
   }
   for (const url of cert.crlUrls) {
     try {
       const answer = await fetcher(url);
-      return { revocation: await crlStatus(answer, cert, issuer), answer };
+      const revocation = await crlStatus(answer, cert, issuer);
+      found = { revocation, answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
+      continue;
     }
+    const why = accept(found.revocation);
+    if (!why) return found;
+    problems.push(why);
   }
   throw new Error(problems.length ? problems.join('; ') : `${cert.subjectName}’s certificate names no OCSP responder or revocation list`);
 }

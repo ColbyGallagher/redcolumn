@@ -131,7 +131,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                       Check revocation
                     </button>
                   )}
-                  {onAddLtv && c.intact && !c.ltv && c.certificate && !c.certificate.selfSigned && (
+                  {onAddLtv && c.intact && !c.ltv && c.timestamp?.verified && c.certificate && !c.certificate.selfSigned && (
                     <button
                       className="btn small flat"
                       title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"
@@ -456,15 +456,18 @@ export function saveLtv(on: boolean) {
 }
 
 /** "Add long-term validation (LTV)"; the choice is remembered. */
-export function LtvOption({ value, onChange }: { value: boolean; onChange: (on: boolean) => void }) {
-  const available = canTimestamp();
+export function LtvOption({ value, onChange, timestamped }: { value: boolean; onChange: (on: boolean) => void; timestamped: boolean }) {
+  // PAdES B-LT builds on a trusted time stamp: revocation answers are checked against its time.
+  const available = canTimestamp() && timestamped;
   return (
     <label
       className="check"
       title={
         available
           ? 'Keeps the certificate chain and the certificate authority’s “not revoked” answer in the PDF, so the signature can still be checked after the certificate expires or the authority’s servers are gone. This computer asks the authority about the certificate, not the document.'
-          : 'Long-term validation needs the desktop app: browsers cannot reach certificate authorities.'
+          : canTimestamp()
+            ? 'Long-term validation needs a trusted time stamp: tick it above.'
+            : 'Long-term validation needs the desktop app: browsers cannot reach certificate authorities.'
       }
     >
       <input type="checkbox" checked={value && available} disabled={!available} onChange={(e) => onChange(e.target.checked)} />
@@ -564,7 +567,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           setError(null);
           saveTsa(tsa);
           saveLtv(ltv);
-          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv }).catch((err) => {
+          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv: ltv && tsa.on && !!tsa.url.trim() }).catch((err) => {
             setError(err instanceof Error ? err.message : String(err));
             setBusy(false);
           });
@@ -651,7 +654,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
               </select>
             </label>
             <TimestampOption value={tsa} onChange={setTsa} />
-            <LtvOption value={ltv} onChange={setLtv} />
+            <LtvOption value={ltv} onChange={setLtv} timestamped={tsa.on && !!tsa.url.trim()} />
           </>
         )}
         {error && <p className="print-error">{error}</p>}

@@ -145,8 +145,9 @@ interface XrefEntry {
 }
 
 interface XrefSection {
-  /** Where it starts. */
+  /** Where it starts and where it ends (after the trailer, or after the stream's endobj). */
   at: number;
+  end: number;
   entries: Map<number, XrefEntry>;
   trailer: PDFDict;
   prev: number | null;
@@ -155,8 +156,30 @@ interface XrefSection {
 }
 
 const latin1 = (b: Uint8Array) => new TextDecoder('latin1').decode(b);
+/** PDF white-space characters (ISO 32000-2 7.2.3). */
+const isWhite = (c: number | undefined) => c === 0 || c === 9 || c === 10 || c === 12 || c === 13 || c === 32;
 
-/** Undoes a PNG predictor (DecodeParms /Predictor 10-15), as cross-reference streams use. */
+/** Where `word` next appears in `bytes` from `from`, or -1. */
+function indexOfWord(bytes: Uint8Array, word: string, from: number): number {
+  const w = new TextEncoder().encode(word);
+  outer: for (let i = from; i + w.length <= bytes.length; i++) {
+    for (let k = 0; k < w.length; k++) if (bytes[i + k] !== w[k]) continue outer;
+    return i;
+  }
+  return -1;
+}
+const startsWith = (bytes: Uint8Array, at: number, word: string) => indexOfWord(bytes.subarray(at, at + word.length), word, 0) === 0;
+
+/** Past white space and comments from `at`. */
+function skipBlank(bytes: Uint8Array, at: number): number {
+  for (;;) {
+    if (isWhite(bytes[at])) at++;
+    else if (bytes[at] === 0x25) while (at < bytes.length && bytes[at] !== 10 && bytes[at] !== 13) at++;
+    else return at;
+  }
+}
+
+/** Undoes a PNG predictor (DecodeParms /Predictor 10-15) on rows of `columns` bytes, as cross-reference streams use. */
 function unpredict(data: Uint8Array, columns: number): Uint8Array {
   const row = columns + 1;
   if (data.length % row) throw new Error('Unreadable cross-reference stream');
@@ -188,73 +211,89 @@ const num = (v: PDFObject | undefined) => (v instanceof PDFNumber ? v.asNumber()
 
 /**
  * pdf-lib's object parser, but a dictionary that names a key twice is refused: readers differ on
- * which value wins, so two readers could see two different documents.
+ * which value wins, so two readers could see two different documents. One pass, like pdf-lib's own.
  */
 class StrictParser extends PDFObjectParser {
   static of(bytes: Uint8Array, ctx: PDFContext) {
     // pdf-lib does not export its byte stream; its own parser makes one.
     return new StrictParser((PDFObjectParser.forBytes(bytes, ctx) as unknown as { bytes: ConstructorParameters<typeof PDFObjectParser>[0] }).bytes, ctx);
   }
+  /** Where parsing has got to, from the start of the bytes given. */
+  at(): number {
+    return this.bytes.offset();
+  }
   protected override parseDict(): PDFDict {
-    const start = this.bytes.offset();
     this.bytes.assertNext(0x3c);
     this.bytes.assertNext(0x3c);
     this.skipWhitespaceAndComments();
-    const seen = new Set<PDFName>();
+    const dict = new Map<PDFName, PDFObject>();
     while (!this.bytes.done() && this.bytes.peek() !== 0x3e && this.bytes.peekAhead(1) !== 0x3e) {
       const key = this.parseName();
-      if (seen.has(key)) throw new Error(`The key ${key.toString()} is given twice`);
-      seen.add(key);
-      this.parseObject();
+      if (dict.has(key)) throw new Error(`The key ${key.toString()} is given twice`);
+      dict.set(key, this.parseObject());
       this.skipWhitespaceAndComments();
     }
-    this.bytes.moveTo(start);
-    return super.parseDict();
+    this.skipWhitespaceAndComments();
+    this.bytes.assertNext(0x3e);
+    this.bytes.assertNext(0x3e);
+    return PDFDict.fromMapWithContext(dict, this.context);
   }
 }
 
-/** The indirect object defined at `offset` ("n g obj ..."), checked to be object `n` `g` when given. */
-function objectAt(bytes: Uint8Array, offset: number, ctx: PDFContext, expect?: { n: number; g: number }, strict = false): PDFObject {
-  const head = /^\s*(\d+)\s+(\d+)\s+obj\b/.exec(latin1(bytes.subarray(offset, offset + 64)));
+/**
+ * The indirect object defined at `offset` ("n g obj ... endobj", nothing but white space between),
+ * checked to be object `n` `g` when given, and where its "endobj" ends.
+ */
+function objectAt(bytes: Uint8Array, offset: number, ctx: PDFContext, expect?: { n: number; g: number }): { obj: PDFObject; end: number } {
+  const head = /^(\d+)[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+obj/.exec(latin1(bytes.subarray(offset, offset + 64)));
   if (!head) throw new Error('No object there');
   if (expect && (Number(head[1]) !== expect.n || Number(head[2]) !== expect.g)) throw new Error('Another object there');
-  const body = bytes.subarray(offset + head[0].length);
-  return (strict ? StrictParser.of(body, ctx) : PDFObjectParser.forBytes(body, ctx)).parseObject();
+  const start = offset + head[0].length;
+  const parser = StrictParser.of(bytes.subarray(start), ctx);
+  const obj = parser.parseObject();
+  const after = skipBlank(bytes, start + parser.at());
+  if (!startsWith(bytes, after, 'endobj')) throw new Error('No endobj');
+  return { obj, end: after + 6 };
 }
 
 /** The cross-reference section (table or stream) at `offset`, read as a reader would. */
 function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection {
   const entries = new Map<number, XrefEntry>();
-  if (latin1(bytes.subarray(offset, offset + 4)) === 'xref') {
-    const text = latin1(bytes.subarray(offset));
-    const end = text.indexOf('trailer');
+  if (startsWith(bytes, offset, 'xref')) {
+    const end = indexOfWord(bytes, 'trailer', offset);
     if (end < 0) throw new Error('No trailer');
-    const tokens = text.slice(4, end).trim().split(/\s+/);
+    const tokens = latin1(bytes.subarray(offset + 4, end)).trim().split(/[\0\t\n\f\r ]+/);
     for (let i = 0; i < tokens.length; ) {
       const start = Number(tokens[i++]);
       const count = Number(tokens[i++]);
-      if (!Number.isInteger(start) || !Number.isInteger(count)) throw new Error('Unreadable cross-reference table');
+      if (!Number.isInteger(start) || !Number.isInteger(count) || start < 0 || count < 0) throw new Error('Unreadable cross-reference table');
       for (let k = 0; k < count; k++, i += 3) {
         const [o, g, t] = [tokens[i], tokens[i + 1], tokens[i + 2]];
-        if (!o || !g || (t !== 'n' && t !== 'f')) throw new Error('Unreadable cross-reference table');
+        // Entries are exactly 10 and 5 digits (ISO 32000-2 7.5.4).
+        if (!o || !g || !/^\d{10}$/.test(o) || !/^\d{5}$/.test(g) || (t !== 'n' && t !== 'f')) throw new Error('Unreadable cross-reference table');
         if (!entries.has(start + k)) entries.set(start + k, { type: t === 'n' ? 1 : 0, offset: Number(o), gen: Number(g) });
       }
     }
-    const trailer = StrictParser.of(bytes.subarray(offset + end + 7), ctx).parseObject();
+    const parser = StrictParser.of(bytes.subarray(end + 7), ctx);
+    const trailer = parser.parseObject();
     if (!(trailer instanceof PDFDict)) throw new Error('Unreadable trailer');
-    return { at: offset, entries, trailer, prev: num(trailer.get(PDFName.of('Prev'))), xrefStm: num(trailer.get(PDFName.of('XRefStm'))) };
+    return { at: offset, end: end + 7 + parser.at(), entries, trailer, prev: num(trailer.get(PDFName.of('Prev'))), xrefStm: num(trailer.get(PDFName.of('XRefStm'))) };
   }
-  const stream = objectAt(bytes, offset, ctx, undefined, true);
+  const { obj: stream, end } = objectAt(bytes, offset, ctx);
   if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('XRef')) throw new Error('No cross-reference there');
   const dict = stream.dict;
   const w = dict.lookup(PDFName.of('W'), PDFArray).asArray().map(num);
   if (w.length !== 3 || w.some((x) => x === null || x < 0 || x > 8)) throw new Error('Unreadable cross-reference stream');
   const [w0, w1, w2] = w as [number, number, number];
+  const rowSize = w0 + w1 + w2;
   let data = decodePDFRawStream(stream).decode();
   const parms = dict.lookupMaybe(PDFName.of('DecodeParms'), PDFDict);
   const predictor = num(parms?.get(PDFName.of('Predictor'))) ?? 1;
-  if (predictor >= 10) data = unpredict(data, num(parms?.get(PDFName.of('Columns'))) ?? 1);
-  else if (predictor !== 1) throw new Error('Unreadable cross-reference stream');
+  if (predictor >= 10) {
+    // Rows of whole entries, one byte a sample: anything else a reader would read otherwise.
+    if ((num(parms?.get(PDFName.of('Colors'))) ?? 1) !== 1 || (num(parms?.get(PDFName.of('BitsPerComponent'))) ?? 8) !== 8 || (num(parms?.get(PDFName.of('Columns'))) ?? 1) !== rowSize) throw new Error('Unreadable cross-reference stream');
+    data = unpredict(data, rowSize);
+  } else if (predictor !== 1) throw new Error('Unreadable cross-reference stream');
   const size = num(dict.get(PDFName.of('Size'))) ?? 0;
   const index = dict.lookupMaybe(PDFName.of('Index'), PDFArray)?.asArray().map(num) ?? [0, size];
   const field = (at: number, width: number) => {
@@ -262,7 +301,6 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
     for (let k = 0; k < width; k++) v = v * 256 + data[at + k]!;
     return v;
   };
-  const rowSize = w0 + w1 + w2;
   let at = 0;
   for (let i = 0; i + 1 < index.length; i += 2) {
     const [start, count] = [index[i], index[i + 1]];
@@ -273,7 +311,7 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
       if (!entries.has(start + k)) entries.set(start + k, { type, offset: field(at + w0, w1), gen: w2 ? field(at + w0 + w1, w2) : 0 });
     }
   }
-  return { at: offset, entries, trailer: dict, prev: num(dict.get(PDFName.of('Prev'))), xrefStm: null };
+  return { at: offset, end, entries, trailer: dict, prev: num(dict.get(PDFName.of('Prev'))), xrefStm: null };
 }
 
 /**
@@ -306,20 +344,41 @@ function latestEntries(sections: readonly XrefSection[]): Map<number, XrefEntry>
 /** Object `n` `g` of a file, found as a reader would through its cross-reference (object streams too). */
 function resolve(bytes: Uint8Array, latest: Map<number, XrefEntry>, n: number, g: number, ctx: PDFContext): PDFObject {
   const e = latest.get(n);
-  if (e?.type === 1 && e.gen === g) return objectAt(bytes, e.offset, ctx, { n, g }, true);
+  if (e?.type === 1 && e.gen === g) return objectAt(bytes, e.offset, ctx, { n, g }).obj;
   if (e?.type !== 2 || g !== 0) throw new Error(`Object ${n} ${g} is not in the file`);
   const holder = latest.get(e.offset);
   if (holder?.type !== 1) throw new Error(`Object ${n} ${g} is not in the file`);
-  const stream = objectAt(bytes, holder.offset, ctx, { n: e.offset, g: holder.gen });
+  const { obj: stream } = objectAt(bytes, holder.offset, ctx, { n: e.offset, g: holder.gen });
   if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('ObjStm')) throw new Error('Not an object stream');
   const data = decodePDFRawStream(stream).decode();
   const first = num(stream.dict.get(PDFName.of('First')));
   const count = num(stream.dict.get(PDFName.of('N')));
   if (first === null || count === null) throw new Error('Unreadable object stream');
-  const header = latin1(data.subarray(0, first)).trim().split(/\s+/).map(Number);
+  const header = latin1(data.subarray(0, first)).trim().split(/[\0\t\n\f\r ]+/).map(Number);
   // The index in the cross-reference says which; the number there must agree.
   if (e.gen >= count || header[e.gen * 2] !== n) throw new Error(`Object ${n} ${g} is not in its object stream`);
   return StrictParser.of(data.subarray(first + header[e.gen * 2 + 1]!), ctx).parseObject();
+}
+
+/**
+ * The highest object number the file refers to anywhere ("n g R", including inside object
+ * streams), whether or not it defines it: a later update defining such a number would fill in
+ * something the signed version left out.
+ */
+async function highestReferenced(bytes: Uint8Array): Promise<number> {
+  let max = 0;
+  for (const m of latin1(bytes).matchAll(/(?<![0-9])(\d{1,9})[\0\t\n\f\r ]+\d{1,5}[\0\t\n\f\r ]+R(?![A-Za-z0-9])/g)) max = Math.max(max, Number(m[1]));
+  // Object streams are compressed: pdf-lib reads them.
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false });
+  const stack: PDFObject[] = doc.context.enumerateIndirectObjects().map(([, o]) => o);
+  while (stack.length) {
+    const o = stack.pop()!;
+    if (o instanceof PDFRef) max = Math.max(max, o.objectNumber);
+    else if (o instanceof PDFDict) stack.push(...o.values());
+    else if (o instanceof PDFArray) stack.push(...o.asArray());
+    else if (o instanceof PDFRawStream) stack.push(o.dict);
+  }
+  return max;
 }
 
 const ser = (o: PDFObject) => {
@@ -345,13 +404,14 @@ const refText = (v: PDFObject | undefined) => (v === undefined ? '' : v instance
  *
  * - the sections appended after the signed version lead back to it, and may define new objects
  *   and the catalog anew, nothing else, and outside an object stream;
- * - every object in the appended bytes is one they define, where they say (so a reader rebuilding
- *   a damaged cross-reference finds nothing else);
- * - the catalog differs from the signed version's only in /DSS and the ESIC extension, and names
- *   no key twice;
+ * - a new object's number is above any the signed version uses or refers to;
+ * - the appended bytes are, end to end, those objects where the sections list them, the sections,
+ *   startxref lines, white space and comments: nothing a reader rebuilding the table could find;
+ * - the catalog differs from the signed version's only in /DSS and the ESIC extension, and no
+ *   dictionary read names a key twice;
  * - the trailer names the same catalog and document information, and neither is encrypted.
  */
-export function onlyValidationAdded(full: Uint8Array, signedLength: number): boolean {
+export async function onlyValidationAdded(full: Uint8Array, signedLength: number): Promise<boolean> {
   try {
     const signed = full.subarray(0, signedLength);
     const ctx = PDFContext.create();
@@ -361,8 +421,6 @@ export function onlyValidationAdded(full: Uint8Array, signedLength: number): boo
     const signedLatest = latestEntries(before);
     const root = signedTrailer.get(PDFName.of('Root'));
     if (!(root instanceof PDFRef) || signedTrailer.get(PDFName.of('Encrypt'))) return false;
-    // Object numbers below this are the signed version's: an update may not redefine or free them.
-    const oldSize = Math.max(highestObjectNumber(signed) + 1, num(signedTrailer.get(PDFName.of('Size'))) ?? 0, ...[...signedLatest.keys()].map((n) => n + 1));
 
     const { sections, end } = xrefChain(full, lastXref(full).offset, signedLength, ctx);
     // The chain must lead back to the signed version itself.
@@ -372,30 +430,48 @@ export function onlyValidationAdded(full: Uint8Array, signedLength: number): boo
       if (t.get(PDFName.of('Encrypt')) || refText(t.get(PDFName.of('Root'))) !== root.toString() || refText(t.get(PDFName.of('Info'))) !== refText(signedTrailer.get(PDFName.of('Info'))) || refText(t.get(PDFName.of('Info'))) === 'direct') return false;
     }
 
-    // Every object the appended bytes define is listed where it is; none is in an object stream.
-    const tail = latin1(full.subarray(signedLength));
-    if (/\/ObjStm\b/.test(tail)) return false;
+    // Object numbers below this are the signed version's, defined or referred to: an update may
+    // define only the catalog among them.
+    const oldSize = Math.max(highestObjectNumber(signed) + 1, num(signedTrailer.get(PDFName.of('Size'))) ?? 0, ...[...signedLatest.keys()].map((n) => n + 1), (await highestReferenced(signed)) + 1);
+
+    // What the appended sections define, by where.
     const listed = new Map<number, { n: number; g: number }>();
     for (const s of sections)
       for (const [n, e] of s.entries) {
         if (e.type === 2) return false;
-        if (e.type === 1) {
-          if (e.offset < signedLength && n >= oldSize) return false;
-          if (e.offset >= signedLength) listed.set(e.offset, { n, g: e.gen });
+        if (e.type !== 1) continue;
+        if (e.offset < signedLength) {
+          if (n >= oldSize) return false;
+          continue;
         }
+        const other = listed.get(e.offset);
+        if (other && (other.n !== n || other.g !== e.gen)) return false;
+        listed.set(e.offset, { n, g: e.gen });
       }
-    const xrefStreams = new Set(sections.map((s) => s.at));
-    const headers = new Map<number, { n: number; g: number }>();
-    for (const m of tail.matchAll(/(?<![0-9])(\d+)\s+(\d+)\s+obj\b/g)) headers.set(signedLength + m.index, { n: Number(m[1]), g: Number(m[2]) });
-    for (const [at, h] of headers) {
-      if (xrefStreams.has(at)) continue;
-      const l = listed.get(at);
-      if (!l || l.n !== h.n || l.g !== h.g) return false;
+    // The appended bytes, end to end: each piece must be one of those, a section, or a startxref line.
+    const sectionEnds = new Map(sections.map((s) => [s.at, s.end]));
+    const found = new Set<number>();
+    for (let p = signedLength; ; ) {
+      p = skipBlank(full, p);
+      if (p >= full.length) break;
+      const sectionEnd = sectionEnds.get(p);
+      if (sectionEnd !== undefined) {
+        found.add(p);
+        p = sectionEnd;
+      } else if (startsWith(full, p, 'startxref')) {
+        const m = /^startxref[\0\t\n\f\r ]+\d+/.exec(latin1(full.subarray(p, p + 40)));
+        if (!m) return false;
+        p += m[0].length;
+      } else {
+        const l = listed.get(p);
+        if (!l) return false;
+        const { obj, end: after } = objectAt(full, p, ctx, l);
+        if (obj instanceof PDFRawStream && obj.dict.get(PDFName.of('Type')) === PDFName.of('ObjStm')) return false;
+        found.add(p);
+        p = after;
+      }
     }
-    for (const [at, l] of listed) {
-      const h = headers.get(at);
-      if (!xrefStreams.has(at) && (!h || h.n !== l.n || h.g !== l.g)) return false;
-    }
+    for (const at of [...listed.keys(), ...sectionEnds.keys()]) if (!found.has(at)) return false;
 
     // The newest definition of each object number the updates touch: new ones, or the catalog.
     const latest = latestEntries(sections);
@@ -407,7 +483,7 @@ export function onlyValidationAdded(full: Uint8Array, signedLength: number): boo
     }
     if (catalogAt === null) return true;
 
-    const newCatalog = objectAt(full, catalogAt, ctx, { n: root.objectNumber, g: root.generationNumber }, true);
+    const newCatalog = objectAt(full, catalogAt, ctx, { n: root.objectNumber, g: root.generationNumber }).obj;
     const oldCatalog = resolve(signed, signedLatest, root.objectNumber, root.generationNumber, ctx);
     if (!(newCatalog instanceof PDFDict) || !(oldCatalog instanceof PDFDict) || entriesBut(newCatalog, ['DSS', 'Extensions']) !== entriesBut(oldCatalog, ['DSS', 'Extensions'])) return false;
     // Extensions: the same, but for an ESIC entry.
@@ -419,7 +495,7 @@ export function onlyValidationAdded(full: Uint8Array, signedLength: number): boo
         if (v.objectNumber < oldSize) return resolve(signed, signedLatest, v.objectNumber, v.generationNumber, ctx);
         const e = latest.get(v.objectNumber);
         if (!e || e.type !== 1) throw new Error('Unreadable extensions');
-        return objectAt(full, e.offset, ctx, { n: v.objectNumber, g: v.generationNumber }, true);
+        return objectAt(full, e.offset, ctx, { n: v.objectNumber, g: v.generationNumber }).obj;
       };
       const [o, n] = [lookup(oldExt), lookup(newExt)];
       if (o !== undefined && !(o instanceof PDFDict)) return false;

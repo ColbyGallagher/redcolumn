@@ -504,7 +504,8 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       }
       check.intact = true;
       // Only a valid signature can be LTV.
-      if (chain) check.ltv = await revocationKept(chain, dss, check.vri, check.signedAt ?? new Date());
+      // Only a valid signature with a verified time stamp can be LTV (PAdES B-LT builds on B-T).
+      if (chain && check.timestamp?.verified) check.ltv = await revocationKept(chain, dss, check.timestamp.time);
     } catch (err) {
       check.problem = err instanceof Error ? err.message : String(err);
     }
@@ -513,45 +514,55 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
   return out;
 }
 
-/** How long before signing a revocation answer may have been made and still count (responders cache their answers). */
-const ANSWER_GRACE_MS = 24 * 3600_000;
+/** Clocks differ: a CA's answer may say it was made this much before the time stamp and still count as after it. */
+const CLOCK_SKEW_MS = 5 * 60_000;
 
 /**
- * Whether the DSS holds a checked "not revoked" answer for every certificate in a complete chain
- * but its root, from the signature's own /VRI entry when it has one, else from anywhere in the DSS.
- * Whoever appends to the file chooses what is there, so an answer counts only if it speaks for the
- * signing time: made no earlier than a day before it, or current then (its next update due after).
+ * What a revocation answer says about `cert` at `t`, the verified time stamp's time (ETSI EN 319
+ * 102-1): "good" only if it shows the certificate was not revoked then. For the signer's own
+ * certificate (`endEntity`) the answer must be issued (thisUpdate) at or after `t`, so no
+ * revocation between the answer and the signature can hide; for a CA certificate it may also be
+ * one that was current at `t`. An answer issued after the certificate expired says nothing (CAs
+ * stop listing expired certificates). A revocation after `t` does not count against a
+ * signature time-stamped before it.
  */
-/** A revocation answer speaks for `signedAt`: made no earlier than a day before it, or current then. */
-function speaksFor(r: Revocation, signedAt: Date): boolean {
-  return !!r.at && (r.at.getTime() >= signedAt.getTime() - ANSWER_GRACE_MS || (r.at <= signedAt && !!r.nextUpdate && r.nextUpdate >= signedAt));
+function statusAt(r: Revocation, cert: { notAfter: Date }, t: Date, endEntity: boolean): 'good' | 'revoked' | 'none' {
+  if (!r.verified || !r.thisUpdate || r.thisUpdate > cert.notAfter) return 'none';
+  const after = r.thisUpdate.getTime() >= t.getTime() - CLOCK_SKEW_MS;
+  const current = !endEntity && r.thisUpdate <= t && !!r.nextUpdate && r.nextUpdate >= t;
+  if (r.status === 'revoked') return r.revokedAt && r.revokedAt > t ? (after || current ? 'good' : 'none') : 'revoked';
+  if (r.status !== 'good') return 'none';
+  return after || current ? 'good' : 'none';
 }
 
-async function revocationKept(chain: Chain, dss: Dss, vri: string, signedAt: Date): Promise<boolean> {
+/**
+ * Whether the DSS holds an answer showing every certificate in a complete chain but its root was
+ * not revoked at `t` (see `statusAt`). Whoever appends to the file chooses what is there: every
+ * answer is checked, wherever it is kept.
+ */
+async function revocationKept(chain: Chain, dss: Dss, t: Date): Promise<boolean> {
   if (!chain.complete || chain.certs.length < 2) return false;
-  const own = dss.vri.get(vri);
-  const pool = own ?? { ocsps: dss.ocsps, crls: dss.crls };
   for (let i = 0; i < chain.certs.length - 1; i++) {
     const cert = chain.certs[i]!;
     const issuer = chain.certs[i + 1]!;
     let ok = false;
     for (const [answers, read] of [
-      [pool.ocsps, ocspStatus],
-      [pool.crls, crlStatus],
+      [dss.ocsps, ocspStatus],
+      [dss.crls, crlStatus],
     ] as const) {
       for (const answer of answers) {
+        let r: Revocation;
         try {
-          const r = await read(answer, cert, issuer);
-          if (!r.verified) continue;
-          if (r.status === 'good' && !speaksFor(r, signedAt)) continue;
-          // A revoked certificate's signature is not LTV, whatever else is kept.
-          if (r.status !== 'good') return false;
-          ok = true;
+          r = await read(answer, cert, issuer);
         } catch {
           // About another certificate, or from another issuer.
+          continue;
         }
+        const s = statusAt(r, cert, t, i === 0);
+        // A certificate revoked by then makes the signature not LTV, whatever else is kept.
+        if (s === 'revoked') return false;
+        if (s === 'good') ok = true;
       }
-      if (ok) break;
     }
     if (!ok) return false;
   }
@@ -579,13 +590,20 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
   const kept = readDss(await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }));
   const asked = (await checkSignatures(bytes)).filter((c) => c.intact && c.certificates.length && (!opts.fields || opts.fields.includes(c.field)) && (!opts.newest || c.coversWholeFile));
   // A signature with its own data already, or another's that covers it, needs none.
-  const checks = asked.filter((c) => !c.certificate?.selfSigned && !(c.ltv && kept.vri.has(c.vri)));
-  if (!checks.length) throw new Error(asked.length && asked.every((c) => c.certificate?.selfSigned) ? 'A self-signed certificate has no certificate authority to vouch for it' : 'No signature needs validation data');
+  const checks = asked.filter((c) => !c.certificate?.selfSigned && c.timestamp?.verified && !(c.ltv && kept.vri.has(c.vri)));
+  if (!checks.length)
+    throw new Error(
+      asked.length && asked.every((c) => c.certificate?.selfSigned)
+        ? 'A self-signed certificate has no certificate authority to vouch for it'
+        : asked.length && asked.every((c) => c.certificate?.selfSigned || !c.timestamp?.verified)
+          ? 'Long-term validation needs a trusted time stamp on the signature'
+          : 'No signature needs validation data',
+    );
   const anchors = opts.anchors ?? [];
   const problems: string[] = [];
   const entries: ValidationEntry[] = [];
   /** The chain from `certs` (the first is the one to validate) and each link's revocation answer, into `entry`. */
-  const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, signedAt: Date, pool: readonly Uint8Array[] = []) => {
+  const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, t: Date, endEntityStrict: boolean, pool: readonly Uint8Array[] = []) => {
     let chain = await buildChain(certs[0]!, [...certs, ...kept.certs, ...pool]);
     if (!chain.complete) chain = await completeChain(chain, fetcher, { pool: [...certs.slice(1), ...pool], anchors });
     if (!chain.complete) throw new Error(chain.problem ?? 'Its certificate chain is incomplete');
@@ -593,17 +611,21 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
     entry.certs.push(...chain.certs.map((c) => c.der));
     for (let i = 0; i < chain.certs.length - 1; i++) {
       const cert = chain.certs[i]!;
-      const { revocation, answer } = await revocationEvidence(cert, chain.certs[i + 1]!, fetcher);
-      if (!revocation.verified) throw new Error(`The ${revocation.via} answer about ${cert.subjectName} is not signed by its issuer`);
-      if (revocation.status !== 'good') throw new Error(`${cert.subjectName}’s certificate is ${revocation.status === 'revoked' ? 'revoked' : 'unknown to its CA'}`);
-      if (!speaksFor(revocation, signedAt)) throw new Error(`The ${revocation.via} answer about ${cert.subjectName} is older than the signature`);
+      // An answer that does not show the certificate good at the time stamp sends it to the next source (OCSP, then the CRL).
+      const { revocation, answer } = await revocationEvidence(cert, chain.certs[i + 1]!, fetcher, (r) => {
+        if (!r.verified) return `The ${r.via} answer about ${cert.subjectName} is not signed by its issuer`;
+        const s = statusAt(r, cert, t, endEntityStrict && i === 0);
+        if (s === 'revoked') throw new Error(`${cert.subjectName}’s certificate is revoked`);
+        if (s === 'none') return r.status === 'unknown' ? `${cert.subjectName}’s certificate is unknown to its CA` : `The ${r.via} answer about ${cert.subjectName} was issued before the signature’s time stamp`;
+        return null;
+      });
       (revocation.via === 'OCSP' ? entry.ocsps : entry.crls).push(answer);
     }
   };
   for (const c of checks) {
     const entry: ValidationEntry = { vri: c.vri, certs: [], ocsps: [], crls: [] };
     try {
-      await gather(c.certificates, entry, c.signedAt ?? new Date());
+      await gather(c.certificates, entry, c.timestamp!.time, true);
     } catch (err) {
       problems.push(`${c.signer || c.field}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
@@ -615,7 +637,7 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
       const tsa: ValidationEntry = { vri: '', certs: [], ocsps: [], crls: [] };
       try {
         // Often the same CA as the signer's: its chain may finish the server's.
-        await gather(c.timestamp.certificates, tsa, c.timestamp.time, entry.certs);
+        await gather(c.timestamp.certificates, tsa, c.timestamp.time, false, entry.certs);
         entries.push(tsa);
       } catch (err) {
         problems.push(`${c.timestamp.tsa || 'Time stamp server'}: ${err instanceof Error ? err.message : String(err)}`);
