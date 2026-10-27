@@ -323,6 +323,35 @@ test.describe('markup tools', () => {
     });
   });
 
+  test('tools.lineStyles: a line style made in the editor draws a line', async ({ app }) => {
+    await app.cmd('tools.lineStyles');
+    const dialog = app.page.getByRole('dialog', { name: 'Line styles' });
+    await expect(dialog).toBeVisible();
+    // Built-in styles are copied to change them; a new one goes into a set of the user's own.
+    await dialog.getByRole('button', { name: 'New…' }).click();
+    const editor = app.page.getByRole('dialog', { name: 'Edit line style' });
+    await editor.locator('#ls-name').fill('E2E Gas');
+    await editor.getByLabel('Component type to add').selectOption('text');
+    await editor.getByRole('button', { name: 'Add component' }).click();
+    await editor.getByLabel('Text', { exact: true }).fill('G');
+    await editor.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByRole('option', { name: /My Line Styles/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.locator('.ls-styles li.picked .name')).toHaveText('E2E Gas');
+    await dialog.getByRole('button', { name: 'Done' }).click();
+    await expect(dialog).toBeHidden();
+
+    // The pickers offer it, and open the manager from their last entry.
+    await app.tool('line');
+    const picker = app.page.locator('select:has(option[value="manage"])').first();
+    await picker.selectOption({ label: 'E2E Gas' });
+    await app.drag(A, B);
+    const [m] = await app.raw();
+    expect(m).toMatchObject({ style: { lineStyle: { name: 'E2E Gas', spec: [true, [0, 6, -3, ['G', 'Helvetica', 6, false, false, true]]] } } });
+    await picker.selectOption('manage');
+    await expect(dialog).toBeVisible();
+    await expect(picker).toHaveValue(/^line:/);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

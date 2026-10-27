@@ -2,6 +2,8 @@ import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
+import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
+import { MEASURED_NAMES } from '../assemblies/quantities';
 
 /** A picture of part of a page, as `get_page_image` returns it. */
 export interface PageImage {
@@ -104,6 +106,7 @@ const DESTRUCTIVE_COMMANDS = new Set([
   'document.rotatePages',
   'document.rotateCounterclockwise',
   'document.insertPages',
+  'document.bulkInsertPages',
   'document.insertBlank',
   'document.deletePages',
   'document.replacePages',
@@ -929,6 +932,86 @@ async function runCommand(docs: readonly AssistantDocument[], params: unknown, e
 }
 
 /** Runs one assistant tool against the drawings that are open right now. */
+// ---- Takeoff proposals: the AI suggests, a person approves (see assemblies/proposals.ts) ----------
+
+function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
+  const doc = findDocument(docs, record(params).document);
+  return {
+    document: doc.name,
+    assemblies: doc.store.assemblies().map((a) => ({
+      id: a.id,
+      name: a.name,
+      ...(a.description ? { description: a.description } : {}),
+      variables: a.variables,
+      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}) })),
+    })),
+    formulaNames: MEASURED_NAMES.map((n) => n.name),
+  };
+}
+
+function assemblyOf(doc: AssistantDocument, raw: unknown) {
+  if (typeof raw !== 'string' || !raw.trim()) throw new Error('Say which assembly: its name or id from list_assemblies.');
+  const wanted = raw.trim().toLowerCase();
+  const found = doc.store.assemblies().find((a) => a.id === raw || a.name.trim().toLowerCase() === wanted);
+  if (!found) throw new Error(`${doc.name} has no assembly "${raw}". list_assemblies lists them.`);
+  return found;
+}
+
+/** Proposals go to Takeoff Review; nothing reaches the takeoff until a person approves each one. */
+function proposeTakeoff(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  const items = batchItems(args.proposals, 'Give proposals: a list of { id or seq, assembly, reasoning }.');
+  const source = typeof args.source === 'string' && args.source.trim() ? args.source.trim().slice(0, 80) : 'AI assistant';
+  const now = Date.now();
+  // Every proposal is checked before any is kept.
+  const proposals: TakeoffProposal[] = items.map((item, n) => {
+    try {
+      const markup = findMarkup(doc, item);
+      if (!isMeasureKind(markup.type)) throw new Error(`markup ${markup.seq ?? markup.id} is a ${markup.type}, not a measurement`);
+      const assembly = assemblyOf(doc, item.assembly);
+      const reasoning = typeof item.reasoning === 'string' ? item.reasoning.trim().slice(0, 2000) : '';
+      if (!reasoning) throw new Error('say why (reasoning), so the person can check it');
+      const expected = Array.isArray(item.expected)
+        ? item.expected.flatMap((e: unknown) => {
+            const r = record(e);
+            const quantity = typeof r.quantity === 'number' ? r.quantity : Number(r.quantity);
+            return typeof r.item === 'string' && Number.isFinite(quantity) ? [{ item: r.item, quantity, ...(typeof r.unit === 'string' ? { unit: r.unit } : {}) }] : [];
+          })
+        : undefined;
+      return { id: crypto.randomUUID(), markupId: markup.id, assemblyId: assembly.id, reasoning, ...(expected?.length ? { expected } : {}), source, createdAt: now };
+    } catch (err) {
+      throw new Error(`Proposal ${n + 1}: ${errorText(err)}`);
+    }
+  });
+  takeoffProposals.add(doc.store.fileHash, proposals);
+  return {
+    document: doc.name,
+    proposed: proposals.length,
+    ids: proposals.map((p) => p.id),
+    note: 'Waiting for review: the person approves, edits or rejects each one in Tools › Takeoff › Review AI Proposals. Nothing is added to the takeoff until they approve it.',
+  };
+}
+
+function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknown) {
+  const doc = findDocument(docs, record(params).document);
+  const assemblies = doc.store.assemblies();
+  return {
+    document: doc.name,
+    proposals: takeoffProposals.list(doc.store.fileHash).map((p) => {
+      const m = doc.store.get(p.markupId);
+      return {
+        id: p.id,
+        markup: m ? { id: m.id, ...(m.seq !== undefined ? { seq: m.seq } : {}), type: m.type, page: m.pageIndex + 1 } : null,
+        assembly: assemblies.find((a) => a.id === p.assemblyId)?.name ?? null,
+        state: proposalState(p, m),
+        ...(m?.takeoffApproval?.proposalId === p.id ? { approvedBy: m.takeoffApproval.by, edited: !!m.takeoffApproval.edited } : {}),
+        ...(p.rejected ? { rejectedBy: p.rejected.by } : {}),
+      };
+    }),
+  };
+}
+
 export async function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv = {}): Promise<unknown> {
   if (method === 'list_open_documents') return { documents: assistantDocuments(docs).map(publicDocument) };
   if (method === 'list_markups') return listMarkups(docs, params);
@@ -945,6 +1028,9 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'select_markups') return selectMarkups(docs, params, env);
   if (method === 'list_commands') return listCommands(params, env);
   if (method === 'run_command') return runCommand(docs, params, env);
+  if (method === 'list_assemblies') return listAssemblies(docs, params);
+  if (method === 'propose_takeoff') return proposeTakeoff(docs, params);
+  if (method === 'list_takeoff_proposals') return listTakeoffProposals(docs, params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   throw new Error('Unknown tool.');
 }

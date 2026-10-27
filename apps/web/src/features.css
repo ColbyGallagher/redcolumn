@@ -3206,6 +3206,51 @@
   padding-left: 24px;
 }
 
+/* Links › Teach a mark */
+.teach-mark-dialog {
+  width: min(380px, calc(100vw - 32px));
+}
+
+.teach-mark-dialog fieldset {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 0;
+  border: 0;
+}
+
+.teach-mark-dialog .row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.teach-mark-dialog .row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.teach-hint {
+  margin: 0 0 10px;
+  color: var(--muted);
+}
+
+.teach-error {
+  margin: 10px 0 0;
+  color: #f87171;
+}
+
+/* Taught marks on the Links tab, and how sure a link to review is. */
+.links .confidence {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.links .taught-kind {
+  color: var(--muted);
+}
+
 /* Print dialog */
 .print-dialog fieldset {
   display: grid;
@@ -5298,8 +5343,48 @@ tr.hidden-markup td {
   margin: 0 8px 0 auto;
 }
 
-.menu-search + .install-app-btn {
+.menu-search ~ .install-app-btn {
   margin-left: 0;
+}
+
+/* Help, Technical Support and Make a Suggestion, beside the search. The Help menu keeps the same
+   entries, so on narrow windows the buttons give way to it rather than squeezing the bar. */
+.menubar-help {
+  display: flex;
+  flex: none;
+  align-items: center;
+  align-self: center;
+  gap: 4px;
+  margin: 0 8px 0 0;
+}
+
+.menubar-help-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menubar-help-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 1100px) {
+  .menubar-help {
+    display: none;
+  }
+}
+
+@media (display-mode: window-controls-overlay) {
+  .menubar-help-btn {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
 }
 
 .menu-search-icon {
@@ -5518,13 +5603,82 @@ tr.hidden-markup td {
   padding: 24px 16px;
 }
 
+.start-layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+  margin: auto;
+  width: 100%;
+}
+
 .start-inner {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
   width: min(680px, 100%);
-  margin: auto;
+  flex: 0 1 680px;
+}
+
+.changelog-card {
+  flex: 0 0 280px;
+  max-height: min(640px, calc(100vh - 80px));
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.changelog-card h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.changelog-list {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.changelog-list h3 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--accent-hi);
+}
+
+.changelog-list time {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.changelog-list ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 1100px) {
+  .start-layout {
+    flex-direction: column;
+    align-items: center;
+  }
+  .changelog-card {
+    flex-basis: auto;
+    width: min(680px, 100%);
+    max-height: none;
+  }
 }
 
 .start-actions {
@@ -6266,4 +6420,637 @@ tr.hidden-markup td {
 
 .geo-number {
   width: 80px;
+}
+
+/* Comments table (a Project's or Live Session's comments) */
+.comments-table th .th-sort {
+  all: unset;
+  cursor: pointer;
+}
+
+.comments-table tbody tr {
+  cursor: pointer;
+}
+
+.comments-table tbody tr:hover,
+.comments-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.comments-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
+.comments-table tr.reply td {
+  color: var(--muted);
+}
+
+.comments-table tr.reply .comment-text {
+  color: inherit;
+}
+
+/* Link previews: the sheet or detail a link points to, floating beside the plan */
+.link-preview {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #172339);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.link-preview.pinned {
+  border-color: var(--brand, #14a39a);
+}
+
+.link-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  cursor: move;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.link-preview-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.link-preview-btn {
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link-preview-btn:hover,
+.link-preview-btn.on {
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.link-preview-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.link-preview-body:active {
+  cursor: grabbing;
+}
+
+.link-preview-host {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+}
+
+.link-preview-canvas {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+}
+
+.link-preview-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: #555;
+  font-size: 12px;
+}
+
+.link-preview-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 50%, var(--muted, #8892a6) 50%, var(--muted, #8892a6) 60%, transparent 60%, transparent 70%, var(--muted, #8892a6) 70%, var(--muted, #8892a6) 80%, transparent 80%);
+}
+
+/* Scripts (Tools › Scripts) */
+.modal.scripts-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, calc(100vw - 32px));
+  height: min(720px, calc(100vh - 48px));
+  max-height: none;
+}
+
+.scripts-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+}
+
+.scripts-list {
+  width: 220px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: auto;
+}
+
+.scripts-row {
+  all: unset;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.scripts-row:hover,
+.scripts-row.on {
+  background: rgba(20, 163, 154, 0.15);
+}
+
+.scripts-row.example {
+  color: var(--muted);
+}
+
+.scripts-examples-title {
+  margin-top: 12px;
+}
+
+.scripts-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scripts-edit textarea {
+  flex: 1;
+  min-height: 160px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  resize: none;
+}
+
+.scripts-help {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.scripts-help code {
+  font-size: 11px;
+}
+
+.scripts-result {
+  max-height: 34%;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.scripts-result p {
+  margin: 0 0 4px;
+}
+
+.scripts-errors {
+  margin: 0;
+  padding-left: 18px;
+  color: #f87171;
+}
+
+.scripts-changes {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.scripts-changes .what {
+  font-weight: 600;
+}
+
+/* Beats the dialogs' input rule, which lets an input grow. */
+.modal.scripts-dialog .scripts-edit > input:not([type='checkbox']):not([type='radio']) {
+  flex: none;
+}
+
+.scripts-list > .btn {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+/* Takeoff Review: AI proposals beside the sheet */
+.takeoff-review {
+  position: fixed;
+  z-index: 55;
+  top: 110px;
+  right: 16px;
+  bottom: 40px;
+  width: min(600px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--panel, #172339);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+.takeoff-review-head,
+.takeoff-review-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+.takeoff-review-head {
+  border-bottom: 1px solid var(--border);
+}
+
+.takeoff-review-head h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.takeoff-review-foot {
+  border-top: 1px solid var(--border);
+}
+
+.takeoff-review-note {
+  margin: 6px 10px;
+}
+
+.takeoff-review-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.takeoff-proposal {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 12px;
+}
+
+.takeoff-proposal.approved {
+  border-color: rgba(22, 163, 74, 0.6);
+}
+
+.takeoff-proposal.rejected {
+  opacity: 0.7;
+}
+
+.tp-head,
+.tp-assembly,
+.tp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tp-actions {
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.tp-measure {
+  all: unset;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline dotted;
+}
+
+.tp-value {
+  color: var(--muted);
+}
+
+.tp-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.2);
+}
+
+.tp-state.approved {
+  background: rgba(22, 163, 74, 0.25);
+}
+
+.tp-state.rejected {
+  background: rgba(220, 38, 38, 0.25);
+}
+
+.tp-assembly {
+  margin: 6px 0 2px;
+}
+
+.tp-vars {
+  margin-bottom: 4px;
+}
+
+.tp-items {
+  margin: 4px 0;
+}
+
+.tp-items input {
+  width: 80px;
+  text-align: right;
+}
+
+.tp-items input.tp-set {
+  border-color: var(--brand, #14a39a);
+}
+
+.tp-reason {
+  margin: 6px 0 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--border);
+}
+
+.takeoff-proposal .warn {
+  color: #f59e0b;
+}
+
+.tp-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+/* A takeoff quantity set by hand (it does not follow the measurement) */
+.set-by-hand {
+  color: #f59e0b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Line styles: the manager (sets beside their styles) and the style editor. */
+.modal.line-styles-dialog {
+  width: min(760px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.ls-manager {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 2fr);
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.ls-sets ul,
+.ls-styles ul {
+  height: min(360px, 50vh);
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  list-style: none;
+}
+
+.ls-sets li,
+.ls-styles li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ls-sets li input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ls-sets li.picked,
+.ls-styles li.picked {
+  background: var(--accent);
+  color: #fff;
+}
+
+.ls-styles li {
+  justify-content: space-between;
+}
+
+.ls-styles li .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ls-styles li.ls-empty {
+  color: var(--muted, #6b7280);
+  cursor: default;
+}
+
+.line-style-preview {
+  flex: none;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.ls-badge {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.ls-set-actions,
+.ls-style-actions,
+.ls-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ls-preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  border-radius: 6px;
+  background: #fff;
+  color: #374151;
+}
+
+.ls-field,
+.ls-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.ls-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.ls-line {
+  align-self: stretch;
+  margin: 0;
+  padding: 6px 10px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ls-line legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-weight: 600;
+}
+
+.ls-row-buttons {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.ls-components {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ls-components > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.ls-kind {
+  min-width: 52px;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.ls-symbol {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ls-symbol-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ls-symbol-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.ls-symbol-canvas {
+  flex: none;
+  border-radius: 4px;
+  background: #fff;
+  cursor: crosshair;
+}
+
+.ls-symbol-canvas .grid line {
+  stroke: #e5e7eb;
+  stroke-width: 1;
+}
+
+.ls-symbol-canvas .grid line.axis {
+  stroke: #9ca3af;
+}
+
+.ls-symbol-canvas .extent {
+  fill: rgba(37, 99, 235, 0.08);
+}
+
+.ls-symbol-canvas .shape {
+  fill: none;
+  stroke: #111827;
+  stroke-width: 1.5;
+}
+
+.ls-symbol-canvas .shape.filled {
+  fill: rgba(17, 24, 39, 0.35);
+}
+
+.ls-symbol-canvas .pt {
+  fill: #2563eb;
+}
+
+.ls-symbol-canvas .pt.curve {
+  fill: #f59e0b;
+}
+
+.ls-points {
+  flex: 1;
+  min-width: 220px;
+}
+
+.ls-points table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ls-points th {
+  text-align: left;
+  font-weight: 600;
+}
+
+.ls-points td,
+.ls-points th {
+  padding: 1px 4px 1px 0;
+}
+
+.ls-problem {
+  color: #b45309;
+}
+
+@media (max-width: 640px) {
+  .ls-manager {
+    grid-template-columns: 1fr;
+  }
 }

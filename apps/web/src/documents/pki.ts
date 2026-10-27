@@ -284,6 +284,73 @@ export function withTimestamp(cms: Uint8Array, token: Uint8Array): Uint8Array {
   return der(root);
 }
 
+/**
+ * Makes a signature value over `data` (the DER of the signed attributes) with the signer's key:
+ * RSA PKCS #1 v1.5, or ECDSA as a DER SEQUENCE of r and s. The key may be in this app (a .p12
+ * Digital ID) or somewhere it cannot leave (a smart card or USB token).
+ */
+export type RawSign = (data: Uint8Array, hash: HashName) => Promise<Uint8Array>;
+
+const RSA_KEY = '1.2.840.113549.1.1.1';
+const EC_KEY = '1.2.840.10045.2.1';
+const ECDSA_WITH: Partial<Record<HashName, string>> = { 'SHA-256': '1.2.840.10045.4.3.2', 'SHA-384': '1.2.840.10045.4.3.3', 'SHA-512': '1.2.840.10045.4.3.4' };
+const ATTR = { contentType: '1.2.840.113549.1.9.3', signingTime: '1.2.840.113549.1.9.5' };
+
+/** DER orders a SET OF by its members' encodings. */
+function derSorted(nodes: Node[]): Node[] {
+  const keyed = nodes.map((n) => ({ n, b: der(n) }));
+  keyed.sort((x, y) => {
+    for (let k = 0; k < Math.min(x.b.length, y.b.length); k++) if (x.b[k] !== y.b[k]) return x.b[k]! - y.b[k]!;
+    return x.b.length - y.b.length;
+  });
+  return keyed.map((k) => k.n);
+}
+
+/**
+ * A detached CMS SignedData over `data`: the signed attributes (content type, signing time and
+ * message digest) are built here and only their signature comes from `sign`. `chainDer` is the
+ * signer's certificate first, then the rest of its chain, all carried in the signature.
+ */
+export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8Array[], date: Date, hash: HashName, sign: RawSign): Promise<Uint8Array> {
+  const certNode = parse(chainDer[0]!);
+  const tbs = kids(kids(certNode)[0]!);
+  const i = isContext(tbs[0], 0) ? 1 : 0;
+  const serial = tbs[i]!;
+  const issuer = tbs[i + 2]!;
+  const keyOid = oidOf(kids(kids(tbs[i + 5]!)[0]!)[0]!);
+  let sigAlg: Node;
+  if (keyOid === RSA_KEY) sigAlg = algId(RSA_KEY);
+  else if (keyOid === EC_KEY && ECDSA_WITH[hash]) sigAlg = seq(oid(ECDSA_WITH[hash]!));
+  else throw new Error('The certificate’s key is neither RSA nor ECDSA');
+
+  const attr = (type: string, value: Node) => seq(oid(type), asn1.create(Class.UNIVERSAL, Type.SET, true, [value]));
+  const attrs = derSorted([
+    attr(ATTR.contentType, oid(OID.data)),
+    // UTCTime until 2050, GeneralizedTime after (RFC 5652, 11.3).
+    attr(ATTR.signingTime, date.getUTCFullYear() < 2050 ? asn1.create(Class.UNIVERSAL, Type.UTCTIME, false, asn1.dateToUtcTime(date)) : asn1.create(Class.UNIVERSAL, Type.GENERALIZEDTIME, false, asn1.dateToGeneralizedTime(date))),
+    attr(OID.messageDigest, octets(await digest(hash, data))),
+  ]);
+  // Signed as a SET (tag 0x31), stored as [0].
+  const signature = await sign(der(asn1.create(Class.UNIVERSAL, Type.SET, true, attrs)), hash);
+
+  const signerInfo = seq(
+    smallInt(1),
+    seq(issuer, serial),
+    algId(HASH_OID_OF[hash]),
+    asn1.create(Class.CONTEXT_SPECIFIC, 0, true, attrs),
+    sigAlg,
+    octets(signature),
+  );
+  const signedData = seq(
+    smallInt(1),
+    asn1.create(Class.UNIVERSAL, Type.SET, true, [algId(HASH_OID_OF[hash])]),
+    seq(oid(OID.data)),
+    asn1.create(Class.CONTEXT_SPECIFIC, 0, true, chainDer.map((c, k) => (k === 0 ? certNode : parse(c)))),
+    asn1.create(Class.UNIVERSAL, Type.SET, true, [signerInfo]),
+  );
+  return der(seq(oid(OID.signedData), asn1.create(Class.CONTEXT_SPECIFIC, 0, true, [signedData])));
+}
+
 /** A signer's unsigned time stamp token, if it has one. */
 export function timestampTokenOf(cms: Uint8Array): Uint8Array | null {
   const parts = signedDataOf(parse(cms));

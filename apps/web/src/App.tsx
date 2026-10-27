@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -17,7 +17,7 @@ import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel'
 import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
-import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveConfigured, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
+import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
 import { allows, canAddMarkups, policyOf, type RecordEntry } from './studio/protocol';
 import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from './studio/types';
@@ -37,6 +37,12 @@ import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
+import { CommentsTableDialog } from './components/CommentsTableDialog';
+import { commentRows, type CommentRow } from './studio/comments';
+import { LinkPreviews, type LinkPreviewWindow, type PreviewDrawing, type PreviewView } from './components/LinkPreview';
+import { ScriptsDialog } from './components/ScriptsDialog';
+import { TakeoffReview } from './components/TakeoffReview';
+import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -69,6 +75,7 @@ import { PrintDialog } from './components/PrintDialog';
 import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
+import { TextSelectionBar } from './components/TextSelectionBar';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -112,16 +119,19 @@ import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
+import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
+import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertKeepsSignatures } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
 import type { PageText, SheetInfo } from '@nb/sheets';
@@ -139,6 +149,7 @@ import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
+import { DesktopOnlyNotice } from './components/studio/DesktopOnlyNotice';
 import { PopOutWindow } from './components/PopOutWindow';
 import { ProjectsPanel, type UploadProgress } from './components/ProjectsPanel';
 import { idFromText, onProjectOpened, openProject, openProjects, projectAuthor, projectById } from './studio/projects/store';
@@ -156,7 +167,9 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
+import { TeachMarkDialog } from './components/TeachMarkDialog';
+import { teachMark, type MarkKind, type TaughtMark } from './sheets/marks';
+import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
@@ -563,21 +576,16 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
 
 /** A JPEG re-encoded at `quality` through a canvas; null if the browser cannot decode it. */
 /**
- * Certificate services (time stamp servers, OCSP responders, revocation lists), reached straight from
- * the browser. Many do not allow that (CORS); then the step fails with a clear reason and signing or
- * validating carries on without it.
+ * Certificate services (time stamp servers, OCSP responders, revocation lists), which the desktop
+ * app reaches from its main process (apps/desktop/src/pki.ts). A browser cannot: the page's
+ * security policy only allows its own site and Microsoft. The step then fails with that reason
+ * and signing or validating carries on without it.
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
+  const viaDesktop = desktop()?.pkiFetch;
+  if (!viaDesktop) throw new Error('Time stamps and revocation checks need the desktop app');
   requireOnline('Time stamps and revocation checks');
-  const host = new URL(url).host;
-  let res: Response;
-  try {
-    res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
-  } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
-  }
-  if (!res.ok) throw new Error(`${host} answered ${res.status}`);
-  return new Uint8Array(await res.arrayBuffer());
+  return viaDesktop(url, body, type);
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
@@ -759,7 +767,7 @@ function startCellEdit(tools: MarkupTools, typed?: string): boolean {
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
-const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', stitch: 'Stitching sheets' };
+const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', marks: 'Finding taught marks', stitch: 'Stitching sheets' };
 
 /** Jobs that rewrite a document's pages; while one runs, page operations are turned off. */
 const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
@@ -869,6 +877,19 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
+  const [commentsTable, setCommentsTable] = useState<{
+    key: string;
+    title: string;
+    rows: CommentRow[] | null;
+    progress: { done: number; total: number } | null;
+    failed: string[];
+    open: (row: CommentRow) => void;
+    refresh: () => void;
+    hidden?: boolean;
+  } | null>(null);
+  const [scriptsOpen, setScriptsOpen] = useState(false);
+  const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -996,6 +1017,7 @@ export function App() {
   const [bookmarkAction, setBookmarkAction] = useState<string | null>(null);
   // Symbol Search › Hyperlinks…: the copies found, waiting for where their links go.
   const [vsLinks, setVsLinks] = useState<{ pane: Pane; hits: VisualSearchHit[] } | null>(null);
+  const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -1020,6 +1042,13 @@ export function App() {
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
+  const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  useEffect(() => {
+    // The Line style pickers open the manager from wherever they sit.
+    const open = () => setLineStylesOpen(true);
+    window.addEventListener(MANAGE_LINE_STYLES_EVENT, open);
+    return () => window.removeEventListener(MANAGE_LINE_STYLES_EVENT, open);
+  }, []);
   /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
   const [stampsCreating, setStampsCreating] = useState(false);
   /** The current commands by id, for the keyboard handler (rebuilt every render). */
@@ -1106,7 +1135,7 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -1143,6 +1172,8 @@ export function App() {
   const indexAbort = useRef<AbortController | null>(null);
   const openFileRef = useRef<HTMLInputElement>(null);
   const insertFileRef = useRef<HTMLInputElement>(null);
+  const bulkInsertFileRef = useRef<HTMLInputElement>(null);
+  const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
   const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
@@ -1151,6 +1182,9 @@ export function App() {
   const future = useRef<ViewState[]>([]);
   const [canGoForward, setCanGoForward] = useState(false);
   const followLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  const previewLinkRef = useRef<(link: StoredLink) => void>(() => {});
+  /** Previews of linked sheets and details, floating beside the plan (see LinkPreviews). */
+  const [linkPreviews, setLinkPreviews] = useState<(LinkPreviewWindow & { link: StoredLink; fileId: string })[]>([]);
   const viewportRef = useRef<(pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
   const [author, setAuthor] = useState(loadAuthor);
   const authorRef = useRef(author);
@@ -1260,17 +1294,12 @@ export function App() {
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
+      onTeachMark: (pageIndex, rect) => setTeachBox({ pane, pageIndex, rect }),
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
       onFormField: (w) => formFieldRef.current(pane, w),
       onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current(pane, pageIndex, rect),
-      onTextSelected: (text) => {
-        void navigator.clipboard?.writeText(text).then(
-          () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
-          () => setNotice('The browser did not allow copying to the clipboard.'),
-        );
-      },
       onFollowHyperlink: (m) => followHyperlinkRef.current(m),
       requestImage: pickImage,
       defaultStamp: lastStamp,
@@ -1513,6 +1542,10 @@ export function App() {
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal);
         }
+        // Marks taught since this document was last searched (or ever, for a new set).
+        const marks = profiles.active().state.taughtMarks;
+        const searched = cur.store.marksSearched();
+        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal);
         // Documents imported before maps were read: read the file for them once.
         if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
@@ -1522,7 +1555,25 @@ export function App() {
   );
 
   const redetectLinks = useCallback(
-    (doc: OpenFile | null = openRef.current) => runIndexJob(doc, (cur, signal, report) => linkFromText(() => readFile(cur.file.hash), cur.store, report, signal)),
+    (doc: OpenFile | null = openRef.current) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+        // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
+        const marks = profiles.active().state.taughtMarks;
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
+      }),
+    [runIndexJob],
+  );
+
+  /** Looks for the taught marks in a document again (after teaching or forgetting one); `announce` says how many links wait for review. */
+  const findTaughtMarks = useCallback(
+    (doc: OpenFile | null = openRef.current, announce = false) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        await linkFromMarks(() => readFile(cur.file.hash), cur.store, profiles.active().state.taughtMarks, report, signal);
+        if (!announce) return;
+        const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
+        setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
+      }),
     [runIndexJob],
   );
 
@@ -1547,7 +1598,7 @@ export function App() {
     [ctl, ctlB],
   );
 
-  followLinkRef.current = (link: StoredLink) => navigate(link.targetPage, link.targetRect);
+  followLinkRef.current = (link: StoredLink) => (settings.get().linkClick === 'jump' ? navigate(link.targetPage, link.targetRect) : previewLinkRef.current(link));
   /** Runs a link action (of a markup or a bookmark): a web page, another document, a Place or a page. */
   const followAction = (link: LinkAction) => {
     if (link.kind === 'url') {
@@ -2420,23 +2471,33 @@ export function App() {
    * Redaction and Erase Content: the content under the areas is removed from the file (text,
    * lines and shapes, picture pixels). Redaction also covers the areas in black and removes the
    * redaction marks and any markups over them. Afterwards the pages' text is read again to check
-   * nothing is left inside the areas.
+   * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
+   * the areas, and delete markups in them.
    */
   const runRedact = useCallback(
-    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[], options?: RedactOptions) => {
+    async (
+      cur: OpenFile,
+      intoB: boolean,
+      mode: 'redact' | 'erase',
+      areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[],
+      options?: RedactOptions,
+      erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
+    ) => {
       if (!ctl || !areas.length) return;
       if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
       if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
-      const hex = options?.fill ?? '#000000';
+      const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+      const covering = redacting || !!erase?.cover;
       const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
         regions,
-        fill: redacting ? fill : null,
-        imageFill: redacting ? fill : [1, 1, 1],
+        fill: covering ? fill : null,
+        imageFill: covering ? fill : [1, 1, 1],
         ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+        ...(erase?.textOnly ? { textOnly: true } : {}),
       });
       const report = redacted.report;
       let bytes = redacted.bytes;
@@ -2448,7 +2509,7 @@ export function App() {
         const b = boundsOf(m.points);
         return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
       };
-      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : [];
+      const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : erase?.removeMarkups ? cur.store.all().filter(overlaps) : [];
       await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
       // Search matches that were redacted no longer exist.
       if (redacting) {
@@ -2471,8 +2532,9 @@ export function App() {
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
       const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
-      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${redacting ? ' (they are covered by the black box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}. Checked: no text is left in the ${redacting ? 'redacted' : 'erased'} areas.`);
+      const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
+      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
+      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
   );
@@ -3019,12 +3081,13 @@ export function App() {
           // Headers & Footers: Bates numbers carry on across the files.
           let batesDone = 0;
           // Sign & Seal: the ID is unlocked (and its password checked) before any file changes.
-          let signer: { id: import('./documents/digitalIds').UnlockedId; image?: Uint8Array } | null = null;
+          // An ID on a card is checked by the card at the first signature (its PIN is sent with each).
+          let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
-            const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
-            rememberPassword(record.id, command.sign.password);
+            const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
+            if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -3365,8 +3428,9 @@ export function App() {
 
   /** Form edits run one after another, each on the document's current contents. */
   const formQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /** `rethrow`: a failure goes back to the caller (a dialog that shows it and stays open) instead of the error bar. */
   const editForm = useCallback(
-    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string): Promise<boolean> => {
+    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string, rethrow = false): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
@@ -3386,10 +3450,12 @@ export function App() {
           );
         })
         .catch((err) => {
+          if (rethrow) throw err;
           setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
           return false;
         });
-      formQueue.current = run;
+      // The queue carries on after a failure.
+      formQueue.current = run.catch(() => false);
       return run;
     },
     [commitDocument],
@@ -3526,9 +3592,9 @@ export function App() {
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
       if (!record) throw new Error('That Digital ID is no longer on this device');
-      const { unlockId } = await import('./documents/digitalIds');
+      const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
-      const id = unlockId(record, c.password);
+      const id = signerFor(record, c.password);
       const picture = c.imageId ? signatures.get().find((p) => p.id === c.imageId) : undefined;
       const image = picture ? new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) : undefined;
       const ok = await editForm(
@@ -3545,6 +3611,8 @@ export function App() {
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
+        // A card checks its PIN only now: a wrong one is shown in the Sign dialog, which stays open.
+        true,
       );
       if (!ok) return;
       setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);
@@ -4576,9 +4644,11 @@ export function App() {
       window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
       showPanel('sessions');
     }
-    const current = currentSessions();
+    // Sessions only run in the desktop app: the web build neither rejoins them nor takes invites.
+    const current = desktop() ? currentSessions() : [];
     void (async () => {
       for (const ref of current) await joinStudio(ref, false);
+      if (!desktop()) return;
       if (driveInvite && !current.some((r) => r.id === driveInvite)) setStudioInvite({ backend: 'onedrive', id: driveInvite });
       else if (driveInvite) setFocusedSession(driveInvite);
       // After rejoining several, start on the list rather than whichever joined last.
@@ -4760,6 +4830,105 @@ export function App() {
     tools.select(ids);
   }, [ctl, ctlB]);
 
+  // --- Comments table: every comment and reply across a Project's or Live Session's files -------
+
+  /** A markup to select once its document is open (a Comments table row opens the file first). */
+  const pendingFocusRef = useRef<{ markupId: string; until: number } | null>(null);
+  useEffect(() => {
+    const f = pendingFocusRef.current;
+    if (!f) return;
+    if (Date.now() > f.until) {
+      pendingFocusRef.current = null;
+      return;
+    }
+    const m = markups.find((x) => x.id === f.markupId);
+    if (!m) return;
+    pendingFocusRef.current = null;
+    selectFromList(m);
+  }, [markups, selectFromList]);
+
+  const panesRef = useRef({ ctl, ctlB });
+  panesRef.current = { ctl, ctlB };
+
+  /** Opens a row's file, then its page and markup. */
+  const openCommentRow = useCallback(
+    async (open: () => Promise<void>, row: CommentRow) => {
+      setCommentsTable((t) => (t ? { ...t, hidden: true } : t));
+      pendingFocusRef.current = { markupId: row.markupId, until: Date.now() + 15_000 };
+      await open();
+      // A markup that is not in the open copy (not synced yet): at least show its page.
+      setTimeout(() => {
+        if (pendingFocusRef.current?.markupId !== row.markupId) return;
+        pendingFocusRef.current = null;
+        (activePaneRef.current === 'b' ? panesRef.current.ctlB : panesRef.current.ctl)?.viewer.goToPage(row.pageIndex);
+      }, 2500);
+    },
+    [],
+  );
+
+  /** Reads every file of a Project for its comments: the shared markups, and the markups other tools wrote into the PDF. */
+  const showProjectComments = useCallback(async (project: Project) => {
+    const key = `project:${project.id}`;
+    const title = `Project ${project.getSnapshot().manifest.name}`;
+    const files = project.getSnapshot().files;
+    const statuses = profiles.active().state.columnTemplate?.statuses ?? DEFAULT_STATUSES;
+    const rows: CommentRow[] = [];
+    const failed: string[] = [];
+    const open = (row: CommentRow) => {
+      const file = project.getSnapshot().files.find((f) => f.id === row.fileId);
+      if (file) void openCommentRow(() => openProjectFile(project, file), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+    };
+    setCommentsTable({ key, title, rows: null, progress: { done: 0, total: files.length }, failed, open, refresh: () => void showProjectComments(project) });
+    for (const [i, file] of files.entries()) {
+      try {
+        // The folder is read once, for the first file; the rest use what it read.
+        const shared = await project.sharedMarkups(file.id, i === 0);
+        const { bytes } = await project.download(file.id);
+        const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false });
+        try {
+          const found = await readPdfAnnotations(bytes, scratch);
+          // Markups this app wrote come back from the shared copy; the PDF adds other tools' ones.
+          const byId = new Map([...(shared.length ? found.markups.filter(fromOtherTools) : found.markups), ...shared].map((m) => [m.id, m]));
+          // The file's own custom statuses (from Revu, say) name their states too.
+          rows.push(...commentRows({ fileId: file.id, file: file.name, markups: [...byId.values()], pageLabel: (p) => found.labels[p] || `Page ${p + 1}` }, [...statuses, ...(found.extras.statuses ?? [])]));
+        } finally {
+          await scratch.destroy();
+        }
+      } catch (err) {
+        failed.push(`${file.name} (${err instanceof Error ? err.message : String(err)})`);
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: files.length } } : t));
+    }
+    setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+  }, [openCommentRow, openProjectFile]);
+
+  /** A Live Session's comments, from each document's shared markups. */
+  const showSessionComments = useCallback(
+    async (session: CollabSession) => {
+      const key = `session:${session.id}`;
+      const docs = session.getSnapshot().meta.documents;
+      const rows: CommentRow[] = [];
+      const failed: string[] = [];
+      const open = (row: CommentRow) => void openCommentRow(() => openSessionDocument(session.id, row.fileId), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
+      setCommentsTable({ key, title: `Live Session ${session.meta.name}`, rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
+      for (const [i, d] of docs.entries()) {
+        try {
+          rows.push(
+            ...(await withSessionMarkups(session, d.id, (store) => {
+              const sheets = store.allSheets();
+              return commentRows({ fileId: d.id, file: d.name, markups: store.all(), pageLabel: (p) => sheets[p]?.number || `Page ${p + 1}` }, store.columnSet().statuses);
+            })),
+          );
+        } catch (err) {
+          failed.push(`${d.name} (${err instanceof Error ? err.message : String(err)})`);
+        }
+        setCommentsTable((t) => (t?.key === key ? { ...t, progress: { done: i + 1, total: docs.length } } : t));
+      }
+      setCommentsTable((t) => (t?.key === key ? { ...t, rows, failed, progress: null } : t));
+    },
+    [openCommentRow, openSessionDocument, withSessionMarkups],
+  );
+
   // Stable handlers for the Markups list, so it re-renders only when its data changes.
   const listRowMenuRef = useRef<(m: Markup, x: number, y: number) => void>(() => {});
   listRowMenuRef.current = (m, x, y) => {
@@ -4854,6 +5023,81 @@ export function App() {
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
     return { canvas, x0, y0, w, h };
+  };
+
+  // --- Link previews ------------------------------------------------------------------------------
+
+  /** A link's target as a preview: replaces the unpinned one, beside the pinned ones. */
+  previewLinkRef.current = (link: StoredLink) => {
+    const o = paneParts(activePaneRef.current).o;
+    if (!o) return;
+    const sheet = o.store.allSheets()[link.targetPage];
+    const target = [sheet?.number ?? `Page ${link.targetPage + 1}`, sheet?.title].filter(Boolean).join(' ');
+    const title = link.detail ? `${link.label} → ${target}` : target;
+    setLinkPreviews((ps) => {
+      const kept = ps.filter((p) => p.pinned);
+      const k = kept.length;
+      const w = Math.min(520, window.innerWidth - 48);
+      const h = Math.min(380, window.innerHeight - 160);
+      return [...kept, { id: crypto.randomUUID(), title, pinned: false, x: Math.max(8, window.innerWidth - w - 32 - k * 28), y: 120 + k * 28, w, h, link, fileId: o.file.id }];
+    });
+  };
+
+  // A preview goes when its document is closed.
+  useEffect(() => {
+    const open = new Set([...tabsA, ...tabsB].map((t) => t.file.id));
+    setLinkPreviews((ps) => (ps.every((p) => open.has(p.fileId)) ? ps : ps.filter((p) => open.has(p.fileId))));
+  }, [tabsA, tabsB]);
+
+  /** The open document a preview belongs to. */
+  const previewFile = (fileId: string) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+
+  const renderPreviewRef = useRef<(id: string, width: number, height: number, view?: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
+  renderPreviewRef.current = async (id, width, height, asked) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    const o = p && previewFile(p.fileId);
+    const size = p && o?.doc.pages[p.link.targetPage];
+    if (!p || !o || !size) return null;
+    // The detail with some of the sheet around it, or the whole sheet.
+    const t = p.link.targetRect;
+    const pad = t ? Math.max(36, 0.25 * Math.max(t.w, t.h)) : 0;
+    const area = t ? { x: t.x - pad, y: t.y - pad, w: t.w + 2 * pad, h: t.h + 2 * pad } : { x: 0, y: 0, w: size.width, h: size.height };
+    const dpr = window.devicePixelRatio || 1;
+    // Fitted to the link's target until the person zooms or pans.
+    const view: PreviewView = asked ?? { cx: area.x + area.w / 2, cy: area.y + area.h / 2, zoom: Math.min(width / area.w, height / area.h) };
+    const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
+    const region = await renderRegion(o, p.link.targetPage, seen, () => Math.min(16, Math.max(0.1, view.zoom * dpr)));
+    // Panned or zoomed right off the page: draw nothing, but still report the view so the old picture goes.
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
+    region.canvas.style.width = `${region.w * view.zoom}px`;
+    region.canvas.style.height = `${region.h * view.zoom}px`;
+    return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };
+  };
+  const renderPreview = useCallback((id: string, width: number, height: number, view?: PreviewView) => renderPreviewRef.current(id, width, height, view), []);
+
+  /** Opens a preview's sheet in the view (as following the link used to), and closes the preview unless it is pinned. */
+  const openPreview = (id: string) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    if (!p) return;
+    if (activeOpen?.file.id !== p.fileId) {
+      // Its document is open in another tab: the view cannot go there from here.
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      return;
+    }
+    navigate(p.link.targetPage, p.link.targetRect);
+    if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
+  };
+
+  /** Shows where a preview's link was clicked: the mark for a title's link, the title for a mark's. */
+  const backFromPreview = (id: string) => {
+    const p = linkPreviews.find((x) => x.id === id);
+    if (!p) return;
+    if (activeOpen?.file.id !== p.fileId) {
+      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to go back.`);
+      return;
+    }
+    navigate(p.link.pageIndex, p.link.rect);
+    if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
@@ -4982,6 +5226,21 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
+  const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
+    setBulkInsertFiles(null);
+    if (!open || !files.length) return;
+    try {
+      const sources: ArrayBuffer[] = [];
+      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
+      // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
+      const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
+      await applyPageOps(where === 'end' ? ops : ops.reverse(), sources);
+    } catch (err) {
+      setError(`Bulk insert failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
   const assistantHost = useRef<() => AssistantDocument[]>(() => []);
   assistantHost.current = () => {
@@ -5228,6 +5487,26 @@ export function App() {
   const pageSize = activeOpen?.doc.pages[pageIndex] ?? null;
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
+
+  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
+  const activeHash = activeOpen?.store.fileHash ?? null;
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
+    let seen = waiting();
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
+    return takeoffProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean, cur: OpenFile | null = activeOpen, intoB: boolean = paneB): Promise<{ pageIndex: number; markups: number } | null> => {
@@ -5876,7 +6155,7 @@ export function App() {
    * order, alignment, action, capture, flatten, group, lock, hide and legend; review; Tool Library;
    * defaults and properties.
    */
-  const markupMenu = (pane: Pane, ids: string[], at?: Point): MenuEntry[] => {
+  const markupMenu = (pane: Pane, ids: string[], at?: Point, hitId?: string): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return [];
     const store = o.store;
@@ -5896,6 +6175,24 @@ export function App() {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, { status: s })));
     };
+    // The connector right-clicked (or the one selected): its route is set on its own, whatever else is selected.
+    const connector = [hitId ? store.get(hitId) : undefined, one ? first : undefined].find((m) => m?.type === 'connector');
+    const connectorItems = (): MenuEntry[] =>
+      connector
+        ? [
+            SEP,
+            {
+              label: 'Connector',
+              disabled: ro || !!connector.locked,
+              items: [
+                { label: 'Right-Angle', checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
+                { label: 'Straight', checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
+                SEP,
+                { label: 'Reset Route', disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
+              ],
+            },
+          ]
+        : [];
     const setAll = (patch: (m: Markup) => Partial<Markup>) => {
       store.checkpoint();
       store.batch(() => ms.forEach((m) => store.update(m.id, patch(m))));
@@ -5986,6 +6283,7 @@ export function App() {
             { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
           ]
         : []),
+      ...connectorItems(),
       SEP,
       {
         label: 'Layer',
@@ -6248,11 +6546,20 @@ export function App() {
       c.tools.select([hit.id]);
       ids = [hit.id];
     }
-    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]]));
+    showMenu(e, markupMenu(pane, ids, [pt[0], pt[1]], hit.id));
   };
 
   const copyMarkups = (pane: Pane) => {
     const tools = paneParts(pane).c?.tools;
+    // Selected PDF text copies as text; markups copy as markups.
+    const text = tools?.selectedPdfText();
+    if (text) {
+      void navigator.clipboard?.writeText(text).then(
+        () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
+        () => setNotice('The browser did not allow copying to the clipboard.'),
+      );
+      return true;
+    }
     const copied = tools?.copySelected() ?? [];
     if (copied.length) {
       clipboard.current = copied;
@@ -6364,6 +6671,8 @@ export function App() {
       SEP,
       sessionDoc
         ? { label: 'Show in Session', onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
+        : !desktop()
+        ? { label: 'Add to Session (desktop app only)', disabled: true, onClick: () => {} }
         : {
             label: 'Add to Session',
             items: [
@@ -6611,6 +6920,7 @@ export function App() {
       SEP,
       run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
+      run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
       { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
       { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: !editable || pages.length >= count, onClick: () => deletePages(true) },
@@ -6665,7 +6975,7 @@ export function App() {
       }) },
     {
       label: 'Add to Session',
-      disabled: !sessions.some((s) => s.canAddDocuments),
+      disabled: !desktop() || !sessions.some((s) => s.canAddDocuments),
       items: sessions
         .filter((s) => s.canAddDocuments)
         .map((s) => ({ label: s.meta.name, onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: f.id, name: f.name }])) })),
@@ -6697,14 +7007,51 @@ export function App() {
     },
   ];
 
+  /** Links › Teach a mark: shows the Links tab and turns on the tool for boxing an example mark. */
+  const startTeachMark = () => {
+    if (!activeTools) return;
+    showBottomPanel('links');
+    activeTools.setTool('teachMark');
+    setNotice('Drag a box around one section mark, section title, detail callout or detail title, with its label.');
+  };
+
+  /** Saves the boxed example in the profile and finds marks like it; resolves to a message when it cannot be used. */
+  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string): Promise<string | null> => {
+    const { o } = paneParts(box.pane);
+    if (!o) return 'The document was closed.';
+    const size = o.doc.pages[box.pageIndex]!;
+    const sheets = o.store.allSheets();
+    let mark: TaughtMark;
+    try {
+      const [words, geometry] = await Promise.all([o.doc.text(box.pageIndex), o.doc.geometry(box.pageIndex)]);
+      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null));
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
+    setTeachBox(null);
+    void findTaughtMarks(o, true);
+    return null;
+  };
+
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `erase` is Bulk Redact, which draws its boxes the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
+    if (kind === 'erase' && studioDocOf(o.file.id)) {
+      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      return;
+    }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    setLabelMode((m) => (m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed ? m : { pane, regions: m?.pane === pane ? m.regions : [], kind, ...opts }));
+    // Erase boxes are not label boxes, so switching between them starts with none.
+    setLabelMode((m) =>
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
+        ? m
+        : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
+    );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
     void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
@@ -7149,6 +7496,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       showPanel('pages');
       insertFileRef.current?.click();
     },
+    bulkInsertPages: () => {
+      showPanel('pages');
+      bulkInsertFileRef.current?.click();
+    },
     insertBlank: () => setBlankPdf('blank'),
     extractPages: () => setPageTool({ kind: 'extract', drawnRect: null }),
     copyPageSnapshot: () => {
@@ -7240,12 +7591,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
+    teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
+    bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
+    scripts: () => setScriptsOpen(true),
+    takeoffReview: () => setTakeoffReviewOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -7257,6 +7612,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       setStampsCreating(false);
       setStampsOpen(true);
     },
+    manageLineStyles: () => setLineStylesOpen(true),
     flowShape: (kind) => activeTools?.setFlowShape(kind),
     addNextShape: (side) => activeTools?.addNextShape(side),
     connectShapes: () => {
@@ -8065,6 +8421,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
+        ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (
+          <DesktopOnlyNotice kind={tab} />
         ) : tab === 'projects' ? (
           <ProjectsPanel
             me={author}
@@ -8079,6 +8437,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onCheckIn={checkInProjectFile}
             onSendQueued={() => void sendQueuedProjectChanges().catch((err) => setError(err instanceof Error ? err.message : String(err)))}
+            onShowComments={(project) => (commentsTable?.key === `project:${project.id}` ? setCommentsTable({ ...commentsTable, hidden: false }) : void showProjectComments(project))}
             onAddCurrent={async (project, folderId, onProgress) => {
               const cur = activeOpen;
               if (!cur) return;
@@ -8118,6 +8477,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onReport={(id, format) => {
               const snap = snapshots.find((x) => x.meta.id === id);
               if (!snap) return;
+              if (format === 'comments') {
+                const session = sessionById(id);
+                if (commentsTable?.key === `session:${id}`) setCommentsTable({ ...commentsTable, hidden: false });
+                else if (session) void showSessionComments(session);
+                return;
+              }
               if (format === 'pdf') {
                 void runStudio(() => sessionReport(id));
                 return;
@@ -8296,6 +8661,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFollow={(l) => navigate(l.targetPage, l.targetRect)}
             onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
             onRedetect={() => void redetectLinks()}
+            marks={ws.taughtMarks}
+            editable={!!activeOpen && !activeOpen.store.readOnly}
+            onTeach={startTeachMark}
+            onForget={(id) => {
+              updateWorkspace((s) => ({ ...s, taughtMarks: s.taughtMarks.filter((m) => m.id !== id) }));
+              void findTaughtMarks(activeOpen);
+            }}
           />
         ) : markupsPopped ? (
           <div className="popout-note">
@@ -8348,6 +8720,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!file || !open) return;
           const at = (v?.currentPageIndex ?? pageIndex) + 1;
           void applyPageOps([{ type: 'insert', source: 0, at }], [isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
+        }}
+      />
+      <input
+        ref={bulkInsertFileRef}
+        type="file"
+        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (files.length && open) setBulkInsertFiles(files);
         }}
       />
       <input
@@ -8502,6 +8886,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {ctl && open && toolsStateA.textSelection && (
+                  <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
+                )}
                 {notice && (
                   <div className="notice" onClick={() => setNotice(null)}>
                     {notice}
@@ -8559,6 +8946,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {ctlB && openB && toolsStateB.textSelection && (
+                      <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
+                    )}
                   </main>
                   {pageNav('b')}
                 </div>
@@ -8589,6 +8979,26 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 const missed = scales.length - done;
                 setNotice(`Set the scale on ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no readable scale in the boxes and were left as they were` : ''}.`);
                 setLabelMode(null);
+              }}
+            />
+          )}
+          {labelMode?.kind === 'erase' && labelPaneParts?.o && (
+            <EraseRegionsPanel
+              key={labelPaneParts.o.file.id}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              pageCount={labelPaneParts.o.doc.pages.length}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              texts={labelTexts}
+              pageSize={(page) => labelPaneParts.c?.viewer.pageSize(page) ?? null}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={(regions) => setLabelMode({ ...labelMode, regions })}
+              onClose={() => setLabelMode(null)}
+              onApply={(spec) => {
+                const o = labelPaneParts.o!;
+                setLabelMode(null);
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
             />
           )}
@@ -8686,6 +9096,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <PublishDialog mode={publishFor} pageCount={activeOpen.doc.pages.length} currentPage={pageIndex} busy={publishing} onRun={(req) => void runPublish(req)} onClose={() => setPublishFor(null)} />
       )}
       {whatsNewOpen && <WhatsNewDialog onClose={() => setWhatsNewOpen(false)} />}
+      <LinkPreviews
+        windows={linkPreviews}
+        render={renderPreview}
+        onChange={(w) => setLinkPreviews((ps) => ps.map((p) => (p.id === w.id ? { ...p, ...w } : p)))}
+        onOpen={openPreview}
+        onBack={backFromPreview}
+        onClose={(id) => setLinkPreviews((ps) => ps.filter((p) => p.id !== id))}
+        revision={markups}
+      />
       {spellOpen && activeOpen && (
         <SpellCheckDialog
           store={activeOpen.store}
@@ -8751,6 +9170,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {bulkInsertFiles && (
+        <BulkInsertDialog
+          initial={bulkInsertFiles}
+          currentPage={(v?.currentPageIndex ?? pageIndex) + 1}
+          onCancel={() => setBulkInsertFiles(null)}
+          onInsert={(files, where) => void bulkInsertDocuments(files, where)}
         />
       )}
       {combineOpen && (
@@ -8909,11 +9336,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onManageIds={() => setIdsOpen(true)}
           onCancel={() => setSignFor(null)}
           onSign={async (c) => {
-            // The password is checked before anything else happens.
+            // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
-            (await import('./documents/digitalIds')).unlockId(record, c.password);
-            rememberPassword(record.id, c.password);
+            (await import('./documents/signers')).signerFor(record, c.password);
+            if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
@@ -8949,6 +9376,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDelete={(id) => {
             digitalIds.remove(id.id);
             setIdList(digitalIds.list());
+          }}
+          onAddCard={async (card) => {
+            const [{ tokenDigitalId }, { buildChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too).
+            const chain = await buildChain(card.certificate, card.others);
+            digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
           }}
         />
       )}
@@ -9189,6 +9624,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {teachBox && <TeachMarkDialog onTeach={(kind, name) => teachBoxedMark(teachBox, kind, name)} onCancel={() => setTeachBox(null)} />}
       {visualSearchBox &&
         (() => {
           const { c, o } = paneParts(visualSearchBox.pane);
@@ -9449,6 +9885,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         />
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
+      {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}
@@ -9563,6 +10000,32 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setAssembliesOpen(false)}
         />
       )}
+      {scriptsOpen && activeOpen && (
+        <ScriptsDialog
+          markups={activeOpen.store.all()}
+          ctx={{ statuses: activeOpen.store.columnSet().statuses, columns: activeOpen.store.columnSet().columns, pageLabel: (p) => activeOpen.store.allSheets()[p]?.number || String(p + 1), mayEdit: (m) => activeOpen.store.mayEdit(m) }}
+          readOnly={activeReadOnly}
+          onApply={(changes) => {
+            const store = activeOpen.store;
+            // One undo step for the whole script.
+            store.checkpoint();
+            store.batch(() => changes.forEach((c) => store.update(c.id, c.patch)));
+            setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
+          }}
+          onClose={() => setScriptsOpen(false)}
+        />
+      )}
+      {takeoffReviewOpen && activeOpen && (
+        <TakeoffReview
+          store={activeOpen.store}
+          me={author}
+          ctx={cellContext}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          onShow={(m) => selectFromList(m)}
+          onMessage={setNotice}
+          onClose={() => setTakeoffReviewOpen(false)}
+        />
+      )}
       {quantitiesOpen && activeOpen && (
         <QuantitiesDialog
           markups={markups}
@@ -9576,6 +10039,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {commentsTable && !commentsTable.hidden && (
+        <CommentsTableDialog
+          title={commentsTable.title}
+          rows={commentsTable.rows}
+          progress={commentsTable.progress}
+          failed={commentsTable.failed}
+          onOpen={commentsTable.open}
+          onRefresh={commentsTable.rows ? commentsTable.refresh : undefined}
+          onExportCsv={(csv) => download(`${commentsTable.title} comments.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
+          onClose={() => setCommentsTable(null)}
         />
       )}
       {columnsOpen && activeOpen && (
@@ -9620,9 +10095,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           link={sheetSync.link}
           status={sheetSync.status}
           rowCount={Math.max(0, syncTable.length - 1)}
-          oneDriveAvailable={oneDriveConfigured}
           localExcelAvailable={!!localExcel()}
-          onConnect={(title) => void sheetSync.connect(title, syncTable)}
+          inDesktopApp={!!desktop()}
           onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}

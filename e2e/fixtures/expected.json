@@ -108,6 +108,38 @@
       "size": 12
     }
   },
+  "marks": {
+    "sheetNumbers": [
+      "A-101",
+      "A-501"
+    ],
+    "radius": 16,
+    "callouts": [
+      {
+        "x": 300,
+        "y": 300,
+        "detail": "1",
+        "sheet": "A-501"
+      },
+      {
+        "x": 600,
+        "y": 300,
+        "detail": "2",
+        "sheet": "A-501"
+      },
+      {
+        "x": 900,
+        "y": 500,
+        "detail": "3",
+        "sheet": "A-501"
+      }
+    ],
+    "grid": {
+      "x": 150,
+      "y": 650,
+      "label": "B"
+    }
+  },
   "stitch": {
     "page": {
       "width": 2592,

@@ -64,6 +64,21 @@ const LIST_BUTTONS: { kind: ListKind; label: string; title: string }[] = [
   { kind: 'check', label: '☐', title: 'Checklist (Ctrl+Shift+9)' },
 ];
 
+/** Whether a #rrggbb color is light enough that it cannot be read on white. */
+function isLight(color: string): boolean {
+  const n = parseInt(color.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  return (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 > 0.6;
+}
+
+/**
+ * The editor is white, unless the text is light (a flag label's white on its dark flag): then it sits
+ * on the markup's own fill, so what is typed can be read.
+ */
+function editorBackground(m: Markup): string | undefined {
+  if (!isLight(textColor(m.style))) return undefined;
+  return m.style.fill ?? m.style.stroke;
+}
+
 /** In-place editor positioned over a text box markup. Commits on blur; Esc cancels. */
 export function TextEditor({ markup, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -177,9 +192,10 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           font: cssFont(markup.style, fontSize * scale),
           lineHeight: 1.2,
           textAlign: markup.style.textAlign ?? 'left',
-          textDecoration: markup.style.underline ? 'underline' : undefined,
+          textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
           padding: 4 * scale,
           color: textColor(markup.style),
+          background: editorBackground(markup),
         }}
         onBlur={finish}
         onKeyDown={onKeyDown}

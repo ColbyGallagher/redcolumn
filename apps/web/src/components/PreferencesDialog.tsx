@@ -526,6 +526,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('showRulers', 'Show Rulers')}</C>
         <C>{check('showSpaces', 'Show Spaces')}</C>
         <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
+        {select('linkClick', 'Clicking a Sheet Link', [
+          ['preview', 'Previews the sheet beside the plan'],
+          ['jump', 'Jumps to the sheet'],
+        ])}
       </Grid>
     ),
     // Tools

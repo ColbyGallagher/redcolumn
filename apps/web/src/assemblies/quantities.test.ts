@@ -154,3 +154,20 @@ test('starter assemblies have no problems in either unit system', () => {
     for (const a of list) assert.deepEqual([...assemblyProblems(a, list, [])], [], `${system}: ${a.name}`);
   }
 });
+
+test('a quantity set by hand stands in for the formula, with waste and rounding still applied', () => {
+  const m = markup('length', [[0, 0], [20, 0]], { assemblyId: 'wall', assemblyOverrides: { studs: 20 } });
+  const [studs, board] = markupQuantities(m, [wall], ctx([wall]))!.items;
+  near(studs!.base, 20);
+  assert.equal(studs!.rounded, 22, '20 + 10% waste');
+  assert.equal(board!.rounded, 7, 'the other item still uses its formula');
+  assert.equal(studs!.set, true);
+  assert.equal(board!.set, undefined);
+  // Reshaped, the hand-set quantity stays; the totals say how many were set by hand.
+  const longer = { ...m, points: [[0, 0], [40, 0]] as [number, number][] };
+  near(markupQuantities(longer, [wall], ctx([wall]))!.items[0]!.base, 20);
+  const plain = markup('length', [[0, 0], [20, 0]], { assemblyId: 'wall' });
+  const rows = rollup([longer, plain], [wall], ctx([wall]), 'item');
+  assert.deepEqual(rows.map((r) => [r.item, r.setByHand, r.measurements]), [['Studs', 1, 2], ['Board', 0, 2]]);
+  assert.match(rollupToCsv(rows, 'item').split('\r\n')[0]!, /,Set by hand$/);
+});

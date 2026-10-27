@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type StampDef } from '@nb/markup';
+import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
+import type { TaughtMark } from '../sheets/marks';
 
 /**
  * Profiles: a named arrangement of the workspace (which tools the toolbar shows, which
@@ -29,6 +30,15 @@ export interface ToolChestItem {
   tool?: 'cloudPlus';
   /** Each placed copy's number goes on from the last one in the document (a numbered circle). */
   sequence?: { start: number; increment: number };
+  /** The tool as a Revu tool set stored it: exported back to a .btx unchanged unless restyled. */
+  revu?: RevuToolSource;
+}
+
+/** A markup script (see scripts/script.ts): its name and text. */
+export interface SavedScript {
+  id: string;
+  name: string;
+  source: string;
 }
 
 export interface ToolSet {
@@ -99,10 +109,14 @@ export interface WorkspaceState {
   lastStampId: string | null;
   /** Imported Revu line style sets (.blx), offered in the Line style pickers. */
   lineSets: LineSet[];
+  /** Markup scripts saved from Tools › Scripts (kept on this device, with the profile). */
+  scripts?: SavedScript[];
   /** Imported Revu hatch sets (.bhx), offered in the Hatch pickers. */
   hatchSets: HatchSet[];
   /** Imported Revu bookmark templates, offered in the Bookmarks panel (the built-in one is always there). */
   bookmarkTemplates: BookmarkTemplate[];
+  /** Section marks, titles and detail callouts the user taught, found in every set to suggest links (kept on this device). */
+  taughtMarks: TaughtMark[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
@@ -142,6 +156,7 @@ export function defaultWorkspace(): WorkspaceState {
     lineSets: [],
     hatchSets: [],
     bookmarkTemplates: [],
+    taughtMarks: [],
   };
 }
 

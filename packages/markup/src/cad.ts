@@ -217,6 +217,17 @@ export function trimPath(points: readonly Pt[], edges: readonly (readonly Pt[])[
   return pieces.filter(longEnough);
 }
 
+/** The part of the path a Trim click at `click` would remove (between the crossings either side of it); null when nothing crosses it. */
+export function trimmedPart(points: readonly Pt[], edges: readonly (readonly Pt[])[], click: Pt): Point[] | null {
+  const c = nearestOnPath(points, click).at;
+  const end = points.length - 1;
+  const hits = crossings(points, edges).filter((s) => s > EPS && s < end - EPS);
+  const lo = hits.filter((s) => s < c).at(-1);
+  const hi = hits.find((s) => s > c);
+  if (lo === undefined && hi === undefined) return null;
+  return subPath(points, lo ?? 0, hi ?? end);
+}
+
 /** Which end of an open path is nearer `click` along it: 0 for the start, 1 for the end. */
 export function nearerEnd(points: readonly Pt[], click: Pt): 0 | 1 {
   const c = nearestOnPath(points, click).at;
@@ -383,6 +394,41 @@ export function cornerVertex(
   const segs = closed ? n : n - 1;
   const old = Array.from({ length: segs }, (_, k) => m.bulges?.[k] ?? 0);
   const bulges = [...old.slice(0, vertex), bulge, ...old.slice(vertex)];
+  return { points, ...(bulges.some(Boolean) ? { bulges } : {}) };
+}
+
+/** An open path whose last point sits on its first: a loop drawn as a polyline, with a corner where it closes. */
+export function closesOnItself(m: Pick<Markup, 'type' | 'points'>): boolean {
+  const n = m.points.length;
+  return !CLOSED_PATHS.has(m.type) && n >= 4 && dist(m.points[0]!, m.points[n - 1]!) < 0.01;
+}
+
+/**
+ * Fillet or Chamfer the corner where an open path closes on itself (see `closesOnItself`). The path
+ * then starts and ends at the cut points, joined by the arc or straight edge, so it still closes.
+ */
+export function cornerClosing(
+  m: Pick<Markup, 'type' | 'points' | 'bulges'>,
+  size: number,
+  chamfer: boolean,
+): { points: Point[]; bulges?: number[] } | null {
+  const pts = m.points;
+  const n = pts.length;
+  const v = pts[0]!;
+  const before = pts[n - 2]!;
+  const after = pts[1]!;
+  const cut = cornerCut({ a: v, b: before, click: before }, { a: v, b: after, click: after }, size, chamfer);
+  if (!cut) return null;
+  const arc: Point[] = [];
+  let bulge = 0;
+  if (cut.mid) {
+    if (BULGE_TYPES.has(m.type)) bulge = bulgeThrough(cut.endP, cut.endQ, cut.mid);
+    else arc.push(...arcThrough(cut.endP, cut.mid, cut.endQ).slice(0, -1));
+  }
+  const points = [cut.endQ, ...pts.slice(1, n - 1).map(copy), cut.endP, ...arc, copy(cut.endQ)];
+  if (!BULGE_TYPES.has(m.type)) return { points };
+  const old = Array.from({ length: n - 1 }, (_, k) => m.bulges?.[k] ?? 0);
+  const bulges = [...old, bulge];
   return { points, ...(bulges.some(Boolean) ? { bulges } : {}) };
 }
 

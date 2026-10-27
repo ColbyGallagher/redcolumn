@@ -835,7 +835,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             className={`btn small${syncing && syncError ? ' sync-failed' : ''}`}
             disabled={!markups.length && !syncing}
             onClick={onSync}
-            title={syncing && syncError ? `Excel sync stopped: ${syncError} Click to reconnect.` : 'Keep this list in an Excel workbook, updated as markups change'}
+            title={syncing && syncError ? `Excel sync stopped: ${syncError} Click to see why.` : 'Keep this list in an Excel workbook, updated as markups change'}
           >
             {!syncing ? 'Sync to Excel…' : syncError ? 'Sync to Excel ⚠' : 'Sync to Excel ✓'}
           </button>

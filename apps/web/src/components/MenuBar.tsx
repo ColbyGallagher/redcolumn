@@ -20,6 +20,9 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
   { label: 'Other', tools: ['image', 'legend', 'table', 'space'] },
 ];
 
+/** Help menu commands also shown as buttons in the top bar. */
+const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest'] as const;
+
 export type LeftTab =
   | 'files'
   | 'pages'
@@ -360,6 +363,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="PDF Content">
               <Cmd id="edit.selectText" />
               <Cmd id="edit.eraseContent" />
+              <Cmd id="tools.bulkRedact" />
               <Cmd id="edit.cutContent" />
               <Cmd id="edit.editText" />
             </Submenu>
@@ -408,6 +412,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.polarTracking" />
             <Cmd id="view.objectSnapTracking" />
             <Cmd id="view.showLinks" />
+            <Cmd id="document.teachMark" />
             <Sep />
             <Cmd id="view.darkPages" />
             <Cmd id="view.dimmer" />
@@ -435,6 +440,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.rotateCounterclockwise" label="Rotate Counterclockwise" />
             <Submenu label="Insert">
               <Cmd id="document.insertPages" label="Pages from PDF…" />
+              <Cmd id="document.bulkInsertPages" label="Bulk Insert PDFs…" />
               <Cmd id="document.insertBlank" label="Blank Pages…" />
             </Submenu>
             <Cmd id="document.extractPages" />
@@ -449,6 +455,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             </Submenu>
             <Cmd id="document.scaleRegions" label="Bulk Apply Page Scale…" />
             <Cmd id="document.headerFooter" />
+            <Cmd id="tools.bulkRedact" />
             <Cmd id="document.security" />
             <Sep />
             <Cmd id="document.compare" />
@@ -485,6 +492,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="batch.colour" />
             <Cmd id="batch.headerFooter" />
             <Cmd id="batch.removeHeaderFooter" />
+            <Cmd id="tools.bulkRedact" />
             <Cmd id="batch.stamp" />
             <Sep />
             <Cmd id="batch.crop" />
@@ -525,8 +533,11 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="Takeoff">
               <Cmd id="tools.assemblies" />
               <Cmd id="tools.quantities" />
+              <Cmd id="tools.takeoffReview" />
             </Submenu>
+            <Cmd id="tools.lineStyles" />
             <Cmd id="tools.sketchToScale" />
+            <Cmd id="tools.scripts" />
             <Submenu label="Sign & Certify">
               <Cmd id="tools.sign" />
               <Cmd id="tools.digitalIds" />
@@ -543,6 +554,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Submenu label="Redaction">
               <Cmd id="tool.redaction" label="Mark for Redaction" />
               <Cmd id="tools.applyRedactions" />
+              <Cmd id="tools.bulkRedact" />
             </Submenu>
             <Cmd id="tool.hyperlink" />
             <Cmd id="tool.attachment" />
@@ -650,6 +662,18 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </div>
       ))}
       <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />
+      <div className="menubar-help" role="group" aria-label="Help and feedback">
+        {HELP_BUTTONS.map((id) => {
+          const c = commands.get(id);
+          if (!c) return null;
+          const shortcut = shortcutLabel(id);
+          return (
+            <button key={id} type="button" className="menubar-help-btn" title={shortcut ? `${c.label} (${shortcut})` : c.label} disabled={!c.enabled} onClick={c.run}>
+              {c.label}
+            </button>
+          );
+        })}
+      </div>
       {updateBtn && (
         <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">

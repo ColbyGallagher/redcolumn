@@ -24,7 +24,10 @@ someone else runs their own copy, their policy applies to it.
 The app keeps these in your browser's storage, on your device only:
 
 - documents you open or save to the library, with their markups, measurements and revisions;
-- your settings, profiles, tool sets, signatures and stamps;
+- your settings, profiles, tool sets, signatures and stamps, and the sheet-link marks you teach the app;
+- your Digital IDs: each locked by its own password, or, for one on a smart card or USB token,
+  only its certificate and which card it is on (the key stays on the card, and its PIN is never
+  stored);
 - a list of Live Sessions and Projects you have started or joined, which library files came from
   a Project, and check-ins and notes waiting to be sent;
 - the app itself and its OCR language data, so it works offline.
@@ -64,7 +67,7 @@ sign in to Microsoft.
   first, and for more only when sharing a folder or opening someone else's needs it. Before
   Microsoft's window opens for more, the app says why in its own dialog, and you can cancel.
   1. **The app's own folder** (`Apps/redcolumn`). This is all most people ever grant. Sessions,
-     Projects, spreadsheet sync and settings backup live here.
+     Projects and settings backup live here.
   2. **Your OneDrive.** Needed to share a session or Project folder by link or by email. This
      permission lets the app read and change any file in your OneDrive. redcolumn uses it only on
      the session or Project folder you are sharing.
@@ -99,14 +102,13 @@ sign in to Microsoft.
 
 Microsoft handles these files under its own terms and privacy policies.
 
-## Spreadsheet sync (OneDrive)
+## Spreadsheet sync
 
-If you turn on **Sync** in the Markups list, redcolumn writes that list (the columns, filter and
-sort you see: subjects, comments, authors, dates, measurements) to an Excel
-workbook in `Apps/redcolumn` in your OneDrive, under your own account, and rewrites it when markups
-change. Nothing goes to us. The spreadsheet is yours: share or delete it in OneDrive.
-Stopping the sync, or clearing site data, does not delete it. The app keeps the spreadsheet's link
-in your browser's storage so it can carry on after a reload.
+If you turn on **Sync to Excel** in the Markups list (desktop app on Windows), redcolumn writes that
+list (the columns, filter and sort you see: subjects, comments, authors, dates, measurements) to an
+Excel workbook you choose on your computer, and rewrites it when markups change. It works locally
+only: nothing is uploaded, and nothing goes to us. Stopping the sync does not delete the workbook.
+The app keeps the workbook's link on this computer so it can carry on after a restart.
 
 ## Projects (OneDrive)
 
@@ -136,7 +138,7 @@ Microsoft handles these files under its own terms and privacy policy.
 These only run when you use them:
 
 - **Digital signatures:** if you turn on trusted time stamps, or check whether a certificate has
-  been revoked, your browser contacts the certificate service named in your settings or in the
+  been revoked, the desktop app contacts the certificate service named in your settings or in the
   certificate (for example DigiCert). It sends a fingerprint of the signature or certificate, not
   the document.
 - **Email invitations** to a Live Session or Project are sent by OneDrive when the

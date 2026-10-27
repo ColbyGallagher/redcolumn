@@ -80,12 +80,42 @@ export interface ConnectorEnd {
   side?: Side;
 }
 
+/** A person's approval of an AI takeoff proposal, kept on the measurement as the document's record of it. */
+export interface TakeoffApproval {
+  /** Who approved it. */
+  by: string;
+  at: number;
+  /** The proposal it came from. */
+  proposalId: string;
+  /** The AI client that proposed it. */
+  source: string;
+  reasoning?: string;
+  /** The assembly or a quantity was changed before approving. */
+  edited?: boolean;
+}
+
 /** What a connector joins; its points are routed between them again whenever either moves. */
 export interface ConnectorLinks {
   from?: ConnectorEnd;
   to?: ConnectorEnd;
   /** Right-angled bends (the default) or one straight line. */
   route?: 'elbow' | 'straight';
+  /**
+   * An elbow route set by hand (its segments dragged): kept as the shapes move while it still fits,
+   * else the connector is routed again for the time being.
+   */
+  bends?: ManualRoute;
+}
+
+/**
+ * A right-angled route by its segments: the first runs `first` (h across, v up and down) out of the
+ * start, each next one turns, and `mids` are where the segments between the first and the last run
+ * (a y for an across one, an x for an up-and-down one), measured from the start end so the route
+ * moves with it. The first and last run through the ends.
+ */
+export interface ManualRoute {
+  first: 'h' | 'v';
+  mids: number[];
 }
 
 /** Count markers (Bluebeam's count styles). */
@@ -143,6 +173,7 @@ export interface MarkupStyle {
   bold?: boolean;
   italic?: boolean;
   underline?: boolean;
+  strikethrough?: boolean;
   /** Text and label color; the line color when unset. */
   textColor?: string;
   textAlign?: TextAlign;
@@ -289,6 +320,10 @@ export interface Markup {
   depth?: number;
   /** Measurements: the document assembly (see `Assembly`) whose quantities it stands for. */
   assemblyId?: string;
+  /** Measurements: per assembly item id, a quantity (before waste) set by hand instead of the item's formula. */
+  assemblyOverrides?: Record<string, number>;
+  /** Measurements: who approved its takeoff from an AI proposal, and when (Takeoff Review). */
+  takeoffApproval?: TakeoffApproval;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
   /** Polylength, area, perimeter and volume: curved segments (per segment, its bulge; see @nb/measure's arcSegment). */

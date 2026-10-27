@@ -99,7 +99,7 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
                         {custom && (
                           <button
                             className="btn small"
-                            title={`Back to ${(DEFAULT_KEYS[c.id] ?? []).map(formatCombo).join(', ') || 'no shortcut'}`}
+                            title={`Back to ${(DEFAULT_KEYS[c.id] ?? []).map((k) => formatCombo(k)).join(', ') || 'no shortcut'}`}
                             onClick={() => save(resetKeys(overrides, c.id))}
                           >
                             Reset

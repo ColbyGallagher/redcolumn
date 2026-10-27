@@ -111,6 +111,10 @@ export interface RedcolumnDesktop {
   folder: DesktopFolders;
   /** The key for "Encrypt local data": made once, kept encrypted by the system key store. Absent where there is none. */
   localDataKey?: () => Promise<Uint8Array>;
+  /** A certificate service (time stamp server, OCSP responder, revocation list) fetched by the main process (apps/desktop/src/pki.ts). */
+  pkiFetch?(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array>;
+  /** Smart cards and USB tokens through their PKCS#11 drivers (apps/desktop/src/token.ts). */
+  tokens?: DesktopTokens;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
   signOut(provider: 'microsoft'): Promise<void>;
   /** Whether the local assistant is listening, and the command an AI client should run. */
@@ -126,6 +130,35 @@ export interface RedcolumnDesktop {
   closeWindow?(): void;
   /** Sync to Excel on this computer. Windows only: absent on a Mac (apps/desktop/src/excel.ts). */
   excel?: DesktopExcel;
+}
+
+/** A card driver: one of the common install paths found here, or a file picked in a native dialog. */
+export interface TokenModule {
+  id: string;
+  name: string;
+  added: boolean;
+}
+
+/** A certificate on an inserted card, and the key to sign with (`ref`, opaque to the page). */
+export interface TokenCertificate {
+  ref: string;
+  label: string;
+  token: string;
+  module: string;
+  certificate: Uint8Array;
+  others: Uint8Array[];
+  hasKey: boolean | null;
+  pinPad: boolean;
+}
+
+export interface DesktopTokens {
+  modules(): Promise<TokenModule[]>;
+  /** A native dialog to pick a driver file; null when cancelled. */
+  addModule(): Promise<TokenModule | null>;
+  removeModule(id: string): Promise<void>;
+  certificates(): Promise<{ certificates: TokenCertificate[]; problems: { module: string; problem: string }[] }>;
+  /** The card signs `data` (hashed in the main process); `pin` is null on a reader with its own keypad. */
+  sign(ref: string, hash: 'SHA-256' | 'SHA-384' | 'SHA-512', data: Uint8Array, pin: string | null): Promise<Uint8Array>;
 }
 
 /** Excel workbooks on this computer, by ID; the page never sees their paths. */

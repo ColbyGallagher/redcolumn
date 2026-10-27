@@ -150,8 +150,10 @@ export function parseDefaultStyle(ds: string): Partial<MarkupStyle> {
       if (n > 0) out.fontSize = n;
     } else if (key === 'font-weight' && /bold|[6-9]00/.test(value)) out.bold = true;
     else if (key === 'font-style' && /italic|oblique/.test(value)) out.italic = true;
-    else if (key === 'text-decoration' && /underline/.test(value)) out.underline = true;
-    else if (key === 'color') {
+    else if (key === 'text-decoration') {
+      if (/underline/.test(value)) out.underline = true;
+      if (/line-through/.test(value)) out.strikethrough = true;
+    } else if (key === 'color') {
       const c = cssColor(value);
       if (c) out.textColor = c;
     } else if (key === 'text-align' && /^(left|center|right)$/.test(value)) out.textAlign = value as TextAlign;

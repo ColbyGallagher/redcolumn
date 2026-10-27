@@ -142,7 +142,7 @@ function pointIn([px, py]: readonly [number, number], poly: readonly Point[]): b
 }
 
 /** Style keys a Format Painter carries from one markup to another. */
-const PAINTED_KEYS = ['stroke', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale'] as const;
+const PAINTED_KEYS = ['stroke', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'strikethrough', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale'] as const;
 
 /**
  * The style `target` takes when painted with `source`'s format: its appearance (colours, line,

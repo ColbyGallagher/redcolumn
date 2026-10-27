@@ -93,8 +93,15 @@ import {
   canConnect,
   FLOW_SHAPES,
   relinkCopies,
+  addBend,
+  connectorLabel,
+  moveSegment,
+  removeSegment,
   routeConnector,
+  routeHandles,
+  editableRoute,
   type ConnectorLinks,
+  type ManualRoute,
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
@@ -110,7 +117,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'teachMark' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -140,6 +147,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   stitchRegion: 'Stitch Region',
   stitchPolygon: 'Stitch Region (Polygon)',
   stitchMove: 'Move Sheet',
+  teachMark: 'Teach a Mark',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
@@ -147,7 +155,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 };
 
 /** Tools that pick out an area of the page (drawn as a plain box, never snapped). */
-const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
+const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion', 'teachMark']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
 export interface StitchGuides {
@@ -257,6 +265,8 @@ type Gesture =
   | { kind: 'handle'; id: string; index: number; point: Point }
   /** Alt-dragging a segment's midpoint knob of a measurement: the segment curves through the pointer. */
   | { kind: 'bend'; id: string; segment: number; bulge: number }
+  /** Dragging a middle segment of an elbow connector across (to `to`, a y or an x), as Visio's segment handles do. */
+  | { kind: 'segment'; id: string; route: ManualRoute; mid: number; runs: 'h' | 'v'; to: number; start: Point }
   /** Turning a selected markup by its rotate handle; `angle` in degrees. */
   | { kind: 'rotate'; id: string; angle: number }
   /**
@@ -359,6 +369,8 @@ export interface ToolsState {
   flowShape: FlowShapeKind;
   /** How new connectors bend: at right angles, or straight from shape to shape. */
   connectorRoute: 'elbow' | 'straight';
+  /** PDF text the user selected by dragging over it: it stays highlighted until they copy it, mark it or click away. */
+  textSelection: { text: string; pageIndex: number } | null;
 }
 
 export interface SketchState {
@@ -425,8 +437,6 @@ export interface MarkupToolsOptions {
   onScaleRequired?: (pageIndex: number, tool: Tool) => void;
   /** The user clicked PDF text with the `editText` tool. */
   onEditPdfText?: (pageIndex: number, at: Point) => void;
-  /** The user selected PDF text with the `selectText` tool. */
-  onTextSelected?: (text: string) => void;
   /** The user drew an area to erase the PDF content in (the `eraseContent` tool). */
   onEraseContent?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew where a new form field goes (the `formField` tool). */
@@ -435,6 +445,8 @@ export interface MarkupToolsOptions {
   onFormField?: (widget: FormWidgetHit) => void;
   /** The user drew the area to crop pages to (the `cropArea` tool). */
   onCropArea?: (pageIndex: number, rect: PageRect) => void;
+  /** The user boxed an example of a section mark, title or detail callout (the `teachMark` tool). */
+  onTeachMark?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a box around a symbol to find (the `visualSearch` tool). */
   onVisualSearch?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a viewport (the `viewport` tool). */
@@ -546,7 +558,9 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow' };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
+  /** The lines of the selected PDF text (see `ToolsState.textSelection`). */
+  private pickedText: Markup | null = null;
   /** Where a Tool Library copy would land, previewed under the pointer. */
   private ghost: { pageIndex: number; at: Point } | null = null;
   /** The pointer while drawing or dragging a connector end: the shape under it shows its connection points. */
@@ -841,6 +855,32 @@ export class MarkupTools implements ViewerOverlay {
     return markup;
   }
 
+  /** Lets go of the selected PDF text. */
+  clearTextSelection() {
+    if (!this.pickedText) return;
+    this.pickedText = null;
+    this.setState({ textSelection: null });
+  }
+
+  /** The selected PDF text, to copy. */
+  selectedPdfText(): string | null {
+    return this.pickedText?.comment ?? null;
+  }
+
+  /** Turns the selected PDF text into a text markup (highlight, underline, strikeout or squiggly). */
+  markSelectedText(type: 'textHighlight' | 'underline' | 'strikeout' | 'squiggly') {
+    const picked = this.pickedText;
+    if (!picked || !this.store || this.store.readOnly) return;
+    const markup = type === 'textHighlight' ? this.textHighlightFromTool(picked.pageIndex) : this.newMarkup(type, picked.pageIndex, []);
+    markup.points = picked.points;
+    // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
+    markup.comment = settings.get().copyHighlightedText ? picked.comment : undefined;
+    this.store.checkpoint();
+    this.store.add({ ...markup, createdAt: Date.now(), modifiedAt: Date.now() });
+    this.options.onCreated?.(markup);
+    this.clearTextSelection();
+  }
+
   /** The words from `from` to `to` become `markup`'s lines and comment. */
   private applyTextMark(markup: Markup, from: Point, to: Point) {
     const words = this.wordsFor(markup.pageIndex);
@@ -890,6 +930,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Chooses a tool; `preset` arms it with a tool library look or a signature image. */
   setTool(tool: Tool, preset?: ToolPreset) {
     // Pan and the zoom tools are the viewer's own.
+    if (tool !== this.state.tool) this.clearTextSelection();
     this.viewer.setNavTool(tool === 'pan' || tool === 'zoomBox' || tool === 'dynamicZoom' ? tool : null);
     if (tool === 'stamp' && !preset?.stamp && !preset?.template) {
       const stamp = this.options.defaultStamp?.();
@@ -1032,6 +1073,26 @@ export class MarkupTools implements ViewerOverlay {
     ctx.restore();
   }
 
+  /** A diamond on each middle segment of a selected elbow connector: drag one to move the segment. */
+  private drawSegmentHandles(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
+    const r = 4 / zoom;
+    ctx.save();
+    ctx.lineWidth = 1 / zoom;
+    ctx.strokeStyle = '#a16207';
+    ctx.fillStyle = '#facc15';
+    for (const { at } of routeHandles(m.points, m.connect?.bends)) {
+      ctx.beginPath();
+      ctx.moveTo(at[0], at[1] - r);
+      ctx.lineTo(at[0] + r, at[1]);
+      ctx.lineTo(at[0], at[1] + r);
+      ctx.lineTo(at[0] - r, at[1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   /** Picks a Tool Library tool: its markup type, drawing with its own style until another tool is chosen. */
   /** Arms the Flowchart Shape tool with `kind` (Diagram tab). */
   setFlowShape(kind: FlowShapeKind) {
@@ -1048,6 +1109,38 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const m of changing) store.update(m.id, { flowShape: kind });
     });
+  }
+
+  /** Whether a connector's segments can be moved by hand: an elbow connector that can be edited. */
+  private reroutable(m: Markup): boolean {
+    return m.type === 'connector' && (m.connect?.route ?? 'elbow') === 'elbow' && !this.frozen(m) && !this.store?.readOnly;
+  }
+
+  /** The connector with a hand-set route (or none: routed automatically again), its points routed by it. */
+  private withBends(m: Markup, bends: ManualRoute | undefined): Markup {
+    const { bends: _, ...rest } = m.connect ?? {};
+    const connect: ConnectorLinks = bends ? { ...rest, bends } : rest;
+    const next = { ...m, connect };
+    return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
+  }
+
+  private setBends(m: Markup, bends: ManualRoute | undefined) {
+    const next = this.withBends(m, bends);
+    this.store?.update(m.id, { connect: next.connect, points: next.points });
+  }
+
+  /**
+   * One connector's route, whatever else is selected: right angles, straight, or `reset` to drop the
+   * segments set by hand and route it automatically again.
+   */
+  setRouteOf(id: string, route: 'elbow' | 'straight' | 'reset') {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || store.readOnly || !m || m.type !== 'connector' || this.frozen(m)) return;
+    store.checkpoint();
+    if (route === 'reset') return this.setBends(m, undefined);
+    const next = { ...m, connect: { ...m.connect, route } };
+    store.update(id, { connect: next.connect, points: routeConnector(next, (x) => store.get(x)) });
   }
 
   /** How connectors bend: new ones, and the selected ones as one undo step. */
@@ -1099,6 +1192,9 @@ export class MarkupTools implements ViewerOverlay {
     const connect: ConnectorLinks = { ...m.connect };
     if (glue) connect[key] = { id: glue.shape.id, ...(glue.side ? { side: glue.side } : {}) };
     else delete connect[key];
+    // A route set by hand was for the old end: glued elsewhere, the connector is routed afresh.
+    const was = m.connect?.[key];
+    if (connect.bends && (was?.id !== connect[key]?.id || was?.side !== connect[key]?.side)) delete connect.bends;
     const next = { ...m, points: end === 0 ? [p, m.points[m.points.length - 1]!] : [m.points[0]!, p], connect };
     return { ...next, points: routeConnector(next, (id) => this.store?.get(id)) };
   }
@@ -1408,6 +1504,12 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Changes the default style for new markups of `type`, without touching existing markups. */
   setDefaultStyle(type: MarkupType, patch: Partial<MarkupStyle>) {
+    // A text highlight is made by the Highlight tool: it takes that tool's colour and opacity.
+    if (type === 'textHighlight') {
+      const look: Partial<MarkupStyle> = { stroke: patch.stroke, opacity: patch.opacity };
+      type = 'highlighter';
+      patch = Object.fromEntries(Object.entries(look).filter(([, v]) => v !== undefined));
+    }
     this.setState({ styles: { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], patch) } });
     saveToolStyles(this.state.styles);
   }
@@ -1631,6 +1733,10 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
+    if (this.pickedText) {
+      this.clearTextSelection();
+      return;
+    }
     if (this.cad?.picks.length) {
       // Escape steps back to the tool's first pick, then leaves it.
       this.cad.picks = [];
@@ -1801,6 +1907,7 @@ export class MarkupTools implements ViewerOverlay {
       if (this.state.selected.has(m.id)) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
         if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
+        if (editable.has(m.id) && this.reroutable(m)) this.drawSegmentHandles(ctx, shown, zoom);
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
@@ -1812,6 +1919,12 @@ export class MarkupTools implements ViewerOverlay {
     this.drawStitchGuides(ctx, pageIndex, zoom);
     this.drawGeoOverlay(ctx, pageIndex, zoom);
     const g = this.gesture;
+    if (this.pickedText?.pageIndex === pageIndex && !g) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.35)';
+      for (const r of markupLines(this.pickedText.points)) ctx.fillRect(r.x, r.y, r.w, r.h);
+      ctx.restore();
+    }
     if (g?.kind === 'textMark' && g.markup.pageIndex === pageIndex && g.markup.type !== 'textHighlight') {
       // The words under the pointer show as a highlight while an underline, strikeout or other text tool drags.
       ctx.save();
@@ -2302,6 +2415,8 @@ export class MarkupTools implements ViewerOverlay {
     this.pointerKind = e.pointerType || 'mouse';
     if (!this.store) return false;
     const { tool } = this.state;
+    // Pressing anywhere else lets go of selected text (a drag over words picks new text).
+    if (e.button === 0) this.clearTextSelection();
 
     // The Geospatial panel's model: dragged, or a point on it or the sheet picked for alignment.
     const geo = this.geoOverlay;
@@ -2528,6 +2643,18 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'handle', id: m.id, index, point: p });
         return true;
       }
+      const seg = m && this.reroutable(m) ? routeHandles(m.points, m.connect?.bends).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol * 1.5) : undefined;
+      if (m && seg) {
+        const route = editableRoute(m.points, m.connect?.bends)!;
+        if (e.ctrlKey || e.metaKey || e.altKey) {
+          // Ctrl- or Alt-click takes the segment out, if the route stays at right angles.
+          const next = removeSegment(route, seg.mid, m.points[0]!, m.points[m.points.length - 1]!);
+          if (next !== null) this.setBends(m, next);
+          return true;
+        }
+        this.setGesture({ kind: 'segment', id: m.id, route, mid: seg.mid, runs: seg.runs, to: seg.runs === 'h' ? seg.at[1] : seg.at[0], start: m.points[0]! });
+        return true;
+      }
       const mid = m && !this.frozen(m) ? midpoints(m).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol) : undefined;
       if (m && mid && e.altKey && ARC_TYPES.has(m.type)) {
         // Alt-dragging a midpoint knob curves that segment (arc segments in measurements).
@@ -2717,6 +2844,9 @@ export class MarkupTools implements ViewerOverlay {
         const region = REGION_TOOLS.has(this.state.tool);
         m.points = [m.points[0]!, m.type === 'text' || region ? toPoint(pt) : this.resolve(pt, e, null)];
       }
+    } else if (g.kind === 'segment') {
+      const p = toPoint(pt);
+      g.to = g.runs === 'h' ? p[1] : p[0];
     } else if (g.kind === 'bend') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -2853,7 +2983,11 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'textMark') {
       if (g.markup.points.length < 2) return;
       if (g.copyOnly || this.state.tool === 'selectText') {
-        if (g.markup.comment) this.options.onTextSelected?.(g.markup.comment);
+        // The words stay highlighted; copying or marking them is the user's next step.
+        if (g.markup.comment) {
+          this.pickedText = g.markup;
+          this.setState({ textSelection: { text: g.markup.comment, pageIndex: g.markup.pageIndex } });
+        }
         return;
       }
       // Preferences › Markup › Copy Highlighted Text into Markup Comment (the words marked are kept otherwise).
@@ -2896,6 +3030,9 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g.kind === 'bend') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { bulges: withBulge(m, g.segment, g.bulge) });
+    } else if (g.kind === 'segment') {
+      const m = this.store.get(g.id);
+      if (m) this.setBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     } else if (g.kind === 'rotate') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { rotation: g.angle || undefined });
@@ -2918,6 +3055,18 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const hit = this.state.tool === 'select' ? this.hitAt(toPoint(pt)) : undefined;
+    // Ctrl+double-click on a selected elbow connector (away from its text) adds a bend there; a plain one edits its text.
+    if (hit && lastModifiers.ctrlKey && this.state.selected.has(hit.id) && this.reroutable(hit)) {
+      const p = toPoint(pt);
+      const label = connectorLabel(hit);
+      const onLabel = label && Math.abs(p[0] - label.at[0]) <= label.size * Math.max(2, label.text.length * 0.35) && Math.abs(p[1] - label.at[1]) <= label.size;
+      const bends = onLabel ? null : addBend(hit.points, p, this.hitPx / this.viewer.zoomFor(pageIndex));
+      if (bends) {
+        this.store?.checkpoint();
+        this.setBends(hit, bends);
+        return;
+      }
+    }
     if (hit && isTextType(hit.type) && !this.frozen(hit)) this.options.onEditText(hit.id);
     else if (hit?.type === 'note' || hit?.type === 'flag') this.options.onEditComment?.(hit.id);
     else if (hit?.type === 'attachment') this.options.onOpenAttachment?.(hit);
@@ -3453,6 +3602,9 @@ export class MarkupTools implements ViewerOverlay {
       } else if (this.state.tool === 'visualSearch') {
         this.options.onVisualSearch?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
+      } else if (this.state.tool === 'teachMark') {
+        this.options.onTeachMark?.(m.pageIndex, b);
+        this.setState({ tool: 'select' });
       } else if (this.state.tool === 'viewport') {
         this.options.onViewport?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
@@ -3911,12 +4063,26 @@ export class MarkupTools implements ViewerOverlay {
     const c = this.cad;
     if (!c || c.pageIndex !== pageIndex || !this.store || c.tool !== this.state.tool) return;
     if (c.hover) {
-      const { ghosts, guides } = cadPreview(c.tool, c.picks, c.hover, this.cadContext(pageIndex, c.shift));
+      const { ghosts, guides, removed } = cadPreview(c.tool, c.picks, c.hover, this.cadContext(pageIndex, c.shift));
       ctx.save();
       ctx.globalAlpha = 0.6;
       // At least 2 px wide so the preview reads at any zoom.
       for (const m of ghosts) drawMarkup(ctx, { ...m, style: { ...m.style, stroke: CAD_PREVIEW, width: Math.max(m.style.width, 2 / zoom) } }, zoom, this.store.scaleOf(m));
       ctx.restore();
+      // Trim: the section that goes, over what stays.
+      if (removed.length) {
+        ctx.save();
+        ctx.strokeStyle = '#dc2626';
+        ctx.lineWidth = 4 / zoom;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        for (const path of removed) {
+          ctx.beginPath();
+          path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
       for (const g of guides) drawGuide(ctx, g, zoom);
     }
     for (const pick of c.picks) drawPickMark(ctx, pick.at, zoom);
@@ -3963,6 +4129,7 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
+    if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
       const factor = scaleFactor(g);
