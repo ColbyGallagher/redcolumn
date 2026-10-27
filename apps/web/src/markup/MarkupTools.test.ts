@@ -322,6 +322,22 @@ test('a read-only document draws nothing', async () => {
   await h.store.destroy();
 });
 
+test('Set as Default on a text highlight is what the next Highlight uses', async () => {
+  const h = await setup();
+  h.tools.setTool('highlighter');
+  await settle();
+  drag(h.tools, [50, 106], [160, 106]);
+  const first = h.store.all()[0]!;
+  h.store.update(first.id, { style: { ...first.style, stroke: '#a855f7', opacity: 0.5 } });
+  h.tools.setDefaultStyle('textHighlight', h.store.get(first.id)!.style);
+
+  drag(h.tools, [50, 106], [160, 106]);
+  const second = h.store.all().find((m) => m.id !== first.id)!;
+  assert.equal(second.type, 'textHighlight');
+  assert.equal(second.style.stroke, '#a855f7');
+  assert.equal(second.style.opacity, 0.5);
+});
+
 test('the highlighter marks words under the pointer and draws a stroke everywhere else', async () => {
   const h = await setup();
   h.tools.setTool('highlighter');
@@ -1095,4 +1111,79 @@ test('the markup a tool would pick is highlighted under the pointer', async () =
   assert.deepEqual(picked(), [box.id]);
   h.tools.hover(null, 0);
   assert.deepEqual(picked(), [], 'leaving the page clears it');
+});
+
+test('a connector segment drags across, as in Visio; bends are added and taken out; each is one undo step', async () => {
+  const h = await setup();
+  const shape = (id: string, x: number, y: number): Markup => ({ id, type: 'flowShape', flowShape: 'process', pageIndex: 0, points: [[x, y], [x + 100, y + 50]], style: { ...DEFAULT_STYLES.flowShape }, status: 'none', author: 'Tester', createdAt: 1, modifiedAt: 1 });
+  h.store.add(shape('a', 0, 0));
+  h.store.add(shape('b', 300, 200));
+  h.store.add({ id: 'c', type: 'connector', pageIndex: 0, points: [[100, 25], [300, 225]], style: { ...DEFAULT_STYLES.connector }, status: 'none', author: 'Tester', createdAt: 2, modifiedAt: 2 });
+  // Gluing it routes it: across, down at the middle, across.
+  h.store.update('c', { connect: { from: { id: 'a', side: 'right' }, to: { id: 'b', side: 'left' }, route: 'elbow' } });
+  const auto = h.store.get('c')!.points;
+  assert.equal(auto.length, 4);
+  h.tools.setTool('select');
+  h.tools.select(['c']);
+  h.store.checkpoint();
+  // The handle is in the middle of the down segment; drag it to x = 140.
+  const handle: Point = [auto[1]![0], (auto[1]![1] + auto[2]![1]) / 2];
+  drag(h.tools, handle, [140, handle[1] + 30]);
+  let c = h.store.get('c')!;
+  assert.deepEqual(c.points, [[100, 25], [140, 25], [140, 225], [300, 225]]);
+  assert.deepEqual(c.connect?.bends, { first: 'h', mids: [40] });
+  // Moving b keeps the hand-set segment where it was.
+  h.store.checkpoint();
+  h.store.update('b', { points: [[300, 260], [400, 310]] });
+  assert.deepEqual(h.store.get('c')!.points, [[100, 25], [140, 25], [140, 285], [300, 285]]);
+  // A plain double-click is for the connector's text; Ctrl+double-click on the first segment adds a bend there.
+  h.store.checkpoint();
+  holdCtrl(true);
+  h.tools.doubleClick([120, 25], 0);
+  holdCtrl(false);
+  c = h.store.get('c')!;
+  assert.deepEqual(c.connect?.bends, { first: 'h', mids: [20, 0, 40] });
+  // Its new across segment drags down into a step (the upright beside it has no length yet).
+  h.store.checkpoint();
+  drag(h.tools, [130, 25], [130, 60]);
+  assert.deepEqual(h.store.get('c')!.points, [[100, 25], [120, 25], [120, 60], [140, 60], [140, 285], [300, 285]]);
+  // Alt-click on the step's handle takes it out again.
+  h.store.checkpoint();
+  press(h.tools, [130, 60], { altKey: true });
+  release(h.tools, [130, 60], { altKey: true });
+  assert.deepEqual(h.store.get('c')!.connect?.bends, { first: 'h', mids: [20] });
+  // One undo step each: the removal, the step, the bend, b's move, then the drag.
+  h.store.undo();
+  assert.equal(h.store.get('c')!.points.length, 6);
+  h.store.undo();
+  assert.deepEqual(h.store.get('c')!.connect?.bends, { first: 'h', mids: [20, 0, 40] });
+  h.store.undo();
+  h.store.undo();
+  assert.deepEqual(h.store.get('c')!.connect?.bends, { first: 'h', mids: [40] });
+  h.store.undo();
+  assert.equal(h.store.get('c')!.connect?.bends, undefined);
+  // Set on its own from the menu: straight, then back, then the hand-set route dropped.
+  h.tools.setRouteOf('c', 'straight');
+  assert.equal(h.store.get('c')!.points.length, 2);
+  h.tools.setRouteOf('c', 'elbow');
+  h.tools.setRouteOf('c', 'reset');
+  assert.equal(h.store.get('c')!.connect?.bends, undefined);
+});
+
+test('a connector end dragged onto another shape drops the route set by hand', async () => {
+  const h = await setup();
+  const shape = (id: string, x: number, y: number): Markup => ({ id, type: 'flowShape', flowShape: 'process', pageIndex: 0, points: [[x, y], [x + 100, y + 50]], style: { ...DEFAULT_STYLES.flowShape }, status: 'none', author: 'Tester', createdAt: 1, modifiedAt: 1 });
+  h.store.add(shape('a', 0, 0));
+  h.store.add(shape('b', 300, 200));
+  h.store.add(shape('c', 300, 400));
+  h.store.add({ id: 'k', type: 'connector', pageIndex: 0, points: [[100, 25], [300, 225]], style: { ...DEFAULT_STYLES.connector }, status: 'none', author: 'Tester', createdAt: 2, modifiedAt: 2 });
+  h.store.update('k', { connect: { from: { id: 'a', side: 'right' }, to: { id: 'b', side: 'left' }, route: 'elbow', bends: { first: 'h', mids: [40] } } });
+  assert.deepEqual(h.store.get('k')!.connect?.bends, { first: 'h', mids: [40] });
+  h.tools.setTool('select');
+  h.tools.select(['k']);
+  const end = h.store.get('k')!.points.at(-1)!;
+  drag(h.tools, end, [350, 425]);
+  const k = h.store.get('k')!;
+  assert.equal(k.connect?.to?.id, 'c');
+  assert.equal(k.connect?.bends, undefined);
 });

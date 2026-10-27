@@ -134,6 +134,7 @@ export interface CommandActions {
   /** Quarter turns clockwise (3 is counterclockwise). */
   rotatePages: (quarterTurns: number) => void;
   insertPages: () => void;
+  bulkInsertPages: () => void;
   insertBlank: () => void;
   extractPages: () => void;
   /** The current page, with its markups, as a picture on the clipboard. */
@@ -167,7 +168,11 @@ export interface CommandActions {
   overlay: () => void;
   deletePages: () => void;
   labelRegions: () => void;
+  /** Box an example of a section mark, title or detail callout for sheet links to learn. */
+  teachMark: () => void;
   scaleRegions: () => void;
+  /** Bulk Redact: removes what is inside the same boxes on many pages. */
+  bulkRedact: () => void;
   thumbnails: () => void;
   setTool: (tool: Tool) => void;
   manageColumns: () => void;
@@ -175,6 +180,10 @@ export interface CommandActions {
   manageAssemblies: () => void;
   /** Tools › Takeoff › Takeoff Quantities… */
   takeoffQuantities: () => void;
+  /** Tools › Scripts: rules that find markups and change them. */
+  scripts: () => void;
+  /** Tools › Takeoff › Review AI Proposals. */
+  takeoffReview: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -187,6 +196,7 @@ export interface CommandActions {
   install: () => void;
   help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
+  manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
   flowShape: (kind: FlowShapeKind) => void;
   /** Diagram: adds the next step beside the selected shape, joined to it. */
@@ -427,6 +437,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.rotatePages', 'Document', 'Rotate Pages', () => a.rotatePages(1), s.pagesEditable),
     cmd('document.rotateCounterclockwise', 'Document', 'Rotate Pages Counterclockwise', () => a.rotatePages(3), s.pagesEditable),
     cmd('document.insertPages', 'Document', 'Insert Pages from PDF…', a.insertPages, s.pagesEditable),
+    cmd('document.bulkInsertPages', 'Document', 'Bulk Insert PDFs…', a.bulkInsertPages, s.pagesEditable),
     cmd('document.insertBlank', 'Document', 'Insert Blank Pages…', a.insertBlank, s.pagesEditable),
     cmd('document.extractPages', 'Document', 'Extract Pages…', a.extractPages, s.pagesEditable && s.canSaveCopy),
     cmd('document.copyPageSnapshot', 'Document', 'Copy Page to Snapshot', a.copyPageSnapshot, doc),
@@ -456,6 +467,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
+    cmd('document.teachMark', 'Document', 'Teach a Sheet Link Mark…', a.teachMark, doc && s.editable),
 
     ...tools,
     cmd('tools.sound', 'Tools', 'Sound…', a.sound, s.editable),
@@ -466,12 +478,14 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.eraserWhole', 'Tools', 'Annotation Eraser (Whole Markups)', () => a.setSettings({ eraserWhole: !s.settings.eraserWhole }), true, s.settings.eraserWhole),
     cmd('tools.sketchToScale', 'Tools', 'Draw to Scale', () => a.setSettings({ sketchToScale: !s.settings.sketchToScale }), doc, s.settings.sketchToScale),
     cmd('tools.stamps', 'Tools', 'Manage Stamps…', a.manageStamps, doc),
+    cmd('tools.lineStyles', 'Tools', 'Line Styles…', a.manageLineStyles, true),
     cmd('tools.nextMeasure', 'Tools', 'Next Measure Tool', () => {
       const order = MEASURE_TOOLS.map((t) => t.tool);
       const at = order.indexOf(s.tool);
       a.setTool(order[(at + 1) % order.length]!);
     }, doc && s.editable),
     cmd('tools.applyRedactions', 'Tools', 'Apply Redactions…', a.applyRedactions, s.pagesEditable && s.editable),
+    cmd('tools.bulkRedact', 'Bulk', 'Bulk Redact…', a.bulkRedact, s.pagesEditable && s.editable),
     cmd('tools.sign', 'Tools', 'Sign with Digital ID…', a.sign, s.pagesEditable),
     cmd('tools.digitalIds', 'Tools', 'Digital IDs…', a.digitalIds),
     cmd('tools.formField', 'Tools', 'Form Field', () => a.setTool('formField'), s.pagesEditable, s.tool === 'formField'),
@@ -484,6 +498,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
+    cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
+    cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
     cmd('tool.connector', 'Tools', 'Connector', () => a.setTool('connector'), doc && s.editable, s.tool === 'connector'),

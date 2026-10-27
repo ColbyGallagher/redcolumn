@@ -15,6 +15,8 @@ import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
+import { pkiRequest } from './pki';
+import { TokenService } from './token';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
 import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
@@ -131,6 +133,27 @@ async function start() {
     }
     return broker.request(request as GraphRequest);
   });
+  // Time stamp servers and revocation checks for digital signatures (pki.ts).
+  handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
+  // Smart cards and USB tokens (token.ts). Drivers are only ever picked here, in a native dialog.
+  const tokens = new TokenService(path.join(app.getPath('userData'), 'token-drivers.json'));
+  await tokens.restore();
+  handle('token:modules', () => tokens.modules());
+  handle('token:add-module', async () => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose the card’s PKCS#11 driver',
+      properties: ['openFile'],
+      filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
+    };
+    const win = mainWindow;
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    return result.canceled || !result.filePaths[0] ? null : tokens.addModule(result.filePaths[0]);
+  });
+  handle('token:remove-module', (id) => {
+    if (typeof id === 'string') return tokens.removeModule(id);
+  });
+  handle('token:certificates', () => tokens.certificates());
+  handle('token:sign', (ref, hash, data, pin) => tokens.sign(ref, hash, data, pin));
   handle('auth:microsoft-account', (clientId) => {
     if (typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
@@ -279,9 +302,13 @@ async function start() {
 }
 
 function createWindow() {
+  // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
+  // out of the taskbar and never takes focus, so the machine stays usable while it runs.
+  const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
+    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : {}),
     minWidth: 800,
     minHeight: 600,
     title: 'redcolumn',
@@ -297,13 +324,15 @@ function createWindow() {
       sandbox: true,
       nodeIntegration: false,
       webviewTag: false,
+      // An off-screen window counts as hidden; without this its timers and rendering would be throttled.
+      ...(background ? { backgroundThrottling: false } : {}),
     },
   });
   mainWindow = win;
   unsavedChanges = false;
   closeConfirmed = false;
   launches.attach(win);
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;

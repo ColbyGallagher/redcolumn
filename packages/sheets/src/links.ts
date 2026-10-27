@@ -141,7 +141,7 @@ function cutFrame(marker: Word): Rect {
 }
 
 /** Frames a detail title bubble and the area above it, where the detail itself is drawn. */
-function detailFrame(title: Word): Rect {
+export function detailFrame(title: Word): Rect {
   const s = title.size;
   return { x: title.x0 - s * 4, y: title.y0 - s * 20, w: s * 40, h: s * 24 };
 }

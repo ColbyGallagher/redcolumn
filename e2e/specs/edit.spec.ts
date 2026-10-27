@@ -60,6 +60,36 @@ test.describe('edit', () => {
     });
   }
 
+  test('tools.scripts: a script previews its changes, applies them as one undo step, and saves to the profile', async ({ app }) => {
+    await three(app);
+    await app.cmd('tools.scripts');
+    const dialog = app.page.locator('.modal.scripts-dialog');
+    await dialog.getByRole('button', { name: 'New', exact: true }).click();
+    await dialog.getByLabel('Script name').fill('Rectangles to review');
+    await dialog.getByLabel('Script', { exact: true }).fill('# the two rectangles\nwhere type is rectangle\nset color #0000ff\nset layer "Review"');
+    // Nothing changes before Apply, and Apply needs a preview first.
+    await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Preview' }).click();
+    await expect(dialog.locator('.scripts-result')).toContainText('2 markups will change');
+    expect((await app.raw()).map((m) => (m as unknown as { layer?: string }).layer)).toEqual([undefined, undefined, undefined]);
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    await expect.poll(async () => (await app.raw()).map((m) => (m as unknown as { layer?: string; style: { stroke: string } }).layer)).toEqual(['Review', 'Review', undefined]);
+    expect((await app.raw()).map((m) => (m as unknown as { style: { stroke: string } }).style.stroke).slice(0, 2)).toEqual(['#0000ff', '#0000ff']);
+    // A mistake is shown with its line, and nothing runs.
+    await dialog.getByLabel('Script', { exact: true }).fill('where type is ellipse\nset status Approved');
+    await dialog.getByRole('button', { name: 'Preview' }).click();
+    await expect(dialog.locator('.scripts-errors')).toContainText('Line 2: no status "Approved"');
+    await expect(dialog.getByRole('button', { name: 'Apply' })).toBeDisabled();
+    // Saved scripts stay in the profile.
+    await dialog.getByLabel('Script', { exact: true }).fill('where type is ellipse\nset width 3');
+    await dialog.getByRole('button', { name: 'Save to Profile' }).click();
+    await expect(dialog.locator('.scripts-row', { hasText: 'Rectangles to review' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    // One undo step takes the whole script back.
+    await app.cmd('edit.undo');
+    expect((await app.raw()).map((m) => (m as unknown as { layer?: string }).layer)).toEqual([undefined, undefined, undefined]);
+  });
+
   test('align needs two or more markups', async ({ app }) => {
     const [r1] = await three(app);
     await select(app, [r1!.id]);

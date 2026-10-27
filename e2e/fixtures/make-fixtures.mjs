@@ -59,6 +59,21 @@ const expected = {
     ],
     box: { label: 'APPROVED', x: 120, y: 170, size: 12 },
   },
+  /**
+   * marks.pdf: two 17 x 11 in sheets. The first has detail callouts drawn as split circles, the
+   * identifier above the line and the sheet it points at below, and a grid bubble of the same
+   * size with no sheet number. The second is the sheet the callouts point at.
+   */
+  marks: {
+    sheetNumbers: ['A-101', 'A-501'],
+    radius: 16,
+    callouts: [
+      { x: 300, y: 300, detail: '1', sheet: 'A-501' },
+      { x: 600, y: 300, detail: '2', sheet: 'A-501' },
+      { x: 900, y: 500, detail: '3', sheet: 'A-501' },
+    ],
+    grid: { x: 150, y: 650, label: 'B' },
+  },
   /** stitch.pdf: a road cut into three 36 x 24 in sheets along match lines (see stitchPdf). */
   stitch: {
     page: { width: 36 * 72, height: 24 * 72 },
@@ -141,6 +156,32 @@ async function sheets() {
     text(label, labelBox.x + 10, labelBox.y + labelBox.h - 10, 12);
     text(`SCALE: ${scales[i]}`, scaleBox.x + 10, scaleBox.y + scaleBox.h - 10, 10);
   });
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Detail callouts drawn as shapes, for teaching a mark (see expected.marks). */
+async function marks() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E marks');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const { radius: r, callouts, grid } = expected.marks;
+  const plan = doc.addPage([W, H]);
+  const centred = (s, cx, cy, size) => plan.drawText(s, { x: cx - font.widthOfTextAtSize(s, size) / 2, y: H - cy - size * 0.35, size, font, color: black });
+  const bubble = (cx, cy, detail, sheet) => {
+    plan.drawCircle({ x: cx, y: H - cy, size: r, borderColor: black, borderWidth: 1 });
+    plan.drawLine({ start: { x: cx - r, y: H - cy }, end: { x: cx + r, y: H - cy }, thickness: 1, color: black });
+    centred(detail, cx, cy - r / 2, 10);
+    if (sheet) centred(sheet, cx, cy + r / 2, 6);
+  };
+  plan.drawText('LEVEL 1 PLAN', { x: 60, y: H - 60, size: 18, font, color: black });
+  for (const c of callouts) bubble(c.x, c.y, c.detail, c.sheet);
+  bubble(grid.x, grid.y, grid.label, null);
+  const details = doc.addPage([W, H]);
+  details.drawText('DETAILS', { x: 60, y: H - 60, size: 18, font, color: black });
   return doc.save({ useObjectStreams: false });
 }
 
@@ -315,8 +356,9 @@ writeFileSync(join(here, 'plan.pdf'), await plan());
 writeFileSync(join(here, 'plan-rev1.pdf'), await plan(1));
 writeFileSync(join(here, 'sheets.pdf'), await sheets());
 writeFileSync(join(here, 'forms.pdf'), await forms());
+writeFileSync(join(here, 'marks.pdf'), await marks());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, stitch.pdf, picture.png, notes.txt, expected.json');

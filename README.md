@@ -61,8 +61,8 @@ send it somewhere yourself.
 - **No analytics, advertising, tracking or error reporting.** The app sets no cookies of its own.
 - **Works offline.** Once loaded, the app and your documents work with no internet connection.
   Installed, it runs from its own icon and window.
-- **Cloud features are optional and use your own OneDrive.** Live Sessions, Projects and spreadsheet
-  sync only start when you sign in to Microsoft, and the files go to your OneDrive, not to us. Live Sessions are encrypted end to end unless the host turns that off. See
+- **Cloud features are optional and use your own OneDrive.** Live Sessions and Projects
+  only start when you sign in to Microsoft, and the files go to your OneDrive, not to us. Live Sessions are encrypted end to end unless the host turns that off. See
   [PRIVACY.md](PRIVACY.md) for exactly what each feature sends and to whom.
 - **The local MCP server stays on your computer.** The desktop app can let an AI client you already use
   read the open drawing. It is off until you turn it on, and deletes and document changes wait for
@@ -107,14 +107,13 @@ rather than unsupported):
 </tbody>
 </table>
 
-Revu tool sets and markup settings files can be imported:
+Revu tool sets and markup settings files can be imported and exported:
 
-- `.btx` tool sets: read. Most tools come through; a few group shapes are not yet kept.
-- `.blx` line styles: read in full.
-- `.bhx` hatch sets: read in full.
-- `.bpx` markup-list profiles: read in full.
-
-Writing these settings files back out is not built yet.
+- `.btx` tool sets: read and written. Group shapes keep their boxes, lines, polygons and text. Tools
+  that came from Revu and were not restyled are written back as Revu stored them.
+- `.blx` line styles: read and written in full.
+- `.bhx` hatch sets: read and written in full.
+- `.bpx` markup-list profiles: read and written in full (only the markup list is written).
 
 Compatibility is not a promise that every Revu feature comes through unchanged. Anything that does not
 map is listed in the compatibility report, not dropped silently. If you find a file that does not
@@ -305,12 +304,13 @@ a revision.
 ### Markups list and spreadsheets
 
 The Markups list has custom columns, statuses, filters and grouping. Export it as CSV, or as a PDF
-summary. **Sync to Excel** writes the list to a workbook in your OneDrive and keeps it up to date as
-markups change. Measurements go in as numbers, so the sheet can total them.
+summary. **Sync to Excel** (desktop app on Windows) writes the list to a workbook on your computer and
+keeps it up to date as markups change, even while it is open in Excel. Measurements go in as numbers,
+so the sheet can total them.
 
 <img src="docs/media/readme/list-grouped.png" alt="The Markups list grouped by subject" width="760">
 
-<img src="docs/media/sync/sync-to-excel.png" alt="The Sync Markups to Excel window, with the Excel in OneDrive workbook" width="420">
+<img src="docs/media/sync/sync-to-excel.png" alt="The Sync Markups to Excel window" width="420">
 
 ### Documents
 
@@ -335,7 +335,10 @@ folder of scans, stamp every sheet, set page labels, sign, or print summaries.
 
 The **Diagram** tab draws basic flowcharts on any page, or on a blank one: process, decision, start and
 end, data, document and other standard shapes, each with its text inside. **Connectors** glue to the
-shapes they join and re-route with right-angled bends when a shape moves. **Add Step** puts the next
+shapes they join and re-route with right-angled bends when a shape moves. As in Visio, drag the yellow
+handle on a selected connector's middle segment to move it, Ctrl+double-click a segment to add a bend, and
+Alt-click a handle to take that segment out; a connector routed by hand keeps its route as shapes move
+while it still fits. Right-click a connector to set its own route (right-angle, straight, or reset). **Add Step** puts the next
 shape beside the selected one, already connected, so a flowchart grows a step at a time. Shapes and
 connectors save as ordinary PDF annotations, like every other markup.
 
@@ -364,6 +367,11 @@ part of one as a picture, and the page's text with where each word sits. Deletes
 wait for your approval in redcolumn, and the assistant runs on your computer. The website does not run
 it. See [PRIVACY.md](PRIVACY.md).
 
+An assistant can also **propose a takeoff**: the assembly for each measurement, with its reasoning.
+Proposals wait in **Tools › Takeoff › Review AI Proposals**, beside the sheet, where you check each one
+against its formula and quantities, change the assembly or a quantity, and approve or reject it. Nothing
+is added to the takeoff until you approve it, and each approval records who approved which proposal.
+
 ## Install the desktop app
 
 You can use redcolumn in any modern browser at
@@ -382,7 +390,9 @@ Only download redcolumn from the release page above.
 ### Windows
 
 1. Go to the [latest release](https://github.com/ColbyGallagher/redcolumn/releases/latest), or click
-   **Install app** at the top right of the web app, and download **redcolumn-Setup.exe**.
+   **Install app** at the top right of the web app, and download **redcolumn-Setup.exe**. On a Windows on Arm
+   PC (Snapdragon, such as a Surface Pro or Copilot+ PC), download **redcolumn-Setup-arm64.exe** instead, which
+   runs natively rather than under emulation. **Settings › System › About** shows which processor you have.
 2. Open the file from your Downloads folder. Windows SmartScreen shows **Windows protected your PC**
    because the publisher is unknown. Click **More info**, then **Run anyway**.
 3. Follow the steps. The installer does not need administrator rights. It installs for your user
@@ -434,7 +444,8 @@ The AppImage does not install anything, so deleting the file removes the app.
 
 - **Windows:** the installed app checks for a new release a few seconds after launch. When one is ready
   it downloads in the background and shows **Restart to update**. It never restarts over unsaved work,
-  and otherwise installs the update when you close the app.
+  and otherwise installs the update when you close the app. The arm64 installer updates itself the same
+  way, from its own update file (`latest-arm64.yml`), so it stays on the native build.
 - **Mac and Linux:** the app shows **Update to x.y.z** when a new release exists. That button opens the
   release page, and you download the new version and replace the old one. Your documents and markups are kept.
 - You can check at any time with **Help › Check for Updates**. That asks GitHub for the latest release
@@ -470,7 +481,8 @@ pnpm test
 pnpm typecheck
 ```
 
-To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows,
+To build the desktop app locally, run `pnpm --filter @nb/desktop package` on Windows (or
+`pnpm --filter @nb/desktop package:win-arm64` for Windows on Arm),
 `pnpm --filter @nb/desktop package:mac` on a Mac, or `pnpm --filter @nb/desktop package:linux` on Linux.
 The output is written to `apps/desktop/release/`.
 
@@ -503,15 +515,15 @@ git push origin v0.2.0
 ```
 
 The `Release` workflow (`.github/workflows/release.yml`) checks that the tag is `v` plus the desktop
-version, runs the typecheck and tests, builds the Windows installer, both Mac DMGs and the Linux AppImage,
-and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`),
+version, runs the typecheck and tests, builds the Windows installers (x64, and arm64 on a Windows on Arm runner), both Mac DMGs and the Linux AppImage,
+and publishes a GitHub release with `redcolumn-Setup.exe` (plus `redcolumn-Setup.exe.blockmap` and `latest.yml`), `redcolumn-Setup-arm64.exe` (plus `redcolumn-Setup-arm64.exe.blockmap` and `latest-arm64.yml`),
 `redcolumn-arm64.dmg`, `redcolumn-x64.dmg` and `redcolumn-x86_64.AppImage` attached. The file names stay fixed so the web app's Install
 button, which links to `releases/latest/download/<file>`, always gets the newest release. A tag with a
 suffix such as `v0.3.0-beta.1` is published as a pre-release, which the Install button and the update
 check ignore.
 
-`latest.yml` and the `.blockmap` must stay attached to the release, or installed Windows apps cannot
-update. Running the workflow by hand from the Actions tab builds the installers as workflow artifacts
+`latest.yml`, `latest-arm64.yml` and the `.blockmap` files must stay attached to the release, or installed
+Windows apps cannot update. Running the workflow by hand from the Actions tab builds the installers as workflow artifacts
 without publishing. The publish step waits for approval in the `release` environment.
 
 ## Security

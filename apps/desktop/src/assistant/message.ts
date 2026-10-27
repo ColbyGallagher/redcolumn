@@ -23,6 +23,9 @@ export const ASSISTANT_METHODS = [
   'update_markup',
   'update_markups',
   'delete_markups',
+  'list_assemblies',
+  'propose_takeoff',
+  'list_takeoff_proposals',
 ] as const;
 
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number];
@@ -363,6 +366,54 @@ const TOOLS: ToolDef[] = [
         ids: { type: 'array', items: { type: 'string' }, description: 'Markup ids from list_markups.' },
       },
     },
+  },
+  {
+    name: 'list_assemblies',
+    title: 'List takeoff assemblies',
+    description:
+      "Lists the drawing's takeoff assemblies: each one's items with their units and formulas, and its variables. formulaNames are the measured values a formula can use ([Length], [Area], [Count]...). Use this before propose_takeoff.",
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
+    name: 'propose_takeoff',
+    title: 'Propose takeoff assemblies',
+    description:
+      'Proposes an assembly for each of some measurements (from list_markups), with your reasoning and, optionally, the quantities you expect. Proposals do not change the drawing: they wait in Takeoff Review, where the person approves, edits or rejects each one. Nothing is added to the takeoff until they approve it. Up to 500 per call; a new proposal for a measurement replaces its earlier pending one.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
+        proposals: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Measurement markup id from list_markups.' },
+              seq: { type: 'integer', description: 'Measurement number, when id is omitted.' },
+              assembly: { type: 'string', description: 'Assembly name or id from list_assemblies.' },
+              reasoning: { type: 'string', description: 'Why this assembly fits this measurement, for the person checking it.' },
+              expected: {
+                type: 'array',
+                description: 'The quantities you expect, checked against what the assembly works out.',
+                items: { type: 'object', properties: { item: { type: 'string' }, quantity: { type: 'number' }, unit: { type: 'string' } }, required: ['item', 'quantity'] },
+              },
+            },
+            required: ['assembly', 'reasoning'],
+          },
+        },
+      },
+      required: ['proposals'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'list_takeoff_proposals',
+    title: 'List takeoff proposals',
+    description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
   },
 ];
 

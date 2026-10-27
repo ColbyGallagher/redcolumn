@@ -142,6 +142,8 @@ export interface Settings {
   snapToGeometry: boolean;
   /** Hyperlink areas are outlined when a document opens. */
   showHyperlinks: boolean;
+  /** Clicking a sheet link shows the sheet or detail in a preview beside the plan, or jumps to it. */
+  linkClick: 'preview' | 'jump';
   /** Tool Library tools saved from a markup place an exact copy of it, or draw new markups in its style. */
   toolChestMode: 'copy' | 'style';
   /** After placing a Tool Library copy, keep the tool armed to place more (Esc to stop). */
@@ -228,6 +230,8 @@ export interface Settings {
   restoreTabs: boolean;
   /** The start screen (no document open) shows a step-by-step tip from the help. */
   startTips: boolean;
+  /** Ribbon groups the user switched off, as "tab/Group name" (Customize Ribbon). */
+  hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
 
@@ -404,6 +408,7 @@ export const DEFAULT_SETTINGS: Settings = {
   buttonZoomStep: 10,
   snapToGeometry: true,
   showHyperlinks: true,
+  linkClick: 'preview',
   toolChestMode: 'copy',
   toolChestSticky: false,
   confirmDelete: false,
@@ -449,6 +454,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentDays: 0,
   restoreTabs: false,
   startTips: true,
+  hiddenRibbonGroups: [],
   snapshotDpi: 200,
 
   tabTruncation: 'end',

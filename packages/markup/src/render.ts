@@ -323,6 +323,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillStyle = textColor(style);
     ctx.fillText(label.text, x, y);
     if (style.underline) underline(ctx, x - w / 2 + size * 0.3, y + size * 0.45, w - size * 0.6, size);
+    if (style.strikethrough) underline(ctx, x - w / 2 + size * 0.3, y, w - size * 0.6, size);
     ctx.restore();
   }
   const dim = dimensionText(m);
@@ -372,6 +373,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     for (const line of textBoxLines(m, (s) => ctx.measureText(s).width)) {
       ctx.fillText(line.text, line.x, line.y);
       if (style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
+      if (style.strikethrough && line.text) underline(ctx, line.x, line.y + size * 0.55, line.width, size);
     }
   }
   if (m.type === 'legend') drawLegend(ctx, m, zoom, legends);

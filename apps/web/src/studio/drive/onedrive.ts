@@ -19,8 +19,8 @@ export const oneDriveConfigured = !!CLIENT_ID;
 
 /**
  * Whether Projects and Live Sessions may be kept in OneDrive and shared through it. Off unless the
- * build sets VITE_ENABLE_ONEDRIVE_SHARING=true; folders on this computer work either way. Sheet
- * Sync and profile backup only need `oneDriveConfigured`.
+ * build sets VITE_ENABLE_ONEDRIVE_SHARING=true; folders on this computer work either way. Profile
+ * backup only needs `oneDriveConfigured`.
  */
 export const oneDriveSharingEnabled = oneDriveConfigured && import.meta.env.VITE_ENABLE_ONEDRIVE_SHARING === 'true';
 
@@ -191,7 +191,7 @@ export interface StepUp {
 
 /**
  * The access each kind of call has needed in this tab. Not kept across visits, and only the calls
- * of that kind ask for it: settings backup, spreadsheet sync and the app's own folders always ask
+ * of that kind ask for it: settings backup and the app's own folders always ask
  * for the app folder alone (docs/SECURITY-HARDENING.md, 3.4).
  */
 let reached: Record<AccessKind, number> = { own: 0, share: 0, shared: 0 };
@@ -764,46 +764,6 @@ export class OneDrive implements DriveApi {
     const { driveId, itemId } = await this.appRoot();
     // A PUT to a path replaces a file of that name.
     await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([text], { type: 'application/json' }), 'save your settings');
-    logCloudAction('onedrive', 'save app file', name);
-  }
-
-  /**
-   * Saves a file in the app's own folder (Apps/redcolumn), replacing one of the same name, and
-   * returns where it opens in the browser. Replacing keeps the file's link, so a copy open in Excel
-   * for the web picks the change up.
-   */
-  async writeAppBinary(name: string, body: Blob, mimeType: string): Promise<{ id: string; url: string }> {
-    const { driveId, itemId } = await this.appRoot();
-    const item = await this.upload(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:`, new Blob([body], { type: mimeType }), 'save the spreadsheet');
-    logCloudAction('onedrive', 'save app file', name);
-    return { id: item.id, url: item.webUrl ?? 'https://onedrive.live.com/' };
-  }
-
-  /**
-   * Writes values into a worksheet of a workbook in the app's folder through Excel's own API, which
-   * works while the workbook is open (and locked) in Excel for the web: the change reaches everyone
-   * with it open. Cells the last write filled beyond the new values are blanked. `address` names the
-   * range from A1 for a number of rows and columns, such as `A1:C4`.
-   */
-  async writeAppWorksheet(name: string, sheet: string, values: readonly (readonly (string | number)[])[], address: (rows: number, cols: number) => string): Promise<void> {
-    const { driveId, itemId } = await this.appRoot();
-    const file = (await (await this.fetch(`/drives/${driveId}/items/${itemId}:/${encodeURIComponent(name)}:?$select=id`, {}, 'find the spreadsheet')).json()) as GraphItem;
-    const ws = `/drives/${driveId}/items/${file.id}/workbook/worksheets/${encodeURIComponent(sheet)}`;
-    const used = (await (await this.fetch(`${ws}/usedRange(valuesOnly=true)?$select=rowIndex,columnIndex,rowCount,columnCount`, {}, 'read the spreadsheet')).json()) as {
-      rowIndex?: number;
-      columnIndex?: number;
-      rowCount?: number;
-      columnCount?: number;
-    };
-    // The used range need not start at A1: blank from A1 to its far corner.
-    const rows = Math.max(values.length, (used.rowIndex ?? 0) + (used.rowCount ?? 0), 1);
-    const cols = Math.max(values[0]?.length ?? 0, (used.columnIndex ?? 0) + (used.columnCount ?? 0), 1);
-    const grid = Array.from({ length: rows }, (_, r) => Array.from({ length: cols }, (_, c) => values[r]?.[c] ?? ''));
-    await this.fetch(
-      `${ws}/range(address='${address(rows, cols)}')`,
-      { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ values: grid }) },
-      'update the spreadsheet',
-    );
     logCloudAction('onedrive', 'save app file', name);
   }
 

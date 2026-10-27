@@ -1,5 +1,6 @@
 import type { LinkStatus, StoredLink } from '@nb/markup';
 import type { SheetInfo } from '@nb/sheets';
+import { MARK_KINDS, type TaughtMark } from '../sheets/marks';
 
 interface Props {
   links: StoredLink[];
@@ -14,6 +15,14 @@ interface Props {
   onFollow: (link: StoredLink) => void;
   onStatus: (id: string, status: LinkStatus) => void;
   onRedetect: () => void;
+  /** Section marks, titles and detail callouts taught in this profile. */
+  marks: readonly TaughtMark[];
+  /** The document takes edits (teaching adds links to review). */
+  editable: boolean;
+  /** Box an example on the sheet to teach a new mark. */
+  onTeach: () => void;
+  /** Forgets a taught mark (its links still waiting for review go too). */
+  onForget: (id: string) => void;
 }
 
 function sheetName(sheets: Readonly<Record<number, SheetInfo>>, page: number) {
@@ -21,7 +30,7 @@ function sheetName(sheets: Readonly<Record<number, SheetInfo>>, page: number) {
 }
 
 /** Hyperlink review: low-confidence links to check, links on this sheet, and links pointing here. */
-export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShowLinks, onReveal, onFollow, onStatus, onRedetect }: Props) {
+export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShowLinks, onReveal, onFollow, onStatus, onRedetect, marks, editable, onTeach, onForget }: Props) {
   const active = links.filter((l) => l.status !== 'rejected');
   const review = links.filter((l) => l.status === 'review').sort((a, b) => a.pageIndex - b.pageIndex);
   const here = active.filter((l) => l.pageIndex === currentPage);
@@ -54,6 +63,9 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
           Show links
         </label>
         <span className="grow" />
+        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box an example of a section mark, section title, detail callout or detail title, so links are found from marks like it">
+          Teach a mark
+        </button>
         <button className="btn small" disabled={busy} onClick={onRedetect} title="Find callouts again using the current sheet numbers">
           Re-detect
         </button>
@@ -71,6 +83,9 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
                   <span className="num">{l.label}</span>
                   <span className="name">
                     {sheetName(sheets, l.pageIndex)} → {sheetName(sheets, l.targetPage)}
+                    <span className="confidence" title={l.id.startsWith('mark-') ? 'Found from a taught mark' : 'Found from the text'}>
+                      {Math.round(l.confidence * 100)}%
+                    </span>
                   </span>
                 </button>
                 <span className="review-actions">
@@ -90,6 +105,26 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
       <ul>{here.map((l) => row(l, true))}</ul>
       <h3>Links to this sheet ({incoming.length})</h3>
       <ul>{incoming.map((l) => row(l, false))}</ul>
+      {marks.length > 0 && (
+        <>
+          <h3>Taught marks ({marks.length})</h3>
+          <ul>
+            {marks.map((m) => (
+              <li key={m.id}>
+                <span className="link-row">
+                  <span className="num">{m.name}</span>
+                  <span className="name taught-kind">{MARK_KINDS[m.kind]}</span>
+                </span>
+                <span className="review-actions">
+                  <button className="btn small" title="Forget this mark" aria-label={`Forget ${m.name}`} disabled={busy} onClick={() => onForget(m.id)}>
+                    ✕
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

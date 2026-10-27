@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
-import { anchorOf, canConnect, connectorLabel, elbowRoute, facingSides, relinkCopies, routeConnector } from './flowchart.ts';
+import { addBend, anchorOf, canConnect, connectorLabel, elbowRoute, facingSides, manualRoute, moveSegment, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart.ts';
 import { hitTest, markupShape } from './geometry.ts';
 import { contentBox, DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 import { handlePositions } from './render.ts';
@@ -179,4 +179,67 @@ test('flowchart shapes and connectors save as a polygon and a polyline with thei
   assert.equal(text(dicts[1]!, 'Contents'), 'Yes');
   const data = JSON.parse(text(dicts[1]!, 'NBData')) as Markup;
   assert.deepEqual(data.connect, { from: { id: 'a' } });
+});
+
+test('a connector routed by hand keeps its middle segments as the shapes move, and falls back when it no longer fits', () => {
+  // a at the top left, b down and to the right: right side of a, left side of b.
+  const shapes = new Map([shape('a', 0, 0), shape('b', 300, 200)].map((m) => [m.id, m]));
+  const get = (id: string) => shapes.get(id);
+  const c = markup('connector', [[0, 0], [1, 1]], { connect: { from: { id: 'a', side: 'right' }, to: { id: 'b', side: 'left' } } });
+  const auto = routeConnector(c, get);
+  const route = routeOf(auto)!;
+  assert.equal(route.first, 'h');
+  assert.equal(route.mids.length, 1, 'across, down, across: one middle segment');
+  // Drag the down segment to x = 140.
+  const moved = { ...c, connect: { ...c.connect!, bends: moveSegment(route, 0, 140, auto[0]!) } };
+  assert.deepEqual(routeConnector(moved, get), [[100, 25], [140, 25], [140, 225], [300, 225]]);
+  assert.deepEqual(routeHandles(routeConnector(moved, get)), [{ mid: 0, at: [140, 125], runs: 'v' }]);
+  // b moves down: the hand-set segment stays at x = 140.
+  shapes.set('b', shape('b', 300, 260));
+  assert.deepEqual(routeConnector(moved, get), [[100, 25], [140, 25], [140, 285], [300, 285]]);
+  // a and b move together (as when both are dragged with the connector): so does the hand-set route.
+  const both = new Map([shape('a', 50, 30), shape('b', 350, 290)].map((m) => [m.id, m]));
+  assert.deepEqual(routeConnector(moved, (id) => both.get(id)), [[150, 55], [190, 55], [190, 315], [350, 315]]);
+  // b moves left of the segment: it would enter b the wrong way, so it is routed again for now.
+  shapes.set('b', shape('b', 120, 260));
+  const fallback = routeConnector(moved, get);
+  assert.ok(orthogonal(fallback));
+  assert.notDeepEqual(fallback.slice(1, -1).map((p) => p[0]), [140, 140]);
+  // And it comes back when b does.
+  shapes.set('b', shape('b', 300, 200));
+  assert.deepEqual(routeConnector(moved, get), [[100, 25], [140, 25], [140, 225], [300, 225]]);
+});
+
+test('bends can be added on a segment and taken out again while the route stays at right angles', () => {
+  const a: Point = [100, 25];
+  const b: Point = [300, 225];
+  const path: Point[] = [a, [200, 25], [200, 225], b];
+  // A bend on the first segment at x = 150: a step of no length there, then the down segment.
+  const bent = addBend(path, [150, 26])!;
+  assert.deepEqual(bent, { first: 'h', mids: [50, 0, 100] }, 'measured from the start');
+  // Dragging the new across segment down makes a step.
+  const stepped = moveSegment(bent, 1, 80, a);
+  assert.deepEqual(manualRoute({ at: a, dir: [1, 0] }, { at: b, dir: [-1, 0] }, stepped), [a, [150, 25], [150, 80], [200, 80], [200, 225], b]);
+  // Taking the step's across segment out: the up-and-down segments either side join where the first of them ran.
+  assert.deepEqual(removeSegment(stepped, 1, a, b), { first: 'h', mids: [50] });
+  // The one middle segment between two end segments that do not line up cannot go.
+  assert.equal(removeSegment({ first: 'h', mids: [100] }, 0, a, b), null);
+  assert.equal(removeSegment({ first: 'h', mids: [100] }, 0, a, [300, 25]), undefined, 'lined up: just a straight run');
+  assert.equal(addBend(path, [150, 60]), null, 'not on the path');
+  // A straight connector can take a bend too.
+  assert.deepEqual(addBend([a, [300, 25]], [200, 25]), { first: 'h', mids: [100] });
+});
+
+test('a hand-set route saves with the connector', async () => {
+  const store = await MarkupStore.open('flow-bends', { persist: false });
+  const c = markup('connector', [[100, 25], [300, 225]], { id: 'c', connect: { route: 'elbow', bends: { first: 'h', mids: [40] } } });
+  store.add(c);
+  const blank = await PDFDocument.create().then(async (d) => (d.addPage([600, 400]), d.save()));
+  const bytes = await exportWithAnnotations(blank.buffer as ArrayBuffer, store.all());
+  const doc = await PDFDocument.load(bytes);
+  const annots = doc.getPage(0).node.lookup(PDFName.of('Annots'), PDFArray);
+  const dict = annots.lookup(0, PDFDict);
+  const data = dict.lookup(PDFName.of('NBData'));
+  const json = JSON.parse(data instanceof PDFHexString ? data.decodeText() : (data as PDFString).decodeText()) as Markup;
+  assert.deepEqual(json.connect?.bends, { first: 'h', mids: [40] });
 });

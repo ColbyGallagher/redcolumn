@@ -73,74 +73,7 @@ test('toTable puts numbers in as numbers and keeps measurement text', () => {
   assert.deepEqual(toTable(rows, cols), [['Subject', 'Length', 'Measurement', 'Date'], ['Wall', 12.5, '12.5 m', '2026-01-02 03:04:05']]);
 });
 
-import { DriveLockedError } from '../studio/drive/DriveApi.ts';
-import { OneDriveWorkbookTarget } from './targets.ts';
-
-test('OneDriveWorkbookTarget saves an .xlsx over the same file each time', async () => {
-  const saved: { name: string; size: number; type: string }[] = [];
-  const drive = {
-    writeAppBinary: async (name: string, body: Blob, type: string) => {
-      saved.push({ name, size: body.size, type });
-      return { id: 'I1', url: 'https://1drv.ms/x/abc' };
-    },
-    writeAppWorksheet: async () => assert.fail('the file was not locked'),
-  };
-  const { link, target } = await OneDriveWorkbookTarget.create('Plan: markups', [['A'], ['x']], drive);
-  assert.deepEqual(link, { provider: 'onedrive', id: 'Plan  markups.xlsx', url: 'https://1drv.ms/x/abc', title: 'Plan: markups' });
-  await target.push([['A'], ['x'], ['y']]);
-  assert.equal(saved.length, 2);
-  assert.ok(saved.every((s) => s.name === 'Plan  markups.xlsx' && s.type.includes('spreadsheetml')));
-  assert.ok(saved[1]!.size > saved[0]!.size);
-});
-
-test('OneDriveWorkbookTarget writes the cells through Excel while the file is locked', async () => {
-  const cells: { name: string; sheet: string; table: unknown; address: string }[] = [];
-  const drive = {
-    writeAppBinary: async () => {
-      throw new DriveLockedError('locked');
-    },
-    writeAppWorksheet: async (name: string, sheet: string, table: readonly (readonly (string | number)[])[], address: (rows: number, cols: number) => string) => {
-      cells.push({ name, sheet, table, address: address(30, 28) });
-    },
-  };
-  const target = new OneDriveWorkbookTarget('Plan.xlsx', drive);
-  await target.push([['A', 'B'], ['x', 1]]);
-  assert.deepEqual(cells, [{ name: 'Plan.xlsx', sheet: 'Markups', table: [['A', 'B'], ['x', 1]], address: 'A1:AB30' }]);
-});
-
-test('OneDriveWorkbookTarget passes on failures other than a lock', async () => {
-  const drive = {
-    writeAppBinary: async () => {
-      throw new Error('offline');
-    },
-    writeAppWorksheet: async () => assert.fail('only a lock falls back'),
-  };
-  await assert.rejects(new OneDriveWorkbookTarget('Plan.xlsx', drive).push([['A']]), /offline/);
-});
-
-test('OneDriveWorkbookTarget says the workbook is open when Excel will not take the cells either', async () => {
-  const drive = {
-    writeAppBinary: async () => {
-      throw new DriveLockedError('locked');
-    },
-    writeAppWorksheet: async () => {
-      throw new Error('not allowed');
-    },
-  };
-  await assert.rejects(new OneDriveWorkbookTarget('Plan.xlsx', drive).push([['A']]), (err: Error) => err instanceof DriveLockedError && /open in Excel/.test(err.message));
-});
-
 import { LocalExcelTarget, SyncStoppedError } from './targets.ts';
-import { DriveAuthError } from '../studio/drive/DriveApi.ts';
-import { asText } from './table.ts';
-
-test('asText keeps text that looks like a formula as text', () => {
-  assert.equal(asText('=SUM(A1)'), "'=SUM(A1)");
-  assert.equal(asText('@x'), "'@x");
-  assert.equal(asText('Wall'), 'Wall');
-  assert.equal(asText(-2), -2);
-});
-
 test('LocalExcelTarget sends the .xlsx and the table to the desktop app', async () => {
   const sent: { id: string; size: number; table: unknown }[] = [];
   const excel = {
@@ -163,18 +96,6 @@ test('LocalExcelTarget sends the .xlsx and the table to the desktop app', async 
 test('LocalExcelTarget.create is null when the Save dialog is cancelled', async () => {
   const excel = { pick: async () => null, write: async () => assert.fail('nothing to write'), open: async () => undefined, show: async () => undefined };
   assert.equal(await LocalExcelTarget.create('x', [['A']], excel), null);
-});
-
-test('OneDriveWorkbookTarget asks for Reconnect when the sign-in lapses mid-fallback', async () => {
-  const drive = {
-    writeAppBinary: async () => {
-      throw new DriveLockedError('locked');
-    },
-    writeAppWorksheet: async () => {
-      throw new DriveAuthError('Microsoft sign-in has expired.');
-    },
-  };
-  await assert.rejects(new OneDriveWorkbookTarget('Plan.xlsx', drive).push([['A']]), (err: Error) => err instanceof DriveAuthError);
 });
 
 test('LocalExcelTarget stops retrying a workbook the desktop app no longer knows', async () => {

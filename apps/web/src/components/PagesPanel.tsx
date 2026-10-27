@@ -4,6 +4,7 @@ import { drawMarkup, onImageLoad, type Markup, type MarkupStore } from '@nb/mark
 import type { SheetInfo } from '@nb/sheets';
 import { yScaleLabel, type Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
+import { OverflowMenu } from './OverflowMenu';
 import { SetScaleDialog } from './SetScaleDialog';
 
 /** Thumbnail width in CSS px. The slider moves between these; 150 is the default. */
@@ -356,6 +357,18 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
   /** Pages being dragged, captured at drag start (selection state may not have updated yet). */
   const dragging = useRef<number[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Below this width the page buttons no longer fit on one row: they collapse into a menu.
+  const head = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = head.current;
+    if (!el) return;
+    const measure = () => setNarrow(el.clientWidth < 330);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [!!doc]);
   const [rename, setRename] = useState<{ page: number; tick: number } | null>(null);
   const [scaleOpen, setScaleOpen] = useState(false);
 
@@ -403,6 +416,12 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
     onThumbMenu(e, pages, () => setRename((r) => ({ page: i, tick: (r?.tick ?? 0) + 1 })));
   };
 
+  const deletePages = () => {
+    if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
+      onPageOps([{ type: 'delete', pages: chosen }]);
+    }
+  };
+
   const moveTo = (before: number) => {
     const pages = dragging.current;
     if (!pages.length) return;
@@ -414,32 +433,39 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
 
   return (
     <div className="pages-panel">
-      <div className="pages-head">
+      <div className={`pages-head${narrow ? ' narrow' : ''}`} ref={head}>
         <div className="sheet-actions">
-          <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
-            ⟲
-          </button>
-          <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
-            ⟳
-          </button>
-          <button
-            className="btn small"
-            disabled={busy || chosen.length >= count}
-            title={`Delete ${plural}`}
-            onClick={() => {
-              if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
-                onPageOps([{ type: 'delete', pages: chosen }]);
-              }
-            }}
-          >
-            Delete
-          </button>
-          <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
-            Page Label
-          </button>
-          <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
-            Insert PDF…
-          </button>
+          {narrow ? (
+            <OverflowMenu
+              label="Pages"
+              items={[
+                { label: 'Rotate anticlockwise', title: `Rotate ${plural} anticlockwise`, disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }]) },
+                { label: 'Rotate clockwise', title: `Rotate ${plural} clockwise`, disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }]) },
+                { label: 'Delete', title: `Delete ${plural}`, disabled: busy || chosen.length >= count, onClick: deletePages },
+                { label: 'Page Label', title: `Set the label of ${plural}`, disabled: busy, onClick: () => onPageLabels(selected.length > 1 ? chosen : [currentPage]), separated: true },
+                { label: 'Insert PDF…', title: 'Insert the pages of another PDF after the selection', disabled: busy, onClick: () => fileRef.current?.click() },
+                { label: 'Bulk Scales', title: 'Review and set the scale of many pages at once', disabled: busy, onClick: () => onBulkScales(selected.length > 1 ? chosen : []), separated: true },
+              ]}
+            />
+          ) : (
+            <>
+              <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
+                ⟲
+              </button>
+              <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
+                ⟳
+              </button>
+              <button className="btn small" disabled={busy || chosen.length >= count} title={`Delete ${plural}`} onClick={deletePages}>
+                Delete
+              </button>
+              <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
+                Page Label
+              </button>
+              <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
+                Insert PDF…
+              </button>
+            </>
+          )}
           <input
             ref={fileRef}
             type="file"
@@ -458,7 +484,8 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
             disabled={busy}
             onPreset={(s) => onSetScale(chosen, s)}
             onCustom={() => setScaleOpen(true)}
-            onBulk={() => onBulkScales(selected.length > 1 ? chosen : [])}
+            onBulk={narrow ? undefined : () => onBulkScales(selected.length > 1 ? chosen : [])}
+            compact={narrow}
           />
         </div>
       </div>
