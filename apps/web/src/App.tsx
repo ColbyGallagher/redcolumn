@@ -9277,9 +9277,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setIdList(digitalIds.list());
           }}
           onAddCard={async (card) => {
-            const [{ tokenDigitalId }, { buildChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
-            // The chain as far as the card's own certificates go (often the issuing CAs are on it too).
-            const chain = await buildChain(card.certificate, card.others);
+            const [{ tokenDigitalId }, { buildChain, certificatesIn, completeChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too),
+            // then the rest from the CA's published certificates, so signatures carry the whole chain.
+            // Offline, or where the CA publishes none, the card's own certificates are kept as they are.
+            let chain = await buildChain(card.certificate, card.others);
+            if (!chain.complete) {
+              // Known roots (the desktop app's list) end chains whose CA publishes no root address.
+              const roots = await desktop()?.pkiRoots?.().catch(() => []) ?? [];
+              const anchors = roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem)));
+              chain = await completeChain(chain, pkiFetch, { pool: card.others, anchors });
+            }
             digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
             setIdList(digitalIds.list());
             setTrustedCerts(digitalIds.trusted());

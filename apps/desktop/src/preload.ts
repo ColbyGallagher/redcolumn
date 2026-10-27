@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     removeSession: (id: string) => call('folder:remove-session', id),
   },
   pkiFetch: (url: string, body?: Uint8Array, type?: string) => call<Uint8Array>('pki:fetch', url, body, type),
+  pkiRoots: () => call<string[]>('pki:roots'),
   tokens: {
     modules: () => call('token:modules'),
     addModule: () => call('token:add-module'),

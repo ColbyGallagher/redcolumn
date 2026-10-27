@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, utili
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import tls from 'node:tls';
 import { assistantNodePath, mcpLaunch } from './assistant/argv';
 import { endpointFile } from './assistant/endpoint';
 import { askPage, cancelAssistantCalls, takeAssistantResult } from './assistant/page';
@@ -135,6 +136,8 @@ async function start() {
   });
   // Time stamp servers and revocation checks for digital signatures (pki.ts).
   handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
+  // The root CAs Node ships (Mozilla's list), so a card's chain can be checked up to a known root.
+  handle('pki:roots', () => [...tls.rootCertificates]);
   // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
   // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenClient(() => {
