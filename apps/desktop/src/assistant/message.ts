@@ -15,6 +15,8 @@ export const ASSISTANT_METHODS = [
   'list_commands',
   'run_command',
   'get_page',
+  'get_page_image',
+  'get_page_text',
   'select_markups',
   'place_markup',
   'place_markups',
@@ -74,6 +76,18 @@ const styleProp = {
     opacity: { type: 'number', description: '0 to 1.' },
     fontSize: { type: 'number', description: 'Font size in points.' },
   },
+};
+
+const regionProp = {
+  type: 'object',
+  description: 'Part of the page, in PDF points from the top-left: x, y, w, h. The whole page when omitted.',
+  properties: {
+    x: { type: 'number' },
+    y: { type: 'number' },
+    w: { type: 'number' },
+    h: { type: 'number' },
+  },
+  required: ['x', 'y', 'w', 'h'],
 };
 
 const setFields = {
@@ -179,6 +193,42 @@ const TOOLS: ToolDef[] = [
       properties: {
         document: documentProp,
         page: { type: 'integer', description: '1-based page number. The page on screen when omitted.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'get_page_image',
+    title: 'See a page',
+    description:
+      'A picture of a page, or part of one, as the drawing shows it. The reply has the image and, as text, its scale in pixels per PDF point and the region it covers, so a pixel at (px, py) is the page point (region.x + px / scale, region.y + py / scale). The whole page is scaled to fit maxSize, so small linework and lettering blur: look at the whole page first to find what you need, then ask for a region a few hundred points across. Markups are drawn over the page unless markups is false.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number. The page on screen when omitted.' },
+        region: regionProp,
+        dpi: { type: 'number', minimum: 18, maximum: 600, description: 'Resolution in pixels per inch (72 = one pixel per point). The picture is still kept within maxSize, so a whole sheet may come back at less than this. 200 when omitted.' },
+        maxSize: { type: 'integer', minimum: 256, maximum: 4096, description: 'Most pixels on the longer side. 1600 when omitted.' },
+        markups: { type: 'boolean', description: 'false leaves the markups off, showing the drawing alone. true when omitted.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'get_page_text',
+    title: 'Read page text',
+    description:
+      "The text on a page as the PDF holds it, word by word with each word's box in PDF points (x0, y0 top-left; x1, y1 bottom-right) and font size, in reading order. Narrow it with region or search. Scanned pages have no text until they are OCRed (document.ocr). 1000 words per call when limit is omitted; the reply has total, and nextOffset while more remain.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number. The page on screen when omitted.' },
+        region: regionProp,
+        search: { type: 'string', description: 'Only words containing this, ignoring case.' },
+        limit: { type: 'integer', minimum: 1, maximum: 5000, description: 'Most words to return. 1000 when omitted.' },
+        offset: { type: 'integer', minimum: 0, description: 'Words to skip, from nextOffset of the last reply.' },
       },
     },
     annotations: READS,
@@ -399,6 +449,33 @@ function toolText(text: string, isError: boolean) {
   return { content: [{ type: 'text', text }], isError };
 }
 
+/** A picture a tool returns beside its text: base64 bytes and their media type. */
+interface ToolImage {
+  mimeType: string;
+  data: string;
+}
+
+function imageOf(value: unknown): ToolImage | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const image = (value as { image?: unknown }).image;
+  if (!image || typeof image !== 'object' || Array.isArray(image)) return null;
+  const { mimeType, data } = image as { mimeType?: unknown; data?: unknown };
+  if (typeof mimeType !== 'string' || !mimeType.startsWith('image/') || typeof data !== 'string' || !data) return null;
+  return { mimeType, data };
+}
+
+/**
+ * What a tool answered, as MCP content. A reply with an `image` (get_page_image) becomes a text
+ * block for the rest of it and an image block the client shows the model.
+ */
+export function toolContent(value: unknown) {
+  if (typeof value === 'string') return toolText(value, false);
+  const image = imageOf(value);
+  if (!image) return toolText(JSON.stringify(value), false);
+  const { image: _, ...rest } = value as { image: unknown } & Record<string, unknown>;
+  return { content: [{ type: 'text', text: JSON.stringify(rest) }, { type: 'image', mimeType: image.mimeType, data: image.data }], isError: false };
+}
+
 function argsOf(params: unknown): Record<string, unknown> {
   if (!params || typeof params !== 'object' || Array.isArray(params)) return {};
   const record = params as { arguments?: unknown };
@@ -446,7 +523,7 @@ export async function handleMcpMessage(line: string, call: ToolCall, version = '
         if (typeof name !== 'string' || !isAssistantMethod(name)) return rpcResult(id, toolText('Unknown tool.', true));
         try {
           const value = await call(name, argsOf(rec.params));
-          return rpcResult(id, toolText(typeof value === 'string' ? value : JSON.stringify(value), false));
+          return rpcResult(id, toolContent(value));
         } catch (err) {
           const message = err instanceof Error && err.message ? err.message : OFFLINE;
           return rpcResult(id, toolText(message, message !== OFFLINE));
