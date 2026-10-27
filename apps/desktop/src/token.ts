@@ -197,9 +197,9 @@ export class TokenService {
 
   /**
    * Loads a driver, runs `job` and unloads it; one at a time, as drivers and cards expect.
-   * PKCS#11 calls block (pkcs11js has no asynchronous C_Login), so the main process waits while a
-   * card checks its PIN: usually well under a second, but as long as the person takes on a reader
-   * with its own keypad. Moving this into a utility process would keep the window responsive.
+   * PKCS#11 calls block (pkcs11js has no asynchronous C_Login), so the process waits while a card
+   * checks its PIN: as long as the person takes on a reader with its own keypad. That is why this
+   * runs in the card service (token-host.ts), never in the main process.
    */
   private run<T>(driver: Stored, job: (lib: Lib) => T): Promise<T> {
     const next = this.queue.then(() => {

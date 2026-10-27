@@ -513,13 +513,17 @@ on iPad. Electron first, then the browser if it proves useful.
 Done in `apps/desktop/src/token.ts`. Signing keys on a card stay on it; the page sends the bytes
 to sign over IPC and gets the signature value back.
 
-- A PKCS#11 driver is native code loaded into the main process, so the page never names one.
-  Drivers are a fixed list of common install paths that exist on the computer, or files the person
+- PKCS#11 drivers load in the card service, an Electron utility process (`token-host.ts`), never
+  in the main process: a call that waits for a PIN typed on the reader, or a driver that crashes,
+  holds up only that process, which the main process starts again on the next call. The main
+  process only passes the page's calls through (`token-ipc.ts`, TokenService's five calls and no
+  others); the card service checks every argument.
+- A driver is native code, so the page never names one. Drivers are a fixed list of common install paths that exist on the computer, or files the person
   picked in a native dialog (kept in userData). The page sees driver IDs, never paths. A key
   reference from the page is checked against those drivers before anything is loaded.
 - The PIN crosses IPC for one signature and is not kept, logged or remembered (unlike a .p12
   password's time-out). Readers with their own keypad get no PIN from the app.
-- The hash is made in the main process; the card only signs a digest of at most 8 KB of input.
+- The hash is made in the card service; the card only signs a digest of at most 8 KB of input.
 - Each operation loads the driver, works and unloads it, so nothing stays logged in to the card.
 
 ## Testing
