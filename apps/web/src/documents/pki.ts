@@ -235,10 +235,16 @@ export async function buildChain(signer: Uint8Array, pool: readonly Uint8Array[]
  * certificates (.p7c), as CAs publish them.
  */
 export function certificatesIn(bytes: Uint8Array): Uint8Array[] {
-  const text = new TextDecoder('latin1').decode(bytes.subarray(0, 64));
-  if (text.includes('-----BEGIN')) {
-    const all = new TextDecoder('latin1').decode(bytes);
-    return [...all.matchAll(/-----BEGIN [A-Z0-9 ]+-----([\s\S]*?)-----END/g)].flatMap((m) => certificatesIn(binaryToBytes(forge.util.decode64(m[1]!.replace(/\s+/g, '')))));
+  // DER starts with a SEQUENCE; anything else is read as text (PEM, perhaps after header lines).
+  if (bytes[0] !== 0x30) {
+    const text = new TextDecoder('latin1').decode(bytes);
+    return [...text.matchAll(/-----BEGIN (CERTIFICATE|PKCS7|X509 CERTIFICATE)-----([\s\S]*?)-----END \1-----/g)].flatMap((m) => {
+      try {
+        return certificatesIn(binaryToBytes(forge.util.decode64(m[2]!.replace(/\s+/g, ''))));
+      } catch {
+        return [];
+      }
+    });
   }
   const top = kids(parse(bytes));
   // ContentInfo { signedData, [0] SignedData { version, digests, content, [0] certificates, ... } }
@@ -249,35 +255,71 @@ export function certificatesIn(bytes: Uint8Array): Uint8Array[] {
   return [bytes];
 }
 
+/** `p`, or a rejection once `ms` have passed. */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), Math.max(0, ms));
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e) => (clearTimeout(timer), reject(e)),
+    );
+  });
+}
+
 /**
  * Completes a chain the certificates at hand leave short (a card holds its own certificate, often
- * not its CA's) from each certificate's CA Issuers address: at most `max` fetches, and only a
- * certificate that really issued the one before it is taken.
+ * not its CA's) from each certificate's CA Issuers address: at most `max` fetches within
+ * `timeoutMs`, and only a certificate that really issued the one before it is taken. `pool` adds
+ * other certificates at hand (the rest of a card's) that may fill a gap further up.
+ *
+ * CA Issuers addresses are plain http, so a fetched certificate is kept only once its own signature
+ * has checked out: by the next certificate in the chain, or by itself for a root. One left at the
+ * end unchecked could be a copy carrying a real CA's name and key; it is dropped. `anchors` are
+ * known root CAs (the desktop app's list): many CAs publish no address for their root, and a chain
+ * that checks out up to one of them is complete.
  */
-export async function completeChain(chain: Chain, fetcher: PkiFetch, max = 4): Promise<Chain> {
-  const pool = chain.certs.map((c) => c.der);
-  for (let fetched = 0; !chain.complete && fetched < max; ) {
+export async function completeChain(chain: Chain, fetcher: PkiFetch, opts: { pool?: readonly Uint8Array[]; anchors?: readonly Uint8Array[]; max?: number; timeoutMs?: number } = {}): Promise<Chain> {
+  const max = opts.max ?? 4;
+  const until = Date.now() + (opts.timeoutMs ?? 10_000);
+  const own = [...chain.certs.map((c) => c.der), ...(opts.pool ?? [])];
+  const pool = [...own];
+  // Known roots go last, so buildChain (which takes the last match) prefers them to a cross-certificate.
+  const rebuild = () => buildChain(pool[0]!, [...pool.slice(1), ...(opts.anchors ?? [])]);
+  if (opts.pool?.length || opts.anchors?.length) chain = await rebuild();
+  for (let fetched = 0; !chain.complete && fetched < max && Date.now() < until; ) {
     const last = chain.certs[chain.certs.length - 1]!;
     if (selfIssued(last) || !last.caIssuerUrls.length) break;
-    let found = false;
+    const found: CertFacts[] = [];
     for (const url of last.caIssuerUrls) {
-      if (fetched >= max) break;
+      if (fetched >= max || Date.now() >= until) break;
       fetched++;
+      let answer: Uint8Array;
       try {
-        for (const d of certificatesIn(await fetcher(url))) {
-          if (pool.some((p) => same(p, d))) continue;
-          if (await issuedBy(last, await certFacts(d))) {
-            pool.push(d);
-            found = true;
-          }
-        }
+        answer = await within(fetcher(url), until - Date.now());
       } catch {
-        // Try the next address.
+        continue;
       }
-      if (found) break;
+      for (const d of certificatesIn(answer)) {
+        try {
+          if (pool.some((p) => same(p, d))) continue;
+          const facts = await certFacts(d);
+          if (await issuedBy(last, facts)) found.push(facts);
+        } catch {
+          // Not a certificate this app can read: the others in the answer still count.
+        }
+      }
+      if (found.length) break;
     }
-    if (!found) break;
-    chain = await buildChain(pool[0]!, pool.slice(1));
+    if (!found.length) break;
+    // buildChain takes the last match: a root that checks out goes after cross-certificates.
+    const roots = await Promise.all(found.map(async (f) => selfIssued(f) && (await verifySigned(f.node, f.spki))));
+    pool.push(...found.filter((_, i) => !roots[i]).map((f) => f.der), ...found.filter((_, i) => roots[i]).map((f) => f.der));
+    chain = await rebuild();
+  }
+  if (!chain.complete) {
+    const certs = [...chain.certs];
+    while (certs.length > 1 && !own.some((o) => same(o, certs[certs.length - 1]!.der))) certs.pop();
+    if (certs.length !== chain.certs.length) chain = { ...chain, certs };
   }
   return chain;
 }
@@ -564,8 +606,10 @@ export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<
   if (!issuer)
     for (const url of cert.caIssuerUrls) {
       try {
-        const candidate = await certFacts(await fetcher(url));
-        if (await issuedBy(cert, candidate)) issuer = candidate;
+        for (const d of certificatesIn(await fetcher(url))) {
+          const candidate = await certFacts(d);
+          if (await issuedBy(cert, candidate)) issuer = candidate;
+        }
       } catch {
         // Try the next address.
       }

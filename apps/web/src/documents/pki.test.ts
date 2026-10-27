@@ -140,6 +140,46 @@ test('a short chain is completed from the CA Issuers address: DER, PKCS #7 or PE
   await completeChain(await buildChain(signer.der, [root.der]), async () => assert.fail('fetched'));
 });
 
+test('a fetched certificate whose own signature does not check out is not kept (CA Issuers is plain http)', async () => {
+  // The root's name and key, signed with someone else's key: it "issued" the signer, but is a forgery.
+  const forged = forge.pki.createCertificate();
+  forged.publicKey = root.key.publicKey;
+  forged.serialNumber = '01';
+  forged.validity.notBefore = root.cert.validity.notBefore;
+  forged.validity.notAfter = root.cert.validity.notAfter;
+  forged.setSubject(root.cert.subject.attributes);
+  forged.setIssuer(root.cert.subject.attributes);
+  forged.sign(tsa.key.privateKey, forge.md.sha256.create());
+  const forgedDer = binaryToBytes(toDer(forge.pki.certificateToAsn1(forged)));
+  const chain = await completeChain(await buildChain(signer.der, []), async () => forgedDer);
+  assert.equal(chain.complete, false);
+  assert.deepEqual(chain.certs.map((c) => c.subjectName), ['Jane Signer'], 'only the signer’s own certificate is kept');
+});
+
+test('a known root ends a chain whose CA publishes no address for it; an unknown one does not', async () => {
+  // An intermediate with no CA Issuers address, and the signer it issued pointing at it.
+  const intermediate = party('Test Intermediate', '0b', root, [{ name: 'basicConstraints', cA: true }]);
+  const leafAia = toDer(seq(seq(oid('1.3.6.1.5.5.7.48.2'), ctx(6, false, 'http://ca.example/int.cer'))));
+  const leaf = party('Leaf Signer', '0c', intermediate, [{ id: '1.3.6.1.5.5.7.1.1', value: leafAia }]);
+  const known = await completeChain(await buildChain(leaf.der, []), async () => intermediate.der, { anchors: [tsa.der, root.der] });
+  assert.equal(known.complete, true);
+  assert.deepEqual(known.certs.map((c) => c.subjectName), ['Leaf Signer', 'Test Intermediate', 'Test Root']);
+  // Without the root among the known ones, the fetched intermediate is unchecked and is not kept.
+  const unknown = await completeChain(await buildChain(leaf.der, []), async () => intermediate.der, { anchors: [tsa.der] });
+  assert.equal(unknown.complete, false);
+  assert.deepEqual(unknown.certs.map((c) => c.subjectName), ['Leaf Signer']);
+});
+
+test('the rest of a card’s certificates fill gaps, and a slow CA is given up on', async () => {
+  // The root on the card already: nothing to fetch.
+  const fromCard = await completeChain(await buildChain(signer.der, []), async () => assert.fail('fetched'), { pool: [tsa.der, root.der] });
+  assert.equal(fromCard.complete, true);
+  const t0 = Date.now();
+  const slow = await completeChain(await buildChain(signer.der, []), () => new Promise<Uint8Array>(() => {}), { timeoutMs: 50 });
+  assert.equal(slow.complete, false);
+  assert.ok(Date.now() - t0 < 1000, 'gave up in time');
+});
+
 test('a refusing TSA or a replayed answer is an error', async () => {
   const value = signatureValueOf(cms());
   const refuse = binaryToBytes(toDer(seq(seq(int(2), seq(asn1.create(Class.UNIVERSAL, Type.UTF8, false, 'bad request'))))));
