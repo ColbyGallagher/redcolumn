@@ -587,12 +587,12 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   return viaDesktop(url, body, type);
 }
 
-/** Adds long-term validation data to a PDF's signatures (all that lack it, or those named). */
-async function addLtv(bytes: Uint8Array, fields?: string[]) {
+/** Adds long-term validation data to a PDF's signatures: those named, the newest, or all that lack it. */
+async function addLtv(bytes: Uint8Array, which: { fields?: string[]; newest?: boolean } = {}) {
   const [{ addValidationData }, { certificatesIn }] = await Promise.all([import('./documents/pdfSign'), import('./documents/pki')]);
   // Known roots (the desktop app's list) end chains whose CA publishes no root address.
   const roots = (await desktop()?.pkiRoots?.().catch(() => [])) ?? [];
-  return addValidationData(bytes, pkiFetch, { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), ...(fields ? { fields } : {}) });
+  return addValidationData(bytes, pkiFetch, { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), ...which });
 }
 
 /**
@@ -601,7 +601,8 @@ async function addLtv(bytes: Uint8Array, fields?: string[]) {
  */
 async function withLtv(signed: Uint8Array): Promise<{ bytes: Uint8Array; note: string | null }> {
   try {
-    const out = await addLtv(signed);
+    // Only the signature just made: others in the file are their signers' to complete.
+    const out = await addLtv(signed, { newest: true });
     return { bytes: out.bytes, note: out.problems.length ? `LTV added, but not for all of it: ${out.problems.join('; ')}` : null };
   } catch (err) {
     return { bytes: signed, note: `Long-term validation not added: ${err instanceof Error ? err.message : String(err)}` };
@@ -8476,7 +8477,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       activeOpen.file.id,
                       'Adding long-term validation',
                       async (bytes) => {
-                        const out = await addLtv(new Uint8Array(bytes), [c.field]);
+                        const out = await addLtv(new Uint8Array(bytes), { fields: [c.field] });
                         note = out.problems.length ? `Added, but not for all of it: ${out.problems.join('; ')}` : null;
                         return out.bytes;
                       },

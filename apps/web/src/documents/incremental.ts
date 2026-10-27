@@ -46,7 +46,7 @@ const key = (ref: PDFRef) => `${ref.objectNumber} ${ref.generationNumber}`;
  * The highest object number the file uses, including objects pdf-lib drops after parsing (object
  * streams and cross-reference streams), from the object headers and every trailer's /Size.
  */
-function highestObjectNumber(bytes: Uint8Array): number {
+export function highestObjectNumber(bytes: Uint8Array): number {
   const text = new TextDecoder('latin1').decode(bytes);
   let max = 0;
   for (const m of text.matchAll(/(?:^|[^\d])(\d{1,9})\s+\d{1,5}\s+obj\b/g)) max = Math.max(max, Number(m[1]));
@@ -74,7 +74,7 @@ function changedObjects(doc: PDFDocument, before: Snapshot): [PDFRef, PDFObject]
 }
 
 /** Where the last cross-reference section starts, and whether it is a table (else a stream). */
-function lastXref(bytes: Uint8Array): { offset: number; table: boolean } {
+export function lastXref(bytes: Uint8Array): { offset: number; table: boolean } {
   const tail = new TextDecoder('latin1').decode(bytes.subarray(Math.max(0, bytes.length - 2048)));
   const m = /startxref\s+(\d+)\s+%%EOF\s*$/.exec(tail) ?? [...tail.matchAll(/startxref\s+(\d+)/g)].at(-1);
   if (!m) throw new Error('The PDF has no cross-reference position (startxref)');
