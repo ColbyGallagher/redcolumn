@@ -52,6 +52,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.geospatial': { spec: 'geospatial' },
   'document.headerFooter': { spec: 'document' },
   'document.insertBlank': { spec: 'document' },
+  'document.bulkInsertPages': { spec: 'document' },
   'document.insertPages': { spec: 'document' },
   'document.labelRegions': { spec: 'document' },
   'document.numberPages': { spec: 'document' },

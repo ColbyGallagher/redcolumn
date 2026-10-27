@@ -124,6 +124,7 @@ import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
+import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
@@ -1170,6 +1171,8 @@ export function App() {
   const indexAbort = useRef<AbortController | null>(null);
   const openFileRef = useRef<HTMLInputElement>(null);
   const insertFileRef = useRef<HTMLInputElement>(null);
+  const bulkInsertFileRef = useRef<HTMLInputElement>(null);
+  const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
   const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
@@ -5222,6 +5225,21 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
+  const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
+    setBulkInsertFiles(null);
+    if (!open || !files.length) return;
+    try {
+      const sources: ArrayBuffer[] = [];
+      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
+      // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
+      const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
+      await applyPageOps(where === 'end' ? ops : ops.reverse(), sources);
+    } catch (err) {
+      setError(`Bulk insert failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
   const assistantHost = useRef<() => AssistantDocument[]>(() => []);
   assistantHost.current = () => {
@@ -6801,6 +6819,7 @@ export function App() {
       SEP,
       run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
+      run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
       { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
       { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: !editable || pages.length >= count, onClick: () => deletePages(true) },
@@ -7375,6 +7394,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     insertPages: () => {
       showPanel('pages');
       insertFileRef.current?.click();
+    },
+    bulkInsertPages: () => {
+      showPanel('pages');
+      bulkInsertFileRef.current?.click();
     },
     insertBlank: () => setBlankPdf('blank'),
     extractPages: () => setPageTool({ kind: 'extract', drawnRect: null }),
@@ -8599,6 +8622,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         }}
       />
       <input
+        ref={bulkInsertFileRef}
+        type="file"
+        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (files.length && open) setBulkInsertFiles(files);
+        }}
+      />
+      <input
         ref={splitFileRef}
         type="file"
         accept="application/pdf"
@@ -9034,6 +9069,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {bulkInsertFiles && (
+        <BulkInsertDialog
+          initial={bulkInsertFiles}
+          currentPage={(v?.currentPageIndex ?? pageIndex) + 1}
+          onCancel={() => setBulkInsertFiles(null)}
+          onInsert={(files, where) => void bulkInsertDocuments(files, where)}
         />
       )}
       {combineOpen && (
