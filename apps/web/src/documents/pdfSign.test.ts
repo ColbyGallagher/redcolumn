@@ -134,7 +134,8 @@ test('a PAdES signature that names another certificate than it carries does not 
   broken.set(new TextEncoder().encode('05'), at - 4);
   const [bad] = await checkSignatures(broken);
   assert.equal(bad?.intact, false);
-  assert.doesNotMatch(bad?.problem ?? '', /TypeError|undefined|Cannot read/);
+  assert.equal(bad?.problem, 'The signature’s signing-certificate attribute cannot be read');
+  assert.equal(bad?.signer, 'Jane Engineer');
 });
 
 test('only the name pkcs7 signs in the older format; anything else is PAdES', async () => {

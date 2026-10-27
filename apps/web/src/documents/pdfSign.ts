@@ -293,17 +293,21 @@ function rawCertificates(der: Uint8Array): Uint8Array[] {
 
 /** The certificate hashes a signing-certificate (v1: SHA-1) or -v2 attribute names, first the signer's. */
 function namedCertificate(attr: Node, v2: boolean): { hash: 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'; value: Uint8Array } {
+  const unreadable = () => new Error('The signature’s signing-certificate attribute cannot be read');
+  // SigningCertificate(V2) { certs SEQUENCE OF ESSCertID(v2) { [hashAlgorithm DEFAULT sha256,] certHash, issuerSerial? } }
+  let id: Node[];
+  let algOid: string | null = null;
   try {
-    // SigningCertificate(V2) { certs SEQUENCE OF ESSCertID(v2) { [hashAlgorithm DEFAULT sha256,] certHash, issuerSerial? } }
-    const id = kids(kids(kids(attr)[0]!)[0]!);
-    const hasAlg = v2 && id[0]!.type === forge.asn1.Type.SEQUENCE;
-    const hash = !v2 ? 'SHA-1' : hasAlg ? OIDS[forge.asn1.derToOid(kids(id[0]!)[0]!.value as string)] : 'SHA-256';
-    const value = id[hasAlg ? 1 : 0]!;
-    if (!hash || value.type !== forge.asn1.Type.OCTETSTRING) throw new Error();
-    return { hash, value: binaryToBytes(value.value as string) };
+    id = kids(kids(kids(attr)[0]!)[0]!);
+    if (v2 && id[0]!.type === forge.asn1.Type.SEQUENCE) algOid = forge.asn1.derToOid(kids(id[0]!)[0]!.value as string);
   } catch {
-    throw new Error('The signature’s signing-certificate attribute cannot be read');
+    throw unreadable();
   }
+  const hash = !v2 ? 'SHA-1' : algOid ? OIDS[algOid] : 'SHA-256';
+  if (!hash) throw new Error('The signature names its certificate with a digest this app cannot check');
+  const value = id[algOid ? 1 : 0];
+  if (!value || value.type !== forge.asn1.Type.OCTETSTRING) throw unreadable();
+  return { hash, value: binaryToBytes(value.value as string) };
 }
 
 /** Pieces of a CMS SignedData needed to check it. */
@@ -334,9 +338,10 @@ function parseCms(der: Uint8Array) {
   const md = attrs.get(MESSAGE_DIGEST);
   const time = attrs.get(SIGNING_TIME);
   // PAdES/CAdES name the signer's certificate (v2; v1 with SHA-1 in older CAdES).
+  // Read when they are checked, once the signer is known (a bad one still leaves the signer shown).
   const signingCerts = [
-    ...(attrs.has(SIGNING_CERTIFICATE_V2) ? [namedCertificate(attrs.get(SIGNING_CERTIFICATE_V2)!, true)] : []),
-    ...(attrs.has(SIGNING_CERTIFICATE) ? [namedCertificate(attrs.get(SIGNING_CERTIFICATE)!, false)] : []),
+    ...(attrs.has(SIGNING_CERTIFICATE_V2) ? [{ node: attrs.get(SIGNING_CERTIFICATE_V2)!, v2: true }] : []),
+    ...(attrs.has(SIGNING_CERTIFICATE) ? [{ node: attrs.get(SIGNING_CERTIFICATE)!, v2: false }] : []),
   ];
   let raw: Uint8Array[] = [];
   try {
@@ -362,7 +367,7 @@ function parseCms(der: Uint8Array) {
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 const formatOf = (subFilter: unknown): SignatureCheck['format'] =>
   subFilter === PDFName.of('ETSI.CAdES.detached') ? 'pades' : subFilter === PDFName.of('adbe.pkcs7.detached') || subFilter === PDFName.of('adbe.pkcs7.sha1') ? 'pkcs7' : 'other';
-const text =(v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '');
+const text = (v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '');
 
 /** Every signature in the file, checked. */
 export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck[]> {
@@ -434,8 +439,10 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       check.issuer = signerInfo.issuer.name;
       // PAdES and CAdES name the signer's certificate: it must be the one carried, as it is carried.
       const raw = cms.rawCerts[cms.certs.findIndex((c) => same(c, signerInfo.der))] ?? signerInfo.der;
-      for (const named of cms.signingCerts)
+      for (const attr of cms.signingCerts) {
+        const named = namedCertificate(attr.node, attr.v2);
         if (!same(named.value, new Uint8Array(await globalThis.crypto.subtle.digest(named.hash, raw as BufferSource)))) throw new Error('The signature names a different certificate from the one it carries');
+      }
       if (cms.signingTime) check.signedAt = cms.signingTime;
       // The signer's own certificate first.
       check.certificates = [signerInfo.der, ...cms.certs.filter((d) => d !== signerInfo.der)];
