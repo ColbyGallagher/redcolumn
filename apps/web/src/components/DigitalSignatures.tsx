@@ -139,7 +139,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                         Check revocation
                       </button>
                     )}
-                    {onAddLtv && c.intact && !c.ltv && c.certificate && !c.certificate.selfSigned && (
+                    {onAddLtv && c.intact && !c.ltv && c.timestamp?.verified && c.certificate && !c.certificate.selfSigned && (
                       <button
                         className="btn small flat"
                         title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"

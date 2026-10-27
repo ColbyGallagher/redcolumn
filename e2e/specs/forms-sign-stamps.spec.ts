@@ -154,10 +154,16 @@ test.describe('signatures', () => {
     await sign.getByLabel('Password').fill('e2e-password');
     await sign.getByLabel('Location').fill('E2E Lab');
     await sign.getByLabel('Invisible (listed in Signatures only)').check();
-    // LTV asks the certificate authority, which only the desktop app can reach.
+    // LTV asks the certificate authority, which only the desktop app can reach, and builds on a time stamp.
     const ltv = sign.getByLabel('Add long-term validation (LTV)');
-    if (app.kind === 'web') await expect(ltv).toBeDisabled();
-    else await expect(ltv).toBeEnabled();
+    await expect(ltv).toBeDisabled();
+    if (app.kind !== 'web') {
+      const stamp = sign.getByLabel('Trusted time stamp from');
+      await stamp.check();
+      await expect(ltv).toBeEnabled();
+      // Left off: the test signs offline.
+      await stamp.uncheck();
+    }
     if (certify) await sign.locator('select').filter({ hasText: certify }).selectOption({ label: certify });
     await sign.getByRole('button', { name: 'Sign' }).click();
     await expect(sign).toBeHidden({ timeout: 30_000 });

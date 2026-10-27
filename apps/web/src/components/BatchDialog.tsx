@@ -189,7 +189,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
       case 'split':
         return { kind, ...split };
       case 'sign':
-        return { kind, sign: { ...sign, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv } };
+        return { kind, sign: { ...sign, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv: ltv && tsa.on && !!tsa.url.trim() } };
       default:
         return { kind } as BatchCommand;
     }
@@ -475,7 +475,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   )}
                 </label>
                 <TimestampOption value={tsa} onChange={setTsa} />
-                <LtvOption value={ltv} onChange={setLtv} />
+                <LtvOption value={ltv} onChange={setLtv} timestamped={tsa.on && !!tsa.url.trim()} />
               </fieldset>
             )}
             <fieldset>
