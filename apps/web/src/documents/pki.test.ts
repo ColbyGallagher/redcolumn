@@ -4,7 +4,7 @@ import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
 import { PDFDocument } from 'pdf-lib';
 import { checkSignatures, signPdf } from './pdfSign.ts';
-import { buildChain, certFacts, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
+import { buildChain, certFacts, certificatesIn, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
 
 const asn1 = forge.asn1;
 const { Class, Type } = asn1;
@@ -136,6 +136,15 @@ test('a short chain is completed from the CA Issuers address: DER, PKCS #7 or PE
     throw new Error('ca.example cannot be reached');
   });
   assert.equal(down.certs.length, 1);
+  // Answers that cannot be read (a SignedData header with nothing in it, garbage, an unreadable
+  // known root or card certificate) leave the chain as it was instead of failing.
+  const empty = new Uint8Array([0x30, 0x0b, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x07, 0x02]);
+  assert.deepEqual(certificatesIn(empty), []);
+  assert.deepEqual(certificatesIn(new Uint8Array([0x30, 0xff, 1])), []);
+  for (const answer of [empty, new Uint8Array([0x30, 0xff, 1]), new TextEncoder().encode('-----BEGIN CERTIFICATE-----\n!!\n-----END CERTIFICATE-----')]) {
+    const kept = await completeChain(await buildChain(signer.der, []), async () => answer, { anchors: [empty], pool: [new Uint8Array([0x30, 0x00])] });
+    assert.deepEqual(kept.certs.map((c) => c.subjectName), ['Jane Signer']);
+  }
   // A complete chain fetches nothing.
   await completeChain(await buildChain(signer.der, [root.der]), async () => assert.fail('fetched'));
 });
