@@ -1858,6 +1858,11 @@ export interface ExportOptions {
    * characters they cannot show (Greek, Cyrillic), which would otherwise be drawn as question marks.
    */
   fallbackFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
+  /**
+   * Loads the PDF and later saves it, in place of a plain load and rewrite: e.g. to append the
+   * changes as an incremental update, which keeps a signed file's signatures valid.
+   */
+  open?: (original: ArrayBuffer) => Promise<{ doc: PDFDocument; save: () => Promise<Uint8Array> }>;
 }
 
 /**
@@ -1913,7 +1918,8 @@ function addMarkupLayers(doc: PDFDocument, markups: readonly Markup[]): Map<stri
 export async function exportWithAnnotations(original: ArrayBuffer, markups: readonly Markup[], options: ExportOptions = {}): Promise<Uint8Array> {
   const scaleFor = options.scaleFor ?? (() => DEFAULT_SCALE);
   const scaleOf = (m: Markup) => scaleOfMarkup(m, scaleFor(m.pageIndex), options.viewports ?? []);
-  const doc = await PDFDocument.load(original, { updateMetadata: false });
+  const opened = options.open ? await options.open(original) : null;
+  const doc = opened?.doc ?? (await PDFDocument.load(original, { updateMetadata: false }));
   const pages = doc.getPages();
   const statuses = options.statuses ?? [];
 
@@ -2158,5 +2164,5 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     writeGroups(doc, made);
   }
   if (options.links) addLinks(doc, pages, options.links);
-  return doc.save();
+  return opened ? opened.save() : doc.save();
 }

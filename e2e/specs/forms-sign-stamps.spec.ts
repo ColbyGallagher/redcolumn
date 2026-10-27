@@ -1,6 +1,7 @@
-import { PDFCheckBox, PDFDocument, PDFSignature, PDFTextField } from 'pdf-lib';
+import { PDFCheckBox, PDFDict, PDFDocument, PDFName, PDFSignature, PDFTextField } from 'pdf-lib';
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
+import { checkSignatures } from '../../apps/web/src/documents/pdfSign.ts';
 
 const modal = (app: App, title: string) => app.page.locator('.modal').filter({ has: app.page.locator('h3', { hasText: new RegExp(`^${title}$`) }) });
 
@@ -136,7 +137,8 @@ test.describe('signatures', () => {
     await expect(app.page.locator('.sig-placed .sig-state.valid')).toHaveCount(1);
   });
 
-  test('tools.digitalIds makes an ID; tools.sign signs with it', async ({ app }) => {
+  /** Makes a self-signed Digital ID and signs the document with it, invisibly. */
+  async function signWithNewId(app: App, certify?: string) {
     await app.cmd('tools.digitalIds');
     const ids = modal(app, 'Digital IDs');
     await ids.getByLabel('Name').fill('E2E Signer');
@@ -156,8 +158,14 @@ test.describe('signatures', () => {
     const ltv = sign.getByLabel('Add long-term validation (LTV)');
     if (app.kind === 'web') await expect(ltv).toBeDisabled();
     else await expect(ltv).toBeEnabled();
+    if (certify) await sign.locator('select').filter({ hasText: certify }).selectOption({ label: certify });
     await sign.getByRole('button', { name: 'Sign' }).click();
     await expect(sign).toBeHidden({ timeout: 30_000 });
+    await expect(app.page.locator('.dsig-list .dsig')).toHaveCount(1, { timeout: 30_000 });
+  }
+
+  test('tools.digitalIds makes an ID; tools.sign signs with it', async ({ app }) => {
+    await signWithNewId(app);
     const sig = app.page.locator('.dsig-list .dsig');
     await expect(sig).toHaveCount(1, { timeout: 30_000 });
     await expect(sig.locator('b')).toHaveText('E2E Signer');
@@ -166,6 +174,39 @@ test.describe('signatures', () => {
     await expect(sig).toContainText('Certificate: E2E Signer (self-signed)');
     // A self-signed certificate has no authority to ask.
     await expect(sig.getByRole('button', { name: 'Add LTV' })).toHaveCount(0);
+  });
+
+  test('Save As after signing writes the signed file as it is', async ({ app }) => {
+    await signWithNewId(app);
+    const [check] = await checkSignatures(await saveAs(app));
+    expect(check).toMatchObject({ signer: 'E2E Signer', intact: true, coversWholeFile: true });
+  });
+
+  test('a markup added after signing is saved after the signature, which stays valid', async ({ app }) => {
+    await signWithNewId(app);
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const bytes = await saveAs(app);
+    const [check] = await checkSignatures(bytes);
+    // The signed version is kept byte for byte; the markup is an incremental update after it.
+    expect(check).toMatchObject({ intact: true, coversWholeFile: false });
+    expect(check!.signedLength).toBeLessThan(bytes.length);
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPage(0).node.Annots()?.asArray().some((a) => doc.context.lookup(a, PDFDict).get(PDFName.of('Subtype'))?.toString() === '/Square')).toBe(true);
+  });
+
+  test('a document certified with no changes allowed does not save added markups', async ({ app }) => {
+    await signWithNewId(app, 'Certify: no changes allowed');
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const before = (await app.saved()).length;
+    await app.cmd('file.saveAs');
+    await expect(app.page.locator('.error')).toContainText('This document is certified');
+    expect((await app.saved()).length).toBe(before);
   });
 
   test('tools.sign without an ID offers to make one', async ({ app }) => {
