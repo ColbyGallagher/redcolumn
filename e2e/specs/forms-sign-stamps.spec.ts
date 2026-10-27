@@ -138,7 +138,7 @@ test.describe('signatures', () => {
   });
 
   /** Makes a self-signed Digital ID and signs the document with it, invisibly. */
-  async function signWithNewId(app: App) {
+  async function signWithNewId(app: App, certify?: string) {
     await app.cmd('tools.digitalIds');
     const ids = modal(app, 'Digital IDs');
     await ids.getByLabel('Name').fill('E2E Signer');
@@ -154,6 +154,7 @@ test.describe('signatures', () => {
     await sign.getByLabel('Password').fill('e2e-password');
     await sign.getByLabel('Location').fill('E2E Lab');
     await sign.getByLabel('Invisible (listed in Signatures only)').check();
+    if (certify) await sign.locator('select').filter({ hasText: certify }).selectOption({ label: certify });
     await sign.getByRole('button', { name: 'Sign' }).click();
     await expect(sign).toBeHidden({ timeout: 30_000 });
     await expect(app.page.locator('.dsig-list .dsig')).toHaveCount(1, { timeout: 30_000 });
@@ -188,6 +189,18 @@ test.describe('signatures', () => {
     expect(check!.signedLength).toBeLessThan(bytes.length);
     const doc = await PDFDocument.load(bytes);
     expect(doc.getPage(0).node.Annots()?.asArray().some((a) => doc.context.lookup(a, PDFDict).get(PDFName.of('Subtype'))?.toString() === '/Square')).toBe(true);
+  });
+
+  test('a document certified with no changes allowed does not save added markups', async ({ app }) => {
+    await signWithNewId(app, 'Certify: no changes allowed');
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+    const before = (await app.saved()).length;
+    await app.cmd('file.saveAs');
+    await expect(app.page.locator('.error')).toContainText('This document is certified');
+    expect((await app.saved()).length).toBe(before);
   });
 
   test('tools.sign without an ID offers to make one', async ({ app }) => {

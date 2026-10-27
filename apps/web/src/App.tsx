@@ -128,7 +128,7 @@ import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertD
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
-import { assertKeepsSignatures, hasSignature } from './documents/signedBytes';
+import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
@@ -3746,7 +3746,9 @@ export function App() {
     };
     try {
       const out = await annotatedBytes(cur, { keepSigned: true });
-      assertKeepsSignatures(await readFile(cur.file.hash), out);
+      const stored = new Uint8Array(await readFile(cur.file.hash));
+      assertKeepsSignatures(stored, out);
+      await assertCertificationAllowsMarkups(stored, out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const handle = saveAs ? null : await recallHandle(cur.file.id);
       if (handle) {
