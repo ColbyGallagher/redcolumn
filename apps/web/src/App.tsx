@@ -124,6 +124,7 @@ import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
 import { CombineDialog, type CombineSource } from './components/CombineDialog';
+import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
@@ -574,21 +575,16 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
 
 /** A JPEG re-encoded at `quality` through a canvas; null if the browser cannot decode it. */
 /**
- * Certificate services (time stamp servers, OCSP responders, revocation lists), reached straight from
- * the browser. Many do not allow that (CORS); then the step fails with a clear reason and signing or
- * validating carries on without it.
+ * Certificate services (time stamp servers, OCSP responders, revocation lists), which the desktop
+ * app reaches from its main process (apps/desktop/src/pki.ts). A browser cannot: the page's
+ * security policy only allows its own site and Microsoft. The step then fails with that reason
+ * and signing or validating carries on without it.
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
+  const viaDesktop = desktop()?.pkiFetch;
+  if (!viaDesktop) throw new Error('Time stamps and revocation checks need the desktop app');
   requireOnline('Time stamps and revocation checks');
-  const host = new URL(url).host;
-  let res: Response;
-  try {
-    res = await fetch(url, body ? { method: 'POST', body: body as BodyInit, headers: { 'content-type': type ?? 'application/octet-stream' } } : {});
-  } catch {
-    throw new Error(`${host} cannot be reached from the browser (many certificate services do not allow it, and this site only connects to the services it lists)`);
-  }
-  if (!res.ok) throw new Error(`${host} answered ${res.status}`);
-  return new Uint8Array(await res.arrayBuffer());
+  return viaDesktop(url, body, type);
 }
 
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
@@ -1182,6 +1178,8 @@ export function App() {
   const indexAbort = useRef<AbortController | null>(null);
   const openFileRef = useRef<HTMLInputElement>(null);
   const insertFileRef = useRef<HTMLInputElement>(null);
+  const bulkInsertFileRef = useRef<HTMLInputElement>(null);
+  const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
   const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
@@ -3089,12 +3087,13 @@ export function App() {
           // Headers & Footers: Bates numbers carry on across the files.
           let batesDone = 0;
           // Sign & Seal: the ID is unlocked (and its password checked) before any file changes.
-          let signer: { id: import('./documents/digitalIds').UnlockedId; image?: Uint8Array } | null = null;
+          // An ID on a card is checked by the card at the first signature (its PIN is sent with each).
+          let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
             if (!record) throw new Error('That Digital ID is no longer on this device');
-            const id = (await import('./documents/digitalIds')).unlockId(record, command.sign.password);
-            rememberPassword(record.id, command.sign.password);
+            const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
+            if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
@@ -3290,6 +3289,7 @@ export function App() {
                     ...(c.certify ? { certify: c.certify } : {}),
                     ...(signer!.image ? { image: signer!.image } : {}),
                     digest: settings.get().signatureAlgorithm,
+                    format: settings.get().signatureFormat,
                     ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
                   });
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
@@ -3435,8 +3435,9 @@ export function App() {
 
   /** Form edits run one after another, each on the document's current contents. */
   const formQueue = useRef<Promise<unknown>>(Promise.resolve());
+  /** `rethrow`: a failure goes back to the caller (a dialog that shows it and stays open) instead of the error bar. */
   const editForm = useCallback(
-    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string): Promise<boolean> => {
+    (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string, rethrow = false): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
           const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
@@ -3456,10 +3457,12 @@ export function App() {
           );
         })
         .catch((err) => {
+          if (rethrow) throw err;
           setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
           return false;
         });
-      formQueue.current = run;
+      // The queue carries on after a failure.
+      formQueue.current = run.catch(() => false);
       return run;
     },
     [commitDocument],
@@ -3596,9 +3599,9 @@ export function App() {
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
       if (!record) throw new Error('That Digital ID is no longer on this device');
-      const { unlockId } = await import('./documents/digitalIds');
+      const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
-      const id = unlockId(record, c.password);
+      const id = signerFor(record, c.password);
       const picture = c.imageId ? signatures.get().find((p) => p.id === c.imageId) : undefined;
       const image = picture ? new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) : undefined;
       const ok = await editForm(
@@ -3612,9 +3615,12 @@ export function App() {
             ...(c.certify ? { certify: c.certify } : {}),
             ...(image ? { image } : {}),
             digest: settings.get().signatureAlgorithm,
+            format: settings.get().signatureFormat,
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
           }),
         'Before signing',
+        // A card checks its PIN only now: a wrong one is shown in the Sign dialog, which stays open.
+        true,
       );
       if (!ok) return;
       setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);
@@ -5228,6 +5234,21 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
+  const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
+    setBulkInsertFiles(null);
+    if (!open || !files.length) return;
+    try {
+      const sources: ArrayBuffer[] = [];
+      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
+      // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
+      const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
+      await applyPageOps(where === 'end' ? ops : ops.reverse(), sources);
+    } catch (err) {
+      setError(`Bulk insert failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
   const assistantHost = useRef<() => AssistantDocument[]>(() => []);
   assistantHost.current = () => {
@@ -6807,6 +6828,7 @@ export function App() {
       SEP,
       run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
+      run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
       { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
       { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: !editable || pages.length >= count, onClick: () => deletePages(true) },
@@ -7381,6 +7403,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     insertPages: () => {
       showPanel('pages');
       insertFileRef.current?.click();
+    },
+    bulkInsertPages: () => {
+      showPanel('pages');
+      bulkInsertFileRef.current?.click();
     },
     insertBlank: () => setBlankPdf('blank'),
     extractPages: () => setPageTool({ kind: 'extract', drawnRect: null }),
@@ -8605,6 +8631,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         }}
       />
       <input
+        ref={bulkInsertFileRef}
+        type="file"
+        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = [...(e.target.files ?? [])];
+          e.target.value = '';
+          if (files.length && open) setBulkInsertFiles(files);
+        }}
+      />
+      <input
         ref={splitFileRef}
         type="file"
         accept="application/pdf"
@@ -9042,6 +9080,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {bulkInsertFiles && (
+        <BulkInsertDialog
+          initial={bulkInsertFiles}
+          currentPage={(v?.currentPageIndex ?? pageIndex) + 1}
+          onCancel={() => setBulkInsertFiles(null)}
+          onInsert={(files, where) => void bulkInsertDocuments(files, where)}
+        />
+      )}
       {combineOpen && (
         <CombineDialog
           open={[...tabsA, ...tabsB].filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
@@ -9198,11 +9244,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onManageIds={() => setIdsOpen(true)}
           onCancel={() => setSignFor(null)}
           onSign={async (c) => {
-            // The password is checked before anything else happens.
+            // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
             if (!record) throw new Error('Choose a Digital ID');
-            (await import('./documents/digitalIds')).unlockId(record, c.password);
-            rememberPassword(record.id, c.password);
+            (await import('./documents/signers')).signerFor(record, c.password);
+            if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
@@ -9238,6 +9284,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDelete={(id) => {
             digitalIds.remove(id.id);
             setIdList(digitalIds.list());
+          }}
+          onAddCard={async (card) => {
+            const [{ tokenDigitalId }, { buildChain, certificatesIn, completeChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too),
+            // then the rest from the CA's published certificates, so signatures carry the whole chain.
+            // Offline, or where the CA publishes none, the card's own certificates are kept as they are.
+            let chain = await buildChain(card.certificate, card.others);
+            if (!chain.complete) {
+              // Known roots (the desktop app's list) end chains whose CA publishes no root address.
+              const roots = await desktop()?.pkiRoots?.().catch(() => []) ?? [];
+              const anchors = roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem)));
+              chain = await completeChain(chain, pkiFetch, { pool: card.others, anchors });
+            }
+            digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
+            setIdList(digitalIds.list());
+            setTrustedCerts(digitalIds.trusted());
           }}
         />
       )}

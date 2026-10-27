@@ -7,6 +7,8 @@ allowBuilds:
   # Electron downloads its runtime. electron-winstaller downloads the NSIS tools used to package it.
   electron: true
   electron-winstaller: true
+  # PKCS#11 for smart cards and USB tokens (apps/desktop/src/token): a native addon, compiled on install.
+  pkcs11js: true
   # Its install script only prints a funding message.
   tesseract.js: false
 

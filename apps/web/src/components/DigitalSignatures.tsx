@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DigitalIdRecord } from '../documents/digitalIds';
 import { recalledPassword } from '../documents/idPasswords';
 import type { SignatureCheck } from '../documents/pdfSign';
 import type { SavedSignature } from '../signatures/signatures';
+import { desktop, type TokenCertificate, type TokenModule } from '../desktop/host';
 import { askText } from './AskText';
 
 // --- Signatures in the document ---------------------------------------------------------------
@@ -76,6 +77,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                   {c.reason ? ` · ${c.reason}` : ''}
                   {c.location ? ` · ${c.location}` : ''}
                   {c.certify ? ` · ${CERTIFY[c.certify]}` : ''}
+                  {c.format === 'pades' ? (c.timestamp?.verified ? ' · PAdES B-T' : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
                 </div>
                 {c.certificate && (
                   <div className="print-hint">
@@ -139,12 +141,15 @@ interface IdsProps {
   onImport: (file: File, password: string) => Promise<void>;
   onExportCertificate: (id: DigitalIdRecord, password: string) => Promise<void>;
   onDelete: (id: DigitalIdRecord) => void;
+  /** Adds a certificate on a smart card or USB token (desktop app only). */
+  onAddCard: (card: TokenCertificate) => Promise<void>;
   onClose: () => void;
 }
 
-/** Digital IDs: make a self-signed one, import a .p12/.pfx, give out the certificate, delete. */
-export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate, onDelete, onClose }: IdsProps) {
-  const [mode, setMode] = useState<'list' | 'create' | 'import'>(ids.length ? 'list' : 'create');
+/** Digital IDs: make a self-signed one, import a .p12/.pfx, add one on a card, give out the certificate, delete. */
+export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate, onDelete, onAddCard, onClose }: IdsProps) {
+  const [mode, setMode] = useState<'list' | 'create' | 'import' | 'card'>(ids.length ? 'list' : 'create');
+  const cards = !!desktop()?.tokens;
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [org, setOrg] = useState('');
@@ -184,10 +189,12 @@ export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate,
                       {id.email ? ` <${id.email}>` : ''}
                     </div>
                     <div className="print-hint">
+                      {id.token ? `On ${id.token.label || 'a card'} · ` : ''}
                       {id.selfSigned ? 'Self-signed' : `Issued by ${id.issuer}`} · valid to {new Date(id.notAfter).toLocaleDateString()}
                     </div>
                     <div className="row">
                       <button className="btn small flat" disabled={busy} onClick={() => {
+                        if (id.token) return run(() => onExportCertificate(id, ''));
                         void askText('Export certificate', '', { label: `Password for ${id.name}'s Digital ID`, confirm: 'Export', password: true }).then((p) => {
                           if (p !== null) run(() => onExportCertificate(id, p));
                         });
@@ -213,9 +220,15 @@ export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate,
               <button className="btn small" onClick={() => setMode('import')}>
                 Import .p12 / .pfx…
               </button>
+              {cards && (
+                <button className="btn small" onClick={() => setMode('card')} title="A certificate on a smart card or USB token. Its key stays on the card.">
+                  Add from smart card / token…
+                </button>
+              )}
             </div>
           </>
         )}
+        {mode === 'card' && <CardPicker have={ids} busy={busy} onPick={(card) => run(() => onAddCard(card))} onBack={() => setMode('list')} />}
         {mode === 'create' && (
           <form
             onSubmit={(e) => {
@@ -247,7 +260,8 @@ export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate,
             {pw && pw2 && pw !== pw2 && <p className="print-hint">The passwords don’t match.</p>}
             <div className="actions">
               <span className="spacer" />
-              <button type="button" className="btn" disabled={busy} onClick={() => (ids.length ? setMode('list') : onClose())}>
+              {/* To the list even with no IDs yet: it offers importing and adding a card too. */}
+              <button type="button" className="btn" disabled={busy} onClick={() => setMode('list')}>
                 Back
               </button>
               <button type="submit" className="btn primary" disabled={busy || !name.trim() || !pw || pw !== pw2}>
@@ -299,6 +313,88 @@ export function DigitalIdsDialog({ ids, onCreate, onImport, onExportCertificate,
   );
 }
 
+/** The certificates on inserted cards, through the drivers on this computer (desktop app). */
+function CardPicker({ have, busy, onPick, onBack }: { have: DigitalIdRecord[]; busy: boolean; onPick: (card: TokenCertificate) => void; onBack: () => void }) {
+  const tokens = desktop()!.tokens!;
+  const [modules, setModules] = useState<TokenModule[] | null>(null);
+  const [found, setFound] = useState<Awaited<ReturnType<typeof tokens.certificates>> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = () => {
+    setFound(null);
+    setError(null);
+    void Promise.all([tokens.modules(), tokens.certificates()]).then(
+      ([m, f]) => {
+        setModules(m);
+        setFound(f);
+      },
+      (err) => setError(err instanceof Error ? err.message : String(err)),
+    );
+  };
+  useEffect(refresh, []);
+  const mine = new Set(have.map((r) => r.token?.ref).filter(Boolean));
+  // Signing certificates first: those whose key is visible, then the rest. A card can show some keys
+  // and keep its signing key hidden until the PIN, so none is left out.
+  const list = [...(found?.certificates ?? [])].sort((a, b) => Number(b.hasKey === true) - Number(a.hasKey === true));
+  return (
+    <>
+      <p className="print-hint">Insert the card or token. Its key never leaves it: the card signs, with its PIN, each time.</p>
+      {modules && !modules.length && <p className="empty">No card drivers found on this computer. Install the card’s software (or OpenSC), or choose its PKCS#11 driver file.</p>}
+      {!found && !error && <p className="empty">Looking for cards…</p>}
+      {found && modules?.length ? (
+        list.length ? (
+          <ul className="id-list">
+            {list.map((c) => (
+              <li key={c.ref}>
+                <div>
+                  <b>{c.label || 'Certificate'}</b> on {c.token || 'a card'}
+                </div>
+                <div className="print-hint">
+                  {c.module}
+                  {c.pinPad ? ' · PIN on the reader' : ''}
+                </div>
+                <div className="row">
+                  <button className="btn small flat" disabled={busy || mine.has(c.ref)} onClick={() => onPick(c)}>
+                    {mine.has(c.ref) ? 'Added' : 'Add'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">No signing certificates on the inserted cards.</p>
+        )
+      ) : null}
+      {found?.problems.map((p) => (
+        <p key={p.module} className="print-hint">
+          {p.module}: {p.problem}
+        </p>
+      ))}
+      {error && <p className="print-error">{error}</p>}
+      <div className="row">
+        <button className="btn small" disabled={busy} onClick={refresh}>
+          Look again
+        </button>
+        <button className="btn small" disabled={busy} onClick={() => void tokens.addModule().then((m) => m && refresh(), (err) => setError(err instanceof Error ? err.message : String(err)))}>
+          Choose driver file…
+        </button>
+        {modules
+          ?.filter((m) => m.added)
+          .map((m) => (
+            <button key={m.id} className="btn small flat" disabled={busy} onClick={() => void tokens.removeModule(m.id).then(refresh)}>
+              Forget {m.name}
+            </button>
+          ))}
+      </div>
+      <div className="actions">
+        <span className="spacer" />
+        <button type="button" className="btn" disabled={busy} onClick={onBack}>
+          Back
+        </button>
+      </div>
+    </>
+  );
+}
+
 // --- Signing ------------------------------------------------------------------------------------
 
 export interface SignChoice {
@@ -316,15 +412,25 @@ export interface SignChoice {
 }
 
 const TSA_KEY = 'nb.tsaUrl';
-/** The time stamp server last used (and whether one is used). */
+/**
+ * Time stamp servers are reached by the desktop app's main process (apps/desktop/src/pki.ts). A
+ * browser cannot reach them: the page's security policy only allows its own site, and most of
+ * these servers refuse browsers anyway.
+ */
+const canTimestamp = () => !!desktop()?.pkiFetch;
+/** The time stamp server last used (and whether one is used; never where it cannot be reached). */
 export function savedTsa(): { on: boolean; url: string } {
+  let saved: { on: boolean; url: string };
   try {
-    return { on: false, url: 'http://timestamp.digicert.com', ...JSON.parse(localStorage.getItem(TSA_KEY) ?? '{}') };
+    saved = { on: false, url: 'http://timestamp.digicert.com', ...JSON.parse(localStorage.getItem(TSA_KEY) ?? '{}') };
   } catch {
-    return { on: false, url: 'http://timestamp.digicert.com' };
+    saved = { on: false, url: 'http://timestamp.digicert.com' };
   }
+  return canTimestamp() ? saved : { ...saved, on: false };
 }
+/** Remembers the choice, except where time stamps are unavailable (savedTsa reads it as off there). */
 export function saveTsa(v: { on: boolean; url: string }) {
+  if (!canTimestamp()) return;
   try {
     localStorage.setItem(TSA_KEY, JSON.stringify(v));
   } catch {
@@ -334,10 +440,18 @@ export function saveTsa(v: { on: boolean; url: string }) {
 
 /** "Add a trusted time stamp" with the server's address; the choice is remembered. */
 export function TimestampOption({ value, onChange }: { value: { on: boolean; url: string }; onChange: (v: { on: boolean; url: string }) => void }) {
+  const available = canTimestamp();
   return (
-    <div className="row" title="A time stamp server vouches for when the document was signed, so the time does not rest on this computer’s clock. It is reached through the redcolumn server.">
+    <div
+      className="row"
+      title={
+        available
+          ? 'A time stamp server vouches for when the document was signed, so the time does not rest on this computer’s clock. This computer contacts the server directly and sends it a fingerprint of the signature, not the document.'
+          : 'Trusted time stamps need the desktop app: browsers cannot reach time stamp servers.'
+      }
+    >
       <label className="check">
-        <input type="checkbox" checked={value.on} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
+        <input type="checkbox" checked={value.on} disabled={!available} onChange={(e) => onChange({ ...value, on: e.target.checked })} />
         Trusted time stamp from
       </label>
       <input aria-label="Time stamp server" value={value.url} disabled={!value.on} style={{ flex: 1 }} onChange={(e) => onChange({ ...value, url: e.target.value })} />
@@ -368,7 +482,9 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
   const [tsa, setTsa] = useState(savedTsa);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const remembered = idId ? recalledPassword(idId) : null;
+  const card = ids.find((i) => i.id === idId)?.token;
+  // A card's PIN is never remembered; a .p12 password is, for the time-out in Preferences.
+  const remembered = idId && !card ? recalledPassword(idId) : null;
   return (
     <div className="modal-backdrop" onMouseDown={busy ? undefined : onCancel}>
       <form
@@ -384,7 +500,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           setBusy(true);
           setError(null);
           saveTsa(tsa);
-          onSign({ idId, password: remembered ?? password, reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null }).catch((err) => {
+          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null }).catch((err) => {
             setError(err instanceof Error ? err.message : String(err));
             setBusy(false);
           });
@@ -402,7 +518,14 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           <>
             <label className="row">
               Digital ID
-              <select value={idId} onChange={(e) => setIdId(e.target.value)}>
+              <select
+                value={idId}
+                onChange={(e) => {
+                  setIdId(e.target.value);
+                  // A password typed for one ID is never sent to another: to a card it would use up a PIN try.
+                  setPassword('');
+                }}
+              >
                 {ids.map((id) => (
                   <option key={id.id} value={id.id}>
                     {id.name}
@@ -413,9 +536,11 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
             </label>
             {remembered ? (
               <p className="print-hint">Unlocked: no password needed until the time-out in Preferences › Signature.</p>
+            ) : card?.pinPad ? (
+              <p className="print-hint">Enter the PIN on the card reader when it asks.</p>
             ) : (
-              <label className="row">
-                Password
+              <label className="row" title={card ? 'Sent to the card for this signature only; never stored' : undefined}>
+                {card ? 'PIN' : 'Password'}
                 <input type="password" autoFocus autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
               </label>
             )}

@@ -230,6 +230,112 @@ export async function buildChain(signer: Uint8Array, pool: readonly Uint8Array[]
   return { certs, complete: false, problem: 'The certificate chain is too long' };
 }
 
+/**
+ * The certificates in a CA Issuers answer: one certificate (DER, or PEM), or a PKCS #7 bundle of
+ * certificates (.p7c), as CAs publish them. An answer it cannot read holds none.
+ */
+export function certificatesIn(bytes: Uint8Array): Uint8Array[] {
+  try {
+    // DER starts with a SEQUENCE; anything else is read as text (PEM, perhaps after header lines).
+    if (bytes[0] !== 0x30) {
+      const text = new TextDecoder('latin1').decode(bytes);
+      return [...text.matchAll(/-----BEGIN (CERTIFICATE|PKCS7|X509 CERTIFICATE)-----([\s\S]*?)-----END \1-----/g)].flatMap((m) => certificatesIn(binaryToBytes(forge.util.decode64(m[2]!.replace(/\s+/g, '')))));
+    }
+    const top = kids(parse(bytes));
+    // ContentInfo { signedData, [0] SignedData { version, digests, content, [0] certificates, ... } }
+    if (top[0]?.tagClass === Class.UNIVERSAL && top[0].type === Type.OID && oidOf(top[0]) === '1.2.840.113549.1.7.2') {
+      const set = kids(kids(top[1]!)[0]!).find((p) => isContext(p, 0));
+      return set ? kids(set).map(der) : [];
+    }
+    return [bytes];
+  } catch {
+    return [];
+  }
+}
+
+/** `p`, or a rejection once `ms` have passed. */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('timed out')), Math.max(0, ms));
+    p.then(
+      (v) => (clearTimeout(timer), resolve(v)),
+      (e) => (clearTimeout(timer), reject(e)),
+    );
+  });
+}
+
+/**
+ * Completes a chain the certificates at hand leave short (a card holds its own certificate, often
+ * not its CA's) from each certificate's CA Issuers address: at most `max` fetches within
+ * `timeoutMs`, and only a certificate that really issued the one before it is taken. `pool` adds
+ * other certificates at hand (the rest of a card's) that may fill a gap further up.
+ *
+ * CA Issuers addresses are plain http, so fetched certificates are kept only when the chain they
+ * make ends in a root whose own signature checks out (then each link has been checked by the one
+ * above it). Otherwise they are all dropped and the chain is the certificates at hand: one left at
+ * the end unchecked could be a copy carrying a real CA's name and key. `anchors` are known root CAs
+ * (the desktop app's list): many CAs publish no address for their root, and a chain that checks out
+ * up to one of them is complete.
+ */
+export async function completeChain(chain: Chain, fetcher: PkiFetch, opts: { pool?: readonly Uint8Array[]; anchors?: readonly Uint8Array[]; max?: number; timeoutMs?: number } = {}): Promise<Chain> {
+  const max = opts.max ?? 4;
+  const until = Date.now() + (opts.timeoutMs ?? 10_000);
+  // Only certificates this app can read: one it cannot must not stop a card being added.
+  const readable = async (list: readonly Uint8Array[] = []) => {
+    const ok: Uint8Array[] = [];
+    for (const d of list)
+      try {
+        await certFacts(d);
+        ok.push(d);
+      } catch {
+        // Skipped.
+      }
+    return ok;
+  };
+  const own = [...chain.certs.map((c) => c.der), ...(await readable(opts.pool))];
+  const pool = [...own];
+  const anchors = await readable(opts.anchors);
+  // Known roots go last, so buildChain (which takes the last match) prefers them to a cross-certificate.
+  const rebuild = () => buildChain(pool[0]!, [...pool.slice(1), ...anchors]);
+  if (own.length > chain.certs.length || anchors.length) chain = await rebuild();
+  for (let fetched = 0; !chain.complete && fetched < max && Date.now() < until; ) {
+    const last = chain.certs[chain.certs.length - 1]!;
+    if (selfIssued(last) || !last.caIssuerUrls.length) break;
+    const found: CertFacts[] = [];
+    for (const url of last.caIssuerUrls) {
+      if (fetched >= max || Date.now() >= until) break;
+      fetched++;
+      let answer: Uint8Array;
+      try {
+        answer = await within(fetcher(url), until - Date.now());
+      } catch {
+        continue;
+      }
+      for (const d of certificatesIn(answer)) {
+        try {
+          if (pool.some((p) => same(p, d))) continue;
+          const facts = await certFacts(d);
+          if (await issuedBy(last, facts)) found.push(facts);
+        } catch {
+          // Not a certificate this app can read: the others in the answer still count.
+        }
+      }
+      if (found.length) break;
+    }
+    if (!found.length) break;
+    // buildChain takes the last match: a root that checks out goes after cross-certificates.
+    const roots = await Promise.all(found.map(async (f) => selfIssued(f) && (await verifySigned(f.node, f.spki))));
+    pool.push(...found.filter((_, i) => !roots[i]).map((f) => f.der), ...found.filter((_, i) => roots[i]).map((f) => f.der));
+    chain = await rebuild();
+  }
+  if (!chain.complete) {
+    const certs = [...chain.certs];
+    while (certs.length > 1 && !own.some((o) => same(o, certs[certs.length - 1]!.der))) certs.pop();
+    if (certs.length !== chain.certs.length) chain = { ...chain, certs };
+  }
+  return chain;
+}
+
 // --- Time stamps (RFC 3161) ----------------------------------------------------------------------
 
 const seq = (...v: Node[]) => asn1.create(Class.UNIVERSAL, Type.SEQUENCE, true, v);
@@ -282,6 +388,82 @@ export function withTimestamp(cms: Uint8Array, token: Uint8Array): Uint8Array {
   if (unsigned) kids(unsigned).push(attr);
   else si.push(asn1.create(Class.CONTEXT_SPECIFIC, 1, true, [attr]));
   return der(root);
+}
+
+/**
+ * Makes a signature value over `data` (the DER of the signed attributes) with the signer's key:
+ * RSA PKCS #1 v1.5, or ECDSA as a DER SEQUENCE of r and s. The key may be in this app (a .p12
+ * Digital ID) or somewhere it cannot leave (a smart card or USB token).
+ */
+export type RawSign = (data: Uint8Array, hash: HashName) => Promise<Uint8Array>;
+
+const RSA_KEY = '1.2.840.113549.1.1.1';
+const EC_KEY = '1.2.840.10045.2.1';
+const ECDSA_WITH: Partial<Record<HashName, string>> = { 'SHA-256': '1.2.840.10045.4.3.2', 'SHA-384': '1.2.840.10045.4.3.3', 'SHA-512': '1.2.840.10045.4.3.4' };
+const ATTR = { contentType: '1.2.840.113549.1.9.3', signingTime: '1.2.840.113549.1.9.5', signingCertificateV2: '1.2.840.113549.1.9.16.2.47' };
+
+/** DER orders a SET OF by its members' encodings. */
+function derSorted(nodes: Node[]): Node[] {
+  const keyed = nodes.map((n) => ({ n, b: der(n) }));
+  keyed.sort((x, y) => {
+    for (let k = 0; k < Math.min(x.b.length, y.b.length); k++) if (x.b[k] !== y.b[k]) return x.b[k]! - y.b[k]!;
+    return x.b.length - y.b.length;
+  });
+  return keyed.map((k) => k.n);
+}
+
+/**
+ * A detached CMS SignedData over `data`: the signed attributes (content type, signing time and
+ * message digest) are built here and only their signature comes from `sign`. `chainDer` is the
+ * signer's certificate first, then the rest of its chain, all carried in the signature.
+ *
+ * `pades`: a PAdES baseline signature (ETSI EN 319 142-1, for SubFilter ETSI.CAdES.detached). The
+ * signer's certificate is named in a signing-certificate-v2 attribute (its SHA-256 hash, issuer and
+ * serial number), so it cannot be swapped for another with the same key, and there is no
+ * signing-time attribute: the time the signer claims is the signature dictionary's /M.
+ */
+export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8Array[], date: Date, hash: HashName, sign: RawSign, opts: { pades?: boolean } = {}): Promise<Uint8Array> {
+  const certNode = parse(chainDer[0]!);
+  const tbs = kids(kids(certNode)[0]!);
+  const i = isContext(tbs[0], 0) ? 1 : 0;
+  const serial = tbs[i]!;
+  const issuer = tbs[i + 2]!;
+  const keyOid = oidOf(kids(kids(tbs[i + 5]!)[0]!)[0]!);
+  let sigAlg: Node;
+  if (keyOid === RSA_KEY) sigAlg = algId(RSA_KEY);
+  else if (keyOid === EC_KEY && ECDSA_WITH[hash]) sigAlg = seq(oid(ECDSA_WITH[hash]!));
+  else throw new Error('The certificate’s key is neither RSA nor ECDSA');
+
+  const attr = (type: string, value: Node) => seq(oid(type), asn1.create(Class.UNIVERSAL, Type.SET, true, [value]));
+  const attrs = derSorted([
+    attr(ATTR.contentType, oid(OID.data)),
+    opts.pades
+      ? // SigningCertificateV2 { certs SEQUENCE OF ESSCertIDv2 { certHash (SHA-256, the default algorithm), IssuerSerial { GeneralNames { [4] issuer }, serial } } }
+        // The hash is over the certificate as it is embedded below (certNode), which checkers hash.
+        attr(ATTR.signingCertificateV2, seq(seq(seq(octets(await digest('SHA-256', der(certNode))), seq(seq(asn1.create(Class.CONTEXT_SPECIFIC, 4, true, [issuer])), serial)))))
+      : // UTCTime until 2050, GeneralizedTime after (RFC 5652, 11.3).
+        attr(ATTR.signingTime, date.getUTCFullYear() < 2050 ? asn1.create(Class.UNIVERSAL, Type.UTCTIME, false, asn1.dateToUtcTime(date)) : asn1.create(Class.UNIVERSAL, Type.GENERALIZEDTIME, false, asn1.dateToGeneralizedTime(date))),
+    attr(OID.messageDigest, octets(await digest(hash, data))),
+  ]);
+  // Signed as a SET (tag 0x31), stored as [0].
+  const signature = await sign(der(asn1.create(Class.UNIVERSAL, Type.SET, true, attrs)), hash);
+
+  const signerInfo = seq(
+    smallInt(1),
+    seq(issuer, serial),
+    algId(HASH_OID_OF[hash]),
+    asn1.create(Class.CONTEXT_SPECIFIC, 0, true, attrs),
+    sigAlg,
+    octets(signature),
+  );
+  const signedData = seq(
+    smallInt(1),
+    asn1.create(Class.UNIVERSAL, Type.SET, true, [algId(HASH_OID_OF[hash])]),
+    seq(oid(OID.data)),
+    asn1.create(Class.CONTEXT_SPECIFIC, 0, true, chainDer.map((c, k) => (k === 0 ? certNode : parse(c)))),
+    asn1.create(Class.UNIVERSAL, Type.SET, true, [signerInfo]),
+  );
+  return der(seq(oid(OID.signedData), asn1.create(Class.CONTEXT_SPECIFIC, 0, true, [signedData])));
 }
 
 /** A signer's unsigned time stamp token, if it has one. */
@@ -445,8 +627,10 @@ export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<
   if (!issuer)
     for (const url of cert.caIssuerUrls) {
       try {
-        const candidate = await certFacts(await fetcher(url));
-        if (await issuedBy(cert, candidate)) issuer = candidate;
+        for (const d of certificatesIn(await fetcher(url))) {
+          const candidate = await certFacts(d);
+          if (await issuedBy(cert, candidate)) issuer = candidate;
+        }
       } catch {
         // Try the next address.
       }

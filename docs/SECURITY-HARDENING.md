@@ -168,8 +168,15 @@ Notes:
 - OneDrive download and upload-session URLs come back from Graph on hosts that differ between
   personal and work accounts. Record the hosts actually used in testing and list only those.
 - **Signature checks** (trusted time stamps, certificate status) contact servers the person or the
-  certificate names, which a fixed `connect-src` cannot list. Decide between listing the common
-  time stamp and status servers, or showing a clear message when one is blocked (open question).
+  certificate names, which a fixed `connect-src` cannot list. Decided: they are not listed. The
+  desktop app fetches them in its main process (`apps/desktop/src/pki.ts`: http(s) only, GET or a
+  time stamp / OCSP POST, no cookies, answers cut off at 16 MB as they arrive, 20 s time-out, at
+  most 3 redirects, a POST only repeated on 307/308, never https to http). Every address a name
+  resolves to is checked and the connection goes to the checked address: loopback, private
+  (RFC 1918), link-local, shared (100.64/10), multicast and reserved addresses, IPv4 and IPv6,
+  are refused. Two limits follow: a company CA's own OCSP or time stamp server on a private
+  address cannot be reached, and requests do not go through a system proxy yet. In the browser
+  the time stamp option is greyed out and revocation checks fail with a message.
 - `msal-redirect.html` gets the same policy without the Google hosts. The help gets
   `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none';
   base-uri 'none'`.
@@ -501,6 +508,29 @@ on iPad. Electron first, then the browser if it proves useful.
   other windows could share.
 - Offer **Encrypt local data** using `safeStorage` for people on shared computers.
 
+### E5 Smart cards and USB tokens (M)
+
+Done in `apps/desktop/src/token.ts`. Signing keys on a card stay on it; the page sends the bytes
+to sign over IPC and gets the signature value back.
+
+- PKCS#11 drivers load in the card service, an Electron utility process (`token-host.ts`), never
+  in the main process: a call that waits for a PIN typed on the reader, or a driver that crashes,
+  holds up only that process. The main process (`token-ipc.ts`) starts it again on the next call
+  after it stops, and stops it when a call takes too long (3 minutes to sign, so a PIN can be
+  typed on the reader; a minute otherwise), so a stuck driver does not hold up later calls.
+- The main process's IPC handlers answer only the app's own page, check the argument types they
+  use themselves (a driver ID to forget), and open the native dialog for a driver file; the card
+  service answers TokenService's five calls and no others, and TokenService checks the key
+  reference, digest, data and PIN of every signature.
+- A driver is native code, so the page never names one. Drivers are a fixed list of common
+  install paths that exist on the computer, or files the person picked in a native dialog (kept
+  in userData). The page sees driver IDs, never paths. A key reference from the page is checked
+  against those drivers before anything is loaded.
+- The PIN crosses IPC for one signature and is not kept, logged or remembered (unlike a .p12
+  password's time-out). Readers with their own keypad get no PIN from the app.
+- The hash is made in the card service; the card only signs a digest of at most 8 KB of input.
+- Each operation loads the driver, works and unloads it, so nothing stays logged in to the card.
+
 ## Testing
 
 - **Unit (`node --test`, beside `onedrive.test.ts`):** scopes requested per call (3.4); no step-up from
@@ -527,8 +557,8 @@ on iPad. Electron first, then the browser if it proves useful.
    4.1.
 3. Does `expirationDateTime` on `createLink` work on personal OneDrive accounts without Microsoft
    365?
-4. Signature checks and `connect-src`: list common time stamp and certificate status servers, or
-   block and explain? See 2.1.
+4. ~~Signature checks and `connect-src`~~: decided, see 2.1 (desktop main process; blocked and
+   explained in the browser).
 5. Hosting: which address is the main one, GitHub Pages or Vercel? See 2.4.
 6. For local-folder Live Sessions, is sync-client latency acceptable, or is a direct connection
    between computers (WebRTC) worth the work? Direct connections need someone to introduce the two

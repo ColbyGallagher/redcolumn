@@ -440,6 +440,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.rotateCounterclockwise" label="Rotate Counterclockwise" />
             <Submenu label="Insert">
               <Cmd id="document.insertPages" label="Pages from PDF…" />
+              <Cmd id="document.bulkInsertPages" label="Bulk Insert PDFs…" />
               <Cmd id="document.insertBlank" label="Blank Pages…" />
             </Submenu>
             <Cmd id="document.extractPages" />

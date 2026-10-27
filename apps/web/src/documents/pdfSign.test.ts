@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import forge from 'node-forge';
 import { PDFDocument } from 'pdf-lib';
 import { createSelfSignedId, importDigitalId, unlockId, readCertificate, binaryToBytes } from './digitalIds.ts';
-import { checkSignatures, signPdf, signedVersion } from './pdfSign.ts';
+import { checkSignatures, signPdf, signedVersion, type Signer } from './pdfSign.ts';
 import { saveIncremental, snapshot } from './incremental.ts';
 import { createFields } from './forms.ts';
 
@@ -64,6 +64,85 @@ for (const digest of ['SHA-384', 'SHA-512'] as const) {
     assert.equal(check?.problem, null);
   });
 }
+
+/** The /Contents CMS and /SubFilter of the (only) signature in a signed PDF. */
+function signatureParts(signed: Uint8Array) {
+  const s = new TextDecoder('latin1').decode(signed);
+  const hex = /\/Contents\s*<([0-9A-Fa-f]+)>/.exec(s)![1]!;
+  return { subFilter: /\/SubFilter\s*\/([A-Za-z0-9.]+)/.exec(s)![1]!, hex, cms: forge.asn1.fromDer(forge.util.hexToBytes(hex), { parseAllBytes: false } as never) };
+}
+/** The signed attributes' types (OIDs) of a CMS. */
+function signedAttrTypes(cms: forge.asn1.Asn1): string[] {
+  const parts = (cms.value as forge.asn1.Asn1[])[1]!.value as forge.asn1.Asn1[];
+  const signedData = parts[0]!.value as forge.asn1.Asn1[];
+  const si = (signedData[signedData.length - 1]!.value as forge.asn1.Asn1[])[0]!.value as forge.asn1.Asn1[];
+  const attrs = si.find((n) => n.tagClass === forge.asn1.Class.CONTEXT_SPECIFIC && n.type === 0)!.value as forge.asn1.Asn1[];
+  return attrs.map((a) => forge.asn1.derToOid((a.value as forge.asn1.Asn1[])[0]!.value as string));
+}
+
+test('signatures are PAdES by default: ETSI.CAdES.detached, the signer’s certificate named, the time in /M', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const date = new Date(Date.UTC(2026, 9, 27, 3, 4, 5));
+  const signed = await signPdf(await sample(), unlocked, { date });
+  const { subFilter, cms } = signatureParts(signed);
+  assert.equal(subFilter, 'ETSI.CAdES.detached');
+  const types = signedAttrTypes(cms);
+  assert.ok(types.includes('1.2.840.113549.1.9.16.2.47'), 'signing-certificate-v2');
+  assert.ok(!types.includes('1.2.840.113549.1.9.5'), 'no signing-time attribute (PAdES baseline)');
+  const [check] = await checkSignatures(signed);
+  assert.equal(check?.problem, null);
+  assert.equal(check?.intact, true);
+  assert.equal(check?.format, 'pades');
+  assert.equal(check?.signedAt?.getTime(), date.getTime(), 'the time is read from /M');
+
+  // The older format is still there for old readers.
+  const old = await signPdf(await sample(), unlocked, { date, format: 'pkcs7' });
+  assert.equal(signatureParts(old).subFilter, 'adbe.pkcs7.detached');
+  assert.ok(signedAttrTypes(signatureParts(old).cms).includes('1.2.840.113549.1.9.5'));
+  const [oldCheck] = await checkSignatures(old);
+  assert.equal(oldCheck?.format, 'pkcs7');
+  assert.equal(oldCheck?.intact, true);
+});
+
+test('a PAdES signature that names another certificate than it carries does not check out', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const signed = await signPdf(await sample(), unlocked, {});
+  // The certificate hash in signing-certificate-v2 is the SHA-256 of the signer's certificate.
+  const certHash = forge.util.bytesToHex(forge.md.sha256.create().update(forge.util.binary.raw.encode(unlocked.chainDer[0]!)).digest().getBytes()).toUpperCase();
+  const s = new TextDecoder('latin1').decode(signed);
+  const at = s.indexOf(certHash);
+  assert.ok(at > 0, 'the hash is in the signature');
+  const tampered = signed.slice();
+  tampered[at] = tampered[at] === 0x30 ? 0x31 : 0x30;
+  const [check] = await checkSignatures(tampered);
+  assert.equal(check?.intact, false);
+  assert.match(check?.problem ?? '', /names a different certificate/);
+  assert.equal(check?.signer, 'Jane Engineer', 'the panel still says whose certificate it carries');
+
+  // The older v1 attribute (SHA-1) is checked too: the same attribute relabelled as v1 names a
+  // certificate whose SHA-1 is not that hash.
+  const v2 = '060B2A864886F70D010910022F';
+  const v1 = signed.slice();
+  const where = s.indexOf(v2);
+  assert.ok(where > 0);
+  v1.set(new TextEncoder().encode('0C'), where + v2.length - 2);
+  const [old] = await checkSignatures(v1);
+  assert.match(old?.problem ?? '', /names a different certificate/);
+
+  // A signing-certificate attribute that is not one: a clear reason, not a TypeError.
+  const broken = signed.slice();
+  broken.set(new TextEncoder().encode('05'), at - 4);
+  const [bad] = await checkSignatures(broken);
+  assert.equal(bad?.intact, false);
+  assert.equal(bad?.problem, 'The signature’s signing-certificate attribute cannot be read');
+  assert.equal(bad?.signer, 'Jane Engineer');
+});
+
+test('only the name pkcs7 signs in the older format; anything else is PAdES', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const signed = await signPdf(await sample(), unlocked, { format: 'PAdES' as never });
+  assert.equal(signatureParts(signed).subFilter, 'ETSI.CAdES.detached');
+});
 
 test('changing a signed byte breaks the signature; appending keeps it but not the whole file', async () => {
   const unlocked = unlockId(await idPromise, 'pw');
@@ -146,4 +225,92 @@ test('an unsigned file is written again rather than appended to', async () => {
   const bytes = new Uint8Array(await setDocumentInfo(original.slice().buffer, { title: 'New', author: '', subject: '', keywords: '' }));
   assert.notDeepEqual(bytes.subarray(0, original.length), original);
   assert.equal((await PDFDocument.load(bytes)).getTitle(), 'New');
+});
+
+// --- Keys this app never holds (smart cards, USB tokens) --------------------------------------------
+
+const subtle = globalThis.crypto.subtle;
+const asn1 = forge.asn1;
+type Node = forge.asn1.Asn1;
+const node = (tag: number, constructed: boolean, value: Node[] | string) => asn1.create(asn1.Class.UNIVERSAL, tag, constructed, value);
+const seq = (...v: Node[]) => node(asn1.Type.SEQUENCE, true, v);
+const oidNode = (o: string) => node(asn1.Type.OID, false, asn1.oidToDer(o).getBytes());
+const toBin = (b: Uint8Array) => String.fromCharCode(...b);
+const derOf = (n: Node) => binaryToBytes(asn1.toDer(n).getBytes());
+/** An unsigned big-endian integer, as a DER INTEGER. */
+const uint = (b: Uint8Array) => {
+  let i = 0;
+  while (i < b.length - 1 && b[i] === 0) i++;
+  const v = b.subarray(i);
+  return node(asn1.Type.INTEGER, false, toBin(v[0]! & 0x80 ? new Uint8Array([0, ...v]) : v));
+};
+/** WebCrypto's ECDSA r‖s as the DER SEQUENCE a CMS carries (what a PKCS #11 token returns raw, too). */
+const ecdsaDer = (raw: Uint8Array) => derOf(seq(uint(raw.subarray(0, raw.length / 2)), uint(raw.subarray(raw.length / 2))));
+
+/** A self-signed P-256 certificate whose private key is non-extractable, like a token's. */
+async function ecToken(): Promise<Signer> {
+  const keys = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+  const spki = new Uint8Array(await subtle.exportKey('spki', keys.publicKey));
+  const ecdsaSha256 = seq(oidNode('1.2.840.10045.4.3.2'));
+  const name = node(asn1.Type.SEQUENCE, true, [node(asn1.Type.SET, true, [seq(oidNode('2.5.4.3'), node(asn1.Type.UTF8, false, 'Token Signer'))])]);
+  const now = Date.now();
+  const tbs = seq(
+    asn1.create(asn1.Class.CONTEXT_SPECIFIC, 0, true, [node(asn1.Type.INTEGER, false, asn1.integerToDer(2).getBytes())]),
+    uint(new Uint8Array([0x2a])),
+    ecdsaSha256,
+    name,
+    seq(node(asn1.Type.UTCTIME, false, asn1.dateToUtcTime(new Date(now - 86_400_000))), node(asn1.Type.UTCTIME, false, asn1.dateToUtcTime(new Date(now + 86_400_000)))),
+    name,
+    asn1.fromDer(toBin(spki)),
+  );
+  const sig = ecdsaDer(new Uint8Array(await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, derOf(tbs) as BufferSource)));
+  const cert = derOf(seq(tbs, ecdsaSha256, node(asn1.Type.BITSTRING, false, '\x00' + toBin(sig))));
+  return {
+    chainDer: [cert],
+    sign: async (data, hash) => ecdsaDer(new Uint8Array(await subtle.sign({ name: 'ECDSA', hash }, keys.privateKey, data as BufferSource))),
+  };
+}
+
+test('a key held outside the app signs through a Signer (RSA in WebCrypto, never exported)', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const pkcs8 = derOf(forge.pki.wrapRsaPrivateKey(forge.pki.privateKeyToAsn1(unlocked.key)));
+  const key = await subtle.importKey('pkcs8', pkcs8 as BufferSource, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['sign']);
+  const seen: string[] = [];
+  const token: Signer = {
+    chainDer: unlocked.chainDer,
+    sign: async (data, hash) => {
+      seen.push(hash);
+      return new Uint8Array(await subtle.sign('RSASSA-PKCS1-v1_5', key, data as BufferSource));
+    },
+  };
+  const signed = await signPdf(await sample(), token, { area: { pageIndex: 0, rect: { x: 40, y: 40, w: 180, h: 50 } }, reason: 'Approved' });
+  assert.deepEqual(seen, ['SHA-256'], 'signed once, over the signed attributes');
+  const [check] = await checkSignatures(signed);
+  assert.equal(check?.problem, null);
+  assert.equal(check?.intact, true);
+  assert.equal(check?.signer, 'Jane Engineer');
+  assert.equal(check?.certificate?.fingerprint, (await idPromise).fingerprint);
+});
+
+for (const digest of ['SHA-256', 'SHA-384'] as const) {
+  test(`an ECDSA P-256 token key signs with ${digest} and checks out`, async () => {
+    const signed = await signPdf(await sample(), await ecToken(), { digest, reason: 'Checked' });
+    const [check] = await checkSignatures(signed);
+    assert.equal(check?.problem, null);
+    assert.equal(check?.intact, true);
+    assert.equal(check?.signer, 'Token Signer');
+    assert.equal(check?.certificate?.selfSigned, true);
+  });
+}
+
+test('a Signer that fails leaves no signed file', async () => {
+  const failing: Signer = { chainDer: unlockId(await idPromise, 'pw').chainDer, sign: async () => { throw new Error('The card was removed'); } };
+  await assert.rejects(signPdf(await sample(), failing, {}), /card was removed/);
+});
+
+test('a Signer whose signature does not match its certificate is refused before anything is written', async () => {
+  const token = await ecToken();
+  const wrong: Signer = { chainDer: token.chainDer, sign: (data, hash) => token.sign(new Uint8Array([...data, 0]), hash) };
+  await assert.rejects(signPdf(await sample(), wrong, {}), /does not match the certificate/);
+  await assert.rejects(signPdf(await sample(), { chainDer: [], sign: token.sign }, {}), /no certificate/);
 });
