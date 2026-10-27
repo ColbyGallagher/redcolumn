@@ -230,6 +230,58 @@ export async function buildChain(signer: Uint8Array, pool: readonly Uint8Array[]
   return { certs, complete: false, problem: 'The certificate chain is too long' };
 }
 
+/**
+ * The certificates in a CA Issuers answer: one certificate (DER, or PEM), or a PKCS #7 bundle of
+ * certificates (.p7c), as CAs publish them.
+ */
+export function certificatesIn(bytes: Uint8Array): Uint8Array[] {
+  const text = new TextDecoder('latin1').decode(bytes.subarray(0, 64));
+  if (text.includes('-----BEGIN')) {
+    const all = new TextDecoder('latin1').decode(bytes);
+    return [...all.matchAll(/-----BEGIN [A-Z0-9 ]+-----([\s\S]*?)-----END/g)].flatMap((m) => certificatesIn(binaryToBytes(forge.util.decode64(m[1]!.replace(/\s+/g, '')))));
+  }
+  const top = kids(parse(bytes));
+  // ContentInfo { signedData, [0] SignedData { version, digests, content, [0] certificates, ... } }
+  if (top[0]?.tagClass === Class.UNIVERSAL && top[0].type === Type.OID && oidOf(top[0]) === '1.2.840.113549.1.7.2') {
+    const set = kids(kids(top[1]!)[0]!).find((p) => isContext(p, 0));
+    return set ? kids(set).map(der) : [];
+  }
+  return [bytes];
+}
+
+/**
+ * Completes a chain the certificates at hand leave short (a card holds its own certificate, often
+ * not its CA's) from each certificate's CA Issuers address: at most `max` fetches, and only a
+ * certificate that really issued the one before it is taken.
+ */
+export async function completeChain(chain: Chain, fetcher: PkiFetch, max = 4): Promise<Chain> {
+  const pool = chain.certs.map((c) => c.der);
+  for (let fetched = 0; !chain.complete && fetched < max; ) {
+    const last = chain.certs[chain.certs.length - 1]!;
+    if (selfIssued(last) || !last.caIssuerUrls.length) break;
+    let found = false;
+    for (const url of last.caIssuerUrls) {
+      if (fetched >= max) break;
+      fetched++;
+      try {
+        for (const d of certificatesIn(await fetcher(url))) {
+          if (pool.some((p) => same(p, d))) continue;
+          if (await issuedBy(last, await certFacts(d))) {
+            pool.push(d);
+            found = true;
+          }
+        }
+      } catch {
+        // Try the next address.
+      }
+      if (found) break;
+    }
+    if (!found) break;
+    chain = await buildChain(pool[0]!, pool.slice(1));
+  }
+  return chain;
+}
+
 // --- Time stamps (RFC 3161) ----------------------------------------------------------------------
 
 const seq = (...v: Node[]) => asn1.create(Class.UNIVERSAL, Type.SEQUENCE, true, v);

@@ -4,7 +4,7 @@ import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
 import { PDFDocument } from 'pdf-lib';
 import { checkSignatures, signPdf } from './pdfSign.ts';
-import { buildChain, certFacts, checkRevocation, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
+import { buildChain, certFacts, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
 
 const asn1 = forge.asn1;
 const { Class, Type } = asn1;
@@ -113,6 +113,31 @@ test('a time stamp is requested over the signature, attached, and checks out', a
   assert.match(other.problem!, /another signature/);
   const forged = await fetchTimestamp('http://tsa.example/', value, async (_u, body) => tsaResponse(body!, when, true));
   assert.match((await readTimestamp(forged, value)).problem!, /does not check out/);
+});
+
+test('a short chain is completed from the CA Issuers address: DER, PKCS #7 or PEM, and only a real issuer', async () => {
+  const asn = (p: Party) => forge.pki.certificateToAsn1(p.cert);
+  const p7c = binaryToBytes(toDer(seq(oid('1.2.840.113549.1.7.2'), ctx(0, true, [seq(int(1), set(), seq(oid('1.2.840.113549.1.7.1')), ctx(0, true, [asn(tsa), asn(root)]), set())]))));
+  const pem = new TextEncoder().encode(forge.pki.certificateToPem(root.cert));
+  for (const [kind, answer] of [['DER', root.der], ['PKCS #7', p7c], ['PEM', pem]] as const) {
+    const asked: string[] = [];
+    const chain = await completeChain(await buildChain(signer.der, []), async (url) => (asked.push(url), answer));
+    assert.equal(chain.complete, true, kind);
+    assert.deepEqual(chain.certs.map((c) => c.subjectName), ['Jane Signer', 'Test Root'], kind);
+    assert.deepEqual(asked, ['http://ca.example/root.cer'], kind);
+  }
+  // A certificate that did not issue the signer's, or a server that fails, leaves the chain as it was.
+  let calls = 0;
+  const wrong = await completeChain(await buildChain(signer.der, []), async () => (calls++, tsa.der));
+  assert.equal(wrong.complete, false);
+  assert.equal(wrong.certs.length, 1);
+  assert.equal(calls, 1);
+  const down = await completeChain(await buildChain(signer.der, []), async () => {
+    throw new Error('ca.example cannot be reached');
+  });
+  assert.equal(down.certs.length, 1);
+  // A complete chain fetches nothing.
+  await completeChain(await buildChain(signer.der, [root.der]), async () => assert.fail('fetched'));
 });
 
 test('a refusing TSA or a replayed answer is an error', async () => {

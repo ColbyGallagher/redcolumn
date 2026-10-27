@@ -9277,9 +9277,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setIdList(digitalIds.list());
           }}
           onAddCard={async (card) => {
-            const [{ tokenDigitalId }, { buildChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
-            // The chain as far as the card's own certificates go (often the issuing CAs are on it too).
-            const chain = await buildChain(card.certificate, card.others);
+            const [{ tokenDigitalId }, { buildChain, completeChain }] = await Promise.all([import('./documents/digitalIds'), import('./documents/pki')]);
+            // The chain as far as the card's own certificates go (often the issuing CAs are on it too),
+            // then the rest from the CA's published certificates, so signatures carry the whole chain.
+            // Offline, or where the CA publishes none, the card's own certificates are kept as they are.
+            let chain = await buildChain(card.certificate, card.others);
+            if (!chain.complete && navigator.onLine) chain = await completeChain(chain, pkiFetch);
             digitalIds.add(await tokenDigitalId({ ref: card.ref, label: card.label, token: card.token, pinPad: card.pinPad, chainDer: chain.certs.map((c) => c.der) }));
             setIdList(digitalIds.list());
             setTrustedCerts(digitalIds.trusted());
