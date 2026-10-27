@@ -197,9 +197,9 @@ export class TokenService {
 
   /**
    * Loads a driver, runs `job` and unloads it; one at a time, as drivers and cards expect.
-   * PKCS#11 calls block (pkcs11js has no asynchronous C_Login), so the main process waits while a
-   * card checks its PIN: usually well under a second, but as long as the person takes on a reader
-   * with its own keypad. Moving this into a utility process would keep the window responsive.
+   * PKCS#11 calls block (pkcs11js has no asynchronous C_Login), so the process waits while a card
+   * checks its PIN: as long as the person takes on a reader with its own keypad. That is why this
+   * runs in the card service (token-host.ts), never in the main process.
    */
   private run<T>(driver: Stored, job: (lib: Lib) => T): Promise<T> {
     const next = this.queue.then(() => {
@@ -210,8 +210,8 @@ export class TokenService {
         throw new Error(`The driver ${driver.name || path.basename(driver.path)} did not load: ${err instanceof Error ? err.message : String(err)}`);
       }
       try {
-        // Initialised by something else in this process (Chromium's NSS can load the same driver):
-        // use it, and leave finalising it to whoever set it up.
+        // Already initialised by something else in the same process (a driver can be shared by
+        // more than one user of PKCS#11): use it, and leave finalising it to whoever set it up.
         let mine = true;
         try {
           lib.C_Initialize({ flags: pkcs11js.CKF_OS_LOCKING_OK });

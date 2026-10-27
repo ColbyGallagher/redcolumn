@@ -171,6 +171,29 @@ test.describe('signatures', () => {
     await expect(modal(app, 'Digital IDs')).toBeVisible();
   });
 
+  // The desktop app reaches cards through the card service (a utility process loading pkcs11.node);
+  // a browser cannot use cards at all.
+  test('smart cards: the desktop app looks for them through the card service', async ({ app }) => {
+    await app.cmd('tools.digitalIds');
+    const ids = modal(app, 'Digital IDs');
+    await ids.getByRole('button', { name: 'Back' }).click();
+    const add = ids.getByRole('button', { name: 'Add from smart card / token…' });
+    if (app.kind === 'web') {
+      await expect(add).toHaveCount(0);
+      return;
+    }
+    const found = await app.page.evaluate(async () => {
+      const tokens = (window as unknown as { redcolumn: { tokens: { modules(): Promise<unknown[]>; certificates(): Promise<{ certificates: unknown[]; problems: unknown[] }> } } }).redcolumn.tokens;
+      return { modules: await tokens.modules(), certificates: await tokens.certificates() };
+    });
+    expect(Array.isArray(found.modules)).toBe(true);
+    expect(Array.isArray(found.certificates.certificates)).toBe(true);
+    await add.click();
+    await expect(ids.getByText('Looking for cards…')).toBeHidden({ timeout: 30_000 });
+    await expect(ids.getByRole('button', { name: 'Choose driver file…' })).toBeVisible();
+    await expect(ids.locator('.print-error')).toHaveCount(0);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });
