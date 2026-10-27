@@ -75,11 +75,17 @@ const STUCK = 'The card did not answer in time. Check it is inserted (and the PI
  * it is needed and again after it stops (a driver that crashes takes only the card service with it);
  * calls waiting when it stops fail. A call that takes too long fails and the card service is
  * stopped, so a stuck driver does not hold up every later call: the next one starts it afresh.
+ *
+ * The card service works through calls one at a time, so only the oldest waiting call is timed:
+ * a quick call queued behind a signature waiting for a PIN on the reader does not run out of time
+ * (and stop the card service) while that signature still has minutes left. Its own time starts
+ * when the calls before it have answered.
  */
 export class TokenClient {
   private child: Child | null = null;
   private next = 1;
-  private readonly waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private readonly waiting = new Map<number, { method: TokenMethod; resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private clock: { id: number; timer: ReturnType<typeof setTimeout> } | null = null;
   private readonly start: () => Child;
   private readonly hello: unknown;
   private readonly timeouts: Record<TokenMethod, number>;
@@ -94,13 +100,35 @@ export class TokenClient {
   private settle(id: number): { resolve: (v: unknown) => void; reject: (e: Error) => void } | undefined {
     const pending = this.waiting.get(id);
     if (!pending) return undefined;
-    clearTimeout(pending.timer);
     this.waiting.delete(id);
+    if (this.clock?.id === id) {
+      clearTimeout(this.clock.timer);
+      this.clock = null;
+    }
+    this.time();
     return pending;
   }
 
   private failAll(message: string) {
     for (const id of [...this.waiting.keys()]) this.settle(id)!.reject(new Error(message));
+  }
+
+  /** Times the oldest waiting call, if it is not timed already. */
+  private time() {
+    if (this.clock) return;
+    const [first] = this.waiting;
+    if (!first) return;
+    const [id, { method }] = first;
+    const child = this.child;
+    const timer = setTimeout(() => {
+      // Stuck: this call and any queued behind it fail, and the next call starts a new card service.
+      this.clock = null;
+      if (this.child === child) this.child = null;
+      this.settle(id)?.reject(new Error(STUCK));
+      this.failAll(STOPPED);
+      child?.kill();
+    }, this.timeouts[method]);
+    this.clock = { id, timer };
   }
 
   private connect(): Child {
@@ -127,14 +155,8 @@ export class TokenClient {
     const child = this.connect();
     const id = this.next++;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        // Stuck: this call and any queued behind it fail, and the next call starts a new card service.
-        if (this.child === child) this.child = null;
-        this.settle(id)?.reject(new Error(STUCK));
-        this.failAll(STOPPED);
-        child.kill();
-      }, this.timeouts[method]);
-      this.waiting.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+      this.waiting.set(id, { method, resolve: resolve as (v: unknown) => void, reject });
+      this.time();
       child.post({ id, method, args } satisfies TokenCall);
     });
   }

@@ -108,6 +108,30 @@ test('if the card service stops, waiting calls fail and the next call starts it 
   assert.deepEqual(s.starts[1]!.hello, { storeFile: '/x' });
 });
 
+test('a call queued behind a signature waiting for its PIN is timed from when its turn comes', async (t) => {
+  // As in the card service, the second call only runs once the signature is done.
+  let signed!: () => void;
+  const done = new Promise<void>((r) => (signed = r));
+  const s = service({
+    sign: async () => {
+      await new Promise((r) => setTimeout(r, 120));
+      signed();
+      return new Uint8Array([1]);
+    },
+    certificates: async () => {
+      await done;
+      return { certificates: [], problems: [] };
+    },
+  });
+  const client = new TokenClient(s.start, {}, { ...CALL_TIMEOUT_MS, sign: 400, certificates: 60 });
+  t.after(() => s.starts.forEach((c) => c.stop()));
+  const sig = client.sign('r', 'SHA-256', new Uint8Array([1]), null);
+  const certs = client.certificates();
+  assert.deepEqual([...(await sig)], [1]);
+  assert.deepEqual(await certs, { certificates: [], problems: [] });
+  assert.equal(s.starts[0]!.killed, false);
+});
+
 test('a call that never answers fails in time, and the stuck card service is replaced', async (t) => {
   const s = service({ sign: () => new Promise(() => {}), certificates: () => new Promise(() => {}), modules: async () => [] });
   const client = new TokenClient(s.start, {}, { ...CALL_TIMEOUT_MS, sign: 50, certificates: 10_000 });
