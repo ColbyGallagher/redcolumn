@@ -4,7 +4,7 @@ import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
 import { degrees, PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { openForEdit } from './incremental.ts';
-import { onlyValidationAdded, readDss } from './ltv.ts';
+import { addDss, onlyValidationAdded, readDss } from './ltv.ts';
 import { addValidationData, checkSignatures, signPdf } from './pdfSign.ts';
 import { buildChain, certFacts, certificatesIn, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
 
@@ -212,10 +212,10 @@ test('the chain runs from the signer to a self-signed root; addresses are read',
   assert.match(alone.problem!, /issuer/);
 });
 
-function ocspResponse(request: Uint8Array, revoked: Date | null, signerKey = root.key.privateKey, certs: Party[] = []): Uint8Array {
+function ocspResponse(request: Uint8Array, revoked: Date | null, signerKey = root.key.privateKey, certs: Party[] = [], produced = new Date()): Uint8Array {
   const certId = (((asn1.fromDer(bytesToBinary(request)).value as Node[])[0]!.value as Node[])[0]!.value as Node[])[0]!.value as Node[];
   const status = revoked ? ctx(1, true, [gtime(revoked)]) : ctx(0, false, '');
-  const data = seq(ctx(1, true, [forge.pki.distinguishedNameToAsn1(root.cert.subject)]), gtime(new Date()), seq(seq(certId[0]!, status, gtime(new Date()))));
+  const data = seq(ctx(1, true, [forge.pki.distinguishedNameToAsn1(root.cert.subject)]), gtime(produced), seq(seq(certId[0]!, status, gtime(produced))));
   const basic = seq(data, alg(SHA256_RSA), bits(signerKey.sign(sha256(toDer(data)))), ...(certs.length ? [ctx(0, true, [seq(...certs.map((c) => forge.pki.certificateToAsn1(c.cert)))])] : []));
   return binaryToBytes(toDer(seq(asn1.create(Class.UNIVERSAL, Type.ENUMERATED, false, '\x00'), ctx(0, true, [seq(oid('1.3.6.1.5.5.7.48.1.1'), octets(toDer(basic)))]))));
 }
@@ -373,9 +373,9 @@ test('changes after the validation data still show as changes', async () => {
 });
 
 /** `bytes` with an incremental update (a cross-reference table) defining `objects` and freeing `free`; `trailer` names the catalog and info. */
-function appendUpdate(bytes: Uint8Array, trailer: string, objects: { n: number; g: number; body: string }[], free: { n: number; g: number }[] = [], extra = ''): Uint8Array {
+function appendUpdate(bytes: Uint8Array, trailer: string, objects: { n: number; g: number; body: string }[], free: { n: number; g: number }[] = [], extra = '', hidden = ''): Uint8Array {
   const prev = [...new TextDecoder('latin1').decode(bytes).matchAll(/startxref\s+(\d+)/g)].at(-1)![1];
-  let s = '\n';
+  let s = `\n${hidden}`;
   let xref = 'xref\n';
   for (const o of objects) {
     xref += `${o.n} 1\n${String(bytes.length + s.length).padStart(10, '0')} ${String(o.g).padStart(5, '0')} n \n`;
@@ -451,4 +451,49 @@ test('an OCSP answer counts only from the issuer or a responder it appointed for
   // The same serial number from another CA is another certificate.
   const other = party('Other CA', '02', null, [{ name: 'basicConstraints', cA: true }]);
   await assert.rejects(ocspStatus(ocspResponse(req, null), cert, await certFacts(other.der)), /another certificate/);
+});
+
+test('after a signature: no unlisted objects, no repeated catalog keys, and the signed catalog is the one its cross-reference names', async () => {
+  const { bytes: ltv } = await addValidationData(await signedPdf({ table: true }), ca());
+  const signedLength = (await checkSignatures(ltv))[0]!.signedLength;
+  const doc = await PDFDocument.load(ltv);
+  const rootNumber = doc.context.trailerInfo.Root!.objectNumber;
+  const trailer = `/Root ${doc.context.trailerInfo.Root!.toString()} /Info ${doc.context.trailerInfo.Info!.toString()}`;
+  const catalog = doc.catalog.toString();
+  // An object in the update that its cross-reference does not list (a reader rebuilding the table would find it).
+  const page = doc.getPage(0).ref;
+  assert.equal(onlyValidationAdded(appendUpdate(ltv, trailer, [{ n: 900, g: 0, body: '<< >>' }], [], '', `${page.objectNumber} 0 obj\n${doc.context.lookup(page)!.toString()}\nendobj\n`), signedLength), false);
+  // The catalog again, as pdf-lib reads it, but naming /Pages twice: readers differ on which wins.
+  const twice = catalog.replace('<<', '<<\n/Pages 99 0 R');
+  assert.equal(onlyValidationAdded(appendUpdate(ltv, trailer, [{ n: rootNumber, g: 0, body: twice }]), signedLength), false);
+  assert.equal(onlyValidationAdded(appendUpdate(ltv, trailer, [{ n: rootNumber, g: 0, body: catalog }]), signedLength), true);
+
+  // A signed file with a second catalog after its last section, which pdf-lib (the last one wins)
+  // reads but readers, going by the cross-reference, do not: an update making it real is a change.
+  const plain = await PDFDocument.create();
+  plain.addPage([300, 200]);
+  const base = await plain.save({ useObjectStreams: false });
+  const loaded = await PDFDocument.load(base);
+  const n = loaded.context.trailerInfo.Root!.objectNumber;
+  const decoy = loaded.catalog.toString().replace('<<', '<<\n/PageMode /UseOutlines');
+  const signed = new Uint8Array([...base, ...new TextEncoder().encode(`${n} 0 obj\n${decoy}\nendobj\n`)]);
+  const update = (body: string) => appendUpdate(signed, `/Root ${n} 0 R /Info ${loaded.context.trailerInfo.Info!.toString()}`, [{ n, g: 0, body }]);
+  assert.equal(onlyValidationAdded(update(decoy), signed.length), false);
+  // The real one again is no change.
+  assert.equal(onlyValidationAdded(update(loaded.catalog.toString()), signed.length), true);
+});
+
+test('LTV: an old answer does not speak for a later signature, wherever it is kept', async () => {
+  const signed = await signedPdf();
+  const old = new Date(Date.now() - 2 * 365 * 86400_000);
+  const stale = async (url: string, body?: Uint8Array) => (url.startsWith('http://ocsp') ? ocspResponse(body!, null, root.key.privateKey, [], old) : ca()(url, body));
+  await assert.rejects(addValidationData(signed, stale), /older than the signature/);
+  // Put in the signature's own VRI entry by hand, it still does not count.
+  const req = await ocspRequest(await certFacts(signer.der), await certFacts(root.der));
+  const [check] = await checkSignatures(signed);
+  const withOld = await addDss(signed, [{ vri: check!.vri, certs: [signer.der, root.der], ocsps: [ocspResponse(req, null, root.key.privateKey, [], old)], crls: [] }]);
+  const [after] = await checkSignatures(withOld);
+  assert.equal(after!.intact, true);
+  assert.equal(after!.onlyValidationAdded, true);
+  assert.equal(after!.ltv, false);
 });

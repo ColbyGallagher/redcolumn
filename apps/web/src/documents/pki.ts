@@ -564,6 +564,8 @@ export interface Revocation {
   revokedAt: Date | null;
   /** When the answer was made. */
   at: Date | null;
+  /** Until when it says it stands (the next answer is due), if it says. */
+  nextUpdate: Date | null;
   /** The answer is signed by the issuer (or a responder it appointed). */
   verified: boolean;
 }
@@ -589,14 +591,14 @@ export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: 
   const producedAt = timeOf(data[i++]!);
   let found: Revocation | null = null;
   for (const single of kids(data[i]!)) {
-    const [certId, status] = kids(single);
+    const [certId, status, , after] = kids(single);
     const id = kids(certId!);
     if (serialHex(id[3]!) !== cert.serial) continue;
     // The same serial number from another CA is another certificate: the issuer's name and key hashes say which.
     const idHash = HASH_OIDS[oidOf(kids(id[0]!)[0]!)];
     if (!idHash || !same(bytesOf(id[1]!), await digest(idHash, cert.issuerDer)) || !same(bytesOf(id[2]!), await digest(idHash, issuer.keyBits))) continue;
     const state = status!.type === 0 ? 'good' : status!.type === 1 ? 'revoked' : 'unknown';
-    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, verified: false };
+    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, nextUpdate: after && isContext(after, 0) ? timeOf(kids(after)[0]!) : null, verified: false };
   }
   if (!found) throw new Error('The OCSP answer is about another certificate');
   // Signed by the issuer, or by a responder certificate the issuer signed for OCSP (RFC 6960 4.2.2.2).
@@ -620,14 +622,15 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
   const crlIssuer = der(tbs[i++]!);
   if (!same(crlIssuer, cert.issuerDer)) throw new Error('The revocation list is from another issuer');
   const thisUpdate = timeOf(tbs[i++]!);
-  if (tbs[i] && (tbs[i]!.type === Type.UTCTIME || tbs[i]!.type === Type.GENERALIZEDTIME)) i++;
+  let nextUpdate: Date | null = null;
+  if (tbs[i] && (tbs[i]!.type === Type.UTCTIME || tbs[i]!.type === Type.GENERALIZEDTIME)) nextUpdate = timeOf(tbs[i++]!);
   let revokedAt: Date | null = null;
   const list = tbs[i] && tbs[i]!.tagClass === Class.UNIVERSAL && tbs[i]!.type === Type.SEQUENCE ? kids(tbs[i]!) : [];
   for (const entry of list) {
     const [serial, when] = kids(entry);
     if (serialHex(serial!) === cert.serial) revokedAt = timeOf(when!);
   }
-  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, verified: await verifySigned(node, issuer.spki) };
+  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, nextUpdate, verified: await verifySigned(node, issuer.spki) };
 }
 
 /**
