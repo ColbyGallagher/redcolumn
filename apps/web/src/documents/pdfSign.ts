@@ -120,7 +120,8 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const form = doc.getForm();
   const pages = doc.getPages();
   const date = req.date ?? new Date();
-  const pades = (req.format ?? 'pades') === 'pades';
+  // PAdES unless the older format is asked for by name (an unknown value is not a reason to downgrade).
+  const pades = req.format !== 'pkcs7';
   const signer = await readCertificate(signerKey.chainDer[0]!);
   const space = req.timestamp ? TIMESTAMPED_SPACE : SIGNATURE_SPACE;
 
@@ -225,8 +226,8 @@ export interface SignatureCheck {
   signedAt: Date | null;
   reason: string;
   location: string;
-  /** PAdES (SubFilter ETSI.CAdES.detached) or the older Adobe PKCS #7 format. */
-  format: 'pades' | 'pkcs7';
+  /** PAdES (SubFilter ETSI.CAdES.detached), the older Adobe PKCS #7 format, or another (a document time stamp, adbe.x509.rsa_sha1). */
+  format: 'pades' | 'pkcs7' | 'other';
   /** The signed bytes are unchanged and the signature matches them and the certificate. */
   intact: boolean;
   /** Why not, when not intact. */
@@ -255,9 +256,55 @@ const OIDS: Record<string, 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'> = {
 const MESSAGE_DIGEST = '1.2.840.113549.1.9.4';
 const SIGNING_TIME = '1.2.840.113549.1.9.5';
 const SIGNING_CERTIFICATE_V2 = '1.2.840.113549.1.9.16.2.47';
+const SIGNING_CERTIFICATE = '1.2.840.113549.1.9.16.2.12';
 
 type Node = forge.asn1.Asn1;
 const kids = (n: Node) => n.value as Node[];
+
+/** One DER element: its tag, where its contents start, and where it ends. */
+function tlv(b: Uint8Array, at: number): { tag: number; start: number; body: number; end: number } {
+  let p = at + 1;
+  let len = b[p++]!;
+  if (len & 0x80) {
+    const n = len & 0x7f;
+    if (!n || n > 4) throw new Error('Unreadable length');
+    len = 0;
+    for (let k = 0; k < n; k++) len = len * 256 + b[p++]!;
+  }
+  if (p + len > b.length) throw new Error('Truncated');
+  return { tag: b[at]!, start: at, body: p, end: p + len };
+}
+const children = (b: Uint8Array, t: { body: number; end: number }) => {
+  const out: ReturnType<typeof tlv>[] = [];
+  for (let p = t.body; p < t.end; p = out[out.length - 1]!.end) out.push(tlv(b, p));
+  return out;
+};
+
+/**
+ * The certificates a CMS carries, exactly as they are in it: a certificate's hash (which
+ * signing-certificate attributes name) is over those bytes, not over a re-encoding of them.
+ */
+function rawCertificates(der: Uint8Array): Uint8Array[] {
+  const [, content] = children(der, tlv(der, 0));
+  const signedData = children(der, content!)[0]!;
+  const set = children(der, signedData).find((p) => p.tag === 0xa0);
+  return set ? children(der, set).map((c) => der.slice(c.start, c.end)) : [];
+}
+
+/** The certificate hashes a signing-certificate (v1: SHA-1) or -v2 attribute names, first the signer's. */
+function namedCertificate(attr: Node, v2: boolean): { hash: 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'; value: Uint8Array } {
+  try {
+    // SigningCertificate(V2) { certs SEQUENCE OF ESSCertID(v2) { [hashAlgorithm DEFAULT sha256,] certHash, issuerSerial? } }
+    const id = kids(kids(kids(attr)[0]!)[0]!);
+    const hasAlg = v2 && id[0]!.type === forge.asn1.Type.SEQUENCE;
+    const hash = !v2 ? 'SHA-1' : hasAlg ? OIDS[forge.asn1.derToOid(kids(id[0]!)[0]!.value as string)] : 'SHA-256';
+    const value = id[hasAlg ? 1 : 0]!;
+    if (!hash || value.type !== forge.asn1.Type.OCTETSTRING) throw new Error();
+    return { hash, value: binaryToBytes(value.value as string) };
+  } catch {
+    throw new Error('The signature’s signing-certificate attribute cannot be read');
+  }
+}
 
 /** Pieces of a CMS SignedData needed to check it. */
 function parseCms(der: Uint8Array) {
@@ -286,19 +333,22 @@ function parseCms(der: Uint8Array) {
   }
   const md = attrs.get(MESSAGE_DIGEST);
   const time = attrs.get(SIGNING_TIME);
-  // PAdES/CAdES: SigningCertificateV2 { certs SEQUENCE OF ESSCertIDv2 { hashAlgorithm DEFAULT sha256, certHash, ... } }
-  let signingCert: { hash: 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'; value: Uint8Array } | null = null;
-  const scv2 = attrs.get(SIGNING_CERTIFICATE_V2);
-  if (scv2) {
-    const id = kids(kids(kids(scv2)[0]!)[0]!);
-    const hasAlg = id[0]!.type === forge.asn1.Type.SEQUENCE;
-    const hash = hasAlg ? OIDS[forge.asn1.derToOid(kids(id[0]!)[0]!.value as string)] : 'SHA-256';
-    if (!hash) throw new Error('The signature names its certificate with a digest this app cannot check');
-    signingCert = { hash, value: binaryToBytes(id[hasAlg ? 1 : 0]!.value as string) };
+  // PAdES/CAdES name the signer's certificate (v2; v1 with SHA-1 in older CAdES).
+  const signingCerts = [
+    ...(attrs.has(SIGNING_CERTIFICATE_V2) ? [namedCertificate(attrs.get(SIGNING_CERTIFICATE_V2)!, true)] : []),
+    ...(attrs.has(SIGNING_CERTIFICATE) ? [namedCertificate(attrs.get(SIGNING_CERTIFICATE)!, false)] : []),
+  ];
+  let raw: Uint8Array[] = [];
+  try {
+    raw = rawCertificates(der);
+  } catch {
+    // Read as re-encoded below.
   }
   return {
-    signingCert,
+    signingCerts,
     certs,
+    /** `certs` as they are in the signature (the same order), for their hashes. */
+    rawCerts: raw.length === certs.length ? raw : certs,
     serial,
     digest: OIDS[digestOid] ?? null,
     sigAlgOid,
@@ -310,7 +360,9 @@ function parseCms(der: Uint8Array) {
 }
 
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
-const text = (v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '');
+const formatOf = (subFilter: unknown): SignatureCheck['format'] =>
+  subFilter === PDFName.of('ETSI.CAdES.detached') ? 'pades' : subFilter === PDFName.of('adbe.pkcs7.detached') || subFilter === PDFName.of('adbe.pkcs7.sha1') ? 'pkcs7' : 'other';
+const text =(v: unknown) => (v instanceof PDFString || v instanceof PDFHexString ? v.decodeText() : '');
 
 /** Every signature in the file, checked. */
 export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck[]> {
@@ -331,7 +383,7 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       signedAt: null,
       reason: text(v.lookup(PDFName.of('Reason'))),
       location: text(v.lookup(PDFName.of('Location'))),
-      format: v.get(PDFName.of('SubFilter')) === PDFName.of('ETSI.CAdES.detached') ? 'pades' : 'pkcs7',
+      format: formatOf(v.lookup(PDFName.of('SubFilter'))),
       intact: false,
       problem: null,
       coversWholeFile: false,
@@ -376,13 +428,14 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
         return signerDer ? readCertificate(signerDer) : null;
       })();
       if (!signerInfo) throw new Error('The signature has no certificate');
-      // A PAdES signature names its signer's certificate: it must be the one carried.
-      if (cms.signingCert && !same(cms.signingCert.value, new Uint8Array(await globalThis.crypto.subtle.digest(cms.signingCert.hash, signerInfo.der as BufferSource))))
-        throw new Error('The signature names a different certificate from the one it carries');
       check.signer = signerInfo.subject.name || check.signer;
       check.email = signerInfo.subject.email;
       check.org = signerInfo.subject.org;
       check.issuer = signerInfo.issuer.name;
+      // PAdES and CAdES name the signer's certificate: it must be the one carried, as it is carried.
+      const raw = cms.rawCerts[cms.certs.findIndex((c) => same(c, signerInfo.der))] ?? signerInfo.der;
+      for (const named of cms.signingCerts)
+        if (!same(named.value, new Uint8Array(await globalThis.crypto.subtle.digest(named.hash, raw as BufferSource)))) throw new Error('The signature names a different certificate from the one it carries');
       if (cms.signingTime) check.signedAt = cms.signingTime;
       // The signer's own certificate first.
       check.certificates = [signerInfo.der, ...cms.certs.filter((d) => d !== signerInfo.der)];

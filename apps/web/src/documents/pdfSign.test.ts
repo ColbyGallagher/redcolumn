@@ -117,6 +117,30 @@ test('a PAdES signature that names another certificate than it carries does not 
   const [check] = await checkSignatures(tampered);
   assert.equal(check?.intact, false);
   assert.match(check?.problem ?? '', /names a different certificate/);
+  assert.equal(check?.signer, 'Jane Engineer', 'the panel still says whose certificate it carries');
+
+  // The older v1 attribute (SHA-1) is checked too: the same attribute relabelled as v1 names a
+  // certificate whose SHA-1 is not that hash.
+  const v2 = '060B2A864886F70D010910022F';
+  const v1 = signed.slice();
+  const where = s.indexOf(v2);
+  assert.ok(where > 0);
+  v1.set(new TextEncoder().encode('0C'), where + v2.length - 2);
+  const [old] = await checkSignatures(v1);
+  assert.match(old?.problem ?? '', /names a different certificate/);
+
+  // A signing-certificate attribute that is not one: a clear reason, not a TypeError.
+  const broken = signed.slice();
+  broken.set(new TextEncoder().encode('05'), at - 4);
+  const [bad] = await checkSignatures(broken);
+  assert.equal(bad?.intact, false);
+  assert.doesNotMatch(bad?.problem ?? '', /TypeError|undefined|Cannot read/);
+});
+
+test('only the name pkcs7 signs in the older format; anything else is PAdES', async () => {
+  const unlocked = unlockId(await idPromise, 'pw');
+  const signed = await signPdf(await sample(), unlocked, { format: 'PAdES' as never });
+  assert.equal(signatureParts(signed).subFilter, 'ETSI.CAdES.detached');
 });
 
 test('changing a signed byte breaks the signature; appending keeps it but not the whole file', async () => {

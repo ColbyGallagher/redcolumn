@@ -439,7 +439,8 @@ export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8
     attr(ATTR.contentType, oid(OID.data)),
     opts.pades
       ? // SigningCertificateV2 { certs SEQUENCE OF ESSCertIDv2 { certHash (SHA-256, the default algorithm), IssuerSerial { GeneralNames { [4] issuer }, serial } } }
-        attr(ATTR.signingCertificateV2, seq(seq(seq(octets(await digest('SHA-256', chainDer[0]!)), seq(seq(asn1.create(Class.CONTEXT_SPECIFIC, 4, true, [issuer])), serial)))))
+        // The hash is over the certificate as it is embedded below (certNode), which checkers hash.
+        attr(ATTR.signingCertificateV2, seq(seq(seq(octets(await digest('SHA-256', der(certNode))), seq(seq(asn1.create(Class.CONTEXT_SPECIFIC, 4, true, [issuer])), serial)))))
       : // UTCTime until 2050, GeneralizedTime after (RFC 5652, 11.3).
         attr(ATTR.signingTime, date.getUTCFullYear() < 2050 ? asn1.create(Class.UNIVERSAL, Type.UTCTIME, false, asn1.dateToUtcTime(date)) : asn1.create(Class.UNIVERSAL, Type.GENERALIZEDTIME, false, asn1.dateToGeneralizedTime(date))),
     attr(OID.messageDigest, octets(await digest(hash, data))),
