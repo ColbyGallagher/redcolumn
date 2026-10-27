@@ -128,7 +128,7 @@ import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertD
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
-import { assertKeepsSignatures } from './documents/signedBytes';
+import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
@@ -661,17 +661,24 @@ async function recompressJpeg(jpeg: Uint8Array, quality: number): Promise<Uint8A
   }
 }
 
-/** The document with its markups written as PDF annotations. */
+/**
+ * The document with its markups written as PDF annotations. With `keepSigned`, a digitally signed
+ * file keeps every byte: the markups are appended as an incremental update (none to write leaves
+ * the file as it is), so its signatures stay valid.
+ */
 async function annotatedBytes(
   cur: OpenFile,
-  options: { links?: boolean; markups?: readonly Markup[]; embedFont?: ExportOptions['embedFont'] } = {},
+  options: { links?: boolean; markups?: readonly Markup[]; embedFont?: ExportOptions['embedFont']; keepSigned?: boolean } = {},
 ): Promise<Uint8Array> {
   // pdf-lib is only needed here; load it on demand (the service worker still precaches it).
   const { exportWithAnnotations } = await import('@nb/markup/export');
   // Preferences › Markup › Embed Fonts: markup text carries its font files, so every reader shows it alike.
   const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
-  return exportWithAnnotations(await readFile(cur.file.hash), options.markups ?? cur.store.all(), {
+  const stored = await readFile(cur.file.hash);
+  const appending = options.keepSigned && hasSignature(new Uint8Array(stored));
+  return exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
+    ...(appending ? { open: async (b: ArrayBuffer) => (await import('./documents/incremental')).openAppending(b) } : {}),
     // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it.
     fallbackFont: async (doc, name) => (await import('./documents/archiveFonts')).embedFontOrStandard(doc, name),
     scaleFor: (i) => cur.store.scaleFor(i),
@@ -3738,8 +3745,10 @@ export function App() {
       setNotice(`Saved ${fileName}.`);
     };
     try {
-      const out = await annotatedBytes(cur);
-      assertKeepsSignatures(await readFile(cur.file.hash), out);
+      const out = await annotatedBytes(cur, { keepSigned: true });
+      const stored = new Uint8Array(await readFile(cur.file.hash));
+      assertKeepsSignatures(stored, out);
+      await assertCertificationAllowsMarkups(stored, out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
       const handle = saveAs ? null : await recallHandle(cur.file.id);
       if (handle) {
