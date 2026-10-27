@@ -41,21 +41,49 @@ function tidy(items: MenuEntry[]): MenuEntry[] {
   return out;
 }
 
-function MenuList({ items, onDone, sub, scroll }: { items: MenuEntry[]; onDone: () => void; sub?: boolean; scroll?: boolean }) {
+function MenuList({ items, onDone, sub, scroll, dir = 'r' }: { items: MenuEntry[]; onDone: () => void; sub?: boolean; scroll?: boolean; dir?: 'l' | 'r' }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [flip, setFlip] = useState({ x: false, y: 0 });
-  // Submenus open to the left, or shift up, when they would leave the window.
+  const [flip, setFlip] = useState({ x: false, y: 0, shift: 0 });
+  // Submenus open beside their parent item: on the side the parent chain already goes (so a third
+  // menu never lands back over the first), else the side with room. Re-measured on hover because
+  // the root menu is clamped into the window after its submenus first mount.
   useLayoutEffect(() => {
-    if (!sub || !ref.current) return;
-    const r = ref.current.getBoundingClientRect();
-    setFlip({ x: r.right > window.innerWidth - 4, y: Math.min(0, window.innerHeight - 4 - r.bottom) });
-  }, [sub]);
+    const el = ref.current;
+    const host = el?.parentElement;
+    if (!sub || !el || !host) return;
+    const win = el.ownerDocument.defaultView ?? window;
+    const measure = () => {
+      const pr = host.getBoundingClientRect();
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      // Room for this menu plus the widest menu that can open from it, so the next level does not
+      // have to fold back over this one's parent.
+      let deep = 0;
+      el.querySelectorAll<HTMLElement>('.ctx-sub').forEach((d) => (deep = Math.max(deep, d.offsetWidth)));
+      const right = win.innerWidth - 4 - pr.right;
+      const left = pr.left - 4;
+      const x = dir === 'l' ? !(left < w + deep && right > left) : right < w + deep && left > right;
+      // Whichever side is used, slide the menu back inside the window rather than crossing over its parent.
+      const shift = Math.min(0, (x ? left : right) - w);
+      setFlip((f) => {
+        const y = Math.min(0, win.innerHeight - 4 - (pr.top - 5 + h));
+        return f.x === x && f.y === y && f.shift === shift ? f : { x, y, shift };
+      });
+    };
+    measure();
+    host.addEventListener('mouseenter', measure);
+    host.addEventListener('focusin', measure);
+    return () => {
+      host.removeEventListener('mouseenter', measure);
+      host.removeEventListener('focusin', measure);
+    };
+  }, [sub, dir]);
   return (
     <div
       ref={ref}
       className={`ctx-menu${sub ? ' ctx-sub' : ''}${flip.x ? ' flip' : ''}${scroll ? ' ctx-scroll' : ''}`}
       role="menu"
-      style={sub && flip.y ? { marginTop: flip.y } : undefined}
+      style={sub && (flip.y || flip.shift) ? { marginTop: flip.y, ...(flip.x ? { marginRight: flip.shift } : { marginLeft: flip.shift }) } : undefined}
     >
       {tidy(items).map((it, i) => {
         if ('sep' in it) return <div key={`s${i}`} className="menu-sep" role="separator" />;
@@ -71,7 +99,7 @@ function MenuList({ items, onDone, sub, scroll }: { items: MenuEntry[]; onDone: 
             </span>
                 <span className="sc">▸</span>
               </button>
-              {!it.disabled && children.length > 0 && <MenuList items={children} onDone={onDone} sub />}
+              {!it.disabled && children.length > 0 && <MenuList items={children} onDone={onDone} sub dir={flip.x ? 'l' : 'r'} />}
             </div>
           );
         }
