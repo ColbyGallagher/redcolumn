@@ -152,6 +152,10 @@ test.describe('signatures', () => {
     await sign.getByLabel('Password').fill('e2e-password');
     await sign.getByLabel('Location').fill('E2E Lab');
     await sign.getByLabel('Invisible (listed in Signatures only)').check();
+    // LTV asks the certificate authority, which only the desktop app can reach.
+    const ltv = sign.getByLabel('Add long-term validation (LTV)');
+    if (app.kind === 'web') await expect(ltv).toBeDisabled();
+    else await expect(ltv).toBeEnabled();
     await sign.getByRole('button', { name: 'Sign' }).click();
     await expect(sign).toBeHidden({ timeout: 30_000 });
     const sig = app.page.locator('.dsig-list .dsig');
@@ -160,6 +164,8 @@ test.describe('signatures', () => {
     await expect(sig).toContainText('I am approving this document · E2E Lab');
     await expect(sig.locator('.dsig-status')).toHaveText(/^Valid: unchanged since it was signed/);
     await expect(sig).toContainText('Certificate: E2E Signer (self-signed)');
+    // A self-signed certificate has no authority to ask.
+    await expect(sig.getByRole('button', { name: 'Add LTV' })).toHaveCount(0);
   });
 
   test('tools.sign without an ID offers to make one', async ({ app }) => {

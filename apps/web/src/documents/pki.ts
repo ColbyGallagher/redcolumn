@@ -482,6 +482,8 @@ export interface TimestampInfo {
   /** The token is for this signature and the TSA's signature on it checks out. */
   verified: boolean;
   problem: string | null;
+  /** The certificates the token carries (DER), the TSA's first, for its LTV data. */
+  certificates: Uint8Array[];
 }
 
 /** Reads and checks a time stamp token against the signature value it should cover. */
@@ -494,7 +496,7 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
   const imprint = kids(tst[2]!);
   const hashName = HASH_OIDS[oidOf(kids(imprint[0]!)[0]!)];
   const time = timeOf(tst[4]!);
-  const info: TimestampInfo = { time, tsa: '', verified: false, problem: null };
+  const info: TimestampInfo = { time, tsa: '', verified: false, problem: null, certificates: [] };
   const certSet = parts.find((p) => isContext(p, 0));
   const certs = certSet ? await Promise.all(kids(certSet).map((c) => certFacts(der(c)))) : [];
   const si = kids(kids(parts[parts.length - 1]!)[0]!);
@@ -502,6 +504,7 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
   const serial = sid.tagClass === Class.UNIVERSAL ? serialHex(kids(sid)[1]!) : null;
   const tsaCert = certs.find((c) => !serial || c.serial === serial) ?? null;
   info.tsa = tsaCert?.subjectName ?? '';
+  if (tsaCert) info.certificates = [tsaCert.der, ...certs.filter((c) => c !== tsaCert).map((c) => c.der)];
   try {
     if (!hashName) throw new Error('The time stamp uses a hash this app cannot check');
     if (!same(bytesOf(imprint[1]!), await digest(hashName, signatureValue))) throw new Error('The time stamp is for another signature');
@@ -636,20 +639,34 @@ export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<
       }
     }
   if (!issuer) throw new Error('The issuer’s certificate is not available to check with');
+  return (await revocationEvidence(cert, issuer, fetcher)).revocation;
+}
+
+/** A revocation answer about a certificate, with the answer itself (to keep in the PDF for LTV). */
+export interface RevocationEvidence {
+  revocation: Revocation;
+  /** The OCSP response or the CRL, as the CA sent it. */
+  answer: Uint8Array;
+}
+
+/** Asks `cert`'s OCSP responder whether it was revoked, else fetches its CRL. */
+export async function revocationEvidence(cert: CertFacts, issuer: CertFacts, fetcher: PkiFetch): Promise<RevocationEvidence> {
   const problems: string[] = [];
   for (const url of cert.ocspUrls) {
     try {
-      return await ocspStatus(await fetcher(url, await ocspRequest(cert, issuer), 'application/ocsp-request'), cert, issuer);
+      const answer = await fetcher(url, await ocspRequest(cert, issuer), 'application/ocsp-request');
+      return { revocation: await ocspStatus(answer, cert, issuer), answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
     }
   }
   for (const url of cert.crlUrls) {
     try {
-      return await crlStatus(await fetcher(url), cert, issuer);
+      const answer = await fetcher(url);
+      return { revocation: await crlStatus(answer, cert, issuer), answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
     }
   }
-  throw new Error(problems.length ? problems.join('; ') : 'The certificate names no OCSP responder or revocation list');
+  throw new Error(problems.length ? problems.join('; ') : `${cert.subjectName}’s certificate names no OCSP responder or revocation list`);
 }

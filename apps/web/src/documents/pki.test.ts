@@ -2,8 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds.ts';
-import { PDFDocument } from 'pdf-lib';
-import { checkSignatures, signPdf } from './pdfSign.ts';
+import { degrees, PDFDict, PDFDocument, PDFName } from 'pdf-lib';
+import { openForEdit } from './incremental.ts';
+import { readDss } from './ltv.ts';
+import { addValidationData, checkSignatures, signPdf } from './pdfSign.ts';
 import { buildChain, certFacts, certificatesIn, checkRevocation, completeChain, crlStatus, fetchTimestamp, ocspRequest, ocspStatus, readTimestamp, signatureValueOf, timestampTokenOf, withTimestamp } from './pki.ts';
 
 const asn1 = forge.asn1;
@@ -278,4 +280,94 @@ test('a PDF signed with a time stamp shows when the TSA says it was signed, and 
   assert.deepEqual(check!.chain.names, ['Jane Signer', 'Test Root']);
   assert.equal(check!.chain.complete, true);
   assert.equal(check!.certificates.length, 2);
+});
+
+/** A small PDF signed by the signer, carrying only its own certificate (the root comes from CA Issuers). */
+async function signedPdf(opts: { timestamp?: boolean } = {}): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 200]);
+  const id = { key: signer.key.privateKey, chain: [signer.cert], chainDer: [signer.der] };
+  return signPdf(await doc.save(), id, {
+    reason: 'Approved',
+    ...(opts.timestamp ? { timestamp: (value: Uint8Array) => fetchTimestamp('http://tsa.example/', value, async (_u, body) => tsaResponse(body!, new Date(Date.now() - 60_000))) } : {}),
+  });
+}
+
+/** The CA: its root at CA Issuers, OCSP answers (good, or revoked), and its CRL. */
+function ca(revoked = false, asked: string[] = []) {
+  return async (url: string, body?: Uint8Array) => {
+    asked.push(url);
+    if (url.endsWith('.cer')) return root.der;
+    if (url.startsWith('http://ocsp')) return ocspResponse(body!, revoked ? new Date(Date.UTC(2026, 0, 2)) : null);
+    return crl([]);
+  };
+}
+
+test('LTV: the chain and an OCSP answer go in a DSS, appended, and the signature stays valid', async () => {
+  const signed = await signedPdf();
+  const [before] = await checkSignatures(signed);
+  assert.equal(before!.ltv, false);
+  assert.equal(before!.chain.complete, false);
+  const asked: string[] = [];
+  const out = await addValidationData(signed, ca(false, asked));
+  assert.equal(out.signatures, 1);
+  assert.deepEqual(out.problems, []);
+  assert.deepEqual(asked, ['http://ca.example/root.cer', 'http://ocsp.example/']);
+  assert.deepEqual(out.bytes.subarray(0, signed.length), signed, 'the signed bytes are kept');
+  const [check] = await checkSignatures(out.bytes);
+  assert.equal(check!.intact, true, check!.problem ?? '');
+  assert.equal(check!.coversWholeFile, false);
+  assert.equal(check!.onlyValidationAdded, true);
+  assert.equal(check!.ltv, true);
+  // The root kept in the DSS completes the chain offline.
+  assert.equal(check!.chain.complete, true);
+  const doc = await PDFDocument.load(out.bytes);
+  const dss = readDss(doc);
+  assert.equal(dss.certs.length, 2);
+  assert.equal(dss.ocsps.length, 1);
+  const vri = doc.catalog.lookup(PDFName.of('DSS'), PDFDict).lookup(PDFName.of('VRI'), PDFDict);
+  assert.ok(vri.get(PDFName.of(check!.vri)), 'a VRI entry for the signature');
+  // Nothing more to add.
+  await assert.rejects(addValidationData(out.bytes, ca()), /No signature needs/);
+});
+
+test('LTV: a CRL when OCSP fails; a revoked certificate gets none', async () => {
+  const signed = await signedPdf();
+  const viaCrl = await addValidationData(signed, async (url, body) => {
+    if (url.startsWith('http://ocsp')) throw new Error('offline');
+    return ca()(url, body);
+  });
+  const [check] = await checkSignatures(viaCrl.bytes);
+  assert.equal(check!.ltv, true);
+  assert.equal(readDss(await PDFDocument.load(viaCrl.bytes)).crls.length, 1);
+  await assert.rejects(addValidationData(signed, ca(true)), /Jane Signer’s certificate is revoked/);
+  // No root to be had: nothing is added.
+  await assert.rejects(addValidationData(signed, async () => tsa.der), /issuer/);
+});
+
+test('LTV: a time stamp server without revocation addresses is noted; the signature still gets its data', async () => {
+  const out = await addValidationData(await signedPdf({ timestamp: true }), ca());
+  assert.equal(out.signatures, 1);
+  assert.equal(out.problems.length, 1);
+  assert.match(out.problems[0]!, /^Test TSA: .*names no OCSP responder/);
+  const [check] = await checkSignatures(out.bytes);
+  assert.equal(check!.ltv, true);
+  assert.equal(check!.timestamp?.verified, true);
+});
+
+test('changes after the validation data still show as changes', async () => {
+  const { bytes: ltv } = await addValidationData(await signedPdf(), ca());
+  for (const change of [(d: PDFDocument) => d.catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines')), (d: PDFDocument) => d.getPage(0).setRotation(degrees(90))]) {
+    const edit = await openForEdit(ltv);
+    change(edit.doc);
+    const [check] = await checkSignatures(await edit.save());
+    assert.equal(check!.intact, true);
+    assert.equal(check!.onlyValidationAdded, false);
+  }
+  // A DSS added together with other changes is not only validation data either.
+  const signed = await signedPdf();
+  const edit = await openForEdit(signed);
+  edit.doc.getPage(0).setRotation(degrees(90));
+  const withDss = await addValidationData(await edit.save(), ca());
+  assert.equal((await checkSignatures(withDss.bytes))[0]!.onlyValidationAdded, false);
 });

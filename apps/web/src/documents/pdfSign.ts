@@ -3,7 +3,8 @@ import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRe
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
 import { saveIncremental, snapshot } from './incremental';
 import { binaryToBytes, bytesToBinary, readCertificate, type UnlockedId } from './digitalIds';
-import { buildChain, buildSignedData, certFacts, readTimestamp, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type RawSign, type TimestampInfo } from './pki';
+import { addDss, onlyValidationAdded, readDss, vriKey, type Dss, type ValidationEntry } from './ltv';
+import { buildChain, buildSignedData, certFacts, completeChain, crlStatus, ocspStatus, readTimestamp, revocationEvidence, signatureValueOf, timestampTokenOf, verifySignature, withTimestamp, type Chain, type PkiFetch, type RawSign, type TimestampInfo } from './pki';
 
 /**
  * PDF digital signatures: signing (a CMS detached signature over the file's bytes, written with
@@ -234,6 +235,15 @@ export interface SignatureCheck {
   problem: string | null;
   /** The signature covers the whole file (nothing was added after it). */
   coversWholeFile: boolean;
+  /** What was added after it is only validation data (a DSS), which leaves the signed document as it was. */
+  onlyValidationAdded: boolean;
+  /**
+   * Long-term validation: the PDF holds the signer's whole chain and a checked "not revoked"
+   * answer (OCSP or CRL) for every certificate in it but the root, so it can be checked offline later.
+   */
+  ltv: boolean;
+  /** The signature's key in the DSS's /VRI. */
+  vri: string;
   /** Certification level (DocMDP P), for certifying signatures. */
   certify: 1 | 2 | 3 | null;
   certificate: { fingerprint: string; selfSigned: boolean; notBefore: Date; notAfter: Date; validAtSigning: boolean } | null;
@@ -374,6 +384,9 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
   const acro = doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict);
   if (!acro) return [];
+  const dss = readDss(doc);
+  // Signatures of the same version share the answer.
+  const laterOnlyValidation = new Map<number, boolean>();
   const out: SignatureCheck[] = [];
   for (const field of doc.getForm().getFields()) {
     if (!(field instanceof PDFSignature)) continue;
@@ -392,6 +405,9 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       intact: false,
       problem: null,
       coversWholeFile: false,
+      onlyValidationAdded: false,
+      ltv: false,
+      vri: '',
       certify: null,
       certificate: null,
       signedLength: 0,
@@ -423,6 +439,15 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       if (s1 !== 0 || s2 + l2 > bytes.length || l1 > s2) throw new Error('The signature’s byte range is outside the file');
       check.signedLength = s2 + l2;
       check.coversWholeFile = s2 + l2 === bytes.length;
+      check.vri = await vriKey(contents.asBytes());
+      if (!check.coversWholeFile && dss.certs.length + dss.ocsps.length + dss.crls.length) {
+        let only = laterOnlyValidation.get(check.signedLength);
+        if (only === undefined) {
+          only = await onlyValidationAdded(bytes.subarray(0, check.signedLength), bytes).catch(() => false);
+          laterOnlyValidation.set(check.signedLength, only);
+        }
+        check.onlyValidationAdded = only;
+      }
       const cms = parseCms(contents.asBytes());
       const signerDer = cms.certs[0];
       const signerInfo = await (async () => {
@@ -447,8 +472,10 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
       // The signer's own certificate first.
       check.certificates = [signerInfo.der, ...cms.certs.filter((d) => d !== signerInfo.der)];
       try {
-        const chain = await buildChain(signerInfo.der, cms.certs);
+        // Certificates kept for LTV fill in what the signature leaves out.
+        const chain = await buildChain(signerInfo.der, [...cms.certs, ...dss.certs]);
         check.chain = { names: chain.certs.map((c) => c.subjectName), fingerprints: chain.certs.map((c) => c.fingerprint), complete: chain.complete, problem: chain.problem };
+        check.ltv = await revocationKept(chain, dss);
       } catch (err) {
         check.chain.problem = err instanceof Error ? err.message : String(err);
       }
@@ -457,7 +484,7 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
         try {
           check.timestamp = await readTimestamp(token, cms.signature);
         } catch (err) {
-          check.timestamp = { time: new Date(NaN), tsa: '', verified: false, problem: err instanceof Error ? err.message : String(err) };
+          check.timestamp = { time: new Date(NaN), tsa: '', verified: false, problem: err instanceof Error ? err.message : String(err), certificates: [] };
         }
         // A verified time stamp is when it was signed, whatever the signer's clock said.
         if (check.timestamp.verified) check.signedAt = check.timestamp.time;
@@ -482,6 +509,98 @@ export async function checkSignatures(bytes: Uint8Array): Promise<SignatureCheck
     out.push(check);
   }
   return out;
+}
+
+/** Whether the DSS holds a checked "not revoked" answer for every certificate in a complete chain but its root. */
+async function revocationKept(chain: Chain, dss: Dss): Promise<boolean> {
+  if (!chain.complete || chain.certs.length < 2) return false;
+  for (let i = 0; i < chain.certs.length - 1; i++) {
+    const cert = chain.certs[i]!;
+    const issuer = chain.certs[i + 1]!;
+    let ok = false;
+    for (const [answers, read] of [
+      [dss.ocsps, ocspStatus],
+      [dss.crls, crlStatus],
+    ] as const) {
+      for (const answer of answers) {
+        try {
+          const r = await read(answer, cert, issuer);
+          if (!r.verified) continue;
+          // A revoked certificate's signature is not LTV, whatever else is kept.
+          if (r.status !== 'good') return false;
+          ok = true;
+        } catch {
+          // About another certificate, or from another issuer.
+        }
+      }
+      if (ok) break;
+    }
+    if (!ok) return false;
+  }
+  return true;
+}
+
+export interface ValidationAdded {
+  bytes: Uint8Array;
+  /** Signatures given validation data. */
+  signatures: number;
+  /** What could not be gathered, per signature (a signature here may still have got its own). */
+  problems: string[];
+}
+
+/**
+ * Adds long-term validation data (LTV) for the PDF's intact signatures that lack it: each signer's
+ * whole chain (completed from CA Issuers addresses, `anchors` being known roots) and an OCSP answer
+ * or CRL for each certificate in it but the root, checked, and the same for a time stamp's server
+ * where it can be had. They go in the DSS, appended, so the signatures stay valid. `fields` limits
+ * it to those signatures. Fails, adding nothing, when no signature could be given its data.
+ */
+export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, opts: { anchors?: readonly Uint8Array[]; fields?: readonly string[] } = {}): Promise<ValidationAdded> {
+  const checks = (await checkSignatures(bytes)).filter((c) => c.intact && !c.ltv && c.certificates.length && (!opts.fields || opts.fields.includes(c.field)));
+  if (!checks.length) throw new Error('No signature needs validation data');
+  const kept = readDss(await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false }));
+  const anchors = opts.anchors ?? [];
+  const problems: string[] = [];
+  const entries: ValidationEntry[] = [];
+  /** The chain from `certs` (the first is the one to validate) and each link's revocation answer, into `entry`. */
+  const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, pool: readonly Uint8Array[] = []) => {
+    let chain = await buildChain(certs[0]!, [...certs, ...kept.certs, ...pool]);
+    if (!chain.complete) chain = await completeChain(chain, fetcher, { pool: [...certs.slice(1), ...pool], anchors });
+    if (!chain.complete) throw new Error(chain.problem ?? 'Its certificate chain is incomplete');
+    entry.certs.push(...chain.certs.map((c) => c.der));
+    for (let i = 0; i < chain.certs.length - 1; i++) {
+      const cert = chain.certs[i]!;
+      const { revocation, answer } = await revocationEvidence(cert, chain.certs[i + 1]!, fetcher);
+      if (!revocation.verified) throw new Error(`The ${revocation.via} answer about ${cert.subjectName} is not signed by its issuer`);
+      if (revocation.status !== 'good') throw new Error(`${cert.subjectName}’s certificate is ${revocation.status === 'revoked' ? 'revoked' : 'unknown to its CA'}`);
+      (revocation.via === 'OCSP' ? entry.ocsps : entry.crls).push(answer);
+    }
+  };
+  for (const c of checks) {
+    const entry: ValidationEntry = { vri: c.vri, certs: [], ocsps: [], crls: [] };
+    try {
+      await gather(c.certificates, entry);
+    } catch (err) {
+      problems.push(`${c.signer || c.field}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    // The time stamp server's own, best effort: the signature's data stands without it.
+    if (c.timestamp?.verified && c.timestamp.certificates.length) {
+      const tsa: ValidationEntry = { vri: c.vri, certs: [], ocsps: [], crls: [] };
+      try {
+        // Often the same CA as the signer's: its chain may finish the server's.
+        await gather(c.timestamp.certificates, tsa, entry.certs);
+        entry.certs.push(...tsa.certs);
+        entry.ocsps.push(...tsa.ocsps);
+        entry.crls.push(...tsa.crls);
+      } catch (err) {
+        problems.push(`${c.timestamp.tsa || 'Time stamp server'}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    entries.push(entry);
+  }
+  if (!entries.length) throw new Error(problems.join('; '));
+  return { bytes: await addDss(bytes, entries), signatures: entries.length, problems };
 }
 
 /** The file as it was when a signature was made (its signed version). */

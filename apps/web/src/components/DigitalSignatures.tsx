@@ -19,7 +19,12 @@ interface SectionProps {
   onOpenSignedVersion: (check: SignatureCheck) => void;
   /** Asks the certificate's OCSP responder (or its CRL) whether it was revoked; resolves to a sentence. */
   onCheckRevocation: (check: SignatureCheck) => Promise<string>;
+  /** Adds the signature's long-term validation data (desktop only); resolves to a sentence. */
+  onAddLtv?: (check: SignatureCheck) => Promise<string>;
 }
+
+/** Nothing but validation data was added after it: the signed document is the whole document. */
+const unchanged = (c: SignatureCheck) => c.coversWholeFile || c.onlyValidationAdded;
 
 /** The certificate in the signer's chain the user trusts (the signer's own, or an issuer's), if any. */
 function trustedBy(c: SignatureCheck, trusted: readonly string[]): string | null {
@@ -33,7 +38,7 @@ function status(c: SignatureCheck, trusted: readonly string[]): { tone: 'ok' | '
   if (!c.intact) return { tone: 'bad', text: c.problem ?? 'Invalid' };
   const by = trustedBy(c, trusted);
   const who = !by ? 'identity not verified' : by === c.signer ? 'identity trusted' : `identity trusted through ${by}`;
-  if (!c.coversWholeFile) return { tone: 'warn', text: `Valid for the version signed; the document changed afterwards (${who})` };
+  if (!unchanged(c)) return { tone: 'warn', text: `Valid for the version signed; the document changed afterwards (${who})` };
   if (c.certificate && !c.certificate.validAtSigning) return { tone: 'warn', text: 'Valid, but the certificate was not valid when it was signed' };
   if (c.timestamp && !c.timestamp.verified) return { tone: 'warn', text: `Valid, but its time stamp is not: ${c.timestamp.problem ?? 'unverified'}` };
   return { tone: by ? 'ok' : 'warn', text: `Valid: unchanged since it was signed (${who})` };
@@ -42,8 +47,9 @@ function status(c: SignatureCheck, trusted: readonly string[]): { tone: 'ok' | '
 const CERTIFY = { 1: 'no changes allowed', 2: 'form filling and signing allowed', 3: 'form filling, signing and markups allowed' } as const;
 
 /** The PDF's digital signatures, checked, with Sign and Digital IDs. */
-export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onManageIds, onGo, onTrust, onOpenSignedVersion, onCheckRevocation }: SectionProps) {
+export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onManageIds, onGo, onTrust, onOpenSignedVersion, onCheckRevocation, onAddLtv }: SectionProps) {
   const [revocation, setRevocation] = useState<Record<string, string>>({});
+  const [ltvNote, setLtvNote] = useState<Record<string, string>>({});
   return (
     <div className="digital-signatures">
       <h3>Digital Signatures</h3>
@@ -77,7 +83,8 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                   {c.reason ? ` · ${c.reason}` : ''}
                   {c.location ? ` · ${c.location}` : ''}
                   {c.certify ? ` · ${CERTIFY[c.certify]}` : ''}
-                  {c.format === 'pades' ? (c.timestamp?.verified ? ' · PAdES B-T' : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
+                  {c.format === 'pades' ? (c.timestamp?.verified ? (c.ltv ? ' · PAdES B-LT' : ' · PAdES B-T') : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
+                  {c.ltv ? ' · LTV enabled' : ''}
                 </div>
                 {c.certificate && (
                   <div className="print-hint">
@@ -92,8 +99,9 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                   </div>
                 )}
                 {revocation[c.field] && <div className="print-hint dsig-revocation">{revocation[c.field]}</div>}
+                {ltvNote[c.field] && <div className="print-hint dsig-revocation">{ltvNote[c.field]}</div>}
                 <div className="dsig-actions">
-                  {c.intact && !c.coversWholeFile && (
+                  {c.intact && !unchanged(c) && (
                     <button className="btn small flat" onClick={() => onOpenSignedVersion(c)}>
                       Open signed version
                     </button>
@@ -121,6 +129,21 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                       }}
                     >
                       Check revocation
+                    </button>
+                  )}
+                  {onAddLtv && c.intact && !c.ltv && c.certificate && !c.certificate.selfSigned && (
+                    <button
+                      className="btn small flat"
+                      title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"
+                      onClick={() => {
+                        setLtvNote((r) => ({ ...r, [c.field]: 'Adding long-term validation…' }));
+                        void onAddLtv(c).then(
+                          (text) => setLtvNote((r) => ({ ...r, [c.field]: text })),
+                          (err) => setLtvNote((r) => ({ ...r, [c.field]: `LTV not added: ${err instanceof Error ? err.message : String(err)}` })),
+                        );
+                      }}
+                    >
+                      Add LTV
                     </button>
                   )}
                 </div>
@@ -409,6 +432,44 @@ export interface SignChoice {
   where: 'field' | 'invisible' | 'draw';
   /** A time stamp server (RFC 3161) to get a trusted signing time from, or none. */
   timestampUrl: string | null;
+  /** Add long-term validation data (the chain and revocation answers) once signed. */
+  ltv: boolean;
+}
+
+const LTV_KEY = 'nb.ltv';
+/** Whether LTV data is added after signing (never where certificate services cannot be reached). */
+export function savedLtv(): boolean {
+  try {
+    return canTimestamp() && localStorage.getItem(LTV_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+export function saveLtv(on: boolean) {
+  if (!canTimestamp()) return;
+  try {
+    localStorage.setItem(LTV_KEY, on ? '1' : '0');
+  } catch {
+    // Not remembered.
+  }
+}
+
+/** "Add long-term validation (LTV)"; the choice is remembered. */
+export function LtvOption({ value, onChange }: { value: boolean; onChange: (on: boolean) => void }) {
+  const available = canTimestamp();
+  return (
+    <label
+      className="check"
+      title={
+        available
+          ? 'Keeps the certificate chain and the certificate authority’s “not revoked” answer in the PDF, so the signature can still be checked after the certificate expires or the authority’s servers are gone. This computer asks the authority about the certificate, not the document.'
+          : 'Long-term validation needs the desktop app: browsers cannot reach certificate authorities.'
+      }
+    >
+      <input type="checkbox" checked={value && available} disabled={!available} onChange={(e) => onChange(e.target.checked)} />
+      Add long-term validation (LTV)
+    </label>
+  );
 }
 
 const TSA_KEY = 'nb.tsaUrl';
@@ -480,6 +541,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
   const [imageId, setImageId] = useState<string | null>(pictures.find((p) => p.kind === 'signature')?.id ?? null);
   const [where, setWhere] = useState<SignChoice['where']>(fieldName ? 'field' : 'draw');
   const [tsa, setTsa] = useState(savedTsa);
+  const [ltv, setLtv] = useState(savedLtv);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const card = ids.find((i) => i.id === idId)?.token;
@@ -500,7 +562,8 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
           setBusy(true);
           setError(null);
           saveTsa(tsa);
-          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null }).catch((err) => {
+          saveLtv(ltv);
+          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv }).catch((err) => {
             setError(err instanceof Error ? err.message : String(err));
             setBusy(false);
           });
@@ -587,6 +650,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
               </select>
             </label>
             <TimestampOption value={tsa} onChange={setTsa} />
+            <LtvOption value={ltv} onChange={setLtv} />
           </>
         )}
         {error && <p className="print-error">{error}</p>}
