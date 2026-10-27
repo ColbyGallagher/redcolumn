@@ -134,6 +134,7 @@ export interface CommandActions {
   /** Quarter turns clockwise (3 is counterclockwise). */
   rotatePages: (quarterTurns: number) => void;
   insertPages: () => void;
+  bulkInsertPages: () => void;
   insertBlank: () => void;
   extractPages: () => void;
   /** The current page, with its markups, as a picture on the clipboard. */
@@ -436,6 +437,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.rotatePages', 'Document', 'Rotate Pages', () => a.rotatePages(1), s.pagesEditable),
     cmd('document.rotateCounterclockwise', 'Document', 'Rotate Pages Counterclockwise', () => a.rotatePages(3), s.pagesEditable),
     cmd('document.insertPages', 'Document', 'Insert Pages from PDF…', a.insertPages, s.pagesEditable),
+    cmd('document.bulkInsertPages', 'Document', 'Bulk Insert PDFs…', a.bulkInsertPages, s.pagesEditable),
     cmd('document.insertBlank', 'Document', 'Insert Blank Pages…', a.insertBlank, s.pagesEditable),
     cmd('document.extractPages', 'Document', 'Extract Pages…', a.extractPages, s.pagesEditable && s.canSaveCopy),
     cmd('document.copyPageSnapshot', 'Document', 'Copy Page to Snapshot', a.copyPageSnapshot, doc),
