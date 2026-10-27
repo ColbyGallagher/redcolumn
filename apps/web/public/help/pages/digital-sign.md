@@ -20,4 +20,6 @@
 
 Open the [Signatures panel](#signatures). Under **Digital Signatures**, each signature is listed with who signed, when, and whether the document has changed since. Click the check button to ask the certificate authority whether the certificate was revoked. **LTV enabled** means the PDF holds what is needed to check the signature without going online; **Add LTV** adds it to a signature that lacks it (desktop app only).
 
+> **Warning:** If a PDF contains active content (JavaScript, or actions that open a file or program), the Sign dialog and the Signatures panel say so. A script can change what the document shows without changing the signed bytes, so what you see may not be what was signed. Sign or rely on such a file only if you trust where it came from. Bulk Sign & Seal signs it anyway and notes it in the results.
+
 > **Warning:** After signing, don't change the document (markups, page changes, Reduce File Size) unless the signature allows it, or the signature will show as broken. To sign many files at once, use [Bulk Sign & Seal](#batch-sign).

@@ -4308,6 +4308,16 @@
   margin: 2px 0;
 }
 
+/* Active content (JavaScript, Launch actions) in a document being signed or checked. */
+.active-content-warning {
+  margin: 6px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid #e0a030;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
 .digital-ids .id-list {
   list-style: none;
   margin: 0;
