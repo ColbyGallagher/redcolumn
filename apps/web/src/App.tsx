@@ -588,6 +588,36 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   return viaDesktop(url, body, type);
 }
 
+/**
+ * The roots LTV builds on: the desktop app's known roots (which also end chains whose CA publishes
+ * no root address) and the certificates the user trusts. A time stamp counts only from a server under one.
+ */
+async function ltvTrust() {
+  const { certificatesIn } = await import('./documents/pki');
+  const roots = (await desktop()?.pkiRoots?.().catch(() => [])) ?? [];
+  return { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), trusted: digitalIds.trusted() };
+}
+
+/** Adds long-term validation data to a PDF's signatures: those named, the newest, or all that lack it. */
+async function addLtv(bytes: Uint8Array, which: { fields?: string[]; newest?: boolean } = {}) {
+  const { addValidationData } = await import('./documents/pdfSign');
+  return addValidationData(bytes, pkiFetch, { ...(await ltvTrust()), ...which });
+}
+
+/**
+ * Adds long-term validation data to a freshly signed PDF. The signature stands without it, so
+ * when it cannot be had (offline, a CA with no OCSP or CRL) the signed file is kept and `note` says why.
+ */
+async function withLtv(signed: Uint8Array): Promise<{ bytes: Uint8Array; note: string | null }> {
+  try {
+    // Only the signature just made: others in the file are their signers' to complete.
+    const out = await addLtv(signed, { newest: true });
+    return { bytes: out.bytes, note: out.problems.length ? `LTV added, but not for all of it: ${out.problems.join('; ')}` : null };
+  } catch (err) {
+    return { bytes: signed, note: `Long-term validation not added: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 /** Tablets upright and phones, where side panels are drawers over the drawing (see offline.css). */
 const NARROW_QUERY = '(max-width: 1000px)';
 const narrowScreen = () => !!window.matchMedia?.(NARROW_QUERY).matches;
@@ -3283,7 +3313,7 @@ export function App() {
                     c.placement === 'invisible'
                       ? undefined
                       : { pageIndex, rect: { x: c.placement.endsWith('Left') ? 36 : size.width - 36 - w, y: c.placement.startsWith('top') ? 36 : size.height - 36 - h, w, h } };
-                  const bytes = await signPdf(new Uint8Array(await readFile(cur.file.hash)), signer!.id, {
+                  const signed = await signPdf(new Uint8Array(await readFile(cur.file.hash)), signer!.id, {
                     ...(area ? { area } : {}),
                     ...(c.reason ? { reason: c.reason } : {}),
                     ...(c.location ? { location: c.location } : {}),
@@ -3293,8 +3323,9 @@ export function App() {
                     format: settings.get().signatureFormat,
                     ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
                   });
+                  const { bytes, note: ltvNote } = c.ltv ? await withLtv(signed) : { bytes: signed, note: null };
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
-                  message = `Signed${c.certify ? ' and certified' : ''}${c.timestampUrl ? ', time stamped' : ''}`;
+                  message = `Signed${c.certify ? ' and certified' : ''}${c.timestampUrl ? ', time stamped' : ''}${c.ltv && bytes !== signed ? ', LTV' : ''}${ltvNote ? `. ${ltvNote}` : ''}`;
                   break;
                 }
                 case 'pageLabels': {
@@ -3586,7 +3617,7 @@ export function App() {
       let checks: SignatureCheck[] = [];
       try {
         const { checkSignatures } = await import('./documents/pdfSign');
-        checks = await checkSignatures(new Uint8Array(await readFile(hash)));
+        checks = await checkSignatures(new Uint8Array(await readFile(hash)), await ltvTrust());
       } catch {
         // Unreadable: shown as no signatures.
       }
@@ -3594,6 +3625,8 @@ export function App() {
       checkingSigs.current.delete(hash);
     })();
   }, [open, openB, split, activePane, leftTab, rightTab, sigChecks]);
+  // Whose time stamps LTV relies on changed: check again.
+  useEffect(() => setSigChecks({}), [trustedCerts]);
 
   /** Signs the document (an empty field, a drawn box, or invisibly) and keeps the version before as a revision. */
   const runSign = useCallback(
@@ -3605,11 +3638,12 @@ export function App() {
       const id = signerFor(record, c.password);
       const picture = c.imageId ? signatures.get().find((p) => p.id === c.imageId) : undefined;
       const image = picture ? new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) : undefined;
+      let ltvNote: string | null = null;
       const ok = await editForm(
         fileId,
         'Signing',
-        async (bytes) =>
-          signPdf(new Uint8Array(bytes), id, {
+        async (bytes) => {
+          const signed = await signPdf(new Uint8Array(bytes), id, {
             ...target,
             ...(c.reason ? { reason: c.reason } : {}),
             ...(c.location ? { location: c.location } : {}),
@@ -3618,13 +3652,18 @@ export function App() {
             digest: settings.get().signatureAlgorithm,
             format: settings.get().signatureFormat,
             ...(c.timestampUrl ? { timestamp: async (value: Uint8Array) => (await import('./documents/pki')).fetchTimestamp(c.timestampUrl!, value, pkiFetch) } : {}),
-          }),
+          });
+          if (!c.ltv) return signed;
+          const out = await withLtv(signed);
+          ltvNote = out.note;
+          return out.bytes;
+        },
         'Before signing',
         // A card checks its PIN only now: a wrong one is shown in the Sign dialog, which stays open.
         true,
       );
       if (!ok) return;
-      setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.`);
+      setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.${ltvNote ? ` ${ltvNote}` : ''}`);
       showPanel('signatures');
     },
     [editForm],
@@ -8549,6 +8588,26 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   ? `Revoked${r.revokedAt ? ` on ${r.revokedAt.toLocaleString()}` : ''} (${r.via}).${c.signedAt && r.revokedAt && c.signedAt < r.revokedAt ? ' It was signed before that.' : ''}${trust}`
                   : `The ${r.via} responder does not know this certificate.`;
             }}
+            {...(desktop()?.pkiFetch
+              ? {
+                  onAddLtv: async (c: SignatureCheck) => {
+                    if (!activeOpen) throw new Error('No document is open');
+                    let note: string | null = null;
+                    const ok = await editForm(
+                      activeOpen.file.id,
+                      'Adding long-term validation',
+                      async (bytes) => {
+                        const out = await addLtv(new Uint8Array(bytes), { fields: [c.field] });
+                        note = out.problems.length ? `Added, but not for all of it: ${out.problems.join('; ')}` : null;
+                        return out.bytes;
+                      },
+                      'Before adding long-term validation',
+                      true,
+                    );
+                    return ok ? (note ?? 'Long-term validation added: the chain and revocation answers are kept in the PDF.') : 'LTV not added.';
+                  },
+                }
+              : {})}
             onOpenSignedVersion={(c) => {
               if (!activeOpen) return;
               void (async () => {

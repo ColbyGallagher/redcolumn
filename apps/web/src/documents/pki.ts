@@ -129,6 +129,13 @@ export interface CertFacts {
   ocspUrls: string[];
   crlUrls: string[];
   caIssuerUrls: string[];
+  /** Extended key usage purposes (OIDs), empty when the certificate does not limit them. */
+  extendedKeyUsage: string[];
+  /** Basic constraints: a CA (true), not one (false), or none given (null); and its path length limit. */
+  ca: boolean | null;
+  pathLen: number | null;
+  /** Key usage allows signing certificates (keyCertSign), or null when it does not limit the key. */
+  keyCertSign: boolean | null;
   fingerprint: string;
 }
 
@@ -153,6 +160,11 @@ function nameText(name: Node): string {
   return found.get(OID.commonName) ?? found.get(OID.org) ?? '';
 }
 
+const EXTENDED_KEY_USAGE = '2.5.29.37';
+const BASIC_CONSTRAINTS = '2.5.29.19';
+const KEY_USAGE = '2.5.29.15';
+const OCSP_SIGNING = '1.3.6.1.5.5.7.3.9';
+
 export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
   const node = parse(bytes);
   const fields = kids(kids(node)[0]!);
@@ -173,6 +185,10 @@ export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
     ocspUrls: [],
     crlUrls: [],
     caIssuerUrls: [],
+    extendedKeyUsage: [],
+    ca: null,
+    pathLen: null,
+    keyCertSign: null,
     fingerprint: hex(await digest('SHA-256', bytes)),
   };
   const extensions = fields.find((f) => isContext(f, 3));
@@ -188,6 +204,18 @@ export async function certFacts(bytes: Uint8Array): Promise<CertFacts> {
         else if (oidOf(method!) === OID.caIssuers) facts.caIssuerUrls.push(...uris);
       }
     else if (id === OID.crlDistributionPoints) facts.crlUrls.push(...urisIn(value));
+    else if (id === EXTENDED_KEY_USAGE) facts.extendedKeyUsage = kids(value).map(oidOf);
+    else if (id === BASIC_CONSTRAINTS) {
+      // SEQUENCE { cA BOOLEAN DEFAULT FALSE, pathLenConstraint INTEGER OPTIONAL }
+      const parts = kids(value);
+      const flag = parts.find((p) => p.type === Type.BOOLEAN);
+      const len = parts.find((p) => p.type === Type.INTEGER);
+      facts.ca = !!flag && (flag.value as string) !== '\x00';
+      facts.pathLen = len ? asn1.derToInteger(len.value as string) : null;
+    } else if (id === KEY_USAGE) {
+      // BIT STRING, keyCertSign is bit 5.
+      facts.keyCertSign = !!((bitsOf(value)[0] ?? 0) & 0x04);
+    }
   }
   const web = (u: string) => /^https?:\/\//i.test(u);
   facts.ocspUrls = facts.ocspUrls.filter(web);
@@ -211,18 +239,41 @@ export interface Chain {
   problem: string | null;
 }
 
-/** Builds the signer's chain from the certificates at hand (a signature carries its chain). */
+/**
+ * Whether a certificate may issue others (RFC 5280 4.2.1.3, 4.2.1.9): a CA by its basic
+ * constraints, its key usage (if limited) allowing certificate signing. A self-signed root with no
+ * basic constraints at all (version 1, as some old roots are) counts too.
+ */
+const canIssue = (c: CertFacts) => c.keyCertSign !== false && (c.ca === true || (c.ca === null && selfIssued(c)));
+
+/** Whether every CA in a chain (signer first) allows as many CAs below it as there are. */
+function withinPathLength(certs: readonly CertFacts[]): boolean {
+  for (let i = 1; i < certs.length; i++) {
+    const limit = certs[i]!.pathLen;
+    // CAs between it and the end entity, not counting self-issued ones.
+    const below = certs.slice(1, i).filter((c) => !selfIssued(c)).length;
+    if (limit !== null && below > limit) return false;
+  }
+  return true;
+}
+
+/**
+ * Builds the signer's chain from the certificates at hand (a signature carries its chain). Only a
+ * certificate allowed to issue others (`canIssue`) is taken as an issuer: any certificate can sign
+ * another, and a chain through one that may not would let anyone under a known root mint certificates.
+ */
 export async function buildChain(signer: Uint8Array, pool: readonly Uint8Array[]): Promise<Chain> {
   const all = await Promise.all(pool.map(certFacts));
   const first = await certFacts(signer);
   const certs = [first];
   for (let cur = first; certs.length < 10; ) {
     if (selfIssued(cur)) {
+      if (certs.length > 1 && !withinPathLength(certs)) return { certs, complete: false, problem: `${cur.subjectName}’s certificate allows fewer certificate authorities below it than this chain has` };
       const ok = await verifySigned(cur.node, cur.spki);
       return { certs, complete: ok, problem: ok ? null : `${cur.subjectName}’s certificate does not check out` };
     }
     let next: CertFacts | null = null;
-    for (const c of all) if (c.fingerprint !== cur.fingerprint && !certs.some((x) => x.fingerprint === c.fingerprint) && (await issuedBy(cur, c))) next = c;
+    for (const c of all) if (c.fingerprint !== cur.fingerprint && !certs.some((x) => x.fingerprint === c.fingerprint) && canIssue(c) && (await issuedBy(cur, c))) next = c;
     if (!next) return { certs, complete: false, problem: `The certificate of ${cur.subjectName}’s issuer is not in the signature` };
     certs.push(next);
     cur = next;
@@ -482,6 +533,8 @@ export interface TimestampInfo {
   /** The token is for this signature and the TSA's signature on it checks out. */
   verified: boolean;
   problem: string | null;
+  /** The certificates the token carries (DER), the TSA's first, for its LTV data. */
+  certificates: Uint8Array[];
 }
 
 /** Reads and checks a time stamp token against the signature value it should cover. */
@@ -494,7 +547,7 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
   const imprint = kids(tst[2]!);
   const hashName = HASH_OIDS[oidOf(kids(imprint[0]!)[0]!)];
   const time = timeOf(tst[4]!);
-  const info: TimestampInfo = { time, tsa: '', verified: false, problem: null };
+  const info: TimestampInfo = { time, tsa: '', verified: false, problem: null, certificates: [] };
   const certSet = parts.find((p) => isContext(p, 0));
   const certs = certSet ? await Promise.all(kids(certSet).map((c) => certFacts(der(c)))) : [];
   const si = kids(kids(parts[parts.length - 1]!)[0]!);
@@ -502,6 +555,7 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
   const serial = sid.tagClass === Class.UNIVERSAL ? serialHex(kids(sid)[1]!) : null;
   const tsaCert = certs.find((c) => !serial || c.serial === serial) ?? null;
   info.tsa = tsaCert?.subjectName ?? '';
+  if (tsaCert) info.certificates = [tsaCert.der, ...certs.filter((c) => c !== tsaCert).map((c) => c.der)];
   try {
     if (!hashName) throw new Error('The time stamp uses a hash this app cannot check');
     if (!same(bytesOf(imprint[1]!), await digest(hashName, signatureValue))) throw new Error('The time stamp is for another signature');
@@ -554,6 +608,10 @@ export interface Revocation {
   revokedAt: Date | null;
   /** When the answer was made. */
   at: Date | null;
+  /** The time the status is given for (OCSP thisUpdate, a CRL's thisUpdate). */
+  thisUpdate: Date | null;
+  /** Until when it says it stands (the next answer is due), if it says. */
+  nextUpdate: Date | null;
   /** The answer is signed by the issuer (or a responder it appointed). */
   verified: boolean;
 }
@@ -579,25 +637,51 @@ export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: 
   const producedAt = timeOf(data[i++]!);
   let found: Revocation | null = null;
   for (const single of kids(data[i]!)) {
-    const [certId, status] = kids(single);
-    if (serialHex(kids(certId!)[3]!) !== cert.serial) continue;
+    const [certId, status, statusAt, after] = kids(single);
+    const id = kids(certId!);
+    if (serialHex(id[3]!) !== cert.serial) continue;
+    // The same serial number from another CA is another certificate: the issuer's name and key hashes say which.
+    const idHash = HASH_OIDS[oidOf(kids(id[0]!)[0]!)];
+    if (!idHash || !same(bytesOf(id[1]!), await digest(idHash, cert.issuerDer)) || !same(bytesOf(id[2]!), await digest(idHash, issuer.keyBits))) continue;
     const state = status!.type === 0 ? 'good' : status!.type === 1 ? 'revoked' : 'unknown';
-    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, verified: false };
+    found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, thisUpdate: statusAt ? timeOf(statusAt) : null, nextUpdate: after && isContext(after, 0) ? timeOf(kids(after)[0]!) : null, verified: false };
   }
   if (!found) throw new Error('The OCSP answer is about another certificate');
-  // Signed by the issuer, or by a responder certificate the issuer signed.
+  // Signed by the issuer, or by a responder certificate the issuer signed for OCSP (RFC 6960 4.2.2.2).
   let verified = await verifySigned(basicNode, issuer.spki);
   const certSet = basic.find((p) => isContext(p, 0));
   if (!verified && certSet)
     for (const c of kids(kids(certSet)[0]!)) {
       const responder = await certFacts(der(c));
-      if ((await issuedBy(responder, issuer)) && (await verifySigned(basicNode, responder.spki))) verified = true;
+      if (responder.extendedKeyUsage.includes(OCSP_SIGNING) && (await issuedBy(responder, issuer)) && (await verifySigned(basicNode, responder.spki))) verified = true;
     }
   found.verified = verified;
   return found;
 }
 
-/** Looks `cert` up in a certificate revocation list. */
+/** Extensions (`[ext]` nodes): OID, whether critical, and the value parsed. */
+const extensionsOf = (list: Node[]) =>
+  list.map((ext) => {
+    const parts = kids(ext);
+    const critical = parts.length === 3 && parts[1]!.type === Type.BOOLEAN && (parts[1]!.value as string) !== '\x00';
+    return { id: oidOf(parts[0]!), critical, value: parse(bytesOf(parts[parts.length - 1]!)) };
+  });
+
+const CRL_NUMBER = '2.5.29.20';
+const DELTA_CRL = '2.5.29.27';
+const ISSUING_DISTRIBUTION_POINT = '2.5.29.28';
+const CERTIFICATE_ISSUER = '2.5.29.29';
+const AUTHORITY_KEY_ID = '2.5.29.35';
+const FRESHEST_CRL = '2.5.29.46';
+const REASON_CODE = '2.5.29.21';
+const INVALIDITY_DATE = '2.5.29.24';
+
+/**
+ * Looks `cert` up in a certificate revocation list. Only a complete list for `cert` (RFC 5280
+ * 5.2) can say it is not revoked: a delta list (only what changed since a base list), an indirect
+ * one, one for a part of the CA's certificates that does not cover `cert` (its issuing
+ * distribution point), or one with a critical extension this app does not know, is refused.
+ */
 export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFacts): Promise<Revocation> {
   const node = parse(crl);
   const tbs = kids(kids(node)[0]!);
@@ -606,14 +690,36 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
   const crlIssuer = der(tbs[i++]!);
   if (!same(crlIssuer, cert.issuerDer)) throw new Error('The revocation list is from another issuer');
   const thisUpdate = timeOf(tbs[i++]!);
-  if (tbs[i] && (tbs[i]!.type === Type.UTCTIME || tbs[i]!.type === Type.GENERALIZEDTIME)) i++;
+  let nextUpdate: Date | null = null;
+  if (tbs[i] && (tbs[i]!.type === Type.UTCTIME || tbs[i]!.type === Type.GENERALIZEDTIME)) nextUpdate = timeOf(tbs[i++]!);
+  let list: Node[] = [];
+  if (tbs[i] && tbs[i]!.tagClass === Class.UNIVERSAL && tbs[i]!.type === Type.SEQUENCE) list = kids(tbs[i++]!);
+  const extensions = isContext(tbs[i], 0) ? extensionsOf(kids(kids(tbs[i]!)[0]!)) : [];
+  for (const ext of extensions) {
+    if (ext.id === DELTA_CRL) throw new Error('A delta revocation list says only what changed, not whether a certificate is revoked');
+    if (ext.id === ISSUING_DISTRIBUTION_POINT) {
+      // SEQUENCE { distributionPoint [0], onlyContainsUserCerts [1], onlyContainsCACerts [2],
+      // onlySomeReasons [3], indirectCRL [4], onlyContainsAttributeCerts [5] }
+      const scope = new Map(kids(ext.value).map((p) => [p.type, p]));
+      const flag = (tag: number) => !!scope.get(tag) && (scope.get(tag)!.value as string) !== '\x00';
+      if (scope.has(3) || flag(4) || flag(5)) throw new Error('The revocation list covers only some reasons or certificates');
+      if ((flag(1) && cert.ca === true) || (flag(2) && cert.ca !== true)) throw new Error('The revocation list does not cover this certificate');
+      if (scope.has(0)) {
+        const urls = urisIn(scope.get(0)!);
+        if (!urls.some((u) => cert.crlUrls.includes(u))) throw new Error('The revocation list is for another part of the CA’s certificates');
+      }
+    } else if (ext.critical && ![CRL_NUMBER, AUTHORITY_KEY_ID, FRESHEST_CRL].includes(ext.id)) throw new Error('The revocation list has a critical extension this app does not know');
+  }
   let revokedAt: Date | null = null;
-  const list = tbs[i] && tbs[i]!.tagClass === Class.UNIVERSAL && tbs[i]!.type === Type.SEQUENCE ? kids(tbs[i]!) : [];
   for (const entry of list) {
-    const [serial, when] = kids(entry);
+    const [serial, when, entryExts] = kids(entry);
+    for (const ext of entryExts ? extensionsOf(kids(entryExts)) : []) {
+      // Another CA's certificates listed here (an indirect list) is not something this app reads.
+      if (ext.id === CERTIFICATE_ISSUER || (ext.critical && ![REASON_CODE, INVALIDITY_DATE].includes(ext.id))) throw new Error('The revocation list lists certificates of other issuers, or says what this app cannot read');
+    }
     if (serialHex(serial!) === cert.serial) revokedAt = timeOf(when!);
   }
-  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, verified: await verifySigned(node, issuer.spki) };
+  return { status: revokedAt ? 'revoked' : 'good', via: 'CRL', revokedAt, at: thisUpdate, thisUpdate, nextUpdate, verified: await verifySigned(node, issuer.spki) };
 }
 
 /**
@@ -636,20 +742,49 @@ export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<
       }
     }
   if (!issuer) throw new Error('The issuer’s certificate is not available to check with');
+  return (await revocationEvidence(cert, issuer, fetcher)).revocation;
+}
+
+/** A revocation answer about a certificate, with the answer itself (to keep in the PDF for LTV). */
+export interface RevocationEvidence {
+  revocation: Revocation;
+  /** The OCSP response or the CRL, as the CA sent it. */
+  answer: Uint8Array;
+}
+
+/**
+ * Asks `cert`'s OCSP responder whether it was revoked, else fetches its CRL. `accept` can turn an
+ * answer down (returning why), and the next source is tried; if it throws, the search ends there
+ * (a revocation is not something another source can undo).
+ */
+export async function revocationEvidence(cert: CertFacts, issuer: CertFacts, fetcher: PkiFetch, accept: (r: Revocation) => string | null = () => null): Promise<RevocationEvidence> {
   const problems: string[] = [];
+  let found: RevocationEvidence;
   for (const url of cert.ocspUrls) {
     try {
-      return await ocspStatus(await fetcher(url, await ocspRequest(cert, issuer), 'application/ocsp-request'), cert, issuer);
+      const answer = await fetcher(url, await ocspRequest(cert, issuer), 'application/ocsp-request');
+      const revocation = await ocspStatus(answer, cert, issuer);
+      found = { revocation, answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
+      continue;
     }
+    const why = accept(found.revocation);
+    if (!why) return found;
+    problems.push(why);
   }
   for (const url of cert.crlUrls) {
     try {
-      return await crlStatus(await fetcher(url), cert, issuer);
+      const answer = await fetcher(url);
+      const revocation = await crlStatus(answer, cert, issuer);
+      found = { revocation, answer };
     } catch (err) {
       problems.push(err instanceof Error ? err.message : String(err));
+      continue;
     }
+    const why = accept(found.revocation);
+    if (!why) return found;
+    problems.push(why);
   }
-  throw new Error(problems.length ? problems.join('; ') : 'The certificate names no OCSP responder or revocation list');
+  throw new Error(problems.length ? problems.join('; ') : `${cert.subjectName}’s certificate names no OCSP responder or revocation list`);
 }
