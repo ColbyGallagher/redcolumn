@@ -3313,7 +3313,10 @@ export function App() {
                     c.placement === 'invisible'
                       ? undefined
                       : { pageIndex, rect: { x: c.placement.endsWith('Left') ? 36 : size.width - 36 - w, y: c.placement.startsWith('top') ? 36 : size.height - 36 - h, w, h } };
-                  const signed = await signPdf(new Uint8Array(await readFile(cur.file.hash)), signer!.id, {
+                  const original = new Uint8Array(await readFile(cur.file.hash));
+                  // Signed anyway (the batch was asked for), but said: scripts can change what a signed file shows.
+                  const active = await (await import('./documents/activeContent')).activeContentWarning(original);
+                  const signed = await signPdf(original, signer!.id, {
                     ...(area ? { area } : {}),
                     ...(c.reason ? { reason: c.reason } : {}),
                     ...(c.location ? { location: c.location } : {}),
@@ -3325,7 +3328,7 @@ export function App() {
                   });
                   const { bytes, note: ltvNote } = c.ltv ? await withLtv(signed) : { bytes: signed, note: null };
                   await commitDocument(cur, bytes.slice().buffer, undefined, note);
-                  message = `Signed${c.certify ? ' and certified' : ''}${c.timestampUrl ? ', time stamped' : ''}${c.ltv && bytes !== signed ? ', LTV' : ''}${ltvNote ? `. ${ltvNote}` : ''}`;
+                  message = `Signed${c.certify ? ' and certified' : ''}${c.timestampUrl ? ', time stamped' : ''}${c.ltv && bytes !== signed ? ', LTV' : ''}${ltvNote ? `. ${ltvNote}` : ''}${active ? '. Warning: it has active content (JavaScript or Launch actions)' : ''}`;
                   break;
                 }
                 case 'pageLabels': {
@@ -3606,25 +3609,30 @@ export function App() {
 
   // --- Digital signatures --------------------------------------------------------------------
 
-  // The front document's signatures are checked while the Signatures panel is showing.
+  // The front document's signatures are checked while the Signatures panel or the Sign dialog is
+  // showing, with whether it holds active content (JavaScript, Launch actions) to warn about.
   const checkingSigs = useRef(new Set<string>());
+  const [activeContent, setActiveContent] = useState<Record<string, string | null>>({});
   useEffect(() => {
     const o = split && activePane === 'b' ? openB : open;
-    if (!o || (leftTab !== 'signatures' && rightTab !== 'signatures') || sigChecks[o.file.hash] || checkingSigs.current.has(o.file.hash)) return;
+    if (!o || (leftTab !== 'signatures' && rightTab !== 'signatures' && !signFor) || sigChecks[o.file.hash] || checkingSigs.current.has(o.file.hash)) return;
     const hash = o.file.hash;
     checkingSigs.current.add(hash);
     void (async () => {
       let checks: SignatureCheck[] = [];
+      let warning: string | null = null;
       try {
-        const { checkSignatures } = await import('./documents/pdfSign');
-        checks = await checkSignatures(new Uint8Array(await readFile(hash)), await ltvTrust());
+        const [{ checkSignatures }, { activeContentWarning }] = await Promise.all([import('./documents/pdfSign'), import('./documents/activeContent')]);
+        const bytes = new Uint8Array(await readFile(hash));
+        [checks, warning] = await Promise.all([checkSignatures(bytes, await ltvTrust()), activeContentWarning(bytes)]);
       } catch {
         // Unreadable: shown as no signatures.
       }
+      setActiveContent((cur) => ({ ...cur, [hash]: warning }));
       setSigChecks((cur) => ({ ...cur, [hash]: checks }));
       checkingSigs.current.delete(hash);
     })();
-  }, [open, openB, split, activePane, leftTab, rightTab, sigChecks]);
+  }, [open, openB, split, activePane, leftTab, rightTab, sigChecks, signFor]);
   // Whose time stamps LTV relies on changed: check again.
   useEffect(() => setSigChecks({}), [trustedCerts]);
 
@@ -8563,6 +8571,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           <div className="signatures-wrap">
           <DigitalSignaturesSection
             checks={activeOpen ? (sigChecks[activeOpen.file.hash] ?? null) : []}
+            activeContent={activeOpen ? (activeContent[activeOpen.file.hash] ?? null) : null}
             trusted={trustedCerts}
             canSign={!!activeOpen && !studioDocOf(activeOpen.file.id) && !formBusy}
             onSign={() => setSignFor({ fieldName: null })}
@@ -9402,6 +9411,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           ids={idList}
           pictures={signatures.get()}
           fieldName={signFor.fieldName}
+          activeContent={activeContent[activeOpen.file.hash] ?? null}
           alreadySigned={!!(sigChecks[activeOpen.file.hash]?.length || formModels[activeOpen.file.hash]?.fields.some((f) => f.type === 'signature' && f.value))}
           onManageIds={() => setIdsOpen(true)}
           onCancel={() => setSignFor(null)}
