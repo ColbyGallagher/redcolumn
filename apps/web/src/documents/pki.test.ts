@@ -229,8 +229,8 @@ function ocspResponse(request: Uint8Array, revoked: Date | null, signerKey = roo
   return binaryToBytes(toDer(seq(asn1.create(Class.UNIVERSAL, Type.ENUMERATED, false, '\x00'), ctx(0, true, [seq(oid('1.3.6.1.5.5.7.48.1.1'), octets(toDer(basic)))]))));
 }
 
-function crl(revokedSerials: string[]): Uint8Array {
-  const tbs = seq(int(1), alg(SHA256_RSA), forge.pki.distinguishedNameToAsn1(root.cert.subject), utime(new Date()), utime(new Date(Date.now() + 86400_000)), ...(revokedSerials.length ? [seq(...revokedSerials.map((s) => seq(intHex(s), utime(new Date(Date.UTC(2026, 0, 2))))))] : []));
+function crl(revokedSerials: string[], extensions: Node[] = []): Uint8Array {
+  const tbs = seq(int(1), alg(SHA256_RSA), forge.pki.distinguishedNameToAsn1(root.cert.subject), utime(new Date()), utime(new Date(Date.now() + 86400_000)), ...(revokedSerials.length ? [seq(...revokedSerials.map((s) => seq(intHex(s), utime(new Date(Date.UTC(2026, 0, 2))))))] : []), ...(extensions.length ? [ctx(0, true, [seq(...extensions)])] : []));
   return binaryToBytes(toDer(seq(tbs, alg(SHA256_RSA), bits(root.key.privateKey.sign(sha256(toDer(tbs)))))));
 }
 
@@ -679,4 +679,69 @@ test('the appended bytes are read end to end: odd headers, disguised object stre
   assert.equal(await onlyValidationAdded(appendUpdate(base, t, dssObjects(loaded.catalog.toString(), n, 950)), base.length), false);
   assert.equal(await onlyValidationAdded(appendUpdate(base, t, dssObjects(loaded.catalog.toString(), n, 949)), base.length), false);
   assert.equal(await onlyValidationAdded(appendUpdate(base, t, dssObjects(loaded.catalog.toString(), n, 951)), base.length), true);
+});
+
+test('only a certificate authority may issue in a chain: basic constraints, key usage and path length', async () => {
+  // An ordinary certificate under the root issues itself a time stamp server, back-dates a time
+  // stamp to before the signer was revoked, and answers for its server's revocation itself.
+  const mallory = party('Mallory', '70', root, revocationAddresses);
+  const fake = party('Fake TSA', '71', mallory, [timeStamping, ...revocationAddresses]);
+  assert.equal((await buildChain(fake.der, [mallory.der, root.der])).complete, false);
+  const revokedAt = new Date(Date.now() - 3600_000);
+  const backdated = await signedPdf({ server: fake, stampedAt: new Date(Date.now() - 12 * 3600_000) });
+  const [b] = await checkSignatures(backdated);
+  assert.equal(b!.timestamp?.verified, true);
+  const signerReq = await ocspRequest(await certFacts(signer.der), await certFacts(root.der));
+  const fakeReq = await ocspRequest(await certFacts(fake.der), await certFacts(mallory.der));
+  const malloryReq = await ocspRequest(await certFacts(mallory.der), await certFacts(root.der));
+  const kept = await addDss(backdated, [{ vri: b!.vri, certs: [signer.der, root.der, mallory.der, fake.der], ocsps: [ocspResponse(signerReq, revokedAt), ocspResponse(fakeReq, null, mallory.key.privateKey), ocspResponse(malloryReq, null)], crls: [] }]);
+  const [x] = await checkSignatures(kept);
+  assert.equal(x!.onlyValidationAdded, true);
+  assert.equal(x!.timestampTrusted, false);
+  assert.equal(x!.ltv, false);
+
+  // A CA whose key usage leaves out certificate signing, and one allowing no CA below it.
+  const noSign = party('No Sign CA', '72', root, [{ name: 'basicConstraints', cA: true }, { name: 'keyUsage', digitalSignature: true }]);
+  assert.equal((await buildChain(party('Under No Sign', '73', noSign).der, [noSign.der, root.der])).complete, false);
+  const signs = party('Signing CA', '74', root, [{ name: 'basicConstraints', cA: true }, { name: 'keyUsage', keyCertSign: true, cRLSign: true }]);
+  assert.equal((await buildChain(party('Under Signing', '75', signs).der, [signs.der, root.der])).complete, true);
+  const top = party('Short Root', '76', null, [{ name: 'basicConstraints', cA: true, pathLenConstraint: 0 }]);
+  const mid = party('Mid CA', '77', top, [{ name: 'basicConstraints', cA: true }]);
+  assert.equal((await buildChain(party('Leaf', '78', top).der, [top.der])).complete, true);
+  const deep = await buildChain(party('Deep Leaf', '79', mid).der, [mid.der, top.der]);
+  assert.equal(deep.complete, false);
+  assert.match(deep.problem!, /fewer certificate authorities/);
+});
+
+test('only a complete revocation list for the certificate says it is not revoked', async () => {
+  const cert = await certFacts(signer.der);
+  const issuer = await certFacts(root.der);
+  const ext = (id: string, value: Node, critical = false) => seq(oid(id), ...(critical ? [asn1.create(Class.UNIVERSAL, Type.BOOLEAN, false, '\xff')] : []), octets(toDer(value)));
+  const idp = (...parts: Node[]) => ext('2.5.29.28', seq(...parts), true);
+  const dp = (url: string) => ctx(0, true, [ctx(0, true, [ctx(6, false, url)])]);
+  const yes = (tag: number) => ctx(tag, false, '\xff');
+  // Known, non-critical, or covering this certificate: read.
+  assert.equal((await crlStatus(crl([], [ext('2.5.29.20', int(7)), ext('1.2.3.4', int(1))]), cert, issuer)).status, 'good');
+  assert.equal((await crlStatus(crl([], [idp(dp('http://ca.example/root.crl'))]), cert, issuer)).status, 'good');
+  assert.equal((await crlStatus(crl([], [idp(yes(1))]), cert, issuer)).status, 'good');
+  // A delta list, another partition, CA certificates only, some reasons only, an indirect list,
+  // or an unknown critical extension: refused.
+  for (const [what, exts] of [
+    ['delta', [ext('2.5.29.27', int(5), true)]],
+    ['another partition', [idp(dp('http://ca.example/other.crl'))]],
+    ['CA certificates only', [idp(yes(2))]],
+    ['some reasons', [idp(ctx(3, false, '\x07\x80'))]],
+    ['indirect', [idp(yes(4))]],
+    ['unknown critical', [ext('1.2.3.4', int(1), true)]],
+  ] as const)
+    await assert.rejects(crlStatus(crl([], [...exts]), cert, issuer), Error, what);
+
+  // The reviewer's case: the signer is revoked, and the DSS keeps only a delta list made after
+  // the time stamp, which does not list it. Not LTV; the complete list makes it LTV.
+  const stamped = await signedPdf();
+  const [s] = await checkSignatures(stamped);
+  const tsaOcsp = ocspResponse(await ocspRequest(await certFacts(tsa.der), await certFacts(root.der)), null);
+  const keep = (list: Uint8Array) => addDss(stamped, [{ vri: s!.vri, certs: [signer.der, root.der, tsa.der], ocsps: [tsaOcsp], crls: [list] }]);
+  assert.equal((await checkSignatures(await keep(crl([], [ext('2.5.29.27', int(5), true)]))))[0]!.ltv, false);
+  assert.equal((await checkSignatures(await keep(crl([]))))[0]!.ltv, true);
 });
