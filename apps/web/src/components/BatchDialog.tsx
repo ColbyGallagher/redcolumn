@@ -9,7 +9,7 @@ import type { SavedSignature } from '../signatures/signatures';
 import type { StampDef } from '@nb/markup';
 import { PAGE_SIZES } from '../documents/pageSizes';
 import { HeaderFooterDialog } from './HeaderFooterDialog';
-import { savedTsa, saveTsa, TimestampOption } from './DigitalSignatures';
+import { LtvOption, savedLtv, saveLtv, savedTsa, saveTsa, TimestampOption, tsaUrl } from './DigitalSignatures';
 import { recalledPassword } from '../documents/idPasswords';
 import type { SplitSpec } from '../documents/pageTools';
 import { DEFAULT_SPLIT, SplitOptions } from './SplitOptions';
@@ -28,6 +28,8 @@ export interface BatchSign {
   placement: 'invisible' | Corner;
   page: 'first' | 'last';
   timestampUrl: string | null;
+  /** Add long-term validation data once signed. */
+  ltv: boolean;
 }
 
 export type BatchCommand =
@@ -153,8 +155,9 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   const [paper, setPaper] = useState(PAGE_SIZES.find((p) => p.id === 'tabloid')!.id);
   const [fit, setFit] = useState(true);
   const [split, setSplit] = useState<SplitSpec>(DEFAULT_SPLIT);
-  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && !ids[0].token && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
+  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl' | 'ltv'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && !ids[0].token && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
   const [tsa, setTsa] = useState(savedTsa);
+  const [ltv, setLtv] = useState(savedLtv);
   const [keepRevisions, setKeepRevisions] = useState(true);
   const [results, setResults] = useState<BatchResult[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -186,7 +189,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
       case 'split':
         return { kind, ...split };
       case 'sign':
-        return { kind, sign: { ...sign, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null } };
+        return { kind, sign: { ...sign, timestampUrl: tsaUrl(tsa), ltv: ltv && !!tsaUrl(tsa) } };
       default:
         return { kind } as BatchCommand;
     }
@@ -226,7 +229,10 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
         onSubmit={(e) => {
           e.preventDefault();
           if (!enough || running) return;
-          if (kind === 'sign') saveTsa(tsa);
+          if (kind === 'sign') {
+            saveTsa(tsa);
+            saveLtv(ltv);
+          }
           setRunning(true);
           setResults([]);
           void onRun({ command: command(), fileIds: ordered, keepRevisions }, (r) => setResults((list) => [...(list ?? []), r])).finally(() => setRunning(false));
@@ -469,6 +475,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   )}
                 </label>
                 <TimestampOption value={tsa} onChange={setTsa} />
+                <LtvOption value={ltv} onChange={setLtv} timestamped={!!tsaUrl(tsa)} />
               </fieldset>
             )}
             <fieldset>
