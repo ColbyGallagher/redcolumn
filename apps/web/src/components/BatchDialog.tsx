@@ -9,7 +9,7 @@ import type { SavedSignature } from '../signatures/signatures';
 import type { StampDef } from '@nb/markup';
 import { PAGE_SIZES } from '../documents/pageSizes';
 import { HeaderFooterDialog } from './HeaderFooterDialog';
-import { LtvOption, savedLtv, saveLtv, savedTsa, saveTsa, TimestampOption } from './DigitalSignatures';
+import { LtvOption, savedLtv, saveLtv, savedTsa, saveTsa, TimestampOption, tsaUrl } from './DigitalSignatures';
 import { recalledPassword } from '../documents/idPasswords';
 import type { SplitSpec } from '../documents/pageTools';
 import { DEFAULT_SPLIT, SplitOptions } from './SplitOptions';
@@ -189,7 +189,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
       case 'split':
         return { kind, ...split };
       case 'sign':
-        return { kind, sign: { ...sign, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv: ltv && tsa.on && !!tsa.url.trim() } };
+        return { kind, sign: { ...sign, timestampUrl: tsaUrl(tsa), ltv: ltv && !!tsaUrl(tsa) } };
       default:
         return { kind } as BatchCommand;
     }
@@ -475,7 +475,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   )}
                 </label>
                 <TimestampOption value={tsa} onChange={setTsa} />
-                <LtvOption value={ltv} onChange={setLtv} timestamped={tsa.on && !!tsa.url.trim()} />
+                <LtvOption value={ltv} onChange={setLtv} timestamped={!!tsaUrl(tsa)} />
               </fieldset>
             )}
             <fieldset>

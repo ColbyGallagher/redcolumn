@@ -587,12 +587,20 @@ async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<
   return viaDesktop(url, body, type);
 }
 
+/**
+ * The roots LTV builds on: the desktop app's known roots (which also end chains whose CA publishes
+ * no root address) and the certificates the user trusts. A time stamp counts only from a server under one.
+ */
+async function ltvTrust() {
+  const { certificatesIn } = await import('./documents/pki');
+  const roots = (await desktop()?.pkiRoots?.().catch(() => [])) ?? [];
+  return { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), trusted: digitalIds.trusted() };
+}
+
 /** Adds long-term validation data to a PDF's signatures: those named, the newest, or all that lack it. */
 async function addLtv(bytes: Uint8Array, which: { fields?: string[]; newest?: boolean } = {}) {
-  const [{ addValidationData }, { certificatesIn }] = await Promise.all([import('./documents/pdfSign'), import('./documents/pki')]);
-  // Known roots (the desktop app's list) end chains whose CA publishes no root address.
-  const roots = (await desktop()?.pkiRoots?.().catch(() => [])) ?? [];
-  return addValidationData(bytes, pkiFetch, { anchors: roots.flatMap((pem) => certificatesIn(new TextEncoder().encode(pem))), ...which });
+  const { addValidationData } = await import('./documents/pdfSign');
+  return addValidationData(bytes, pkiFetch, { ...(await ltvTrust()), ...which });
 }
 
 /**
@@ -3608,7 +3616,7 @@ export function App() {
       let checks: SignatureCheck[] = [];
       try {
         const { checkSignatures } = await import('./documents/pdfSign');
-        checks = await checkSignatures(new Uint8Array(await readFile(hash)));
+        checks = await checkSignatures(new Uint8Array(await readFile(hash)), await ltvTrust());
       } catch {
         // Unreadable: shown as no signatures.
       }
@@ -3616,6 +3624,8 @@ export function App() {
       checkingSigs.current.delete(hash);
     })();
   }, [open, openB, split, activePane, leftTab, rightTab, sigChecks]);
+  // Whose time stamps LTV relies on changed: check again.
+  useEffect(() => setSigChecks({}), [trustedCerts]);
 
   /** Signs the document (an empty field, a drawn box, or invisibly) and keeps the version before as a revision. */
   const runSign = useCallback(
