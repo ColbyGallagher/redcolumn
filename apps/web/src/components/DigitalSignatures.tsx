@@ -21,6 +21,8 @@ interface SectionProps {
   onCheckRevocation: (check: SignatureCheck) => Promise<string>;
   /** Adds the signature's long-term validation data (desktop only); resolves to a sentence. */
   onAddLtv?: (check: SignatureCheck) => Promise<string>;
+  /** Why the document's active content (JavaScript, Launch actions) is a concern, if it has any. */
+  activeContent?: string | null;
 }
 
 /** Nothing but validation data was added after it: the signed document is the whole document. */
@@ -47,7 +49,7 @@ function status(c: SignatureCheck, trusted: readonly string[]): { tone: 'ok' | '
 const CERTIFY = { 1: 'no changes allowed', 2: 'form filling and signing allowed', 3: 'form filling, signing and markups allowed' } as const;
 
 /** The PDF's digital signatures, checked, with Sign and Digital IDs. */
-export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onManageIds, onGo, onTrust, onOpenSignedVersion, onCheckRevocation, onAddLtv }: SectionProps) {
+export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onManageIds, onGo, onTrust, onOpenSignedVersion, onCheckRevocation, onAddLtv, activeContent }: SectionProps) {
   const [revocation, setRevocation] = useState<Record<string, string>>({});
   const [ltvNote, setLtvNote] = useState<Record<string, string>>({});
   return (
@@ -66,92 +68,99 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
       ) : !checks.length ? (
         <p className="empty">No digital signatures. Sign with a Digital ID, or draw a signature field (Forms) and click it to sign there.</p>
       ) : (
-        <ul className="dsig-list">
-          {checks.map((c) => {
-            const s = status(c, trusted);
-            return (
-              <li key={c.field} className={`dsig ${s.tone}`}>
-                <button className="dsig-head" onClick={() => onGo(c.field)} title="Show the signature">
-                  <span className="dsig-icon">{s.tone === 'ok' ? '✓' : s.tone === 'warn' ? '!' : '✗'}</span>
-                  <b>{c.signer || 'Unknown signer'}</b>
-                  {c.certify && <span className="badge">Certified</span>}
-                </button>
-                <div className="dsig-status">{s.text}</div>
-                <div className="print-hint">
-                  {c.signedAt ? c.signedAt.toLocaleString() : 'Time not given'}
-                  {c.timestamp?.verified ? ` (time stamped by ${c.timestamp.tsa || 'a time stamp server'})` : c.signedAt ? ' (signer’s clock)' : ''}
-                  {c.reason ? ` · ${c.reason}` : ''}
-                  {c.location ? ` · ${c.location}` : ''}
-                  {c.certify ? ` · ${CERTIFY[c.certify]}` : ''}
-                  {c.format === 'pades' ? (c.timestamp?.verified ? (c.ltv ? ' · PAdES B-LT' : ' · PAdES B-T') : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
-                  {c.ltv ? ' · LTV enabled' : ''}
-                </div>
-                {c.certificate && (
+        <>
+          {activeContent && (
+            <p className="active-content-warning" role="alert">
+              {activeContent}
+            </p>
+          )}
+          <ul className="dsig-list">
+            {checks.map((c) => {
+              const s = status(c, trusted);
+              return (
+                <li key={c.field} className={`dsig ${s.tone}`}>
+                  <button className="dsig-head" onClick={() => onGo(c.field)} title="Show the signature">
+                    <span className="dsig-icon">{s.tone === 'ok' ? '✓' : s.tone === 'warn' ? '!' : '✗'}</span>
+                    <b>{c.signer || 'Unknown signer'}</b>
+                    {c.certify && <span className="badge">Certified</span>}
+                  </button>
+                  <div className="dsig-status">{s.text}</div>
                   <div className="print-hint">
-                    Certificate: {c.issuer || 'unknown issuer'}
-                    {c.certificate.selfSigned ? ' (self-signed)' : ''}, valid to {c.certificate.notAfter.toLocaleDateString()}
+                    {c.signedAt ? c.signedAt.toLocaleString() : 'Time not given'}
+                    {c.timestamp?.verified ? ` (time stamped by ${c.timestamp.tsa || 'a time stamp server'})` : c.signedAt ? ' (signer’s clock)' : ''}
+                    {c.reason ? ` · ${c.reason}` : ''}
+                    {c.location ? ` · ${c.location}` : ''}
+                    {c.certify ? ` · ${CERTIFY[c.certify]}` : ''}
+                    {c.format === 'pades' ? (c.timestamp?.verified ? (c.ltv ? ' · PAdES B-LT' : ' · PAdES B-T') : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
+                    {c.ltv ? ' · LTV enabled' : ''}
                   </div>
-                )}
-                {c.chain.names.length > 1 && (
-                  <div className="print-hint" title={c.chain.problem ?? 'Every certificate in the chain is signed by the next'}>
-                    Chain: {c.chain.names.join(' → ')}
-                    {c.chain.complete ? '' : ` (${c.chain.problem ?? 'incomplete'})`}
+                  {c.certificate && (
+                    <div className="print-hint">
+                      Certificate: {c.issuer || 'unknown issuer'}
+                      {c.certificate.selfSigned ? ' (self-signed)' : ''}, valid to {c.certificate.notAfter.toLocaleDateString()}
+                    </div>
+                  )}
+                  {c.chain.names.length > 1 && (
+                    <div className="print-hint" title={c.chain.problem ?? 'Every certificate in the chain is signed by the next'}>
+                      Chain: {c.chain.names.join(' → ')}
+                      {c.chain.complete ? '' : ` (${c.chain.problem ?? 'incomplete'})`}
+                    </div>
+                  )}
+                  {revocation[c.field] && <div className="print-hint dsig-revocation">{revocation[c.field]}</div>}
+                  {ltvNote[c.vri] && <div className="print-hint dsig-revocation">{ltvNote[c.vri]}</div>}
+                  <div className="dsig-actions">
+                    {c.intact && !unchanged(c) && (
+                      <button className="btn small flat" onClick={() => onOpenSignedVersion(c)}>
+                        Open signed version
+                      </button>
+                    )}
+                    {c.intact && c.certificate && !trusted.includes(c.certificate.fingerprint) && (
+                      <button className="btn small flat" title={`SHA-256 ${c.certificate.fingerprint}`} onClick={() => onTrust(c.certificate!.fingerprint)}>
+                        Trust this signer
+                      </button>
+                    )}
+                    {c.intact && c.chain.complete && c.chain.names.length > 1 && !trusted.includes(c.chain.fingerprints.at(-1)!) && (
+                      <button className="btn small flat" title={`Trust every signer this certificate authority vouches for (SHA-256 ${c.chain.fingerprints.at(-1)})`} onClick={() => onTrust(c.chain.fingerprints.at(-1)!)}>
+                        Trust {c.chain.names.at(-1)}
+                      </button>
+                    )}
+                    {c.intact && c.certificate && !c.certificate.selfSigned && (
+                      <button
+                        className="btn small flat"
+                        title="Ask the certificate authority whether this certificate was revoked (OCSP, else its revocation list)"
+                        onClick={() => {
+                          setRevocation((r) => ({ ...r, [c.field]: 'Checking revocation…' }));
+                          void onCheckRevocation(c).then(
+                            (text) => setRevocation((r) => ({ ...r, [c.field]: text })),
+                            (err) => setRevocation((r) => ({ ...r, [c.field]: `Revocation not checked: ${err instanceof Error ? err.message : String(err)}` })),
+                          );
+                        }}
+                      >
+                        Check revocation
+                      </button>
+                    )}
+                    {onAddLtv && c.intact && !c.ltv && c.timestamp?.verified && c.certificate && !c.certificate.selfSigned && (
+                      <button
+                        className="btn small flat"
+                        title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"
+                        onClick={() => {
+                          // Keyed by the signature itself: a field of the same name in another document is another signature.
+                          setLtvNote((r) => ({ ...r, [c.vri]: 'Adding long-term validation…' }));
+                          void onAddLtv(c).then(
+                            (text) => setLtvNote((r) => ({ ...r, [c.vri]: text })),
+                            (err) => setLtvNote((r) => ({ ...r, [c.vri]: `LTV not added: ${err instanceof Error ? err.message : String(err)}` })),
+                          );
+                        }}
+                      >
+                        Add LTV
+                      </button>
+                    )}
                   </div>
-                )}
-                {revocation[c.field] && <div className="print-hint dsig-revocation">{revocation[c.field]}</div>}
-                {ltvNote[c.vri] && <div className="print-hint dsig-revocation">{ltvNote[c.vri]}</div>}
-                <div className="dsig-actions">
-                  {c.intact && !unchanged(c) && (
-                    <button className="btn small flat" onClick={() => onOpenSignedVersion(c)}>
-                      Open signed version
-                    </button>
-                  )}
-                  {c.intact && c.certificate && !trusted.includes(c.certificate.fingerprint) && (
-                    <button className="btn small flat" title={`SHA-256 ${c.certificate.fingerprint}`} onClick={() => onTrust(c.certificate!.fingerprint)}>
-                      Trust this signer
-                    </button>
-                  )}
-                  {c.intact && c.chain.complete && c.chain.names.length > 1 && !trusted.includes(c.chain.fingerprints.at(-1)!) && (
-                    <button className="btn small flat" title={`Trust every signer this certificate authority vouches for (SHA-256 ${c.chain.fingerprints.at(-1)})`} onClick={() => onTrust(c.chain.fingerprints.at(-1)!)}>
-                      Trust {c.chain.names.at(-1)}
-                    </button>
-                  )}
-                  {c.intact && c.certificate && !c.certificate.selfSigned && (
-                    <button
-                      className="btn small flat"
-                      title="Ask the certificate authority whether this certificate was revoked (OCSP, else its revocation list)"
-                      onClick={() => {
-                        setRevocation((r) => ({ ...r, [c.field]: 'Checking revocation…' }));
-                        void onCheckRevocation(c).then(
-                          (text) => setRevocation((r) => ({ ...r, [c.field]: text })),
-                          (err) => setRevocation((r) => ({ ...r, [c.field]: `Revocation not checked: ${err instanceof Error ? err.message : String(err)}` })),
-                        );
-                      }}
-                    >
-                      Check revocation
-                    </button>
-                  )}
-                  {onAddLtv && c.intact && !c.ltv && c.timestamp?.verified && c.certificate && !c.certificate.selfSigned && (
-                    <button
-                      className="btn small flat"
-                      title="Keep the certificate chain and the certificate authority’s revocation answer in the PDF, so this signature can be checked later without them (appended; the signature stays valid)"
-                      onClick={() => {
-                        // Keyed by the signature itself: a field of the same name in another document is another signature.
-                        setLtvNote((r) => ({ ...r, [c.vri]: 'Adding long-term validation…' }));
-                        void onAddLtv(c).then(
-                          (text) => setLtvNote((r) => ({ ...r, [c.vri]: text })),
-                          (err) => setLtvNote((r) => ({ ...r, [c.vri]: `LTV not added: ${err instanceof Error ? err.message : String(err)}` })),
-                        );
-                      }}
-                    >
-                      Add LTV
-                    </button>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -534,12 +543,14 @@ interface SignProps {
   fieldName: string | null;
   /** The document is already signed (it can no longer be certified). */
   alreadySigned: boolean;
+  /** Why the document's active content (JavaScript, Launch actions) is a concern, if it has any. */
+  activeContent?: string | null;
   onSign: (c: SignChoice) => Promise<void>;
   onManageIds: () => void;
   onCancel: () => void;
 }
 
-export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, onManageIds, onCancel }: SignProps) {
+export function SignDialog({ ids, pictures, fieldName, alreadySigned, activeContent, onSign, onManageIds, onCancel }: SignProps) {
   const [idId, setIdId] = useState(ids[0]?.id ?? '');
   const [password, setPassword] = useState('');
   const [reason, setReason] = useState('I am approving this document');
@@ -577,6 +588,11 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, onSign, on
         }}
       >
         <h3>Sign{fieldName ? ` ${fieldName}` : ''}</h3>
+        {activeContent && (
+          <p className="active-content-warning" role="alert">
+            {activeContent} Sign it only if you trust where it came from.
+          </p>
+        )}
         {!ids.length ? (
           <p>
             Signing needs a Digital ID.{' '}
