@@ -372,8 +372,12 @@ function resolve(bytes: Uint8Array, latest: Map<number, XrefEntry>, n: number, g
 const LOAD = { ignoreEncryption: true, updateMetadata: false, throwOnInvalidObject: false } as const;
 /** "n g R" anywhere in a file. */
 const REFERENCE = /(?<![0-9])(\d{1,9})[\0\t\n\f\r ]+\d{1,5}[\0\t\n\f\r ]+R(?![A-Za-z0-9])/g;
-/** An object header as readers find one, comments between its parts included. */
-const HEADER = /(?<![0-9])\d{1,9}(?:[\0\t\n\f\r ]|%[^\r\n]*)+\d{1,5}(?:[\0\t\n\f\r ]|%[^\r\n]*)+obj/g;
+/**
+ * An object header as readers find one, comments between its parts included. Each separator is
+ * one white-space character or a whole comment up to its line end, so there is one way to match
+ * (no backtracking blow-up on runs of "%").
+ */
+const HEADER = /(?<![0-9])\d{1,9}(?:[\0\t\n\f\r ]|%[^\r\n]*[\r\n])+\d{1,5}(?:[\0\t\n\f\r ]|%[^\r\n]*[\r\n])+obj/g;
 
 /**
  * The first object number an update to `bytes` may define: above every number the file defines,

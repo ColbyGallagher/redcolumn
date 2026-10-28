@@ -658,6 +658,10 @@ test('the appended bytes are read end to end: odd headers, disguised object stre
   const t0 = Date.now();
   assert.equal(await only(appendUpdate(signed, trailer, dss, [], `/X ${'<< /A '.repeat(40)}1${' >>'.repeat(40)} `)), false);
   assert.ok(Date.now() - t0 < 1000, `took ${Date.now() - t0} ms`);
+  // A long run of "%" in kept data is scanned in time too.
+  const t1 = Date.now();
+  assert.equal(await only(appendUpdate(signed, trailer, [dss[0]!, dss[1]!, { n: 901, g: 0, body: `<< /Length 1 /Filter /FlateDecode >>\nstream\n1 ${'%'.repeat(50_000)}\nendstream` }])), true);
+  assert.ok(Date.now() - t1 < 1000, `took ${Date.now() - t1} ms`);
   // After the last %%EOF, white space only.
   const tailed = (s: string) => new Uint8Array([...appendUpdate(signed, trailer, dss), ...new TextEncoder().encode(s)]);
   assert.equal(await only(tailed('\r\n  \n')), true);
