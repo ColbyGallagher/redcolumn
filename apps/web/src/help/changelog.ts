@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.16',
+    date: '2026-10-28',
+    items: [
+      'Sign with smart cards and USB tokens',
+      'Signed PDFs stay valid when saved',
+      'Signatures use PAdES by default',
+      'Card certificate chains completed automatically',
+      'Smart card prompts no longer freeze the window',
+      'Bulk Redact: remove the same boxes across many pages',
+      'Bulk Insert PDFs from the Document menu and Bulk ribbon',
+      'Mac shortcuts shown as ⌘⌥⇧, Ctrl+click works as right-click',
+    ],
+  },
+  {
     version: '0.1.15',
     date: '2026-10-25',
     items: [
