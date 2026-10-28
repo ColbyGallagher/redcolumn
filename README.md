@@ -362,8 +362,12 @@ Both are experimental, need a Microsoft account and a OneDrive, and only start w
 
 The desktop app can let GitHub Copilot, Claude, Codex or Cursor read the open drawing and answer
 questions about it. Turn it on in **File › Preferences › MCP**, which shows the command for each client.
-Deletes and document changes wait for your approval in redcolumn, and the assistant runs on your
-computer. The website does not run it. See [PRIVACY.md](PRIVACY.md).
+The assistant can list and change markups, run menu commands, and see the drawing itself: a page or
+part of one as a picture, and the page's text with where each word sits. It can also stitch sheets
+end to end: set the region on each sheet, place and match the match lines, slide a sheet into place,
+look at the joined sheets as one picture, switch on the stitched view, and Stitch to New Page. Deletes
+and document changes (removing match lines, Stitch to New Page) wait for your approval in redcolumn,
+and the assistant runs on your computer. The website does not run it. See [PRIVACY.md](PRIVACY.md).
 
 An assistant can also **propose a takeoff**: the assembly for each measurement, with its reasoning.
 Proposals wait in **Tools › Takeoff › Review AI Proposals**, beside the sheet, where you check each one

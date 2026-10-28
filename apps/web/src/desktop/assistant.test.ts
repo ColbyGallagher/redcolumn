@@ -319,6 +319,70 @@ test('page and command failures name what went wrong', async () => {
   assert.equal(page.scale, undefined);
 });
 
+test('a page picture fits the whole sheet, and a region gets the resolution asked for', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const asked: { pageIndex: number; region: { x: number; y: number; w: number; h: number }; scale: number; withMarkups: boolean }[] = [];
+  const render: AssistantDocument['render'] = async (pageIndex, region, scale, withMarkups) => {
+    asked.push({ pageIndex, region, scale, withMarkups });
+    return { png: 'iVBORw0KGgo=', width: Math.round(region.w * scale), height: Math.round(region.h * scale), scale, region };
+  };
+  const seeing = { ...drawing, render };
+  type Picture = { page: number; region: { x: number; y: number; w: number; h: number }; width: number; height: number; scale: number; dpi: number; markups: boolean; image: { mimeType: string; data: string } };
+
+  // The whole page, 612 × 792 points, lands within 1600 pixels: 200 dpi would be 2200 tall.
+  const whole = (await assistantCall([seeing], 'get_page_image', {})) as Picture;
+  assert.equal(whole.page, 1);
+  assert.deepEqual(whole.region, { x: 0, y: 0, w: 612, h: 792 });
+  assert.equal(whole.height, 1600);
+  assert.ok(Math.abs(whole.scale - 1600 / 792) < 1e-9);
+  assert.equal(whole.markups, true);
+  assert.deepEqual(whole.image, { mimeType: 'image/png', data: 'iVBORw0KGgo=' });
+
+  // A small region is drawn at the dpi asked for, clipped to the page, with the markups left off.
+  const part = (await assistantCall([seeing], 'get_page_image', { page: 2, region: { x: 500, y: -10, w: 200, h: 100 }, dpi: 300, markups: false })) as Picture;
+  assert.equal(part.page, 2);
+  assert.deepEqual(part.region, { x: 500, y: 0, w: 112, h: 90 });
+  assert.ok(Math.abs(part.scale - 300 / 72) < 1e-9);
+  assert.equal(part.dpi, 300);
+  assert.equal(part.markups, false);
+  assert.equal(asked[1]!.pageIndex, 1);
+  assert.equal(asked[1]!.withMarkups, false);
+
+  await assert.rejects(() => assistantCall([seeing], 'get_page_image', { region: { x: 700, y: 0, w: 10, h: 10 } }), /off the page/);
+  await assert.rejects(() => assistantCall([seeing], 'get_page_image', { region: { x: 0, y: 0, w: 0, h: 10 } }), /more than 0/);
+  await assert.rejects(() => assistantCall([seeing], 'get_page_image', { dpi: 1000 }), /between 18 and 600/);
+  await assert.rejects(() => assistantCall([drawing], 'get_page_image', {}), /cannot be drawn here/);
+});
+
+test('page text comes in reading order, narrowed by region or search, and paged', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const word = (text: string, x0: number, y0: number) => ({ text, x0, y0, x1: x0 + text.length * 5, y1: y0 + 8, size: 8, angle: 0 });
+  const reading = { ...drawing, text: async () => [word('#5', 200, 100.4), word('SLAB', 10, 50), word('@', 230, 100), word('6"', 10, 100), word('REBAR', 50, 50.9), word('O.C.', 250, 101)] };
+  type Words = { page: number; total: number; nextOffset?: number; words: { text: string; x0: number; y0: number }[] };
+
+  const all = (await assistantCall([reading], 'get_page_text', {})) as Words;
+  assert.equal(all.page, 1);
+  assert.equal(all.total, 6);
+  assert.deepEqual(all.words.map((w) => w.text), ['SLAB', 'REBAR', '6"', '#5', '@', 'O.C.']);
+  assert.deepEqual(all.words[1], { text: 'REBAR', x0: 50, y0: 50.9, x1: 75, y1: 58.9, size: 8 });
+
+  const right = (await assistantCall([reading], 'get_page_text', { region: { x: 190, y: 90, w: 100, h: 30 } })) as Words;
+  assert.deepEqual(right.words.map((w) => w.text), ['#5', '@', 'O.C.']);
+
+  const found = (await assistantCall([reading], 'get_page_text', { search: 'rebar' })) as Words;
+  assert.deepEqual(found.words.map((w) => w.text), ['REBAR']);
+
+  const first = (await assistantCall([reading], 'get_page_text', { limit: 4 })) as Words;
+  assert.equal(first.words.length, 4);
+  assert.equal(first.nextOffset, 4);
+  const rest = (await assistantCall([reading], 'get_page_text', { limit: 4, offset: 4 })) as Words;
+  assert.deepEqual(rest.words.map((w) => w.text), ['@', 'O.C.']);
+  assert.equal(rest.nextOffset, undefined);
+
+  await assert.rejects(() => assistantCall([reading], 'get_page_text', { page: 9 }), /Page 9 is not in A-101\.pdf/);
+  await assert.rejects(() => assistantCall([drawing], 'get_page_text', {}), /has no text here/);
+});
+
 test('Cloud+ and Smart Fill go through the tools on screen, and say why when they cannot', async () => {
   const drawing = await doc('A-101.pdf', true);
   const cloud = markup({ id: 'c1', type: 'cloud' });

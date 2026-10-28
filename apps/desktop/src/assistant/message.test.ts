@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assistantNodePath, mcpLaunch } from './argv.ts';
 import { parseEndpoint } from './endpoint.ts';
-import { OFFLINE, handleMcpMessage, takeLines } from './message.ts';
+import { OFFLINE, handleMcpMessage, takeLines, toolContent } from './message.ts';
 
 test('development runs Electron as Node so the GUI executable can read stdin', () => {
   assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'), {
@@ -55,6 +55,8 @@ test('initialize and tools/list answer even when the app is closed', async () =>
     'list_commands',
     'run_command',
     'get_page',
+    'get_page_image',
+    'get_page_text',
     'select_markups',
     'place_markup',
     'place_markups',
@@ -64,6 +66,14 @@ test('initialize and tools/list answer even when the app is closed', async () =>
     'list_assemblies',
     'propose_takeoff',
     'list_takeoff_proposals',
+    'get_stitching',
+    'set_stitch_region',
+    'place_match_lines',
+    'update_match_lines',
+    'delete_match_lines',
+    'get_stitch_image',
+    'show_stitched_view',
+    'stitch_to_page',
   ]);
   const tool = (name: string) => list.result.tools.find((t) => t.name === name)!;
   assert.equal(tool('delete_markups').annotations.destructiveHint, true);
@@ -77,10 +87,10 @@ test('initialize and tools/list answer even when the app is closed', async () =>
 test('reads say they are read-only, and nothing else does', async () => {
   const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean } }[] } };
   const reads = list.result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
-  assert.deepEqual(reads, ['list_open_documents', 'list_markups', 'list_commands', 'get_page', 'list_assemblies', 'list_takeoff_proposals']);
+  assert.deepEqual(reads, ['list_open_documents', 'list_markups', 'list_commands', 'get_page', 'get_page_image', 'get_page_text', 'list_assemblies', 'list_takeoff_proposals', 'get_stitching', 'get_stitch_image']);
   // Only the tools that remove things, or run any command, are flagged destructive.
   const flagged = list.result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name);
-  assert.deepEqual(flagged, ['run_command', 'delete_markups']);
+  assert.deepEqual(flagged, ['run_command', 'delete_markups', 'delete_match_lines']);
 });
 
 test('a tool call reaches the app, and a closed app is a plain message', async () => {
@@ -94,4 +104,16 @@ test('a tool call reaches the app, and a closed app is a plain message', async (
   assert.equal(closed.result.isError, false);
   assert.equal(closed.result.content[0]!.text, OFFLINE);
   assert.equal(await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }), async () => ({})), null);
+});
+
+test('a page picture rides along as an image block, beside the text the model reads it by', () => {
+  const picture = toolContent({ page: 3, scale: 2, region: { x: 0, y: 0, w: 100, h: 50 }, image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } });
+  assert.equal(picture.isError, false);
+  assert.deepEqual(picture.content.map((c) => c.type), ['text', 'image']);
+  assert.deepEqual(JSON.parse((picture.content[0] as { text: string }).text), { page: 3, scale: 2, region: { x: 0, y: 0, w: 100, h: 50 } });
+  assert.deepEqual(picture.content[1], { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' });
+  // Anything that is not a picture, image key or not, stays one text block.
+  assert.deepEqual(toolContent({ image: 'none' }).content, [{ type: 'text', text: '{"image":"none"}' }]);
+  assert.deepEqual(toolContent({ image: { mimeType: 'text/plain', data: 'x' } }).content.length, 1);
+  assert.deepEqual(toolContent('plain').content, [{ type: 'text', text: 'plain' }]);
 });
