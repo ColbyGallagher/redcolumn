@@ -502,6 +502,9 @@ export function savedTsa(): { on: boolean; url: string } {
   }
   return canTimestamp() ? saved : { ...saved, on: false };
 }
+/** The time stamp server to use, or null for none. */
+export const tsaUrl = (v: { on: boolean; url: string }) => (v.on && v.url.trim() ? v.url.trim() : null);
+
 /** Remembers the choice, except where time stamps are unavailable (savedTsa reads it as off there). */
 export function saveTsa(v: { on: boolean; url: string }) {
   if (!canTimestamp()) return;
@@ -578,7 +581,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, activeCont
           setError(null);
           saveTsa(tsa);
           saveLtv(ltv);
-          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsa.on && tsa.url.trim() ? tsa.url.trim() : null, ltv: ltv && tsa.on && !!tsa.url.trim() }).catch((err) => {
+          onSign({ idId, password: card?.pinPad ? '' : (remembered ?? password), reason, location, certify, imageId, where, timestampUrl: tsaUrl(tsa), ltv: ltv && !!tsaUrl(tsa) }).catch((err) => {
             setError(err instanceof Error ? err.message : String(err));
             setBusy(false);
           });
@@ -670,7 +673,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, activeCont
               </select>
             </label>
             <TimestampOption value={tsa} onChange={setTsa} />
-            <LtvOption value={ltv} onChange={setLtv} timestamped={tsa.on && !!tsa.url.trim()} />
+            <LtvOption value={ltv} onChange={setLtv} timestamped={!!tsaUrl(tsa)} />
           </>
         )}
         {error && <p className="print-error">{error}</p>}
