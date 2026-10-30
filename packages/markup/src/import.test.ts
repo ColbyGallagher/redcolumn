@@ -111,3 +111,20 @@ test('links with page destinations become accepted-quality links', () => {
   assert.deepEqual(markups.map((m) => [m.type, m.link]), [['hyperlink', { kind: 'url', url: 'https://example.com' }]]);
   assert.deepEqual(imported, [7, 8, 9]);
 });
+
+test('links we exported come back with their kind, identifier and label', () => {
+  const { links } = importAnnotations(0, [
+    annot({ index: 3, subtype: 'Link', link: { targetPage: 4, targetRect: { x: 1, y: 1, w: 9, h: 9 }, uri: null, file: null }, appData: JSON.stringify({ link: { kind: 'section', detail: 'A', label: 'A/C-501' } }) }),
+    annot({ index: 4, subtype: 'Link', link: { targetPage: 5, targetRect: null, uri: null, file: null }, appData: JSON.stringify({ link: { kind: 'matchline', detail: null, label: 'C-102' } }) }),
+    // Not a kind we know: the link still imports, typed by its destination.
+    annot({ index: 5, subtype: 'Link', link: { targetPage: 6, targetRect: { x: 1, y: 1, w: 9, h: 9 }, uri: null, file: null }, appData: JSON.stringify({ link: { kind: 'portal' } }) }),
+  ], () => null);
+  assert.deepEqual(
+    links.map((l) => [l.id, l.kind, l.detail, l.label]),
+    [
+      ['pdf-0-3', 'section', 'A', 'A/C-501'],
+      ['pdf-0-4', 'matchline', null, 'C-102'],
+      ['pdf-0-5', 'detail', null, 'PDF link'],
+    ],
+  );
+});

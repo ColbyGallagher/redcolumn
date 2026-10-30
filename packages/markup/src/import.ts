@@ -1,4 +1,4 @@
-import type { DetectedLink } from '@nb/sheets';
+import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import {
@@ -82,6 +82,21 @@ export interface ImportResult {
 /** Annotation flags: Invisible, Hidden, NoView. Such annotations are never shown. */
 const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
+
+/** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
+function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null } | null {
+  if (!appData) return null;
+  try {
+    const data: unknown = JSON.parse(appData);
+    const link = data && typeof data === 'object' && 'link' in data ? (data as { link: unknown }).link : null;
+    if (!link || typeof link !== 'object') return null;
+    const { kind, detail, label } = link as { kind?: unknown; detail?: unknown; label?: unknown };
+    if (!isLinkKind(kind)) return null;
+    return { kind, detail: typeof detail === 'string' ? detail : null, label: typeof label === 'string' ? label : null };
+  } catch {
+    return null;
+  }
+}
 
 function isMarkup(value: unknown): value is Markup {
   const m = value as Markup;
@@ -320,13 +335,15 @@ export function importAnnotations(
         continue;
       }
       if (!a.link || targetPage === null) continue;
+      // A link we exported says what it is; one from another tool is a detail when it frames a spot.
+      const ours = ourLink(a.appData);
       links.push({
         id: `pdf-${pageIndex}-${a.index}`,
         pageIndex,
         rect: a.rect,
-        label: fileName ?? 'PDF link',
-        kind: a.link.targetRect ? 'detail' : 'sheet',
-        detail: null,
+        label: ours?.label ?? fileName ?? 'PDF link',
+        kind: ours?.kind ?? (a.link.targetRect ? 'detail' : 'sheet'),
+        detail: ours?.detail ?? null,
         targetPage,
         targetRect: a.link.targetRect,
         confidence: 1,
