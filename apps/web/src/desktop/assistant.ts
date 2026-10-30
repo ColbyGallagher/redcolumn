@@ -1,5 +1,6 @@
 import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
+import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -742,7 +743,8 @@ function getPage(docs: readonly AssistantDocument[], params: unknown) {
   const size = doc.pageSize?.(pageIndex) ?? null;
   if (!size) throw new Error(`Page size is not available for page ${pageIndex + 1} of ${doc.name}.`);
   const scale = doc.store.hasScale(pageIndex) ? scaleEquation(doc.store.scaleFor(pageIndex)) : undefined;
-  return { document: doc.name, id: doc.id, page: pageIndex + 1, width: size.width, height: size.height, ...(scale ? { scale } : {}) };
+  const viewports = doc.store.allViewports().filter((v) => v.pageIndex === pageIndex).length;
+  return { document: doc.name, id: doc.id, page: pageIndex + 1, width: size.width, height: size.height, ...(scale ? { scale } : {}), ...(viewports ? { viewports } : {}) };
 }
 
 /** A whole page scaled to fit this many pixels on its longer side, unless the call says otherwise. */
@@ -1032,5 +1034,6 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'propose_takeoff') return proposeTakeoff(docs, params);
   if (method === 'list_takeoff_proposals') return listTakeoffProposals(docs, params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
+  if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
   throw new Error('Unknown tool.');
 }

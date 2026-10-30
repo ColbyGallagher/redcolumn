@@ -34,6 +34,10 @@ export const ASSISTANT_METHODS = [
   'get_stitch_image',
   'show_stitched_view',
   'stitch_to_page',
+  'list_viewports',
+  'place_viewport',
+  'place_viewports',
+  'set_viewport_scale',
 ] as const;
 
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number];
@@ -73,6 +77,11 @@ const pointsProp = {
   type: 'array',
   description: 'PDF points, origin at the top-left, y down.',
   items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+};
+
+const scaleProp = {
+  type: 'string',
+  description: "The scale as get_page writes it, such as 1/4\" = 1'-0\" or 1:100.",
 };
 
 const styleProp = {
@@ -207,7 +216,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'get_page',
     title: 'Get page size and scale',
-    description: 'The size of one page in PDF points, and its scale when one is set. Point origin is the top-left of the page, y down.',
+    description: 'The size of one page in PDF points, its scale when one is set, and how many viewports it has (list them with list_viewports). Point origin is the top-left of the page, y down.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -590,6 +599,82 @@ const TOOLS: ToolDef[] = [
       },
     },
     annotations: ADDS,
+  },
+  {
+    name: 'list_viewports',
+    title: 'List viewports',
+    description: "A page's viewports: regions drawn at their own scale (a detail or section beside a plan). Each has an id, name, page, rect (x, y, w, h in PDF points, origin at the top-left, y down), and scale, written the way get_page writes it. Narrow it to one page with page.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page. Every page when omitted.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'place_viewport',
+    title: 'Place a viewport',
+    description:
+      'Places a viewport on a page: a rectangle drawn at its own scale, so measurements inside it use that scale. points are two opposite corners in PDF points, origin at the top-left, y down; the part off the page is cut away, as drawing one on screen does. It starts at the page\'s scale unless scale is given. Set it later with set_viewport_scale. One undo step. The reply has the new viewport\'s id and rect. For several, use place_viewports.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number.' },
+        points: { ...pointsProp, minItems: 2, maxItems: 2, description: 'Two opposite corners of the rectangle, in PDF points, origin at the top-left, y down: [[x, y], [x, y]].' },
+        name: { type: 'string', description: 'Viewport 1, Viewport 2... in page order when omitted.' },
+        scale: scaleProp,
+      },
+      required: ['page', 'points'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'place_viewports',
+    title: 'Place many viewports',
+    description:
+      'Places many viewports as one undo step (up to 100). Each item is what place_viewport takes: points (two opposite corners in PDF points, origin at the top-left, y down), and optionally page, name, and scale; a page on the call is the default for items without one. Everything is checked first, so one bad item places nothing. The reply lists each new viewport\'s id, name, page, rect, and scale.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number for items that do not give their own.' },
+        viewports: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 100,
+          items: {
+            type: 'object',
+            properties: {
+              page: { type: 'integer', description: '1-based page number.' },
+              points: { ...pointsProp, minItems: 2, maxItems: 2, description: 'Two opposite corners of the rectangle, in PDF points, origin at the top-left, y down: [[x, y], [x, y]].' },
+              name: { type: 'string' },
+              scale: scaleProp,
+            },
+            required: ['points'],
+          },
+        },
+      },
+      required: ['viewports'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'set_viewport_scale',
+    title: 'Set a viewport scale',
+    description: "Sets the scale of one viewport, so measurements inside it use that scale and the page's is left alone. Text that is not a scale is refused and nothing changes. One undo step. The reply has the viewport as it now stands.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        id: { type: 'string', description: 'Viewport id from list_viewports or place_viewport.' },
+        scale: scaleProp,
+      },
+      required: ['id', 'scale'],
+    },
+    annotations: CHANGES,
   },
 ];
 

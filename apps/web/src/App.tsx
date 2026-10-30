@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
-import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit } from '@nb/markup';
+import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -5263,12 +5263,9 @@ export function App() {
     const n = store.allViewports().filter((x) => x.pageIndex === pageIndex).length + 1;
     // Only the part on the page counts.
     const size = (paneB ? ctlB : ctl)?.viewer.pageSize(pageIndex);
-    const x0 = Math.max(0, rect.x);
-    const y0 = Math.max(0, rect.y);
-    const x1 = size ? Math.min(size.width, rect.x + rect.w) : rect.x + rect.w;
-    const y1 = size ? Math.min(size.height, rect.y + rect.h) : rect.y + rect.h;
-    if (x1 <= x0 || y1 <= y0) return;
-    store.setViewport({ id: crypto.randomUUID(), pageIndex, name: `Viewport ${n}`, rect: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, scale: store.scaleFor(pageIndex) });
+    const clipped = viewportRectFromCorners([rect.x, rect.y], [rect.x + rect.w, rect.y + rect.h], size);
+    if (!clipped) return;
+    store.setViewport({ id: crypto.randomUUID(), pageIndex, name: `Viewport ${n}`, rect: clipped, scale: store.scaleFor(pageIndex) });
     showPanel('measurements');
   };
   const setPageScale = (scale: Scale, allPages: boolean) => {
