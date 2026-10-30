@@ -14,7 +14,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
-import { dimensionText, measurementLabel, textBoxLines } from './render';
+import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
@@ -408,14 +408,12 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.ColorSpace = { CsH: ['Pattern', 'DeviceRGB'] };
   }
 
-  const label = measurementLabel(m, ctx.scale);
-  if (label) {
+  const whole = measurementLabel(m, ctx.scale);
+  for (const label of whole ? [whole, ...segmentLabels(m, ctx.scale)] : []) {
     const font = ctx.fonts.get(standardFont(style, true))!;
     const { size, background } = labelStyle(m);
-    const text = safeText(font, label.text);
-    const textW = font.widthOfTextAtSize(text, size);
-    const w = textW + size * 0.6;
-    const h = size * 1.4;
+    const texts = label.lines.map((l) => safeText(font, l));
+    const { w, h, ys } = labelBox(texts, size, (t) => font.widthOfTextAtSize(t, size));
     let [x, y] = label.at;
     // A turned label is drawn about its own centre.
     if (label.angle) {
@@ -427,19 +425,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
     }
-    ops.push(
-      '/GS1 gs',
-      `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`,
-      'BT',
-      `/F0 ${fmt(size)} Tf`,
-      // Page space is y-down; flip the text matrix so glyphs stay upright. Baseline sits ~0.35em
-      // below the label's vertical center.
-      `1 0 0 -1 ${fmt(x - textW / 2)} ${fmt(y + size * 0.35)} Tm`,
-      `${font.encodeText(text).toString()} Tj`,
-      'ET',
-    );
-    if (style.underline) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, y + size * 0.45, textW, size));
-    if (style.strikethrough) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, y, textW, size));
+    texts.forEach((text, i) => {
+      const textW = font.widthOfTextAtSize(text, size);
+      const ly = y + ys[i]!;
+      ops.push(
+        '/GS1 gs',
+        `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`,
+        'BT',
+        `/F0 ${fmt(size)} Tf`,
+        // Page space is y-down; flip the text matrix so glyphs stay upright. Baseline sits ~0.35em
+        // below the line's vertical center.
+        `1 0 0 -1 ${fmt(x - textW / 2)} ${fmt(ly + size * 0.35)} Tm`,
+        `${font.encodeText(text).toString()} Tj`,
+        'ET',
+      );
+      if (style.underline) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, ly + size * 0.45, textW, size));
+      if (style.strikethrough) ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`, underlineOps(x - textW / 2, ly, textW, size));
+    });
     if (label.angle) ops.push('Q');
     resources.Font = { F0: font.ref };
   }
@@ -711,10 +713,13 @@ function boundsWithText(ctx: Ctx, m: Markup): { x: number; y: number; w: number;
   const labelFont = ctx.fonts.get(standardFont(m.style, true));
   if (label && labelFont) {
     const { size } = labelStyle(m);
-    const rx = (labelFont.widthOfTextAtSize(safeText(labelFont, label.text), size) + size * 0.6) / 2;
-    // A turned label reaches as far as its corners do.
-    const [cos, sin] = [Math.abs(Math.cos(label.angle)), Math.abs(Math.sin(label.angle))];
-    take(label.at[0], label.at[1], rx * cos + size * 0.7 * sin, rx * sin + size * 0.7 * cos);
+    for (const l of [label, ...segmentLabels(m, ctx.scale)]) {
+      const box = labelBox(l.lines.map((t) => safeText(labelFont, t)), size, (t) => labelFont.widthOfTextAtSize(t, size));
+      const [rx, ry] = [box.w / 2, box.h / 2];
+      // A turned label reaches as far as its corners do.
+      const [cos, sin] = [Math.abs(Math.cos(l.angle)), Math.abs(Math.sin(l.angle))];
+      take(l.at[0], l.at[1], rx * cos + ry * sin, rx * sin + ry * cos);
+    }
   }
   const dim = dimensionText(m);
   const dimFont = ctx.fonts.get(standardFont(m.style, false));
