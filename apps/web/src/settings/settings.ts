@@ -246,6 +246,8 @@ export interface Settings {
   // General › Document
   /** Changes not saved to a document's file survive closing it and restarting (it stays marked unsaved); off, Don't Save discards them. */
   documentRecovery: boolean;
+  /** Save changes to a document's file in the background a few seconds after the last edit (documents opened from a file only). */
+  autosave: boolean;
   /** How a document is laid out when first shown: Auto puts drawings (larger than tabloid) a page at a time and scrolls smaller pages. */
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
@@ -462,6 +464,7 @@ export const DEFAULT_SETTINGS: Settings = {
   tabTruncation: 'end',
   startupFile: '',
   documentRecovery: true,
+  autosave: false,
   pageLayout: 'auto',
   maxZoom: 6400,
   optimiseDrawings: 'ask',

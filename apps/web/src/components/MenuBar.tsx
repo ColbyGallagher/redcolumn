@@ -6,6 +6,7 @@ import { isStandalone } from '../offline/install';
 import type { Tool } from '../markup/MarkupTools';
 import { MEASURE_TOOLS } from './ToolBar';
 import { MenuSearch } from './MenuSearch';
+import { settings, useSettings } from '../settings/settings';
 import type { PrefEntry } from './PreferencesDialog';
 
 /**
@@ -220,6 +221,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   const root = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
   const updateBtn = updateButton(update);
+  const autosave = useSettings().autosave;
   const commandList = useMemo(() => [...commands.values()], [commands]);
 
   useEffect(() => {
@@ -676,6 +678,15 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           );
         })}
       </div>
+      <button
+        type="button"
+        className={`menubar-help-btn autosave-btn${autosave ? ' on' : ''}`}
+        aria-pressed={autosave}
+        title={autosave ? 'Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.' : 'Autosave is off. Click to save changes to the file in the background.'}
+        onClick={() => settings.set({ autosave: !autosave })}
+      >
+        Autosave: {autosave ? 'On' : 'Off'}
+      </button>
       {updateBtn && (
         <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
