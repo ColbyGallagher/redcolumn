@@ -7296,6 +7296,8 @@ export function App() {
         onFit={() => viewer?.fit()}
         onFitWidth={() => viewer?.fitToWidth()}
         onToggleContinuous={() => viewer?.setPageMode(s?.mode === 'continuous' ? 'single' : 'continuous')}
+        tool={toolsState.tool}
+        onTool={(t) => (which === 'b' ? ctlB : ctl)?.tools.setTool(t)}
         sheetLabel={sh[idx]?.number ?? undefined}
         sheetTitle={sh[idx]?.title ?? undefined}
         pageWidthPt={size?.width ?? null}
