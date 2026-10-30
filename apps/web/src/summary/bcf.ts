@@ -422,6 +422,7 @@ const BUILTIN: { key: string; bcfKey: string; name: string; type: number; measur
 
 /** Further list columns, shown when they have data or Show Empty Columns is on. */
 const EXTRA: { key: string; bcfKey: string; name: string; type: number; measure?: boolean; align?: 'right'; width: number }[] = [
+  { key: 'label', bcfKey: 'Label', name: 'Label', type: COLUMN_TYPE.Text, width: 110 },
   { key: 'page', bcfKey: 'PageIndex', name: 'Page', type: COLUMN_TYPE.Text, align: 'right', width: 56 },
   { key: 'measurement', bcfKey: 'Measurement', name: 'Measurement', type: COLUMN_TYPE.Measure, measure: true, align: 'right', width: 110 },
   { key: 'length', bcfKey: 'Length', name: 'Length', type: COLUMN_TYPE.Measure, measure: true, align: 'right', width: 100 },

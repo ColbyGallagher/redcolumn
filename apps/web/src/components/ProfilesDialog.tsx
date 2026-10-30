@@ -234,7 +234,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                 <>
                   <p className="hint-text">Side panels available on the panel bar and Window menu:</p>
                   <div className="check-grid">
-                    {(Object.keys(LEFT_TITLES) as LeftTab[]).map((id) => (
+                    {(Object.keys(LEFT_TITLES) as LeftTab[]).filter((id) => id !== 'markups').map((id) => (
                       <label key={id} className="check-tile">
                         <input
                           type="checkbox"

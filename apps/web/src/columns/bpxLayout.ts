@@ -7,6 +7,7 @@ const COLUMN_KEYS: Record<string, string> = {
   // Revu's Page is the page label and Page Index its number; ours shows the number.
   Page: 'page',
   'Page Index': 'page',
+  Label: 'label',
   Comments: 'comment',
   Checkmark: 'checked',
   Author: 'author',

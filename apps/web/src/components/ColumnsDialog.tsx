@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { COLUMN_TYPES, columnsFromXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { FUNCTION_NAMES, parseFormula } from '../columns/formula';
-import { BUILT_IN_COLUMNS, cellsFor, customKey, listColumns, resolveLayout, type CellContext } from '../columns/listColumns';
+import { BUILT_IN_COLUMNS, cellsFor, customKey, listColumns, newColumnName, resolveLayout, type CellContext } from '../columns/listColumns';
 import type { MarkupListSettings } from '../workspace/profiles';
 
 interface Props {
@@ -98,12 +98,10 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
   }, [selected, sample, cellContext, columns, statuses]);
 
   const addColumn = (type: ColumnType) => {
-    let n = 1;
     const base = COLUMN_TYPES.find((t) => t.value === type)!.label.replace('Multiline text', 'Notes');
-    while (columns.some((c) => c.name.toLowerCase() === (n === 1 ? base : `${base} ${n}`).toLowerCase())) n++;
     const c: CustomColumn = {
       id: crypto.randomUUID(),
-      name: n === 1 ? base : `${base} ${n}`,
+      name: newColumnName(base, columns.map((x) => x.name)),
       type,
       ...(type === 'choice' ? { options: ['Option 1', 'Option 2'] } : {}),
       ...(type === 'formula' ? { formula: '', decimals: 2 } : {}),
@@ -533,6 +531,11 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
         )}
 
         {message && <p className="columns-message">{message}</p>}
+        {!readOnly && !valid && (
+          <p className="col-error" role="alert">
+            Can’t save yet: {statusProblem ?? `${columns[problems.findIndex((p) => p)]?.name || 'Untitled'}: ${problems.find((p) => p)}`}
+          </p>
+        )}
         <div className="actions columns-actions">
           <button className="btn small" disabled={readOnly} onClick={() => importRef.current?.click()} title="Load columns and statuses from an XML file">
             Import XML…

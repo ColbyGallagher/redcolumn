@@ -1,4 +1,4 @@
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
+import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
@@ -25,6 +25,7 @@ export interface ListColumn {
 export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'seq', label: 'ID', align: 'right', defaultWidth: 48 },
   { key: 'subject', label: 'Subject', defaultWidth: 130 },
+  { key: 'label', label: 'Label', defaultWidth: 110 },
   { key: 'page', label: 'Page', align: 'right', defaultWidth: 56 },
   { key: 'sheet', label: 'Page Label', defaultWidth: 90 },
   { key: 'space', label: 'Space', defaultWidth: 130 },
@@ -50,12 +51,20 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
 ];
 
 /** Shown until the user changes the layout. */
-const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
+const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'label', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
 
 /** Built-in columns that existed before layouts could lack them: one missing from a saved layout is shown. */
 const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'assembly'].includes(k)));
 
 export const customKey = (id: string) => `custom:${id}`;
+
+/** A name for a new custom column that no built-in or custom column already has ("Date" is a built-in, so a new date column is "Date 2"). */
+export function newColumnName(base: string, existing: readonly string[]): string {
+  const taken = new Set([...BUILT_IN_COLUMNS.map((b) => b.label), ...existing].map((n) => n.trim().toLowerCase()));
+  let n = 1;
+  while (taken.has((n === 1 ? base : `${base} ${n}`).toLowerCase())) n++;
+  return n === 1 ? base : `${base} ${n}`;
+}
 
 export function listColumns(custom: readonly CustomColumn[]): ListColumn[] {
   return [
@@ -146,6 +155,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const out: Record<string, Cell> = {
     seq: cell(m.seq ? String(m.seq) : '', m.seq ?? null),
     subject: cell(m.subject || MARKUP_LABELS[m.type] || 'Markup'),
+    label: cell(markupLabel(m)),
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),
     sheet: cell(ctx.sheets[m.pageIndex]?.number ?? ''),
     space: cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : ''),

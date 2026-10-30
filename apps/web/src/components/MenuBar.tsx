@@ -41,7 +41,8 @@ export type LeftTab =
   | 'forms'
   | 'sets'
   | 'sessions'
-  | 'projects';
+  | 'projects'
+  | 'markups';
 export type BottomTab = 'markups' | 'links';
 
 export const LEFT_TITLES: Record<LeftTab, string> = {
@@ -62,6 +63,7 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   sets: 'Sets',
   sessions: 'Sessions',
   projects: 'Projects',
+  markups: 'Markups',
 };
 
 export interface RecentFile {
