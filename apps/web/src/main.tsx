@@ -10,9 +10,11 @@ import { startIdleSignOut } from './studio/drive/idle';
 import { microsoftUser, signOutOfMicrosoft, staySignedInToMicrosoft } from './studio/drive/onedrive';
 import { addDomBusyChecks, busyReasons, setUpdateGate, UpdateGate } from './offline/updates';
 import { startProfileBackup } from './workspace/profileBackup';
+import { installTheme } from './theme/theme';
 import { installDialogDrag } from './dialogDrag';
 import { installDialogFocus } from './dialogFocus';
 import { App } from './App';
+import './theme/themes.css';
 import './styles.css';
 import './features.css';
 import './offline.css';
@@ -23,6 +25,7 @@ if (window.top !== window.self) {
   throw new Error('redcolumn refused to run in a frame.');
 }
 
+installTheme();
 installLogCapture();
 installDesktopBridge();
 installDialogDrag();

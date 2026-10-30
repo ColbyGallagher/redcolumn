@@ -1,0 +1,127 @@
+/*
+ * App themes. Every colour the stylesheets use comes from the tokens below, so a theme is one block
+ * of them: to add a theme, add a block here and an entry in themes.ts. The theme in use is the
+ * `data-theme` attribute on <html> (set by theme.ts); with none set the navy theme applies.
+ */
+
+/* Tokens every theme shares, and the dark themes' status colours (text on a dark surface). */
+:root,
+:root[data-theme='navy'],
+:root[data-theme='graphite'] {
+  color-scheme: dark;
+  --text-strong: #fff;
+  --text-soft: #c1cad7;
+  --accent: #14a39a;
+  --accent-hi: #6fdccf;
+  --brand: #c8102e;
+  --brand-hi: #ff5a6e;
+  --tint-faint: rgba(255, 255, 255, 0.04);
+  --tint: rgba(255, 255, 255, 0.07);
+  --tint-strong: rgba(255, 255, 255, 0.12);
+  --danger-text: #f87171;
+  --warn-text: #fbbf24;
+  --ok-text: #4ade80;
+  --violet-text: #c4b5fd;
+  --danger-bg: #7f1d1d;
+  --danger-on: #fecaca;
+  --ok-bg: #14532d;
+  --ok-on: #bbf7d0;
+  --warn-bg: #713f12;
+  --warn-on: #fde68a;
+}
+
+/* Navy: deep-navy surfaces, teal for interaction, crimson for the brand (the original look). */
+:root,
+:root[data-theme='navy'] {
+  --bg: #0e1729;
+  --panel: #15213a;
+  --border: #2a3a5a;
+  --border-2: #2b4069;
+  --border-input: #828fa5;
+  --text: #e7ecf5;
+  --muted: #95a3bc;
+  --ribbon: linear-gradient(180deg, #1a2a4a 0%, #121e36 100%);
+  --surface-sunken: #131d2f;
+  --surface-raised: #19253d;
+  --surface-2: #1d2c48;
+  --surface-hover: #20304f;
+  --surface-active: #25375a;
+  --viewer-desk: #1f2d4a;
+  --scroll-thumb: #34476b;
+  --scroll-thumb-hover: #4a6290;
+  --prefs-rail: #101a2e;
+  --prefs-card: #1a2843;
+  --prefs-line: rgba(149, 163, 188, 0.14);
+}
+
+/* Graphite: the same layout in neutral charcoal greys. */
+:root[data-theme='graphite'] {
+  --bg: #121214;
+  --panel: #1c1c1f;
+  --border: #36363b;
+  --border-2: #3d3d43;
+  --border-input: #8a8a93;
+  --text: #e8e8ea;
+  --muted: #9b9ba3;
+  --text-soft: #c5c5cb;
+  --ribbon: linear-gradient(180deg, #2a2a2e 0%, #1c1c1f 100%);
+  --surface-sunken: #161618;
+  --surface-raised: #202023;
+  --surface-2: #26262a;
+  --surface-hover: #2c2c31;
+  --surface-active: #38383e;
+  --viewer-desk: #2a2a2e;
+  --scroll-thumb: #45454c;
+  --scroll-thumb-hover: #5b5b64;
+  --prefs-rail: #17171a;
+  --prefs-card: #222226;
+  --prefs-line: rgba(160, 160, 170, 0.16);
+}
+
+/* Light: white panels on a pale blue-grey, the same teal and crimson. */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #e9edf4;
+  --panel: #ffffff;
+  --border: #cdd5e2;
+  --border-2: #c0cadb;
+  --border-input: #8c98ae;
+  --text: #1b2536;
+  --text-strong: #0a1120;
+  --text-soft: #3b4860;
+  --muted: #5b6980;
+  --accent: #0d857e;
+  --accent-hi: #0b6f69;
+  --brand: #c8102e;
+  --brand-hi: #b00d27;
+  --ribbon: linear-gradient(180deg, #fbfcfe 0%, #e8edf5 100%);
+  --surface-sunken: #f1f4f9;
+  --surface-raised: #f6f8fb;
+  --surface-2: #ecf0f6;
+  --surface-hover: #e2e8f1;
+  --surface-active: #d3ddec;
+  --tint-faint: rgba(15, 30, 60, 0.03);
+  --tint: rgba(15, 30, 60, 0.06);
+  --tint-strong: rgba(15, 30, 60, 0.1);
+  --danger-text: #b91c1c;
+  --warn-text: #92580a;
+  --ok-text: #15803d;
+  --violet-text: #6d28d9;
+  --danger-bg: #fee2e2;
+  --danger-on: #7f1d1d;
+  --ok-bg: #dcfce7;
+  --ok-on: #14532d;
+  --warn-bg: #fef3c7;
+  --warn-on: #713f12;
+  --viewer-desk: #c9d1de;
+  --scroll-thumb: #b7c2d6;
+  --scroll-thumb-hover: #97a6c0;
+  --prefs-rail: #e4e9f1;
+  --prefs-card: #ffffff;
+  --prefs-line: rgba(40, 60, 100, 0.14);
+}
+
+:root {
+  /* Ticked boxes, radios, sliders and progress bars in the accent colour. */
+  accent-color: var(--accent);
+}
