@@ -16,6 +16,9 @@ interface Props {
   onFit: () => void;
   onFitWidth: () => void;
   onToggleContinuous: () => void;
+  /** The active tool, and a switch to pan (Shift+V), select (V) or select text (Shift+T). */
+  tool?: string;
+  onTool?: (tool: 'pan' | 'select' | 'selectText') => void;
   sheetLabel?: string;
   sheetTitle?: string;
   pageWidthPt: number | null;
@@ -185,6 +188,19 @@ export function PageNav(p: Props) {
           >
             {p.continuous ? '▤ Continuous' : '▢ Single'}
           </button>
+        )}
+        {show('layout') && p.onTool && (
+          <>
+            <button className={`btn flat${p.tool === 'pan' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('pan')} title="Pan (Shift+V)" aria-label="Pan" aria-pressed={p.tool === 'pan'}>
+              ✥
+            </button>
+            <button className={`btn flat${p.tool === 'select' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('select')} title="Select (V)" aria-label="Select" aria-pressed={p.tool === 'select'}>
+              ➤
+            </button>
+            <button className={`btn flat${p.tool === 'selectText' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('selectText')} title="Select text (Shift+T)" aria-label="Select text" aria-pressed={p.tool === 'selectText'}>
+              Ꭲ
+            </button>
+          </>
         )}
       </div>
       <div className="pagenav-center">

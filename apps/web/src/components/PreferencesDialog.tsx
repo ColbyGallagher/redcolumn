@@ -561,7 +561,6 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </select>
         </Row>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
-        <C>{check('dragToSelect', 'Drag on the Page to Select Markups', { title: 'With Select, dragging on an empty part of the page draws a selection box instead of panning' })}</C>
       </Grid>
     ),
     sketch: () => (

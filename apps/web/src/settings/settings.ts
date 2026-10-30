@@ -150,8 +150,6 @@ export interface Settings {
   toolChestSticky: boolean;
   /** Ask before deleting markups with the Delete key. */
   confirmDelete: boolean;
-  /** With Select, dragging on an empty part of the page draws a selection box instead of panning. */
-  dragToSelect: boolean;
   /** A dotted, non-printing grid over the page (View → Show Grid). */
   showGrid: boolean;
   /** Drawing tools snap to the nearest grid point when no drawing geometry is nearer. */
@@ -416,7 +414,6 @@ export const DEFAULT_SETTINGS: Settings = {
   toolChestMode: 'copy',
   toolChestSticky: false,
   confirmDelete: false,
-  dragToSelect: false,
   showGrid: false,
   snapToGrid: false,
   snapToMarkup: true,
