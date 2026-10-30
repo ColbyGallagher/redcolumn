@@ -2,7 +2,7 @@ import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale }
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
 import { markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
-import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
@@ -191,13 +191,44 @@ function paintHatch(ctx: CanvasRenderingContext2D, clip: PathCmd[], evenOdd: boo
  * Text and position of a measurement's value label, or null for other markups or hidden labels.
  * `angle` is its turn in radians, clockwise in page space (a Length's text can be turned).
  */
-export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): { text: string; at: [number, number]; angle: number } | null {
+export interface MeasureLabel {
+  text: string;
+  /** The text's lines, top to bottom: the markup's Label (not on a count), then `text`. */
+  lines: string[];
+  at: [number, number];
+  angle: number;
+}
+
+export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel | null {
   if (!isMeasureKind(m.type) || m.points.length === 0 || m.style.showLabel === false) return null;
   const line = dimensionLine(m);
   const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
-  const caption = m.text?.trim();
-  return { text: caption ? `${caption} ${value}` : value, at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
+  const label = m.type === 'count' ? '' : markupLabel(m);
+  return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
+}
+
+/** A Polylength's labels: each segment's length on the segment, turned along it. (The whole's is `measurementLabel`.) */
+export function segmentLabels(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel[] {
+  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false) return [];
+  return m.points.slice(1).map((b, i) => {
+    const a = m.points[i]!;
+    let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
+    if (angle > Math.PI / 2) angle -= Math.PI;
+    else if (angle < -Math.PI / 2) angle += Math.PI;
+    const text = measureLabel('length', [a, b], scale, measureProps(m));
+    return { text, lines: [text], at: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angle };
+  });
+}
+
+/** The box a label's lines fill, and each line's centre height from the label's centre; `widthOf` measures a line. */
+export function labelBox(lines: readonly string[], size: number, widthOf: (s: string) => number): { w: number; h: number; ys: number[] } {
+  const lineH = size * 1.2;
+  return {
+    w: Math.max(...lines.map(widthOf)) + size * 0.6,
+    h: lines.length * lineH + size * 0.2,
+    ys: lines.map((_, i) => (i - (lines.length - 1) / 2) * lineH),
+  };
 }
 
 /**
@@ -299,14 +330,13 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
   }
   ctx.setLineDash([]);
-  const label = measurementLabel(m, scale);
-  if (label) {
+  const whole = measurementLabel(m, scale);
+  for (const label of whole ? [whole, ...segmentLabels(m, scale)] : []) {
     const { size, background } = labelStyle(m);
     ctx.font = cssFont(style, size, true);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const w = ctx.measureText(label.text).width + size * 0.6;
-    const h = size * 1.4;
+    const { w, h, ys } = labelBox(label.lines, size, (s) => ctx.measureText(s).width);
     let [x, y] = label.at;
     ctx.save();
     if (label.angle) {
@@ -321,9 +351,12 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
     ctx.globalAlpha = style.opacity;
     ctx.fillStyle = textColor(style);
-    ctx.fillText(label.text, x, y);
-    if (style.underline) underline(ctx, x - w / 2 + size * 0.3, y + size * 0.45, w - size * 0.6, size);
-    if (style.strikethrough) underline(ctx, x - w / 2 + size * 0.3, y, w - size * 0.6, size);
+    label.lines.forEach((line, i) => {
+      ctx.fillText(line, x, y + ys[i]!);
+      const lw = ctx.measureText(line).width;
+      if (style.underline) underline(ctx, x - lw / 2, y + ys[i]! + size * 0.45, lw, size);
+      if (style.strikethrough) underline(ctx, x - lw / 2, y + ys[i]!, lw, size);
+    });
     ctx.restore();
   }
   const dim = dimensionText(m);

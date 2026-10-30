@@ -635,7 +635,7 @@ const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active
 /** The first panel the profile docks on a side, which that side panel starts on. */
 const firstPanelOn = (side: DockSide): LeftTab | undefined => {
   const ws = profiles.active().state;
-  return RAIL.find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id))?.id;
+  return RAIL.find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -937,7 +937,7 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
   const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
   const [dockHeight, setDockHeight] = useState(180);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
@@ -6792,7 +6792,8 @@ export function App() {
   };
 
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
-  const orderedRail = [...RAIL].sort((a, b) => {
+  // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
+  const orderedRail = RAIL.filter(({ id }) => id !== 'markups' || ws.markupsDocked).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
     return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
@@ -6845,7 +6846,13 @@ export function App() {
    */
   const dockPanel = (id: LeftTab, side: DockSide, target?: LeftTab, after = false) => {
     if (id === target) return;
-    const from = panelSide(id);
+    // The Markups list comes from the bottom dock: it has no side yet, and the dock gives way to Links.
+    const fromBottom = id === 'markups' && !ws.markupsDocked;
+    const from = fromBottom ? null : panelSide(id);
+    if (fromBottom) {
+      setBottomTab('links');
+      setShowBottom(false);
+    }
     const ids = orderedRail.map((r) => r.id).filter((x) => x !== id);
     if (target) ids.splice(ids.indexOf(target) + (after ? 1 : 0), 0, id);
     else ids.push(id);
@@ -6853,6 +6860,7 @@ export function App() {
       ...w,
       panelOrder: ids,
       rightPanels: side === 'right' ? [...w.rightPanels.filter((x) => x !== id), id] : w.rightPanels.filter((x) => x !== id),
+      ...(id === 'markups' ? { markupsDocked: true } : {}),
     }));
     if (from === side) return;
     if (side === 'right') {
@@ -6864,6 +6872,17 @@ export function App() {
       setLeftTab(id);
       setLeftOpen(true);
     }
+  };
+
+  /** Moves the Markups list back from a side panel to the bottom dock. */
+  const undockMarkups = () => {
+    if (!ws.markupsDocked) return;
+    updateWorkspace((w) => ({ ...w, markupsDocked: false, rightPanels: w.rightPanels.filter((x) => x !== 'markups') }));
+    if (leftTab === 'markups') setLeftOpen(false);
+    if (rightTab === 'markups') setRightOpen(false);
+    setBottomTab('markups');
+    setShowBottom(true);
+    setDockOpen(true);
   };
 
   /** Right-click on the markup toolbar: add any tool to it as a button, or take one off. */
@@ -7625,7 +7644,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     security: () => setSecurityOpen(true),
     showPanel: (tab) => showPanel(tab),
     focusPanel: (id) => {
-      if (id === 'markups' || id === 'links') showBottomPanel(id);
+      if (id === 'markups' && ws.markupsDocked) showPanel('markups');
+      else if (id === 'markups' || id === 'links') showBottomPanel(id);
       else showPanel(id);
     },
     togglePanels: () => {
@@ -8184,6 +8204,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDragEnd={() => setRailDrag(null)}
         >
           {LEFT_TITLES[tab]}
+          {tab === 'markups' && (
+            <button className="drawer-popout" aria-label="Dock the Markups list at the bottom" title="Dock at the bottom of the window" draggable={false} onClick={undockMarkups}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2.5h12v11H2zM2 10h12" />
+              </svg>
+            </button>
+          )}
           <button className="drawer-close" aria-label="Close the panel" title="Close" draggable={false} onClick={close}>
             ×
           </button>
@@ -8230,6 +8257,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onOpen={(hit, sameDoc, file) => void openDocSearchHit(hit, sameDoc, file)}
           />
+        ) : tab === 'markups' ? (
+          markupsPopped ? (
+            <div className="popout-note">
+              <p>The Markups list is open in its own window.</p>
+              <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
+                Bring it back
+              </button>
+            </div>
+          ) : (
+            <div className="dock-body">{markupList}</div>
+          )
         ) : tab === 'pages' ? (
           <PagesPanel
             doc={activeOpen?.doc ?? null}
@@ -8723,7 +8761,21 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const bottomDock = !dockOpen ? (
     <button type="button" className="dock-edge" aria-label="Open the Markups list" title="Open the Markups list" onClick={() => setDockOpen(true)} />
   ) : (
-    <aside className="bottom-dock" style={{ height: dockHeight }}>
+    <aside
+      className="bottom-dock"
+      style={{ height: dockHeight }}
+      onDragOver={(e) => {
+        if (railDrag?.id !== 'markups') return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+      }}
+      onDrop={(e) => {
+        if (railDrag?.id !== 'markups') return;
+        e.preventDefault();
+        undockMarkups();
+        setRailDrag(null);
+      }}
+    >
       <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" title="Drag to resize, click to collapse" onPointerDown={onDockSplit} />
       <div className="tabs">
         <button
@@ -8739,14 +8791,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           </svg>
         </button>
         <div className="dock-tablist" role="tablist">
-          <button
-            role="tab"
-            aria-selected={bottomTab === 'markups'}
-            className={bottomTab === 'markups' ? 'active' : ''}
-            onClick={() => setBottomTab('markups')}
-          >
-            Markups
-          </button>
+          {!ws.markupsDocked && (
+            <button
+              role="tab"
+              aria-selected={bottomTab === 'markups'}
+              className={bottomTab === 'markups' ? 'active' : ''}
+              title="Drag to a side of the window to dock the Markups list there"
+              draggable
+              onDragStart={(e) => startPanelDrag(e, 'markups')}
+              onDragEnd={() => setRailDrag(null)}
+              onClick={() => setBottomTab('markups')}
+            >
+              Markups
+            </button>
+          )}
           <button
             role="tab"
             aria-selected={bottomTab === 'links'}
@@ -10305,6 +10363,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
 }
 
 const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean }[] = [
+  {
+    id: 'markups',
+    title: 'Markups',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 3.5h12M2 8h12M2 12.5h12" />
+      </svg>
+    ),
+  },
   {
     id: 'files',
     title: 'File Access',

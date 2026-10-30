@@ -56,3 +56,14 @@ test('a full-width Markups list is saved with the profile, and older profiles ke
   const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
   assert.equal(upgraded.state.dockFullWidth, false);
 });
+
+test('a Markups list docked in a side panel is saved with the profile, and older profiles keep it at the bottom', () => {
+  const p = profiles.create('Side', 'default');
+  assert.equal(p.state.markupsDocked, false);
+  profiles.update((s) => ({ ...s, markupsDocked: true, rightPanels: ['markups'] }));
+  const copy = profiles.importJson(profiles.exportJson(p.id));
+  assert.equal(copy.state.markupsDocked, true);
+  const { markupsDocked: _, ...old } = copy.state;
+  const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
+  assert.equal(upgraded.state.markupsDocked, false);
+});

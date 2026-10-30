@@ -83,7 +83,7 @@ export {
 } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, shapeBounds, type Alignment, type Axis } from './arrange';
-export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, onImageLoad, rotateHandle, textBoxLines } from './render';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';
