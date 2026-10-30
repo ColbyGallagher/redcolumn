@@ -4,7 +4,7 @@ import { PDFDict, PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import { calibratedScale, DEFAULT_SCALE } from '@nb/measure';
 import { exportWithAnnotations } from './export.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
-import { scaleOfMarkup, viewportAt, type Viewport } from './viewports.ts';
+import { scaleOfMarkup, viewportAt, viewportRectFromCorners, type Viewport } from './viewports.ts';
 
 const detail: Viewport = { id: 'v1', pageIndex: 0, name: 'Detail', rect: { x: 100, y: 100, w: 100, h: 100 }, scale: calibratedScale(10, 1, 'm') };
 const inner: Viewport = { ...detail, id: 'v2', name: 'Inner', rect: { x: 120, y: 120, w: 20, h: 20 } };
@@ -29,4 +29,12 @@ test('exported measurement labels use the viewport scale', async () => {
   const annot = out.context.lookup(out.getPage(0).node.Annots()!.get(0), PDFDict);
   // 50 points at 10 points per metre.
   assert.match(annot.lookup(PDFName.of('Contents'), PDFHexString).decodeText(), /5\.00 m/);
+});
+
+test('two corners in any order give one rectangle, cut to the page', () => {
+  const page = { width: 612, height: 792 };
+  assert.deepEqual(viewportRectFromCorners([300, 400], [100, 50], page), { x: 100, y: 50, w: 200, h: 350 });
+  assert.deepEqual(viewportRectFromCorners([-20, -20], [700, 900], page), { x: 0, y: 0, w: 612, h: 792 });
+  assert.equal(viewportRectFromCorners([700, 10], [800, 50], page), null, 'wholly off the page');
+  assert.equal(viewportRectFromCorners([10, 10], [10, 50], page), null, 'no width');
 });

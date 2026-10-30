@@ -505,3 +505,54 @@ test('an AI client proposes takeoff assemblies; they wait for a person, and the 
   const pending = (await assistantCall([drawing], 'list_takeoff_proposals', {})) as { proposals: { state: string; assembly: string; markup: { seq: number } }[] };
   assert.deepEqual(pending.proposals.map((p) => [p.state, p.assembly, p.markup.seq]), [['pending', 'Stud Wall', 1]]);
 });
+
+test('viewports are placed, listed, and given a scale, each as one undo step', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const one = (await assistantCall([drawing], 'place_viewport', { page: 1, points: [[300, 400], [100, 50]], scale: '1:100' })) as { viewport: { id: string; name: string; page: number; rect: { x: number; y: number; w: number; h: number }; scale: string } };
+  assert.equal(one.viewport.name, 'Viewport 1');
+  assert.deepEqual(one.viewport.rect, { x: 100, y: 50, w: 200, h: 350 });
+  assert.equal(one.viewport.scale, '1 mm = 100 mm');
+  assert.equal(drawing.store.allViewports().length, 1);
+  assert.equal(((await assistantCall([drawing], 'get_page', { page: 1 })) as { viewports?: number }).viewports, 1);
+
+  const listed = (await assistantCall([drawing], 'list_viewports', { page: 1 })) as { viewports: { id: string }[] };
+  assert.deepEqual(listed.viewports.map((v) => v.id), [one.viewport.id]);
+  assert.deepEqual(((await assistantCall([drawing], 'list_viewports', { page: 2 })) as { viewports: unknown[] }).viewports, []);
+
+  const changed = (await assistantCall([drawing], 'set_viewport_scale', { id: one.viewport.id, scale: '1:50' })) as { viewport: { scale: string } };
+  assert.equal(changed.viewport.scale, '1 mm = 50 mm');
+  assert.equal(drawing.store.allViewports()[0]!.scale.label, '1:50');
+  drawing.store.undo();
+  assert.equal(drawing.store.allViewports()[0]!.scale.label, '1:100', 'the scale change is one step');
+  drawing.store.undo();
+  assert.equal(drawing.store.allViewports().length, 0, 'so is placing the viewport');
+});
+
+test('a viewport scale that is not a scale, or a viewport that is not there, changes nothing', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const one = (await assistantCall([drawing], 'place_viewport', { page: 1, points: [[0, 0], [100, 100]] })) as { viewport: { id: string } };
+  await assert.rejects(() => assistantCall([drawing], 'set_viewport_scale', { id: one.viewport.id, scale: 'big' }), /not a scale/);
+  await assert.rejects(() => assistantCall([drawing], 'set_viewport_scale', { id: 'missing', scale: '1:50' }), /No viewport missing/);
+  await assert.rejects(() => assistantCall([drawing], 'place_viewport', { page: 1, points: [[900, 10], [950, 60]] }), /nothing on page 1/);
+  assert.equal(drawing.store.allViewports().length, 1);
+});
+
+test('placing many viewports is one undo step, and one bad item places none', async () => {
+  const drawing = await doc('A-101.pdf', true);
+  const placed = (await assistantCall([drawing], 'place_viewports', {
+    page: 1,
+    viewports: [{ points: [[0, 0], [100, 100]] }, { points: [[200, 200], [300, 300]], name: 'Section', scale: "1/4\" = 1'-0\"" }, { page: 2, points: [[0, 0], [50, 50]] }],
+  })) as { placed: { name: string; page: number }[] };
+  assert.deepEqual(placed.placed.map((v) => [v.name, v.page]), [['Viewport 1', 1], ['Section', 1], ['Viewport 1', 2]]);
+  assert.equal(drawing.store.allViewports().length, 3);
+  drawing.store.undo();
+  assert.equal(drawing.store.allViewports().length, 0);
+
+  await assert.rejects(
+    () => assistantCall([drawing], 'place_viewports', { page: 1, viewports: [{ points: [[0, 0], [100, 100]] }, { points: [[0, 0], [100, 100]], scale: 'nope' }] }),
+    /Viewport 2: .*not a scale/,
+  );
+  assert.equal(drawing.store.allViewports().length, 0);
+  drawing.store.setReadOnly(true);
+  await assert.rejects(() => assistantCall([drawing], 'place_viewport', { page: 1, points: [[0, 0], [10, 10]] }), /read-only/);
+});

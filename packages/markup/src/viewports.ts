@@ -10,6 +10,20 @@ export interface Viewport {
   scale: Scale;
 }
 
+/**
+ * The rectangle two opposite corners span, clipped to the page. Null when none of it is on the
+ * page. The Viewport tool and the assistant's place_viewport both use this, so the same corners
+ * give the same viewport.
+ */
+export function viewportRectFromCorners(a: Point, b: Point, size?: { width: number; height: number } | null): Rect | null {
+  const x0 = Math.max(0, Math.min(a[0], b[0]));
+  const y0 = Math.max(0, Math.min(a[1], b[1]));
+  const x1 = size ? Math.min(size.width, Math.max(a[0], b[0])) : Math.max(a[0], b[0]);
+  const y1 = size ? Math.min(size.height, Math.max(a[1], b[1])) : Math.max(a[1], b[1]);
+  if (!(x1 > x0) || !(y1 > y0)) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
 function inside(r: Rect, [x, y]: Point): boolean {
   return x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 }
