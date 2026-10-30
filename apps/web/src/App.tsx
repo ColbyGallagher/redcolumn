@@ -236,6 +236,8 @@ function stepLabel(revisionNote: string | undefined): string | undefined {
   const what = revisionNote?.replace(/^Before /, '');
   return what ? what[0]!.toUpperCase() + what.slice(1) : undefined;
 }
+/** Autosave waits this long after the last change, so a burst of edits is written once. */
+const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
   savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
 }
@@ -838,6 +840,8 @@ export function App() {
   /** Counts Projects opened, so what depends on the open Projects runs again. */
   const [projectsOpened, setProjectsOpened] = useState(0);
   const tabsARef = useRef<OpenFile[]>([]);
+  /** Documents an autosave is writing right now, so one is never written twice at once. */
+  const autosaving = useRef(new Set<string>());
   const [tabsB, setTabsB] = useState<OpenFile[]>([]);
   const tabsBRef = useRef<OpenFile[]>([]);
   /** Where each tab was scrolled to, restored when it comes back to the front. */
@@ -3770,7 +3774,7 @@ export function App() {
    * (asking once for permission). Documents with no file on disk, and Save As, ask where to put it.
    */
   const [savedTick, setSavedTick] = useState(0);
-  const saveDocument = useCallback(async (saveAs: boolean, target?: { pane: Pane; t: OpenFile }): Promise<boolean> => {
+  const saveDocument = useCallback(async (saveAs: boolean, target?: { pane: Pane; t: OpenFile }, silent = false): Promise<boolean> => {
     const intoB = target ? target.pane === 'b' : activePaneRef.current === 'b';
     const cur = target?.t ?? (intoB ? openBRef.current : openRef.current);
     if (!cur) return false;
@@ -3790,21 +3794,24 @@ export function App() {
         }
       }
       setSavedTick((n) => n + 1);
-      setNotice(`Saved ${fileName}.`);
+      if (!silent) setNotice(`Saved ${fileName}.`);
     };
     try {
+      // Autosave never asks where to save or downloads: it writes only to a file already chosen.
+      const known = silent ? await recallHandle(cur.file.id) : null;
+      if (silent && !known) return false;
       const out = await annotatedBytes(cur, { keepSigned: true });
       const stored = new Uint8Array(await readFile(cur.file.hash));
       assertKeepsSignatures(stored, out);
       await assertCertificationAllowsMarkups(stored, out);
       const blob = new Blob([out as BlobPart], { type: 'application/pdf' });
-      const handle = saveAs ? null : await recallHandle(cur.file.id);
+      const handle = saveAs ? null : known ?? (await recallHandle(cur.file.id));
       if (handle) {
         if (await writeToHandle(handle, blob)) {
           await saved(handle.name);
           return true;
         }
-        setError(`${handle.name} was not saved: the browser did not allow writing to it.`);
+        if (!silent) setError(`${handle.name} was not saved: the browser did not allow writing to it.`);
         return false;
       }
       const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
@@ -3817,10 +3824,41 @@ export function App() {
       await saved(picked.name);
       return true;
     } catch (err) {
-      setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+      // Autosave retries after the next edit; a document that cannot be saved quietly stays unsaved.
+      if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }, [setTabs, setFront, refreshLibrary]);
+
+  // Preferences › Document › Autosave: a few seconds after the last edit, documents with changes
+  // and a file to write to are saved in the background.
+  const autosave = prefs.autosave;
+  useEffect(() => {
+    if (!autosave) return;
+    const docs: { pane: Pane; t: OpenFile }[] = [
+      ...tabsA.map((t) => ({ pane: 'a' as const, t })),
+      ...tabsB.map((t) => ({ pane: 'b' as const, t })),
+    ].filter(({ t }) => !studioDocOf(t.file.id));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const run = () => {
+      timer = undefined;
+      for (const d of docs) {
+        if (!hasUnsavedChanges(d.t) || autosaving.current.has(d.t.file.id)) continue;
+        autosaving.current.add(d.t.file.id);
+        void saveDocument(false, d, true).finally(() => autosaving.current.delete(d.t.file.id));
+      }
+    };
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(run, AUTOSAVE_DELAY_MS);
+    };
+    if (docs.some(({ t }) => hasUnsavedChanges(t))) arm();
+    const offs = docs.map(({ t }) => t.store.subscribe(arm));
+    return () => {
+      clearTimeout(timer);
+      offs.forEach((off) => off());
+    };
+  }, [autosave, tabsA, tabsB, savedTick, saveDocument]);
   const exportPdf = useCallback(() => saveDocument(false), [saveDocument]);
 
   /**
