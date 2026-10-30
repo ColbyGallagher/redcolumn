@@ -31,6 +31,8 @@ Click the **Links** tab at the bottom of the screen.
 | **On this sheet** | the links on the current sheet and where they go. |
 | **Links to this sheet** | links on other sheets that point here. |
 
+Each row says what the link is, read from the drawing it points at: a **Detail**, **Section**, **Elevation** or **Enlarged plan** bubble, a **Match line**, or a plain sheet reference. The kind is saved with the link, so it is still there when you reopen the file.
+
 Click a row to see that callout. **Re-detect** finds links again, for example after you change [page labels](#page-labels).
 
 ## Teach redcolumn your marks

@@ -336,7 +336,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
       pageIndex: h.pageIndex,
       rect: h.rect,
       label,
-      kind: detail ? 'detail' : 'sheet',
+      kind: h.mark.kind === 'sectionMark' || h.mark.kind === 'sectionTitle' ? 'section' : detail ? 'detail' : 'sheet',
       detail,
       targetPage,
       targetRect,
