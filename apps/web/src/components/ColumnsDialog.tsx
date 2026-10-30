@@ -82,16 +82,18 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
     onListChange((l) => ({ ...l, columns: layout.map((c) => ({ key: c.key, width: c.width, hidden: c.key === key ? !shown : c.hidden })) }));
   const patch = (p: Partial<CustomColumn>) => setColumns((cs) => cs.map((c) => (c.id === selectedId ? { ...c, ...p } : c)));
 
-  // A column the file already had keeps a name that is a built-in's (another tool's files have a "Type" or "Area" column), so it cannot stop everything else being saved.
-  const had = useRef(new Set(initial.columns.map((c) => `${c.id}|${c.name.trim().toLowerCase()}`)));
+  // A column the file already had, left as it is, cannot stop everything else being saved: another tool's files have
+  // columns named like built-ins ("Type", "Area"), twins that differ in case, dropdowns whose choices we could not read, calculations we cannot parse.
+  const had = useRef(new Map(initial.columns.map((c) => [c.id, JSON.stringify(c)])));
+  const untouched = (c: CustomColumn) => had.current.get(c.id) === JSON.stringify(c);
   const nameProblem = (c: CustomColumn) => {
     const n = c.name.trim().toLowerCase();
     if (!n) return 'Name is required';
-    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n) && !had.current.has(`${c.id}|${n}`)) return 'A built-in column has this name';
+    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n)) return 'A built-in column has this name';
     if (columns.some((o) => o.id !== c.id && o.name.trim().toLowerCase() === n)) return 'Another column has this name';
     return null;
   };
-  const problems = columns.map((c) => nameProblem(c) ?? formulaError(c, columns, false) ?? (c.type === 'choice' && !c.options?.length ? 'Add at least one choice' : null));
+  const problems = columns.map((c) => (untouched(c) ? null : (nameProblem(c) ?? formulaError(c, columns, false) ?? (c.type === 'choice' && !c.options?.length ? 'Add at least one choice' : null))));
   // Start on a column that stops Save, so the reason is in front of the user.
   useEffect(() => {
     const i = problems.findIndex((p) => p);
