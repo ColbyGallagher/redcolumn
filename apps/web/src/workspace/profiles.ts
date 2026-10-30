@@ -91,6 +91,8 @@ export interface WorkspaceState {
   panelOrder: string[];
   /** Panels docked on the right-hand side of the window; the rest sit on the left. */
   rightPanels: string[];
+  /** The Markups list is docked in a side panel (the side is `rightPanels`') instead of the bottom dock. */
+  markupsDocked: boolean;
   showToolbar: boolean;
   /** The top toolbar: a ribbon of tabs (Word, AutoCAD) or the one-row simplified toolbar. */
   toolbarStyle: ToolbarStyle;
@@ -144,6 +146,7 @@ export function defaultWorkspace(): WorkspaceState {
     hiddenPanels: [],
     panelOrder: [],
     rightPanels: [],
+    markupsDocked: false,
     showToolbar: true,
     toolbarStyle: 'ribbon',
     ribbonCollapsed: false,
