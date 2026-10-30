@@ -243,6 +243,8 @@ export function importAnnotations(
       if (!ours) {
         const subject = str(r.Subj);
         if (subject) m.subject = subject;
+        const label = str(r.Label);
+        if (label) m.label = label;
         const layer = extras?.ocgNames.get(refNum(r.OC) ?? -1);
         if (layer) m.layer = layer;
         const group = groups.get(a.index);

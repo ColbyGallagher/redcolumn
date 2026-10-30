@@ -351,6 +351,8 @@ export interface Markup {
   connect?: ConnectorLinks;
   /** Subject shown in the markup list; the type's name when unset (tool library tools set it). */
   subject?: string;
+  /** A category for the markup (Bluebeam's Label: "Tile 1", a count's kind); shown in the list, not drawn on a count. */
+  label?: string;
   /** Values of the document's custom columns, keyed by column id. */
   fields?: Record<string, string>;
   /** Image drawn in the markup's box (images, signatures, other tools' attachments): a PNG or JPEG data URL. */

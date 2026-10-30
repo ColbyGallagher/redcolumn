@@ -140,6 +140,21 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             }}
           />
         </Row>
+        <Row label="Label">
+          <input
+            key={`${m.id}:${m.label ?? ''}`}
+            defaultValue={m.label ?? ''}
+            placeholder="Category, e.g. Tile 1"
+            disabled={readOnly}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v !== (m.label ?? '')) {
+                store?.checkpoint();
+                store?.batch(() => ids.forEach((id) => store.update(id, { label: v || undefined })));
+              }
+            }}
+          />
+        </Row>
         <Row label="Status">
           <select
             value={m.status}

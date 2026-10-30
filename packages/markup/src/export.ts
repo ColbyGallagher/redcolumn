@@ -820,7 +820,10 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const contents = isTextType(m.type) || m.type === 'dimension' || m.type === 'replaceText' || m.type === 'connector' ? [m.text, m.type === 'replaceText' ? m.comment : null].filter(Boolean).join(' — ') : [signed, label?.text, m.comment].filter(Boolean).join(' — ');
   // Bluebeam's Markups List names and groups markups by subject: without one they sit under a blank group.
   base.Subj = pdfText(m.subject || defaultSubject(m));
-  if (contents) base.Contents = pdfText(contents);
+  // Bluebeam's Label: its own key, and above the value in a measurement's /Contents ("label\r4").
+  // Written empty on measurements and counts too, as Bluebeam does, so clearing a label clears the original's.
+  if (m.label || label || m.type === 'count') base.Label = pdfText(m.label ?? '');
+  if (contents) base.Contents = pdfText(label && m.label ? `${m.label}\r${contents}` : contents);
   if (fill) base.IC = fill;
   // Bluebeam keeps a shape's hatch as a pattern, its name and its colour; a shape without them is
   // redrawn with no hatch as soon as it is edited. (Our appearance already draws it.)
@@ -1274,6 +1277,9 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     page.node.addAnnot(doc.context.register(annot));
   }
 }
+
+/** A count annotation's /Contents: the group's total, under its label as Bluebeam shows it. */
+const countContents = (m: Markup, total: number) => (m.label ? `${m.label}\r${total}` : String(total));
 
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
@@ -2085,7 +2091,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
             const dict = k === 0 ? merged : mergeAnnotation(doc, own, build(item), nativeForm(own, item, ctx.matrix));
             // Every item says the count's total.
             dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
-            dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+            dict.set(PDFName.of('Contents'), pdfText(countContents(main, items.length)));
             refreshRichText(dict);
             if (k > 0 && !(origK instanceof PDFDict)) {
               // A new item: the first item's form, in its group.
@@ -2138,7 +2144,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       if (m.type === 'count') {
         dict.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify(appData(m))));
         dict.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
-        dict.set(PDFName.of('Contents'), pdfText(String(items.length)));
+        dict.set(PDFName.of('Contents'), pdfText(countContents(m, items.length)));
       }
       const ref = doc.context.register(dict);
       page.node.addAnnot(ref);
@@ -2148,7 +2154,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
           const d = build(item);
           d.set(PDFName.of(APP_DATA_KEY), pdfText(JSON.stringify({ replyTo: m.id })));
           d.set(PDFName.of('NumCounts'), PDFNumber.of(items.length));
-          d.set(PDFName.of('Contents'), pdfText(String(items.length)));
+          d.set(PDFName.of('Contents'), pdfText(countContents(m, items.length)));
           d.set(PDFName.of('IRT'), ref);
           d.set(PDFName.of('RT'), PDFName.of('Group'));
           page.node.addAnnot(doc.context.register(d));

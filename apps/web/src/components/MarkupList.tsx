@@ -574,6 +574,25 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         </span>
       );
     }
+    if (col.key === 'label') {
+      return (
+        <input
+          key={m.label ?? ''}
+          className="bare"
+          defaultValue={m.label ?? ''}
+          disabled={fixed}
+          title="Label"
+          onClick={stop}
+          onBlur={(e) => {
+            const v = e.target.value.trim();
+            if (v !== (m.label ?? '')) patchAll(m, { label: v || undefined });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+          }}
+        />
+      );
+    }
     if (col.key === 'checked') {
       // Like the status, a review mark anyone who can markup may set.
       return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title="Checkmark" onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
