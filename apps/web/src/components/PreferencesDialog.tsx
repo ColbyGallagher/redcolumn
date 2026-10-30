@@ -378,6 +378,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     document: () => (
       <Grid>
         <C>{check('documentRecovery', 'Enable Document Recovery')}</C>
+        <C>{check('autosave', 'Autosave Changes to the File in the Background')}</C>
         {select('pageLayout', 'Page Layout', [
           ['auto', 'Auto-Detect by page size'],
           ['single', 'Single Page'],

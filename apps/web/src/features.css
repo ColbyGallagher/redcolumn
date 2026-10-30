@@ -5384,6 +5384,17 @@ tr.hidden-markup td {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.autosave-btn {
+  flex: none;
+  align-self: center;
+  margin: 0 8px 0 0;
+}
+
+.autosave-btn.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 @media (max-width: 1100px) {
   .menubar-help {
     display: none;
