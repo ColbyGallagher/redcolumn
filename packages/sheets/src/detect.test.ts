@@ -195,3 +195,34 @@ test('a bare number is a sheet number when a label names it', () => {
     ['101', '102', '103'],
   );
 });
+
+test('agency title blocks: the cited PLAN NO. beats a DRAWING / FILE NO. of the same size', () => {
+  // SFPUC-style title block: sheet number under "PLAN NO.", a document-control number under
+  // "DRAWING / FILE NO." right beside it, both set at the same size.
+  const agency = (plan: string, file: string, body: Word[] = []): PageText => ({
+    width: W,
+    height: H,
+    words: [
+      ...body,
+      ...phrase('PLAN NO.', 2200, 1660, 7),
+      word(plan, 2200, 1700, 20),
+      ...phrase('DRAWING / FILE NO.', 2360, 1660, 7),
+      word(file, 2360, 1700, 20),
+      ...phrase('REVISION NO.', 2520, 1660, 7),
+      word('0', 2520, 1700, 20),
+    ],
+  });
+  const pages = [
+    agency('C-4000', 'E-35863', [...phrase('SEE SHEET', 300, 400, 8), word('C-4017', 390, 400, 8)]),
+    agency('C-4017', 'E-35880', [...phrase('MATCH LINE SEE SHEET', 300, 400, 8), word('C-4000', 470, 400, 8)]),
+    agency('P-3008', 'E-35905', [...phrase('SECTION @ STA 598+59.00', 300, 400, 10), word('C-4017', 500, 400, 8)]),
+  ];
+  const found = detectSheets(pages);
+  assert.deepEqual(
+    found.map((s) => s.number),
+    ['C-4000', 'C-4017', 'P-3008'],
+  );
+  assert.equal(found[0]!.discipline, 'Civil');
+  assert.equal(normalizeSheetNumber('P-3008'), 'P-3008');
+  assert.equal(disciplineFor('CD-4001'), 'Civil Demolition');
+});

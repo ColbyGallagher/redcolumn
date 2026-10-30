@@ -5,7 +5,8 @@ import type { PageText, SheetInfo, Word } from './types.ts';
  * optional separator, then digits with an optional sub-number and suffix letter.
  * Matches C-101, A1.01, S-201, E101, FP-101, M-3, L-1.0, C5.1A.
  */
-const SHEET_NUMBER = /^([A-Z]{1,3})[-.\s]?(\d{1,3})(?:[.-](\d{1,3}))?([A-Z])?$/;
+// Up to four digits: agency and infrastructure sets number sheets C-4000, P-3008.
+const SHEET_NUMBER = /^([A-Z]{1,3})[-.\s]?(\d{1,4})(?:[.-](\d{1,3}))?([A-Z])?$/;
 
 /** US National CAD Standard discipline designators. */
 const DISCIPLINES: [string, string][] = [
@@ -144,6 +145,9 @@ const IDENTIFIER = /^(?=[^\d]*\d)[A-Z0-9][A-Z0-9._/-]{1,59}$/;
 const NOT_IDENTIFIER = [/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/, /^1:\d+$/, /^\d+\+\d+/, /^\d+(\.\d+)?(KM|M|MM|CM|FT|IN|%)$/, /^\d{1,2}$/, /^\d{1,2}:\d{2}$/];
 /** Field labels that sit next to a drawing's own number. */
 const NUMBER_LABEL = /^(DRG|DWG|DRAWING|SHEET|SHT|DOC|DOCUMENT)\.?$/;
+/** "PLAN NO." labels the sheet number on many agency title blocks; "PLAN" alone is a view title. */
+const PLAN_LABEL = /^PLAN$/;
+const NO_LABEL = /^(NO\.?|NUMBER|#)$/;
 
 function identifier(text: string): string | null {
   const t = text.trim().toUpperCase().replace(/[:,;.]+$/, '');
@@ -153,7 +157,12 @@ function identifier(text: string): string | null {
 
 function candidatesFor(page: PageText): Candidate[] {
   const med = median(page.words.map((w) => w.size)) || 1;
-  const labels = page.words.filter((w) => NUMBER_LABEL.test(w.text.toUpperCase()));
+  const labels = page.words.filter((w) => {
+    const t = w.text.toUpperCase();
+    if (NUMBER_LABEL.test(t)) return true;
+    // "PLAN NO." only: the next word on the row must be "NO."
+    return PLAN_LABEL.test(t) && page.words.some((n) => NO_LABEL.test(n.text.toUpperCase()) && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 2);
+  });
   const out: Candidate[] = [];
   for (const word of page.words) {
     const number = identifier(word.text);
@@ -298,6 +307,22 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
         c.local -= 4;
         c.repeated = true;
       }
+  // A sheet's own number is the one other sheets cite: callouts, match lines and the index all
+  // name it. A drawing-file number printed beside it in the title block (SFPUC's E-35863, a
+  // document-control number) is never cited by a callout, so citation elsewhere breaks the tie.
+  const citedOn = new Map<string, Set<number>>();
+  perPage.forEach((cands, pageIndex) => {
+    for (const c of cands) {
+      if (c.cx > 0.65 && c.cy > 0.65) continue;
+      if (!citedOn.has(c.number)) citedOn.set(c.number, new Set());
+      citedOn.get(c.number)!.add(pageIndex);
+    }
+  });
+  const citations = (c: Candidate, self: number) => {
+    const pagesCiting = citedOn.get(c.number);
+    if (!pagesCiting) return 0;
+    return pagesCiting.size - (pagesCiting.has(self) ? 1 : 0);
+  };
   // Which pages have a candidate in each cell of a coarse grid over normalized page positions.
   const CELL = 0.04;
   const cellKey = (x: number, y: number) => `${x},${y}`;
@@ -328,7 +353,8 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
       // without a title block (reports, letters, specs) get none, rather than an address or a stage.
       if (c.repeated) continue;
       if (!c.labelled && !(isDrawingNumberShape(c.number) && (c.zone || (c.large && consensus >= 0.5)))) continue;
-      const score = c.local + consensus * 3;
+      const cited = citations(c, pageIndex);
+      const score = c.local + consensus * 3 + (cited >= 2 ? 1.5 : cited === 1 ? 0.75 : 0);
       if (!best || score > best.score) best = { c, score, consensus };
     }
     if (!best) return empty;
