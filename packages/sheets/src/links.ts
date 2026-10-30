@@ -1,4 +1,5 @@
 import { isDrawingNumberShape } from './detect.ts';
+import { detectStationLinks } from './stations.ts';
 import type { PageText, Word } from './types.ts';
 
 export interface Rect {
@@ -57,6 +58,8 @@ export interface DetectedLink {
   kind: LinkKind;
   /** Detail or section identifier, for detail, section, elevation and enlarged-plan links. */
   detail: string | null;
+  /** What the reference names on the target, when it is not a drawing: a station (`598+59.00`). */
+  anchor?: string;
   targetPage: number;
   /** Where the referenced detail sits on the target page; null means "the whole sheet". */
   targetRect: Rect | null;
@@ -231,7 +234,8 @@ function stableId(pageIndex: number, label: string, r: Rect): string {
  * - detail/section bubbles: an identifier stacked above a sheet number (`3` over `C-501`);
  * - slash references: `3/C-501`;
  * - plain sheet references: `SEE SHEET C-102`, the cover-sheet index;
- * - match lines: `MATCH LINE SEE SHEET C-102`, kept apart as `matchline`.
+ * - match lines: `MATCH LINE SEE SHEET C-102`, kept apart as `matchline`;
+ * - stations: `STA 598+59.00` to the sheet whose station ticks cover it (see stations.ts).
  * Bubbles are typed by the title they point at: a section, an elevation, an enlarged plan, else a detail.
  * Only sheet numbers that exist in the set are linked, which keeps false positives rare. Sheets
  * numbered with bare numbers or short codes (`680`, `1B`, page labels) are only linked where the
@@ -313,5 +317,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 0.8);
     }
   });
+  // 4. Stations, to the plan/profile sheet whose ticks cover them.
+  links.push(...detectStationLinks(pages, sheetNumbers));
   return links;
 }

@@ -1280,7 +1280,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
       Dest: dest,
       // A /Link can only say where it goes. What it is (a section cut, a match line) and how it
       // reads come back through our own key; other readers ignore it.
-      [APP_DATA_KEY]: pdfText(JSON.stringify({ link: { kind: link.kind, detail: link.detail, label: link.label } })),
+      [APP_DATA_KEY]: pdfText(JSON.stringify({ link: { kind: link.kind, detail: link.detail, label: link.label, ...(link.anchor ? { anchor: link.anchor } : {}) } })),
     });
     page.node.addAnnot(doc.context.register(annot));
   }

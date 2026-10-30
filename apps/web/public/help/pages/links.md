@@ -31,7 +31,11 @@ Click the **Links** tab at the bottom of the screen.
 | **On this sheet** | the links on the current sheet and where they go. |
 | **Links to this sheet** | links on other sheets that point here. |
 
-Each row says what the link is, read from the drawing it points at: a **Detail**, **Section**, **Elevation** or **Enlarged plan** bubble, a **Match line**, or a plain sheet reference. The kind is saved with the link, so it is still there when you reopen the file.
+Each row says what the link is, read from the drawing it points at: a **Detail**, **Section**, **Elevation** or **Enlarged plan** bubble, a **Match line**, a **Station**, or a plain sheet reference. The kind is saved with the link, so it is still there when you reopen the file.
+
+### Stations
+
+On linear work (pipelines, roads, rail), a station such as *STA 598+59.00* on a section, in a note or in a table links to the plan sheet whose station ticks cover it, and the preview opens at the nearest tick. redcolumn reads each sheet's coverage from its own ticks, so a sheet that merely lists stations (a sections sheet, a key plan) is not taken for a plan. Where two disciplines both have plans at that station, the mention's own discipline is used.
 
 Click a row to see that callout. **Re-detect** finds links again, for example after you change [page labels](#page-labels).
 

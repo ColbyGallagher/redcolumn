@@ -84,15 +84,15 @@ const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
 
 /** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
-function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null } | null {
+function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null; anchor?: string } | null {
   if (!appData) return null;
   try {
     const data: unknown = JSON.parse(appData);
     const link = data && typeof data === 'object' && 'link' in data ? (data as { link: unknown }).link : null;
     if (!link || typeof link !== 'object') return null;
-    const { kind, detail, label } = link as { kind?: unknown; detail?: unknown; label?: unknown };
+    const { kind, detail, label, anchor } = link as { kind?: unknown; detail?: unknown; label?: unknown; anchor?: unknown };
     if (!isLinkKind(kind)) return null;
-    return { kind, detail: typeof detail === 'string' ? detail : null, label: typeof label === 'string' ? label : null };
+    return { kind, detail: typeof detail === 'string' ? detail : null, label: typeof label === 'string' ? label : null, ...(typeof anchor === 'string' ? { anchor } : {}) };
   } catch {
     return null;
   }
@@ -344,6 +344,7 @@ export function importAnnotations(
         label: ours?.label ?? fileName ?? 'PDF link',
         kind: ours?.kind ?? (a.link.targetRect ? 'detail' : 'sheet'),
         detail: ours?.detail ?? null,
+        ...(ours?.anchor ? { anchor: ours.anchor } : {}),
         targetPage,
         targetRect: a.link.targetRect,
         confidence: 1,
