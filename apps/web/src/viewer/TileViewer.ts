@@ -138,6 +138,8 @@ export interface ViewerOverlay {
    * to show, or null for the default grab cursor.
    */
   hover(pt: PagePoint | null, pageIndex: number): string | null;
+  /** True when a markup is under the point; Pan still lets the overlay take a press there. */
+  hitsMarkup?(pt: PagePoint, pageIndex: number): boolean;
   /** Page whose coordinates the overlay needs even when the pointer is over another sheet. */
   activePage(): number | null;
   /** A press the overlay claimed was taken back (it became a pinch or a long press). */
@@ -1537,6 +1539,13 @@ export class TileViewer {
     };
   }
 
+  /** True in Pan when the pointer is over a markup, which can still be selected and moved. */
+  private panOverMarkup(e: { clientX: number; clientY: number }): boolean {
+    if (this.navTool !== 'pan' || !this.doc || !this.overlay?.hitsMarkup) return false;
+    const page = this.eventPage(e);
+    return this.overlay.hitsMarkup(this.clientToPage(e.clientX, e.clientY, page), page);
+  }
+
   /** Page for an overlay event: the gesture's page, the overlay's active page, or the one under the pointer. */
   private eventPage(e: { clientX: number; clientY: number }): number {
     return this.gesturePage ?? this.overlay?.activePage() ?? this.pageNearClient(e.clientX, e.clientY);
@@ -1589,7 +1598,7 @@ export class TileViewer {
       return;
     }
     // Once a pen has been used, a single finger pans: the pen draws, a resting hand does not.
-    if (e.button === 0 && (this.navTool === 'pan' || (e.pointerType === 'touch' && this.pens.penUsed))) {
+    if (e.button === 0 && ((this.navTool === 'pan' && !this.panOverMarkup(e)) || (e.pointerType === 'touch' && this.pens.penUsed))) {
       this.drag = { x: e.clientX, y: e.clientY, panX: this.panX, panY: this.panY };
       this.canvas.style.cursor = 'grabbing';
       return;
@@ -1620,7 +1629,12 @@ export class TileViewer {
       this.zoomBy(target / this.zoom, this.dynZoom.sx, this.dynZoom.sy);
       return;
     }
-    if (this.navTool && !this.drag) {
+    if (this.navTool && !this.drag && this.gesturePage === null) {
+      if (this.panOverMarkup(e)) {
+        const page = this.eventPage(e);
+        this.canvas.style.cursor = this.overlay?.hover(this.clientToPage(e.clientX, e.clientY, page), page) || 'pointer';
+        return;
+      }
       this.canvas.style.cursor = this.navTool === 'zoomBox' ? (e.altKey ? 'zoom-out' : 'zoom-in') : this.navTool === 'dynamicZoom' ? 'ns-resize' : 'grab';
       return;
     }

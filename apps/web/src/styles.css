@@ -148,7 +148,8 @@ body,
   width: 100%;
   height: 100%;
   touch-action: none;
-  cursor: grab;
+  /* Select is the default tool; Pan sets its own grab hand (TileViewer.setNavTool). */
+  cursor: default;
 }
 
 .hint {
@@ -1773,6 +1774,8 @@ select[size] {
 
 .menu {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .menu-title {

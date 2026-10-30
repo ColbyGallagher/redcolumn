@@ -2414,7 +2414,8 @@ export class MarkupTools implements ViewerOverlay {
     this.page = pageIndex;
     this.pointerKind = e.pointerType || 'mouse';
     if (!this.store) return false;
-    const { tool } = this.state;
+    // Pan and Select Text still select (and move) a markup that is pressed.
+    const tool = this.selectsHere(pageIndex, pt) ? 'select' : this.state.tool;
     // Pressing anywhere else lets go of selected text (a drag over words picks new text).
     if (e.button === 0) this.clearTextSelection();
 
@@ -2694,22 +2695,11 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'link', link, start: p });
         return true;
       }
-      // Shift+drag always draws a selection box; a plain drag does too if the preference says so,
-      // otherwise it pans the view.
-      if (e.shiftKey || settings.get().dragToSelect) {
-        this.setGesture({ kind: 'box', start: p, end: p, add: e.shiftKey });
-        return true;
-      }
-      this.select([]);
-      // Pressing on a word of the page's text selects text (copy only); elsewhere the drag pans.
-      const words = e.button === 0 ? this.wordsFor(pageIndex) : null;
-      if (words && wordAt(words, p, TEXT_REACH_PX / zoom) >= 0) {
-        const markup = this.newMarkup('textHighlight', pageIndex, []);
-        markup.style = { ...markup.style, stroke: '#3b82f6', opacity: 0.35 };
-        this.setGesture({ kind: 'textMark', markup, from: p, copyOnly: true });
-        return true;
-      }
-      return false;
+      // Dragging on empty page draws a selection box (Shift adds to the selection). Panning is
+      // the Pan tool, the middle button, or the wheel; text is picked with Select Text.
+      if (e.button !== 0) return false;
+      this.setGesture({ kind: 'box', start: p, end: p, add: e.shiftKey });
+      return true;
     }
     // A plain click on a markup with an action follows it; Ctrl/Alt-click, Shift-click or dragging selects it.
     if (hit.link && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey && !this.state.selected.has(hit.id)) {
@@ -3101,9 +3091,24 @@ export class MarkupTools implements ViewerOverlay {
     return m;
   }
 
+  /** Pan and Select Text act as Select over a markup, so one can always be picked up. */
+  private selectsHere(pageIndex: number, pt: PagePoint): boolean {
+    const { tool } = this.state;
+    if (tool !== 'pan' && tool !== 'selectText') return false;
+    const prev = this.page;
+    this.page = pageIndex;
+    const hit = !!this.hitAt(toPoint(pt));
+    this.page = prev;
+    return hit;
+  }
+
+  hitsMarkup(pt: PagePoint, pageIndex: number): boolean {
+    return this.selectsHere(pageIndex, pt);
+  }
+
   hover(pt: PagePoint | null, pageIndex: number): string | null {
     this.page = pageIndex;
-    const { tool } = this.state;
+    const tool = pt && this.selectsHere(pageIndex, pt) ? 'select' : this.state.tool;
     if (!pt) {
       this.hidePopup();
       this.snapHit = null;
@@ -3146,7 +3151,8 @@ export class MarkupTools implements ViewerOverlay {
     }
     if (tool === 'editText') return 'text';
     if (tool === 'highlighter') return !lastModifiers.ctrlKey && this.overText(pageIndex, toPoint(pt)) ? 'text' : 'crosshair';
-    if ((isMarkupTool(tool) && TYPE_INFO[tool].draw === 'text') || tool === 'selectText') {
+    if (tool === 'selectText') return 'text';
+    if (isMarkupTool(tool) && TYPE_INFO[tool].draw === 'text') {
       const words = this.wordsFor(pageIndex);
       return words && wordAt(words, toPoint(pt), TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0 ? 'text' : 'default';
     }
@@ -3157,8 +3163,6 @@ export class MarkupTools implements ViewerOverlay {
       const widget = hit ? undefined : this.formAt(p);
       if (widget) return widget.readOnly ? 'not-allowed' : 'pointer';
       const link = hit ? null : this.linkAt(p);
-      const words = hit || widget || link ? null : this.wordsFor(pageIndex);
-      const overText = !!words && wordAt(words, p, TEXT_REACH_PX / this.viewer.zoomFor(pageIndex)) >= 0;
       const hyper = hit?.link && !this.state.selected.has(hit.id) ? hit : null;
       this.hoverPopup(hit && !this.gesture && hit.comment?.trim() ? hit.id : null);
       const hovered = link?.id ?? hyper?.id ?? null;
@@ -3172,7 +3176,8 @@ export class MarkupTools implements ViewerOverlay {
         if (line) return line.axis === 'col' ? 'col-resize' : 'row-resize';
         return 'cell';
       }
-      return link || hyper ? 'pointer' : hit ? 'move' : overText ? 'text' : null;
+      // A markup shows the pick cursor; an already selected one shows move, as a drag will move it.
+      return link || hyper ? 'pointer' : hit ? (this.state.selected.has(hit.id) ? 'move' : 'pointer') : 'default';
     }
     if (this.state.preset?.template) {
       this.ghost = { pageIndex, at: toPoint(pt) };

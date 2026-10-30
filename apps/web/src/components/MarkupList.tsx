@@ -373,11 +373,15 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     // The list can be in a pop-out window, which has its own pointer events.
     const win = th.ownerDocument.defaultView ?? window;
     let width = startW;
+    const table = th.closest('table');
+    const startTableW = table?.getBoundingClientRect().width ?? 0;
     const move = (ev: PointerEvent) => {
       width = Math.max(MIN_WIDTH, startW + ev.clientX - startX);
-      // Resize live without re-rendering the whole list; saved on release.
-      const colEl = th.closest('table')?.querySelector<HTMLTableColElement>(`col[data-key="${CSS.escape(col.key)}"]`);
+      // Resize live without re-rendering the whole list; saved on release. The table width must
+      // grow with the column, otherwise the fixed layout rescales every column to fit the old width.
+      const colEl = table?.querySelector<HTMLTableColElement>(`col[data-key="${CSS.escape(col.key)}"]`);
       if (colEl) colEl.style.width = `${width}px`;
+      if (table) table.style.width = `${startTableW + width - startW}px`;
     };
     const up = () => {
       win.removeEventListener('pointermove', move);
