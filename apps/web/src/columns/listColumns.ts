@@ -57,6 +57,14 @@ const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !
 
 export const customKey = (id: string) => `custom:${id}`;
 
+/** A name for a new custom column that no built-in or custom column already has ("Date" is a built-in, so a new date column is "Date 2"). */
+export function newColumnName(base: string, existing: readonly string[]): string {
+  const taken = new Set([...BUILT_IN_COLUMNS.map((b) => b.label), ...existing].map((n) => n.trim().toLowerCase()));
+  let n = 1;
+  while (taken.has((n === 1 ? base : `${base} ${n}`).toLowerCase())) n++;
+  return n === 1 ? base : `${base} ${n}`;
+}
+
 export function listColumns(custom: readonly CustomColumn[]): ListColumn[] {
   return [
     ...BUILT_IN_COLUMNS,
