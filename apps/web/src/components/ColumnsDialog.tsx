@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { COLUMN_TYPES, columnsFromXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { FUNCTION_NAMES, parseFormula } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, listColumns, newColumnName, resolveLayout, type CellContext } from '../columns/listColumns';
@@ -43,7 +43,8 @@ const builtInId = (key: string) => `builtin:${key}`;
 
 const TYPE_ICONS: Record<ColumnType, string> = { text: 'Aa', multiline: '¶', choice: '▾', number: '#', date: '📅', checkmark: '☑', formula: 'ƒx' };
 
-function formulaError(c: CustomColumn, all: readonly CustomColumn[]): string | null {
+/** What is wrong with a calculation. A reference to a column this file lacks is only a warning (`strict` off): other tools' files have them, and the cell shows the error. */
+function formulaError(c: CustomColumn, all: readonly CustomColumn[], strict = true): string | null {
   if (c.type !== 'formula') return null;
   if (!c.formula?.trim()) return 'Enter a formula';
   try {
@@ -52,6 +53,7 @@ function formulaError(c: CustomColumn, all: readonly CustomColumn[]): string | n
     return err instanceof Error ? err.message : String(err);
   }
   const names = new Set([...BUILT_IN_COLUMNS.map((b) => b.label.toLowerCase()), 'comment', 'color', ...all.map((x) => x.name.trim().toLowerCase())]);
+  if (!strict) return null;
   const missing = [...c.formula.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1]!.trim()).find((n) => !names.has(n.toLowerCase()));
   return missing !== undefined ? `No column named [${missing}]` : null;
 }
@@ -80,14 +82,23 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
     onListChange((l) => ({ ...l, columns: layout.map((c) => ({ key: c.key, width: c.width, hidden: c.key === key ? !shown : c.hidden })) }));
   const patch = (p: Partial<CustomColumn>) => setColumns((cs) => cs.map((c) => (c.id === selectedId ? { ...c, ...p } : c)));
 
+  // A column the file already had keeps a name that is a built-in's (another tool's files have a "Type" or "Area" column), so it cannot stop everything else being saved.
+  const had = useRef(new Set(initial.columns.map((c) => `${c.id}|${c.name.trim().toLowerCase()}`)));
   const nameProblem = (c: CustomColumn) => {
     const n = c.name.trim().toLowerCase();
     if (!n) return 'Name is required';
-    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n)) return 'A built-in column has this name';
+    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n) && !had.current.has(`${c.id}|${n}`)) return 'A built-in column has this name';
     if (columns.some((o) => o.id !== c.id && o.name.trim().toLowerCase() === n)) return 'Another column has this name';
     return null;
   };
-  const problems = columns.map((c) => nameProblem(c) ?? formulaError(c, columns) ?? (c.type === 'choice' && !c.options?.length ? 'Add at least one choice' : null));
+  const problems = columns.map((c) => nameProblem(c) ?? formulaError(c, columns, false) ?? (c.type === 'choice' && !c.options?.length ? 'Add at least one choice' : null));
+  // Start on a column that stops Save, so the reason is in front of the user.
+  useEffect(() => {
+    const i = problems.findIndex((p) => p);
+    if (i >= 0) setSelectedId(columns[i]!.id);
+    // Once, on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const statusProblem = statuses.some((s) => !s.name.trim()) ? 'Every status needs a name' : null;
   const valid = problems.every((p) => !p) && !statusProblem;
 
