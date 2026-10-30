@@ -1,6 +1,6 @@
 import type { DetectedLink } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import {
   arr,
   cleanText,
@@ -244,7 +244,7 @@ export function importAnnotations(
         const subject = str(r.Subj);
         if (subject) m.subject = subject;
         const label = str(r.Label);
-        if (label) m.label = label;
+        if (label) Object.assign(m, labelPatch(m, label));
         const layer = extras?.ocgNames.get(refNum(r.OC) ?? -1);
         if (layer) m.layer = layer;
         const group = groups.get(a.index);

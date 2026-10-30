@@ -23,6 +23,8 @@ import {
   type StyleCapabilities,
   type TextAlign,
   type VerticalAlign,
+  labelPatch,
+  markupLabel,
 } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
@@ -142,15 +144,15 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         </Row>
         <Row label="Label">
           <input
-            key={`${m.id}:${m.label ?? ''}`}
-            defaultValue={m.label ?? ''}
+            key={`${m.id}:${markupLabel(m)}`}
+            defaultValue={markupLabel(m)}
             placeholder="Category, e.g. Tile 1"
             disabled={readOnly}
             onBlur={(e) => {
               const v = e.target.value.trim();
-              if (v !== (m.label ?? '')) {
+              if (v !== markupLabel(m)) {
                 store?.checkpoint();
-                store?.batch(() => ids.forEach((id) => store.update(id, { label: v || undefined })));
+                store?.batch(() => ids.forEach((id) => store.update(id, labelPatch(m, v))));
               }
             }}
           />

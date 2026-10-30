@@ -18,7 +18,7 @@ async function blank() {
 const text = (d: PDFDict, key: string) => d.lookupMaybe(PDFName.of(key), PDFString, PDFHexString)?.decodeText();
 
 test('a label is written as /Label, above the value in a count’s contents, and read back from another tool’s file', async () => {
-  const count = base({ id: 'c1', type: 'count', points: [[20, 20]], label: 'Sockets' });
+  const count = base({ id: 'c1', type: 'count', points: [[20, 20]], text: 'Sockets' });
   const plain = base({ id: 'c2', type: 'count', points: [[60, 60]] });
   const bytes = await exportWithAnnotations(await blank(), [count, plain]);
   const out = await PDFDocument.load(bytes);
@@ -34,16 +34,16 @@ test('a label is written as /Label, above the value in a count’s contents, and
     ...(text(a, 'NM') === 'c1' ? { subtype: 'Polygon', intent: 'PolygonCount', vertices: [[20, 20], [30, 20], [30, 30]] } : {}),
   }));
   const { markups } = importAnnotations(0, found, undefined, await readPdfExtras(bytes));
-  assert.ok(markups.some((m) => m.label === 'Sockets'));
+  assert.ok(markups.some((m) => m.text === 'Sockets'));
 });
 
 test('a measurement’s label is a line above its value, but a count shows none', () => {
-  const length = base({ id: 'l1', type: 'length', points: [[0, 0], [100, 0]], label: 'Tile 1' });
+  const length = base({ id: 'l1', type: 'length', points: [[0, 0], [100, 0]], text: 'Tile 1' });
   const lines = measurementLabel(length)!.lines;
   assert.equal(lines.length, 2);
   assert.equal(lines[0], 'Tile 1');
   assert.equal(measurementLabel(base({ id: 'l2', type: 'length', points: [[0, 0], [100, 0]] }))!.lines.length, 1);
-  assert.equal(measurementLabel(base({ id: 'c1', type: 'count', points: [[5, 5]], label: 'Sockets' }))!.lines.length, 1);
+  assert.equal(measurementLabel(base({ id: 'c1', type: 'count', points: [[5, 5]], text: 'Sockets' }))!.lines.length, 1);
 });
 
 test('a polylength labels each segment as well as the whole', () => {
@@ -56,7 +56,7 @@ test('a polylength labels each segment as well as the whole', () => {
 });
 
 test('the label and every segment label are drawn into the exported PDF', async () => {
-  const m = base({ id: 'p3', type: 'polylength', points: [[20, 20], [120, 20], [120, 90]], label: 'Cable' });
+  const m = base({ id: 'p3', type: 'polylength', points: [[20, 20], [120, 20], [120, 90]], text: 'Cable' });
   const bytes = await exportWithAnnotations(await blank(), [m]);
   assert.ok(bytes.byteLength > 0);
 });

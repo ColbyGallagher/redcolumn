@@ -1,4 +1,4 @@
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
+import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
@@ -155,7 +155,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const out: Record<string, Cell> = {
     seq: cell(m.seq ? String(m.seq) : '', m.seq ?? null),
     subject: cell(m.subject || MARKUP_LABELS[m.type] || 'Markup'),
-    label: cell(m.label ?? ''),
+    label: cell(markupLabel(m)),
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),
     sheet: cell(ctx.sheets[m.pageIndex]?.number ?? ''),
     space: cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : ''),

@@ -13,7 +13,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
@@ -827,8 +827,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   base.Subj = pdfText(m.subject || defaultSubject(m));
   // Bluebeam's Label: its own key, and above the value in a measurement's /Contents ("label\r4").
   // Written empty on measurements and counts too, as Bluebeam does, so clearing a label clears the original's.
-  if (m.label || label || m.type === 'count') base.Label = pdfText(m.label ?? '');
-  if (contents) base.Contents = pdfText(label && m.label ? `${m.label}\r${contents}` : contents);
+  if (markupLabel(m) || label || m.type === 'count') base.Label = pdfText(markupLabel(m));
+  if (contents) base.Contents = pdfText(label && markupLabel(m) ? `${markupLabel(m)}\r${contents}` : contents);
   if (fill) base.IC = fill;
   // Bluebeam keeps a shape's hatch as a pattern, its name and its colour; a shape without them is
   // redrawn with no hatch as soon as it is edited. (Our appearance already draws it.)
@@ -1284,7 +1284,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
 }
 
 /** A count annotation's /Contents: the group's total, under its label as Bluebeam shows it. */
-const countContents = (m: Markup, total: number) => (m.label ? `${m.label}\r${total}` : String(total));
+const countContents = (m: Markup, total: number) => (markupLabel(m) ? `${markupLabel(m)}\r${total}` : String(total));
 
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);

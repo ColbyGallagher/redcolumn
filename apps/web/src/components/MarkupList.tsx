@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, isTextType, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isMeasureKind, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -577,15 +577,15 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     if (col.key === 'label') {
       return (
         <input
-          key={m.label ?? ''}
+          key={markupLabel(m)}
           className="bare"
-          defaultValue={m.label ?? ''}
+          defaultValue={markupLabel(m)}
           disabled={fixed}
           title="Label"
           onClick={stop}
           onBlur={(e) => {
             const v = e.target.value.trim();
-            if (v !== (m.label ?? '')) patchAll(m, { label: v || undefined });
+            if (v !== markupLabel(m)) patchAll(m, labelPatch(m, v));
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.currentTarget.blur();

@@ -53,6 +53,14 @@ export const MARKUP_TYPES = Object.keys(TYPE_INFO) as MarkupType[];
 
 export { isMeasureKind };
 
+/** A markup's Label (Bluebeam's category field): a measurement keeps it in its `text`, any other markup in `label`. */
+export const markupLabel = (m: Pick<Markup, 'type' | 'text' | 'label'>): string => ((isMeasureKind(m.type) ? m.text : m.label) ?? '').trim();
+/** The change that sets a markup's Label. */
+export const labelPatch = (m: Pick<Markup, 'type'>, value: string): Partial<Markup> => {
+  const v = value.trim() || undefined;
+  return isMeasureKind(m.type) ? { text: v } : { label: v };
+};
+
 /** Markups whose content is typed text laid out in their box. */
 export function isTextType(type: string): type is 'text' | 'callout' | 'typewriter' | 'flagLabel' | 'flowShape' {
   return TYPE_INFO[type as MarkupType]?.content === 'text';

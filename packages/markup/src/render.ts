@@ -2,7 +2,7 @@ import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale }
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
 import { markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
-import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
@@ -204,10 +204,8 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   const line = dimensionLine(m);
   const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
-  const caption = m.text?.trim();
-  const text = caption ? `${caption} ${value}` : value;
-  const label = m.type === 'count' ? '' : m.label?.trim();
-  return { text, lines: label ? [label, text] : [text], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
+  const label = m.type === 'count' ? '' : markupLabel(m);
+  return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
 
 /** A Polylength's labels: each segment's length on the segment, turned along it. (The whole's is `measurementLabel`.) */
