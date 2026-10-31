@@ -245,10 +245,22 @@ section.wrap {
 .feature figure {
   margin: 0;
 }
+.feature.stack {
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
 .feature .gifs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
+  gap: 20px;
+}
+.feature .gifs figcaption {
+  margin-top: 8px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.feature .gifs img {
+  width: 100%;
 }
 @media (max-width: 860px) {
   .feature {
