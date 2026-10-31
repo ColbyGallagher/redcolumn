@@ -156,8 +156,14 @@ const NO_LABEL = /^(NO\.?|NUMBER|#)$/;
  */
 const OTHER_NUMBER_LABEL = /^(FILE|CONTRACT|PROJECT|JOB|CAD|REF|REFERENCE|ORDER|CLIENT|PACKAGE)\.?$/;
 
+const TRAILING = new Set([':', ',', ';', '.']);
+
 function identifier(text: string): string | null {
-  const t = text.trim().toUpperCase().replace(/[:,;.]+$/, '');
+  // Trailing punctuation trimmed by hand: a `[...]+$` regex is slow on long runs.
+  const s = text.trim().toUpperCase();
+  let end = s.length;
+  while (end > 0 && TRAILING.has(s[end - 1]!)) end--;
+  const t = s.slice(0, end);
   if (!IDENTIFIER.test(t) || NOT_IDENTIFIER.some((r) => r.test(t))) return null;
   return t;
 }
