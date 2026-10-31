@@ -9463,6 +9463,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const source = m.image;
           return (
             <PictureColoursDialog
+              source={source}
               onCancel={() => setPictureColoursFor(null)}
               onApply={async (mode) => {
                 const img = new Image();

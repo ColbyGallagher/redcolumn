@@ -324,6 +324,47 @@ test.describe('markup tools', () => {
     expect(alphas.outside).toBe(0);
   });
 
+  test('change picture colours: lists the colours of the picture and swaps one', async ({ app }) => {
+    // A solid red box, copied as a picture and pasted back over it.
+    await app.tool('rect');
+    await app.drag(A, B);
+    await app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { all(): { id: string; style: object }[]; update(id: string, patch: object): void };
+      const [m] = store.all();
+      store.update(m!.id, { style: { ...m!.style, stroke: '#ff0000', fill: '#ff0000', opacity: 1 } });
+    });
+    await app.tool('snapshot');
+    await app.drag([A[0] + 20, A[1] + 20], [B[0] - 20, B[1] - 20]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.clearMarkups();
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image')!;
+    const [p0, p1] = picture.points as [number, number][];
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), picture.id as string);
+    const c = await app.at([(p0![0] + p1![0]) / 2, (p0![1] + p1![1]) / 2]);
+    await app.page.mouse.click(c.x, c.y, { button: 'right' });
+    await app.page.getByText('Change Picture Colours…').click();
+    const dialog = app.page.locator('.modal').filter({ hasText: 'Change Picture Colours' });
+    await expect(dialog.getByLabel('New colour for #ff0000')).toBeVisible();
+    await dialog.getByLabel('New colour for #ff0000').fill('#0000ff');
+    await dialog.getByRole('button', { name: 'OK' }).click();
+    await expect(dialog).toBeHidden();
+    const after = (await app.raw()).find((m) => m.id === picture.id)!;
+    expect(after.image).not.toBe(picture.image);
+    const pixel = await app.page.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      return [...g.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+    }, after.image as string);
+    expect(pixel).toEqual([0, 0, 255, 255]);
+  });
+
   test.describe('text markups on the PDF text', () => {
     // Page 2: "DOOR 1   HOLLOW CORE", 12 pt Helvetica with its baseline at y 100.
     test.beforeEach(async ({ app }) => {

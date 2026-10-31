@@ -23,6 +23,6 @@ Corners, and the corners of a dragged box, snap to the drawing the way other dra
 
 ## Change a snapshot's colours
 
-Right-click a snapshot (or any [Image](#tool-image) markup) and choose **Change Picture Colours…**. Turn it to greyscale, to black on white, or invert it so black and white swap. **Swap one colour for another** replaces one colour (within a tolerance you set) with another, or with see-through, which is handy for dropping a white background.
+Right-click a snapshot (or any [Image](#tool-image) markup) and choose **Change Picture Colours…**. The dialog lists the colours the picture mostly uses; pick a new colour for each one you want to change, or tick **See-through** to remove it (handy for a white background). Soft edges follow the colour they sit next to. Or turn the whole picture to greyscale, to black on white, or invert it so black and white swap.
 
 > **Tip:** For a sharper picture, raise the **Snapshot Resolution** in [Preferences](#preferences) › **Tools** › **Markup**.
