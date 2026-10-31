@@ -1,6 +1,6 @@
 import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
 import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_LINK_HINTS, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
+import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
 import { findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
@@ -113,11 +113,21 @@ export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffe
  * `bytes` must return a fresh buffer on each call (engines take ownership of what they are given);
  * it is only called when this file's text is not already cached.
  */
-export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints: LinkHints = DEFAULT_LINK_HINTS) {
+/** `standard`: the drawing standard the document is read with; without one, chainage links wait for review. */
+export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
   const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   onProgress({ phase: 'links', done: 0, total: 1 });
   const sheets = store.allSheets();
-  store.setDetectedLinks(detectLinks(pages, pages.map((_, i) => sheets[i]?.number ?? null), hints));
+  const numbers = pages.map((_, i) => sheets[i]?.number ?? null);
+  store.setDetectedLinks([
+    ...detectLinks(pages, numbers, standard?.links ?? DEFAULT_LINK_HINTS),
+    ...detectChainageLinks(
+      pages,
+      pages.map((_, i) => sheets[i]),
+      standard?.chainage ?? DEFAULT_CHAINAGE_HINTS,
+      !!standard,
+    ),
+  ]);
 }
 
 /**
@@ -342,5 +352,5 @@ export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onPr
   const pages = await pageTexts(bytes, store, onProgress, signal);
   store.setDetectedSheets(detectSheets(pages, standard?.sheets).map((info, i) => [i, info] as [number, SheetInfo]));
   // Text is cached by now, so `bytes` (already handed to an engine) is not read again.
-  await linkFromText(async () => bytes, store, onProgress, signal, standard?.links);
+  await linkFromText(async () => bytes, store, onProgress, signal, standard);
 }

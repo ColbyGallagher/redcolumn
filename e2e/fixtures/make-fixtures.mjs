@@ -84,6 +84,20 @@ const expected = {
       { number: 'C-103', from: 2000, to: 3100, angle: Math.PI / 2 },
     ],
   },
+  /**
+   * chainage.pdf: a plan and profile sheet with station ticks 10+00 to 15+00, a cross-section
+   * sheet with sections at STA 12+00 and 13+00, and a notes sheet citing STA 14+50. Each sheet's
+   * title is its largest text.
+   */
+  chainage: {
+    titles: ['PLAN AND PROFILE', 'CROSS SECTIONS', 'GENERAL NOTES'],
+    ticks: { from: 1000, to: 1500, step: 100, x: 200, dx: 150, y: 400 },
+    sections: [
+      { label: 'STA 12+00', x: 300, y: 300 },
+      { label: 'STA 13+00', x: 300, y: 500 },
+    ],
+    note: { text: 'TIE IN AT STA 14+50', x: 100, y: 200 },
+  },
 };
 
 /** `rev` 1 adds a revision note to sheet 1, so it is a different file (for a second document, and compare). */
@@ -156,6 +170,28 @@ async function sheets() {
     text(label, labelBox.x + 10, labelBox.y + labelBox.h - 10, 12);
     text(`SCALE: ${scales[i]}`, scaleBox.x + 10, scaleBox.y + scaleBox.h - 10, 10);
   });
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Linear work: a plan with station ticks, its cross sections and a note (see expected.chainage). */
+async function chainage() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E chainage');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const { titles, ticks, sections, note } = expected.chainage;
+  const pages = titles.map((title) => {
+    const p = doc.addPage([W, H]);
+    p.drawText(title, { x: 60, y: H - 60, size: 20, font, color: black });
+    return p;
+  });
+  const text = (p, s, x, y) => p.drawText(s, { x, y: H - y, size: 10, font, color: black });
+  for (let v = ticks.from, i = 0; v <= ticks.to; v += ticks.step, i++) text(pages[0], `${Math.floor(v / 100)}+${String(v % 100).padStart(2, '0')}`, ticks.x + i * ticks.dx, ticks.y);
+  for (const s of sections) text(pages[1], s.label, s.x, s.y);
+  text(pages[2], note.text, note.x, note.y);
   return doc.save({ useObjectStreams: false });
 }
 
@@ -357,8 +393,9 @@ writeFileSync(join(here, 'plan-rev1.pdf'), await plan(1));
 writeFileSync(join(here, 'sheets.pdf'), await sheets());
 writeFileSync(join(here, 'forms.pdf'), await forms());
 writeFileSync(join(here, 'marks.pdf'), await marks());
+writeFileSync(join(here, 'chainage.pdf'), await chainage());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
