@@ -1526,7 +1526,13 @@ select[size] {
 }
 
 .pages-panel .thumbs {
+  /* Fills the panel below the last page, which takes the right-click menu and the keys too. */
+  flex: 1 0 auto;
   min-width: 0;
+}
+
+.pages-panel .thumbs:focus {
+  outline: none;
 }
 
 .overflow-pop {
