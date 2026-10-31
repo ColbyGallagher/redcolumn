@@ -341,12 +341,19 @@ interface Props {
   onBulkScales: (pages: number[]) => void;
   /** Opens Page Labels (typed, or from regions) for these pages. */
   onPageLabels: (pages: number[]) => void;
-  /** Right-click on a thumbnail: `pages` are the pages it acts on; `rename` opens that page's label editor. */
+  /**
+   * Right-click in the thumbnails: `pages` are the pages it acts on (none between thumbnails);
+   * `rename` opens that page's label editor.
+   */
   onThumbMenu: (e: React.MouseEvent, pages: number[], rename: () => void) => void;
+  /** Ctrl+C on the thumbnails: copies these pages. */
+  onCopyPages: (pages: number[]) => void;
+  /** Ctrl+V on the thumbnails: pastes the copied pages before index `at`. */
+  onPastePages: (at: number) => void;
 }
 
 /** Page thumbnails with selection, reordering by drag, and page operations. */
-export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy, onGoTo, onPageOps, onSetScale, onSetLabel, onCalibrate, onBulkScales, onPageLabels, onThumbMenu }: Props) {
+export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy, onGoTo, onPageOps, onSetScale, onSetLabel, onCalibrate, onBulkScales, onPageLabels, onThumbMenu, onCopyPages, onPastePages }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const byPage = usePagedMarkups(store, view);
   const [anchor, setAnchor] = useState(0);
@@ -414,6 +421,18 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
       onGoTo(i);
     }
     onThumbMenu(e, pages, () => setRename((r) => ({ page: i, tick: (r?.tick ?? 0) + 1 })));
+  };
+
+  // Ctrl+C / Ctrl+V here copy and paste pages, not markups: the thumbnails' keys stop at the panel.
+  const keys = (e: React.KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.target as HTMLElement).closest('input')) return;
+    const key = e.key.toLowerCase();
+    if (key === 'c') onCopyPages(chosen);
+    else if (key === 'v') {
+      if (!busy) onPastePages(chosen.at(-1)! + 1);
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const deletePages = () => {
@@ -491,6 +510,14 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
       </div>
       <div
         className="thumbs"
+        tabIndex={-1}
+        onKeyDown={keys}
+        onContextMenu={(e) => {
+          // Between thumbnails: no page, so only what needs none is offered.
+          if ((e.target as HTMLElement).closest('.thumb')) return;
+          setSelected([]);
+          onThumbMenu(e, [], () => {});
+        }}
         onDragLeave={() => setDropAt(null)}
         onDrop={(e) => {
           // Dropped below the last page.

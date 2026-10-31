@@ -317,6 +317,42 @@ test.describe('document pages', () => {
     expect((await app.command('window.pages')).checked).toBe(true);
   });
 
+  test('Ctrl+C then Ctrl+V on a thumbnail duplicates the page with its markups', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await expect.poll(async () => (await app.markups(1)).length).toBe(1);
+    await app.cmd('document.thumbnails');
+    await app.page.locator('.thumbs .thumb').first().click();
+    await app.page.keyboard.press('Control+c');
+    await expect(app.page.getByText(/^Page copied/)).toBeVisible();
+    await app.page.keyboard.press('Control+v');
+    // The copy goes in after the page, and its markup with it; the markup was not pasted as a markup.
+    await expectPages(app, [[W, H], [W, H], [W, H], [W, H]]);
+    expect(await app.search('LEVEL 1 PLAN')).toEqual([1, 2]);
+    await expect.poll(async () => (await app.markups()).map((m) => m.page)).toEqual([1, 2]);
+    const [a, b] = await app.markups();
+    expect(b!.points).toEqual(a!.points);
+    // One undo takes the page and its markup away again.
+    await app.cmd('edit.undo');
+    await expectPages(app, [[W, H], [W, H], [W, H]]);
+    await expect.poll(async () => (await app.markups()).length).toBe(1);
+  });
+
+  test('right-click between thumbnails offers only what needs no page', async ({ app }) => {
+    await app.cmd('document.thumbnails');
+    const thumbs = app.page.locator('.thumbs');
+    const box = (await thumbs.boundingBox())!;
+    await thumbs.click({ button: 'right', position: { x: 4, y: box.height - 4 } });
+    const menu = app.page.locator('.ctx-menu').first();
+    const item = (label: string) => menu.locator('.menu-item').filter({ has: app.page.locator('.label', { hasText: new RegExp(`^${label}$`) }) });
+    for (const label of ['Cut Pages', 'Copy Pages', 'Delete Pages…', 'Rotate Pages', 'Rename Page Label', 'Extract Pages…']) await expect(item(label)).toBeDisabled();
+    for (const label of ['Insert Blank Page…', 'Insert Pages…', 'Number Pages…']) await expect(item(label)).toBeEnabled();
+    await app.page.keyboard.press('Escape');
+    // On a thumbnail, the page items are there.
+    await app.page.locator('.thumbs .thumb').nth(1).click({ button: 'right' });
+    for (const label of ['Copy Pages', 'Delete Pages…', 'Rename Page Label']) await expect(item(label)).toBeEnabled();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

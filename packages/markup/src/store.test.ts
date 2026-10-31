@@ -161,6 +161,51 @@ test('a page operation is one undo step: undo brings the markups and the file ba
   }
 });
 
+test('pasted copies of pages bring their markups, scale and viewports, in the page operation’s undo step', async () => {
+  const { planPageOps } = await import('./pages.ts');
+  const store = await MarkupStore.open('test', { persist: false });
+  try {
+    const scale = { metersPerPoint: 0.01, label: '1:100' } as never;
+    store.batch(() => {
+      store.add({ ...rect('a', 0), groupId: 'g' });
+      store.add({ ...rect('b', 20), groupId: 'g' });
+      store.add({ ...rect('other', 0), pageIndex: 1 });
+    });
+    store.setScale([0], scale);
+    store.setViewport({ id: 'v', pageIndex: 0, name: 'Detail', rect: { x: 0, y: 0, w: 50, h: 50 }, scale });
+    store.importAnnotations([{ ...rect('imp', 40), pdfAnnot: { index: 3 } } as Markup], [], { 0: [3] });
+    store.checkpoint();
+    const clip = store.copyPages([0]);
+
+    // Paste after page 2: the copy is page 3.
+    const sizes = [{ width: 100, height: 100 }, { width: 100, height: 100 }];
+    const ops = [{ type: 'insert' as const, source: 0, at: 2 }];
+    store.fileStep('Insert pages', 'old', 'new', () => {
+      store.remapPages(planPageOps(2, ops, [1]), sizes);
+      store.pastePages(clip, 2);
+    });
+    const copies = store.forPage(2);
+    assert.equal(copies.length, 3);
+    assert.ok(copies.every((m) => !['a', 'b', 'imp'].includes(m.id)));
+    assert.deepEqual(copies.map((m) => m.seq), [5, 6, 7]);
+    // The copied group is a new group of its own.
+    const [ca, cb] = copies.filter((m) => m.groupId);
+    assert.equal(ca!.groupId, cb!.groupId);
+    assert.notEqual(ca!.groupId, 'g');
+    assert.equal(store.forPage(0).length, 3);
+    assert.equal(store.scaleFor(2), scale);
+    assert.deepEqual(store.allViewports().map((v) => v.pageIndex).sort(), [0, 2]);
+    assert.deepEqual(store.importedAnnotations(), { 0: [3], 2: [3] });
+
+    store.undo();
+    assert.deepEqual(store.forPage(2), []);
+    assert.equal(store.hasScale(2), false);
+    assert.deepEqual(store.importedAnnotations(), { 0: [3] });
+  } finally {
+    await store.destroy();
+  }
+});
+
 test('a file change with nothing to remap is still undoable, and a markup edit after it undoes first', async () => {
   const store = await storeWith(1);
   const restored: string[] = [];
