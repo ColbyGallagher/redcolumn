@@ -3,6 +3,7 @@
   "fixtures": [
     { "id": "revu-sample-pdf", "format": "pdf", "base": "compat", "path": "bluebeam-sample-do-not-edit.pdf", "source": "revu" },
     { "id": "revu-sample-bax", "format": "bax", "base": "compat", "path": "bluebeam-sample-do-not-edit.bax", "pair": "revu-sample-pdf", "source": "revu" },
+    { "id": "revu-sample-fdf", "format": "fdf", "base": "compat", "path": "bluebeam-sample-do-not-edit.fdf", "pair": "revu-sample-pdf", "source": "revu" },
     { "id": "revu-markups-xfdf", "format": "xfdf", "base": "compat", "path": "revu-markups.xfdf", "source": "revu" },
     { "id": "revu-stamps-pdf", "format": "pdf", "base": "compat", "path": "revu-stamps.pdf", "covers": ["Stamps"], "source": "revu" },
     { "id": "revu-stamps-xfdf", "format": "xfdf", "base": "compat", "path": "revu-stamps.xfdf", "covers": ["Stamps"], "source": "revu" },

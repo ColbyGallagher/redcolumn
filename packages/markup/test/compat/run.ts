@@ -21,7 +21,8 @@ import { parseBlx } from '../../src/lineSet.ts';
 import { parseBpx } from '../../src/bpx.ts';
 import { parseBtx, type ToolChestItem } from '../../src/toolchest.ts';
 import { writeBhx, writeBlx, writeBpx, writeBtx } from '../../src/revuWrite.ts';
-import { exportWithAnnotations, type Matrix } from '../../src/export.ts';
+import { exportWithAnnotations, pageMatrix, type Matrix } from '../../src/export.ts';
+import { fdfFromPdf, markupsFromFdf } from '../../src/fdf.ts';
 import { importAnnotations } from '../../src/import.ts';
 import { importColumns } from '../../src/bluebeam.ts';
 import { encodePng, readPdfExtras } from '../../src/pdfExtras.ts';
@@ -55,7 +56,7 @@ export const ANNOTATION_ROWS = [
   'Document structure',
   'Page render',
 ];
-export const ANNOTATION_COLUMNS = ['PDF save (unedited)', 'PDF save (edited)', 'BAX export', 'XFDF round trip'];
+export const ANNOTATION_COLUMNS = ['PDF save (unedited)', 'PDF save (edited)', 'BAX export', 'XFDF round trip', 'FDF round trip'];
 export const EXCHANGE_ROWS = ['.btx tool sets', '.blx line styles', '.bhx hatch sets', '.bpx profiles (markup list)'];
 export const EXCHANGE_COLUMNS = ['Read', 'Write'];
 
@@ -135,13 +136,13 @@ const notRun = (t: Table, col: string, reason: string, row?: string) => (t.notRu
 
 interface ManifestEntry {
   id: string;
-  format: 'pdf' | 'bax' | 'xfdf' | 'btx' | 'blx' | 'bhx' | 'bpx';
+  format: 'pdf' | 'bax' | 'xfdf' | 'fdf' | 'btx' | 'blx' | 'bhx' | 'bpx';
   base: 'compat' | 'settings';
   /** A file in the base folder. */
   path?: string;
   /** Every file in the base folder with this extension, instead of one path. */
   ext?: string;
-  /** For a BAX file: the id of the manifest entry for the PDF it was exported from. */
+  /** For a BAX or FDF file: the id of the manifest entry for the PDF it was exported from. */
   pair?: string;
   /** The rows a fixture was made to cover: while it is missing, only they read Not run (test/compat/revu-fixtures.md says how to make it). */
   covers?: string[];
@@ -446,6 +447,49 @@ function recordXfdf(results: Results, fx: Fixture, markups: Markup[]) {
   }
 }
 
+/**
+ * FDF carries the same annotation dictionaries as a PDF, so the markups read from an FDF must match
+ * the markups read from the PDF they belong to: per page and row, none missing and none extra.
+ * Annotations an FDF cannot draw on its own (a stamp's appearance) are what fail here.
+ */
+async function recordFdf(results: Results, fx: Fixture, fdf: Uint8Array, pdf: Uint8Array, source: Markup[]) {
+  const t = results.annotations;
+  const revu = fx.source === 'revu';
+  const matrices = (await PDFDocument.load(pdf, { updateMetadata: false, ignoreEncryption: true })).getPages().map((p) => pageMatrix(p));
+  const sizes = (await PDFDocument.load(pdf, { updateMetadata: false, ignoreEncryption: true })).getPages().map((p) => p.getSize());
+  const read = await markupsFromFdf(fdf, (i) => matrices[i] ?? null, {
+    pageSize: (i) => sizes[i] ?? null,
+    // Stamps are drawn by PDFium from a PDF built around them, as the app does.
+    open: async (built) => {
+      const call = await worker();
+      const ab = built.buffer.slice(built.byteOffset, built.byteOffset + built.byteLength) as ArrayBuffer;
+      const open = await call({ type: 'open', bytes: ab });
+      return {
+        pageCount: open.pages.length,
+        annotations: async (i) => (await call({ type: 'annotations', docId: open.docId, pageIndex: i })).annotations,
+        annotationImage: async (i, index, scale) => (await call({ type: 'annotImage', docId: open.docId, pageIndex: i, index, scale })).image,
+        close: () => void call({ type: 'close', docId: open.docId }).catch(() => {}),
+      };
+    },
+  });
+  const rows = (ms: readonly Markup[]) => countByRow(ms.map((m) => ({ page: m.pageIndex + 1, feature: featureOfMarkup(m.type) })));
+  const want = rows(source);
+  const got = rows(read.markups);
+  const perRow = new Map<string, { items: number; failed: string[]; extra: string[] }>();
+  for (const key of new Set([...want.keys(), ...got.keys()])) {
+    const [page, feature] = key.split('|') as [string, string];
+    const n = want.get(key) ?? 0;
+    const have = got.get(key) ?? 0;
+    const row = perRow.get(feature) ?? { items: 0, failed: [], extra: [] };
+    perRow.set(feature, row);
+    row.items += n;
+    for (let i = have; i < n; i++) row.failed.push(`${fx.name} · page ${page} ${feature}: not read from the FDF`);
+    for (let i = n; i < have; i++) row.extra.push(`${fx.name} · page ${page} ${feature}: in the FDF but not in the PDF`);
+  }
+  for (const [feature, row] of perRow) add(t, feature, 'FDF round trip', row.items, row.failed, revu, row.extra);
+  return read;
+}
+
 /** What did not come back the same, or null when the markup came back as it was. */
 function differences(a: Markup, b: Markup | undefined): string | null {
   if (!b) return 'not in the XFDF that came back';
@@ -557,7 +601,7 @@ async function main() {
   const fixtures = expand(manifest.fixtures, skipped);
 
   // Columns and rows that no fixture reached get a reason, so they read Not run rather than —.
-  if (!existsSync(COMPAT_DIR)) for (const col of ['PDF save (unedited)', 'PDF save (edited)', 'BAX export', 'XFDF round trip']) notRun(results.annotations, col, 'REDCOLUMN_COMPAT_DIR not found');
+  if (!existsSync(COMPAT_DIR)) for (const col of ANNOTATION_COLUMNS) notRun(results.annotations, col, 'REDCOLUMN_COMPAT_DIR not found');
   if (!SETTINGS_DIR)
     for (const e of manifest.fixtures.filter((m) => m.base === 'settings')) {
       const row = EXCHANGE_ROW_OF[e.format]!;
@@ -581,6 +625,7 @@ async function main() {
       rec.reason = 'file not found';
       if (fx.format === 'pdf') for (const col of ['PDF save (unedited)', 'PDF save (edited)']) notRun(results.annotations, col, `${fx.name} not found`);
       // The XFDF column still runs on the markups of the PDF fixture; a missing XFDF only adds the Revu files it would have checked.
+      if (fx.format === 'fdf') results.skipped.push(`${fx.name} not found: no Revu-made FDF is checked (add one to manifest.json)`);
       if (fx.format === 'xfdf') results.skipped.push(`${fx.name} not found: no Revu-made XFDF is checked (add one to manifest.json)`);
       if (fx.format === 'btx' || fx.format === 'blx' || fx.format === 'bhx' || fx.format === 'bpx') {
         notRun(results.exchange, 'Read', `${fx.name} not found`, EXCHANGE_ROW_OF[fx.format]);
@@ -594,6 +639,7 @@ async function main() {
         recordPdf(results, fx, run);
         recordXfdf(results, fx, run.pipeline.markups);
         await recordBaxExport(results, fx, bytes, run.items);
+        await recordFdf(results, fx, await fdfFromPdf(run.pipeline.roundtrip, fx.name), run.pipeline.roundtrip, run.pipeline.markups);
         rec.items = run.items.length;
       } else if (fx.format === 'bax') {
         // Revu's own BAX is only a reference when it was exported from the PDF in the manifest. Check the
@@ -606,6 +652,15 @@ async function main() {
           const pdfPages = (await PDFDocument.load(new Uint8Array(readFileSync(pdfFile)), { updateMetadata: false })).getPageCount();
           if (pdfPages !== revuPages) results.skipped.push(`${fx.name}: has ${revuPages} pages, its PDF ${basename(pdfFile)} has ${pdfPages}. It was exported from another version of the PDF, so it is not used as a reference. Re-export the BAX from Revu for this PDF.`);
         }
+      } else if (fx.format === 'fdf') {
+        // Revu's own FDF is read against the PDF it was exported from.
+        const pdf = manifest.fixtures.find((m) => m.id === fx.pair);
+        const pdfFile = pdf ? join(COMPAT_DIR, pdf.path ?? '') : '';
+        if (!pdfFile || !existsSync(pdfFile)) throw new Error('its PDF (pair) is not in the manifest or not found');
+        const pdfBytes = new Uint8Array(readFileSync(pdfFile));
+        const read = await recordFdf(results, fx, new Uint8Array(readFileSync(fx.file)), pdfBytes, (await pdfRun(pdfFile, pdfBytes)).pipeline.markups);
+        for (const s of read.skipped) results.skipped.push(`${fx.name}: ${s}`);
+        rec.items = read.markups.length + read.skipped.length;
       } else if (fx.format === 'xfdf') {
         const back = markupsFromXfdf(readFileSync(fx.file, 'utf8'), () => IDENTITY);
         recordXfdf(results, fx, back);
@@ -617,9 +672,10 @@ async function main() {
     } catch (e) {
       rec.status = 'error';
       rec.reason = (e as Error).message;
-      if (fx.format === 'pdf') for (const col of ['PDF save (unedited)', 'PDF save (edited)', 'XFDF round trip']) failColumn(results.annotations, col, rec.reason);
+      if (fx.format === 'pdf') for (const col of ['PDF save (unedited)', 'PDF save (edited)', 'XFDF round trip', 'FDF round trip']) failColumn(results.annotations, col, rec.reason);
       else if (fx.format === 'bax') results.skipped.push(`${fx.name}: could not be read (${rec.reason})`);
       else if (fx.format === 'xfdf') failColumn(results.annotations, 'XFDF round trip', rec.reason);
+      else if (fx.format === 'fdf') failColumn(results.annotations, 'FDF round trip', rec.reason);
       else failRow(results.exchange, EXCHANGE_ROW_OF[fx.format]!, 'Read', rec.reason);
     }
   }
