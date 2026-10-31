@@ -12,7 +12,7 @@ module.exports = async function (h, rec) {
   await h.wait(1200);
   await page.evaluate(() => window.__nb.viewer.goToPage(1));
   await h.wait(600);
-  await h.zoomTo(100, 400, 1500, 880);
+  await h.zoomTo(100, 500, 1100, 820);
   await shot(0);
   const from = await h.at(150, 560);
   const to = await h.at(330, 620);
@@ -53,4 +53,4 @@ module.exports = async function (h, rec) {
   await rec.caption(null);
   await rec.hold(2500);
 };
-module.exports.viewport = WIDE;
+module.exports.viewport = { width: 1180, height: 680 };

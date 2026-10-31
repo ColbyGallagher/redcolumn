@@ -63,4 +63,4 @@ module.exports = async function (h, rec) {
   await rec.hold(2500);
   if (process.env.DEBUG_CLIP) await page.screenshot({ path: 'scratch-2.png' });
 };
-module.exports.viewport = VIEWPORT;
+module.exports.viewport = { width: 1180, height: 680 };

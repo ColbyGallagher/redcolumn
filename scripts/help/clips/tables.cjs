@@ -12,10 +12,10 @@ module.exports = async function (h, rec) {
   await h.wait(1200);
   await page.evaluate(() => window.__nb.viewer.goToPage(1));
   await h.wait(600);
-  await h.zoomTo(100, 400, 1500, 880);
+  await h.zoomTo(200, 520, 740, 760);
   await page.locator('[data-ribbon-tab=markup]').click();
-  const from = await h.at(300, 560);
-  const to = await h.at(800, 720);
+  const from = await h.at(250, 560);
+  const to = await h.at(700, 700);
   await rec.start();
   await rec.caption('Draw a table, pick its size');
   await rec.hold(700);
@@ -59,4 +59,4 @@ module.exports = async function (h, rec) {
   await rec.hold(1800);
   await shot(3);
 };
-module.exports.viewport = WIDE;
+module.exports.viewport = { width: 1180, height: 680 };
