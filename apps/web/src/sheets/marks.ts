@@ -1,5 +1,5 @@
 import { templateSegments, visualSearch } from '@nb/measure';
-import { DETAIL_ID, SheetLookup, detailFrame, detailId, findDetailTitle, isDrawingNumberShape, type DetectedLink, type PageText, type Rect, type Word } from '@nb/sheets';
+import { DEFAULT_LINK_HINTS, DETAIL_ID, idTest, SheetLookup, detailFrame, detailId, findDetailTitle, isDrawingNumberShape, type DetectedLink, type LinkHints, type PageText, type Rect, type Word } from '@nb/sheets';
 
 /**
  * Taught marks: the user boxes one example of a section mark, section title, detail callout or
@@ -63,16 +63,21 @@ const round = (n: number) => Math.round(n * 100) / 100;
  * Makes a taught mark from the box the user drew. Throws, with a message for the user, when the
  * box cannot work as an example (no label to read, or several marks' worth of line work).
  */
-export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: string, sheetNumbers: readonly (string | null)[] = []): TaughtMark {
-  const lookup = new SheetLookup(sheetNumbers);
+/** Detail and section identifiers, as links.ts reads them; a drawing standard can name its own forms (see idTest). */
+const anyId = (t: string) => DETAIL_ID.test(t);
+
+/** `hints`: the drawing standard's identifier forms and the part of a number its callouts cite. */
+export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: string, sheetNumbers: readonly (string | null)[] = [], hints: LinkHints = DEFAULT_LINK_HINTS): TaughtMark {
+  const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
+  const isId = idTest(hints);
   const inside = page.words.filter((w) => {
     const [cx, cy] = center(w);
     return cx >= box.x && cx <= box.x + box.w && cy >= box.y && cy <= box.y + box.h;
   });
   const isSheet = (t: string) => lookup.find(t, true) !== null || SHEET_SHAPE.test(t) || isDrawingNumberShape(t);
   // The sheet number: the longest sheet-like word. The identifier: the largest other short label.
-  const sheet = inside.filter((w) => isSheet(clean(w.text)) && !(DETAIL_ID.test(clean(w.text)) && lookup.find(w.text, true) === null)).sort((a, b) => clean(b.text).length - clean(a.text).length)[0];
-  const detail = inside.filter((w) => w !== sheet && DETAIL_ID.test(clean(w.text))).sort((a, b) => b.size - a.size || a.y0 - b.y0)[0];
+  const sheet = inside.filter((w) => isSheet(clean(w.text)) && !(isId(clean(w.text)) && lookup.find(w.text, true) === null)).sort((a, b) => clean(b.text).length - clean(a.text).length)[0];
+  const detail = inside.filter((w) => w !== sheet && isId(clean(w.text))).sort((a, b) => b.size - a.size || a.y0 - b.y0)[0];
   if (!detail && !sheet) {
     throw new Error(
       inside.length === 0
@@ -157,10 +162,10 @@ function overlap(a: Rect, b: Rect): number {
 }
 
 /** Reads the example's words at a candidate place (box top-left `ox, oy`, size `k` times the example's). */
-function readLabel(mark: TaughtMark, page: PageText, ox: number, oy: number, k: number, lookup: SheetLookup) {
+function readLabel(mark: TaughtMark, page: PageText, ox: number, oy: number, k: number, lookup: SheetLookup, isId: (t: string) => boolean) {
   const box = { x: ox, y: oy, w: mark.w * k, h: mark.h * k };
   const fits: Record<MarkWord['role'], (t: string) => boolean> = {
-    detail: (t) => DETAIL_ID.test(t),
+    detail: isId,
     sheet: (t) => lookup.find(t, true) !== null,
     text: () => true,
   };
@@ -201,7 +206,7 @@ function readLabel(mark: TaughtMark, page: PageText, ox: number, oy: number, k: 
 }
 
 /** Every place a taught mark appears on a page whose label can be read. */
-function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup: SheetLookup): MarkHit[] {
+function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup: SheetLookup, isId: (t: string) => boolean): MarkHit[] {
   const hits: MarkHit[] = [];
   const needs = (h: ReturnType<typeof readLabel>) =>
     // A mark that showed a sheet number must show one here too (grid bubbles are the same circles).
@@ -213,7 +218,7 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
     const tx = Math.min(...segs.flatMap((s) => [s[0], s[2]]));
     const ty = Math.min(...segs.flatMap((s) => [s[1], s[3]]));
     for (const m of visualSearch(page.segments, segs, { minScore: 0.8 })) {
-      const read = readLabel(mark, page, m.rect.x - tx, m.rect.y - ty, 1, lookup);
+      const read = readLabel(mark, page, m.rect.x - tx, m.rect.y - ty, 1, lookup, isId);
       if (needs(read)) hits.push({ mark, pageIndex, rect: read.box, shape: m.score, text: read.text, detail: read.detail, sheet: read.sheet, frame: isTitleKind(mark.kind) ? (sectionFrame(page.segments, read.box, page.width) ?? undefined) : undefined });
     }
     return hits;
@@ -223,11 +228,11 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
   if (!anchor) return hits;
   for (const w of page.words) {
     const t = clean(w.text);
-    if (anchor.role === 'detail' ? !DETAIL_ID.test(t) : anchor.role === 'sheet' ? lookup.find(t, true) === null : t !== anchor.text) continue;
+    if (anchor.role === 'detail' ? !isId(t) : anchor.role === 'sheet' ? lookup.find(t, true) === null : t !== anchor.text) continue;
     const k = w.size / anchor.size;
     if (k < 0.8 || k > 1.25) continue;
     const [cx, cy] = center(w);
-    const read = readLabel(mark, page, cx - anchor.x * k, cy - anchor.y * k, k, lookup);
+    const read = readLabel(mark, page, cx - anchor.x * k, cy - anchor.y * k, k, lookup, isId);
     // Fixed words or a second label must back the anchor up: one number alone is not a mark.
     if (needs(read) && (mark.words.length < 2 || read.text > 1 / mark.words.length + 0.01)) hits.push({ mark, pageIndex, rect: read.box, shape: null, text: read.text, detail: read.detail, sheet: read.sheet, frame: isTitleKind(mark.kind) ? (sectionFrame(page.segments, read.box, page.width) ?? undefined) : undefined });
   }
@@ -246,12 +251,14 @@ function confidence(h: MarkHit): number {
  * - section and detail titles that name the sheet they are cut on link back to it.
  * Titles also tell callouts where on the target sheet their detail is drawn.
  */
-export function findMarks(pages: readonly MarkPage[], sheetNumbers: readonly (string | null)[], marks: readonly TaughtMark[]): DetectedLink[] {
-  const lookup = new SheetLookup(sheetNumbers);
+export function findMarks(pages: readonly MarkPage[], sheetNumbers: readonly (string | null)[], marks: readonly TaughtMark[], hints: LinkHints = DEFAULT_LINK_HINTS): DetectedLink[] {
+  const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
+  const isId = idTest(hints);
   return marksToLinks(
     pages,
     sheetNumbers,
-    pages.flatMap((page, pageIndex) => findMarksOnPage(page, pageIndex, lookup, marks)),
+    pages.flatMap((page, pageIndex) => findMarksOnPage(page, pageIndex, lookup, marks, isId)),
+    hints.calloutPart,
   );
 }
 
@@ -259,16 +266,16 @@ export function findMarks(pages: readonly MarkPage[], sheetNumbers: readonly (st
  * Whether a page's text has what a mark's label needs (an identifier, a sheet number), so a large
  * set only loads line work for pages that can hold one (not scans, not sheets of plain notes).
  */
-export function mayHoldMarks(page: PageText, lookup: SheetLookup, marks: readonly TaughtMark[]): boolean {
-  const ids = page.words.some((w) => DETAIL_ID.test(clean(w.text)));
+export function mayHoldMarks(page: PageText, lookup: SheetLookup, marks: readonly TaughtMark[], isId: (t: string) => boolean = anyId): boolean {
+  const ids = page.words.some((w) => isId(clean(w.text)));
   const sheets = page.words.some((w) => lookup.find(w.text, true) !== null);
   return marks.some((m) => (ids || !m.words.some((w) => w.role === 'detail')) && (sheets || !m.words.some((w) => w.role === 'sheet')));
 }
 
 /** Every taught mark found on one page (one per place). */
-export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: SheetLookup, marks: readonly TaughtMark[]): MarkHit[] {
+export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: SheetLookup, marks: readonly TaughtMark[], isId: (t: string) => boolean = anyId): MarkHit[] {
   const onPage: MarkHit[] = [];
-  for (const mark of marks) onPage.push(...findOnPage(mark, page, pageIndex, lookup));
+  for (const mark of marks) onPage.push(...findOnPage(mark, page, pageIndex, lookup, isId));
   // One mark per place: the best of overlapping matches (two examples of one style, say).
   onPage.sort((a, b) => confidence(b) - confidence(a));
   const out: MarkHit[] = [];
@@ -277,8 +284,8 @@ export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: Sheet
 }
 
 /** Turns the marks found across a set into link candidates (see findMarks). */
-export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly (string | null)[], hits: readonly MarkHit[]): DetectedLink[] {
-  const lookup = new SheetLookup(sheetNumbers);
+export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly (string | null)[], hits: readonly MarkHit[], calloutPart: number | null = null): DetectedLink[] {
+  const lookup = new SheetLookup(sheetNumbers, calloutPart);
   const titles = new Map<string, Word>();
   /** Where each taught title was found: the preview zooms to it. */
   const titleRects = new Map<string, Rect>();

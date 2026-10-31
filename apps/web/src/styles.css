@@ -5638,3 +5638,12 @@ select[size] {
   height: auto;
   border-top: 0;
 }
+
+.ds-more {
+  margin-top: 12px;
+}
+
+.ds-more > summary {
+  cursor: pointer;
+  font-weight: 600;
+}

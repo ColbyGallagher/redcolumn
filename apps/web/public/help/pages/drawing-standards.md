@@ -27,6 +27,21 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 
 Boxes are kept as a share of the page, so a half-size print of the same sheets reads from the same place.
 
+## Sheet links and marks
+
+Open **Sheet links and marks** to tell redcolumn how this client's drawings point at each other. A standard does not need title-block boxes to use these.
+
+| Setting | Use it when |
+|---|---|
+| **Callouts cite** | Callout bubbles show only part of the drawing number, such as *300082* for *HLD1BDD-WSPAU-0508-BR-DRG-300082*. Pick that part. |
+| **Identifiers** | The client labels details and sections in an unusual way, such as *DT3*. Type the forms with `#` for a digit and `@` for a letter: `@@#`. Separate several with commas. |
+| **Section, Elevation and Enlarged plan titles** | The client's titles use other words, such as *SECT* or *CROSS SECTION*. The [Links tab](#links) shows each link's kind. |
+| **Match lines** | Match lines are written another way, such as *CONTINUED ON*. |
+
+**Marks** lists the section marks, titles and detail callouts taught for this client. Use the standard for the document, then click **Teach a mark…** and box an example. When the document uses a standard, the Teach a mark dialog asks whether to look for the mark in **sets read with** that standard or in **every set**. Marks kept with a standard are only looked for in that client's sets, so they can't cause wrong links in other sets.
+
+If you already taught marks for every set, **Move *n* marks for every set here** gives them to this standard.
+
 ## Use a standard on a set
 
 Open the set, choose {{Document > Drawing Standards…}} and pick the standard under **This document**. The sheets are read again straight away and their links are found again.
