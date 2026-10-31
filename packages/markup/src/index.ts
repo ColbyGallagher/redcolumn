@@ -11,7 +11,7 @@ export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCatego
 export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
 export * from './assemblies';
-export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
+export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, TEXT_PADDING, translated, withSegment } from './geometry';
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';

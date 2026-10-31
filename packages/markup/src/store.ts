@@ -10,7 +10,7 @@ import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
-import { gluedTo, routeConnector } from './flowchart';
+import { gluedTo, relinkCopies, routeConnector } from './flowchart';
 
 /**
  * `auto`: detected with high confidence and active. `review`: detected with low confidence; active
@@ -75,6 +75,16 @@ export interface ImportedExtras {
   spaces?: Record<number, number[]>;
   /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
   geo?: GeoRegion[];
+}
+/** One page's attachments, copied with the page (see `copyPages`). */
+export interface PageClip {
+  markups: Markup[];
+  scale: Scale | null;
+  viewports: Viewport[];
+  /** /Annots indices of the page's PDF annotations that its markups stand for. */
+  imported: number[];
+  /** /BSISpaces indices likewise. */
+  spaces: number[];
 }
 const NO_STITCH: StoredStitchGroup[] = [];
 const NO_MANUAL_STITCH: StoredManualStitch = { lines: [], regions: {} };
@@ -806,6 +816,72 @@ export class MarkupStore {
         }));
     }, DETECTION);
     this.forgetHistory();
+  }
+
+  /**
+   * What is attached to `pages` (Copy Pages): their markups, scales and viewports, and which of
+   * their PDF annotations the markups stand for. {@link pastePages} puts it on pasted copies.
+   */
+  copyPages(pages: readonly number[]): PageClip[] {
+    const imported = this.importedAnnotations();
+    const spaces = this.importedSpaces();
+    return pages.map((p) => ({
+      markups: structuredClone(this.forPage(p)),
+      scale: this.scaleSnapshot[p] ?? null,
+      viewports: structuredClone(this.viewportSnapshot.filter((v) => v.pageIndex === p)),
+      imported: imported[p] ?? [],
+      spaces: spaces[p] ?? [],
+    }));
+  }
+
+  /**
+   * Puts what {@link copyPages} took onto the copies of those pages, pasted from the same PDF pages
+   * starting at index `at`. Markups and viewports are new ones (their own IDs, groups kept together,
+   * connectors glued to the copies); the copied pages' PDF annotations stay hidden behind them.
+   * Like pasted markups, the copies are this user's, with no status, made now.
+   */
+  pastePages(clips: readonly PageClip[], at: number) {
+    if (this.locked || !clips.length) return;
+    const all = clips.flatMap((c, k) => c.markups.map((m) => ({ ...m, pageIndex: at + k })));
+    const ids = new Map(all.map((m) => [m.id, crypto.randomUUID()]));
+    const groups = new Map<string, string>();
+    const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
+    const now = Date.now();
+    this.doc.transact(() => {
+      let seq = this.lastSeq();
+      relinkCopies(all, ids).forEach((m, i) => {
+        const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq, author: MarkupStore.author, status: 'none', createdAt: now + i, modifiedAt: now + i };
+        if (m.groupId) copy.groupId = groupOf(m.groupId);
+        else delete copy.groupId;
+        // New annotations when saved: none of the original's PDF or Bluebeam ids, its replies' included.
+        delete copy.pdfAnnot;
+        delete copy.statusHistory;
+        delete copy.locked;
+        if (copy.legend?.nameId) {
+          const { nameId: _, ...legend } = copy.legend;
+          copy.legend = legend;
+        }
+        if (m.replies) {
+          const replyIds = new Map(m.replies.map((r) => [r.id, crypto.randomUUID()]));
+          copy.replies = m.replies.map((r) => ({ ...r, id: replyIds.get(r.id)!, ...(r.parentId ? { parentId: replyIds.get(r.parentId) ?? r.parentId } : {}) }));
+        }
+        this.map.set(copy.id, copy);
+      });
+      this.meta.set('seq', seq);
+      const imported = { ...this.importedAnnotations() };
+      const spaces = { ...this.importedSpaces() };
+      clips.forEach((c, k) => {
+        if (c.scale) this.scales.set(String(at + k), c.scale);
+        for (const v of c.viewports) {
+          const id = crypto.randomUUID();
+          this.viewports.set(id, { ...v, id, pageIndex: at + k });
+        }
+        if (c.imported.length) imported[at + k] = c.imported;
+        if (c.spaces.length) spaces[at + k] = c.spaces;
+      });
+      this.meta.set('importedAnnotations', imported);
+      this.meta.set('importedSpaces', spaces);
+    }, LOCAL);
   }
 
   /**

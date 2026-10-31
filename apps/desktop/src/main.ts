@@ -293,6 +293,12 @@ async function start() {
     if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
     unsavedChanges = on === true;
   });
+  // The page's theme: the title-bar buttons are drawn over it, so their symbols must contrast.
+  ipcMain.on('window:theme-symbols', (event, color) => {
+    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
+    if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
+    if (process.platform === 'win32') mainWindow.setTitleBarOverlay({ color: '#00000000', symbolColor: color, height: 36 });
+  });
   ipcMain.on('window:close', (event) => {
     const win = mainWindow;
     if (!win || event.sender !== win.webContents || !fromApp(event)) return;

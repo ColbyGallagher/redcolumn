@@ -1,8 +1,9 @@
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { assembliesFromJson, assembliesToJson, mergeAssemblies, type Assembly, type AssemblyItem, type CustomColumn } from '@nb/markup';
 import { assemblyProblems, MEASURED_NAMES, type ItemQuantity } from '../assemblies/quantities';
 import { loadLibrary, writeLibrary } from '../assemblies/library';
-import { starterAssemblies } from '../assemblies/starters';
+import { starterGroups } from '../assemblies/starters';
 import { formatNumber } from '../columns/listColumns';
 import type { UnitSystem } from '../settings/settings';
 
@@ -42,39 +43,18 @@ function parseOptional(text: string): number | undefined | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** A formula box that wraps long formulas onto more lines and grows to show them whole. */
-function FormulaBox({ value, invalid, label, onFocus, onChange }: { value: string; invalid: boolean; label: string; onFocus: (el: HTMLTextAreaElement) => void; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const fit = () => {
-      el.style.height = 'auto';
-      el.style.height = `${el.scrollHeight + 2}px`;
-    };
-    fit();
-    // A narrower window wraps the formula onto more lines.
-    let width = el.clientWidth;
-    const watch = new ResizeObserver(() => {
-      if (el.clientWidth === width) return;
-      width = el.clientWidth;
-      fit();
-    });
-    watch.observe(el);
-    return () => watch.disconnect();
-  }, [value]);
+/** The box a formula is typed in. */
+type FormulaField = HTMLInputElement | HTMLTextAreaElement;
+
+/** A one-line formula box, with a button that opens the formula in a larger editor. */
+function FormulaBox({ value, invalid, label, onFocus, onChange, onExpand }: { value: string; invalid: boolean; label: string; onFocus: (el: FormulaField) => void; onChange: (v: string) => void; onExpand: () => void }) {
   return (
-    <textarea
-      ref={ref}
-      rows={1}
-      aria-label={label}
-      className="col-formula"
-      value={value}
-      aria-invalid={invalid}
-      spellCheck={false}
-      onFocus={(e) => onFocus(e.currentTarget)}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <div className="asm-formula-box">
+      <input aria-label={label} className="col-formula" value={value} title={value || undefined} aria-invalid={invalid} spellCheck={false} onFocus={(e) => onFocus(e.currentTarget)} onChange={(e) => onChange(e.target.value)} />
+      <button type="button" className="ms-glyph asm-expand" aria-label={`Expand ${label}`} title="Open in a larger editor" onClick={onExpand}>
+        ⤢
+      </button>
+    </div>
   );
 }
 
@@ -144,12 +124,13 @@ function FormulaSyntax({ onHelp }: { onHelp?: (page: string) => void }) {
   );
 }
 
-function NumberBox({ value, onChange, label, placeholder, width = 70 }: { value: number | undefined; onChange: (v: number | undefined) => void; label: string; placeholder?: string; width?: number }) {
+function NumberBox({ value, onChange, label, placeholder, width = 70, title }: { value: number | undefined; onChange: (v: number | undefined) => void; label: string; placeholder?: string; width?: number; title?: string }) {
   const [text, setText] = useState(value === undefined ? '' : String(value));
   const [bad, setBad] = useState(false);
   return (
     <input
       aria-label={label}
+      title={title}
       value={text}
       placeholder={placeholder}
       style={{ width }}
@@ -173,7 +154,9 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
   const [menu, setMenu] = useState<'starters' | 'library' | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   /** The formula box last typed in, which the reference chips insert into. */
-  const formulaRef = useRef<{ el: HTMLTextAreaElement; itemId: string } | null>(null);
+  const formulaRef = useRef<{ el: FormulaField; itemId: string } | null>(null);
+  /** The item whose formula is open in the larger editor. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const selected = list.find((a) => a.id === selectedId) ?? null;
   const problems = useMemo(() => new Map(list.map((a) => [a.id, assemblyProblems(a, list, columns)])), [list, columns]);
@@ -219,6 +202,12 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
 
   const p = selected ? problems.get(selected.id)! : new Map<string, string>();
   const fmt = (n: number | null) => (n === null ? '' : formatNumber(n, 2));
+  /** The names the reference chips insert: measured values, then this assembly's variables and the document's number columns. */
+  const refs = selected
+    ? [...MEASURED_NAMES, ...selected.variables.filter((v) => v.name.trim()).map((v) => ({ name: v.name.trim(), hint: `Variable: ${v.value}` })), ...columns.filter((c) => c.type === 'number' || c.type === 'formula').map((c) => ({ name: c.name, hint: 'Custom column' }))]
+    : [];
+  const expanded = selected?.items.find((i) => i.id === expandedId) ?? null;
+  const roundHint = 'Round the quantity up to a multiple of this instead of a whole number: 10 for pipe sold in 10 ft lengths, 0.5 for half sheets. Leave blank for whole numbers.';
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -263,13 +252,22 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                 </button>
                 {menu === 'starters' && (
                   <div className="ms-menu up" role="menu">
-                    {starterAssemblies(unitSystem).map((a) => (
-                      <button key={a.name} type="button" role="menuitem" onClick={() => add([a], `Added the example “${a.name}”`)}>
-                        {a.name}
-                      </button>
+                    {starterGroups(unitSystem).map((g) => (
+                      <div key={g.discipline} role="group" aria-label={g.discipline}>
+                        <div className="asm-menu-head">{g.discipline}</div>
+                        {g.assemblies.map((a) => (
+                          <button key={a.name} type="button" role="menuitem" onClick={() => add([a], `Added the example “${a.name}”`)}>
+                            {a.name}
+                          </button>
+                        ))}
+                        <button type="button" role="menuitem" className="asm-menu-all" onClick={() => add(g.assemblies, `Added the ${g.assemblies.length} ${g.discipline.toLowerCase()} examples`)}>
+                          All {g.discipline.toLowerCase()}
+                        </button>
+                      </div>
                     ))}
-                    <button type="button" role="menuitem" onClick={() => add(starterAssemblies(unitSystem), 'Added every example')}>
-                      All examples
+                    <div className="asm-menu-head" />
+                    <button type="button" role="menuitem" onClick={() => add(starterGroups(unitSystem).flatMap((g) => g.assemblies), 'Added every example')}>
+                      Every example
                     </button>
                   </div>
                 )}
@@ -359,7 +357,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   </small>
                   <FormulaSyntax onHelp={onHelp} />
                   <div className="asm-refs" aria-label="Insert into the formula">
-                    {[...MEASURED_NAMES, ...selected.variables.filter((v) => v.name.trim()).map((v) => ({ name: v.name.trim(), hint: `Variable: ${v.value}` })), ...columns.filter((c) => c.type === 'number' || c.type === 'formula').map((c) => ({ name: c.name, hint: 'Custom column' }))].map((r) => (
+                    {refs.map((r) => (
                       <button key={r.name} type="button" className="asm-ref" title={r.hint} onMouseDown={(e) => e.preventDefault()} onClick={() => insertRef(r.name)}>
                         [{r.name}]
                       </button>
@@ -372,7 +370,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                         <th>Quantity formula</th>
                         <th>Unit</th>
                         <th>Waste %</th>
-                        <th title="Round up to a whole number">Round up</th>
+                        <th title="Round up to a whole number, or to a multiple you set (10 for pipe sold in 10 ft lengths)">Round up</th>
                         <th>Unit cost</th>
                         {results && <th className="num">Selected</th>}
                         <th />
@@ -395,6 +393,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                   invalid={!!err}
                                   onFocus={(el) => (formulaRef.current = { el, itemId: item.id })}
                                   onChange={(formula) => patchItem(item.id, { formula })}
+                                  onExpand={() => setExpandedId(item.id)}
                                 />
                               </td>
                               <td>
@@ -403,8 +402,13 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                               <td>
                                 <NumberBox key={`${item.id}:w`} label="Waste percent" value={item.waste} placeholder="0" width={56} onChange={(n) => patchItem(item.id, { waste: n || undefined })} />
                               </td>
-                              <td className="center">
-                                <input type="checkbox" aria-label="Round up" checked={!!item.roundUp} onChange={(e) => patchItem(item.id, { roundUp: e.target.checked || undefined })} />
+                              <td>
+                                <div className="asm-round">
+                                  <input type="checkbox" aria-label="Round up" title="Round the quantity up instead of leaving it fractional" checked={!!item.roundUp} onChange={(e) => patchItem(item.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined }) })} />
+                                  {item.roundUp && (
+                                    <NumberBox key={`${item.id}:r`} label={`Round up ${item.name} to a multiple of`} title={roundHint} value={item.roundTo} placeholder="1" width={44} onChange={(n) => patchItem(item.id, { roundTo: n !== undefined && n > 0 && n !== 1 ? n : undefined })} />
+                                  )}
+                                </div>
                               </td>
                               <td>
                                 <NumberBox key={`${item.id}:c`} label="Unit cost" value={item.unitCost} placeholder="—" width={70} onChange={(n) => patchItem(item.id, { unitCost: n })} />
@@ -440,6 +444,56 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
             )}
           </div>
         </div>
+
+        {expanded &&
+          createPortal(
+            <div className="modal-backdrop" onMouseDown={(e) => { e.stopPropagation(); setExpandedId(null); }}>
+              <div className="modal asm-formula-dialog" role="dialog" aria-label={`Formula for ${expanded.name}`} onMouseDown={(e) => e.stopPropagation()}>
+                <div className="columns-head">
+                  <h3>Formula: {expanded.name || 'Untitled item'}</h3>
+                </div>
+                <p className="hint-text">The quantity of {expanded.name || 'this item'} for each measurement, in {expanded.unit || 'its unit'}. Click a name to put it in the formula at the cursor.</p>
+                <div className="asm-refs" aria-label="Insert into the formula">
+                  {refs.map((r) => (
+                    <button key={r.name} type="button" className="asm-ref" title={r.hint} onMouseDown={(e) => e.preventDefault()} onClick={() => insertRef(r.name)}>
+                      [{r.name}]
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  autoFocus
+                  rows={8}
+                  className="col-formula asm-formula-big"
+                  aria-label={`Formula for ${expanded.name}, expanded`}
+                  value={expanded.formula}
+                  readOnly={readOnly}
+                  aria-invalid={p.has(`item:${expanded.id}`)}
+                  spellCheck={false}
+                  onFocus={(e) => (formulaRef.current = { el: e.currentTarget, itemId: expanded.id })}
+                  onChange={(e) => patchItem(expanded.id, { formula: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.stopPropagation();
+                      setExpandedId(null);
+                    }
+                  }}
+                />
+                {p.get(`item:${expanded.id}`) && <em className="col-error">{p.get(`item:${expanded.id}`)}</em>}
+                {results && (() => {
+                  const r = results.find((x) => x.item.id === expanded.id);
+                  return <p className="hint-text">{r?.error ? `For ${previewLabel}: ${r.error}` : `For ${previewLabel}: ${fmt(r?.rounded ?? null)} ${expanded.unit}`}</p>;
+                })()}
+                <FormulaSyntax onHelp={onHelp} />
+                <div className="actions columns-actions">
+                  <span className="grow" />
+                  <button type="button" className="btn primary" onClick={() => setExpandedId(null)}>
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )}
 
         {message && <p className="columns-message">{message}</p>}
         <div className="actions columns-actions">
