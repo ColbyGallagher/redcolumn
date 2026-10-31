@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
+import { THEMES } from '../theme/themes';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -518,6 +519,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     ),
     display: () => (
       <Grid>
+        {select('theme', 'Theme', [['system', 'Match the system'], ...THEMES.map((t) => [t.id, t.label] as const)])}
         {select('pageFilter', 'Page Colours', [
           ['none', 'As printed'],
           ['dark', 'Dark Mode (inverted)'],
