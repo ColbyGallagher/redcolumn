@@ -653,6 +653,17 @@ export class Project {
     await this.note('project', `renamed the Project from ${before} to ${clean}`);
   }
 
+  /**
+   * Chooses the drawing standard every file of the Project is read with (an exported .rcstandard),
+   * or none. Owner only: it lives in project.json, so everyone's copy picks it up.
+   */
+  async setStandard(exported: string | null, name = ''): Promise<void> {
+    if (!this.isOwner) throw new ProjectError('Only the owner can choose the Project’s drawing standard.');
+    const { standard: _old, ...rest } = this.snap.manifest;
+    await this.writeManifest(exported ? { ...rest, standard: JSON.parse(exported) as unknown } : rest);
+    await this.note('project', exported ? `chose the drawing standard ${name}` : 'stopped using a drawing standard');
+  }
+
   /** Who the OneDrive folder is shared with. Only the owner can see this. */
   async members(): Promise<DrivePermission[]> {
     if (!this.isOwner) throw new ProjectError('Only the owner can see who the Project is shared with.');

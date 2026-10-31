@@ -132,7 +132,8 @@ import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature }
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { DrawingStandardPanel } from './components/DrawingStandardPanel';
-import { exportStandard, parseStandardFile, standardFileName, standardHash, withDefaults, type DrawingStandard } from './sheets/standards';
+import { exportStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, withDefaults, type DrawingStandard } from './sheets/standards';
+import { standardFit } from '@nb/sheets';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -397,6 +398,19 @@ function standardOf(store: MarkupStore): DrawingStandard | null {
   const chosen = store.drawingStandard();
   const found = chosen ? profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) : undefined;
   return found ? withDefaults(found) : null;
+}
+
+/**
+ * Keeps a Project's drawing standard in this profile, so its files read with it here too: added
+ * when new, replaced when the Project's copy is newer.
+ */
+/** A saved standard is offered for a set when at least this share of its sheets fit it. */
+const SUGGEST_FIT = 0.6;
+
+function adoptStandard(standard: DrawingStandard) {
+  const mine = profiles.active().state.drawingStandards.find((s) => s.id === standard.id);
+  if (mine && mine.updatedAt >= standard.updatedAt) return;
+  updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
 }
 
 /** The taught marks to look for in a document: those for every set, and its drawing standard's own. */
@@ -1190,6 +1204,8 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
+  /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
+  const [suggestion, setSuggestion] = useState<{ fileId: string; standard: DrawingStandard; fit: number } | null>(null);
   const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase' | 'standard'; pages?: number[]; typed?: boolean } | null>(null);
   const setStandardRegions = useCallback((regions: Region[]) => setLabelMode((m) => (m ? { ...m, regions } : m)), []);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
@@ -1577,6 +1593,11 @@ export function App() {
       runIndexJob(doc, async (cur, signal, report) => {
         const fresh = () => readFile(cur.file.hash);
         // Sheets first: importing the PDF's links needs sheet numbers to resolve links to files.
+        // A Project's owner may have chosen a standard for all its files: everyone's copy reads with it.
+        const projectLink = linkOf(cur.file.id);
+        const fromProject = standardOfProject(projectLink ? projectById(projectLink.projectId)?.getSnapshot().manifest.standard : undefined);
+        if (fromProject) adoptStandard(fromProject);
+        if (fromProject && !cur.store.drawingStandard() && !cur.store.readOnly && !cur.store.declinedStandards().includes(fromProject.id)) cur.store.setDrawingStandard({ id: fromProject.id, hash: '' });
         // A drawing standard changed since the document was read with it reads the sheets again.
         const standard = standardOf(cur.store);
         const stale = !!standard && cur.store.drawingStandard()?.hash !== standardHash(standard) && !cur.store.readOnly;
@@ -1610,6 +1631,16 @@ export function App() {
         if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
         if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, report, signal);
+        // A set read with no standard may be one a saved standard fits: suggest it, once.
+        if (!cur.store.drawingStandard() && !cur.store.readOnly) {
+          const declined = cur.store.declinedStandards();
+          const candidates = profiles.active().state.drawingStandards.map(withDefaults).filter((s) => !declined.includes(s.id) && (s.sheets.template || s.identify.length));
+          if (candidates.length) {
+            const pages = await loadPageTexts(fresh, cur.store, report, signal);
+            const best = candidates.map((s) => ({ standard: s, fit: standardFit(pages, s.sheets, s.identify) ?? 0 })).sort((a, b) => b.fit - a.fit)[0];
+            if (best && best.fit >= SUGGEST_FIT) setSuggestion({ fileId: cur.file.id, ...best });
+          }
+        }
       }),
     [runIndexJob, ctl],
   );
@@ -1739,6 +1770,9 @@ export function App() {
     (doc: OpenFile | null, chosen: DrawingStandard | null) =>
       runIndexJob(doc, async (cur, signal, report) => {
         const standard = chosen && withDefaults(chosen);
+        // None, chosen by a person: the standard it had is not suggested again (nor reapplied from its Project).
+        const before = cur.store.drawingStandard();
+        if (!standard && before) cur.store.declineStandard(before.id);
         cur.store.setDrawingStandard(standard ? { id: standard.id, hash: standardHash(standard) } : null);
         await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standard ?? undefined);
         // Sheet numbers may have changed, so taught marks may now resolve to other sheets; the standard brings its own.
@@ -9141,6 +9175,36 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && suggestion?.fileId === open.file.id && (
+                  <div className="slow-drawing standard-suggestion" role="status">
+                    <p>
+                      This looks like a <b>{suggestion.standard.name}</b> set: {Math.round(suggestion.fit * 100)}% of the sheets checked fit that drawing standard.
+                    </p>
+                    <div className="slow-drawing-actions">
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => {
+                          open.store.declineStandard(suggestion.standard.id);
+                          setSuggestion(null);
+                        }}
+                      >
+                        Not this set
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small primary"
+                        onClick={() => {
+                          const { standard } = suggestion;
+                          setSuggestion(null);
+                          void readWithStandard(open, standard).then(() => setNotice(`${open.file.name} is read with ${standard.name}.`));
+                        }}
+                      >
+                        Use {suggestion.standard.name}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </main>
               {pageNav('a')}
             </div>
@@ -9288,6 +9352,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 void findTaughtMarks(labelPaneParts.o);
               }}
               onForgetMark={(id) => forgetMark(id, labelPaneParts.o)}
+              project={(() => {
+                const link = linkOf(labelPaneParts.o.file.id);
+                const project = link ? projectById(link.projectId) : null;
+                if (!project) return null;
+                const { manifest } = project.getSnapshot();
+                return { name: manifest.name, owner: project.level === 'owner', standard: standardOfProject(manifest.standard)?.name ?? null };
+              })()}
+              onProjectStandard={(standard) => {
+                const link = linkOf(labelPaneParts.o!.file.id);
+                const project = link ? projectById(link.projectId) : null;
+                if (!project) return;
+                void project
+                  .setStandard(standard ? exportStandard(standard) : null, standard?.name)
+                  .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
+                  .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+              }}
               onClose={() => setLabelMode(null)}
             />
           )}
