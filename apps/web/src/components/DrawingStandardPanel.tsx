@@ -189,7 +189,6 @@ export function DrawingStandardPanel({ standards, current, regions, drawing, cur
           <input
             className="lr-typed"
             value={draft.sheets.template ?? ''}
-            placeholder="HLD1BDD-WSPAU-####-@@-DRG-######"
             onChange={(e) => setSheets({ template: e.target.value || null })}
             onKeyDown={(e) => e.stopPropagation()}
             aria-describedby="ds-template-help"
