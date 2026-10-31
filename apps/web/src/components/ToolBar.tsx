@@ -97,7 +97,6 @@ export const MARKUP_GROUPS: ToolGroup[] = [
       { tool: 'attachment', icon: '📎' },
       { tool: 'hyperlink', icon: '🔗' },
       { tool: 'snapshot', icon: '📷' },
-      { tool: 'snapshotPolygon', icon: '📷' },
     ],
   },
   {
@@ -164,8 +163,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   dimension: 'drag a line; type the dimension text',
   replaceText: 'drag across the text to replace; type the new wording',
   attachment: 'choose a file, then click to place its paperclip',
-  snapshot: 'drag a box: the area is copied as a picture',
-  snapshotPolygon: 'click the corners of the area (they snap like other drawing tools); click the first corner, double-click or Enter to finish: the area is copied as a picture',
+  snapshot: 'drag a box, or click the corners of a shape (click the first corner, double-click or Enter to finish): the area is copied as a picture',
   highlighter: 'over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text',
   textHighlight: 'drag across text in the PDF',
   underline: 'drag across text in the PDF',

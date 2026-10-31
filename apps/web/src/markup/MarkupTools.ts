@@ -117,7 +117,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'snapshotPolygon' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'teachMark' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'teachMark' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -141,7 +141,6 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   editText: 'Edit Text',
   formField: 'Form Field',
   snapshot: 'Snapshot',
-  snapshotPolygon: 'Snapshot (Polygon)',
   cutContent: 'Cut Content',
   scaleLength: 'Scale to Length',
   matchLine: 'Match Line',
@@ -500,7 +499,7 @@ export interface MarkupToolsOptions {
   onCutContent?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew the area to copy as a picture (the `snapshot` tool). */
   onSnapshot?: (pageIndex: number, rect: PageRect) => void;
-  /** The user outlined the area to copy as a picture, corner by corner (the `snapshotPolygon` tool). */
+  /** The user outlined the area to copy as a picture, corner by corner (the `snapshot` tool, clicking point by point). */
   onSnapshotPolygon?: (pageIndex: number, points: Point[]) => void;
   /** The Stamp tool was chosen without a stamp: the one to use (e.g. the last used). */
   defaultStamp?: () => StampDef | null;
@@ -536,7 +535,7 @@ function needsScale(tool: Tool): boolean {
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'matchLine') return { min: 2, fixed: 2 };
-  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'snapshotPolygon') return { min: 3, closes: true };
+  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'snapshot') return { min: 3, closes: true };
   // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
   if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
@@ -1792,7 +1791,7 @@ export class MarkupTools implements ViewerOverlay {
       if (points.length >= 3) this.options.onStitchRegion?.(g.markup.pageIndex, points);
       return;
     }
-    if (this.state.tool === 'snapshotPolygon') {
+    if (this.state.tool === 'snapshot') {
       if (points.length >= 3) {
         this.options.onSnapshotPolygon?.(g.markup.pageIndex, points);
         this.setState({ tool: 'select' });
@@ -2556,7 +2555,8 @@ export class MarkupTools implements ViewerOverlay {
       return true;
     }
 
-    const spec = clickSpec(tool);
+    // Snapshot: a press-and-drag is a box; a plain click starts a polygon, whose later clicks come here.
+    const spec = tool === 'snapshot' && this.gesture?.kind !== 'multi' ? null : clickSpec(tool);
     if (spec) {
       const g = this.gesture;
       const p = this.resolve(pt, e, g?.kind === 'multi' ? g.markup.points.at(-1)! : null);
@@ -2577,10 +2577,10 @@ export class MarkupTools implements ViewerOverlay {
       }
       // A cutout is drawn inside its area, on the area's page.
       if (tool === 'cutout' && this.store.get(this.cutoutTarget ?? '')?.pageIndex !== pageIndex) return false;
-      const markup = this.newMarkup(tool === 'calibrate' || tool === 'matchLine' ? 'line' : tool === 'cutout' || tool === 'stitchPolygon' || tool === 'snapshotPolygon' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
+      const markup = this.newMarkup(tool === 'calibrate' || tool === 'matchLine' ? 'line' : tool === 'cutout' || tool === 'stitchPolygon' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
       if (tool === 'calibrate') markup.style = { ...CALIBRATE_STYLE };
       if (tool === 'matchLine') markup.style = { ...MATCH_LINE_STYLE };
-      if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'snapshotPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
+      if (tool === 'cutout' || tool === 'stitchPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
       // A match line, like a calibration line, is two points and makes no markup.
       this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' || tool === 'matchLine' });
       return true;
@@ -2589,7 +2589,7 @@ export class MarkupTools implements ViewerOverlay {
     this.store.checkpoint();
 
     if (REGION_TOOLS.has(tool)) {
-      const p = toPoint(pt);
+      const p = tool === 'snapshot' ? this.resolve(pt, e, null) : toPoint(pt);
       const markup = this.newMarkup('rect', pageIndex, [p, p]);
       markup.style = { ...REGION_STYLE };
       this.setGesture({ kind: 'draw', markup });
@@ -2841,7 +2841,7 @@ export class MarkupTools implements ViewerOverlay {
         m.points = [m.points[0]!, constrain(m.type, m.points[0]!, toPoint(pt))];
       } else {
         // Boxes that pick out a region (a label region, viewport or symbol to search for) do not snap.
-        const region = REGION_TOOLS.has(this.state.tool);
+        const region = REGION_TOOLS.has(this.state.tool) && this.state.tool !== 'snapshot';
         m.points = [m.points[0]!, m.type === 'text' || region ? toPoint(pt) : this.resolve(pt, e, null)];
       }
     } else if (g.kind === 'segment') {
@@ -3007,8 +3007,14 @@ export class MarkupTools implements ViewerOverlay {
       this.select(g.add ? [...this.state.selected, ...ids] : ids);
       return;
     }
-    if (g.kind === 'draw') this.commitDraft(g.markup);
-    else if (g.kind === 'move') {
+    if (g.kind === 'draw') {
+      const b = boundsOf(g.markup.points);
+      if (this.state.tool === 'snapshot' && Math.max(b.w, b.h) * this.viewer.zoomFor(this.page) < this.dragPx) {
+        // A click, not a drag: the first corner of a polygon outline.
+        const at = g.markup.points[0]!;
+        this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });
+      } else this.commitDraft(g.markup);
+    } else if (g.kind === 'move') {
       if (g.dx || g.dy) {
         const store = this.store;
         store.batch(() => {
@@ -3216,7 +3222,7 @@ export class MarkupTools implements ViewerOverlay {
       }
       this.resolve(pt, mods, null);
     } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
-    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'snapshotPolygon' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
+    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'snapshot' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
   }

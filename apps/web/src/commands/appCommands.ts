@@ -313,7 +313,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...(checked === undefined ? {} : { checked }),
   });
   const toggle = (key: 'showGrid' | 'snapToGrid' | 'snapToMarkup' | 'showRulers' | 'crosshair' | 'polarTracking' | 'objectSnapTracking') => () => a.setSettings({ [key]: !s.settings[key] });
-  const tools = [...MARKUP_TOOLS, ...MEASURE_TOOLS].map(({ tool }) => cmd(`tool.${tool}`, 'Tools', toolLabel(tool), () => a.setTool(tool), doc && (tool === 'select' || tool === 'lasso' || tool === 'snapshot' || tool === 'snapshotPolygon' || s.editable), s.tool === tool));
+  const tools = [...MARKUP_TOOLS, ...MEASURE_TOOLS].map(({ tool }) => cmd(`tool.${tool}`, 'Tools', toolLabel(tool), () => a.setTool(tool), doc && (tool === 'select' || tool === 'lasso' || tool === 'snapshot' || s.editable), s.tool === tool));
 
   return [
     cmd('file.newPdf', 'File', 'New PDF…', a.newPdf),

@@ -286,14 +286,14 @@ test.describe('markup tools', () => {
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
-  test('snapshot (polygon): copies an outlined area, adds no markup', async ({ app }) => {
-    await app.tool('snapshotPolygon');
+  test('snapshot: clicking the corners copies an outlined area, adds no markup', async ({ app }) => {
+    await app.tool('snapshot');
     await app.clicks([A, C, B, A]);
     expect(await app.markups()).toEqual([]);
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
-  test('snapshot (polygon): the picture is see-through outside the outline', async ({ app }) => {
+  test('snapshot: a polygon picture is see-through outside the outline', async ({ app }) => {
     // A solid box to copy from; the outline A, C, B is the upper-right half of it.
     await app.tool('rect');
     await app.drag(A, B);
@@ -302,7 +302,7 @@ test.describe('markup tools', () => {
       const [m] = store.all();
       store.update(m!.id, { style: { ...m!.style, fill: '#000000', opacity: 1 } });
     });
-    await app.tool('snapshotPolygon');
+    await app.tool('snapshot');
     await app.clicks([A, C, B, A]);
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
     await app.cmd('edit.paste');
