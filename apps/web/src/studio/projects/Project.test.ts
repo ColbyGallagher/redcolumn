@@ -502,3 +502,16 @@ test('shared markups can be read for the Comments table without unlinking an ope
   await member.pollMarkups();
   assert.equal(b.markups.get('m2')?.type, 'arrow');
 });
+
+test("the owner's drawing standard reaches everyone's copy of the Project; others cannot choose one", async () => {
+  const { owner, member } = await twoPeople();
+  const exported = JSON.stringify({ format: 'redcolumn.drawing-standard', version: 1, standard: { id: 'wsp', name: 'WSP' } });
+  await owner.setStandard(exported, 'WSP');
+  await member.poll();
+  assert.deepEqual(member.getSnapshot().manifest.standard, JSON.parse(exported));
+  await assert.rejects(member.setStandard(null), /Only the owner/);
+  await owner.setStandard(null);
+  await member.poll();
+  assert.equal(member.getSnapshot().manifest.standard, undefined);
+  assert.match(owner.getSnapshot().record.map((r) => r.text).join('\n'), /chose the drawing standard WSP/);
+});

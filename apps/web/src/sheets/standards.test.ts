@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { exportStandard, newStandard, parseStandardFile, standardFileName, standardHash, type DrawingStandard } from './standards.ts';
+import { exportStandard, newStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, type DrawingStandard } from './standards.ts';
 
 function wsp(): DrawingStandard {
   const s = newStandard('WSP / HLD1BDD');
@@ -91,4 +91,14 @@ test("a standard's chainage settings travel in the file and are checked", () => 
   delete f.standard.chainage;
   assert.deepEqual(parseStandardFile(JSON.stringify(f)).chainage.prefixes, ['STA', 'CH', 'CHAINAGE']);
   assert.notEqual(standardHash({ ...s, chainage: { ...s.chainage, alignments: [] } }), standardHash(s));
+});
+
+test("identifying words travel in the file; a Project's standard is read like any shared file", () => {
+  const s = { ...wsp(), identify: ['WSP', 'HLD1BDD'] };
+  assert.deepEqual(parseStandardFile(exportStandard(s)).identify, ['WSP', 'HLD1BDD']);
+  // Not part of the hash: they only decide when to offer the standard, not how it reads.
+  assert.equal(standardHash({ ...s, identify: [] }), standardHash(s));
+  assert.equal(standardOfProject(JSON.parse(exportStandard(s)))?.name, s.name);
+  assert.equal(standardOfProject(undefined), null);
+  assert.equal(standardOfProject({ format: 'redcolumn.drawing-standard', version: 1, standard: { id: '../x' } }), null);
 });

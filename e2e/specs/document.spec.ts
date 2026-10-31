@@ -459,6 +459,33 @@ test.describe('page labels and scales from regions', () => {
     await expect(panel.getByLabel('Standard to edit')).toContainText('Edit: Rooms client');
   });
 
+  test('a saved drawing standard is offered when a set it fits comes to the front', async ({ app }) => {
+    await app.cmd('document.drawingStandards');
+    const panel = app.page.locator('.drawing-standard');
+    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
+    await drawBox(app, S.labelBox);
+    await panel.getByLabel('Template').fill('ROOM###');
+    // Saved only: this document is not read with it yet.
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await app.open('plan.pdf');
+    await app.open('sheets.pdf');
+    const offer = app.page.locator('.standard-suggestion');
+    await expect(offer).toContainText('This looks like a Rooms client set: 100% of the sheets checked fit');
+    await offer.getByRole('button', { name: 'Use Rooms client' }).click();
+    await expect(offer).toHaveCount(0);
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
+    // Back to the text alone: the standard is not offered for this set again.
+    await app.cmd('document.drawingStandards');
+    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
+    await expect.poll(() => app.page.evaluate(() => (window.__nb.tools.store as unknown as { declinedStandards(): string[] }).declinedStandards().length)).toBe(1);
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await app.open('plan.pdf');
+    await app.open('sheets.pdf');
+    await expect(offer).toHaveCount(0);
+  });
+
   test('document.labelRegions: typed labels, numbered on', async ({ app }) => {
     await app.cmd('document.labelRegions');
     const panel = app.page.locator('.label-regions');
