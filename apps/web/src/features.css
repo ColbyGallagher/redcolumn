@@ -6027,7 +6027,63 @@ tr.hidden-markup td {
 }
 
 .asm-formula {
+  width: 240px;
+}
+
+.asm-formula-box {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.asm-formula-box input {
+  flex: 1;
+  min-width: 0;
+}
+
+.asm-expand {
+  flex: none;
+}
+
+.asm-round {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.asm-menu-head {
+  padding: 6px 10px 2px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+[role='group']:first-child > .asm-menu-head {
+  border-top: 0;
+}
+
+.asm-menu-all {
+  color: var(--accent);
+}
+
+.asm-formula-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(720px, calc(100vw - 32px));
+  padding: 16px;
+}
+
+.asm-formula-big {
   width: 100%;
+  min-height: 160px;
+  box-sizing: border-box;
+  font-size: 13px;
+  line-height: 20px;
+  resize: vertical;
 }
 
 .modal.columns-dialog.assemblies-dialog {
@@ -6042,20 +6098,14 @@ tr.hidden-markup td {
   vertical-align: top;
 }
 
-.asm-formula textarea {
-  display: block;
+.asm-formula input {
   box-sizing: border-box;
   width: 100%;
-  min-width: 180px;
   height: 28px;
-  padding: 5px 8px;
-  overflow: hidden;
-  resize: none;
-  line-height: 16px;
+  padding: 0 8px;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
 }
 
 .asm-syntax {
