@@ -1,6 +1,7 @@
 import { RENDER_CANCELLED, type PdfDocument, type RenderResult } from '@nb/pdf-core';
 import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
+import { deskColour } from '../theme/themes';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
@@ -340,6 +341,7 @@ export class TileViewer {
     // Registered first, so a press opens one menu: ours after a long press, or the browser's own.
     canvas.addEventListener('contextmenu', this.onContextMenu);
     canvas.addEventListener('touchend', this.onTouchEnd, { passive: false });
+    window.addEventListener('nb-theme', this.onTheme);
     this.scrollTrack = document.createElement('div');
     this.scrollTrack.className = 'viewer-vscroll';
     this.scrollTrack.hidden = true;
@@ -358,6 +360,7 @@ export class TileViewer {
 
   destroy() {
     this.resizeObserver.disconnect();
+    window.removeEventListener('nb-theme', this.onTheme);
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('pointerdown', this.onPointerDown);
     this.canvas.removeEventListener('pointermove', this.onPointerMove);
@@ -1001,6 +1004,9 @@ export class TileViewer {
     this.invalidate();
   }
 
+  /** The theme changed: the pasteboard behind the pages has a new colour. */
+  private onTheme = () => this.invalidate();
+
   invalidate() {
     cancelAnimationFrame(this.frame);
     this.frame = requestAnimationFrame(() => this.draw());
@@ -1016,7 +1022,7 @@ export class TileViewer {
     const { ctx, canvas } = this;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#1f2d4a';
+    ctx.fillStyle = deskColour();
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     if (!this.doc) {
       this.scrollTrack.hidden = true;
@@ -1288,7 +1294,7 @@ export class TileViewer {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.beginPath();
     ctx.arc(pointer.x, pointer.y, radius, 0, Math.PI * 2);
-    ctx.fillStyle = '#1f2d4a';
+    ctx.fillStyle = deskColour();
     ctx.fill();
     ctx.clip();
     ctx.translate(pointer.x, pointer.y);
