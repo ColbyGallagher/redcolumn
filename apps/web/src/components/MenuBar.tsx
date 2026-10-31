@@ -358,6 +358,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.selectSimilar" />
             <Cmd id="tool.lasso" />
             <Cmd id="tool.snapshot" />
+            <Cmd id="tool.snapshotPolygon" />
             <Cmd id="edit.formatPainter" />
             <Cmd id="edit.scaleToLength" />
             <Cmd id="edit.group" />

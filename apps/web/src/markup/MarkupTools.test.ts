@@ -209,6 +209,33 @@ test('clicking back on the first point closes a polygon', async () => {
   await h.store.destroy();
 });
 
+test('Snapshot (Polygon) hands over the clicked corners, adds no markup and returns to Select', async () => {
+  const shots: { pageIndex: number; points: Point[] }[] = [];
+  const h = await setup({ onSnapshotPolygon: (pageIndex, points) => shots.push({ pageIndex, points }) });
+  h.tools.setTool('snapshotPolygon');
+  for (const p of [[100, 100], [300, 100], [300, 250], [200, 300]] as Point[]) click(h.tools, p);
+  assert.equal(shots.length, 0, 'still being outlined');
+  h.tools.finish();
+  assert.deepEqual(shots, [{ pageIndex: 0, points: [[100, 100], [300, 100], [300, 250], [200, 300]] }]);
+  assert.equal(h.store.all().length, 0);
+  assert.equal(h.tools.getState().tool, 'select');
+  await h.store.destroy();
+});
+
+test('Snapshot (Polygon) closes on its first corner and needs three corners', async () => {
+  const shots: Point[][] = [];
+  const h = await setup({ onSnapshotPolygon: (_, points) => shots.push(points) });
+  h.tools.setTool('snapshotPolygon');
+  click(h.tools, [100, 100]);
+  click(h.tools, [200, 100]);
+  h.tools.finish();
+  assert.equal(shots.length, 0, 'two corners are a line, not an area');
+  h.tools.setTool('snapshotPolygon');
+  for (const p of [[100, 100], [200, 100], [200, 200], [100, 100]] as Point[]) click(h.tools, p);
+  assert.deepEqual(shots, [[[100, 100], [200, 100], [200, 200]]]);
+  await h.store.destroy();
+});
+
 test('a box has grips on its corners and the middles of its edges', async () => {
   const h = await setup();
   await drawWith(h, 'rect'); // corners (100, 200) and (260, 300)

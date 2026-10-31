@@ -211,6 +211,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'tool.replaceText': { spec: 'markup-tools' },
   'tool.select': { spec: 'measure' },
   'tool.snapshot': { spec: 'markup-tools' },
+  'tool.snapshotPolygon': { spec: 'markup-tools' },
   'tool.space': { spec: 'markup-tools' },
   'tool.squiggly': { spec: 'markup-tools' },
   'tool.stamp': { spec: 'markup-tools' },

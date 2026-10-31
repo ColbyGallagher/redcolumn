@@ -286,6 +286,44 @@ test.describe('markup tools', () => {
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
+  test('snapshot (polygon): copies an outlined area, adds no markup', async ({ app }) => {
+    await app.tool('snapshotPolygon');
+    await app.clicks([A, C, B, A]);
+    expect(await app.markups()).toEqual([]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+  });
+
+  test('snapshot (polygon): the picture is see-through outside the outline', async ({ app }) => {
+    // A solid box to copy from; the outline A, C, B is the upper-right half of it.
+    await app.tool('rect');
+    await app.drag(A, B);
+    await app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { all(): { id: string; style: object }[]; update(id: string, patch: object): void };
+      const [m] = store.all();
+      store.update(m!.id, { style: { ...m!.style, fill: '#000000', opacity: 1 } });
+    });
+    await app.tool('snapshotPolygon');
+    await app.clicks([A, C, B, A]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image');
+    expect(picture).toBeTruthy();
+    const alphas = await app.page.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const alphaAt = (fx: number, fy: number) => g.getImageData(Math.floor(fx * (canvas.width - 1)), Math.floor(fy * (canvas.height - 1)), 1, 1).data[3]!;
+      return { inside: alphaAt(0.85, 0.15), outside: alphaAt(0.15, 0.85) };
+    }, picture!.image as string);
+    expect(alphas.inside).toBeGreaterThan(200);
+    expect(alphas.outside).toBe(0);
+  });
+
   test.describe('text markups on the PDF text', () => {
     // Page 2: "DOOR 1   HOLLOW CORE", 12 pt Helvetica with its baseline at y 100.
     test.beforeEach(async ({ app }) => {
