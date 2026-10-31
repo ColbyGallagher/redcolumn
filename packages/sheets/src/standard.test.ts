@@ -130,3 +130,10 @@ test('pages the standard does not fit are left to the heuristics, which skip ign
   // Without the standard, the contract number in the corner wins on the last page.
   assert.equal(detectSheets([moved])[0]!.number, 'C-2041');
 });
+
+test('a number box word with long runs of brackets reads quickly and without them', () => {
+  const p: PageText = { width: W, height: H, words: [{ ...word('C-101', 1900, 1640, 14), text: `(((C-101${')'.repeat(100_000)}` }] };
+  const started = performance.now();
+  assert.equal(readSheet(p, { ...hints, template: '@-###', disciplinePart: null })?.number, 'C-101');
+  assert.ok(performance.now() - started < 500);
+});
