@@ -165,5 +165,37 @@
         "angle": 1.5707963267948966
       }
     ]
+  },
+  "chainage": {
+    "titles": [
+      "PLAN AND PROFILE",
+      "CROSS SECTIONS",
+      "GENERAL NOTES"
+    ],
+    "ticks": {
+      "from": 1000,
+      "to": 1500,
+      "step": 100,
+      "x": 200,
+      "dx": 150,
+      "y": 400
+    },
+    "sections": [
+      {
+        "label": "STA 12+00",
+        "x": 300,
+        "y": 300
+      },
+      {
+        "label": "STA 13+00",
+        "x": 300,
+        "y": 500
+      }
+    ],
+    "note": {
+      "text": "TIE IN AT STA 14+50",
+      "x": 100,
+      "y": 200
+    }
   }
 }

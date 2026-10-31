@@ -1592,15 +1592,15 @@ export function App() {
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
-          await linkFromText(fresh, cur.store, report, signal, standard?.links);
+          await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         } else if (!cur.store.imageMarkupsChecked()) {
           // An earlier import may have stored Bluebeam image markups as empty rectangles.
           await repairSquareImages(fresh, cur.store, signal);
           cur.store.setImageMarkupsChecked();
           ctl?.viewer.clearCache();
-          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal, standard?.links);
+          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         } else if (!cur.store.linksDetected()) {
-          await linkFromText(fresh, cur.store, report, signal, standard?.links);
+          await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         }
         // Marks taught since this document was last searched (or ever, for a new set).
         const marks = marksFor(cur.store);
@@ -1618,7 +1618,7 @@ export function App() {
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
         const standard = standardOf(cur.store);
-        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal, standard?.links);
+        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal, standard ?? undefined);
         // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
         const marks = marksFor(cur.store);
         if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal, standard?.links);

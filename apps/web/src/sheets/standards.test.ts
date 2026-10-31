@@ -80,3 +80,15 @@ test("a standard's link words and its own taught marks travel in the file and ar
   // Teaching or forgetting a mark changes the hash: sets read with the standard look again.
   assert.notEqual(standardHash({ ...s, marks: [] }), standardHash(s));
 });
+
+test("a standard's chainage settings travel in the file and are checked", () => {
+  const s = wsp();
+  s.chainage = { prefixes: ['CH'], alignments: ['MC01', 'RAMP A'], planTitles: ['PLAN AND LONGITUDINAL SECTION'], sectionTitles: ['CROSS SECTIONS'] };
+  assert.deepEqual(parseStandardFile(exportStandard(s)).chainage, s.chainage);
+  const f = JSON.parse(exportStandard(s));
+  f.standard.chainage.alignments = 'MC01';
+  assert.throws(() => parseStandardFile(JSON.stringify(f)), /alignment names/);
+  delete f.standard.chainage;
+  assert.deepEqual(parseStandardFile(JSON.stringify(f)).chainage.prefixes, ['STA', 'CH', 'CHAINAGE']);
+  assert.notEqual(standardHash({ ...s, chainage: { ...s.chainage, alignments: [] } }), standardHash(s));
+});
