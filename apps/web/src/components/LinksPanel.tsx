@@ -1,5 +1,5 @@
 import type { LinkStatus, StoredLink } from '@nb/markup';
-import type { SheetInfo } from '@nb/sheets';
+import { LINK_KINDS, type SheetInfo } from '@nb/sheets';
 import { MARK_KINDS, type TaughtMark } from '../sheets/marks';
 
 interface Props {
@@ -42,7 +42,8 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
         <span className="num">{l.label}</span>
         <span className="name">
           {from ? `→ ${sheetName(sheets, l.targetPage)}` : `from ${sheetName(sheets, l.pageIndex)}`}
-          {l.kind === 'detail' && !l.targetRect ? ' (detail not located)' : ''}
+          {l.kind !== 'sheet' ? ` · ${LINK_KINDS[l.kind]}` : ''}
+          {l.detail && !l.targetRect ? ' (not located)' : ''}
         </span>
       </button>
       {from && (
