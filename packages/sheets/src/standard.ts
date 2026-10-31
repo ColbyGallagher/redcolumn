@@ -132,7 +132,16 @@ export function disciplineOf(number: string, hints: SheetHints): string | null {
   return hints.disciplines[code] ?? code;
 }
 
-const clean = (t: string) => t.trim().toUpperCase().replace(/^\(+/, '').replace(/[,;:)]+$/, '');
+const TRAILING = new Set([',', ';', ':', ')']);
+/** A word without opening brackets or trailing punctuation (trimmed by hand: a `[...]+$` regex is slow on long runs). */
+const clean = (t: string) => {
+  const s = t.trim().toUpperCase();
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === '(') start++;
+  while (end > start && TRAILING.has(s[end - 1]!)) end--;
+  return s.slice(start, end);
+};
 /** Labels printed in front of each field inside the boxes people draw: `DRAWING TITLE`, `SHEET NO.`, `REV`. */
 const FIELD_LABEL: Record<TitleField, RegExp> = {
   number: /^((SHEET|DRAWING|DRG|DWG|DOCUMENT|DOC|PLAN)\.?\s+)?(NO\.?|NUMBER|NUM|#)\s*:?\s*/i,
