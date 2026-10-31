@@ -32,7 +32,7 @@ export interface DetectedLink {
 /** Detail/section identifiers in callout bubbles: 3, 12, 3A, A, B2. */
 const DETAIL_ID = /^(\d{1,3}[A-Z]?|[A-Z]\d{0,2})$/;
 /** Sheet-number shape (same as sheet detection) for slash references. */
-const SHEET_PART = '[A-Z]{1,3}[-.]?\\d{1,3}(?:[.-]\\d{1,3})?[A-Z]?';
+const SHEET_PART = '[A-Z]{1,3}[-.]?\\d{1,4}(?:[.-]\\d{1,3})?[A-Z]?';
 /** `3/C-501`, `DETAIL 3/C-501`, `A/S-301`. */
 const SLASH_REF = new RegExp(`^(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2})\\/(${SHEET_PART})$`);
 
