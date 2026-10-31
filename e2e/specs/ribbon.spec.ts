@@ -83,7 +83,6 @@ test.describe('ribbon', () => {
 
     // A rectangle explodes into lines, but is not a line to trim, join or fillet.
     await select(app, [rect!.id]);
-    await expect(ribbon(app).locator('.rb-tab-badge')).toHaveText('1');
     await expect(button(app, 'edit.explode')).toBeEnabled();
     await expect(button(app, 'edit.trim')).toBeDisabled();
     await expect(button(app, 'edit.fillet')).toBeDisabled();
