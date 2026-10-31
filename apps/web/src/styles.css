@@ -656,7 +656,7 @@ select[size] {
 }
 
 .author input {
-  width: 110px;
+  width: 124px;
   padding: 0 6px;
 }
 
@@ -1856,7 +1856,7 @@ select[size] {
 }
 
 .menu-field input {
-  width: 110px;
+  width: 124px;
   height: 22px;
   padding: 0 6px;
   border: 1px solid var(--border);
@@ -4237,6 +4237,68 @@ select[size] {
   justify-content: flex-end;
   gap: 6px;
   margin-top: 10px;
+}
+
+/* Drawing standards (shares the page-label panel's look) */
+
+.drawing-standard {
+  width: 330px;
+}
+
+.drawing-standard .lr-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-section {
+  margin: 14px 0 0;
+  font-size: 12px;
+}
+
+.ds-field {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.ds-field .lr-typed {
+  margin-top: 3px;
+}
+
+.drawing-standard .lr-list select {
+  flex: none;
+  width: 124px;
+}
+
+.ds-message {
+  color: var(--brand-hi);
+}
+
+.ds-codes {
+  width: 100%;
+  margin-top: 6px;
+  border-collapse: collapse;
+}
+
+.ds-codes td {
+  padding: 2px 4px 2px 0;
+}
+
+.ds-codes td:first-child {
+  width: 70px;
+  font-family: ui-monospace, monospace;
+}
+
+.ds-codes input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #131d2f;
+  color: var(--text);
+  font: inherit;
 }
 
 .cloud-identity {

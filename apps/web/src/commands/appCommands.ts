@@ -168,6 +168,8 @@ export interface CommandActions {
   overlay: () => void;
   deletePages: () => void;
   labelRegions: () => void;
+  /** Document › Drawing Standards: a client's title block and drawing numbers, chosen per document. */
+  drawingStandards: () => void;
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
@@ -466,6 +468,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
+    cmd('document.drawingStandards', 'Document', 'Drawing Standards…', a.drawingStandards, doc),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
     cmd('document.teachMark', 'Document', 'Teach a Sheet Link Mark…', a.teachMark, doc && s.editable),
 

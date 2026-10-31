@@ -312,3 +312,30 @@ test('another assembly drops the quantities set by hand and the AI approval made
   assert.equal(store.get('w')!.assemblyOverrides, undefined);
   assert.equal(store.get('w')!.takeoffApproval, undefined);
 });
+
+test('a drawing standard is recorded per document, and choosing another clears what the old one read', async () => {
+  const store = await MarkupStore.open('test', { persist: false });
+  const info = (number: string, source: 'text' | 'standard' | 'manual') => ({ number, title: null, discipline: null, scaleText: null, revision: null, source, confidence: 1 });
+  store.setDrawingStandard({ id: 'wsp', hash: 'h1' });
+  store.setDetectedSheets([
+    [0, info('C-101', 'standard')],
+    [1, info('C-102', 'standard')],
+    [2, info('C-103', 'text')],
+  ]);
+  store.editSheet(1, { number: 'C-102A' });
+  assert.deepEqual(store.drawingStandard(), { id: 'wsp', hash: 'h1' });
+  // Text detection does not overwrite what the standard read.
+  store.setDetectedSheets([[0, info('X-1', 'text')]]);
+  assert.equal(store.allSheets()[0]?.number, 'C-101');
+  store.setDrawingStandard(null);
+  assert.equal(store.drawingStandard(), null);
+  // The standard's pages are free for text detection again; a person's edit and other sources stay.
+  assert.deepEqual(
+    Object.entries(store.allSheets()).map(([i, s]) => [i, s.number, s.source]),
+    [
+      ['1', 'C-102A', 'manual'],
+      ['2', 'C-103', 'text'],
+    ],
+  );
+  await store.destroy();
+});

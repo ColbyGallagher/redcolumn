@@ -437,6 +437,28 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels);
   });
 
+  test('document.drawingStandards reads every sheet number from a standard\'s box, and None goes back to the text', async ({ app }) => {
+    await app.cmd('document.drawingStandards');
+    const panel = app.page.locator('.drawing-standard');
+    await expect(panel).toBeVisible();
+    await panel.getByLabel('Name').fill('Rooms client');
+    await drawBox(app, S.labelBox);
+    await expect(panel.locator('.lr-text').first()).toHaveText(S.labels[0]!);
+    await expect(panel.getByLabel('Box 1 holds')).toHaveValue('number');
+    // "ROOM 101" is no drawing-number shape until the template says this client numbers sheets so.
+    await expect(panel.locator('.lr-preview')).toContainText('read on 0 of 3 pages');
+    await panel.getByLabel('Template').fill('ROOM###');
+    await expect(panel.locator('.lr-preview')).toContainText('read on 3 of 3 pages');
+    await panel.getByRole('button', { name: 'Save and use' }).click();
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
+    await expect(app.notice()).toHaveText(/with Rooms client: 3 of 3 sheet numbers/);
+    await expect(panel.getByLabel('Drawing standard for this document')).toHaveValue(/.+/);
+    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
+    // The standard stays in the profile for the next set.
+    await expect(panel.getByLabel('Standard to edit')).toContainText('Edit: Rooms client');
+  });
+
   test('document.labelRegions: typed labels, numbered on', async ({ app }) => {
     await app.cmd('document.labelRegions');
     const panel = app.page.locator('.label-regions');

@@ -131,6 +131,8 @@ import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { DrawingStandardPanel } from './components/DrawingStandardPanel';
+import { exportStandard, parseStandardFile, standardFileName, standardHash, type DrawingStandard } from './sheets/standards';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -389,6 +391,12 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
 
 /** Text written to the system clipboard when markups are copied, so pasting knows they are ours. */
 const MARKUP_CLIP = 'redcolumn markups';
+
+/** The drawing standard a document is read with, from this profile (none when it has none, or it was deleted here). */
+function standardOf(store: MarkupStore): DrawingStandard | null {
+  const chosen = store.drawingStandard();
+  return chosen ? (profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) ?? null) : null;
+}
 
 function download(name: string, blob: Blob) {
   // Browsers with the File System Access API show a Save As dialog; others download.
@@ -1176,7 +1184,8 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase' | 'standard'; pages?: number[]; typed?: boolean } | null>(null);
+  const setStandardRegions = useCallback((regions: Region[]) => setLabelMode((m) => (m ? { ...m, regions } : m)), []);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -1562,7 +1571,11 @@ export function App() {
       runIndexJob(doc, async (cur, signal, report) => {
         const fresh = () => readFile(cur.file.hash);
         // Sheets first: importing the PDF's links needs sheet numbers to resolve links to files.
-        if (Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal);
+        // A drawing standard changed since the document was read with it reads the sheets again.
+        const standard = standardOf(cur.store);
+        const stale = !!standard && cur.store.drawingStandard()?.hash !== standardHash(standard) && !cur.store.readOnly;
+        if (stale) cur.store.setDrawingStandard({ id: standard.id, hash: standardHash(standard) });
+        if (stale || Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal, standard?.sheets);
         if (!cur.store.annotationsImported()) {
           // A Project file whose markups are already shared takes them from there, not from its PDF.
           const link = linkOf(cur.file.id);
@@ -1708,8 +1721,21 @@ export function App() {
   const detectSheetsOffline = useCallback(
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standardOf(cur.store)?.sheets);
         await stitchFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+      }),
+    [runIndexJob],
+  );
+
+  /** Reads a document's sheets with a drawing standard (or none: from the text alone), then its links again. */
+  const readWithStandard = useCallback(
+    (doc: OpenFile | null, standard: DrawingStandard | null) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        cur.store.setDrawingStandard(standard ? { id: standard.id, hash: standardHash(standard) } : null);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standard?.sheets);
+        // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
+        const marks = profiles.active().state.taughtMarks;
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
       }),
     [runIndexJob],
   );
@@ -7167,7 +7193,8 @@ export function App() {
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   /** `erase` is Bulk Redact, which draws its boxes the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `standard` edits drawing standards, whose title-block boxes are drawn the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' | 'standard' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
@@ -7176,11 +7203,12 @@ export function App() {
     }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    // Erase boxes are not label boxes, so switching between them starts with none.
+    // Erase boxes and a standard's boxes are not label boxes, so switching between them starts with none.
+    const own = (k: string) => (k === 'erase' || k === 'standard' ? k : 'label');
     setLabelMode((m) =>
       m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
         ? m
-        : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
+        : { pane, regions: m?.pane === pane && own(m.kind) === own(kind) ? m.regions : [], kind, ...opts },
     );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
@@ -7724,6 +7752,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
+    drawingStandards: () => startLabelRegions(undefined, 'standard'),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     bulkRedact: () => startLabelRegions(undefined, 'erase'),
@@ -9194,6 +9223,44 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 setLabelMode(null);
                 void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
+            />
+          )}
+          {labelMode?.kind === 'standard' && labelPaneParts?.o && (
+            <DrawingStandardPanel
+              key={labelPaneParts.o.file.id}
+              standards={ws.drawingStandards}
+              current={labelPaneParts.o.store.drawingStandard()?.id ?? null}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              pageSize={labelPaneParts.o.doc.pages[(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+              texts={labelTexts}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={setStandardRegions}
+              onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
+              onDelete={(id) => updateWorkspace((w) => ({ ...w, drawingStandards: w.drawingStandards.filter((s) => s.id !== id) }))}
+              onUse={(id) => {
+                const o = labelPaneParts.o!;
+                const standard = id ? (profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null) : null;
+                void readWithStandard(o, standard).then(() => {
+                  const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
+                  setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                });
+              }}
+              onImport={(file) =>
+                void file
+                  .text()
+                  .then((content) => {
+                    const standard = parseStandardFile(content);
+                    const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
+                    updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
+                    setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
+                  })
+                  .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+              }
+              onExport={(standard) => download(standardFileName(standard), new Blob([exportStandard(standard)], { type: 'application/json' }))}
+              onClose={() => setLabelMode(null)}
             />
           )}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
