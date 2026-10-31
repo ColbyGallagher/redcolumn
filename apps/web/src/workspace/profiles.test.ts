@@ -67,3 +67,8 @@ test('a Markups list docked in a side panel is saved with the profile, and older
   const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
   assert.equal(upgraded.state.markupsDocked, false);
 });
+
+test('a new profile starts with no drawing standards', () => {
+  const p = profiles.create('Older', 'default');
+  assert.deepEqual(p.state.drawingStandards, []);
+});

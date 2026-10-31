@@ -3,6 +3,7 @@ import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSe
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 import type { TaughtMark } from '../sheets/marks';
+import type { DrawingStandard } from '../sheets/standards';
 
 /**
  * Profiles: a named arrangement of the workspace (which tools the toolbar shows, which
@@ -119,6 +120,8 @@ export interface WorkspaceState {
   bookmarkTemplates: BookmarkTemplate[];
   /** Section marks, titles and detail callouts the user taught, found in every set to suggest links (kept on this device). */
   taughtMarks: TaughtMark[];
+  /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
+  drawingStandards: DrawingStandard[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
@@ -160,6 +163,7 @@ export function defaultWorkspace(): WorkspaceState {
     hatchSets: [],
     bookmarkTemplates: [],
     taughtMarks: [],
+    drawingStandards: [],
   };
 }
 

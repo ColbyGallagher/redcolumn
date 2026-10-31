@@ -1,3 +1,4 @@
+import { disciplineOf, ignoredBy, readSheet, templateRegex, type SheetHints } from './standard.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 /**
@@ -161,7 +162,9 @@ function identifier(text: string): string | null {
   return t;
 }
 
-function candidatesFor(page: PageText): Candidate[] {
+function candidatesFor(page: PageText, hints?: SheetHints): Candidate[] {
+  const ignored = hints ? ignoredBy(hints, page) : () => false;
+  const pattern = hints?.template ? templateRegex(hints.template) : null;
   const med = median(page.words.map((w) => w.size)) || 1;
   // The words after a label on its row, up to its "NO.": `DRAWING / FILE NO.` gives `/ FILE NO.`.
   const rest = (w: Word) => {
@@ -183,7 +186,7 @@ function candidatesFor(page: PageText): Candidate[] {
   const out: Candidate[] = [];
   for (const word of page.words) {
     const number = identifier(word.text);
-    if (!number) continue;
+    if (!number || ignored(word)) continue;
     const cx = (word.x0 + word.x1) / 2 / page.width;
     const cy = (word.y0 + word.y1) / 2 / page.height;
     // Title blocks sit bottom-right, along the right edge, or as a strip along the bottom.
@@ -206,7 +209,10 @@ function candidatesFor(page: PageText): Candidate[] {
     const labelled = toSheet < Infinity && toSheet <= toOther;
     if (labelled) local += 1.5;
     else if (toOther < Infinity) local -= 1.5;
-    out.push({ word, number, cx, cy, local, zone, labelled, large: word.size / med >= 1.5 });
+    // The client's own numbering scheme names it as surely as a label does.
+    const fits = !!pattern?.test(number);
+    if (fits) local += 3;
+    out.push({ word, number, cx, cy, local, zone, labelled: labelled || fits, large: word.size / med >= 1.5 });
   }
   return out;
 }
@@ -305,8 +311,10 @@ function findScaleText(page: PageText, numberWord: Word): string | null {
  * title blocks sit in the same place on every sheet, so a candidate at a location shared by many
  * pages is far more likely to be the sheet number than a callout that happens to match.
  */
-export function detectSheets(pages: PageText[]): SheetInfo[] {
-  const perPage = pages.map(candidatesFor);
+export function detectSheets(pages: PageText[], hints?: SheetHints): SheetInfo[] {
+  // A drawing standard's title-block boxes read the pages they fit; the rest are worked out below.
+  const read = hints ? pages.map((p) => readSheet(p, hints)) : [];
+  const perPage = pages.map((p) => candidatesFor(p, hints));
   const withText = pages.filter((p) => p.words.length > 0).length || 1;
 
   // Text that appears on most sheets (project name, drawing-set number, status) identifies the
@@ -366,6 +374,8 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
   };
 
   return pages.map((page, pageIndex) => {
+    const standard = read[pageIndex];
+    if (standard) return standard;
     const empty: SheetInfo = { number: null, title: null, discipline: null, scaleText: null, revision: null, source: 'text', confidence: 0 };
     const cands = perPage[pageIndex]!;
     if (!cands.length) return empty;
@@ -387,7 +397,7 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
     return {
       number: c.number,
       title: findTitle(page, c.word, repeatedLine),
-      discipline: disciplineFor(c.number),
+      discipline: hints ? disciplineOf(c.number, hints) : disciplineFor(c.number),
       scaleText: findScaleText(page, c.word),
       revision: null,
       source: 'text',

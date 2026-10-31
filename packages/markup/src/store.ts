@@ -479,6 +479,26 @@ export class MarkupStore {
     }, DETECTION);
   }
 
+  /**
+   * Chooses the drawing standard this document is read with (its id, and a hash of what it holds,
+   * so a changed standard reads the set again), or none. Sheet info the previous standard read is
+   * removed, so text detection and other sources can fill those pages again.
+   */
+  setDrawingStandard(standard: { id: string; hash: string } | null) {
+    if (this.locked) return;
+    this.doc.transact(() => {
+      for (const [key, info] of this.sheets) if (info.source === 'standard') this.sheets.delete(key);
+      if (standard) this.meta.set('drawingStandard', { id: standard.id, hash: standard.hash });
+      else this.meta.delete('drawingStandard');
+    }, DETECTION);
+  }
+
+  /** The drawing standard this document was last read with, if any (see setDrawingStandard). */
+  drawingStandard(): { id: string; hash: string } | null {
+    const v = this.meta.get('drawingStandard') as { id?: unknown; hash?: unknown } | undefined;
+    return v && typeof v.id === 'string' && typeof v.hash === 'string' ? { id: v.id, hash: v.hash } : null;
+  }
+
   /** Stable array until the next change (safe for React's useSyncExternalStore). */
   allLinks(): StoredLink[] {
     return this.linkSnapshot;

@@ -218,6 +218,7 @@ window.HELP_TOC = [
     children: [
       { id: 'sets', title: 'Sets (drawing sets)' },
       { id: 'links', title: 'Sheet links (auto-linking)' },
+      { id: 'drawing-standards', title: 'Drawing standards' },
       { id: 'compare', title: 'Compare two drawings' },
       { id: 'overlay', title: 'Overlay pages' },
       { id: 'slip-sheet', title: 'Slip sheet a new revision' },
