@@ -79,6 +79,45 @@ module.exports = async function (h) {
   await h.wait(600);
   await h.shot('revisions', { around: ['.modal'], pad: 20 });
   await h.closeModal();
+
+  // Drawing standards: boxes on the sample title block (24 x 18 in sheet, title block at the right).
+  // One pane: Compare and Overlay left the view split.
+  await page.evaluate(() => {
+    const c = window.__nb.commands().get('view.unsplit');
+    if (c?.enabled) c.run();
+  });
+  await h.wait(500);
+  await page.locator('.doc-tab', { hasText: /^sample-plans\.pdf/ }).first().click().catch(() => {});
+  await h.wait(800);
+  await h.run('Document', 'Drawing Standards…');
+  await h.wait(600);
+  const ds = page.locator('.drawing-standard');
+  await ds.getByLabel('Name', { exact: true }).fill('Sample client');
+  await ds.getByLabel("Words on this client's sheets").fill('REDCOLUMN');
+  // Wider than the page, so the title block sits left of the panel.
+  await h.zoomTo(1380, 860, 2240, 1280);
+  // The box tool is armed when the panel opens; + Draw box arms it again otherwise.
+  const arm = ds.getByRole('button', { name: '+ Draw box' });
+  if (await arm.isVisible()) await arm.click();
+  await h.drag([1430, 1160], [1700, 1252]); // sheet number
+  await h.drag([1430, 1100], [1700, 1150]); // sheet title
+  await h.drag([1430, 988], [1700, 1016]); // revision
+  await h.drag([1430, 884], [1700, 912]); // project number: not the sheet's
+  await ds.getByLabel('Box 4 holds').selectOption('ignore');
+  await ds.getByRole('button', { name: 'Work out from this set' }).click();
+  await h.wait(600);
+  await h.shot('drawing-standard', { around: ['main.stage'], pad: 0 });
+  await ds.locator('summary', { hasText: 'Sheet links and marks' }).click();
+  await h.wait(300);
+  await h.shot('drawing-standard-links', { around: ['.drawing-standard'], pad: 12 });
+  await ds.getByRole('button', { name: 'Save and use' }).click();
+  await h.wait(3000);
+  await ds.getByRole('button', { name: 'Close' }).click().catch(() => {});
+
+  // Offered for the next set from the same client.
+  await page.locator('.doc-tab', { hasText: /^sample-plans-rev1\.pdf/ }).first().click().catch(() => {});
+  await h.wait(4000);
+  if (await page.locator('.standard-suggestion').count()) await h.shot('drawing-standard-offer', { around: ['.standard-suggestion'], pad: 16 });
 };
 
 module.exports.viewport = { width: 1440, height: 1100 };
