@@ -226,3 +226,24 @@ test('agency title blocks: the cited PLAN NO. beats a DRAWING / FILE NO. of the 
   assert.equal(normalizeSheetNumber('P-3008'), 'P-3008');
   assert.equal(disciplineFor('CD-4001'), 'Civil Demolition');
 });
+
+test('a number under FILE NO., CONTRACT NO. or PROJECT NO. is not the sheet number, even with nothing citing either', () => {
+  // The file number comes first and is shaped like a sheet number too (E-3586, Electrical), so
+  // before the field labels were told apart it tied with the sheet number and won.
+  const titled = (sheetLabel: string, sheetNo: string, otherLabel: string, other: string): PageText => ({
+    width: W,
+    height: H,
+    words: [...phrase(otherLabel, 2200, 1660, 7), word(other, 2200, 1700, 20), ...phrase(sheetLabel, 2400, 1660, 7), word(sheetNo, 2400, 1700, 20)],
+  });
+  assert.deepEqual(
+    [
+      titled('PLAN NO.', 'C-4000', 'DRAWING / FILE NO.', 'E-3586'),
+      titled('SHEET NO.', 'S-201', 'CONTRACT NO.', 'M-2915'),
+      titled('DRG NO.', 'A-101', 'PROJECT NO.', 'P-1234'),
+    ].map((p) => detectSheets([p])[0]!.number),
+    ['C-4000', 'S-201', 'A-101'],
+  );
+  // A heading that is not a field label ("PROJECT" over the project name) takes nothing away.
+  const headed: PageText = { width: W, height: H, words: [...phrase('PROJECT', 2400, 1660, 7), word('C-101', 2400, 1700, 20)] };
+  assert.equal(detectSheets([headed])[0]!.number, 'C-101');
+});

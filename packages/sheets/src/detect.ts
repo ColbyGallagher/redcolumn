@@ -148,6 +148,12 @@ const NUMBER_LABEL = /^(DRG|DWG|DRAWING|SHEET|SHT|DOC|DOCUMENT)\.?$/;
 /** "PLAN NO." labels the sheet number on many agency title blocks; "PLAN" alone is a view title. */
 const PLAN_LABEL = /^PLAN$/;
 const NO_LABEL = /^(NO\.?|NUMBER|#)$/;
+/**
+ * Field labels for the other numbers a title block prints: `DRAWING / FILE NO.`, `CONTRACT NO.`,
+ * `PROJECT NO.`, `CAD REF`. A number under one of these is not the sheet's own, and a sheet label
+ * that names one of them on its row (the DRAWING of `DRAWING / FILE NO.`) is one of them.
+ */
+const OTHER_NUMBER_LABEL = /^(FILE|CONTRACT|PROJECT|JOB|CAD|REF|REFERENCE|ORDER|CLIENT|PACKAGE)\.?$/;
 
 function identifier(text: string): string | null {
   const t = text.trim().toUpperCase().replace(/[:,;.]+$/, '');
@@ -157,12 +163,23 @@ function identifier(text: string): string | null {
 
 function candidatesFor(page: PageText): Candidate[] {
   const med = median(page.words.map((w) => w.size)) || 1;
-  const labels = page.words.filter((w) => {
+  // The words after a label on its row, up to its "NO.": `DRAWING / FILE NO.` gives `/ FILE NO.`.
+  const rest = (w: Word) => {
+    const after = page.words.filter((n) => n !== w && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 8).sort((a, b) => a.x0 - b.x0);
+    const no = after.findIndex((n) => NO_LABEL.test(n.text.toUpperCase()));
+    return no < 0 ? after.slice(0, 2) : after.slice(0, no + 1);
+  };
+  const sheetLabels: Word[] = [];
+  const otherLabels: Word[] = [];
+  for (const w of page.words) {
     const t = w.text.toUpperCase();
-    if (NUMBER_LABEL.test(t)) return true;
+    // Only as a field label (`PROJECT NO.`): `PROJECT` or `CLIENT` alone heads a box of names.
+    if (OTHER_NUMBER_LABEL.test(t)) {
+      if (rest(w).some((n) => NO_LABEL.test(n.text.toUpperCase()))) otherLabels.push(w);
+    } else if (NUMBER_LABEL.test(t)) (rest(w).some((n) => OTHER_NUMBER_LABEL.test(n.text.toUpperCase())) ? otherLabels : sheetLabels).push(w);
     // "PLAN NO." only: the next word on the row must be "NO."
-    return PLAN_LABEL.test(t) && page.words.some((n) => NO_LABEL.test(n.text.toUpperCase()) && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 2);
-  });
+    else if (PLAN_LABEL.test(t) && page.words.some((n) => NO_LABEL.test(n.text.toUpperCase()) && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 2)) sheetLabels.push(w);
+  }
   const out: Candidate[] = [];
   for (const word of page.words) {
     const number = identifier(word.text);
@@ -175,14 +192,20 @@ function candidatesFor(page: PageText): Candidate[] {
     if (cx > 0.65 && cy > 0.65) local += 2;
     else if (zone) local += 1;
     if (normalizeSheetNumber(number)) local += disciplineFor(number) ? 1 : 0.5;
-    // A "DRG No." / "SHEET No." label just above or to the left names this field.
+    // A "DRG No." / "SHEET No." label just above or to the left names this field. Where labels
+    // for two fields are both in reach (SHEET NO. beside FILE NO.), the nearer one names it.
     const s = word.size;
-    const labelled = labels.some((l) => {
+    const reach = (l: Word) => {
       const dx = word.x0 - l.x0;
       const dy = word.y0 - l.y0;
-      return (dy > -s * 0.5 && dy < s * 3 && dx > -s * 2 && dx < s * 12) || (Math.abs(dy) < s && dx > 0 && dx < s * 14);
-    });
+      return (dy > -s * 0.5 && dy < s * 3 && dx > -s * 2 && dx < s * 12) || (Math.abs(dy) < s && dx > 0 && dx < s * 14) ? Math.hypot(dx, dy) : Infinity;
+    };
+    const nearest = (ls: Word[]) => Math.min(Infinity, ...ls.map(reach));
+    const toSheet = nearest(sheetLabels);
+    const toOther = nearest(otherLabels);
+    const labelled = toSheet < Infinity && toSheet <= toOther;
     if (labelled) local += 1.5;
+    else if (toOther < Infinity) local -= 1.5;
     out.push({ word, number, cx, cy, local, zone, labelled, large: word.size / med >= 1.5 });
   }
   return out;
