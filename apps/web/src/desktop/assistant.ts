@@ -100,6 +100,7 @@ const DESTRUCTIVE_COMMANDS = new Set([
   'file.closeAll',
   'file.revert',
   'file.importXfdf',
+  'file.importFdf',
   'file.importBax',
   'file.importPdfMarkups',
   'file.save',
@@ -945,7 +946,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
       name: a.name,
       ...(a.description ? { description: a.description } : {}),
       variables: a.variables,
-      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}) })),
+      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}), ...(i.roundUp && i.roundTo ? { roundTo: i.roundTo } : {}) })),
     })),
     formulaNames: MEASURED_NAMES.map((n) => n.name),
   };
