@@ -9,22 +9,11 @@ export interface Rect {
 }
 
 /**
- * What a reference points at. The first group is read from the drawings; `supersedes` is written
- * by slip-sheeting (the old sheet points at the one that replaced it).
+ * What a reference points at, read from the drawings. Kinds are added as something detects them
+ * (chainage links come with drawing standards); a saved kind this build does not know imports as
+ * a detail or sheet link (see import.ts).
  */
-export type LinkKind =
-  | 'detail'
-  | 'section'
-  | 'elevation'
-  | 'enlargedPlan'
-  | 'sheet'
-  | 'matchline'
-  | 'station'
-  | 'schedule'
-  | 'note'
-  | 'spec'
-  | 'sameElement'
-  | 'supersedes';
+export type LinkKind = 'detail' | 'section' | 'elevation' | 'enlargedPlan' | 'sheet' | 'matchline';
 
 /** How each kind reads in lists and tool results. */
 export const LINK_KINDS: Record<LinkKind, string> = {
@@ -34,16 +23,10 @@ export const LINK_KINDS: Record<LinkKind, string> = {
   enlargedPlan: 'Enlarged plan',
   sheet: 'Sheet',
   matchline: 'Match line',
-  station: 'Station',
-  schedule: 'Schedule',
-  note: 'Note',
-  spec: 'Spec',
-  sameElement: 'Same element',
-  supersedes: 'Superseded by',
 };
 
 export function isLinkKind(value: unknown): value is LinkKind {
-  return typeof value === 'string' && value in LINK_KINDS;
+  return typeof value === 'string' && Object.hasOwn(LINK_KINDS, value);
 }
 
 export interface DetectedLink {
@@ -66,8 +49,16 @@ export interface DetectedLink {
 
 /** Civil sets letter sections AA, BB, CC: the same letter twice, never two different letters (TO, OF). */
 const DOUBLED = Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (c) => c + c).join('|');
-/** Detail/section identifiers in callout bubbles: 3, 12, 3A, A, B2, AA. */
-const DETAIL_ID = new RegExp(`^(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2}|${DOUBLED})$`);
+/**
+ * Detail/section identifiers in callout bubbles and titles: 3, 12, 3A, A, B2, AA; section titles
+ * repeat theirs (A-A, 1-1). Shared with taught marks, so both read the same identifiers.
+ */
+export const DETAIL_ID = new RegExp(`^(?:(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2})(?:[-–—/]\\1)?|${DOUBLED})$`);
+
+/** The identifier a callout or title names: a section title's A-A is the cut mark's A. AA stays AA (the section after Z). */
+export function detailId(text: string): string {
+  return cleanWord(text).replace(/^(.+?)[-–—/]\1$/, '$1');
+}
 /** Sheet-number shape (same as sheet detection) for slash references. */
 const SHEET_PART = '[A-Z]{1,3}[-.]?\\d{1,4}(?:[.-]\\d{1,3})?[A-Z]?';
 /** `3/C-501`, `DETAIL 3/C-501`, `A/S-301`. */
@@ -141,7 +132,7 @@ export function findDetailTitle(page: PageText, detail: string, ownNumber: strin
   const med = median(page.words.map((w) => w.size)) || 1;
   let best: { w: Word; score: number } | null = null;
   for (const w of page.words) {
-    if (cleanWord(w.text) !== detail) continue;
+    if (detailId(w.text) !== detail) continue;
     // Everything in the lower half of a bubble around this identifier; stray labels can sit there too.
     const below = page.words.filter((o) => o !== w && o.y0 >= w.y1 - w.size * 0.3 && o.y0 - w.y1 < w.size * 1.2 && Math.abs((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2) < Math.max(w.x1 - w.x0, o.x1 - o.x0));
     // A bubble whose lower half names another sheet is a callout, not this detail's title.
@@ -162,7 +153,7 @@ export function findDetailTitle(page: PageText, detail: string, ownNumber: strin
  */
 function findCutMarker(page: PageText, detail: string, lookup: SheetLookup, sourcePage: number): Word | null {
   for (const w of page.words) {
-    if (cleanWord(w.text) !== detail) continue;
+    if (detailId(w.text) !== detail) continue;
     const back = page.words.some(
       (o) => o !== w && o.y0 >= w.y1 - w.size * 0.3 && o.y0 - w.y1 < w.size * 1.2 && Math.abs((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2) < Math.max(w.x1 - w.x0, o.x1 - o.x0) && lookup.find(o.text, true) === sourcePage,
     );
@@ -285,10 +276,10 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       used.add(top);
       used.add(bottom);
       // The bubble that titles a detail on its own sheet is what callouts point at, not a link.
-      if (target === pageIndex && resolveDetail(cleanWord(top.text), pageIndex) === top) continue;
-      const detail = cleanWord(top.text);
+      if (target === pageIndex && resolveDetail(detailId(top.text), pageIndex) === top) continue;
+      const detail = detailId(top.text);
       const pad = bottom.size * 0.5;
-      add(`${detail}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
+      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
     }
 
     for (const w of page.words) {

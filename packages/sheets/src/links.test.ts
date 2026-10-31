@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectLinks, SheetLookup } from './links.ts';
+import { detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2592;
@@ -242,4 +242,37 @@ test('doubled section letters (AA, BB) are identifiers; two different letters ar
       ['C-102', 'sheet', null],
     ],
   );
+});
+
+test('a section title written A-A is the title of the cut marked A; AA is its own section', () => {
+  const pages = [
+    page([...bubble('A', 'C-501', 300, 800), ...bubble('AA', 'C-501', 700, 800), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    page([
+      ...bubble('A-A', 'C-501', 400, 900, 14),
+      word('SECTION', 480, 900, 12),
+      ...bubble('AA', 'C-501', 1400, 900, 14),
+      word('SECTION', 1460, 900, 12),
+      ...titleBlock('C-501'),
+    ]),
+  ];
+  const links = detectLinks(pages, numbers);
+  const from = links.filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    from.map((l) => [l.label, l.detail, l.kind, Math.round(l.targetRect?.x ?? -1)]),
+    [
+      ['A/C-501', 'A', 'section', 406 - 14 * 4],
+      ['AA/C-501', 'AA', 'section', 1406 - 14 * 4],
+    ],
+  );
+  // The titles on their own sheet are destinations, not links.
+  assert.equal(links.filter((l) => l.pageIndex === 2).length, 0);
+  assert.deepEqual(['A-A', 'a–a', '1-1', 'AA', '(B2)'].map(detailId), ['A', 'A', '1', 'AA', 'B2']);
+});
+
+test('only known link kinds are kinds, not keys every object has', () => {
+  assert.ok(isLinkKind('section'));
+  assert.ok(!isLinkKind('constructor'));
+  assert.ok(!isLinkKind('toString'));
+  assert.ok(!isLinkKind('station'));
 });
