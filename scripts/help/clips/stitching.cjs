@@ -16,8 +16,10 @@ module.exports = async function (h, rec) {
   await h.wait(1200);
   await page.keyboard.press('Control+9');
   await h.wait(1200);
+  await ribbon(h, rec, 'view', 'view.fitPage');
+  await h.wait(900);
   await rec.caption('One continuous plan to view, mark up and measure');
   await rec.hold(3500);
 };
-module.exports.viewport = VIEWPORT;
+module.exports.viewport = { width: 1180, height: 680 };
 module.exports.poster = 1;
