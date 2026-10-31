@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src 'self'; font-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>redcolumn - free PDF markup and takeoff for AEC</title>
+    <meta name="description" content="Free PDF markup, measurement and takeoff for architecture, engineering and construction. No account, no data capture. Download it or use it in your browser." />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="redcolumn - free PDF markup and takeoff for AEC" />
+    <meta property="og:description" content="Markup, measure and estimate on drawings. No account, no cost, no data capture." />
+    <meta property="og:image" content="/screenshots/wide.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/home/home.css" />
+    <script src="/home/home.js" defer></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/home/"><img src="/icon.svg" alt="" width="28" height="28" />redcolumn</a>
+      <nav aria-label="Main">
+        <a href="#core">Core features</a>
+        <a href="#further">Go further</a>
+        <a href="/help/">Help</a>
+        <a class="btn small" href="/">Use in web app</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <h1>PDF markup, measurement and takeoff for drawings.</h1>
+            <p class="lead">Everything you need to review and price AEC drawings, with no account, no cost and no data capture. Your files never leave your computer.</p>
+            <div class="cta">
+              <a class="btn primary" id="download" href="https://github.com/ColbyGallagher/redcolumn/releases/latest" data-os="">Download the latest release</a>
+              <a class="btn" href="/">Use in web app</a>
+            </div>
+            <p class="small muted" id="download-note">Windows, macOS and Linux. <a href="https://github.com/ColbyGallagher/redcolumn/releases/latest">All downloads</a></p>
+          </div>
+          <figure class="shot">
+            <img src="/screenshots/wide.png" alt="A drawing with markups and the Markups list open in redcolumn" width="1280" height="800" />
+          </figure>
+        </div>
+      </section>
+
+      <section id="core" class="wrap">
+        <h2>The PDF tools AEC work depends on</h2>
+        <p class="sub">All the basics are here, done properly.</p>
+        <ul class="grid">
+          <li><h3>Markup and annotation</h3><p>Clouds, callouts, highlights, stamps, text, dimensions and more, with a markups list you can sort, filter and export.</p></li>
+          <li><h3>Scaled measurement</h3><p>Calibrate a scale, then measure length, area, perimeter, volume, angle and count straight from the drawing.</p></li>
+          <li><h3>Sheets and pages</h3><p>Sets, page labels, bookmarks, split, extract, insert, crop and batch operations on whole drawing sets.</p></li>
+          <li><h3>Compare and overlay</h3><p>Compare revisions and overlay one drawing on another to see what changed.</p></li>
+          <li><h3>Sign and secure</h3><p>Digital signatures, redaction, flattening and PDF/A output.</p></li>
+          <li><h3>Works with your files</h3><p>Opens and saves standard PDFs, and keeps markups intact when files go to and from other PDF tools.</p></li>
+        </ul>
+      </section>
+
+      <section id="further" class="band">
+        <div class="wrap">
+          <h2>Then it goes further</h2>
+          <p class="sub">The things you usually pay extra for, or cannot do at all.</p>
+
+          <ul class="promises">
+            <li><strong>No accounts</strong> Open it and start working.</li>
+            <li><strong>Totally free</strong> No tiers, trials or locked features.</li>
+            <li><strong>No data capture</strong> No tracking, and files stay on your machine. <a href="https://github.com/ColbyGallagher/redcolumn/blob/master/PRIVACY.md">Privacy</a></li>
+          </ul>
+
+          <article class="feature">
+            <div class="text">
+              <h3>Plan stitching</h3>
+              <p>Roads, pipelines and big buildings are split across sheets. redcolumn finds the match lines and joins the sheets into one continuous plan you can view, mark up and measure across.</p>
+              <a href="/help/#pages/stitch.md">How stitching works</a>
+            </div>
+            <figure><img loading="lazy" src="/help/img/stitched.png" alt="Three road sheets stitched together along their match lines" /></figure>
+          </article>
+
+          <article class="feature flip">
+            <div class="text">
+              <h3>Assemblies for estimating</h3>
+              <p>Measure a wall once and its assembly works out the studs, track, board and insulation, with waste allowances, rounded up and priced.</p>
+              <a href="/help/#pages/assemblies.md">How assemblies work</a>
+            </div>
+            <figure><img loading="lazy" src="/help/img/assemblies-dialog.png" alt="The Assemblies dialog showing a partition wall with studs, track, board and insulation, each with a quantity formula and waste allowance" width="1432" height="812" /></figure>
+          </article>
+
+          <article class="feature">
+            <div class="text">
+              <h3>CAD-style drawing tools</h3>
+              <p>Offset, trim, extend, fillet, chamfer, mirror and arrays, on top of any PDF. Draw and edit geometry the way you would in CAD.</p>
+              <a href="/help/#pages/offset.md">See the editing tools</a>
+            </div>
+            <figure class="gifs">
+              <img loading="lazy" src="/help/gif/offset.gif" alt="Offsetting a line" />
+              <img loading="lazy" src="/help/gif/trim.gif" alt="Trimming lines at an intersection" />
+              <img loading="lazy" src="/help/gif/fillet.gif" alt="Filleting a corner" />
+            </figure>
+          </article>
+
+          <ul class="grid compact">
+            <li><h3>Geospatial</h3><p>Turn a model into a geospatial PDF and register stitched sheets to real-world coordinates.</p></li>
+            <li><h3>Bullet and numbered lists</h3><p>Real lists in text markups, not typed-in dashes.</p></li>
+            <li><h3>Tables</h3><p>Insert tables in markups and add or remove rows and columns as you go.</p></li>
+            <li><h3>Flow diagrams</h3><p>Flowchart shapes with connectors that follow when you move them.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="wrap choose">
+        <h2>Download it or just use it</h2>
+        <div class="two">
+          <div>
+            <h3>Web app</h3>
+            <p>Nothing to install. Open it in your browser and it works offline once loaded. Your files stay on your device.</p>
+            <a class="btn" href="/">Use in web app</a>
+          </div>
+          <div>
+            <h3>Desktop app</h3>
+            <p>Native app for Windows, macOS and Linux, with extras that need the desktop such as local Excel sync.</p>
+            <a class="btn primary" href="https://github.com/ColbyGallagher/redcolumn/releases/latest" data-download>Download the latest release</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap">
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/ColbyGallagher/redcolumn/releases/latest" data-download>Download the latest release</a>
+          <a class="btn" href="/">Use in web app</a>
+        </div>
+        <p class="small muted">
+          <a href="https://github.com/ColbyGallagher/redcolumn">GitHub</a> ·
+          <a href="https://github.com/ColbyGallagher/redcolumn/releases">Releases</a> ·
+          <a href="https://github.com/ColbyGallagher/redcolumn/blob/master/PRIVACY.md">Privacy</a> ·
+          <a href="https://github.com/ColbyGallagher/redcolumn/blob/master/LICENSE">Licence</a> ·
+          <a href="/help/">Help</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
