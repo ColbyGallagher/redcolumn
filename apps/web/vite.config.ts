@@ -119,6 +119,23 @@ function securityMeta(): Plugin {
   };
 }
 
+/**
+ * The landing page (public/home) is its own static site. Vercel serves /home to it (vercel.json);
+ * the dev server would otherwise answer /home and /home/ with the app, so send them to its page.
+ */
+function landingPage(): Plugin {
+  return {
+    name: 'landing-page',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const [path, query = ''] = (req.url ?? '').split('?');
+        if (path === '/home' || path === '/home/') req.url = `/home/index.html${query ? `?${query}` : ''}`;
+        next();
+      });
+    },
+  };
+}
+
 const base = process.env.GITHUB_PAGES === 'true' ? '/redcolumn/' : '/';
 
 /** Screenshots in public/screenshots, shown by richer install prompts. */
@@ -135,6 +152,7 @@ export default defineConfig({
     ocrAssets(),
     spellAssets(),
     appIcons(),
+    landingPage(),
     securityMeta(),
     VitePWA({
       // New versions install in the background and wait; the app applies them when no work is in
@@ -152,8 +170,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // msal-redirect.html receives Microsoft sign-in results in its query string, which the
         // precache would not match; let it load from the network rather than fall back to the app.
-        // The help is its own site, not the app.
-        navigateFallbackDenylist: [/msal-redirect\.html/, /share-target/, /\/help\//],
+        // The help and the landing page (/home) are their own sites, not the app.
+        navigateFallbackDenylist: [/msal-redirect\.html/, /share-target/, /\/help\//, /\/home(\/|$)/],
         runtimeCaching: [
           {
             // The cache name is shared with src/offline/ocrCache.ts, which fills it ahead of time.
