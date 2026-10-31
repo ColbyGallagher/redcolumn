@@ -79,7 +79,7 @@ function readAssemblies(json: string | null): Assembly[] {
 }
 
 /** An image XObject as a PNG (or, for JPEG data, JPEG) data URL; null if it cannot be decoded here. */
-async function imageDataUrl(obj: PDFObject | undefined): Promise<string | null> {
+export async function imageDataUrl(obj: PDFObject | undefined): Promise<string | null> {
   if (!(obj instanceof PDFRawStream)) return null;
   const d = obj.dict;
   const filters = [d.lookup(PDFName.of('Filter'))].flatMap((f) => (f instanceof PDFArray ? f.asArray() : f ? [f] : [])).map((f) => (f instanceof PDFName ? f.decodeText() : ''));
