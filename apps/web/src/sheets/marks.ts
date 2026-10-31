@@ -1,5 +1,5 @@
 import { templateSegments, visualSearch } from '@nb/measure';
-import { SheetLookup, detailFrame, findDetailTitle, isDrawingNumberShape, type DetectedLink, type PageText, type Rect, type Word } from '@nb/sheets';
+import { DETAIL_ID, SheetLookup, detailFrame, detailId, findDetailTitle, isDrawingNumberShape, type DetectedLink, type PageText, type Rect, type Word } from '@nb/sheets';
 
 /**
  * Taught marks: the user boxes one example of a section mark, section title, detail callout or
@@ -50,16 +50,12 @@ export interface MarkPage extends PageText {
   segments: ArrayLike<number>;
 }
 
-/** Detail/section identifiers (as in links.ts): 3, 12, 3A, A, B2; section titles repeat theirs (A-A, 1-1). */
-const DETAIL_ID = /^(\d{1,3}[A-Z]?|[A-Z]\d{0,2})(?:[-–—/]\1)?$/;
 /** Sheet-number shape (as in links.ts), for examples taught before the set's sheet numbers are known. */
-const SHEET_SHAPE = /^[A-Z]{1,3}[-.]?\d{1,3}(?:[.-]\d{1,3})?[A-Z]?$/;
+const SHEET_SHAPE = /^[A-Z]{1,3}[-.]?\d{1,4}(?:[.-]\d{1,3})?[A-Z]?$/;
 /** More line work than this in the box means it holds more than one mark. */
 const MAX_LINES = 600;
 
 const clean = (t: string) => t.trim().toUpperCase().replace(/^\(+/, '').replace(/[,;:.)]+$/, '');
-/** A section title's A-A names the same identifier as the cut mark's A. */
-const idOf = (t: string) => clean(t).replace(/^(.+?)[-–—/]\1$/, '$1');
 const center = (w: Word): [number, number] => [(w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2];
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -291,7 +287,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
   const cuts = new Map<string, Rect>();
   for (const h of hits) {
     if (!h.detail) continue;
-    const key = `${h.pageIndex}:${idOf(h.detail.text)}`;
+    const key = `${h.pageIndex}:${detailId(h.detail.text)}`;
     if (isTitleKind(h.mark.kind)) {
       titles.set(key, h.detail);
       titleRects.set(key, h.frame ?? detailFrame(h.detail));
@@ -304,7 +300,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
 
   const links: DetectedLink[] = [];
   for (const h of hits) {
-    const detail = h.detail ? idOf(h.detail.text) : null;
+    const detail = h.detail ? detailId(h.detail.text) : null;
     const sheetText = h.sheet ? clean(h.sheet.text) : null;
     const named = h.sheet ? lookup.find(h.sheet.text, true) : null;
     let targetPage: number;
@@ -336,7 +332,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
       pageIndex: h.pageIndex,
       rect: h.rect,
       label,
-      kind: detail ? 'detail' : 'sheet',
+      kind: h.mark.kind === 'sectionMark' || h.mark.kind === 'sectionTitle' ? 'section' : detail ? 'detail' : 'sheet',
       detail,
       targetPage,
       targetRect,
