@@ -818,6 +818,7 @@ export class MarkupStore {
    * Puts what {@link copyPages} took onto the copies of those pages, pasted from the same PDF pages
    * starting at index `at`. Markups and viewports are new ones (their own IDs, groups kept together,
    * connectors glued to the copies); the copied pages' PDF annotations stay hidden behind them.
+   * Like pasted markups, the copies are this user's, with no status, made now.
    */
   pastePages(clips: readonly PageClip[], at: number) {
     if (this.locked || !clips.length) return;
@@ -825,15 +826,27 @@ export class MarkupStore {
     const ids = new Map(all.map((m) => [m.id, crypto.randomUUID()]));
     const groups = new Map<string, string>();
     const groupOf = (g: string) => groups.get(g) ?? groups.set(g, crypto.randomUUID()).get(g)!;
+    const now = Date.now();
     this.doc.transact(() => {
       let seq = this.lastSeq();
-      for (const m of relinkCopies(all, ids)) {
-        const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq };
+      relinkCopies(all, ids).forEach((m, i) => {
+        const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq, author: MarkupStore.author, status: 'none', createdAt: now + i, modifiedAt: now + i };
         if (m.groupId) copy.groupId = groupOf(m.groupId);
         else delete copy.groupId;
+        // New annotations when saved: none of the original's PDF or Bluebeam ids, its replies' included.
+        delete copy.pdfAnnot;
+        delete copy.statusHistory;
+        delete copy.locked;
+        if (copy.legend?.nameId) {
+          const { nameId: _, ...legend } = copy.legend;
+          copy.legend = legend;
+        }
+        if (m.replies) {
+          const replyIds = new Map(m.replies.map((r) => [r.id, crypto.randomUUID()]));
+          copy.replies = m.replies.map((r) => ({ ...r, id: replyIds.get(r.id)!, ...(r.parentId ? { parentId: replyIds.get(r.parentId) ?? r.parentId } : {}) }));
+        }
         this.map.set(copy.id, copy);
-        if (copy.type === 'connector') this.hasConnectors = true;
-      }
+      });
       this.meta.set('seq', seq);
       const imported = { ...this.importedAnnotations() };
       const spaces = { ...this.importedSpaces() };

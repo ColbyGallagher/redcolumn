@@ -1,5 +1,6 @@
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { pdfInfo, pdfPages, unzip } from '../support/files.ts';
 
 // Document menu commands on fixtures/plan.pdf: three 1224 x 792 pt sheets (17 x 11 in, landscape).
@@ -336,6 +337,59 @@ test.describe('document pages', () => {
     await app.cmd('edit.undo');
     await expectPages(app, [[W, H], [W, H], [W, H]]);
     await expect.poll(async () => (await app.markups()).length).toBe(1);
+  });
+
+  test('Ctrl+V on the thumbnails with no pages copied pastes markups as usual', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await expect.poll(async () => (await app.markups(1)).length).toBe(1);
+    await app.page.evaluate(() => {
+      const tools = window.__nb.tools as unknown as { store: { all(): { id: string }[] }; select(ids: string[]): void };
+      tools.select([tools.store.all()[0]!.id]);
+    });
+    await app.cmd('edit.copy');
+    await app.cmd('document.thumbnails');
+    await app.page.locator('.thumbs .thumb').nth(1).click();
+    await app.page.keyboard.press('Control+v');
+    await expect.poll(async () => (await app.markups()).length).toBe(2);
+    expect(await pageCount(app)).toBe(3);
+  });
+
+  test('a pasted copy of a page with PDF annotations saves them once more, with their own ids', async ({ app }) => {
+    // A PDF of our own with a markup and a reply on page 1, opened again so they come from the file.
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await expect.poll(async () => (await app.markups(1)).length).toBe(1);
+    await app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { all(): { id: string }[]; update(id: string, patch: object): void };
+      store.update(store.all()[0]!.id, { replies: [{ id: 'reply-1', author: 'E2E', text: 'Checked', createdAt: 1 }] });
+    });
+    const annotated = await saveAs(app);
+    await app.page.locator('input[type=file][accept*="pdf"]').first().setInputFiles({ name: 'annotated.pdf', mimeType: 'application/pdf', buffer: annotated.bytes });
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name, { timeout: 30_000 }).toMatch(/^annotated/);
+    await expect.poll(async () => (await app.markups()).map((m) => m.page)).toEqual([1]);
+
+    await app.cmd('document.thumbnails');
+    await app.page.locator('.thumbs .thumb').first().click();
+    await app.page.keyboard.press('Control+c');
+    await expect(app.page.getByText(/^Page copied/)).toBeVisible();
+    await app.page.keyboard.press('Control+v');
+    await expectPages(app, [[W, H], [W, H], [W, H], [W, H]]);
+    await expect.poll(async () => (await app.markups()).map((m) => m.page)).toEqual([1, 2]);
+    // The copy's PDF annotations are hidden behind its markups, as the original page's are.
+    const imported = await app.page.evaluate(() => (window.__nb.tools.store as unknown as { importedAnnotations(): Record<number, number[]> }).importedAnnotations());
+    expect(imported[1]).toEqual(imported[0]);
+
+    // Saved: each page has the same annotations, and no /NM is used twice.
+    const saved = await PDFDocument.load((await saveAs(app)).bytes);
+    const names = saved.getPages().map((p) => {
+      const annots = p.node.Annots();
+      return Array.from({ length: annots?.size() ?? 0 }, (_, i) => (annots!.lookup(i, PDFDict).lookup(PDFName.of('NM')) as PDFString | PDFHexString | undefined)?.decodeText() ?? '');
+    });
+    expect(names[0]!.length).toBeGreaterThan(1);
+    expect(names[1]!.length).toBe(names[0]!.length);
+    const all = names.flat().filter(Boolean);
+    expect(new Set(all).size).toBe(all.length);
   });
 
   test('right-click between thumbnails offers only what needs no page', async ({ app }) => {

@@ -348,8 +348,11 @@ interface Props {
   onThumbMenu: (e: React.MouseEvent, pages: number[], rename: () => void) => void;
   /** Ctrl+C on the thumbnails: copies these pages. */
   onCopyPages: (pages: number[]) => void;
-  /** Ctrl+V on the thumbnails: pastes the copied pages before index `at`. */
-  onPastePages: (at: number) => void;
+  /**
+   * Ctrl+V on the thumbnails: pastes the copied pages before index `at`. False when there were
+   * none to paste, and the key goes on to paste as it would elsewhere.
+   */
+  onPastePages: (at: number) => boolean;
 }
 
 /** Page thumbnails with selection, reordering by drag, and page operations. */
@@ -425,12 +428,10 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
 
   // Ctrl+C / Ctrl+V here copy and paste pages, not markups: the thumbnails' keys stop at the panel.
   const keys = (e: React.KeyboardEvent) => {
-    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.target as HTMLElement).closest('input')) return;
+    if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
     const key = e.key.toLowerCase();
     if (key === 'c') onCopyPages(chosen);
-    else if (key === 'v') {
-      if (!busy) onPastePages(chosen.at(-1)! + 1);
-    } else return;
+    else if (key !== 'v' || busy || !onPastePages(chosen.at(-1)! + 1)) return;
     e.preventDefault();
     e.stopPropagation();
   };

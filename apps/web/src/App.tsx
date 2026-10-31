@@ -106,7 +106,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
-import { comboOf, keyMap } from './commands/keys';
+import { comboOf, formatCombo, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
@@ -6985,7 +6985,7 @@ export function App() {
     try {
       const clips = cur.store.copyPages(pages);
       pageClipboard.current = { bytes: await ctl.engine.extractPages(await readFile(cur.file.hash), pages), clips };
-      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste (Ctrl+V) inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
+      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste (${formatCombo('Ctrl+V')}) inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
       return true;
     } catch (err) {
       setError(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -6993,11 +6993,15 @@ export function App() {
     }
   };
 
-  /** Inserts the page clipboard's pages, with their markups, before index `at` of the active document. */
+  /**
+   * Inserts the page clipboard's pages, with their markups, before index `at` of the active
+   * document. False when there are none to paste or the document's pages cannot change.
+   */
   const pastePages = (at: number) => {
     const clip = pageClipboard.current;
-    if (!clip || !commandsRef.current.get('document.insertBlank')?.enabled) return;
+    if (!clip || !commandsRef.current.get('document.insertBlank')?.enabled) return false;
     void applyPageOps([{ type: 'insert', source: 0, at }], [clip.bytes.slice(0)], (store) => store.pastePages(clip.clips, at));
+    return true;
   };
 
   /**
