@@ -55,7 +55,16 @@ const SHEET_SHAPE = /^[A-Z]{1,3}[-.]?\d{1,4}(?:[.-]\d{1,3})?[A-Z]?$/;
 /** More line work than this in the box means it holds more than one mark. */
 const MAX_LINES = 600;
 
-const clean = (t: string) => t.trim().toUpperCase().replace(/^\(+/, '').replace(/[,;:.)]+$/, '');
+const TRAILING = new Set([',', ';', ':', '.', ')']);
+/** A word without opening brackets or trailing punctuation (trimmed by hand: a `[...]+$` regex is slow on long runs). */
+const clean = (t: string) => {
+  const s = t.trim().toUpperCase();
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === '(') start++;
+  while (end > start && TRAILING.has(s[end - 1]!)) end--;
+  return s.slice(start, end);
+};
 const center = (w: Word): [number, number] => [(w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2];
 const round = (n: number) => Math.round(n * 100) / 100;
 
