@@ -55,6 +55,7 @@ import { documentDigest, signatures, type SavedSignature } from './signatures/si
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
+import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -113,6 +114,7 @@ import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
+import { PictureColoursDialog } from './components/PictureColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -1136,7 +1138,7 @@ export function App() {
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
   const lastSnapshot = useRef<{ width: number; height: number; markup: Markup } | null>(null);
-  const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
+  const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean, polygon?: Point[]) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
   /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
   const dropImagesRef = useRef<(pane: Pane, files: File[], x: number, y: number) => void>(() => {});
@@ -1167,6 +1169,7 @@ export function App() {
   const [multiplyFor, setMultiplyFor] = useState<Pane | null>(null);
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
+  const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -1349,6 +1352,7 @@ export function App() {
       onOpenAttachment: openAttachment,
       onEditLabel: (id) => editLabelRef.current(pane, id),
       onSnapshot: (pageIndex, rect) => snapshotRef.current(pane, pageIndex, rect),
+      onSnapshotPolygon: (pageIndex, points) => snapshotRef.current(pane, pageIndex, polygonBox(points), true, points),
       onCutContent: (pageIndex, rect) => {
         // The copy is made before the content is erased.
         void snapshotRef.current(pane, pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
@@ -5122,7 +5126,7 @@ export function App() {
     const store = o.store;
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
-    return { canvas, x0, y0, w, h };
+    return { canvas, x0, y0, w, h, scale, originPx: [Math.floor(x0 * scale), Math.floor(y0 * scale)] as Point };
   };
 
   // --- Link previews ------------------------------------------------------------------------------
@@ -5201,14 +5205,28 @@ export function App() {
   };
 
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
-  snapshotRef.current = (pane, pageIndex, rect, withMarkups = true) => {
+  // With a `polygon` the picture is the outline's box with everything outside the outline see-through.
+  snapshotRef.current = (pane, pageIndex, rect, withMarkups = true, polygon) => {
     const { o } = paneParts(pane);
     if (!o) return Promise.resolve();
     return (async () => {
       // The resolution set in Preferences › Snapshot, within 4096 px on the longest side.
       const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(settings.get().snapshotDpi / 72, 4096 / Math.max(w, h)), withMarkups);
       if (!region) return;
-      const { canvas, x0, y0, w, h } = region;
+      const { x0, y0, w, h } = region;
+      let canvas = region.canvas;
+      if (polygon) {
+        const clipped = document.createElement('canvas');
+        clipped.width = canvas.width;
+        clipped.height = canvas.height;
+        const g = clipped.getContext('2d')!;
+        g.beginPath();
+        polygonInPixels(polygon, region.scale, region.originPx).forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
+        g.closePath();
+        g.clip();
+        g.drawImage(canvas, 0, 0);
+        canvas = clipped;
+      }
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
       const now = Date.now();
@@ -6341,7 +6359,8 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
-      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => setChangeColoursFor({ pane, ids }) },
+      // A picture's own colours are swapped, not the line and fill colours the other markups have.
+      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
@@ -9464,6 +9483,35 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   }),
                 );
                 setChangeColoursFor(null);
+              }}
+            />
+          );
+        })()}
+      {pictureColoursFor &&
+        (() => {
+          const store = paneParts(pictureColoursFor.pane).o?.store;
+          const m = store?.get(pictureColoursFor.id);
+          if (!store || !m?.image || m.locked || !store.mayEdit(m)) return null;
+          const source = m.image;
+          return (
+            <PictureColoursDialog
+              source={source}
+              onCancel={() => setPictureColoursFor(null)}
+              onApply={async (mode) => {
+                const img = new Image();
+                img.src = source;
+                await img.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const g = canvas.getContext('2d')!;
+                g.drawImage(img, 0, 0);
+                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
+                recolourPixels(pixels.data, mode);
+                g.putImageData(pixels, 0, 0);
+                store.checkpoint();
+                store.update(m.id, { image: canvas.toDataURL('image/png') });
+                setPictureColoursFor(null);
               }}
             />
           );

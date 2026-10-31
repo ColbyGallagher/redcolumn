@@ -286,6 +286,93 @@ test.describe('markup tools', () => {
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
+  test('snapshot: clicking the corners copies an outlined area, adds no markup', async ({ app }) => {
+    await app.tool('snapshot');
+    await app.clicks([A, C, B, A]);
+    expect(await app.markups()).toEqual([]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+  });
+
+  test('snapshot: a polygon picture is see-through outside the outline', async ({ app }) => {
+    // A solid box to copy from; the outline A, C, B is the upper-right half of it.
+    await app.tool('rect');
+    await app.drag(A, B);
+    await app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { all(): { id: string; style: object }[]; update(id: string, patch: object): void };
+      const [m] = store.all();
+      store.update(m!.id, { style: { ...m!.style, fill: '#000000', opacity: 1 } });
+    });
+    await app.tool('snapshot');
+    await app.clicks([A, C, B, A]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image');
+    expect(picture).toBeTruthy();
+    const alphas = await app.page.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      const alphaAt = (fx: number, fy: number) => g.getImageData(Math.floor(fx * (canvas.width - 1)), Math.floor(fy * (canvas.height - 1)), 1, 1).data[3]!;
+      return { inside: alphaAt(0.85, 0.15), outside: alphaAt(0.15, 0.85) };
+    }, picture!.image as string);
+    expect(alphas.inside).toBeGreaterThan(200);
+    expect(alphas.outside).toBe(0);
+  });
+
+  test('change picture colours: lists the colours of the picture and swaps one', async ({ app }) => {
+    // A solid red box, copied as a picture and pasted back over it.
+    await app.tool('rect');
+    await app.drag(A, B);
+    await app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { all(): { id: string; style: object }[]; update(id: string, patch: object): void };
+      const [m] = store.all();
+      store.update(m!.id, { style: { ...m!.style, stroke: '#ff0000', fill: '#ff0000', opacity: 1 } });
+    });
+    await app.tool('snapshot');
+    await app.drag([A[0] + 20, A[1] + 20], [B[0] - 20, B[1] - 20]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.clearMarkups();
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image')!;
+    const [p0, p1] = picture.points as [number, number][];
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), picture.id as string);
+    const c = await app.at([(p0![0] + p1![0]) / 2, (p0![1] + p1![1]) / 2]);
+    await app.page.mouse.click(c.x, c.y, { button: 'right' });
+    await app.page.getByText('Change Colours…', { exact: true }).click();
+    const dialog = app.page.locator('.modal').filter({ hasText: 'Each colour the picture mostly uses' });
+    await expect(dialog.getByLabel('New colour for #ff0000')).toBeVisible();
+    await dialog.getByLabel('New colour for #ff0000').fill('#0000ff');
+    // The preview shows the new colour while the current picture keeps the old one.
+    const centre = (label: string) =>
+      dialog.getByLabel(label).evaluate((el) => {
+        const canvas = el as HTMLCanvasElement;
+        return [...canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+      });
+    expect(await centre('The picture now')).toEqual([255, 0, 0, 255]);
+    expect(await centre('The picture with the new colours')).toEqual([0, 0, 255, 255]);
+    await dialog.getByRole('button', { name: 'Change', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    const after = (await app.raw()).find((m) => m.id === picture.id)!;
+    expect(after.image).not.toBe(picture.image);
+    const pixel = await app.page.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const g = canvas.getContext('2d')!;
+      g.drawImage(img, 0, 0);
+      return [...g.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+    }, after.image as string);
+    expect(pixel).toEqual([0, 0, 255, 255]);
+  });
+
   test.describe('text markups on the PDF text', () => {
     // Page 2: "DOOR 1   HOLLOW CORE", 12 pt Helvetica with its baseline at y 100.
     test.beforeEach(async ({ app }) => {
