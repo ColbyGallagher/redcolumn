@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
 
 /**
@@ -124,6 +125,8 @@ export const CONSTRUCTION_TEMPLATE: SetTemplate = {
 };
 
 export interface Settings {
+  /** Colour theme: one of THEMES, or 'system' to follow the operating system's light/dark setting. */
+  theme: ThemeChoice;
   /** Units, metric or imperial: only its scales and units are offered in scale and unit pickers. */
   unitSystem: UnitSystem;
   /** Default units within the system: lengths, areas (the unit squared) and volumes (the unit cubed). */
@@ -400,6 +403,7 @@ export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'unitSystem'>):
 }
 
 export const DEFAULT_SETTINGS: Settings = {
+  theme: 'system',
   unitSystem: 'metric',
   lengthUnit: 'm',
   areaUnit: 'm',

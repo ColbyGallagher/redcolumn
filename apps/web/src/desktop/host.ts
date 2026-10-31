@@ -126,6 +126,8 @@ export interface RedcolumnDesktop {
   replyAssistant(id: string, body: { result?: unknown; error?: string }): void;
   /** Tells the main process whether any open document has unsaved changes, so closing the window asks first. */
   setUnsavedChanges?(on: boolean): void;
+  /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
+  setTitleBarSymbols?(color: string): void;
   /** Closing the window while documents have unsaved changes: the page asks about each, then calls closeWindow. */
   onCloseRequest?(cb: () => void): () => void;
   /** Closes the window (or quits, when quitting started it) after the page dealt with unsaved changes. */

@@ -4,7 +4,7 @@ import type { Assembly, Markup } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import type { CellContext } from '../columns/listColumns';
 import { assemblyProblems, markupQuantities, rollup, rollupToCsv, withWaste } from './quantities';
-import { starterAssemblies } from './starters';
+import { starterAssemblies, starterGroups } from './starters';
 
 /** One PDF point is one foot. */
 const FEET: Scale = { metersPerPoint: 0.3048, unit: 'ft', feetInches: false, precision: 2, label: 'test' };
@@ -58,6 +58,27 @@ test('the measurement’s own depth is used when it has one', () => {
 
 test('rounding up has a tolerance for floating point', () => {
   assert.equal(withWaste({ id: 'x', name: 'x', unit: '', formula: '', roundUp: true }, 3.0000000000001).rounded, 3);
+});
+
+test('rounds up to the multiple the item sets', () => {
+  const to = (roundTo: number | undefined, base: number) => withWaste({ id: 'x', name: 'x', unit: '', formula: '', roundUp: true, roundTo }, base).rounded;
+  assert.equal(to(10, 41), 50);
+  assert.equal(to(10, 40), 40);
+  assert.equal(to(10, 40.0000000001), 40);
+  assert.equal(to(0.5, 2.1), 2.5);
+  assert.equal(to(0.1, 0.3), 0.3);
+  assert.equal(to(undefined, 2.1), 3);
+  assert.equal(to(0, 2.1), 3, 'a zero step falls back to whole numbers');
+  assert.equal(withWaste({ id: 'x', name: 'x', unit: '', formula: '', roundTo: 10 }, 41).rounded, 41, 'roundTo does nothing without roundUp');
+});
+
+test('totals round up once, to the item’s multiple', () => {
+  const pipe: Assembly = { id: 'p', name: 'Pipe', variables: [], items: [{ id: 'pipe', name: 'Pipe', unit: 'ft', formula: '[Length]', roundUp: true, roundTo: 20, unitCost: 2 }] };
+  const ms = [markup('length', [[0, 0], [25, 0]], { assemblyId: 'p' }), markup('length', [[0, 0], [30, 0]], { assemblyId: 'p' })];
+  const row = rollup(ms, [pipe], ctx([pipe]), 'item')[0]!;
+  near(row.quantity, 55);
+  assert.equal(row.total, 60);
+  assert.equal(row.cost, 120);
 });
 
 test('counts, areas and perimeters', () => {
@@ -152,6 +173,25 @@ test('starter assemblies have no problems in either unit system', () => {
   for (const system of ['imperial', 'metric'] as const) {
     const list = starterAssemblies(system);
     for (const a of list) assert.deepEqual([...assemblyProblems(a, list, [])], [], `${system}: ${a.name}`);
+  }
+});
+
+test('every starter is worked out to sensible quantities by some kind of measurement, and none carries a price', () => {
+  const sample = (assemblyId: string): Markup[] => [
+    markup('length', [[0, 0], [50, 0]], { assemblyId, depth: 6 }),
+    markup('area', [[0, 0], [20, 0], [20, 10], [0, 10]], { assemblyId, depth: 1 }),
+    markup('count', [[0, 0], [5, 5], [9, 9]], { assemblyId }),
+  ];
+  for (const system of ['imperial', 'metric'] as const) {
+    const groups = starterGroups(system);
+    assert.deepEqual(groups.map((g) => g.discipline), ['Architectural', 'Civil and site', 'Structural', 'Mechanical', 'Electrical']);
+    const list = groups.flatMap((g) => g.assemblies);
+    assert.equal(new Set(list.map((a) => a.name)).size, list.length, 'names are unique');
+    for (const a of list) {
+      const worked = sample(a.id).some((m) => markupQuantities(m, [a], ctx([a]))!.items.every((r) => r.rounded !== null && Number.isFinite(r.rounded) && r.rounded >= 0));
+      assert.ok(worked, `${system}: ${a.name} is not worked out by a length, an area or a count`);
+      for (const i of a.items) assert.equal(i.unitCost, undefined, `${a.name}: ${i.name} has a price`);
+    }
   }
 });
 

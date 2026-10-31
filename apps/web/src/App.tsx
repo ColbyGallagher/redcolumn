@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
-import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
+import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -106,7 +106,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
-import { comboOf, keyMap } from './commands/keys';
+import { comboOf, formatCombo, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
 import { CommentDialog } from './components/CommentDialog';
@@ -1114,8 +1114,8 @@ export function App() {
   const lastPointer = useRef<{ x: number; y: number; viewer: TileViewer } | null>(null);
   /** Markups copied or cut, pasted into any open document. */
   const clipboard = useRef<Markup[]>([]);
-  /** Pages cut or copied from the thumbnails, as a PDF of just those pages, for Paste Pages. */
-  const pageClipboard = useRef<ArrayBuffer | null>(null);
+  /** Pages cut or copied from the thumbnails, as a PDF of just those pages and what was on them, for Paste Pages. */
+  const pageClipboard = useRef<{ bytes: ArrayBuffer; clips: PageClip[] } | null>(null);
   /** How many markups are on the clipboard; state so menus and shortcuts see copies at once. */
   const [clipboardCount, setClipboardCount] = useState(0);
   const [commentEdit, setCommentEdit] = useState<{ pane: Pane; id: string } | null>(null);
@@ -2119,8 +2119,9 @@ export function App() {
     [swapDocument],
   );
 
+  /** `attach` adds to the markups' remap, in the same undo step (pasted pages' own markups). */
   const applyPageOps = useCallback(
-    async (ops: PageOp[], inserts: ArrayBuffer[] = []) => {
+    async (ops: PageOp[], inserts: ArrayBuffer[] = [], attach?: (store: MarkupStore) => void) => {
       const intoB = activePaneRef.current === 'b';
       const cur = intoB ? openBRef.current : openRef.current;
       const tools = intoB ? ctlB?.tools : ctl?.tools;
@@ -2146,7 +2147,10 @@ export function App() {
           cur,
           intoB,
           edited,
-          () => cur.store.remapPages(plan, oldSizes),
+          () => {
+            cur.store.remapPages(plan, oldSizes);
+            attach?.(cur.store);
+          },
           (was) => plan.oldToNew[was] ?? 0,
           pageOpsLabel(ops),
         );
@@ -6974,13 +6978,14 @@ export function App() {
     { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
   ];
 
-  /** Copies pages of the active document to the page clipboard (without their markups). */
+  /** Copies pages of the active document, with their markups, to the page clipboard. */
   const copyPages = async (pages: number[]) => {
     const cur = activePaneRef.current === 'b' ? openBRef.current : openRef.current;
-    if (!cur || !ctl) return false;
+    if (!cur || !ctl || !pages.length) return false;
     try {
-      pageClipboard.current = await ctl.engine.extractPages(await readFile(cur.file.hash), pages);
-      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste Pages inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
+      const clips = cur.store.copyPages(pages);
+      pageClipboard.current = { bytes: await ctl.engine.extractPages(await readFile(cur.file.hash), pages), clips };
+      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste (${formatCombo('Ctrl+V')}) inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
       return true;
     } catch (err) {
       setError(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -6988,16 +6993,31 @@ export function App() {
     }
   };
 
-  /** Right-click on a page thumbnail: Bluebeam's page menu, acting on the selected pages. */
+  /**
+   * Inserts the page clipboard's pages, with their markups, before index `at` of the active
+   * document. False when there are none to paste or the document's pages cannot change.
+   */
+  const pastePages = (at: number) => {
+    const clip = pageClipboard.current;
+    if (!clip || !commandsRef.current.get('document.insertBlank')?.enabled) return false;
+    void applyPageOps([{ type: 'insert', source: 0, at }], [clip.bytes.slice(0)], (store) => store.pastePages(clip.clips, at));
+    return true;
+  };
+
+  /**
+   * Right-click in the page thumbnails: Bluebeam's page menu, acting on the selected pages. With
+   * none (a click between thumbnails), what needs a page is greyed out and Paste Pages appends.
+   */
   const thumbMenu = (pages: number[], rename: () => void): MenuEntry[] => {
     const cmds = commandsRef.current;
-    const run = (id: string, label: string, icon?: ReactNode): MenuEntry => {
+    const none = !pages.length;
+    const run = (id: string, label: string, icon?: ReactNode, onPage = false): MenuEntry => {
       const c = cmds.get(id);
-      return { label, icon, shortcut: shortcutLabel(id), disabled: !c?.enabled, onClick: c?.run };
+      return { label, icon, shortcut: shortcutLabel(id), disabled: !c?.enabled || (onPage && none), onClick: c?.run };
     };
     const editable = !!cmds.get('document.insertBlank')?.enabled;
     const count = activeOpen?.doc.pages.length ?? 0;
-    const these = pages.length > 1 ? `${pages.length} pages` : `page ${pages[0]! + 1}`;
+    const these = pages.length > 1 ? `${pages.length} pages` : `page ${(pages[0] ?? 0) + 1}`;
     const hasMarkups = pages.some((p) => (activeOpen?.store.forPage(p).length ?? 0) > 0);
     const deletePages = (ask: boolean) => {
       if (ask && !confirm(`Delete ${these}? Markups on ${pages.length > 1 ? 'them' : 'it'} are deleted too.`)) return false;
@@ -7011,35 +7031,33 @@ export function App() {
       SEP,
       {
         label: 'Cut Pages',
-        disabled: !editable || pages.length >= count,
+        disabled: none || !editable || pages.length >= count,
         onClick: () =>
           void copyPages(pages).then((ok) => {
             if (ok) deletePages(hasMarkups);
           }),
       },
-      { label: 'Copy Pages', disabled: !activeOpen, onClick: () => void copyPages(pages) },
-      run('document.copyPageSnapshot', 'Copy Page to Snapshot'),
+      { label: 'Copy Pages', shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
+      run('document.copyPageSnapshot', 'Copy Page to Snapshot', undefined, true),
       {
         label: 'Paste Pages',
+        shortcut: 'Ctrl+V',
         disabled: !editable || !pageClipboard.current,
-        onClick: () => {
-          const bytes = pageClipboard.current;
-          if (bytes) void applyPageOps([{ type: 'insert', source: 0, at: pages.at(-1)! + 1 }], [bytes.slice(0)]);
-        },
+        onClick: () => pastePages(none ? count : pages.at(-1)! + 1),
       },
       SEP,
-      run('tools.stamps', 'Apply Stamp…', MENU_ICONS.stamp),
+      run('tools.stamps', 'Apply Stamp…', MENU_ICONS.stamp, true),
       SEP,
       run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
       run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
-      { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
+      { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
-      { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: !editable || pages.length >= count, onClick: () => deletePages(true) },
+      { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: none || !editable || pages.length >= count, onClick: () => deletePages(true) },
       {
         label: 'Rotate Pages',
         icon: MENU_ICONS.pageRotate,
-        disabled: !editable,
+        disabled: none || !editable,
         items: [
           { label: 'Rotate 90° Clockwise', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
           { label: 'Rotate 90° Counterclockwise', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
@@ -7047,7 +7065,7 @@ export function App() {
         ],
       },
       run('document.numberPages', 'Number Pages…', MENU_ICONS.pageNumber),
-      { label: 'Rename Page Label', disabled: !editable || pages.length > 1, onClick: rename },
+      { label: 'Rename Page Label', disabled: !editable || pages.length !== 1, onClick: rename },
       {
         label: 'Reset All Page Labels',
         disabled: !editable,
@@ -7059,7 +7077,7 @@ export function App() {
       SEP,
       {
         label: 'Export Pages',
-        items: [run('file.exportImages', 'Page Images…'), { label: 'PDF…', disabled: !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
+        items: [run('file.exportImages', 'Page Images…'), { label: 'PDF…', disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
       },
       run('file.share', 'Email Pages…'),
       run('file.print', 'Print Pages…', MENU_ICONS.print),
@@ -8284,6 +8302,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onBulkScales={(pages) => startLabelRegions(undefined, 'scale', { pages })}
             onPageLabels={(pages) => startLabelRegions(undefined, 'label', { pages, typed: true })}
             onThumbMenu={(e, pages, rename) => showMenu(e, thumbMenu(pages, rename))}
+            onCopyPages={(pages) => void copyPages(pages)}
+            onPastePages={pastePages}
           />
         ) : tab === 'forms' ? (
           <FormsPanel
