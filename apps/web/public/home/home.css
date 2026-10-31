@@ -165,7 +165,8 @@ a:focus-visible {
   color: var(--muted);
 }
 .shot img,
-.feature figure img {
+.feature figure img,
+.feature figure video {
   border: 1px solid var(--line);
   border-radius: 10px;
   box-shadow: var(--shadow);
@@ -291,4 +292,10 @@ section.wrap {
 }
 .foot .cta {
   justify-content: center;
+}
+
+.clip video {
+  width: 100%;
+  height: auto;
+  display: block;
 }

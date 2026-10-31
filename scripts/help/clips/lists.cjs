@@ -1,33 +1,45 @@
 // Bullet and numbered lists in text markups: type "- " or "1. ", Enter for the next item, Tab to nest.
-const { demo, WIDE } = require('../gifs-lib.cjs');
+const { prepare, markupTool, WIDE } = require('../gifs-lib.cjs');
 
-module.exports = demo('lists', {
-  viewport: WIDE,
-  zoom: (P) => [...P(4, 46), ...P(62, 8)],
-  async setup() {},
-  async play({ rec, page, tool, drag, h }) {
-    const shot = (n) => process.env.DEBUG_CLIP && page.screenshot({ path: `scratch-${n}.png` });
-    const commit = async () => {
-      await page.keyboard.press('Control+Enter');
-      await rec.hold(500);
-    };
-    await rec.caption('Type "- " for a bullet list');
-    await tool('text');
-    await drag([6, 45], [28, 33]);
-    await rec.type('Site checks\n- Confirm setting out\n- Check levels\n');
-    await page.keyboard.press('Tab');
-    await rec.type('Datum on grid A\n');
-    await page.keyboard.press('Shift+Tab');
-    await rec.type('Photograph the slab');
-    await shot(1);
-    await commit();
-    await rec.caption('Or "1. " for a numbered list');
-    await tool('text');
-    await drag([32, 45], [58, 33]);
-    await rec.type('Pour sequence\n1. Pump to bay 1\nPour and screed\nCure for seven days');
-    await shot(2);
-    await commit();
-    await rec.caption(null);
-    await rec.hold(2000);
-  },
-});
+module.exports = async function (h, rec) {
+  const { page } = h;
+  const shot = (n) => process.env.DEBUG_CLIP && page.screenshot({ path: `scratch-${n}.png` });
+  await prepare(h);
+  // A blank sheet to type on, so the lists stand out.
+  await page.locator('[data-ribbon-tab=diagram]').click();
+  await page.locator('[data-ribbon-command="document.insertBlank"]').click();
+  await page.locator('.modal button', { hasText: /^Insert$/ }).click();
+  await h.wait(1200);
+  await page.evaluate(() => window.__nb.viewer.goToPage(1));
+  await h.wait(600);
+  await h.zoomTo(100, 400, 1000, 760);
+  await page.locator('[data-ribbon-tab=markup]').click();
+  const commit = async () => {
+    await page.keyboard.press('Control+Enter');
+    await rec.hold(600);
+  };
+  const box = async (a, b) => rec.drag(await h.at(...a), await h.at(...b));
+  await rec.start();
+  await rec.caption('Type "- " and a bullet list starts');
+  await rec.hold(600);
+  await markupTool(h, rec, 'text');
+  await box([160, 480], [480, 700]);
+  await rec.type('Site checks\n- Confirm setting out\nCheck levels\n', { delay: 55 });
+  await page.keyboard.press('Tab');
+  await rec.type('Datum on grid A\n', { delay: 55 });
+  await page.keyboard.press('Shift+Tab');
+  await rec.type('Photograph the slab', { delay: 55 });
+  await rec.hold(500);
+  await shot(1);
+  await commit();
+  await rec.caption('"1. " starts a numbered list that renumbers itself');
+  await markupTool(h, rec, 'text');
+  await box([560, 480], [880, 700]);
+  await rec.type('Pour sequence\n1. Pump to bay 1\nPour and screed\nCure for seven days', { delay: 55 });
+  await rec.hold(500);
+  await shot(2);
+  await commit();
+  await rec.caption(null);
+  await rec.hold(2200);
+};
+module.exports.viewport = WIDE;

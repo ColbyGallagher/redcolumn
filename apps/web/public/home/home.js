@@ -26,3 +26,27 @@
     note.innerHTML = links.join(' · ');
   }
 })();
+
+// Demo clips play while they are on screen and pause when they are not. With reduced motion
+// they stay on their poster frame and get controls, so nothing moves unless asked.
+function clips() {
+  var videos = document.querySelectorAll('.clip video');
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still || !('IntersectionObserver' in window)) {
+    for (var i = 0; i < videos.length; i++) videos[i].controls = true;
+    return;
+  }
+  var seen = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (e.isIntersecting) {
+        e.target.preload = 'auto';
+        var p = e.target.play();
+        if (p && p.catch) p.catch(function (err) { if (err && err.name === 'NotAllowedError') e.target.controls = true; });
+      } else {
+        e.target.pause();
+      }
+    });
+  }, { threshold: 0.35 });
+  for (var j = 0; j < videos.length; j++) seen.observe(videos[j]);
+}
+clips();
