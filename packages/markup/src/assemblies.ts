@@ -26,8 +26,10 @@ export interface AssemblyItem {
   formula: string;
   /** Waste allowance in percent, added before rounding. */
   waste?: number;
-  /** Round the quantity up to a whole number (sheets, boxes, lengths of pipe). */
+  /** Round the quantity up (sheets, boxes, lengths of pipe), to a whole number unless `roundTo` says otherwise. */
   roundUp?: boolean;
+  /** With `roundUp`, round up to a multiple of this instead of 1: 10 for pipe sold in 10 ft lengths, 0.5 for half-sheets. */
+  roundTo?: number;
   /** Price per unit, for the cost. */
   unitCost?: number;
 }
@@ -75,6 +77,7 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
       itemIds.add(id);
       const waste = finite(x.waste);
       const unitCost = finite(x.unitCost);
+      const roundTo = finite(x.roundTo);
       items.push({
         id,
         name: itemName,
@@ -82,6 +85,7 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
         formula: text(x.formula) ?? '',
         ...(waste !== null && waste !== 0 ? { waste } : {}),
         ...(x.roundUp === true ? { roundUp: true } : {}),
+        ...(x.roundUp === true && roundTo !== null && roundTo > 0 && roundTo !== 1 ? { roundTo } : {}),
         ...(unitCost !== null ? { unitCost } : {}),
       });
     }

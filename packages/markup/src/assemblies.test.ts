@@ -27,6 +27,15 @@ test('sanitize keeps assemblies and drops what is not one', () => {
   assert.deepEqual(sanitizeAssemblies('nope'), []);
 });
 
+test('a round-up multiple survives, and only where the item rounds up', () => {
+  const item = (x: object) => sanitizeAssemblies([{ name: 'A', items: [{ name: 'P', ...x }] }])[0]!.items[0]!;
+  assert.equal(item({ roundUp: true, roundTo: 10 }).roundTo, 10);
+  assert.equal(item({ roundUp: true, roundTo: 0.5 }).roundTo, 0.5);
+  for (const bad of [{ roundTo: 10 }, { roundUp: true, roundTo: 0 }, { roundUp: true, roundTo: -5 }, { roundUp: true, roundTo: 1 }, { roundUp: true, roundTo: '10' }]) {
+    assert.equal('roundTo' in item(bad), false, JSON.stringify(bad));
+  }
+});
+
 test('JSON files round trip, and other files are refused with a reason', () => {
   assert.deepEqual(assembliesFromJson(assembliesToJson([wall])), [wall]);
   assert.throws(() => assembliesFromJson('<xml/>'), /not JSON/);

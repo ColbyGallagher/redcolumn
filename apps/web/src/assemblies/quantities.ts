@@ -59,11 +59,23 @@ export interface ItemQuantity {
   set?: boolean;
 }
 
+/** The multiple an item rounds up to: its `roundTo`, else 1. */
+export function roundStep(item: Pick<AssemblyItem, 'roundTo'>): number {
+  return item.roundTo !== undefined && Number.isFinite(item.roundTo) && item.roundTo > 0 ? item.roundTo : 1;
+}
+
+/** `quantity` rounded up to the next multiple of `step`. */
+export function ceilTo(quantity: number, step: number): number {
+  // A hair of tolerance, so 3.0000000001 sheets from floating point is still 3.
+  const out = Math.ceil(quantity / step - 1e-9) * step;
+  // Multiples of a decimal step (0.1 * 3) pick up float noise; trim it.
+  return Number(out.toPrecision(12));
+}
+
 /** `base` with the item's waste added, and rounded up when it rounds. */
 export function withWaste(item: AssemblyItem, base: number): { quantity: number; rounded: number } {
   const quantity = base * (1 + (item.waste ?? 0) / 100);
-  // A hair of tolerance, so 3.0000000001 sheets from floating point is still 3.
-  return { quantity, rounded: item.roundUp ? Math.ceil(quantity - 1e-9) : quantity };
+  return { quantity, rounded: item.roundUp ? ceilTo(quantity, roundStep(item)) : quantity };
 }
 
 /** The quantities one measurement stands for under `assembly`. */
@@ -120,7 +132,7 @@ export interface RollupRow {
  * added up across assemblies, for ordering; by assembly or page, per assembly item.
  */
 export function rollup(markups: readonly Markup[], assemblies: readonly Assembly[], ctx: CellContext, by: RollupBy, pageLabel: (pageIndex: number) => string = (i) => `Page ${i + 1}`): RollupRow[] {
-  const rows = new Map<string, RollupRow & { rounds: boolean; costs: Set<number>; costSum: number }>();
+  const rows = new Map<string, RollupRow & { step: number; costs: Set<number>; costSum: number }>();
   for (const m of markups) {
     const q = markupQuantities(m, assemblies, ctx);
     if (!q) continue;
@@ -130,7 +142,7 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
       const key = by === 'assembly' ? `${q.assembly.id}\u0000${r.item.id}` : by === 'page' ? `${m.pageIndex}\u0000${itemKey}` : itemKey;
       let row = rows.get(key);
       if (!row) {
-        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, setByHand: 0, rounds: false, costs: new Set(), costSum: 0 };
+        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, setByHand: 0, step: 0, costs: new Set(), costSum: 0 };
         rows.set(key, row);
       }
       row.measurements++;
@@ -141,15 +153,15 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
       if (r.set) row.setByHand++;
       row.base += r.base;
       row.quantity += r.quantity;
-      row.rounds ||= !!r.item.roundUp;
+      if (r.item.roundUp) row.step = Math.max(row.step, roundStep(r.item));
       if (r.item.unitCost !== undefined) {
         row.costs.add(r.item.unitCost);
         row.costSum += r.quantity * r.item.unitCost;
       }
     }
   }
-  const out = [...rows.values()].map(({ rounds, costs, costSum, ...row }) => {
-    const total = rounds ? Math.ceil(row.quantity - 1e-9) : row.quantity;
+  const out = [...rows.values()].map(({ step, costs, costSum, ...row }) => {
+    const total = step > 0 ? ceilTo(row.quantity, step) : row.quantity;
     const unitCost = costs.size === 1 ? [...costs][0]! : null;
     // One price: the ordered total at that price. Several: each contribution at its own.
     const cost = unitCost !== null ? total * unitCost : costs.size ? costSum : null;
