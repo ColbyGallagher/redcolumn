@@ -9,17 +9,31 @@ import { DEFAULT_LINK_HINTS, DETAIL_ID, idTest, SheetLookup, detailFrame, detail
  * match becomes a link candidate for a person to check; none is applied on its own.
  */
 
-export type MarkKind = 'sectionMark' | 'sectionTitle' | 'detailCallout' | 'detailTitle';
+export type MarkKind = 'sectionMark' | 'sectionTitle' | 'detailCallout' | 'detailTitle' | 'elevationMark' | 'elevationTitle';
 
 export const MARK_KINDS: Record<MarkKind, string> = {
   sectionMark: 'Section mark',
   sectionTitle: 'Section title',
   detailCallout: 'Detail callout',
   detailTitle: 'Detail title',
+  elevationMark: 'Elevation mark',
+  elevationTitle: 'Elevation title',
 };
 
 /** Callouts point at another drawing; titles sit under the drawing they name. */
-export const isTitleKind = (k: MarkKind) => k === 'sectionTitle' || k === 'detailTitle';
+export const isTitleKind = (k: MarkKind) => k === 'sectionTitle' || k === 'detailTitle' || k === 'elevationTitle';
+
+/** What a mark points at: a section, an elevation or a detail. */
+export const familyOf = (k: MarkKind): 'section' | 'elevation' | 'detail' => (k === 'sectionMark' || k === 'sectionTitle' ? 'section' : k === 'elevationMark' || k === 'elevationTitle' ? 'elevation' : 'detail');
+
+/** A line segment: x1, y1, x2, y2. */
+export type Seg = [number, number, number, number];
+
+/** What a box holds: its words, and the line work wholly inside it. */
+export interface BoxContents {
+  words: Word[];
+  lines: Seg[];
+}
 
 /** A word of the example: what it is and where its centre sat, relative to the box's top-left. */
 export interface MarkWord {
@@ -68,21 +82,87 @@ const clean = (t: string) => {
 const center = (w: Word): [number, number] => [(w.x0 + w.x1) / 2, (w.y0 + w.y1) / 2];
 const round = (n: number) => Math.round(n * 100) / 100;
 
-/**
- * Makes a taught mark from the box the user drew. Throws, with a message for the user, when the
- * box cannot work as an example (no label to read, or several marks' worth of line work).
- */
 /** Detail and section identifiers, as links.ts reads them; a drawing standard can name its own forms (see idTest). */
 const anyId = (t: string) => DETAIL_ID.test(t);
 
-/** `hints`: the drawing standard's identifier forms and the part of a number its callouts cite. */
-export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: string, sheetNumbers: readonly (string | null)[] = [], hints: LinkHints = DEFAULT_LINK_HINTS): TaughtMark {
+const within = (box: Rect, x: number, y: number, margin = 0) => x >= box.x - margin && x <= box.x + box.w + margin && y >= box.y - margin && y <= box.y + box.h + margin;
+
+/** The words whose centres are in a box, and the line work wholly inside it. */
+export function boxContents(page: MarkPage, box: Rect): BoxContents {
+  return { words: page.words.filter((w) => within(box, ...center(w))), lines: templateSegments(page.segments, box) };
+}
+
+/** Endpoints closer than this (points) are joined. */
+const JOIN = 0.6;
+
+const ends = (s: Seg): [number, number][] => [
+  [s[0], s[1]],
+  [s[2], s[3]],
+];
+const touches = (a: Seg, b: Seg) => ends(a).some(([ax, ay]) => ends(b).some(([bx, by]) => Math.abs(ax - bx) <= JOIN && Math.abs(ay - by) <= JOIN));
+
+/**
+ * The line work in a box that belongs to the drawing behind a mark rather than to the mark, as
+ * indexes into `contents.lines`: strokes joined to a line that runs out of the box (a road edge, a
+ * boundary), unless together they wrap one of the box's words as a bubble wraps its letter; and
+ * dashes lying along such a line. People box marks on busy sheets; left in, this line work stops
+ * the mark being found anywhere else.
+ */
+export function backgroundLines(page: MarkPage, box: Rect, contents: BoxContents): Set<number> {
+  const lines = contents.lines;
+  const out = new Set<number>();
+  if (!lines.length || lines.length > 5000) return out;
+  // Segments with one end in the box and one out.
+  const leaving: Seg[] = [];
+  const seg = page.segments;
+  for (let i = 0; i + 3 < seg.length; i += 4) {
+    const a = within(box, seg[i]!, seg[i + 1]!, 0.5);
+    const b = within(box, seg[i + 2]!, seg[i + 3]!, 0.5);
+    if (a !== b) leaving.push([seg[i]!, seg[i + 1]!, seg[i + 2]!, seg[i + 3]!]);
+  }
+  if (!leaving.length) return out;
+  const parent = lines.map((_, i) => i);
+  const root = (i: number): number => (parent[i] === i ? i : (parent[i] = root(parent[i]!)));
+  for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) if (touches(lines[i]!, lines[j]!)) parent[root(i)] = root(j);
+  const groups = new Map<number, number[]>();
+  lines.forEach((_, i) => groups.set(root(i), [...(groups.get(root(i)) ?? []), i]));
+  const centres = contents.words.map(center);
+  for (const members of groups.values()) {
+    if (members.some((i) => leaving.some((l) => touches(lines[i]!, l)))) {
+      const xs = members.flatMap((i) => [lines[i]![0], lines[i]![2]]);
+      const ys = members.flatMap((i) => [lines[i]![1], lines[i]![3]]);
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      if (!centres.some(([cx, cy]) => cx > x0 && cx < x1 && cy > y0 && cy < y1)) for (const i of members) out.add(i);
+      continue;
+    }
+    // A lone dash on the line of one that leaves the box.
+    if (members.length === 1 && leaving.some((l) => collinear(lines[members[0]!]!, l))) out.add(members[0]!);
+  }
+  return out;
+}
+
+/** Whether a segment lies along another's line (parallel, and less than a point off it). */
+function collinear(a: Seg, b: Seg): boolean {
+  const dx = b[2] - b[0];
+  const dy = b[3] - b[1];
+  const len = Math.hypot(dx, dy);
+  const alen = Math.hypot(a[2] - a[0], a[3] - a[1]);
+  if (len < 1e-6 || alen < 1e-6) return false;
+  if (Math.abs(dx * (a[3] - a[1]) - dy * (a[2] - a[0])) / (len * alen) > 0.05) return false;
+  return Math.abs(dx * (a[1] - b[1]) - dy * (a[0] - b[0])) / len < 1;
+}
+
+/**
+ * Makes a taught mark from the box the user drew. Throws, with a message for the user, when the
+ * box cannot work as an example (no label to read, or several marks' worth of line work).
+ * `hints`: the drawing standard's identifier forms and the part of a number its callouts cite.
+ * `contents`: what of the box to keep, when the person cleaned it up (the words and line work of
+ * the drawing behind the mark left out); otherwise everything in it.
+ */
+export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: string, sheetNumbers: readonly (string | null)[] = [], hints: LinkHints = DEFAULT_LINK_HINTS, contents?: BoxContents): TaughtMark {
   const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
   const isId = idTest(hints);
-  const inside = page.words.filter((w) => {
-    const [cx, cy] = center(w);
-    return cx >= box.x && cx <= box.x + box.w && cy >= box.y && cy <= box.y + box.h;
-  });
+  const inside = contents?.words ?? boxContents(page, box).words;
   const isSheet = (t: string) => lookup.find(t, true) !== null || SHEET_SHAPE.test(t) || isDrawingNumberShape(t);
   // The sheet number: the longest sheet-like word. The identifier: the largest other short label.
   const sheet = inside.filter((w) => isSheet(clean(w.text)) && !(isId(clean(w.text)) && lookup.find(w.text, true) === null)).sort((a, b) => clean(b.text).length - clean(a.text).length)[0];
@@ -101,7 +181,7 @@ export function teachMark(page: MarkPage, box: Rect, kind: MarkKind, name: strin
     const [cx, cy] = center(w);
     return [{ role, text: clean(w.text), x: round(cx - box.x), y: round(cy - box.y), size: round(w.size) }];
   });
-  const segs = templateSegments(page.segments, box);
+  const segs = contents?.lines ?? templateSegments(page.segments, box);
   if (segs.length > MAX_LINES) throw new Error('The box holds too much line work for one mark. Draw it tightly around a single mark.');
   const lines = segs.flatMap(([x1, y1, x2, y2]) => [round(x1 - box.x), round(y1 - box.y), round(x2 - box.x), round(y2 - box.y)]);
   return { id: crypto.randomUUID(), kind, name: name.trim() || MARK_KINDS[kind], createdAt: Date.now(), w: round(box.w), h: round(box.h), lines, words };
@@ -299,7 +379,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
   /** Where each taught title was found: the preview zooms to it. */
   const titleRects = new Map<string, Rect>();
   const callouts = new Map<string, Rect>();
-  /** Section marks alone: a section title on its own sheet goes to its cut, not to a detail callout with the same letter. */
+  /** Section and elevation marks, by kind: a title on its own sheet goes to its own mark, not to a detail callout with the same letter. */
   const cuts = new Map<string, Rect>();
   for (const h of hits) {
     if (!h.detail) continue;
@@ -310,7 +390,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
     }
     else {
       callouts.set(key, h.rect);
-      if (h.mark.kind === 'sectionMark') cuts.set(key, h.rect);
+      if (familyOf(h.mark.kind) !== 'detail') cuts.set(`${familyOf(h.mark.kind)}:${key}`, h.rect);
     }
   }
 
@@ -323,10 +403,11 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
     let targetRect: Rect | null = null;
     if (isTitleKind(h.mark.kind)) {
       // A title names the sheet it is cut on; with no sheet named (a dash), it is cut on its own sheet.
-      const own = h.mark.kind === 'sectionTitle' && (!h.sheet || named === h.pageIndex);
+      const family = familyOf(h.mark.kind);
+      const own = family !== 'detail' && (!h.sheet || named === h.pageIndex);
       if (!own && (named === null || named === h.pageIndex)) continue;
       targetPage = own ? h.pageIndex : named!;
-      const cut = detail ? (own ? cuts : callouts).get(`${targetPage}:${detail}`) : undefined;
+      const cut = detail ? (own ? cuts.get(`${family}:${targetPage}:${detail}`) : callouts.get(`${targetPage}:${detail}`)) : undefined;
       // On its own sheet, a title with no cut mark to go to is a destination, not a link.
       if (own && !cut) continue;
       if (cut) targetRect = cut;
@@ -348,7 +429,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
       pageIndex: h.pageIndex,
       rect: h.rect,
       label,
-      kind: h.mark.kind === 'sectionMark' || h.mark.kind === 'sectionTitle' ? 'section' : detail ? 'detail' : 'sheet',
+      kind: familyOf(h.mark.kind) !== 'detail' ? familyOf(h.mark.kind) : detail ? 'detail' : 'sheet',
       detail,
       targetPage,
       targetRect,

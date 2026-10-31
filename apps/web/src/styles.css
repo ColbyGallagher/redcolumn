@@ -5634,6 +5634,206 @@ select[size] {
   font-weight: 600;
 }
 
+/* Long drawing numbers and titles wrap rather than being cut off. */
+.drawing-standard .lr-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.drawing-standard .lr-list li {
+  flex-wrap: wrap;
+}
+
+.ds-custom.lr-typed {
+  flex: 1 0 100%;
+  margin-top: 2px;
+}
+
+.lr-preview {
+  overflow-wrap: anywhere;
+}
+
+/* Floating panels resized from any edge and moved by their heading. The body scrolls; the heading and handles stay. */
+.resizable-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: visible;
+}
+
+.rp-head {
+  flex: none;
+  padding: 8px 10px 4px;
+  cursor: move;
+  user-select: none;
+  touch-action: none;
+}
+
+.rp-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0 10px 10px;
+  overflow: auto;
+}
+
+.rp-handle {
+  position: absolute;
+  z-index: 1;
+  touch-action: none;
+}
+
+.rp-n,
+.rp-s {
+  left: 8px;
+  right: 8px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.rp-n {
+  top: -3px;
+}
+
+.rp-s {
+  bottom: -3px;
+}
+
+.rp-e,
+.rp-w {
+  top: 8px;
+  bottom: 8px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.rp-e {
+  right: -3px;
+}
+
+.rp-w {
+  left: -3px;
+}
+
+.rp-ne,
+.rp-nw,
+.rp-se,
+.rp-sw {
+  width: 12px;
+  height: 12px;
+}
+
+.rp-ne {
+  top: -4px;
+  right: -4px;
+  cursor: nesw-resize;
+}
+
+.rp-sw {
+  bottom: -4px;
+  left: -4px;
+  cursor: nesw-resize;
+}
+
+.rp-nw {
+  top: -4px;
+  left: -4px;
+  cursor: nwse-resize;
+}
+
+.rp-se {
+  right: -4px;
+  bottom: -4px;
+  cursor: nwse-resize;
+}
+
+/* Teach Links: a mark and what it points to, boxed in turn. */
+.teach-links {
+  top: auto;
+  right: auto;
+  bottom: 10px;
+  left: 14px;
+  width: 340px;
+  max-height: calc(70% - 20px);
+}
+
+.tl-kinds {
+  display: flex;
+  gap: 2px;
+  margin: 4px 0 8px;
+}
+
+.tl-kinds button {
+  flex: 1;
+}
+
+.tl-step {
+  margin: 8px 0 4px;
+  font-weight: 600;
+}
+
+.tl-step.done {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.tl-preview {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: #fff;
+}
+
+.tl-preview line {
+  stroke: #111;
+  cursor: pointer;
+}
+
+.tl-preview line.dropped {
+  stroke: #c33;
+  stroke-dasharray: 2 2;
+  opacity: 0.45;
+}
+
+.tl-preview line.hit {
+  stroke: transparent;
+}
+
+.tl-preview text {
+  fill: #1d4ed8;
+  pointer-events: none;
+}
+
+.tl-preview text.dropped {
+  fill: #c33;
+  opacity: 0.4;
+  text-decoration: line-through;
+}
+
+.tl-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tl-words button[aria-pressed='false'] {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.tl-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.tl-problem {
+  margin: 8px 0 0;
+  color: var(--danger-text);
+  font-size: 12px;
+}
+
 /* Change Colours on a picture: the picture now beside how it will look, on a checkerboard so see-through shows. */
 .modal.picture-colours {
   width: min(1040px, calc(100vw - 32px));

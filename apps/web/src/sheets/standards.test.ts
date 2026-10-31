@@ -102,3 +102,21 @@ test("identifying words travel in the file; a Project's standard is read like an
   assert.equal(standardOfProject(undefined), null);
   assert.equal(standardOfProject({ format: 'redcolumn.drawing-standard', version: 1, standard: { id: '../x' } }), null);
 });
+
+test('custom title-block fields travel in the file with their names, checked like the rest', () => {
+  const s = wsp();
+  s.sheets.boxes.push({ field: 'custom', name: 'Status', x: 0.1, y: 0.1, w: 0.1, h: 0.05 });
+  const good = JSON.parse(exportStandard(s));
+  assert.deepEqual(parseStandardFile(JSON.stringify(good)).sheets.boxes.at(-1), { field: 'custom', name: 'Status', x: 0.1, y: 0.1, w: 0.1, h: 0.05 });
+  const f = structuredClone(good);
+  f.standard.sheets.boxes.at(-1).name = 'x'.repeat(61);
+  assert.throws(() => parseStandardFile(JSON.stringify(f)), /custom field's name is too long/);
+  // A name only on a custom box; a blank one reads as Field.
+  f.standard.sheets.boxes.at(-1).name = '  ';
+  f.standard.sheets.boxes[0].name = 'Stray';
+  const read = parseStandardFile(JSON.stringify(f));
+  assert.equal(read.sheets.boxes.at(-1)!.name, 'Field');
+  assert.equal(read.sheets.boxes[0]!.name, undefined);
+  // The hash changes with a field's name, since sets are tagged with it.
+  assert.notEqual(standardHash(read), standardHash(parseStandardFile(JSON.stringify(good))));
+});

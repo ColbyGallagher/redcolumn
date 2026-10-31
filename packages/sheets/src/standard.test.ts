@@ -150,3 +150,18 @@ test("a standard fits a set by its number scheme or by the client's words", () =
   assert.equal(standardFit([...wsp, other], loose, ['contract no.']), 2 / 3);
   assert.equal(standardFit([{ width: W, height: H, words: [] }], hints), 0);
 });
+
+test('custom fields: each box named by the person reads its text, without the name printed in front', () => {
+  const p = sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4 General Arrangement', 'C');
+  p.words.push(...phrase('STATUS: FOR CONSTRUCTION', 1900, 1480, 10), ...phrase('PACKAGE 4', 2150, 1480, 10));
+  const custom: SheetHints = {
+    ...hints,
+    boxes: [...hints.boxes, boxFromRegion({ x: 1890, y: 1465, w: 240, h: 20 }, page, 'custom', ' Status '), boxFromRegion({ x: 2140, y: 1465, w: 140, h: 20 }, page, 'custom', 'Package'), boxFromRegion({ x: 10, y: 10, w: 20, h: 20 }, page, 'custom', 'Empty')],
+  };
+  assert.equal(custom.boxes.at(-3)!.name, 'Status', 'names are trimmed');
+  assert.deepEqual(readSheet(p, custom)?.fields, { Status: 'FOR CONSTRUCTION', Package: '4' });
+  // A box with no name still gets one; a standard with no custom boxes adds no fields.
+  assert.equal(boxFromRegion({ x: 0, y: 0, w: 1, h: 1 }, page, 'custom').name, 'Field');
+  assert.equal(boxFromRegion({ x: 0, y: 0, w: 1, h: 1 }, page, 'title', 'Ignored').name, undefined);
+  assert.equal(readSheet(p, hints)?.fields, undefined);
+});

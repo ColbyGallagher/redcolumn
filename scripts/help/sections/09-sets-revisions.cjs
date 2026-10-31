@@ -108,6 +108,8 @@ module.exports = async function (h) {
   await h.wait(600);
   await h.shot('drawing-standard', { around: ['main.stage'], pad: 0 });
   await ds.locator('summary', { hasText: 'Sheet links and marks' }).click();
+  // The panel's body scrolls: bring the section to its top.
+  await ds.locator('.ds-more').evaluate((e) => e.scrollIntoView({ block: 'start' }));
   await h.wait(300);
   await h.shot('drawing-standard-links', { around: ['.drawing-standard'], pad: 12 });
   await ds.getByRole('button', { name: 'Save and use' }).click();

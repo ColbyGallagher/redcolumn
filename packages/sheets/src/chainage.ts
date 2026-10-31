@@ -110,6 +110,85 @@ export function readChainages(page: PageText, hints: ChainageHints): Chainage[] 
   return out;
 }
 
+/** Fewest bare numbers in a run before they count as a plan's chainage ticks. */
+const MIN_TICKS = 4;
+/** More bare numbers than this on a sheet and it is not worth walking them all. */
+const MAX_NUMBERS = 2000;
+
+interface Bare {
+  w: Word;
+  v: number;
+  x: number;
+  y: number;
+}
+
+/** Printed alike: the same size and turned the same way. */
+const alike = (a: Word, b: Word) => Math.abs(a.size - b.size) <= Math.max(a.size, b.size) * 0.15 && Math.abs(Math.atan2(Math.sin(a.angle - b.angle), Math.cos(a.angle - b.angle))) < 0.1;
+const key = (v: number) => Math.round(v * 1000);
+
+/**
+ * Bare numbers along an alignment on a plan, with no prefix or plus: 101140, 101160, 101180. Their
+ * values step evenly and so do their places on the sheet; the alignment may bend, so the run may
+ * too, a little at each step. Not chainage: a run hugging the sheet's edge or printed twice (grid
+ * coordinates on opposite edges), or one too short to cross much of the sheet (a scale bar).
+ */
+export function readTicks(page: PageText, skip: ReadonlySet<Word> = new Set()): Chainage[] {
+  const nums: Bare[] = [];
+  for (const w of page.words) {
+    if (skip.has(w)) continue;
+    const t = trimWord(w.text);
+    if (PLAIN.test(t)) nums.push({ w, v: Number(t), x: (w.x0 + w.x1) / 2, y: (w.y0 + w.y1) / 2 });
+  }
+  if (nums.length < MIN_TICKS || nums.length > MAX_NUMBERS) return [];
+  const byValue = new Map<number, Bare[]>();
+  for (const n of nums) byValue.set(key(n.v), [...(byValue.get(key(n.v)) ?? []), n]);
+  nums.sort((a, b) => a.v - b.v);
+  const used = new Set<Word>();
+  const runs: Bare[][] = [];
+  for (const a of nums) {
+    if (used.has(a.w)) continue;
+    let best: Bare[] | null = null;
+    for (const b of nums) {
+      if (b.v <= a.v || used.has(b.w) || !alike(a.w, b.w)) continue;
+      const gap = Math.hypot(b.x - a.x, b.y - a.y);
+      if (gap < a.w.size * 2 || gap > a.w.size * 80) continue;
+      const step = b.v - a.v;
+      const run = [a, b];
+      for (;;) {
+        const [p, q] = [run[run.length - 2]!, run[run.length - 1]!];
+        const dx = q.x - p.x;
+        const dy = q.y - p.y;
+        const next = (byValue.get(key(q.v + step)) ?? []).find((n) => {
+          if (used.has(n.w) || !alike(a.w, n.w)) return false;
+          const ex = n.x - q.x;
+          const ey = n.y - q.y;
+          const d = Math.hypot(ex, ey);
+          // Spaced as before, and turning at most about 35 degrees from the last step.
+          return Math.abs(d - gap) < gap * 0.25 && (dx * ex + dy * ey) / (Math.hypot(dx, dy) * d) > 0.82;
+        });
+        if (!next) break;
+        run.push(next);
+      }
+      if (run.length >= MIN_TICKS && (!best || run.length > best.length)) best = run;
+    }
+    if (!best) continue;
+    runs.push(best);
+    for (const n of best) used.add(n.w);
+  }
+  const edge = (n: Bare) => n.x < page.width * 0.05 || n.x > page.width * 0.95 || n.y < page.height * 0.05 || n.y > page.height * 0.95;
+  const values = (r: Bare[]) => r.map((n) => key(n.v)).join(',');
+  const out: Chainage[] = [];
+  for (const run of runs) {
+    const first = run[0]!;
+    const last = run[run.length - 1]!;
+    if (Math.hypot(last.x - first.x, last.y - first.y) < Math.max(page.width, page.height) * 0.15) continue;
+    if (run.every(edge)) continue;
+    if (runs.some((r) => r !== run && values(r) === values(run))) continue;
+    for (const n of run) out.push({ value: n.v, words: [n.w], prefixed: false, alignment: null });
+  }
+  return out;
+}
+
 function sameRow(a: Word, b: Word): boolean {
   return Math.abs(a.y1 - b.y1) < Math.max(a.size, b.size) * 0.6 && b.x0 - a.x1 < Math.max(a.size, b.size) * 3 && b.x0 > a.x0;
 }
@@ -186,8 +265,8 @@ function coverageOf(page: number, alignment: string, list: Chainage[]): Coverage
   return to > from ? { page, alignment, from, to, marks: run } : null;
 }
 
-/** Any of `phrases` in a sheet's title, or (with no title read) in the page's large text. */
-function titled(page: PageText, sheet: SheetInfo | null | undefined, phrases: readonly string[]): boolean {
+/** Whether a sheet is titled with any of `phrases`: in its title, or (with no title read) in the page's large text. */
+export function sheetTitled(page: PageText, sheet: SheetInfo | null | undefined, phrases: readonly string[]): boolean {
   const wanted = phrases.map(upper).filter(Boolean);
   if (!wanted.length) return false;
   let title = sheet?.title ? upper(sheet.title) : '';
@@ -229,13 +308,15 @@ const UNSURE = 0.6;
  * (the default title words, or an alignment that cannot be told) they wait for review.
  */
 export function detectChainageLinks(pages: readonly PageText[], sheets: readonly (SheetInfo | null | undefined)[], hints: ChainageHints = DEFAULT_CHAINAGE_HINTS, fromStandard = false): DetectedLink[] {
-  const read = pages.map((p) => {
+  const isPlan = pages.map((p, i) => sheetTitled(p, sheets[i], hints.planTitles));
+  const isSection = pages.map((p, i) => !isPlan[i] && sheetTitled(p, sheets[i], hints.sectionTitles));
+  const read = pages.map((p, i) => {
     const list = readChainages(p, hints);
+    // A plan's ticks are often bare numbers; elsewhere a bare number is too likely something else.
+    if (isPlan[i]) list.push(...readTicks(p, new Set(list.flatMap((c) => c.words))));
     const main = assignAlignments(p, list, hints.alignments);
     return { list, main };
   });
-  const isPlan = pages.map((p, i) => titled(p, sheets[i], hints.planTitles));
-  const isSection = pages.map((p, i) => !isPlan[i] && titled(p, sheets[i], hints.sectionTitles));
 
   const coverages: Coverage[] = [];
   read.forEach(({ list }, page) => {

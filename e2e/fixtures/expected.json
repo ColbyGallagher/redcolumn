@@ -154,6 +154,12 @@
       "x": 150,
       "y": 650,
       "label": "B"
+    },
+    "title": {
+      "x": 400,
+      "y": 300,
+      "detail": "2",
+      "text": "DETAIL"
     }
   },
   "stitch": {

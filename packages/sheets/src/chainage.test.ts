@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, type ChainageHints } from './chainage.ts';
+import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, readTicks, type ChainageHints } from './chainage.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 function word(text: string, x: number, y: number, size = 8): Word {
@@ -154,4 +154,37 @@ test('without a drawing standard every chainage link waits for review', () => {
     links.map((l) => [l.label, l.targetPage, l.confidence, l.kind]),
     [['STA 12+75', 0, 0.6, 'chainage']],
   );
+});
+
+/** A word turned a quarter turn, as plan ticks and grid labels often are. */
+const upright = (text: string, x: number, y: number, size = 8): Word => ({ ...word(text, x, y, size), angle: -Math.PI / 2 });
+
+test('bare plan ticks: an evenly stepped run along the alignment is chainage; a scale bar, grid labels and stray numbers are not', () => {
+  // 101140 to 101240 every 20 m, 120 pt apart, bending gently as the road curves.
+  const ticks = [101140, 101160, 101180, 101200, 101220, 101240].map((v, i) => upright(String(v), 600 + i * 120, 1500 - i * i * 4, 9));
+  const scaleBar = [0, 10, 20, 30, 40, 50].map((v, i) => word(String(v), 2500 + i * 30, 1900, 6));
+  // Eastings along the top and bottom of the frame.
+  const grid = [590100, 590200, 590300, 590400, 590500].flatMap((v, i) => [word(String(v), 400 + i * 500, 30, 7), word(String(v), 400 + i * 500, 1985, 7)]);
+  const stray = [word('20', 900, 700), word('20', 1300, 400), word('50', 1500, 800), word('0.000', 1800, 1400), ...phrase('TC 101184.655', 1000, 1300)];
+  const read = readTicks(page([...ticks, ...scaleBar, ...grid, ...stray]));
+  assert.deepEqual(
+    read.map((c) => c.value),
+    [101140, 101160, 101180, 101200, 101220, 101240],
+  );
+  // Too few to be a run.
+  assert.deepEqual(readTicks(page(ticks.slice(0, 3))), []);
+});
+
+test('a cross section at CHAINAGE 101180 links to the plan whose bare ticks cover it, and the tick links back', () => {
+  const numbers = ['RW-DRG-000022', 'RW-DRG-000011'];
+  const plan = page([...phrase('ADJOINS SHEET', 100, 100), ...[101140, 101160, 101180, 101200, 101220, 101240].map((v, i) => upright(String(v), 600 + i * 120, 1500, 9))]);
+  const section = page([...phrase('DATUM 224.0', 100, 500), ...phrase('-8.349 -7.150 0.000 3.500 7.000', 300, 900), ...phrase('CHAINAGE 101180', 1200, 1000, 12)]);
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const links = detectChainageLinks([plan, section], [sheet(numbers[0]!, 'MCR1 ROADWORKS PLAN SHEET 2'), sheet(numbers[1]!, 'MCR1 CROSS SECTIONS SHEET 11')], hints, true);
+  assert.deepEqual(pairs(links, numbers), [
+    ['RW-DRG-000022', '101180', 'RW-DRG-000011', 0.85],
+    ['RW-DRG-000011', 'CHAINAGE 101180', 'RW-DRG-000022', 0.85],
+  ]);
+  // Without plan titles that fit, bare numbers are not read as ticks.
+  assert.deepEqual(pairs(detectChainageLinks([plan, section], [sheet(numbers[0]!, 'GENERAL ARRANGEMENT'), sheet(numbers[1]!, 'MCR1 CROSS SECTIONS SHEET 11')], hints, true), numbers), []);
 });
