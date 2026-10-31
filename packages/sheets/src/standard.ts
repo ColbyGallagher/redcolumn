@@ -1,4 +1,5 @@
 import { disciplineFor, isDrawingNumberShape, normalizeSheetNumber } from './detect.ts';
+import type { LinkHints } from './links.ts';
 import { textInRegion, type Region } from './regions.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
@@ -48,6 +49,12 @@ export interface SheetHints {
 }
 
 export const NO_SHEET_HINTS: SheetHints = { boxes: [], template: null, disciplinePart: null, disciplines: {} };
+
+/** Everything detection takes from a drawing standard: how to read sheets, and how to read links between them. */
+export interface SetHints {
+  sheets: SheetHints;
+  links: LinkHints;
+}
 
 /** A box drawn on a page, as a title-block box of that page. */
 export function boxFromRegion(r: Region, page: { width: number; height: number }, field: TitleField): TitleBox {

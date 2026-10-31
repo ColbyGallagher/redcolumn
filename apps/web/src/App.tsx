@@ -132,7 +132,7 @@ import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature }
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { DrawingStandardPanel } from './components/DrawingStandardPanel';
-import { exportStandard, parseStandardFile, standardFileName, standardHash, type DrawingStandard } from './sheets/standards';
+import { exportStandard, parseStandardFile, standardFileName, standardHash, withDefaults, type DrawingStandard } from './sheets/standards';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -395,7 +395,13 @@ const MARKUP_CLIP = 'redcolumn markups';
 /** The drawing standard a document is read with, from this profile (none when it has none, or it was deleted here). */
 function standardOf(store: MarkupStore): DrawingStandard | null {
   const chosen = store.drawingStandard();
-  return chosen ? (profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) ?? null) : null;
+  const found = chosen ? profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) : undefined;
+  return found ? withDefaults(found) : null;
+}
+
+/** The taught marks to look for in a document: those for every set, and its drawing standard's own. */
+function marksFor(store: MarkupStore): TaughtMark[] {
+  return [...profiles.active().state.taughtMarks, ...(standardOf(store)?.marks ?? [])];
 }
 
 function download(name: string, blob: Blob) {
@@ -1575,7 +1581,7 @@ export function App() {
         const standard = standardOf(cur.store);
         const stale = !!standard && cur.store.drawingStandard()?.hash !== standardHash(standard) && !cur.store.readOnly;
         if (stale) cur.store.setDrawingStandard({ id: standard.id, hash: standardHash(standard) });
-        if (stale || Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal, standard?.sheets);
+        if (stale || Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal, standard ?? undefined);
         if (!cur.store.annotationsImported()) {
           // A Project file whose markups are already shared takes them from there, not from its PDF.
           const link = linkOf(cur.file.id);
@@ -1586,20 +1592,20 @@ export function App() {
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
-          await linkFromText(fresh, cur.store, report, signal);
+          await linkFromText(fresh, cur.store, report, signal, standard?.links);
         } else if (!cur.store.imageMarkupsChecked()) {
           // An earlier import may have stored Bluebeam image markups as empty rectangles.
           await repairSquareImages(fresh, cur.store, signal);
           cur.store.setImageMarkupsChecked();
           ctl?.viewer.clearCache();
-          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal);
+          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal, standard?.links);
         } else if (!cur.store.linksDetected()) {
-          await linkFromText(fresh, cur.store, report, signal);
+          await linkFromText(fresh, cur.store, report, signal, standard?.links);
         }
         // Marks taught since this document was last searched (or ever, for a new set).
-        const marks = profiles.active().state.taughtMarks;
+        const marks = marksFor(cur.store);
         const searched = cur.store.marksSearched();
-        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal);
+        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal, standard?.links);
         // Documents imported before maps were read: read the file for them once.
         if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
@@ -1611,10 +1617,11 @@ export function App() {
   const redetectLinks = useCallback(
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+        const standard = standardOf(cur.store);
+        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal, standard?.links);
         // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
-        const marks = profiles.active().state.taughtMarks;
-        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
+        const marks = marksFor(cur.store);
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal, standard?.links);
       }),
     [runIndexJob],
   );
@@ -1623,7 +1630,7 @@ export function App() {
   const findTaughtMarks = useCallback(
     (doc: OpenFile | null = openRef.current, announce = false) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await linkFromMarks(() => readFile(cur.file.hash), cur.store, profiles.active().state.taughtMarks, report, signal);
+        await linkFromMarks(() => readFile(cur.file.hash), cur.store, marksFor(cur.store), report, signal, standardOf(cur.store)?.links);
         if (!announce) return;
         const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
         setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
@@ -1721,7 +1728,7 @@ export function App() {
   const detectSheetsOffline = useCallback(
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standardOf(cur.store)?.sheets);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standardOf(cur.store) ?? undefined);
         await stitchFromText(() => readFile(cur.file.hash), cur.store, report, signal);
       }),
     [runIndexJob],
@@ -1729,13 +1736,14 @@ export function App() {
 
   /** Reads a document's sheets with a drawing standard (or none: from the text alone), then its links again. */
   const readWithStandard = useCallback(
-    (doc: OpenFile | null, standard: DrawingStandard | null) =>
+    (doc: OpenFile | null, chosen: DrawingStandard | null) =>
       runIndexJob(doc, async (cur, signal, report) => {
+        const standard = chosen && withDefaults(chosen);
         cur.store.setDrawingStandard(standard ? { id: standard.id, hash: standardHash(standard) } : null);
-        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standard?.sheets);
-        // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
-        const marks = profiles.active().state.taughtMarks;
-        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standard ?? undefined);
+        // Sheet numbers may have changed, so taught marks may now resolve to other sheets; the standard brings its own.
+        const marks = marksFor(cur.store);
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal, standard?.links);
       }),
     [runIndexJob],
   );
@@ -7171,20 +7179,32 @@ export function App() {
     setNotice('Drag a box around one section mark, section title, detail callout or detail title, with its label.');
   };
 
+  /** Forgets a taught mark, whether it was for every set or a drawing standard's own, and looks again without it. */
+  const forgetMark = (id: string, doc: OpenFile | null) => {
+    updateWorkspace((s) => ({
+      ...s,
+      taughtMarks: s.taughtMarks.filter((m) => m.id !== id),
+      drawingStandards: s.drawingStandards.map((d) => (d.marks?.some((m) => m.id === id) ? { ...d, marks: d.marks.filter((m) => m.id !== id), updatedAt: Date.now() } : d)),
+    }));
+    void findTaughtMarks(doc);
+  };
+
   /** Saves the boxed example in the profile and finds marks like it; resolves to a message when it cannot be used. */
-  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string): Promise<string | null> => {
+  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string, forStandard: boolean): Promise<string | null> => {
     const { o } = paneParts(box.pane);
     if (!o) return 'The document was closed.';
+    const standard = standardOf(o.store);
     const size = o.doc.pages[box.pageIndex]!;
     const sheets = o.store.allSheets();
     let mark: TaughtMark;
     try {
       const [words, geometry] = await Promise.all([o.doc.text(box.pageIndex), o.doc.geometry(box.pageIndex)]);
-      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null));
+      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null), standard?.links);
     } catch (err) {
       return err instanceof Error ? err.message : String(err);
     }
-    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
+    if (forStandard && standard) updateWorkspace((s) => ({ ...s, drawingStandards: s.drawingStandards.map((d) => (d.id === standard.id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, mark], updatedAt: Date.now() } : d)) }));
+    else updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
     setTeachBox(null);
     void findTaughtMarks(o, true);
     return null;
@@ -8884,13 +8904,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFollow={(l) => navigate(l.targetPage, l.targetRect)}
             onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
             onRedetect={() => void redetectLinks()}
-            marks={ws.taughtMarks}
+            marks={[...ws.taughtMarks, ...((activeOpen && standardOf(activeOpen.store)?.marks.map((m) => ({ ...m, standard: standardOf(activeOpen.store)!.name }))) ?? [])]}
             editable={!!activeOpen && !activeOpen.store.readOnly}
             onTeach={startTeachMark}
-            onForget={(id) => {
-              updateWorkspace((s) => ({ ...s, taughtMarks: s.taughtMarks.filter((m) => m.id !== id) }));
-              void findTaughtMarks(activeOpen);
-            }}
+            onForget={(id) => forgetMark(id, activeOpen)}
           />
         ) : markupsPopped ? (
           <div className="popout-note">
@@ -9260,6 +9277,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   .catch((err) => setError(err instanceof Error ? err.message : String(err)))
               }
               onExport={(standard) => download(standardFileName(standard), new Blob([exportStandard(standard)], { type: 'application/json' }))}
+              everySetMarks={ws.taughtMarks.length}
+              onTeach={startTeachMark}
+              onMoveMarks={(id) => {
+                updateWorkspace((w) => ({
+                  ...w,
+                  taughtMarks: [],
+                  drawingStandards: w.drawingStandards.map((d) => (d.id === id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, ...w.taughtMarks], updatedAt: Date.now() } : d)),
+                }));
+                void findTaughtMarks(labelPaneParts.o);
+              }}
+              onForgetMark={(id) => forgetMark(id, labelPaneParts.o)}
               onClose={() => setLabelMode(null)}
             />
           )}
@@ -9894,7 +9922,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
-      {teachBox && <TeachMarkDialog onTeach={(kind, name) => teachBoxedMark(teachBox, kind, name)} onCancel={() => setTeachBox(null)} />}
+      {teachBox && (
+        <TeachMarkDialog
+          standard={paneParts(teachBox.pane).o ? (standardOf(paneParts(teachBox.pane).o!.store)?.name ?? null) : null}
+          onTeach={(kind, name, forStandard) => teachBoxedMark(teachBox, kind, name, forStandard)}
+          onCancel={() => setTeachBox(null)}
+        />
+      )}
       {visualSearchBox &&
         (() => {
           const { c, o } = paneParts(visualSearchBox.pane);

@@ -1,4 +1,5 @@
 import { isDrawingNumberShape } from './detect.ts';
+import { templateRegex } from './standard.ts';
 import type { PageText, Word } from './types.ts';
 
 export interface Rect {
@@ -102,7 +103,8 @@ export class SheetLookup {
   private loose = new Map<string, number | null>();
   private tail = new Map<string, number | null>();
 
-  constructor(sheetNumbers: readonly (string | null)[]) {
+  /** `calloutPart`: the part of a drawing number callouts cite, when a drawing standard says which (else the last). */
+  constructor(sheetNumbers: readonly (string | null)[], calloutPart: number | null = null) {
     sheetNumbers.forEach((n, pageIndex) => {
       if (!n) return;
       const key = n.trim().toUpperCase();
@@ -110,8 +112,8 @@ export class SheetLookup {
       const l = key.replace(/[-.\s]/g, '');
       this.loose.set(l, this.loose.has(l) && this.loose.get(l) !== pageIndex ? null : pageIndex);
       const parts = key.split(/[-.\s_/]+/);
-      const t = parts[parts.length - 1]!;
-      if (parts.length > 1 && t.length >= 3 && /\d/.test(t)) this.tail.set(t, this.tail.has(t) && this.tail.get(t) !== pageIndex ? null : pageIndex);
+      const t = calloutPart === null ? parts[parts.length - 1]! : (parts[calloutPart] ?? '');
+      if (parts.length > 1 && t.length >= (calloutPart === null ? 3 : 1) && /\d/.test(t)) this.tail.set(t, this.tail.has(t) && this.tail.get(t) !== pageIndex ? null : pageIndex);
     });
   }
 
@@ -184,20 +186,65 @@ function rowText(page: PageText, w: Word, reach: number): string {
 }
 
 /**
- * What a titled drawing is, from the words beside its title bubble: `SECTION A-A`, `ELEVATION`,
- * `ENLARGED PLAN`. Anything else titled is a detail.
+ * What a drawing standard knows about a client's cross-references: the identifiers its bubbles
+ * use, the words its titles and match lines are written with, and the part of a drawing number
+ * its callouts cite.
  */
-function titleKind(page: PageText, title: Word): LinkKind {
-  const text = rowText(page, title, 12);
-  if (/\bSECTION\b/.test(text)) return 'section';
-  if (/\bELEVATION\b/.test(text)) return 'elevation';
-  if (/\bENLARGED\b/.test(text)) return 'enlargedPlan';
-  return 'detail';
+export interface LinkHints {
+  /** Identifier forms as drawing-number templates (`#`, `@`, `@@`, `@#`); null: the usual forms (DETAIL_ID). */
+  ids: string[] | null;
+  /** Title words that say what a titled drawing is. */
+  titles: { section: string[]; elevation: string[]; enlargedPlan: string[] };
+  /** Words that mark a sheet reference as a match line. */
+  matchLine: string[];
+  /** Which part of a drawing number callouts cite (`300082` of HLD1BDD-...-300082); null: the last part. */
+  calloutPart: number | null;
+}
+
+export const DEFAULT_LINK_HINTS: LinkHints = {
+  ids: null,
+  titles: { section: ['SECTION'], elevation: ['ELEVATION'], enlargedPlan: ['ENLARGED'] },
+  matchLine: ['MATCH LINE', 'MATCH SHEET'],
+  calloutPart: null,
+};
+
+/** Whether text is a detail or section identifier: one of the standard's forms, else DETAIL_ID. A title's A-A counts as A. */
+export function idTest(hints: LinkHints = DEFAULT_LINK_HINTS): (text: string) => boolean {
+  if (!hints.ids?.length) return (t) => DETAIL_ID.test(cleanWord(t));
+  const forms = hints.ids.map(templateRegex);
+  return (t) => {
+    const c = cleanWord(t);
+    const id = detailId(c);
+    return forms.some((f) => f.test(c) || f.test(id));
+  };
+}
+
+/** Any of `words` as whole words; a phrase also matches run together (`MATCH LINE`, `MATCHLINE`). */
+function wordsPattern(words: readonly string[]): RegExp | null {
+  const parts = words
+    .map((w) => w.trim().toUpperCase())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.split(/\s+/).map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s?'));
+  return parts.length ? new RegExp(`\\b(?:${parts.join('|')})\\b`) : null;
+}
+
+/**
+ * What a titled drawing is, from the words beside its title bubble: `SECTION A-A`, `ELEVATION`,
+ * `ENLARGED PLAN`, or the client's own words for them. Anything else titled is a detail.
+ */
+function titleKinds(hints: LinkHints): (page: PageText, title: Word) => LinkKind {
+  const kinds = (['section', 'elevation', 'enlargedPlan'] as const).map((k) => [k, wordsPattern(hints.titles[k])] as const);
+  return (page, title) => {
+    const text = rowText(page, title, 12);
+    return kinds.find(([, p]) => p?.test(text))?.[0] ?? 'detail';
+  };
 }
 
 /** A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH SHEET C-102`. */
-function onMatchLine(page: PageText, w: Word): boolean {
-  return /\bMATCH\s?(LINE|SHEET)\b/.test(rowText(page, w, 30));
+function matchLines(hints: LinkHints): (page: PageText, w: Word) => boolean {
+  const pattern = wordsPattern(hints.matchLine);
+  return (page, w) => !!pattern?.test(rowText(page, w, 30));
 }
 
 /** Words that introduce a reference to another drawing: `SEE SHEET 12`, `DRG No. 680`. */
@@ -228,8 +275,11 @@ function stableId(pageIndex: number, label: string, r: Rect): string {
  * numbered with bare numbers or short codes (`680`, `1B`, page labels) are only linked where the
  * text says it means a drawing (`SEE SHEET 680`): elsewhere those are addresses, stages, quantities.
  */
-export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | null)[]): DetectedLink[] {
-  const lookup = new SheetLookup(sheetNumbers);
+export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | null)[], hints: LinkHints = DEFAULT_LINK_HINTS): DetectedLink[] {
+  const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
+  const isId = idTest(hints);
+  const titleKind = titleKinds(hints);
+  const onMatchLine = matchLines(hints);
   const links: DetectedLink[] = [];
   const weak = sheetNumbers.map((n) => !!n && !isDrawingNumberShape(n));
 
@@ -265,7 +315,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
         (w) =>
           w !== bottom &&
           !used.has(w) &&
-          DETAIL_ID.test(cleanWord(w.text)) &&
+          isId(w.text) &&
           w.y1 <= bottom.y0 + bottom.size * 0.3 &&
           bottom.y0 - w.y1 < bottom.size * 1.2 &&
           Math.abs((w.x0 + w.x1) / 2 - cx) < Math.max(bottom.x1 - bottom.x0, w.x1 - w.x0) * 0.6 &&

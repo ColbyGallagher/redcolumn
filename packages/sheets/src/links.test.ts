@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
+import { DEFAULT_LINK_HINTS, detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2592;
@@ -275,4 +275,36 @@ test('only known link kinds are kinds, not keys every object has', () => {
   assert.ok(!isLinkKind('constructor'));
   assert.ok(!isLinkKind('toString'));
   assert.ok(!isLinkKind('station'));
+});
+
+test("a drawing standard's link hints: its identifiers, title and match-line words, and the part of a number callouts cite", () => {
+  const nums = ['P-001-A', 'P-002-A', 'P-501-A'];
+  const pages = [
+    page([
+      ...bubble('DT3', '501', 300, 800),
+      word('CONTINUED', 300, 1200, 8),
+      word('ON', 360, 1200, 8),
+      word('P-002-A', 380, 1200, 8),
+      ...titleBlock('P-001-A'),
+    ]),
+    page(titleBlock('P-002-A')),
+    page([...bubble('DT3', '501', 400, 900, 14), word('SECT', 470, 900, 12), ...titleBlock('P-501-A')]),
+  ];
+  const plain = detectLinks(pages, nums).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    plain.map((l) => [l.label, l.kind]),
+    [['P-002-A', 'sheet']],
+    'without the standard: DT3 is no identifier, 501 is no sheet, CONTINUED ON is no match line',
+  );
+  const hints = { ...DEFAULT_LINK_HINTS, ids: ['@@#'], titles: { ...DEFAULT_LINK_HINTS.titles, section: ['SECTION', 'SECT'] }, matchLine: ['MATCH LINE', 'CONTINUED ON'], calloutPart: 1 };
+  const taught = detectLinks(pages, nums, hints).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    taught.map((l) => [l.label, l.kind, l.targetPage, !!l.targetRect]),
+    [
+      ['DT3/501', 'section', 2, true],
+      ['P-002-A', 'matchline', 1, false],
+    ],
+  );
+  assert.equal(new SheetLookup(nums, 1).find('501', true), 2);
+  assert.equal(new SheetLookup(nums).find('501', true), null);
 });
