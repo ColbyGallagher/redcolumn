@@ -1789,6 +1789,18 @@ function shxWords(m: WrappedPdfiumModule, page: number, t: Matrix): TextWord[] {
   return out;
 }
 
+/**
+ * A reading direction on the page as shown (y down) as an angle clockwise from +x in [0, 2π), as
+ * PDFium reports angles; within a thousandth of a radian of a quarter turn it is that quarter turn.
+ */
+function readingAngle(dx: number, dy: number): number {
+  let a = Math.atan2(dy, dx);
+  if (a < 0) a += Math.PI * 2;
+  const q = Math.round(a / (Math.PI / 2));
+  if (Math.abs(a - q * (Math.PI / 2)) < 1e-3) a = (q % 4) * (Math.PI / 2);
+  return a;
+}
+
 function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
   const textPage = m.FPDFText_LoadPage(page);
   if (!textPage) return [];
@@ -1826,13 +1838,20 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
       // CAD exports often set text as `1 Tf` and size it through the text matrix, so the nominal
       // font size is scaled by the character's matrix to get the size on the page.
       let size = m.FPDFText_GetFontSize(textPage, i);
+      let angle = m.FPDFText_GetCharAngle(textPage, i);
       if (m.FPDFText_GetMatrix(textPage, i, mat)) {
         const f = m.pdfium.HEAPF32;
         const k = mat >> 2;
         const det = Math.abs(f[k]! * f[k + 3]! - f[k + 1]! * f[k + 2]!);
         if (det > 1e-9) size *= Math.sqrt(det);
+        // PDFium's angle is on the unrotated page, but boxes are on the page as shown. On a sheet
+        // turned by /Rotate (180 is common in CAD exports) every character then seemed to run
+        // backwards: each became its own word and boxes read them in reverse. The character's
+        // x axis, taken through the page's rotation, is its reading direction as shown.
+        const dx = t[0] * f[k]! + t[2] * f[k + 1]!;
+        const dy = t[1] * f[k]! + t[3] * f[k + 1]!;
+        if (Math.hypot(dx, dy) > 1e-9) angle = readingAngle(dx, dy);
       }
-      const angle = m.FPDFText_GetCharAngle(textPage, i);
       const ch = String.fromCodePoint(code);
       // Character centre and half-extent along the reading direction. Text can run at any angle
       // (labels along a road), so adjacency is measured along that direction, not along x.
@@ -1847,7 +1866,8 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
         const along = (cx - last.cx) * dx + (cy - last.cy) * dy;
         const across = Math.abs((cx - last.cx) * -dy + (cy - last.cy) * dx);
         const gap = along - last.half - half;
-        if (Math.abs(size - cur.size) > 0.5 || Math.abs(angle - cur.angle) > 0.1 || across > size * 0.5 || gap > size * 0.6 || along < -size * 0.2) flush();
+        const turn = Math.abs(Math.atan2(Math.sin(angle - cur.angle), Math.cos(angle - cur.angle)));
+        if (Math.abs(size - cur.size) > 0.5 || turn > 0.1 || across > size * 0.5 || gap > size * 0.6 || along < -size * 0.2) flush();
       }
       last = { cx, cy, half };
       if (!cur) cur = { text: ch, x0, y0, x1, y1, size, angle };

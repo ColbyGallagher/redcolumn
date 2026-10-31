@@ -56,6 +56,8 @@ export interface CommandActions {
   publish: (mode: 'pdf' | 'images') => void;
   share: () => void;
   markupsXfdf: (dir: 'export' | 'import') => void;
+  /** Bluebeam Revu's and Acrobat's FDF markup file: the markups out, or a reviewer's in. */
+  markupsFdf: (dir: 'export' | 'import') => void;
   importMarkupsFromPdf: () => void;
   /** Bluebeam's markup file (.bax): every markup out, or a reviewer's markups in. */
   exportBax: () => void;
@@ -334,6 +336,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.exportImages', 'File', 'Page Images…', () => a.publish('images'), doc && s.canSaveCopy),
     cmd('file.exportXfdf', 'File', 'Markups as XFDF…', () => a.markupsXfdf('export'), doc && s.canSaveCopy),
     cmd('file.importXfdf', 'File', 'Import Markups from XFDF…', () => a.markupsXfdf('import'), s.editable),
+    cmd('file.exportFdf', 'File', 'Markups as FDF…', () => a.markupsFdf('export'), doc && s.canSaveCopy),
+    cmd('file.importFdf', 'File', 'Import Markups from FDF…', () => a.markupsFdf('import'), s.editable),
     cmd('file.exportBax', 'File', 'Markups as Bluebeam BAX…', a.exportBax, doc),
     cmd('file.importBax', 'File', 'Import Markups from Bluebeam BAX…', a.importBax, s.editable),
     cmd('file.importPdfMarkups', 'File', 'Import Markups from PDF…', a.importMarkupsFromPdf, s.editable),
