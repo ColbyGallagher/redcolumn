@@ -18,7 +18,7 @@ export const PLAN = JSON.parse(readFileSync(join(FIXTURES, 'expected.json'), 'ut
   sheets: { labelBox: Box; labels: string[]; scaleBox: Box; scales: string[] };
   forms: { page: { width: number; height: number }; lines: { label: string; x0: number; x1: number; y: number }[]; box: { label: string; x: number; y: number; size: number } };
   stitch: { page: { width: number; height: number }; sheets: { number: string; from: number; to: number; angle: number }[] };
-  marks: { sheetNumbers: string[]; radius: number; callouts: { x: number; y: number; detail: string; sheet: string }[]; grid: { x: number; y: number; label: string } };
+  marks: { sheetNumbers: string[]; radius: number; callouts: { x: number; y: number; detail: string; sheet: string }[]; grid: { x: number; y: number; label: string }; title: { x: number; y: number; detail: string; text: string } };
   rotated: { pages: { rotate: number; text: string; x: number; y: number }[] };
 };
 

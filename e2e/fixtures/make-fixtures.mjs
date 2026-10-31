@@ -60,11 +60,6 @@ const expected = {
     box: { label: 'APPROVED', x: 120, y: 170, size: 12 },
   },
   /**
-   * marks.pdf: two 17 x 11 in sheets. The first has detail callouts drawn as split circles, the
-   * identifier above the line and the sheet it points at below, and a grid bubble of the same
-   * size with no sheet number. The second is the sheet the callouts point at.
-   */
-  /**
    * rotated.pdf: sheets turned by /Rotate, as CAD exports often are, with their text drawn so it
    * reads normally on screen. Positions are on the page as shown (top-left, y down).
    */
@@ -74,6 +69,12 @@ const expected = {
       { rotate: 90, text: 'TYPICAL CROSS SECTIONS', x: 100, y: 200 },
     ],
   },
+  /**
+   * marks.pdf: two 17 x 11 in sheets. The first has detail callouts drawn as split circles, the
+   * identifier above the line and the sheet it points at below, and a grid bubble of the same
+   * size with no sheet number. The second is the sheet the callouts point at, with the title of
+   * detail 2 (DETAIL 2, underlined).
+   */
   marks: {
     sheetNumbers: ['A-101', 'A-501'],
     radius: 16,
@@ -83,6 +84,7 @@ const expected = {
       { x: 900, y: 500, detail: '3', sheet: 'A-501' },
     ],
     grid: { x: 150, y: 650, label: 'B' },
+    title: { x: 400, y: 300, detail: '2', text: 'DETAIL' },
   },
   /** stitch.pdf: a road cut into three 36 x 24 in sheets along match lines (see stitchPdf). */
   stitch: {
@@ -233,7 +235,7 @@ async function marks() {
   doc.setCreationDate(new Date(0));
   doc.setModificationDate(new Date(0));
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const { radius: r, callouts, grid } = expected.marks;
+  const { radius: r, callouts, grid, title } = expected.marks;
   const plan = doc.addPage([W, H]);
   const centred = (s, cx, cy, size) => plan.drawText(s, { x: cx - font.widthOfTextAtSize(s, size) / 2, y: H - cy - size * 0.35, size, font, color: black });
   const bubble = (cx, cy, detail, sheet) => {
@@ -247,6 +249,10 @@ async function marks() {
   bubble(grid.x, grid.y, grid.label, null);
   const details = doc.addPage([W, H]);
   details.drawText('DETAILS', { x: 60, y: H - 60, size: 18, font, color: black });
+  // The title of the detail callout 2 points to: its word, its number and an underline.
+  details.drawText(title.text, { x: title.x, y: H - title.y, size: 12, font, color: black });
+  details.drawText(title.detail, { x: title.x + font.widthOfTextAtSize(`${title.text} `, 12), y: H - title.y, size: 12, font, color: black });
+  details.drawLine({ start: { x: title.x - 4, y: H - title.y - 5 }, end: { x: title.x + 90, y: H - title.y - 5 }, thickness: 1, color: black });
   return doc.save({ useObjectStreams: false });
 }
 

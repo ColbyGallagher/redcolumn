@@ -10,6 +10,7 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 2. Type a **Name**, such as the client or consultant.
 3. Click **+ Draw box** and drag a box around the **sheet number** in the title block. Draw more boxes for the sheet title, the revision and the scale. Choose what each box holds from the list beside it.
    - Use **Ignore (other number)** for a number that is *not* the sheet's, such as a drawing-file or contract number printed beside it.
+   - Use **Your own field…** for anything else the title block holds, such as *Status*, *Drawn by* or *Package*, and type its name. Each sheet's value is read from the box (without the name, if the sheet prints it in front) and becomes a tag of the sheet in [Sets](#sets).
 
    ![Boxes on the title block and the Drawing Standards panel](img/drawing-standard.png)
 4. Under **Drawing numbers**, give the **Template** the client uses, or click **Work out from this set**:
@@ -29,6 +30,8 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 
 Boxes are kept as a share of the page, so a half-size print of the same sheets reads from the same place.
 
+Drag any edge or corner of the panel to make it bigger, for long drawing numbers and titles, and drag its heading to move it. It opens where you left it.
+
 ## Sheet links and marks
 
 Open **Sheet links and marks** to tell redcolumn how this client's drawings point at each other. A standard does not need title-block boxes to use these.
@@ -42,7 +45,7 @@ Open **Sheet links and marks** to tell redcolumn how this client's drawings poin
 | **Section, Elevation and Enlarged plan titles** | The client's titles use other words, such as *SECT* or *CROSS SECTION*. The [Links tab](#links) shows each link's kind. |
 | **Match lines** | Match lines are written another way, such as *CONTINUED ON*. |
 
-**Marks** lists the section marks, titles and detail callouts taught for this client. Use the standard for the document, then click **Teach a mark…** and box an example. When the document uses a standard, the Teach a mark dialog asks whether to look for the mark in **sets read with** that standard or in **every set**. Marks kept with a standard are only looked for in that client's sets, so they can't cause wrong links in other sets.
+**Marks** lists the section marks, titles and detail callouts taught for this client. Use the standard for the document, then click **Teach links…**: box a mark, then what it points to (see [Teach redcolumn your links](#links)). Each pair you keep teaches the standard what it can, such as the part of the number callouts cite, how identifiers are written and the words in front of titles, and the marks are kept in it. You can keep a pair's marks for **every set** instead. Marks kept with a standard are only looked for in that client's sets, so they can't cause wrong links in other sets.
 
 If you already taught marks for every set, **Move *n* marks for every set here** gives them to this standard.
 
@@ -60,6 +63,8 @@ Under **Alignments and chainage**:
 | **Cross-section sheet titles** | Words in the titles of cross-section sheets, such as `CROSS SECTIONS`. |
 
 Each plan covers the run of chainages printed on it. A chainage written somewhere else on the sheet, far from that run, does not stretch it.
+
+On a plan sheet, bare numbers count as chainages when they run along the alignment, evenly stepped in value and evenly spaced on the sheet (*101140, 101160, 101180*). A number on its own, such as a *20* in a note, a scale bar, or grid coordinates along the sheet's edge, is not. On other sheets a chainage needs its word in front (*CHAINAGE 101180*) or a plus (*1+180*). The easiest way to set this up is **Teach links… › Chainage**: box a cross section's chainage, then the same chainage on the plan.
 
 Without a drawing standard, redcolumn still looks for chainages on sheets titled *Plan and Profile* and *Cross Sections*, but the links wait under **Needs review** in the [Links tab](#links).
 

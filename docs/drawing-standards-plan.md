@@ -84,7 +84,7 @@ The core logic is pure, testable code in `packages/sheets`. A new type, `SetHint
 3. **Storage:** in the profile on this device, with export and import as `.rcstandard` files. Project-folder defaults come in phase 4.
 4. **#166–#168:** their general parts are folded into these phases. Phase 0 carries #166 and #167 with the fixes, and phase 3 replaces #168. When the replacement PRs open, close each of Miche-pup's PRs with a thank-you comment linking the PR that replaces it. Miche-pup is a co-author on every commit.
 
-## Status (2026-10-31)
+## Status (2026-11-01)
 
 | Phase | PR |
 |---|---|
@@ -93,6 +93,14 @@ The core logic is pure, testable code in `packages/sheets`. A new type, `SetHint
 | 2 | ColbyGallagher/redcolumn#179 |
 | 3 | ColbyGallagher/redcolumn#182 (replaces #168) |
 | 4 | ColbyGallagher/redcolumn#183 |
-| 5 | help screenshots, desktop e2e |
+| 5 | ColbyGallagher/redcolumn#184: help screenshots, desktop e2e |
+| 6 | feedback from first use, below |
+
+## Phase 6: feedback from first use
+
+- **Resizable panel.** Long drawing numbers and titles were cut off. The Drawing Standards panel (and Teach Links) can be resized from any edge or corner and moved by its heading; box text wraps.
+- **Custom fields.** A title-block box can hold a field the person names (Status, Drawn by, Package). Each sheet's value is kept with its sheet info and becomes a tag of the sheet in Sets.
+- **Teach Links**, replacing the one-box Teach a Mark dialog. The person boxes a mark, then what it points to, for sections, details, elevations and chainage in turn. Line work joined to lines running out of the box is left out to begin with, and any line or word can be left out by hand. Each pair is checked (identifiers agree, the mark names the title's sheet) and teaches the standard what it can: the part of the number callouts cite, identifier forms, the words in front of section and elevation titles, the word in front of a chainage, and plan and cross-section title words. Elevation marks and titles are new mark kinds.
+- **Bare chainage ticks.** Plans often label stations with bare numbers (101140, 101160, ...). On a plan sheet, a run of at least four evenly stepped values, evenly spaced along the sheet, is read as chainage; short runs (scale bars), runs along the sheet's edge or printed twice (grid coordinates) and lone numbers are not. Cross sections still need a prefix or a plus form, so a stray 20 never becomes chainage 20.
 
 Still open: measuring on two or more real sets from one client, and a real OneDrive Project.

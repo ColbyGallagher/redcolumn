@@ -32,6 +32,8 @@ export interface SheetInfo {
   /** Scale text from the title block (e.g. `1" = 20'`), if found. */
   scaleText: string | null;
   revision: string | null;
+  /** Custom fields a drawing standard's boxes read (Status, Drawn by), by name. */
+  fields?: Record<string, string>;
   source: SheetSource;
   /** 0..1 */
   confidence: number;

@@ -97,7 +97,7 @@ import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
 import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
-import { drawingSets, type SetSheet } from './storage/sets';
+import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
@@ -135,7 +135,7 @@ import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
 import { DrawingStandardPanel } from './components/DrawingStandardPanel';
 import { exportStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, withDefaults, type DrawingStandard } from './sheets/standards';
-import { standardFit } from '@nb/sheets';
+import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, standardFit } from '@nb/sheets';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -172,8 +172,9 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { TeachMarkDialog } from './components/TeachMarkDialog';
-import { teachMark, type MarkKind, type TaughtMark } from './sheets/marks';
+import { TeachLinksPanel } from './components/TeachLinksPanel';
+import { type TaughtMark } from './sheets/marks';
+import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
@@ -416,6 +417,12 @@ function adoptStandard(standard: DrawingStandard) {
 }
 
 /** The taught marks to look for in a document: those for every set, and its drawing standard's own. */
+/** A sheet as a set's index keeps it: its number, title and the custom fields its drawing standard read. */
+function indexEntry(s: SheetInfo | undefined): SheetIndex['sheets'][number] {
+  if (!s) return null;
+  return { ...(s.number ? { number: s.number } : {}), ...(s.title ? { title: s.title } : {}), ...(s.fields ? { fields: s.fields } : {}) };
+}
+
 function marksFor(store: MarkupStore): TaughtMark[] {
   return [...profiles.active().state.taughtMarks, ...(standardOf(store)?.marks ?? [])];
 }
@@ -1089,6 +1096,8 @@ export function App() {
   // Symbol Search › Hyperlinks…: the copies found, waiting for where their links go.
   const [vsLinks, setVsLinks] = useState<{ pane: Pane; hits: VisualSearchHit[] } | null>(null);
   const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
+  /** The pane Teach Links is open on. */
+  const [teachLinks, setTeachLinks] = useState<Pane | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -1369,7 +1378,10 @@ export function App() {
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
-      onTeachMark: (pageIndex, rect) => setTeachBox({ pane, pageIndex, rect }),
+      onTeachMark: (pageIndex, rect) => {
+        setTeachBox({ pane, pageIndex, rect });
+        setTeachLinks(pane);
+      },
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
@@ -2877,7 +2889,7 @@ export function App() {
       [open, sheetsA],
       [openB, sheetsB],
     ] as const)
-      if (o && !studioDocOf(o.file.id)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+      if (o && !studioDocOf(o.file.id)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
   }, [open, openB, sheetsA, sheetsB]);
 
   /** Sets: reads the sheet numbers of files that have not been opened (from their text if never detected). */
@@ -2904,7 +2916,7 @@ export function App() {
                 store.setDetectedSheets(detectSheets(texts).map((info, i) => [i, info] as [number, SheetInfo]));
               }
               const sheets = store.allSheets();
-              drawingSets.setIndex(file.id, { pageCount: doc.pages.length, sheets: doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+              drawingSets.setIndex(file.id, { pageCount: doc.pages.length, sheets: doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
             } finally {
               held.release();
             }
@@ -3431,7 +3443,7 @@ export function App() {
                   const pdf = await PDFDocument.load(await readFile(cur.file.hash), { updateMetadata: false });
                   writePageLabels(pdf, labels);
                   await commitDocument(cur, (await pdf.save()).slice().buffer, undefined, note);
-                  drawingSets.setIndex(cur.file.id, { pageCount: cur.doc.pages.length, sheets: cur.doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+                  drawingSets.setIndex(cur.file.id, { pageCount: cur.doc.pages.length, sheets: cur.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
                   message = `${n} of ${allPages.length} page${allPages.length === 1 ? '' : 's'} labelled (${labels.filter(Boolean).slice(0, 3).join(', ')}${n > 3 ? '…' : ''})`;
                   break;
                 }
@@ -7224,12 +7236,13 @@ export function App() {
     },
   ];
 
-  /** Links › Teach a mark: shows the Links tab and turns on the tool for boxing an example mark. */
+  /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
   const startTeachMark = () => {
     if (!activeTools) return;
     showBottomPanel('links');
+    setTeachBox(null);
+    setTeachLinks(activePane);
     activeTools.setTool('teachMark');
-    setNotice('Drag a box around one section mark, section title, detail callout or detail title, with its label.');
   };
 
   /** Forgets a taught mark, whether it was for every set or a drawing standard's own, and looks again without it. */
@@ -7242,25 +7255,23 @@ export function App() {
     void findTaughtMarks(doc);
   };
 
-  /** Saves the boxed example in the profile and finds marks like it; resolves to a message when it cannot be used. */
-  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string, forStandard: boolean): Promise<string | null> => {
-    const { o } = paneParts(box.pane);
-    if (!o) return 'The document was closed.';
+  /**
+   * Keeps what a pair taught in Teach Links: its marks, in the document's drawing standard or for
+   * every set, and what it taught about the client's drawings in the standard. A standard that
+   * learned something reads the set again; otherwise only the marks are looked for.
+   */
+  const keepLesson = (o: OpenFile, lesson: Lesson, forStandard: boolean) => {
     const standard = standardOf(o.store);
-    const size = o.doc.pages[box.pageIndex]!;
-    const sheets = o.store.allSheets();
-    let mark: TaughtMark;
-    try {
-      const [words, geometry] = await Promise.all([o.doc.text(box.pageIndex), o.doc.geometry(box.pageIndex)]);
-      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null), standard?.links);
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+    if (forStandard && standard) {
+      const next: DrawingStandard = { ...standard, links: lesson.links ?? standard.links, chainage: lesson.chainage ?? standard.chainage, marks: [...standard.marks, ...lesson.marks], updatedAt: Date.now() };
+      updateWorkspace((s) => ({ ...s, drawingStandards: s.drawingStandards.map((d) => (d.id === next.id ? next : d)) }));
+      if (lesson.links || lesson.chainage) void readWithStandard(o, next).then(() => setNotice(`Read ${o.file.name} again with what ${next.name} has learned. New links wait under Needs review in the Links tab.`));
+      else void findTaughtMarks(o, true);
+      return;
     }
-    if (forStandard && standard) updateWorkspace((s) => ({ ...s, drawingStandards: s.drawingStandards.map((d) => (d.id === standard.id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, mark], updatedAt: Date.now() } : d)) }));
-    else updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
-    setTeachBox(null);
+    if (!lesson.marks.length) return;
+    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, ...lesson.marks] }));
     void findTaughtMarks(o, true);
-    return null;
   };
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
@@ -9422,6 +9433,41 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onClose={() => setLabelMode(null)}
             />
           )}
+          {teachLinks &&
+            (() => {
+              const { c, o } = paneParts(teachLinks);
+              if (!c || !o) return null;
+              const standard = standardOf(o.store);
+              return (
+                <TeachLinksPanel
+                  key={`teach:${o.file.id}`}
+                  standard={standard?.name ?? null}
+                  sheetInfo={teachLinks === 'b' ? sheetsB : sheetsA}
+                  pageCount={o.doc.pages.length}
+                  linkHints={standard?.links ?? DEFAULT_LINK_HINTS}
+                  chainageHints={standard?.chainage ?? DEFAULT_CHAINAGE_HINTS}
+                  box={teachBox?.pane === teachLinks ? teachBox : null}
+                  readPage={async (i) => {
+                    const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
+                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: geometry.segments };
+                  }}
+                  onArm={() => {
+                    setActivePane(teachLinks);
+                    c.tools.setTool('teachMark');
+                  }}
+                  onGoTo={(i) => {
+                    setActivePane(teachLinks);
+                    c.viewer.goToPage(i);
+                  }}
+                  onKeep={(lesson, forStandard) => keepLesson(o, lesson, forStandard)}
+                  onClose={() => {
+                    setTeachLinks(null);
+                    setTeachBox(null);
+                    if (c.tools.getState().tool === 'teachMark') c.tools.setTool('select');
+                  }}
+                />
+              );
+            })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
               key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
@@ -10080,13 +10126,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             printPdfBytes(await printablePdf(source, content, pages, options));
             setPrintOpen(false);
           }}
-        />
-      )}
-      {teachBox && (
-        <TeachMarkDialog
-          standard={paneParts(teachBox.pane).o ? (standardOf(paneParts(teachBox.pane).o!.store)?.name ?? null) : null}
-          onTeach={(kind, name, forStandard) => teachBoxedMark(teachBox, kind, name, forStandard)}
-          onCancel={() => setTeachBox(null)}
         />
       )}
       {visualSearchBox &&

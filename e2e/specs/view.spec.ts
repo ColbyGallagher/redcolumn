@@ -122,7 +122,7 @@ test.describe('view', () => {
     await expect(previews).toHaveCount(0);
   });
 
-  test('teach a mark: the example is kept in the profile and marks like it wait in Needs review', async ({ app }) => {
+  test('teach links: a mark kept alone is kept in the profile and marks like it wait in Needs review', async ({ app }) => {
     const { sheetNumbers, radius: r, callouts } = PLAN.marks;
     await app.open('marks.pdf');
     await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
@@ -134,14 +134,19 @@ test.describe('view', () => {
     await app.cmd('document.teachMark');
     const panel = app.page.locator('.links');
     await expect(panel).toBeVisible();
-    // Box the first callout, with its label.
+    const wizard = app.page.locator('.teach-links');
+    await wizard.getByRole('tab', { name: 'Details' }).click();
+    // Box the first callout, with its label: its words are read, any of them can be left out.
     const [first] = callouts;
     await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
-    const dialog = app.page.locator('.modal.teach-mark-dialog');
-    await dialog.getByLabel('Detail callout').check();
-    await dialog.getByLabel('Name').fill('Split bubble');
-    await dialog.locator('button[type=submit]').click();
-    await expect(dialog).toHaveCount(0);
+    await expect(wizard.locator('.tl-words button')).toHaveText(['1', 'A-501']);
+    await expect(wizard.getByText('lines kept')).toBeVisible();
+    // This callout's detail has no title to box: keep the mark alone.
+    await wizard.getByRole('button', { name: 'No title to box' }).click();
+    await wizard.getByLabel('Name').fill('Split bubble');
+    await wizard.getByRole('button', { name: 'Keep' }).click();
+    await wizard.getByRole('button', { name: 'Close' }).click();
+    await expect(wizard).toHaveCount(0);
     // Every callout (the example too) is a link to review, with how sure the match is; the grid bubble is not.
     await expect(panel.locator('h3', { hasText: 'Needs review' })).toHaveText(`Needs review (${callouts.length})`);
     const rows = panel.locator('li', { has: app.page.locator('button[title="Keep this link"]') });
@@ -180,15 +185,16 @@ test.describe('view', () => {
     await standard.getByRole('button', { name: 'Save and use' }).click();
     await expect(standard.getByLabel('Drawing standard for this document')).not.toHaveValue('');
     await standard.locator('summary', { hasText: 'Sheet links and marks' }).click();
-    await standard.getByRole('button', { name: 'Teach a mark…' }).click();
+    await standard.getByRole('button', { name: 'Teach links…' }).click();
+    const wizard = app.page.locator('.teach-links');
+    await wizard.getByRole('tab', { name: 'Details' }).click();
     const [first] = callouts;
     await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
-    const dialog = app.page.locator('.modal.teach-mark-dialog');
-    await expect(dialog.getByLabel('Sets read with Bubble client')).toBeChecked();
-    await dialog.getByLabel('Detail callout').check();
-    await dialog.getByLabel('Name').fill('Client bubble');
-    await dialog.locator('button[type=submit]').click();
-    await expect(dialog).toHaveCount(0);
+    await wizard.getByRole('button', { name: 'No title to box' }).click();
+    await expect(wizard.getByLabel('Bubble client')).toBeChecked();
+    await wizard.getByLabel('Name').fill('Client bubble');
+    await wizard.getByRole('button', { name: 'Keep' }).click();
+    await wizard.getByRole('button', { name: 'Close' }).click();
     // Reading the set with the standard already linked these bubbles from their text, so the mark
     // suggests nothing new here; what matters is that it is looked for in this set.
     const searched = () => app.page.evaluate(() => (window.__nb.tools as unknown as { store: { marksSearched(): string[] } }).store.marksSearched().length);
@@ -207,6 +213,43 @@ test.describe('view', () => {
     await standard.getByLabel('Drawing standard for this document').selectOption('');
     await expect.poll(searched).toBe(0);
     await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
+  });
+
+  test('teach links: a callout and the title it points to are checked, kept as a pair, and every callout like it links to the title', async ({ app }) => {
+    const { sheetNumbers, radius: r, callouts, title } = PLAN.marks;
+    await app.open('marks.pdf');
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
+    await app.page.evaluate((numbers) => {
+      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
+      store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
+    }, sheetNumbers);
+    await app.cmd('document.teachMark');
+    const wizard = app.page.locator('.teach-links');
+    await wizard.getByRole('tab', { name: 'Details' }).click();
+    // 1. The callout to detail 2.
+    const two = callouts.find((c) => c.detail === title.detail)!;
+    await app.drag([two.x - r - 4, two.y - r - 4], [two.x + r + 4, two.y + r + 4]);
+    await wizard.getByRole('button', { name: 'Next' }).click();
+    // 2. Its title, on the sheet the callout names.
+    await wizard.getByRole('button', { name: 'Go to A-501' }).click();
+    await expect.poll(() => app.page.evaluate(() => window.__nb.viewer.currentPageIndex)).toBe(1);
+    await app.drag([title.x - 10, title.y - 20], [title.x + 96, title.y + 10]);
+    await expect(wizard.locator('.tl-notes')).toContainText('Detail callout 2 on A-101 goes to detail title 2 on A-501.');
+    await expect(wizard.locator('.tl-problem')).toHaveCount(0);
+    await wizard.getByRole('button', { name: 'Keep' }).click();
+    const taught = await app.page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: { name: string; kind: string }[] } }[] };
+      return saved.profiles.find((p) => p.id === saved.activeId)!.state.taughtMarks.map((m) => [m.name, m.kind]);
+    });
+    expect(taught).toEqual([
+      ['Detail mark', 'detailCallout'],
+      ['Detail title', 'detailTitle'],
+    ]);
+    // Callout 2 links to its title; the others to their sheet.
+    const links = app.page.locator('.links');
+    await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveText('Taught marks (2)');
+    const rows = links.locator('li', { has: app.page.locator('button[title="Keep this link"]') });
+    await expect(rows.filter({ hasText: '2/A-501' })).toHaveCount(1);
   });
 
   test('chainage links: to the cross section at a station, else the plan that covers it; kept once a drawing standard says how', async ({ app }) => {
