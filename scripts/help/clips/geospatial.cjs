@@ -21,8 +21,10 @@ const model = {
 
 module.exports = async function (h, rec) {
   const { page } = h;
-  const file = path.join(os.tmpdir(), 'site-model.geojson');
-  fs.writeFileSync(file, JSON.stringify(model));
+  // A fresh private folder: nothing predictable in the shared temp directory.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rc-geo-'));
+  const file = path.join(dir, 'site-model.geojson');
+  fs.writeFileSync(file, JSON.stringify(model), { mode: 0o600 });
   // Feet and inches (the sample sheets are imperial): the setting is read when the app starts.
   await page.evaluate(() => localStorage.setItem('nb.settings', JSON.stringify({ unitSystem: 'imperial' })));
   await page.reload();
@@ -40,6 +42,7 @@ module.exports = async function (h, rec) {
   await rec.click(page.getByRole('button', { name: 'Open Model…' }), { after: 200 }).catch(() => {});
   await page.setInputFiles('input[type=file][accept*=geojson]', file);
   await h.wait(1500);
+  fs.rmSync(dir, { recursive: true, force: true });
   await h.zoomTo(...h.plan(0, 46), ...h.plan(62, 0));
   await h.wait(600);
   await rec.hold(1800);
