@@ -343,11 +343,19 @@ test.describe('markup tools', () => {
     await app.page.evaluate((id) => window.__nb.tools.select([id]), picture.id as string);
     const c = await app.at([(p0![0] + p1![0]) / 2, (p0![1] + p1![1]) / 2]);
     await app.page.mouse.click(c.x, c.y, { button: 'right' });
-    await app.page.getByText('Change Picture Colours…').click();
-    const dialog = app.page.locator('.modal').filter({ hasText: 'Change Picture Colours' });
+    await app.page.getByText('Change Colours…', { exact: true }).click();
+    const dialog = app.page.locator('.modal').filter({ hasText: 'Each colour the picture mostly uses' });
     await expect(dialog.getByLabel('New colour for #ff0000')).toBeVisible();
     await dialog.getByLabel('New colour for #ff0000').fill('#0000ff');
-    await dialog.getByRole('button', { name: 'OK' }).click();
+    // The preview shows the new colour while the current picture keeps the old one.
+    const centre = (label: string) =>
+      dialog.getByLabel(label).evaluate((el) => {
+        const canvas = el as HTMLCanvasElement;
+        return [...canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+      });
+    expect(await centre('The picture now')).toEqual([255, 0, 0, 255]);
+    expect(await centre('The picture with the new colours')).toEqual([0, 0, 255, 255]);
+    await dialog.getByRole('button', { name: 'Change', exact: true }).click();
     await expect(dialog).toBeHidden();
     const after = (await app.raw()).find((m) => m.id === picture.id)!;
     expect(after.image).not.toBe(picture.image);

@@ -5562,3 +5562,31 @@ select[size] {
   height: auto;
   border-top: 0;
 }
+
+/* Change Colours on a picture: the picture now beside how it will look, on a checkerboard so see-through shows. */
+.picture-previews {
+  display: flex;
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.picture-previews figure {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+}
+
+.picture-previews canvas {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border: 1px solid var(--border, #888);
+  background: repeating-conic-gradient(#ccc 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+}
+
+.picture-previews figcaption {
+  margin-top: 2px;
+  font-size: 12px;
+  text-align: center;
+}

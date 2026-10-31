@@ -6359,8 +6359,8 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
-      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => setChangeColoursFor({ pane, ids }) },
-      ...(one && first.type === 'image' && first.image ? [{ label: 'Change Picture Colours…', disabled: ro || theirs || !!first.locked, onClick: () => setPictureColoursFor({ pane, id: first.id }) }] : []),
+      // A picture's own colours are swapped, not the line and fill colours the other markups have.
+      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),

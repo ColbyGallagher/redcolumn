@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { dominantColours, type PictureColours } from '../markup/pictureColours';
+import { useEffect, useRef, useState } from 'react';
+import { dominantColours, recolourPixels, type PictureColours } from '../markup/pictureColours';
 
 interface Props {
   /** The picture, as a data URL. */
@@ -8,10 +8,8 @@ interface Props {
   onCancel: () => void;
 }
 
-type Kind = 'colours' | 'grayscale' | 'blackAndWhite' | 'invert';
-
-/** The colours a picture mostly uses, found on a small copy of it. */
-async function coloursOf(source: string): Promise<string[]> {
+/** The picture on a small canvas, for finding its colours and showing it. */
+async function smallCopy(source: string): Promise<ImageData> {
   const img = new Image();
   img.src = source;
   await img.decode();
@@ -21,26 +19,37 @@ async function coloursOf(source: string): Promise<string[]> {
   canvas.height = Math.max(1, Math.round(img.naturalHeight * k));
   const g = canvas.getContext('2d', { willReadFrequently: true })!;
   g.drawImage(img, 0, 0, canvas.width, canvas.height);
-  return dominantColours(g.getImageData(0, 0, canvas.width, canvas.height).data).map((c) => c.hex);
+  return g.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function show(canvas: HTMLCanvasElement | null, pixels: ImageData) {
+  if (!canvas) return;
+  canvas.width = pixels.width;
+  canvas.height = pixels.height;
+  canvas.getContext('2d')!.putImageData(pixels, 0, 0);
 }
 
 /**
- * Right-click › Change Picture Colours: the colours the picture mostly uses, each swapped for
- * another colour (or made see-through), or the whole picture turned grey, black on white or inverted.
+ * Right-click › Change Colours on a picture: the colours it mostly uses, each swapped for another
+ * colour (or made see-through), with the picture as it is beside how it will look.
  */
 export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
-  const [kind, setKind] = useState<Kind>('colours');
+  const [base, setBase] = useState<ImageData | null>(null);
   const [colours, setColours] = useState<string[] | null>(null);
   /** What each colour becomes: a colour, or null for see-through. */
   const [next, setNext] = useState<Record<string, string | null>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const before = useRef<HTMLCanvasElement>(null);
+  const after = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     let live = true;
-    coloursOf(source).then(
-      (found) => {
+    smallCopy(source).then(
+      (pixels) => {
         if (!live) return;
+        const found = dominantColours(pixels.data).map((c) => c.hex);
+        setBase(pixels);
         setColours(found);
         setNext(Object.fromEntries(found.map((c) => [c, c])));
       },
@@ -52,13 +61,15 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
   }, [source]);
 
   const changed = (colours ?? []).filter((c) => next[c] !== c);
-  const mode: PictureColours | null = kind === 'colours' ? (changed.length ? { swaps: (colours ?? []).map((from) => ({ from, to: next[from] ?? from })) } : null) : kind;
-  const option = (value: Kind, label: string) => (
-    <label className="row">
-      <input type="radio" checked={kind === value} onChange={() => setKind(value)} />
-      {label}
-    </label>
-  );
+  const mode: PictureColours | null = changed.length ? { swaps: (colours ?? []).map((from) => ({ from, to: next[from] ?? from })) } : null;
+
+  useEffect(() => {
+    if (!base) return;
+    show(before.current, base);
+    const preview = new ImageData(new Uint8ClampedArray(base.data), base.width, base.height);
+    if (mode) recolourPixels(preview.data, mode);
+    show(after.current, preview);
+  });
 
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
@@ -80,51 +91,52 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Change Picture Colours</h3>
-        <fieldset>
-          <legend>Change the picture's colours</legend>
-          {option('colours', 'One colour at a time')}
-          {kind === 'colours' && (
-            <div className="form-grid change-colours">
-              {!colours && !error && <p>Finding the picture's colours…</p>}
-              {colours && !colours.length && <p>The picture has no colours to change.</p>}
-              {colours?.map((c, i) => {
-                const to = next[c];
-                return (
-                  <div key={c} className="change-colour-row">
-                    <span className="swatch" style={{ background: c }} title={c} />
-                    <span className="change-colour-arrow" aria-hidden="true">
-                      →
-                    </span>
-                    <input
-                      type="color"
-                      aria-label={`New colour for ${c}`}
-                      value={to ?? c}
-                      disabled={to === null}
-                      autoFocus={i === 0}
-                      onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.value }))}
-                    />
-                    <label className="check">
-                      <input type="checkbox" checked={to === null} onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.checked ? null : c }))} />
-                      See-through
-                    </label>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {option('grayscale', 'Greyscale')}
-          {option('blackAndWhite', 'Black on white (everything but white becomes black)')}
-          {option('invert', 'Inverted (black and white swap, other colours go to their opposites)')}
-        </fieldset>
+        <h3>Change Colours</h3>
+        <p>Each colour the picture mostly uses. A new colour replaces it wherever it is used.</p>
+        <div className="picture-previews">
+          <figure>
+            <canvas ref={before} aria-label="The picture now" />
+            <figcaption>Current</figcaption>
+          </figure>
+          <figure>
+            <canvas ref={after} aria-label="The picture with the new colours" />
+            <figcaption>Preview</figcaption>
+          </figure>
+        </div>
+        <div className="form-grid change-colours">
+          {!colours && !error && <p>Finding the picture's colours…</p>}
+          {colours && !colours.length && <p>The picture has no colours to change.</p>}
+          {colours?.map((c, i) => {
+            const to = next[c];
+            return (
+              <div key={c} className="change-colour-row">
+                <span className="swatch" style={{ background: c }} title={c} />
+                <span className="change-colour-arrow" aria-hidden="true">
+                  →
+                </span>
+                <input
+                  type="color"
+                  aria-label={`New colour for ${c}`}
+                  value={to ?? c}
+                  disabled={to === null}
+                  autoFocus={i === 0}
+                  onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.value }))}
+                />
+                <label className="check">
+                  <input type="checkbox" checked={to === null} onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.checked ? null : c }))} />
+                  See-through
+                </label>
+              </div>
+            );
+          })}
+        </div>
         {error && <p className="print-error">{error}</p>}
         <div className="actions">
-          <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
           <button type="submit" className="btn primary" disabled={busy || !mode}>
-            {busy ? 'Working…' : 'OK'}
+            {busy ? 'Working…' : 'Change'}
           </button>
         </div>
       </form>

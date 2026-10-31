@@ -9,13 +9,14 @@ export interface ColourSwap {
 }
 
 /**
- * How a picture's colours change: grey, black on white (everything but white goes black), the
- * colours swapped for their opposites, or each of its main colours (see `dominantColours`) swapped
- * for another. Every pixel follows the main colour nearest to it, shifted by the same amount, so
- * soft edges stay soft; list the colours that stay too, so pixels near them are not taken by a
- * colour that changes.
+ * How a picture's colours change: each of its main colours (see `dominantColours`) swapped for
+ * another. Every pixel follows the main colour nearest to it, shifted by the same amount, so soft
+ * edges stay soft; list the colours that stay too, so pixels near them are not taken by a colour
+ * that changes.
  */
-export type PictureColours = 'grayscale' | 'blackAndWhite' | 'invert' | { swaps: ColourSwap[] };
+export interface PictureColours {
+  swaps: ColourSwap[];
+}
 
 const rgbOfHex = (hex: string): [number, number, number] => {
   const n = parseInt(hex.replace('#', ''), 16);
@@ -53,47 +54,29 @@ export function dominantColours(data: Uint8ClampedArray, max = 8): { hex: string
 
 /** Recolours RGBA pixels in place. Transparent pixels keep their transparency. */
 export function recolourPixels(data: Uint8ClampedArray, mode: PictureColours): void {
-  if (typeof mode === 'object') {
-    const swaps = mode.swaps.map((w) => ({ from: rgbOfHex(w.from), to: w.to ? rgbOfHex(w.to) : null, same: w.to?.toLowerCase() === w.from.toLowerCase() }));
-    if (swaps.every((w) => w.same)) return;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] === 0) continue;
-      const r = data[i]!;
-      const g = data[i + 1]!;
-      const b = data[i + 2]!;
-      let best = swaps[0]!;
-      let bestD = Infinity;
-      for (const w of swaps) {
-        const d = (w.from[0] - r) ** 2 + (w.from[1] - g) ** 2 + (w.from[2] - b) ** 2;
-        if (d < bestD) {
-          best = w;
-          bestD = d;
-        }
-      }
-      if (best.same) continue;
-      if (!best.to) data[i + 3] = 0;
-      else {
-        data[i] = r + best.to[0] - best.from[0];
-        data[i + 1] = g + best.to[1] - best.from[1];
-        data[i + 2] = b + best.to[2] - best.from[2];
-      }
-    }
-    return;
-  }
+  const swaps = mode.swaps.map((w) => ({ from: rgbOfHex(w.from), to: w.to ? rgbOfHex(w.to) : null, same: w.to?.toLowerCase() === w.from.toLowerCase() }));
+  if (swaps.every((w) => w.same)) return;
   for (let i = 0; i < data.length; i += 4) {
     if (data[i + 3] === 0) continue;
     const r = data[i]!;
     const g = data[i + 1]!;
     const b = data[i + 2]!;
-    if (mode === 'invert') {
-      data[i] = 255 - r;
-      data[i + 1] = 255 - g;
-      data[i + 2] = 255 - b;
-      continue;
+    let best = swaps[0]!;
+    let bestD = Infinity;
+    for (const w of swaps) {
+      const d = (w.from[0] - r) ** 2 + (w.from[1] - g) ** 2 + (w.from[2] - b) ** 2;
+      if (d < bestD) {
+        best = w;
+        bestD = d;
+      }
     }
-    const grey = 0.299 * r + 0.587 * g + 0.114 * b;
-    const v = mode === 'grayscale' ? grey : grey > 242 ? 255 : 0;
-    data[i] = data[i + 1] = data[i + 2] = Math.round(v);
+    if (best.same) continue;
+    if (!best.to) data[i + 3] = 0;
+    else {
+      data[i] = r + best.to[0] - best.from[0];
+      data[i + 1] = g + best.to[1] - best.from[1];
+      data[i + 2] = b + best.to[2] - best.from[2];
+    }
   }
 }
 
