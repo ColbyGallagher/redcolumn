@@ -7379,6 +7379,7 @@ export function App() {
     publish: (mode) => setPublishFor(mode),
     share: () => void shareDocument(),
     markupsXfdf: (dir) => void markupsXfdf(dir),
+    markupsFdf: (dir) => void markupsFdf(dir),
     importMarkupsFromPdf: () => void importMarkupsFromPdf(),
     exportBax: () => void exportMarkupsBax(),
     importBax: () => void importMarkupsBax(),
@@ -7842,6 +7843,37 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       addImported(cur, found, file.name);
     } catch (err) {
       setError(`XFDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Markups out to, or in from, an FDF file (Bluebeam Revu and Acrobat read and write it). */
+  const markupsFdf = async (dir: 'export' | 'import') => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const { fdfFromPdf, markupsFromFdf } = await import('@nb/markup/fdf');
+    try {
+      if (dir === 'export') {
+        const fdf = await fdfFromPdf(await annotatedBytes(cur, { links: false }), cur.file.name);
+        download(cur.file.name.replace(/\.pdf$/i, '') + '.fdf', new Blob([fdf as BlobPart], { type: 'application/vnd.fdf' }));
+        return;
+      }
+      const file = await pickFile('.fdf,application/vnd.fdf');
+      if (!file) return;
+      const matrices = await pageMatrices(cur);
+      const { PDFDocument } = await import('pdf-lib');
+      const sizes = (await PDFDocument.load(await readFile(cur.file.hash), { ignoreEncryption: true, updateMetadata: false })).getPages().map((p) => p.getSize());
+      const { markups, skipped } = await markupsFromFdf(await file.arrayBuffer(), (i) => matrices[i] ?? null, {
+        pageSize: (i) => sizes[i] ?? null,
+        // Stamps are only an appearance stream in an FDF; PDFium draws them from a PDF built around them.
+        open: async (pdf) => {
+          const doc = await ctl!.engine.open(pdf.slice().buffer);
+          return { pageCount: doc.pages.length, annotations: (i) => doc.annotations(i), annotationImage: (i, index, scale) => doc.annotationImage(i, index, scale), close: () => void doc.close() };
+        },
+      });
+      addImported(cur, markups, file.name);
+      if (skipped.length) setError(`${skipped.length} annotation${skipped.length === 1 ? '' : 's'} in ${file.name} could not be imported: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; …' : ''}`);
+    } catch (err) {
+      setError(`FDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 

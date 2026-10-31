@@ -298,11 +298,13 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.exportImages" />
               <Cmd id="file.exportCsv" label="Markups CSV" />
               <Cmd id="file.exportXfdf" />
+              <Cmd id="file.exportFdf" />
               <Cmd id="file.exportBax" />
               <Cmd id="file.exportSummary" />
             </Submenu>
             <Submenu label="Import">
               <Cmd id="file.importXfdf" label="Markups from XFDF…" />
+              <Cmd id="file.importFdf" label="Markups from FDF…" />
               <Cmd id="file.importBax" label="Markups from Bluebeam BAX…" />
               <Cmd id="file.importPdfMarkups" label="Markups from Another PDF…" />
             </Submenu>
