@@ -13,7 +13,7 @@ async function smallCopy(source: string): Promise<ImageData> {
   const img = new Image();
   img.src = source;
   await img.decode();
-  const k = Math.min(1, 320 / Math.max(img.naturalWidth, img.naturalHeight));
+  const k = Math.min(1, 640 / Math.max(img.naturalWidth, img.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(img.naturalWidth * k));
   canvas.height = Math.max(1, Math.round(img.naturalHeight * k));
@@ -74,7 +74,7 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
       <form
-        className="modal"
+        className="modal picture-colours"
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
