@@ -501,7 +501,7 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 | `apps/web` | The React app |
 | `apps/desktop` | The Electron desktop app, installer and update check |
 | `packages/pdf-core` | PDFium (WebAssembly) in a Web Worker: rendering, text, page operations |
-| `packages/markup` | Markup model, PDF annotation import and export, XFDF, summaries |
+| `packages/markup` | Markup model, PDF annotation import and export, XFDF and FDF, summaries |
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
