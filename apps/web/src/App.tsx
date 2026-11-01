@@ -2603,8 +2603,9 @@ export function App() {
    * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
    * the areas, and delete markups in them.
    */
-  const runRedact = useCallback(
+  const redactPages = useCallback(
     async (
+      { signal, progress }: JobContext,
       cur: OpenFile,
       intoB: boolean,
       mode: 'redact' | 'erase',
@@ -2613,21 +2614,25 @@ export function App() {
       erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
     ) => {
       if (!ctl || !areas.length) return;
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
-      if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
       const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
       const covering = redacting || !!erase?.cover;
-      const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
-        regions,
-        fill: covering ? fill : null,
-        imageFill: covering ? fill : [1, 1, 1],
-        ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
-        ...(erase?.textOnly ? { textOnly: true } : {}),
-      });
+      progress(0, regions.length, 'Starting');
+      const redacted = await ctl.engine.redact(
+        await readFile(cur.file.hash),
+        {
+          regions,
+          fill: covering ? fill : null,
+          imageFill: covering ? fill : [1, 1, 1],
+          ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+          ...(erase?.textOnly ? { textOnly: true } : {}),
+        },
+        { signal, onProgress: (done, total) => progress(done, total, `Page ${regions[done]!.pageIndex + 1} (${done + 1} of ${total})`) },
+      );
+      progress(regions.length, regions.length, 'Saving the redacted document');
       const report = redacted.report;
       let bytes = redacted.bytes;
       if (redacting && options?.stripMetadata) {
@@ -2648,7 +2653,9 @@ export function App() {
       // Verify: no words left inside the areas.
       const doc = (intoB ? openBRef.current : openRef.current)?.doc;
       let left = 0;
+      let checked = 0;
       for (const { pageIndex, rects } of regions) {
+        progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
         const label = new Set((options?.text ?? '').split(/\s+/).filter(Boolean));
@@ -2666,6 +2673,23 @@ export function App() {
       else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
+  );
+
+  /** `redactPages` as a job, so a large document shows its progress and can be cancelled before it is changed. */
+  const runRedact = useCallback(
+    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: Parameters<typeof redactPages>[4], options?: RedactOptions, erase?: Parameters<typeof redactPages>[6]) => {
+      if (!ctl || !areas.length) return;
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
+      if (!(await rewriteSigned(cur.doc, mode === 'redact' ? 'Redaction' : 'Erase Content'))) return;
+      const pages = new Set(areas.map((a) => a.pageIndex)).size;
+      try {
+        await runJob(`${mode === 'redact' ? 'Redact' : 'Bulk Redact'} · ${cur.file.name}`, (ctx) => redactPages(ctx, cur, intoB, mode, areas, options, erase), { ...PAGES_JOB, cancellable: true, shown: pages > 1 });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        setNotice(`${mode === 'redact' ? 'Redaction' : 'Erase'} cancelled; the document was not changed.`);
+      }
+    },
+    [ctl, redactPages],
   );
   /** Edit Text: the text object clicked is shown, its new text asked for, and replaced in the file. */
   editTextRef.current = (pageIndex, at) => {
@@ -2700,12 +2724,12 @@ export function App() {
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
-  const runProcess = useCallback(
-    async (cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
-      const rewriting = rewrites[spec.kind];
-      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+  const processDocument = useCallback(
+    async ({ signal, progress }: JobContext, cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
+      // Called between items of the long ones: a cancel stops the work before the file is changed.
+      const stopped = () => {
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      };
       const p = await import('./documents/process');
       switch (spec.kind) {
         case 'flatten': {
@@ -2736,20 +2760,45 @@ export function App() {
         case 'reduce': {
           const before = cur.file.size;
           const recompress = spec.recompress ? (jpeg: Uint8Array) => recompressJpeg(jpeg, spec.quality) : undefined;
-          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress);
+          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress, (done, total) => {
+            stopped();
+            progress(done, total, `Picture ${done + 1} of ${total}`);
+          });
           if (bytes.length >= before) return 'The file is already as small as this can make it.';
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
           return `Reduced from ${mb(before)} to ${mb(bytes.length)}${images ? ` (${images} picture${images === 1 ? '' : 's'} recompressed)` : ''}.`;
         }
         case 'colour': {
-          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg);
+          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg, (done, total, phase) => {
+            stopped();
+            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : `Picture ${done + 1} of ${total}`);
+          });
+          stopped();
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           return `Changed the colours of ${spec.pages.length} page${spec.pages.length === 1 ? '' : 's'}.`;
         }
       }
     },
     [ctl, commitDocument],
+  );
+
+  /** `processDocument` as a job, so the longer ones show progress and can be cancelled before the file is changed. */
+  const runProcess = useCallback(
+    async (cur: OpenFile, spec: Parameters<typeof processDocument>[2], revisionNote?: string): Promise<string | null> => {
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      const rewriting = rewrites[spec.kind];
+      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' }[spec.kind];
+      try {
+        return await runJob(`${title} · ${cur.file.name}`, (ctx) => processDocument(ctx, cur, spec, revisionNote), { ...PAGES_JOB, cancellable: spec.kind === 'reduce' || spec.kind === 'colour' });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        return `${title} cancelled; the document was not changed.`;
+      }
+    },
+    [processDocument],
   );
 
   /** Extract, Split, Replace, Crop and Page Setup (Document menu). */

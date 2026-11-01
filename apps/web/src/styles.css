@@ -308,22 +308,20 @@ body,
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
+/* The contextual tab (Markup Format) is set apart in the accent colour, as Excel's Table Design is. */
+.rb-tab.contextual {
+  margin-left: 10px;
+  color: var(--accent);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.rb-tab.contextual:hover {
+  color: var(--accent);
+}
+
 .rb-tab:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-}
-
-.rb-tab-badge {
-  display: inline-block;
-  min-width: 16px;
-  margin-left: 6px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
-  line-height: 16px;
-  text-align: center;
 }
 
 .rb-display {
@@ -375,10 +373,12 @@ body,
 .rb-body {
   display: flex;
   align-items: stretch;
-  /* Tall enough for the commands, and grows with the Properties group so it never needs a vertical scrollbar. */
-  min-height: 96px;
+  /* Tall enough for the commands, and fixed: a tall Properties group (a text box's) scrolls inside itself, so the ribbon never resizes and pushes the page down. */
+  height: 96px;
+  box-sizing: border-box;
   padding: 4px 6px 0;
   overflow-x: auto;
+  overflow-y: hidden;
   background: var(--surface-2);
 }
 
@@ -402,6 +402,7 @@ body,
 .rb-items {
   display: flex;
   flex: 1;
+  min-height: 0;
   align-items: flex-start;
   gap: 2px;
 }
@@ -517,8 +518,14 @@ body,
   flex-wrap: wrap;
   align-items: center;
   gap: 4px 8px;
-  max-width: 600px;
+  /* Wide enough that a text box's controls (font, size, B/I/U/S, border, fill, width...) sit on two rows. */
+  max-width: 760px;
   padding-top: 4px;
+  /* Rows beyond what fits in the fixed-height ribbon scroll rather than grow it. */
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  align-content: flex-start;
 }
 
 .rb-props:not(:has(> :not(.sep)))::before {

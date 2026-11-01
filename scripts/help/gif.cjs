@@ -237,13 +237,56 @@ function recorder(page, { clip, scale = 1, glide = 7, frameMs = 55 } = {}) {
           c.textContent = text;
           Object.assign(c.style, { display: 'block', left: `${cx}px`, transform: 'translateX(-50%)', top: at === 'top' ? '14px' : 'auto', bottom: at === 'top' ? 'auto' : '14px' });
         },
-        [text, at, clip ? clip.x + clip.width / 2 : innerWidth / 2],
+        [text, at, clip ? clip.x + clip.width / 2 : vp().width / 2],
       );
     },
 
     /** Holds the current picture for `ms`. */
     async hold(ms = 800) {
       await shot(ms);
+    },
+
+    /**
+     * Encodes the frames to <dir>/<name>.webm (VP9) and <name>.mp4 (H.264), no audio, and a poster <name>.png from the
+     * frame at `poster` (0 to 1 through the clip, default the end). Needs a full ffmpeg (FFMPEG
+     * overrides the one from imageio-ffmpeg). Returns the WebM's size in bytes.
+     */
+    async saveVideo(name, dir, { poster = 1, crf = 12, width } = {}) {
+      const { spawnSync } = require('node:child_process');
+      const os = require('node:os');
+      const ffmpeg = process.env.FFMPEG || findFfmpeg();
+      const merged = dedupe(frames);
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'clip-'));
+      const list = [];
+      merged.forEach((f, i) => {
+        const png = new PNG({ width: f.w, height: f.h });
+        png.data = Buffer.from(f.rgba);
+        const file = path.join(tmp, `f${String(i).padStart(4, '0')}.png`);
+        fs.writeFileSync(file, PNG.sync.write(png));
+        list.push(`file '${file.split(path.sep).join('/')}'`, `duration ${(f.delay / 1000).toFixed(3)}`);
+      });
+      // The concat demuxer ignores the last duration unless the last file is repeated.
+      list.push(list[list.length - 2]);
+      fs.writeFileSync(path.join(tmp, 'list.txt'), list.join('\n'));
+      fs.mkdirSync(dir, { recursive: true });
+      const vf = `${width ? `scale=${width}:-2:flags=lanczos,` : 'scale=trunc(iw/2)*2:trunc(ih/2)*2,'}format=yuv420p`;
+      const input = ['-y', '-f', 'concat', '-safe', '0', '-i', path.join(tmp, 'list.txt'), '-vf', vf, '-r', '30', '-an'];
+      const encode = (file, codec) => {
+        const r = spawnSync(ffmpeg, [...input, ...codec, file], { encoding: 'utf8' });
+        if (r.status !== 0) throw new Error('ffmpeg failed: ' + (r.stderr || '').slice(-600));
+      };
+      const out = path.join(dir, `${name}.webm`);
+      encode(out, ['-c:v', 'libvpx-vp9', '-crf', String(crf + 12), '-b:v', '0', '-row-mt', '1']);
+      encode(path.join(dir, `${name}.mp4`), ['-c:v', 'libx264', '-crf', String(crf + 6), '-preset', 'slow', '-movflags', '+faststart']);
+      const pf = merged[Math.min(merged.length - 1, Math.round(poster * (merged.length - 1)))];
+      const png = new PNG({ width: pf.w, height: pf.h });
+      png.data = Buffer.from(pf.rgba);
+      fs.writeFileSync(path.join(dir, `${name}.png`), PNG.sync.write(png));
+      fs.rmSync(tmp, { recursive: true, force: true });
+      const size = fs.statSync(out).size;
+      const secs = merged.reduce((t, f) => t + f.delay, 0) / 1000;
+      console.log(`  video ${name}: ${merged.length} frames, ${secs.toFixed(1)} s, ${pf.w}x${pf.h}, ${(size / 1024).toFixed(0)} KB`);
+      return size;
     },
 
     /** Encodes the frames to <OUT>/<name>.gif (and the copy folder). Returns the file's size in bytes. */
@@ -272,6 +315,14 @@ function recorder(page, { clip, scale = 1, glide = 7, frameMs = 55 } = {}) {
   };
   void vp;
   return rec;
+}
+
+/** A full ffmpeg (H.264 and VP9). */
+function findFfmpeg() {
+  // Playwright's own ffmpeg only does VP8; imageio-ffmpeg (pip install imageio-ffmpeg) is a full build.
+  const r = require('node:child_process').spawnSync('python', ['-c', 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' });
+  if (r.status !== 0 || !r.stdout.trim()) throw new Error('No ffmpeg: pip install imageio-ffmpeg, or set FFMPEG to one');
+  return r.stdout.trim();
 }
 
 /** Joins runs of identical frames into one frame that stays up for their total time. */

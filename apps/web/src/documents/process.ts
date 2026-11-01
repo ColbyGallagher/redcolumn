@@ -153,6 +153,8 @@ export async function unflatten(bytes: ArrayBuffer | Uint8Array): Promise<{ byte
 export async function reduceFileSize(
   bytes: ArrayBuffer | Uint8Array,
   recompress?: (jpeg: Uint8Array, width: number, height: number) => Promise<Uint8Array | null>,
+  /** Told after each picture looked at; it may throw to stop. */
+  onProgress?: (done: number, total: number) => void,
 ): Promise<{ bytes: Uint8Array; images: number }> {
   const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
   const out = await PDFDocument.create({ updateMetadata: false });
@@ -176,10 +178,12 @@ export async function reduceFileSize(
   if (modified) out.setModificationDate(modified);
   let images = 0;
   if (recompress) {
-    for (const [, obj] of out.context.enumerateIndirectObjects()) {
+    const jpegs = [...out.context.enumerateIndirectObjects()].filter(([, obj]) => obj instanceof PDFRawStream && obj.dict.get(PDFName.of('Subtype')) === PDFName.of('Image') && obj.dict.get(PDFName.of('Filter')) === PDFName.of('DCTDecode'));
+    let looked = 0;
+    for (const [, obj] of jpegs) {
+      onProgress?.(looked++, jpegs.length);
       if (!(obj instanceof PDFRawStream)) continue;
       const d = obj.dict;
-      if (d.get(PDFName.of('Subtype')) !== PDFName.of('Image') || d.get(PDFName.of('Filter')) !== PDFName.of('DCTDecode')) continue;
       // CMYK JPEGs and images with decode arrays or masks are left alone.
       const cs = d.get(PDFName.of('ColorSpace'));
       if (cs !== PDFName.of('DeviceRGB') && cs !== PDFName.of('DeviceGray')) continue;
@@ -402,6 +406,8 @@ export async function recolourPages(
   mode: ColourMode,
   /** Re-encodes a JPEG picture grey (or black and white); null to keep it. Without it JPEGs keep their colours. */
   recolourJpeg?: (jpeg: Uint8Array, mode: 'grayscale' | 'black') => Promise<Uint8Array | null>,
+  /** Told as each page, then each picture, is done (`phase` says which); it may throw to stop. */
+  onProgress?: (done: number, total: number, phase: 'pages' | 'pictures') => void,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const done = new Set<PDFRef | PDFObject>();
@@ -425,7 +431,9 @@ export async function recolourPages(
     else if (obj instanceof PDFRawStream && obj.dict.get(PDFName.of('Subtype')) === PDFName.of('Image') && !pictures.includes(obj)) pictures.push(obj);
   };
   const all = doc.getPages();
+  let pagesDone = 0;
   for (const i of pages) {
+    onProgress?.(pagesDone++, pages.length, 'pages');
     const page: PDFPage | undefined = all[i];
     if (!page) continue;
     const contents = page.node.get(PDFName.of('Contents'));
@@ -436,7 +444,13 @@ export async function recolourPages(
     for (const [, v] of xo?.entries() ?? []) rewriteForm(v);
   }
   // Pictures turn grey (or black and white) too; replacing one colour leaves them.
-  if (typeof mode === 'string') for (const img of pictures) await recolourPicture(doc, img, mode, recolourJpeg);
+  if (typeof mode === 'string') {
+    let picturesDone = 0;
+    for (const img of pictures) {
+      onProgress?.(picturesDone++, pictures.length, 'pictures');
+      await recolourPicture(doc, img, mode, recolourJpeg);
+    }
+  }
   return doc.save();
 }
 

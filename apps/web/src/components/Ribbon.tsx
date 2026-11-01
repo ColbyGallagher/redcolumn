@@ -207,7 +207,13 @@ Object.assign(ICONS, {
 /** Each tool's toolbar icon. */
 const TOOL_ICON = new Map<Tool, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
 
-type TabId = 'home' | 'markup' | 'measure' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view';
+type TabId = 'home' | 'markup' | 'measure' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
+
+/**
+ * The contextual tab, as Excel's Table Design: it appears at the end of the tabs while the tool or
+ * the selection has style controls to show, and is where a markup's properties are edited.
+ */
+const FORMAT_TAB: { id: TabId; label: string } = { id: 'format', label: 'Markup Format' };
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'home', label: 'Home' },
@@ -430,22 +436,34 @@ function Stack({ children }: { children: ReactNode }) {
  * take them (Explode with a text box selected, Fillet with a cloud).
  */
 export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu }: RibbonProps) {
-  const [tab, setTab] = useState<TabId>(savedTab);
+  const [baseTab, setBaseTab] = useState<TabId>(savedTab);
+  // Whether the contextual tab is the one picked; it is never remembered, and gives way when it goes.
+  const [onFormat, setOnFormat] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
   const [customizing, setCustomizing] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
-  const { state } = toolbar;
+
+  // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
+  const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry);
+  const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
+  const tab: TabId = onFormat && contextual ? 'format' : baseTab;
 
   const pick = (id: TabId) => {
-    setTab(id);
+    setOnFormat(id === 'format');
+    if (id === 'format') return;
+    setBaseTab(id);
     try {
       localStorage.setItem(TAB_KEY, id);
     } catch {
       /* storage off limits: the tab lasts for this session */
     }
   };
+
+  useEffect(() => {
+    if (!contextual) setOnFormat(false);
+  }, [contextual]);
 
   useEffect(() => {
     if (!collapsed) setDropped(false);
@@ -542,7 +560,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <ToolBtn tool="stamp" />
               </Stack>
             </Group>
-            {properties}
             <Group label="Edit">
               <Cmd id="edit.delete" size="large" />
               <Stack>
@@ -554,12 +571,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           </>
         );
       case 'markup':
-        return (
-          <>
-            {toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}
-            {properties}
-          </>
-        );
+        return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}</>;
+      case 'format':
+        return properties;
       case 'measure':
         return (
           <>
@@ -579,7 +593,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="tools.nextMeasure" />
               </Stack>
             </Group>
-            {properties}
           </>
         );
       case 'diagram':
@@ -637,7 +650,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.group" />
               </Stack>
             </Group>
-            {properties}
             <Group label="Page">
               <Stack>
                 <Cmd id="document.insertBlank" label="Insert Blank Page" />
@@ -965,8 +977,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
-    const i = TABS.findIndex((t) => t.id === tab);
-    const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length]!;
+    const i = tabs.findIndex((t) => t.id === tab);
+    const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]!;
     pick(next.id);
     root.current?.querySelector<HTMLButtonElement>(`[data-ribbon-tab="${next.id}"]`)?.focus();
   };
@@ -992,12 +1004,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       }}
     >
       <div className="rb-tabs" role="tablist" aria-label="Ribbon" onKeyDown={onTabKey}>
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
-            className={`rb-tab${t.id === 'modify' ? ' modify' : ''}`}
+            className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
             data-ribbon-tab={t.id}
             aria-selected={tab === t.id && showBody}
             tabIndex={tab === t.id ? 0 : -1}
@@ -1009,7 +1021,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
             onDoubleClick={() => onCollapsedChange(!collapsed)}
           >
             {t.label}
-            {t.id === 'modify' && state.selected.size > 0 && <span className="rb-tab-badge" title={`${state.selected.size} selected`}>{state.selected.size}</span>}
           </button>
         ))}
         <span className="grow" />
@@ -1021,7 +1032,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
         {displayMenu}
       </div>
       {showBody && (
-        <div className="rb-body" role="tabpanel" aria-label={TABS.find((t) => t.id === tab)!.label}>
+        <div className="rb-body" role="tabpanel" aria-label={tabs.find((t) => t.id === tab)!.label}>
           {body(tab)}
           <span className="grow" />
           {!collapsed && (

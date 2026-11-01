@@ -1039,7 +1039,7 @@ const PAGEOBJ_FORM = 5;
  * are removed; picture pixels inside are painted over. With `fill`, a rectangle is drawn over
  * each region.
  */
-async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
+async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
   const m = await lib();
   const { malloc, free } = m.pdfium.wasmExports;
   const doc = loadForEdit(m, bytes);
@@ -1048,7 +1048,13 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
   const f64 = (i: number) => m.pdfium.HEAPF64[(buf >> 3) + i]!;
   const f32 = (i: number) => m.pdfium.HEAPF32[(buf >> 2) + i]!;
   try {
+    let donePages = 0;
     for (const { pageIndex, rects } of req.regions) {
+      // Progress goes out, and a cancel that came in is seen, between pages.
+      reply({ id, ok: true, type: 'progress', done: donePages, total: req.regions.length });
+      await yieldToMessages();
+      if (cancelledRequests.has(id)) throw new Error(RENDER_CANCELLED);
+      donePages++;
       if (!rects.length) continue;
       const page = m.FPDF_LoadPage(doc.handle, pageIndex);
       if (!page) continue;
@@ -1964,15 +1970,21 @@ function job<T>(id: number, docId: number, priority: number, preemptible: boolea
 
 /** Preemptible jobs cancelled by request (not just made to give way). */
 const cancelledById = new Set<number>();
+/** Long edits (redaction) asked to stop; they look between pages. */
+const cancelledRequests = new Set<number>();
+/** Redactions asked for and not finished, the only long edit that can be stopped. */
+const redactIds = new Set<number>();
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   // Only the page that started this worker can post to it, and its messages carry no origin: one
   // from any other origin is ignored.
   if (e.origin && e.origin !== self.location.origin) return;
   const req = e.data;
+  if (req.type === 'redact') redactIds.add(req.id);
   switch (req.type) {
     case 'cancel':
       for (const id of req.ids) if (running?.id === id && running.preemptible) cancelledById.add(id);
+      for (const id of req.ids) if (redactIds.has(id)) cancelledRequests.add(id);
       cancel(req.ids);
       return;
     case 'render':
@@ -2058,7 +2070,13 @@ async function handle(req: WorkerRequest) {
         break;
       }
       case 'redact': {
-        const res = await redact(req.bytes, req);
+        let res;
+        try {
+          res = await redact(req.bytes, req, req.id);
+        } finally {
+          redactIds.delete(req.id);
+          cancelledRequests.delete(req.id);
+        }
         reply({ id: req.id, ok: true, type: 'redact', ...res }, [res.bytes]);
         break;
       }
