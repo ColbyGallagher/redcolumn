@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LandXML xmlns="http://www.landxml.org/schema/LandXML-1.2" version="1.2" date="2026-11-01" time="12:00:00" language="English">
+  <Units><Metric areaUnit="squareMeter" linearUnit="meter" volumeUnit="cubicMeter" temperatureUnit="celsius" pressureUnit="HPA" angularUnit="decimal degrees" directionUnit="decimal degrees"/></Units>
+  <Project name="Kestrel Road Upgrade Stage 2" desc="Fictional sample design for demonstrating georeferencing"/>
+  <Application name="Kestrel sample generator" desc="Fictional data - not for construction" version="1.0"/>
+  <CoordinateSystem name="GDA2020 / MGA zone 56" desc="Coordinates are northing then easting, metres" horizontalDatum="GDA2020" verticalDatum="AHD71" horizontalCoordinateSystemName="GDA2020 / MGA zone 56" epsgCode="7856"/>
+  <CgPoints>
+    <CgPoint name="MC00-START-0.000" desc="MC00 start of works">6247345.0000 318310.0000 15.6940</CgPoint>
+    <CgPoint name="MC00-TC-330.000" desc="MC00 tangent to curve">6247345.0000 318640.0000 10.6880</CgPoint>
+    <CgPoint name="MC00-CT-549.911" desc="MC00 curve to tangent">6247205.0000 318780.0000 11.2028</CgPoint>
+    <CgPoint name="MC00-TC-584.911" desc="MC00 tangent to curve">6247170.0000 318780.0000 10.8000</CgPoint>
+    <CgPoint name="MC00-CT-804.823" desc="MC00 curve to tangent">6247030.0000 318920.0000 15.1312</CgPoint>
+    <CgPoint name="MC00-END-1040.000" desc="MC00 end of works">6247030.0000 319155.1770 10.5470</CgPoint>
+    <CgPoint name="MC01-START-0.000" desc="MC01 start of works">6247345.0000 318420.0000 15.7114</CgPoint>
+    <CgPoint name="MC01-TC-60.000" desc="MC01 tangent to curve">6247285.0000 318420.0000 14.1807</CgPoint>
+    <CgPoint name="MC01-CT-133.304" desc="MC01 curve to tangent">6247216.1708 318441.7018 12.0838</CgPoint>
+    <CgPoint name="MC01-END-153.304" desc="MC01 end of works">6247199.7878 318453.1733 11.5114</CgPoint>
+    <CgPoint name="MATCHLINE-CH280" desc="Matchline between plan sheets 1 and 2">6247345.0000 318590.0000 11.1632</CgPoint>
+    <CgPoint name="MATCHLINE-CH565" desc="Matchline between plan sheets 2 and 3">6247189.9115 318780.0000 11.0248</CgPoint>
+    <CgPoint name="MATCHLINE-CH830" desc="Matchline between plan sheets 3 and 4">6247030.0000 318945.1770 15.4637</CgPoint>
+    <CgPoint name="JUNCTION-MC01" desc="Hartley Street junction">6247345.0000 318420.0000 15.8314</CgPoint>
+    <CgPoint name="CULVERT-CH914.82" desc="New 3/2400x1200 RCBC, invert level">6247030.0000 319029.9970 12.0100</CgPoint>
+    <CgPoint name="MC00-CH100" desc="Chainage 100">6247345.0000 318410.0000 15.9579</CgPoint>
+    <CgPoint name="MC00-CH200" desc="Chainage 200">6247345.0000 318510.0000 13.0335</CgPoint>
+    <CgPoint name="MC00-CH300" desc="Chainage 300">6247345.0000 318610.0000 10.8408</CgPoint>
+    <CgPoint name="MC00-CH400" desc="Chainage 400">6247327.8616 318707.1196 11.7682</CgPoint>
+    <CgPoint name="MC00-CH500" desc="Chainage 500">6247253.8609 318771.1968 11.8388</CgPoint>
+    <CgPoint name="MC00-CH600" desc="Chainage 600">6247154.9407 318780.8123 10.6405</CgPoint>
+    <CgPoint name="MC00-CH700" desc="Chainage 700">6247067.4430 318824.7002 12.3483</CgPoint>
+    <CgPoint name="MC00-CH800" desc="Chainage 800">6247030.0831 318915.1780 15.0425</CgPoint>
+    <CgPoint name="MC00-CH900" desc="Chainage 900">6247030.0000 319015.1770 15.2710</CgPoint>
+    <CgPoint name="MC00-CH1000" desc="Chainage 1000">6247030.0000 319115.1770 12.2726</CgPoint>
+  </CgPoints>
+  <Alignments name="Kestrel Road Upgrade control lines">
+    <Alignment name="MC00" desc="Kestrel Road control line (crown)" length="1040.0000" staStart="0.0000">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247345.0000 318310.0000</Start><End>6247345.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="140.0000" length="219.9115" delta="90.00000000" tangent="140.0000" chord="197.9899" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247345.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318780.0000</End><PI>6247345.0000 318780.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318780.0000</Start><End>6247170.0000 318780.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="140.0000" length="219.9115" delta="90.00000000" tangent="140.0000" chord="197.9899" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318780.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247030.0000 318920.0000</End><PI>6247030.0000 318780.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247030.0000 318920.0000</Start><End>6247030.0000 319155.1770</End></Line>
+      </CoordGeom>
+      <Profile name="MC00">
+      <ProfAlign name="MC00 design" staStart="0.0000">
+        <PVI>0.0000 15.6940</PVI>
+        <ParaCurve length="70.0000">110.0000 16.1800</ParaCurve>
+        <ParaCurve length="80.0000">220.0000 12.2830</ParaCurve>
+        <ParaCurve length="90.0000">330.0000 10.2300</ParaCurve>
+        <ParaCurve length="90.0000">440.0000 12.6550</ParaCurve>
+        <ParaCurve length="90.0000">540.0000 11.2940</ParaCurve>
+        <ParaCurve length="90.0000">640.0000 10.1940</ParaCurve>
+        <ParaCurve length="90.0000">740.0000 13.7880</ParaCurve>
+        <ParaCurve length="90.0000">840.0000 15.8860</ParaCurve>
+        <ParaCurve length="80.0000">940.0000 14.8610</ParaCurve>
+        <PVI>1040.0000 10.5470</PVI>
+      </ProfAlign>
+      </Profile>
+    </Alignment>
+    <Alignment name="MC01" desc="Hartley Street control line (crown)" length="153.3038" staStart="0.0000">
+      <CoordGeom>
+        <Line dir="180.00000000" length="60.0000" staStart="0.0000"><Start>6247345.0000 318420.0000</Start><End>6247285.0000 318420.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="120.0000" length="73.3038" delta="35.00000000" tangent="37.8359" chord="72.1694" dirStart="180.00000000" dirEnd="145.00000000" staStart="60.0000"><Start>6247285.0000 318420.0000</Start><Center>6247285.0000 318540.0000</Center><End>6247216.1708 318441.7018</End><PI>6247247.1641 318420.0000</PI></Curve>
+        <Line dir="145.00000000" length="20.0000" staStart="133.3038"><Start>6247216.1708 318441.7018</Start><End>6247199.7878 318453.1733</End></Line>
+      </CoordGeom>
+      <Profile name="MC01">
+      <ProfAlign name="MC01 design" staStart="0.0000">
+        <PVI>0.0000 15.7114</PVI>
+        <ParaCurve length="40.0000">45.0000 14.6114</ParaCurve>
+        <PVI>153.3038 11.5114</PVI>
+      </ProfAlign>
+      </Profile>
+    </Alignment>
+  </Alignments>
+  <PlanFeatures name="Kestrel Road kerb and reserve lines">
+    <PlanFeature name="MC00 kerb left" desc="Face of kerb, left of MC00">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247352.0000 318310.0000</Start><End>6247352.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="147.0000" length="230.9071" delta="90.00000000" tangent="147.0000" chord="207.8894" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247352.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318787.0000</End><PI>6247352.0000 318787.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318787.0000</Start><End>6247170.0000 318787.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="133.0000" length="208.9159" delta="90.00000000" tangent="133.0000" chord="188.0904" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318787.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247037.0000 318920.0000</End><PI>6247037.0000 318787.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247037.0000 318920.0000</Start><End>6247037.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC00 kerb right" desc="Face of kerb, right of MC00">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247338.0000 318310.0000</Start><End>6247338.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="133.0000" length="208.9159" delta="90.00000000" tangent="133.0000" chord="188.0904" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247338.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318773.0000</End><PI>6247338.0000 318773.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318773.0000</Start><End>6247170.0000 318773.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="147.0000" length="230.9071" delta="90.00000000" tangent="147.0000" chord="207.8894" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318773.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247023.0000 318920.0000</End><PI>6247023.0000 318773.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247023.0000 318920.0000</Start><End>6247023.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC00 construction boundary left" desc="Construction boundary">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247364.0000 318310.0000</Start><End>6247364.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="159.0000" length="249.7566" delta="90.00000000" tangent="159.0000" chord="224.8600" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247364.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318799.0000</End><PI>6247364.0000 318799.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318799.0000</Start><End>6247170.0000 318799.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="121.0000" length="190.0664" delta="90.00000000" tangent="121.0000" chord="171.1198" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318799.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247049.0000 318920.0000</End><PI>6247049.0000 318799.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247049.0000 318920.0000</Start><End>6247049.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC00 construction boundary right" desc="Construction boundary">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247326.0000 318310.0000</Start><End>6247326.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="121.0000" length="190.0664" delta="90.00000000" tangent="121.0000" chord="171.1198" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247326.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318761.0000</End><PI>6247326.0000 318761.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318761.0000</Start><End>6247170.0000 318761.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="159.0000" length="249.7566" delta="90.00000000" tangent="159.0000" chord="224.8600" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318761.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247011.0000 318920.0000</End><PI>6247011.0000 318761.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247011.0000 318920.0000</Start><End>6247011.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC00 project boundary left" desc="Project boundary">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247367.0000 318310.0000</Start><End>6247367.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="162.0000" length="254.4690" delta="90.00000000" tangent="162.0000" chord="229.1026" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247367.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318802.0000</End><PI>6247367.0000 318802.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318802.0000</Start><End>6247170.0000 318802.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="118.0000" length="185.3540" delta="90.00000000" tangent="118.0000" chord="166.8772" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318802.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247052.0000 318920.0000</End><PI>6247052.0000 318802.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247052.0000 318920.0000</Start><End>6247052.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC00 project boundary right" desc="Project boundary">
+      <CoordGeom>
+        <Line dir="90.00000000" length="330.0000" staStart="0.0000"><Start>6247323.0000 318310.0000</Start><End>6247323.0000 318640.0000</End></Line>
+        <Curve rot="cw" crvType="arc" radius="118.0000" length="185.3540" delta="90.00000000" tangent="118.0000" chord="166.8772" dirStart="90.00000000" dirEnd="180.00000000" staStart="330.0000"><Start>6247323.0000 318640.0000</Start><Center>6247205.0000 318640.0000</Center><End>6247205.0000 318758.0000</End><PI>6247323.0000 318758.0000</PI></Curve>
+        <Line dir="180.00000000" length="35.0000" staStart="549.9115"><Start>6247205.0000 318758.0000</Start><End>6247170.0000 318758.0000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="162.0000" length="254.4690" delta="90.00000000" tangent="162.0000" chord="229.1026" dirStart="180.00000000" dirEnd="90.00000000" staStart="584.9115"><Start>6247170.0000 318758.0000</Start><Center>6247170.0000 318920.0000</Center><End>6247008.0000 318920.0000</End><PI>6247008.0000 318758.0000</PI></Curve>
+        <Line dir="90.00000000" length="235.1770" staStart="804.8230"><Start>6247008.0000 318920.0000</Start><End>6247008.0000 319155.1770</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC01 kerb left" desc="Face of kerb, left of MC01">
+      <CoordGeom>
+        <Line dir="180.00000000" length="60.0000" staStart="0.0000"><Start>6247345.0000 318424.5000</Start><End>6247285.0000 318424.5000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="115.5000" length="70.5549" delta="35.00000000" tangent="36.4170" chord="69.4630" dirStart="180.00000000" dirEnd="145.00000000" staStart="60.0000"><Start>6247285.0000 318424.5000</Start><Center>6247285.0000 318540.0000</Center><End>6247218.7519 318445.3879</End><PI>6247248.5830 318424.5000</PI></Curve>
+        <Line dir="145.00000000" length="20.0000" staStart="133.3038"><Start>6247218.7519 318445.3879</Start><End>6247202.3689 318456.8595</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+    <PlanFeature name="MC01 kerb right" desc="Face of kerb, right of MC01">
+      <CoordGeom>
+        <Line dir="180.00000000" length="60.0000" staStart="0.0000"><Start>6247345.0000 318415.5000</Start><End>6247285.0000 318415.5000</End></Line>
+        <Curve rot="ccw" crvType="arc" radius="124.5000" length="76.0527" delta="35.00000000" tangent="39.2547" chord="74.8757" dirStart="180.00000000" dirEnd="145.00000000" staStart="60.0000"><Start>6247285.0000 318415.5000</Start><Center>6247285.0000 318540.0000</Center><End>6247213.5897 318438.0156</End><PI>6247245.7453 318415.5000</PI></Curve>
+        <Line dir="145.00000000" length="20.0000" staStart="133.3038"><Start>6247213.5897 318438.0156</Start><End>6247197.2067 318449.4871</End></Line>
+      </CoordGeom>
+    </PlanFeature>
+  </PlanFeatures>
+  <PipeNetworks>
+    <PipeNetwork name="D01" desc="Stormwater along the right kerb of MC00" pipeNetType="storm">
+      <Structs>
+        <Struct name="D01-01" desc="Stormwater pit, CH 20.0"><Center>6247336.4000 318330.0000</Center></Struct>
+        <Struct name="D01-02" desc="Stormwater pit, CH 60.0"><Center>6247336.4000 318370.0000</Center></Struct>
+        <Struct name="D01-03" desc="Stormwater pit, CH 139.9"><Center>6247336.4000 318449.9000</Center></Struct>
+        <Struct name="D01-04" desc="Stormwater pit, CH 179.9"><Center>6247336.4000 318489.9000</Center></Struct>
+        <Struct name="D01-05" desc="Stormwater pit, CH 219.9"><Center>6247336.4000 318529.9000</Center></Struct>
+        <Struct name="D01-06" desc="Stormwater pit, CH 259.9"><Center>6247336.4000 318569.9000</Center></Struct>
+        <Struct name="D01-07" desc="Stormwater pit, CH 299.9"><Center>6247336.4000 318609.9000</Center></Struct>
+        <Struct name="D01-08" desc="Stormwater pit, CH 339.8"><Center>6247336.0782 318649.1905</Center></Struct>
+        <Struct name="D01-09" desc="Stormwater pit, CH 379.8"><Center>6247328.1741 318685.7614</Center></Struct>
+        <Struct name="D01-10" desc="Stormwater pit, CH 419.8"><Center>6247310.2832 318718.6220</Center></Struct>
+        <Struct name="D01-11" desc="Stormwater pit, CH 459.8"><Center>6247283.8560 318745.1080</Center></Struct>
+        <Struct name="D01-12" desc="Stormwater pit, CH 499.8"><Center>6247251.0353 318763.0720</Center></Struct>
+        <Struct name="D01-13" desc="Stormwater pit, CH 540.2"><Center>6247214.1076 318771.0840</Center></Struct>
+        <Struct name="D01-14" desc="Stormwater pit, CH 580.2"><Center>6247174.7115 318771.4000</Center></Struct>
+        <Struct name="D01-15" desc="Stormwater pit, CH 620.2"><Center>6247132.9391 318776.0957</Center></Struct>
+        <Struct name="D01-16" desc="Stormwater pit, CH 660.2"><Center>6247093.8832 318792.3748</Center></Struct>
+        <Struct name="D01-17" desc="Stormwater pit, CH 700.2"><Center>6247060.9986 318819.0017</Center></Struct>
+        <Struct name="D01-18" desc="Stormwater pit, CH 740.1"><Center>6247036.9991 318853.7223</Center></Struct>
+        <Struct name="D01-19" desc="Stormwater pit, CH 780.1"><Center>6247023.7110 318893.8945</Center></Struct>
+        <Struct name="D01-20" desc="Stormwater pit, CH 820.1"><Center>6247021.4000 318935.2770</Center></Struct>
+        <Struct name="D01-21" desc="Stormwater pit, CH 860.1"><Center>6247021.4000 318975.2770</Center></Struct>
+        <Struct name="D01-22" desc="Stormwater pit, CH 940.0"><Center>6247021.4000 319055.1770</Center></Struct>
+        <Struct name="D01-23" desc="Stormwater pit, CH 980.0"><Center>6247021.4000 319095.1770</Center></Struct>
+        <Struct name="D01-24" desc="Stormwater pit, CH 1020.0"><Center>6247021.4000 319135.1770</Center></Struct>
+        <Struct name="D01-OUTFALL" desc="Headwall to Corella Creek"><Center>6247018.4181 319027.1045</Center></Struct>
+      </Structs>
+      <Pipes>
+        <Pipe name="D01-P01" refStart="D01-01" refEnd="D01-02"/>
+        <Pipe name="D01-P02" refStart="D01-02" refEnd="D01-03"/>
+        <Pipe name="D01-P03" refStart="D01-03" refEnd="D01-04"/>
+        <Pipe name="D01-P04" refStart="D01-04" refEnd="D01-05"/>
+        <Pipe name="D01-P05" refStart="D01-05" refEnd="D01-06"/>
+        <Pipe name="D01-P06" refStart="D01-06" refEnd="D01-07"/>
+        <Pipe name="D01-P07" refStart="D01-07" refEnd="D01-08"/>
+        <Pipe name="D01-P08" refStart="D01-08" refEnd="D01-09"/>
+        <Pipe name="D01-P09" refStart="D01-09" refEnd="D01-10"/>
+        <Pipe name="D01-P10" refStart="D01-10" refEnd="D01-11"/>
+        <Pipe name="D01-P11" refStart="D01-11" refEnd="D01-12"/>
+        <Pipe name="D01-P12" refStart="D01-12" refEnd="D01-13"/>
+        <Pipe name="D01-P13" refStart="D01-13" refEnd="D01-14"/>
+        <Pipe name="D01-P14" refStart="D01-14" refEnd="D01-15"/>
+        <Pipe name="D01-P15" refStart="D01-15" refEnd="D01-16"/>
+        <Pipe name="D01-P16" refStart="D01-16" refEnd="D01-17"/>
+        <Pipe name="D01-P17" refStart="D01-17" refEnd="D01-18"/>
+        <Pipe name="D01-P18" refStart="D01-18" refEnd="D01-19"/>
+        <Pipe name="D01-P19" refStart="D01-19" refEnd="D01-20"/>
+        <Pipe name="D01-P20" refStart="D01-20" refEnd="D01-21"/>
+        <Pipe name="D01-P21" refStart="D01-21" refEnd="D01-22"/>
+        <Pipe name="D01-P22" refStart="D01-22" refEnd="D01-23"/>
+        <Pipe name="D01-P23" refStart="D01-23" refEnd="D01-24"/>
+        <Pipe name="D01-P24" refStart="D01-24" refEnd="D01-OUTFALL"/>
+      </Pipes>
+    </PipeNetwork>
+  </PipeNetworks>
+</LandXML>
