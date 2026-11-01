@@ -726,14 +726,37 @@ function userToPageMatrix(m: WrappedPdfiumModule, page: number): Matrix {
   return [(ex[0] - o[0]) / 1000, (ex[1] - o[1]) / 1000, (ey[0] - o[0]) / 1000, (ey[1] - o[1]) / 1000, o[0], o[1]];
 }
 
-/** A page's line work as segments, and which of them were flattened from curves (1) rather than drawn straight (0). */
-function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Float32Array; curves: Uint8Array } {
+/**
+ * A page's line work as segments, which of them were flattened from curves (1) rather than drawn
+ * straight (0), and which belong to a path that paints nothing on white paper (1).
+ */
+function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Float32Array; curves: Uint8Array; paper: Uint8Array } {
   const { malloc, free } = m.pdfium.wasmExports;
   const matPtr = malloc(24);
   const ptPtr = malloc(8);
+  const colPtr = malloc(16);
   const out: number[] = [];
   const curve: number[] = [];
+  const blank: number[] = [];
   const f32 = () => m.pdfium.HEAPF32;
+
+  /**
+   * Whether a path shows nothing on white paper: neither stroked nor filled, or only in white. CAD
+   * exports draw such masks under a label (often as many thin triangles) to hide the drawing behind it.
+   */
+  const paperOnly = (path: number): boolean => {
+    if (!m.FPDFPath_GetDrawMode(path, colPtr, colPtr + 4)) return false;
+    const fillMode = m.pdfium.HEAP32[colPtr >> 2]!;
+    const stroke = m.pdfium.HEAP32[(colPtr >> 2) + 1]!;
+    // A colour that cannot be read (a pattern, say) is taken to show.
+    const shows = (get: typeof m.FPDFPageObj_GetFillColor) => {
+      if (!get(path, colPtr, colPtr + 4, colPtr + 8, colPtr + 12)) return true;
+      const u = m.pdfium.HEAPU32;
+      const i = colPtr >> 2;
+      return u[i + 3]! > 0 && Math.min(u[i]!, u[i + 1]!, u[i + 2]!) < 245;
+    };
+    return !(stroke && shows(m.FPDFPageObj_GetStrokeColor)) && !(fillMode && shows(m.FPDFPageObj_GetFillColor));
+  };
 
   const objMatrix = (obj: number): Matrix => {
     if (!m.FPDFPageObj_GetMatrix(obj, matPtr)) return [1, 0, 0, 1, 0, 0];
@@ -744,6 +767,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
 
   const walkPath = (path: number, t: Matrix) => {
     const n = m.FPDFPath_CountSegments(path);
+    const paper = paperOnly(path) ? 1 : 0;
     let cx = 0;
     let cy = 0;
     let sx = 0;
@@ -753,6 +777,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
       if (x1 === x2 && y1 === y2) return;
       out.push(x1, y1, x2, y2);
       curve.push(isCurve);
+      blank.push(paper);
     };
     for (let i = 0; i < n && out.length < MAX_SEGMENTS * 4; i++) {
       const seg = m.FPDFPath_GetPathSegment(path, i);
@@ -818,8 +843,9 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
   } finally {
     free(matPtr);
     free(ptPtr);
+    free(colPtr);
   }
-  return { segments: new Float32Array(out), curves: new Uint8Array(curve) };
+  return { segments: new Float32Array(out), curves: new Uint8Array(curve), paper: new Uint8Array(blank) };
 }
 
 function applyHidden(m: WrappedPdfiumModule, page: number, indices: Set<number> | undefined) {
@@ -1013,7 +1039,7 @@ const PAGEOBJ_FORM = 5;
  * are removed; picture pixels inside are painted over. With `fill`, a rectangle is drawn over
  * each region.
  */
-async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
+async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
   const m = await lib();
   const { malloc, free } = m.pdfium.wasmExports;
   const doc = loadForEdit(m, bytes);
@@ -1022,7 +1048,13 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest): Promise<{ bytes: 
   const f64 = (i: number) => m.pdfium.HEAPF64[(buf >> 3) + i]!;
   const f32 = (i: number) => m.pdfium.HEAPF32[(buf >> 2) + i]!;
   try {
+    let donePages = 0;
     for (const { pageIndex, rects } of req.regions) {
+      // Progress goes out, and a cancel that came in is seen, between pages.
+      reply({ id, ok: true, type: 'progress', done: donePages, total: req.regions.length });
+      await yieldToMessages();
+      if (cancelledRequests.has(id)) throw new Error(RENDER_CANCELLED);
+      donePages++;
       if (!rects.length) continue;
       const page = m.FPDF_LoadPage(doc.handle, pageIndex);
       if (!page) continue;
@@ -1789,6 +1821,18 @@ function shxWords(m: WrappedPdfiumModule, page: number, t: Matrix): TextWord[] {
   return out;
 }
 
+/**
+ * A reading direction on the page as shown (y down) as an angle clockwise from +x in [0, 2π), as
+ * PDFium reports angles; within a thousandth of a radian of a quarter turn it is that quarter turn.
+ */
+function readingAngle(dx: number, dy: number): number {
+  let a = Math.atan2(dy, dx);
+  if (a < 0) a += Math.PI * 2;
+  const q = Math.round(a / (Math.PI / 2));
+  if (Math.abs(a - q * (Math.PI / 2)) < 1e-3) a = (q % 4) * (Math.PI / 2);
+  return a;
+}
+
 function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
   const textPage = m.FPDFText_LoadPage(page);
   if (!textPage) return [];
@@ -1826,13 +1870,20 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
       // CAD exports often set text as `1 Tf` and size it through the text matrix, so the nominal
       // font size is scaled by the character's matrix to get the size on the page.
       let size = m.FPDFText_GetFontSize(textPage, i);
+      let angle = m.FPDFText_GetCharAngle(textPage, i);
       if (m.FPDFText_GetMatrix(textPage, i, mat)) {
         const f = m.pdfium.HEAPF32;
         const k = mat >> 2;
         const det = Math.abs(f[k]! * f[k + 3]! - f[k + 1]! * f[k + 2]!);
         if (det > 1e-9) size *= Math.sqrt(det);
+        // PDFium's angle is on the unrotated page, but boxes are on the page as shown. On a sheet
+        // turned by /Rotate (180 is common in CAD exports) every character then seemed to run
+        // backwards: each became its own word and boxes read them in reverse. The character's
+        // x axis, taken through the page's rotation, is its reading direction as shown.
+        const dx = t[0] * f[k]! + t[2] * f[k + 1]!;
+        const dy = t[1] * f[k]! + t[3] * f[k + 1]!;
+        if (Math.hypot(dx, dy) > 1e-9) angle = readingAngle(dx, dy);
       }
-      const angle = m.FPDFText_GetCharAngle(textPage, i);
       const ch = String.fromCodePoint(code);
       // Character centre and half-extent along the reading direction. Text can run at any angle
       // (labels along a road), so adjacency is measured along that direction, not along x.
@@ -1847,7 +1898,8 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
         const along = (cx - last.cx) * dx + (cy - last.cy) * dy;
         const across = Math.abs((cx - last.cx) * -dy + (cy - last.cy) * dx);
         const gap = along - last.half - half;
-        if (Math.abs(size - cur.size) > 0.5 || Math.abs(angle - cur.angle) > 0.1 || across > size * 0.5 || gap > size * 0.6 || along < -size * 0.2) flush();
+        const turn = Math.abs(Math.atan2(Math.sin(angle - cur.angle), Math.cos(angle - cur.angle)));
+        if (Math.abs(size - cur.size) > 0.5 || turn > 0.1 || across > size * 0.5 || gap > size * 0.6 || along < -size * 0.2) flush();
       }
       last = { cx, cy, half };
       if (!cur) cur = { text: ch, x0, y0, x1, y1, size, angle };
@@ -1868,11 +1920,11 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
   return [...words, ...shxWords(m, page, t)];
 }
 
-async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; ms: number }> {
+async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; paper: Uint8Array; ms: number }> {
   const t0 = performance.now();
   const m = await lib();
-  const { segments, curves } = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
-  return { segments, curves, ms: performance.now() - t0 };
+  const { segments, curves, paper } = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
+  return { segments, curves, paper, ms: performance.now() - t0 };
 }
 
 /** Full page size in device pixels at `scale`; must match the viewer's `ceil(points * scale)`. */
@@ -1918,15 +1970,21 @@ function job<T>(id: number, docId: number, priority: number, preemptible: boolea
 
 /** Preemptible jobs cancelled by request (not just made to give way). */
 const cancelledById = new Set<number>();
+/** Long edits (redaction) asked to stop; they look between pages. */
+const cancelledRequests = new Set<number>();
+/** Redactions asked for and not finished, the only long edit that can be stopped. */
+const redactIds = new Set<number>();
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   // Only the page that started this worker can post to it, and its messages carry no origin: one
   // from any other origin is ignored.
   if (e.origin && e.origin !== self.location.origin) return;
   const req = e.data;
+  if (req.type === 'redact') redactIds.add(req.id);
   switch (req.type) {
     case 'cancel':
       for (const id of req.ids) if (running?.id === id && running.preemptible) cancelledById.add(id);
+      for (const id of req.ids) if (redactIds.has(id)) cancelledRequests.add(id);
       cancel(req.ids);
       return;
     case 'render':
@@ -2012,7 +2070,13 @@ async function handle(req: WorkerRequest) {
         break;
       }
       case 'redact': {
-        const res = await redact(req.bytes, req);
+        let res;
+        try {
+          res = await redact(req.bytes, req, req.id);
+        } finally {
+          redactIds.delete(req.id);
+          cancelledRequests.delete(req.id);
+        }
         reply({ id: req.id, ok: true, type: 'redact', ...res }, [res.bytes]);
         break;
       }
@@ -2036,7 +2100,7 @@ async function handle(req: WorkerRequest) {
       }
       case 'geometry': {
         const res = await geometry(req.docId, req.pageIndex);
-        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer, res.curves.buffer]);
+        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer, res.curves.buffer, res.paper.buffer]);
         break;
       }
     }

@@ -10,12 +10,13 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const W = 1224; // 17 x 11 in
 const H = 792;
 const black = rgb(0, 0, 0);
+const white = rgb(1, 1, 1);
 
 /** Where things are on plan.pdf, shared with the specs through expected.json. */
 const expected = {
@@ -60,9 +61,20 @@ const expected = {
     box: { label: 'APPROVED', x: 120, y: 170, size: 12 },
   },
   /**
+   * rotated.pdf: sheets turned by /Rotate, as CAD exports often are, with their text drawn so it
+   * reads normally on screen. Positions are on the page as shown (top-left, y down).
+   */
+  rotated: {
+    pages: [
+      { rotate: 180, text: 'STAGE 2 SHEET C-101', x: 100, y: 200 },
+      { rotate: 90, text: 'TYPICAL CROSS SECTIONS', x: 100, y: 200 },
+    ],
+  },
+  /**
    * marks.pdf: two 17 x 11 in sheets. The first has detail callouts drawn as split circles, the
    * identifier above the line and the sheet it points at below, and a grid bubble of the same
-   * size with no sheet number. The second is the sheet the callouts point at.
+   * size with no sheet number, each with a white mask under its label. The second is the sheet
+   * the callouts point at, with the title of detail 2 (DETAIL 2, underlined).
    */
   marks: {
     sheetNumbers: ['A-101', 'A-501'],
@@ -73,6 +85,7 @@ const expected = {
       { x: 900, y: 500, detail: '3', sheet: 'A-501' },
     ],
     grid: { x: 150, y: 650, label: 'B' },
+    title: { x: 400, y: 300, detail: '2', text: 'DETAIL' },
   },
   /** stitch.pdf: a road cut into three 36 x 24 in sheets along match lines (see stitchPdf). */
   stitch: {
@@ -83,6 +96,20 @@ const expected = {
       { number: 'C-102', from: 1000, to: 2000, angle: -0.45 },
       { number: 'C-103', from: 2000, to: 3100, angle: Math.PI / 2 },
     ],
+  },
+  /**
+   * chainage.pdf: a plan and profile sheet with station ticks 10+00 to 15+00, a cross-section
+   * sheet with sections at STA 12+00 and 13+00, and a notes sheet citing STA 14+50. Each sheet's
+   * title is its largest text.
+   */
+  chainage: {
+    titles: ['PLAN AND PROFILE', 'CROSS SECTIONS', 'GENERAL NOTES'],
+    ticks: { from: 1000, to: 1500, step: 100, x: 200, dx: 150, y: 400 },
+    sections: [
+      { label: 'STA 12+00', x: 300, y: 300 },
+      { label: 'STA 13+00', x: 300, y: 500 },
+    ],
+    note: { text: 'TIE IN AT STA 14+50', x: 100, y: 200 },
   },
 };
 
@@ -159,6 +186,47 @@ async function sheets() {
   return doc.save({ useObjectStreams: false });
 }
 
+/** Linear work: a plan with station ticks, its cross sections and a note (see expected.chainage). */
+async function chainage() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E chainage');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const { titles, ticks, sections, note } = expected.chainage;
+  const pages = titles.map((title) => {
+    const p = doc.addPage([W, H]);
+    p.drawText(title, { x: 60, y: H - 60, size: 20, font, color: black });
+    return p;
+  });
+  const text = (p, s, x, y) => p.drawText(s, { x, y: H - y, size: 10, font, color: black });
+  for (let v = ticks.from, i = 0; v <= ticks.to; v += ticks.step, i++) text(pages[0], `${Math.floor(v / 100)}+${String(v % 100).padStart(2, '0')}`, ticks.x + i * ticks.dx, ticks.y);
+  for (const s of sections) text(pages[1], s.label, s.x, s.y);
+  text(pages[2], note.text, note.x, note.y);
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Sheets turned by /Rotate whose text reads normally on screen (see expected.rotated). */
+async function rotated() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E rotated');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const { rotate, text, x, y } of expected.rotated.pages) {
+    const p = doc.addPage([W, H]);
+    p.setRotation(degrees(rotate));
+    // Where a point on the page as shown sits on the unrotated page, and which way text must run there.
+    if (rotate === 180) p.drawText(text, { x: W - x, y, size: 20, font, color: black, rotate: degrees(180) });
+    else p.drawText(text, { x: y, y: x, size: 20, font, color: black, rotate: degrees(90) });
+  }
+  return doc.save({ useObjectStreams: false });
+}
+
 /** Detail callouts drawn as shapes, for teaching a mark (see expected.marks). */
 async function marks() {
   const doc = await PDFDocument.create();
@@ -168,12 +236,14 @@ async function marks() {
   doc.setCreationDate(new Date(0));
   doc.setModificationDate(new Date(0));
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const { radius: r, callouts, grid } = expected.marks;
+  const { radius: r, callouts, grid, title } = expected.marks;
   const plan = doc.addPage([W, H]);
   const centred = (s, cx, cy, size) => plan.drawText(s, { x: cx - font.widthOfTextAtSize(s, size) / 2, y: H - cy - size * 0.35, size, font, color: black });
   const bubble = (cx, cy, detail, sheet) => {
     plan.drawCircle({ x: cx, y: H - cy, size: r, borderColor: black, borderWidth: 1 });
     plan.drawLine({ start: { x: cx - r, y: H - cy }, end: { x: cx + r, y: H - cy }, thickness: 1, color: black });
+    // A white mask under the label, in strips as CAD exports draw them: it shows nothing.
+    for (let k = 0; k < 3; k++) plan.drawRectangle({ x: cx - r * 0.6, y: H - cy + 2 + k * 4, width: r * 1.2, height: 3, color: white });
     centred(detail, cx, cy - r / 2, 10);
     if (sheet) centred(sheet, cx, cy + r / 2, 6);
   };
@@ -182,6 +252,10 @@ async function marks() {
   bubble(grid.x, grid.y, grid.label, null);
   const details = doc.addPage([W, H]);
   details.drawText('DETAILS', { x: 60, y: H - 60, size: 18, font, color: black });
+  // The title of the detail callout 2 points to: its word, its number and an underline.
+  details.drawText(title.text, { x: title.x, y: H - title.y, size: 12, font, color: black });
+  details.drawText(title.detail, { x: title.x + font.widthOfTextAtSize(`${title.text} `, 12), y: H - title.y, size: 12, font, color: black });
+  details.drawLine({ start: { x: title.x - 4, y: H - title.y - 5 }, end: { x: title.x + 90, y: H - title.y - 5 }, thickness: 1, color: black });
   return doc.save({ useObjectStreams: false });
 }
 
@@ -357,8 +431,10 @@ writeFileSync(join(here, 'plan-rev1.pdf'), await plan(1));
 writeFileSync(join(here, 'sheets.pdf'), await sheets());
 writeFileSync(join(here, 'forms.pdf'), await forms());
 writeFileSync(join(here, 'marks.pdf'), await marks());
+writeFileSync(join(here, 'chainage.pdf'), await chainage());
+writeFileSync(join(here, 'rotated.pdf'), await rotated());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, rotated.pdf, stitch.pdf, picture.png, notes.txt, expected.json');

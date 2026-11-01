@@ -437,6 +437,72 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels);
   });
 
+  test('document.drawingStandards reads every sheet number from a standard\'s box, and None goes back to the text', async ({ app }) => {
+    await app.cmd('document.drawingStandards');
+    const panel = app.page.locator('.drawing-standard');
+    await expect(panel).toBeVisible();
+    // Dragged wider by its left edge, for long drawing numbers and titles; the right edge stays put.
+    const before = (await panel.boundingBox())!;
+    const edge = (await panel.locator('.rp-w').boundingBox())!;
+    await app.page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(edge.x + edge.width / 2 - 120, edge.y + edge.height / 2, { steps: 5 });
+    await app.page.mouse.up();
+    const after = (await panel.boundingBox())!;
+    expect(Math.round(after.width - before.width)).toBe(120);
+    expect(Math.round(after.x + after.width)).toBe(Math.round(before.x + before.width));
+    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
+    await drawBox(app, S.labelBox);
+    await expect(panel.locator('.lr-text').first()).toHaveText(S.labels[0]!);
+    await expect(panel.getByLabel('Box 1 holds')).toHaveValue('number');
+    // "ROOM 101" is no drawing-number shape until the template says this client numbers sheets so.
+    await expect(panel.locator('.lr-preview')).toContainText('read on 0 of 3 pages');
+    await panel.getByLabel('Template').fill('ROOM###');
+    await expect(panel.locator('.lr-preview')).toContainText('read on 3 of 3 pages');
+    // A field of the client's own: the box is named, and read on every sheet without the name printed in front (SCALE:).
+    await drawBox(app, S.scaleBox);
+    await panel.getByLabel('Box 2 holds').selectOption('custom');
+    await panel.getByLabel('Box 2 field name').fill('Scale');
+    await expect(panel.locator('.lr-preview')).toContainText(`Scale: ${S.scales[0]}`);
+    await panel.getByRole('button', { name: 'Save and use' }).click();
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
+    const fields = await app.page.evaluate(() => Object.values((window.__nb.tools as unknown as { store: { allSheets(): Record<number, { fields?: Record<string, string> }> } }).store.allSheets()).map((s) => s.fields));
+    expect(fields).toEqual(S.scales.map((scale) => ({ Scale: scale })));
+    await expect(app.notice()).toHaveText(/with Rooms client: 3 of 3 sheet numbers/);
+    await expect(panel.getByLabel('Drawing standard for this document')).toHaveValue(/.+/);
+    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
+    // The standard stays in the profile for the next set.
+    await expect(panel.getByLabel('Standard to edit')).toContainText('Edit: Rooms client');
+  });
+
+  test('a saved drawing standard is offered when a set it fits comes to the front', async ({ app }) => {
+    await app.cmd('document.drawingStandards');
+    const panel = app.page.locator('.drawing-standard');
+    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
+    await drawBox(app, S.labelBox);
+    await panel.getByLabel('Template').fill('ROOM###');
+    // Saved only: this document is not read with it yet.
+    await panel.getByRole('button', { name: 'Save', exact: true }).click();
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await app.open('plan.pdf');
+    await app.open('sheets.pdf');
+    const offer = app.page.locator('.standard-suggestion');
+    await expect(offer).toContainText('This looks like a Rooms client set: 100% of the sheets checked fit');
+    await offer.getByRole('button', { name: 'Use Rooms client' }).click();
+    await expect(offer).toHaveCount(0);
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
+    // Back to the text alone: the standard is not offered for this set again.
+    await app.cmd('document.drawingStandards');
+    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
+    await expect.poll(() => app.page.evaluate(() => (window.__nb.tools.store as unknown as { declinedStandards(): string[] }).declinedStandards().length)).toBe(1);
+    await panel.getByRole('button', { name: 'Close' }).click();
+    await app.open('plan.pdf');
+    await app.open('sheets.pdf');
+    await expect(offer).toHaveCount(0);
+  });
+
   test('document.labelRegions: typed labels, numbered on', async ({ app }) => {
     await app.cmd('document.labelRegions');
     const panel = app.page.locator('.label-regions');

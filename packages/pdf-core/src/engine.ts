@@ -1,7 +1,7 @@
 import { RENDER_CANCELLED, type AnnotImage, type CopyCheck, type DocumentInfo, type OutlineItem, type RedactReport, type RedactRequest, type RenderResult, type TextObjectInfo, type PageOp, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 type Success = Extract<WorkerResponse, { ok: true }>;
-type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void };
+type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void; onProgress?: (done: number, total: number) => void };
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
 /** Promise-based client for the PDFium render worker. */
@@ -16,6 +16,10 @@ export class PdfEngine {
       const msg = e.data;
       const p = this.pending.get(msg.id);
       if (!p) return;
+      if (msg.ok && msg.type === 'progress') {
+        p.onProgress?.(msg.done, msg.total);
+        return;
+      }
       this.pending.delete(msg.id);
       if (msg.ok) p.resolve(msg);
       else p.reject(new Error(msg.error));
@@ -84,10 +88,28 @@ export class PdfEngine {
 
   /**
    * Removes what lies inside regions from the pages' content (Redaction, Erase Content). `bytes`
-   * is transferred.
+   * is transferred. `onProgress` hears of each page as it starts; aborting `signal` stops it
+   * between pages and rejects with an AbortError.
    */
-  async redact(bytes: ArrayBuffer, request: RedactRequest): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
-    const res = await this.call({ type: 'redact', bytes, ...request }, [bytes]);
+  async redact(bytes: ArrayBuffer, request: RedactRequest, { signal, onProgress }: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void } = {}): Promise<{ bytes: ArrayBuffer; report: RedactReport }> {
+    if (this.failure) return Promise.reject(this.failure);
+    if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const id = this.nextId++;
+    const done = new Promise<Success>((resolve, reject) => {
+      this.pending.set(id, { resolve, reject, onProgress });
+      this.worker.postMessage({ type: 'redact', bytes, ...request, id }, [bytes]);
+    });
+    const onAbort = () => this.worker.postMessage({ type: 'cancel', id: 0, ids: [id] });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    let res: Success;
+    try {
+      res = await done;
+    } catch (err) {
+      if (signal?.aborted && err instanceof Error && err.message === RENDER_CANCELLED) throw new DOMException('Cancelled', 'AbortError');
+      throw err;
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
     if (res.type !== 'redact') throw new Error('Unexpected response');
     return { bytes: res.bytes, report: res.report };
   }
@@ -191,10 +213,10 @@ export class PdfEngine {
   }
 
   /** @internal */
-  async pageGeometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; ms: number }> {
+  async pageGeometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; paper: Uint8Array; ms: number }> {
     const res = await this.call({ type: 'geometry', docId, pageIndex });
     if (res.type !== 'geometry') throw new Error('Unexpected response');
-    return { segments: res.segments, curves: res.curves, ms: res.ms };
+    return { segments: res.segments, curves: res.curves, paper: res.paper, ms: res.ms };
   }
 
   /** @internal */
@@ -279,7 +301,8 @@ export class PdfDocument {
   /**
    * Vector line work on a page as flat [x1, y1, x2, y2, ...] segments in page space (points,
    * top-left origin, rotation applied). Curves are flattened; `curves` flags (1 per segment) the
-   * segments that came from one. Used for snapping and vector compare.
+   * segments that came from one, and `paper` those of paths that paint nothing on white paper (white
+   * masks under labels, clipping outlines). Used for snapping and vector compare.
    */
   geometry(pageIndex: number) {
     return this.engine.pageGeometry(this.id, pageIndex);

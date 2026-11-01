@@ -1,3 +1,4 @@
+import { disciplineOf, ignoredBy, readSheet, templateRegex, type SheetHints } from './standard.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 /**
@@ -5,7 +6,8 @@ import type { PageText, SheetInfo, Word } from './types.ts';
  * optional separator, then digits with an optional sub-number and suffix letter.
  * Matches C-101, A1.01, S-201, E101, FP-101, M-3, L-1.0, C5.1A.
  */
-const SHEET_NUMBER = /^([A-Z]{1,3})[-.\s]?(\d{1,3})(?:[.-](\d{1,3}))?([A-Z])?$/;
+// Up to four digits: agency and infrastructure sets number sheets C-4000, P-3008.
+const SHEET_NUMBER = /^([A-Z]{1,3})[-.\s]?(\d{1,4})(?:[.-](\d{1,3}))?([A-Z])?$/;
 
 /** US National CAD Standard discipline designators. */
 const DISCIPLINES: [string, string][] = [
@@ -144,20 +146,53 @@ const IDENTIFIER = /^(?=[^\d]*\d)[A-Z0-9][A-Z0-9._/-]{1,59}$/;
 const NOT_IDENTIFIER = [/^\d{1,2}[./-]\d{1,2}[./-]\d{2,4}$/, /^1:\d+$/, /^\d+\+\d+/, /^\d+(\.\d+)?(KM|M|MM|CM|FT|IN|%)$/, /^\d{1,2}$/, /^\d{1,2}:\d{2}$/];
 /** Field labels that sit next to a drawing's own number. */
 const NUMBER_LABEL = /^(DRG|DWG|DRAWING|SHEET|SHT|DOC|DOCUMENT)\.?$/;
+/** "PLAN NO." labels the sheet number on many agency title blocks; "PLAN" alone is a view title. */
+const PLAN_LABEL = /^PLAN$/;
+const NO_LABEL = /^(NO\.?|NUMBER|#)$/;
+/**
+ * Field labels for the other numbers a title block prints: `DRAWING / FILE NO.`, `CONTRACT NO.`,
+ * `PROJECT NO.`, `CAD REF`. A number under one of these is not the sheet's own, and a sheet label
+ * that names one of them on its row (the DRAWING of `DRAWING / FILE NO.`) is one of them.
+ */
+const OTHER_NUMBER_LABEL = /^(FILE|CONTRACT|PROJECT|JOB|CAD|REF|REFERENCE|ORDER|CLIENT|PACKAGE)\.?$/;
+
+const TRAILING = new Set([':', ',', ';', '.']);
 
 function identifier(text: string): string | null {
-  const t = text.trim().toUpperCase().replace(/[:,;.]+$/, '');
+  // Trailing punctuation trimmed by hand: a `[...]+$` regex is slow on long runs.
+  const s = text.trim().toUpperCase();
+  let end = s.length;
+  while (end > 0 && TRAILING.has(s[end - 1]!)) end--;
+  const t = s.slice(0, end);
   if (!IDENTIFIER.test(t) || NOT_IDENTIFIER.some((r) => r.test(t))) return null;
   return t;
 }
 
-function candidatesFor(page: PageText): Candidate[] {
+function candidatesFor(page: PageText, hints?: SheetHints): Candidate[] {
+  const ignored = hints ? ignoredBy(hints, page) : () => false;
+  const pattern = hints?.template ? templateRegex(hints.template) : null;
   const med = median(page.words.map((w) => w.size)) || 1;
-  const labels = page.words.filter((w) => NUMBER_LABEL.test(w.text.toUpperCase()));
+  // The words after a label on its row, up to its "NO.": `DRAWING / FILE NO.` gives `/ FILE NO.`.
+  const rest = (w: Word) => {
+    const after = page.words.filter((n) => n !== w && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 8).sort((a, b) => a.x0 - b.x0);
+    const no = after.findIndex((n) => NO_LABEL.test(n.text.toUpperCase()));
+    return no < 0 ? after.slice(0, 2) : after.slice(0, no + 1);
+  };
+  const sheetLabels: Word[] = [];
+  const otherLabels: Word[] = [];
+  for (const w of page.words) {
+    const t = w.text.toUpperCase();
+    // Only as a field label (`PROJECT NO.`): `PROJECT` or `CLIENT` alone heads a box of names.
+    if (OTHER_NUMBER_LABEL.test(t)) {
+      if (rest(w).some((n) => NO_LABEL.test(n.text.toUpperCase()))) otherLabels.push(w);
+    } else if (NUMBER_LABEL.test(t)) (rest(w).some((n) => OTHER_NUMBER_LABEL.test(n.text.toUpperCase())) ? otherLabels : sheetLabels).push(w);
+    // "PLAN NO." only: the next word on the row must be "NO."
+    else if (PLAN_LABEL.test(t) && page.words.some((n) => NO_LABEL.test(n.text.toUpperCase()) && Math.abs(n.y0 - w.y0) < w.size && n.x0 > w.x1 - 1 && n.x0 - w.x1 < w.size * 2)) sheetLabels.push(w);
+  }
   const out: Candidate[] = [];
   for (const word of page.words) {
     const number = identifier(word.text);
-    if (!number) continue;
+    if (!number || ignored(word)) continue;
     const cx = (word.x0 + word.x1) / 2 / page.width;
     const cy = (word.y0 + word.y1) / 2 / page.height;
     // Title blocks sit bottom-right, along the right edge, or as a strip along the bottom.
@@ -166,15 +201,24 @@ function candidatesFor(page: PageText): Candidate[] {
     if (cx > 0.65 && cy > 0.65) local += 2;
     else if (zone) local += 1;
     if (normalizeSheetNumber(number)) local += disciplineFor(number) ? 1 : 0.5;
-    // A "DRG No." / "SHEET No." label just above or to the left names this field.
+    // A "DRG No." / "SHEET No." label just above or to the left names this field. Where labels
+    // for two fields are both in reach (SHEET NO. beside FILE NO.), the nearer one names it.
     const s = word.size;
-    const labelled = labels.some((l) => {
+    const reach = (l: Word) => {
       const dx = word.x0 - l.x0;
       const dy = word.y0 - l.y0;
-      return (dy > -s * 0.5 && dy < s * 3 && dx > -s * 2 && dx < s * 12) || (Math.abs(dy) < s && dx > 0 && dx < s * 14);
-    });
+      return (dy > -s * 0.5 && dy < s * 3 && dx > -s * 2 && dx < s * 12) || (Math.abs(dy) < s && dx > 0 && dx < s * 14) ? Math.hypot(dx, dy) : Infinity;
+    };
+    const nearest = (ls: Word[]) => Math.min(Infinity, ...ls.map(reach));
+    const toSheet = nearest(sheetLabels);
+    const toOther = nearest(otherLabels);
+    const labelled = toSheet < Infinity && toSheet <= toOther;
     if (labelled) local += 1.5;
-    out.push({ word, number, cx, cy, local, zone, labelled, large: word.size / med >= 1.5 });
+    else if (toOther < Infinity) local -= 1.5;
+    // The client's own numbering scheme names it as surely as a label does.
+    const fits = !!pattern?.test(number);
+    if (fits) local += 3;
+    out.push({ word, number, cx, cy, local, zone, labelled: labelled || fits, large: word.size / med >= 1.5 });
   }
   return out;
 }
@@ -273,8 +317,10 @@ function findScaleText(page: PageText, numberWord: Word): string | null {
  * title blocks sit in the same place on every sheet, so a candidate at a location shared by many
  * pages is far more likely to be the sheet number than a callout that happens to match.
  */
-export function detectSheets(pages: PageText[]): SheetInfo[] {
-  const perPage = pages.map(candidatesFor);
+export function detectSheets(pages: PageText[], hints?: SheetHints): SheetInfo[] {
+  // A drawing standard's title-block boxes read the pages they fit; the rest are worked out below.
+  const read = hints ? pages.map((p) => readSheet(p, hints)) : [];
+  const perPage = pages.map((p) => candidatesFor(p, hints));
   const withText = pages.filter((p) => p.words.length > 0).length || 1;
 
   // Text that appears on most sheets (project name, drawing-set number, status) identifies the
@@ -298,6 +344,22 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
         c.local -= 4;
         c.repeated = true;
       }
+  // A sheet's own number is the one other sheets cite: callouts, match lines and the index all
+  // name it. A drawing-file number printed beside it in the title block (SFPUC's E-35863, a
+  // document-control number) is never cited by a callout, so citation elsewhere breaks the tie.
+  const citedOn = new Map<string, Set<number>>();
+  perPage.forEach((cands, pageIndex) => {
+    for (const c of cands) {
+      if (c.cx > 0.65 && c.cy > 0.65) continue;
+      if (!citedOn.has(c.number)) citedOn.set(c.number, new Set());
+      citedOn.get(c.number)!.add(pageIndex);
+    }
+  });
+  const citations = (c: Candidate, self: number) => {
+    const pagesCiting = citedOn.get(c.number);
+    if (!pagesCiting) return 0;
+    return pagesCiting.size - (pagesCiting.has(self) ? 1 : 0);
+  };
   // Which pages have a candidate in each cell of a coarse grid over normalized page positions.
   const CELL = 0.04;
   const cellKey = (x: number, y: number) => `${x},${y}`;
@@ -318,6 +380,8 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
   };
 
   return pages.map((page, pageIndex) => {
+    const standard = read[pageIndex];
+    if (standard) return standard;
     const empty: SheetInfo = { number: null, title: null, discipline: null, scaleText: null, revision: null, source: 'text', confidence: 0 };
     const cands = perPage[pageIndex]!;
     if (!cands.length) return empty;
@@ -328,7 +392,8 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
       // without a title block (reports, letters, specs) get none, rather than an address or a stage.
       if (c.repeated) continue;
       if (!c.labelled && !(isDrawingNumberShape(c.number) && (c.zone || (c.large && consensus >= 0.5)))) continue;
-      const score = c.local + consensus * 3;
+      const cited = citations(c, pageIndex);
+      const score = c.local + consensus * 3 + (cited >= 2 ? 1.5 : cited === 1 ? 0.75 : 0);
       if (!best || score > best.score) best = { c, score, consensus };
     }
     if (!best) return empty;
@@ -338,7 +403,7 @@ export function detectSheets(pages: PageText[]): SheetInfo[] {
     return {
       number: c.number,
       title: findTitle(page, c.word, repeatedLine),
-      discipline: disciplineFor(c.number),
+      discipline: hints ? disciplineOf(c.number, hints) : disciplineFor(c.number),
       scaleText: findScaleText(page, c.word),
       revision: null,
       source: 'text',
