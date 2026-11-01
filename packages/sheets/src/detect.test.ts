@@ -247,3 +247,10 @@ test('a number under FILE NO., CONTRACT NO. or PROJECT NO. is not the sheet numb
   const headed: PageText = { width: W, height: H, words: [...phrase('PROJECT', 2400, 1660, 7), word('C-101', 2400, 1700, 20)] };
   assert.equal(detectSheets([headed])[0]!.number, 'C-101');
 });
+
+test('a word with a long run of trailing punctuation is read quickly', () => {
+  const started = performance.now();
+  const p: PageText = { width: W, height: H, words: [{ ...word('C-101', 2400, 1700, 28), text: `C-101${','.repeat(100_000)}` }] };
+  assert.equal(detectSheets([p])[0]!.number, 'C-101');
+  assert.ok(performance.now() - started < 500);
+});

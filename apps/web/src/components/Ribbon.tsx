@@ -783,6 +783,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="document.labelRegions" label="Page Labels" />
               </Stack>
               <Stack>
+                <Cmd id="document.drawingStandards" label="Drawing Standards" />
+              </Stack>
+              <Stack>
                 <Cmd id="document.addBookmark" />
               </Stack>
             </Group>

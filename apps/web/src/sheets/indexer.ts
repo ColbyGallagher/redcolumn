@@ -2,7 +2,7 @@ import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
 import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
 import { SheetLookup, type DetectedLink } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
-import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
+import { detectLinks, detectSheets, type PageText, type SheetHints, type SheetInfo } from '@nb/sheets';
 import { findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
 
 export interface IndexProgress {
@@ -337,9 +337,9 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */
-export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
+export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints?: SheetHints) {
   const pages = await pageTexts(bytes, store, onProgress, signal);
-  store.setDetectedSheets(detectSheets(pages).map((info, i) => [i, info] as [number, SheetInfo]));
+  store.setDetectedSheets(detectSheets(pages, hints).map((info, i) => [i, info] as [number, SheetInfo]));
   // Text is cached by now, so `bytes` (already handed to an engine) is not read again.
   await linkFromText(async () => bytes, store, onProgress, signal);
 }
