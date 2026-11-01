@@ -120,8 +120,9 @@ function securityMeta(): Plugin {
 }
 
 /**
- * The landing page (public/home) is its own static site. Vercel serves /home to it (vercel.json);
- * the dev server would otherwise answer /home and /home/ with the app, so send them to its page.
+ * The landing page (public/home) and the help (public/help) are their own static sites. Vercel serves
+ * /home to the landing page (vercel.json) and /help/ to the help's index; the dev server would
+ * otherwise answer /home, /home/ and /help/ with the app, so send them to their pages.
  */
 function landingPage(): Plugin {
   return {
@@ -129,7 +130,8 @@ function landingPage(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
         const [path, query = ''] = (req.url ?? '').split('?');
-        if (path === '/home' || path === '/home/') req.url = `/home/index.html${query ? `?${query}` : ''}`;
+        const page = path === '/home' || path === '/home/' ? '/home/index.html' : path === '/help' || path === '/help/' ? '/help/index.html' : null;
+        if (page) req.url = `${page}${query ? `?${query}` : ''}`;
         next();
       });
     },
