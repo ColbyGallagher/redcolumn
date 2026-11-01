@@ -100,6 +100,7 @@ const DESTRUCTIVE_COMMANDS = new Set([
   'file.closeAll',
   'file.revert',
   'file.importXfdf',
+  'file.importFdf',
   'file.importBax',
   'file.importPdfMarkups',
   'file.save',

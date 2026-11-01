@@ -179,4 +179,4 @@ function demo(name, { setup, play, hold = 1400, viewport = VIEWPORT, zoom }) {
   return fn;
 }
 
-module.exports = { VIEWPORT, WIDE, OPTIONS, prepare, drawing, ribbon, at, select, demo };
+module.exports = { VIEWPORT, WIDE, OPTIONS, prepare, drawing, ribbon, markupTool, menuPath, at, select, demo };
