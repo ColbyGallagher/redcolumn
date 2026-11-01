@@ -95,6 +95,8 @@ test.describe('view', () => {
   });
 
   test('a sheet link previews its target beside the plan: pin, Esc and Open', async ({ app }) => {
+    // Once the opened set has been read (its last step, stitching, is done), so reading it does not replace these.
+    await expect.poll(() => app.page.evaluate(() => (window.__nb.tools as unknown as { store: { stitchDetected(): boolean } }).store.stitchDetected()), { timeout: 30_000 }).toBe(true);
     // A detail link on page 1 to page 3 (as auto-linking finds them).
     await app.page.evaluate(() => {
       const store = (window.__nb.tools as unknown as { store: { setDetectedLinks(l: unknown[]): void } }).store;
