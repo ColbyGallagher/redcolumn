@@ -83,3 +83,16 @@ The core logic is pure, testable code in `packages/sheets`. A new type, `SetHint
 2. **Ranking:** a standard ranks above AI-read sheet info: `text < pdf < ai < standard < manual`.
 3. **Storage:** in the profile on this device, with export and import as `.rcstandard` files. Project-folder defaults come in phase 4.
 4. **#166–#168:** their general parts are folded into these phases. Phase 0 carries #166 and #167 with the fixes, and phase 3 replaces #168. When the replacement PRs open, close each of Miche-pup's PRs with a thank-you comment linking the PR that replaces it. Miche-pup is a co-author on every commit.
+
+## Status (2026-10-31)
+
+| Phase | PR |
+|---|---|
+| 0 | ColbyGallagher/redcolumn#173 |
+| 1 | ColbyGallagher/redcolumn#178 |
+| 2 | ColbyGallagher/redcolumn#179 |
+| 3 | ColbyGallagher/redcolumn#182 (replaces #168) |
+| 4 | ColbyGallagher/redcolumn#183 |
+| 5 | help screenshots, desktop e2e |
+
+Still open: measuring on two or more real sets from one client, and a real OneDrive Project.

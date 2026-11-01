@@ -10,6 +10,8 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 2. Type a **Name**, such as the client or consultant.
 3. Click **+ Draw box** and drag a box around the **sheet number** in the title block. Draw more boxes for the sheet title, the revision and the scale. Choose what each box holds from the list beside it.
    - Use **Ignore (other number)** for a number that is *not* the sheet's, such as a drawing-file or contract number printed beside it.
+
+   ![Boxes on the title block and the Drawing Standards panel](img/drawing-standard.png)
 4. Under **Drawing numbers**, give the **Template** the client uses, or click **Work out from this set**:
 
    | In the template | Means |
@@ -30,6 +32,8 @@ Boxes are kept as a share of the page, so a half-size print of the same sheets r
 ## Sheet links and marks
 
 Open **Sheet links and marks** to tell redcolumn how this client's drawings point at each other. A standard does not need title-block boxes to use these.
+
+![Sheet links and marks](img/drawing-standard-links.png)
 
 | Setting | Use it when |
 |---|---|
@@ -69,7 +73,9 @@ Open the set, choose {{Document > Drawing Standards…}} and pick the standard u
 
 ## Offered when a set opens
 
-When you open a set that isn't read with a standard, redcolumn checks your saved standards against it. If one fits most of the sheets it checks, a bar at the top offers it: *This looks like a WSP set*.
+When you open a set that isn't read with a standard, redcolumn checks your saved standards against it. If one fits most of the sheets it checks, a bar at the top offers it:
+
+![A drawing standard offered for a set](img/drawing-standard-offer.png)
 
 - **Use *name*** reads the set with it.
 - **Not this set** stops it being offered for this set. Choosing **None** for a set does the same.
