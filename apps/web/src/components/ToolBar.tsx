@@ -309,7 +309,7 @@ export type StyleControlsProps = Pick<ToolBarProps, 'tools' | 'state' | 'styleTy
 /**
  * The style of what is being drawn or what is selected (colour, fill, width, line, opacity, hatch,
  * arrows, bubbles, font): shown after the tools on the simplified toolbar, and in the ribbon's
- * Properties group.
+ * contextual Markup Format tab.
  */
 export function StyleControls({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled }: StyleControlsProps) {
   const style = styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
