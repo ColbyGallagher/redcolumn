@@ -176,7 +176,7 @@ test.describe('view', () => {
     // A standard with no title-block boxes: this client's sets only need its marks.
     await app.cmd('document.drawingStandards');
     const standard = app.page.locator('.drawing-standard');
-    await standard.getByLabel('Name').fill('Bubble client');
+    await standard.getByLabel('Name', { exact: true }).fill('Bubble client');
     await standard.getByRole('button', { name: 'Save and use' }).click();
     await expect(standard.getByLabel('Drawing standard for this document')).not.toHaveValue('');
     await standard.locator('summary', { hasText: 'Sheet links and marks' }).click();
@@ -207,6 +207,26 @@ test.describe('view', () => {
     await standard.getByLabel('Drawing standard for this document').selectOption('');
     await expect.poll(searched).toBe(0);
     await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
+  });
+
+  test('chainage links: to the cross section at a station, else the plan that covers it; kept once a drawing standard says how', async ({ app }) => {
+    await app.open('chainage.pdf');
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('chainage.pdf');
+    const chainage = () =>
+      app.page.evaluate(() =>
+        (window.__nb.tools as unknown as { store: { allLinks(): { kind: string; label: string; pageIndex: number; targetPage: number; status: string }[] } }).store
+          .allLinks()
+          .filter((l) => l.kind === 'chainage')
+          .map((l) => `${l.pageIndex + 1}:${l.label}>${l.targetPage + 1}:${l.status}`)
+          .sort(),
+      );
+    // Without a standard: the sheets' titles say plan and cross sections, and every link waits for review.
+    await expect.poll(chainage).toEqual(['1:12+00>2:review', '1:13+00>2:review', '2:STA 12+00>1:review', '2:STA 13+00>1:review', '3:STA 14+50>1:review']);
+    await app.cmd('document.drawingStandards');
+    const standard = app.page.locator('.drawing-standard');
+    await standard.getByLabel('Name', { exact: true }).fill('Road client');
+    await standard.getByRole('button', { name: 'Save and use' }).click();
+    await expect.poll(chainage).toEqual(['1:12+00>2:auto', '1:13+00>2:auto', '2:STA 12+00>1:auto', '2:STA 13+00>1:auto', '3:STA 14+50>1:auto']);
   });
 
   test('next and previous document', async ({ app }) => {

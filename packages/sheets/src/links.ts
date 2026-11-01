@@ -11,10 +11,10 @@ export interface Rect {
 
 /**
  * What a reference points at, read from the drawings. Kinds are added as something detects them
- * (chainage links come with drawing standards); a saved kind this build does not know imports as
+ * (chainage: chainage.ts); a saved kind this build does not know imports as
  * a detail or sheet link (see import.ts).
  */
-export type LinkKind = 'detail' | 'section' | 'elevation' | 'enlargedPlan' | 'sheet' | 'matchline';
+export type LinkKind = 'detail' | 'section' | 'elevation' | 'enlargedPlan' | 'sheet' | 'matchline' | 'chainage';
 
 /** How each kind reads in lists and tool results. */
 export const LINK_KINDS: Record<LinkKind, string> = {
@@ -24,6 +24,7 @@ export const LINK_KINDS: Record<LinkKind, string> = {
   enlargedPlan: 'Enlarged plan',
   sheet: 'Sheet',
   matchline: 'Match line',
+  chainage: 'Chainage',
 };
 
 export function isLinkKind(value: unknown): value is LinkKind {

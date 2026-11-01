@@ -1,4 +1,5 @@
 import { disciplineFor, isDrawingNumberShape, normalizeSheetNumber } from './detect.ts';
+import type { ChainageHints } from './chainage.ts';
 import type { LinkHints } from './links.ts';
 import { textInRegion, type Region } from './regions.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
@@ -54,6 +55,7 @@ export const NO_SHEET_HINTS: SheetHints = { boxes: [], template: null, disciplin
 export interface SetHints {
   sheets: SheetHints;
   links: LinkHints;
+  chainage: ChainageHints;
 }
 
 /** A box drawn on a page, as a title-block box of that page. */

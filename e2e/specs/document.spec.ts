@@ -441,7 +441,7 @@ test.describe('page labels and scales from regions', () => {
     await app.cmd('document.drawingStandards');
     const panel = app.page.locator('.drawing-standard');
     await expect(panel).toBeVisible();
-    await panel.getByLabel('Name').fill('Rooms client');
+    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
     await drawBox(app, S.labelBox);
     await expect(panel.locator('.lr-text').first()).toHaveText(S.labels[0]!);
     await expect(panel.getByLabel('Box 1 holds')).toHaveValue('number');

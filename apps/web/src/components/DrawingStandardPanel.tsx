@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { TITLE_FIELDS, boxFromRegion, deriveTemplate, numberParts, readSheet, regionOfBox, standardCoverage, textInRegion, type LinkHints, type PageText, type Region, type SheetHints, type TitleField } from '@nb/sheets';
+import { TITLE_FIELDS, boxFromRegion, deriveTemplate, numberParts, readSheet, regionOfBox, standardCoverage, textInRegion, type ChainageHints, type LinkHints, type PageText, type Region, type SheetHints, type TitleField } from '@nb/sheets';
 import { rangeText } from '../measure/scalePresets';
 import { MARK_KINDS } from '../sheets/marks';
 import { newStandard, withDefaults, type DrawingStandard } from '../sheets/standards';
@@ -47,6 +47,18 @@ const listOf = (text: string) =>
     .map((w) => w.trim())
     .filter(Boolean);
 
+/** The chainage settings as typed: comma-separated lists. */
+type ChainLists = Record<keyof ChainageHints, string>;
+
+const chainListsOf = (c: ChainageHints): ChainLists => ({ prefixes: c.prefixes.join(', '), alignments: c.alignments.join(', '), planTitles: c.planTitles.join(', '), sectionTitles: c.sectionTitles.join(', ') });
+
+const CHAIN_LABELS: [keyof ChainageHints, string, string][] = [
+  ['alignments', 'Alignment names', 'MC01, RAMP A (empty: one alignment)'],
+  ['prefixes', 'Written before a chainage', 'STA, CH'],
+  ['planTitles', 'Plan sheet titles', 'PLAN AND LONGITUDINAL SECTION'],
+  ['sectionTitles', 'Cross-section sheet titles', 'CROSS SECTIONS'],
+];
+
 const LIST_LABELS: [keyof Lists, string, string][] = [
   ['ids', 'Identifiers', 'Usual: 3, A, 3A, A-A, AA'],
   ['section', 'Section titles', 'SECTION'],
@@ -75,6 +87,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
   const [editing, setEditing] = useState<string>(current ?? standards[0]?.id ?? NEW);
   const [draft, setDraft] = useState<DrawingStandard>(() => standards.find((s) => s.id === editing) ?? newStandard('New standard'));
   const [lists, setLists] = useState<Lists>(() => listsOf(draft.links));
+  const [chainLists, setChainLists] = useState<ChainLists>(() => chainListsOf(draft.chainage));
   const [chosen, setChosen] = useState<TitleField[]>(() => draft.sheets.boxes.map((b) => b.field));
   const [message, setMessage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -87,6 +100,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
     const s = standards.find((x) => x.id === editing) ?? newStandard('New standard');
     setDraft(s);
     setLists(listsOf(s.links));
+    setChainLists(chainListsOf(s.chainage));
     setChosen(s.sheets.boxes.map((b) => b.field));
     setMessage(null);
     onChange(s.sheets.boxes.map((b) => regionOfBox(b, pageSize)));
@@ -120,6 +134,10 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
     if (key === 'ids') setLinks({ ids: list.length ? list : null });
     else if (key === 'matchLine') setLinks({ matchLine: list });
     else setLinks({ titles: { ...draft.links.titles, [key]: list } });
+  };
+  const setChainList = (key: keyof ChainageHints, text: string) => {
+    setChainLists((l) => ({ ...l, [key]: text }));
+    setDraft((d) => ({ ...d, chainage: { ...d.chainage, [key]: listOf(text) } }));
   };
   const finished = (): DrawingStandard => ({ ...draft, name: draft.name.trim() || 'Drawing standard', sheets: hints, marks, updatedAt: Date.now() });
   const save = () => {
@@ -318,6 +336,14 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
           </label>
         ))}
         <p className="hint">Separate words with commas. Identifiers use # for a digit and @ for a letter: @@ for AA, @# for A1.</p>
+        <h4 className="ds-section">Alignments and chainage</h4>
+        {CHAIN_LABELS.map(([key, label, placeholder]) => (
+          <label key={key} className="ds-field">
+            {label}
+            <input className="lr-typed" value={chainLists[key]} placeholder={placeholder} onChange={(e) => setChainList(key, e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+          </label>
+        ))}
+        <p className="hint">Chainages such as 12+00, 1+250.000 or CH 1250 link to the cross section drawn there, else to the plan sheet that covers them.</p>
         {saved && (
           <>
             <h4 className="ds-section">Marks ({marks.length})</h4>

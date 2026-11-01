@@ -42,6 +42,23 @@ Open **Sheet links and marks** to tell redcolumn how this client's drawings poin
 
 If you already taught marks for every set, **Move *n* marks for every set here** gives them to this standard.
 
+## Alignments and chainage
+
+On roads, rail and pipelines, drawings refer to places by **chainage** (station): *12+00*, *1+250.000* or *CH 1250*. redcolumn links each chainage to the **cross section** drawn at it, or else to the **plan sheet** that covers it. On a plan, a chainage with a cross section links to that cross section.
+
+Under **Alignments and chainage**:
+
+| Setting | What to type |
+|---|---|
+| **Alignment names** | The names the drawings print, such as `MC01, RAMP A`. Each chainage belongs to the alignment named on its row or close by, so a ramp's 12+00 never links to the mainline's. Leave it empty for a single alignment. |
+| **Written before a chainage** | The prefixes the client uses, such as `STA, CH`. |
+| **Plan sheet titles** | Words in the titles of the sheets that cover a stretch, such as `PLAN AND LONGITUDINAL SECTION`. |
+| **Cross-section sheet titles** | Words in the titles of cross-section sheets, such as `CROSS SECTIONS`. |
+
+Each plan covers the run of chainages printed on it. A chainage written somewhere else on the sheet, far from that run, does not stretch it.
+
+Without a drawing standard, redcolumn still looks for chainages on sheets titled *Plan and Profile* and *Cross Sections*, but the links wait under **Needs review** in the [Links tab](#links).
+
 ## Use a standard on a set
 
 Open the set, choose {{Document > Drawing Standards…}} and pick the standard under **This document**. The sheets are read again straight away and their links are found again.

@@ -1,4 +1,4 @@
-import { DEFAULT_LINK_HINTS, NO_SHEET_HINTS, TITLE_FIELDS, type LinkHints, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
+import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, NO_SHEET_HINTS, TITLE_FIELDS, type ChainageHints, type LinkHints, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
 import { MARK_KINDS, type MarkKind, type MarkWord, type TaughtMark } from './marks';
 
 /**
@@ -15,18 +15,20 @@ export interface DrawingStandard {
   updatedAt: number;
   sheets: SheetHints;
   links: LinkHints;
+  /** Linear work: chainage prefixes, alignment names, and which sheets are plans and which cross sections. */
+  chainage: ChainageHints;
   /** Section marks, titles and detail callouts taught for this client only (marks taught for every set stay in the profile). */
   marks: TaughtMark[];
 }
 
 export function newStandard(name: string): DrawingStandard {
   const now = Date.now();
-  return { id: crypto.randomUUID(), name, notes: '', createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} }, links: structuredClone(DEFAULT_LINK_HINTS), marks: [] };
+  return { id: crypto.randomUUID(), name, notes: '', createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} }, links: structuredClone(DEFAULT_LINK_HINTS), chainage: structuredClone(DEFAULT_CHAINAGE_HINTS), marks: [] };
 }
 
-/** A standard saved before it held links and marks, with the defaults for them. */
+/** A standard saved before it held links, chainage and marks, with the defaults for them. */
 export function withDefaults(s: DrawingStandard): DrawingStandard {
-  return s.links && s.marks ? s : { ...s, links: s.links ?? structuredClone(DEFAULT_LINK_HINTS), marks: s.marks ?? [] };
+  return s.links && s.chainage && s.marks ? s : { ...s, links: s.links ?? structuredClone(DEFAULT_LINK_HINTS), chainage: s.chainage ?? structuredClone(DEFAULT_CHAINAGE_HINTS), marks: s.marks ?? [] };
 }
 
 /**
@@ -34,8 +36,8 @@ export function withDefaults(s: DrawingStandard): DrawingStandard {
  * so it is read again once the standard changes.
  */
 export function standardHash(s: DrawingStandard): string {
-  const { sheets, links, marks } = withDefaults(s);
-  const text = JSON.stringify({ sheets, links, marks: marks.map((m) => m.id) });
+  const { sheets, links, chainage, marks } = withDefaults(s);
+  const text = JSON.stringify({ sheets, links, chainage, marks: marks.map((m) => m.id) });
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -110,6 +112,12 @@ function parseLinks(v: unknown): LinkHints {
   };
 }
 
+function parseChainage(v: unknown): ChainageHints {
+  if (v === undefined) return structuredClone(DEFAULT_CHAINAGE_HINTS);
+  if (!isObject(v)) fail('the chainage settings are missing');
+  return { prefixes: words(v.prefixes, 'chainage prefixes'), alignments: words(v.alignments, 'alignment names'), planTitles: words(v.planTitles, 'plan titles'), sectionTitles: words(v.sectionTitles, 'cross-section titles') };
+}
+
 function parseMark(v: unknown): TaughtMark {
   if (!isObject(v) || typeof v.kind !== 'string' || !Object.hasOwn(MARK_KINDS, v.kind)) fail('a taught mark has no kind');
   if (!Array.isArray(v.lines) || v.lines.length > MAX_MARK_LINES || v.lines.length % 4) fail('a taught mark has too much line work');
@@ -175,6 +183,7 @@ export function parseStandardFile(content: string): DrawingStandard {
     updatedAt: updated,
     sheets: { boxes, template: template?.trim() || null, disciplinePart: part(sheets.disciplinePart, 'the discipline part'), disciplines },
     links: parseLinks(s.links),
+    chainage: parseChainage(s.chainage),
     marks: ((s.marks as unknown[] | undefined) ?? []).map(parseMark),
   };
 }
