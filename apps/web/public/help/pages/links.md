@@ -52,7 +52,7 @@ For **Chainage**, box the chainage on a cross section with the word in front of 
 
 Chainage needs two things first, and the panel says how to get them: a [drawing standard](#drawing-standards) to keep what you teach, and the sheet titles, which tell plans from cross sections. Give the standard a box for the sheet title (choose **Sheet title** for it) and click **Save and use**; if the standard has the box but the set has not been read with it, click **Read sheets with *standard***.
 
-A chainage on a cross section links to the plan that covers it, never to another cross section at the same chainage (often on another road).
+A chainage on a cross section links to the plan that covers it, never to another cross section at the same chainage (often on another road). On the plan, each chainage with a cross section drawn at it links to that cross section. When the client has more than one alignment, name the road in the cross-section sheets' titles (or have the standard read titles that do), so these links are kept; otherwise they wait under **Needs review**.
 
 When the document is read with a [drawing standard](#drawing-standards), what you teach is kept in the standard, so it is used on every set from that client.
 

@@ -208,3 +208,25 @@ test('cross sections link to the plan, never to another cross section at the sam
   // With no plan covering it, a cross section's chainage is not linked at all.
   assert.deepEqual(pairs(detectChainageLinks([one, two], sheets.slice(1), hints, true), numbers.slice(1)), []);
 });
+
+test("a plan's bare ticks link to the cross sections drawn there, though the cross sections print other strings' names", () => {
+  const numbers = ['RW-DRG-000102', 'RW-DRG-000301'];
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, alignments: ['MCN1', 'MCR3'], planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const plan = page([word('MCN1', 300, 200, 14), ...[100860, 100880, 100900, 100920, 100940].map((v, i) => upright(String(v), 600 + i * 160, 900, 10))]);
+  // Each cross section names the strings it cuts (MCR3 and MCN1 among them) above it.
+  const strings = (x: number) => ['ESR0', 'LER0', 'MCR3', 'LANI', 'MCN1', 'L3N0'].map((t, i) => upright(t, x + i * 40, 300, 6));
+  const sections = page([...strings(500), ...phrase('CHAINAGE 100880', 800, 900, 10), ...strings(1500), ...phrase('CHAINAGE 100900', 1800, 900, 10)]);
+  const read = (title: string) => pairs(detectChainageLinks([plan, sections], [sheet(numbers[0]!, 'MCN1 ROADWORKS PLAN SHEET 1'), sheet(numbers[1]!, title)], hints, true), numbers);
+  // The title names the road: linked both ways.
+  assert.deepEqual(read('MCN1 CROSS SECTIONS SHEET 1'), [
+    ['RW-DRG-000102', '100880', 'RW-DRG-000301', 0.85],
+    ['RW-DRG-000102', '100900', 'RW-DRG-000301', 0.85],
+    ['RW-DRG-000301', 'CHAINAGE 100880', 'RW-DRG-000102', 0.85],
+    ['RW-DRG-000301', 'CHAINAGE 100900', 'RW-DRG-000102', 0.85],
+  ]);
+  // It does not: the same links, waiting for review.
+  assert.deepEqual(
+    read('CROSS SECTIONS SHEET 1').map((p) => p[3]),
+    [0.6, 0.6, 0.6, 0.6],
+  );
+});

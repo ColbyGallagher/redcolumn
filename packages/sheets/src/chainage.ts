@@ -215,14 +215,17 @@ function alignmentNames(page: PageText, names: readonly string[]): { name: strin
 
 /**
  * Gives each chainage its alignment: the name printed on its row before it, else the nearest name
- * close by, else the one the page is mostly about. With no names in the standard every chainage
- * is on the one alignment ('').
+ * close by, else the one the sheet's title names, else the one the page is mostly about. On a cross
+ * section the names close by are the strings it cuts (MCN1, MCR3), not its own alignment, so the
+ * title comes first there. With no names in the standard every chainage is on the one alignment ('').
  */
-function assignAlignments(page: PageText, chainages: Chainage[], names: readonly string[]): string | null {
+function assignAlignments(page: PageText, chainages: Chainage[], names: readonly string[], title: string | null | undefined, section: boolean): string | null {
   if (!names.length) {
     for (const c of chainages) c.alignment = '';
     return '';
   }
+  const titled = title ? names.filter((n) => ` ${upper(title).replace(/\s+/g, ' ')} `.includes(` ${upper(n).replace(/\s+/g, ' ')} `)) : [];
+  const fromTitle = titled.length === 1 ? titled[0]! : null;
   const found = alignmentNames(page, names);
   const counts = new Map<string, number>();
   for (const f of found) counts.set(f.name, (counts.get(f.name) ?? 0) + 1);
@@ -234,9 +237,9 @@ function assignAlignments(page: PageText, chainages: Chainage[], names: readonly
     const s = Math.max(w.size, 4);
     const before = found.filter((f) => Math.abs(f.at.y1 - w.y1) < s * 0.6 && f.at.x0 < w.x0 && w.x0 - f.at.x1 < s * 40).sort((a, b) => b.at.x0 - a.at.x0)[0];
     const near = found.map((f) => ({ f, d: Math.hypot((f.at.x0 + f.at.x1) / 2 - (w.x0 + w.x1) / 2, (f.at.y0 + f.at.y1) / 2 - (w.y0 + w.y1) / 2) })).filter((x) => x.d < s * 15).sort((a, b) => a.d - b.d)[0];
-    c.alignment = before?.name ?? near?.f.name ?? main;
+    c.alignment = before?.name ?? (section ? (fromTitle ?? near?.f.name) : (near?.f.name ?? fromTitle)) ?? main;
   }
-  return main;
+  return main ?? fromTitle;
 }
 
 /** The stretch of an alignment a plan sheet covers: its longest run of chainages, so a far-off note does not stretch it. */
@@ -314,7 +317,7 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
     const list = readChainages(p, hints);
     // A plan's ticks are often bare numbers; elsewhere a bare number is too likely something else.
     if (isPlan[i]) list.push(...readTicks(p, new Set(list.flatMap((c) => c.words))));
-    const main = assignAlignments(p, list, hints.alignments);
+    const main = assignAlignments(p, list, hints.alignments, sheets[i]?.title, isSection[i]!);
     return { list, main };
   });
 
@@ -337,17 +340,19 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
       const known = c.alignment !== null;
       const sameLine = (a: string) => !known || a === c.alignment;
       const conf = fromStandard && known ? STANDARD : UNSURE;
-      const push = (targetPage: number, targetRect: Rect, key: string) => {
+      const push = (targetPage: number, targetRect: Rect, key: string, confidence = conf) => {
         if (seen.has(key)) return;
         seen.add(key);
         const label = c.words.map((w) => trimWord(w.text)).join(' ');
-        links.push({ id: `${pageIndex}:ch:${key}`, pageIndex, rect: rectOf(c.words), label, kind: 'chainage', detail: null, targetPage, targetRect, confidence: conf });
+        links.push({ id: `${pageIndex}:ch:${key}`, pageIndex, rect: rectOf(c.words), label, kind: 'chainage', detail: null, targetPage, targetRect, confidence });
       };
       // 1. The cross section drawn at this chainage; a cross section's own chainage goes to the plan
       // (another cross section at the same value is most likely on another road).
-      const section = isSection[pageIndex] ? undefined : sections.find((s) => s.page !== pageIndex && Math.abs(s.c.value - c.value) < SAME && s.c.alignment !== null && sameLine(s.c.alignment));
+      // One on the same alignment first; else one whose alignment cannot be told, for review.
+      const at = isSection[pageIndex] ? [] : sections.filter((s) => s.page !== pageIndex && Math.abs(s.c.value - c.value) < SAME);
+      const section = at.find((s) => s.c.alignment !== null && sameLine(s.c.alignment)) ?? at.find((s) => s.c.alignment === null);
       if (section) {
-        push(section.page, frame(section.c.words[0]!, 20), `${c.alignment ?? '?'}:${c.value}>${section.page}`);
+        push(section.page, frame(section.c.words[0]!, 20), `${c.alignment ?? '?'}:${c.value}>${section.page}`, section.c.alignment === null ? UNSURE : conf);
         continue;
       }
       // 2. Else the plan that covers it, unless this is that plan.
