@@ -5632,6 +5632,15 @@ select[size] {
   border-top: 0;
 }
 
+.ds-more {
+  margin-top: 12px;
+}
+
+.ds-more > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
 /* Change Colours on a picture: the picture now beside how it will look, on a checkerboard so see-through shows. */
 .modal.picture-colours {
   width: min(1040px, calc(100vw - 32px));

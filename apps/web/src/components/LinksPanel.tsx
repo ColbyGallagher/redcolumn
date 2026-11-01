@@ -15,8 +15,8 @@ interface Props {
   onFollow: (link: StoredLink) => void;
   onStatus: (id: string, status: LinkStatus) => void;
   onRedetect: () => void;
-  /** Section marks, titles and detail callouts taught in this profile. */
-  marks: readonly TaughtMark[];
+  /** Section marks, titles and detail callouts taught in this profile; `standard` names the drawing standard a mark belongs to. */
+  marks: readonly (TaughtMark & { standard?: string })[];
   /** The document takes edits (teaching adds links to review). */
   editable: boolean;
   /** Box an example on the sheet to teach a new mark. */
@@ -114,7 +114,10 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
               <li key={m.id}>
                 <span className="link-row">
                   <span className="num">{m.name}</span>
-                  <span className="name taught-kind">{MARK_KINDS[m.kind]}</span>
+                  <span className="name taught-kind">
+                    {MARK_KINDS[m.kind]}
+                    {m.standard ? ` · ${m.standard}` : ''}
+                  </span>
                 </span>
                 <span className="review-actions">
                   <button className="btn small" title="Forget this mark" aria-label={`Forget ${m.name}`} disabled={busy} onClick={() => onForget(m.id)}>

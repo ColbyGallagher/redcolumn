@@ -165,6 +165,50 @@ test.describe('view', () => {
     await expect(panel.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
   });
 
+  test("a drawing standard's own taught marks are looked for only in sets read with it", async ({ app }) => {
+    const { sheetNumbers, radius: r, callouts } = PLAN.marks;
+    await app.open('marks.pdf');
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
+    await app.page.evaluate((numbers) => {
+      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
+      store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
+    }, sheetNumbers);
+    // A standard with no title-block boxes: this client's sets only need its marks.
+    await app.cmd('document.drawingStandards');
+    const standard = app.page.locator('.drawing-standard');
+    await standard.getByLabel('Name').fill('Bubble client');
+    await standard.getByRole('button', { name: 'Save and use' }).click();
+    await expect(standard.getByLabel('Drawing standard for this document')).not.toHaveValue('');
+    await standard.locator('summary', { hasText: 'Sheet links and marks' }).click();
+    await standard.getByRole('button', { name: 'Teach a mark…' }).click();
+    const [first] = callouts;
+    await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
+    const dialog = app.page.locator('.modal.teach-mark-dialog');
+    await expect(dialog.getByLabel('Sets read with Bubble client')).toBeChecked();
+    await dialog.getByLabel('Detail callout').check();
+    await dialog.getByLabel('Name').fill('Client bubble');
+    await dialog.locator('button[type=submit]').click();
+    await expect(dialog).toHaveCount(0);
+    // Reading the set with the standard already linked these bubbles from their text, so the mark
+    // suggests nothing new here; what matters is that it is looked for in this set.
+    const searched = () => app.page.evaluate(() => (window.__nb.tools as unknown as { store: { marksSearched(): string[] } }).store.marksSearched().length);
+    await expect.poll(searched).toBe(1);
+    const links = app.page.locator('.links');
+    await expect(links.locator('.taught-kind')).toHaveText('Detail callout · Bubble client');
+    await expect(standard.locator('h4', { hasText: 'Marks' })).toHaveText('Marks (1)');
+    // Kept with the standard, not with the marks for every set.
+    const kept = await app.page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: unknown[]; drawingStandards: { name: string; marks: { name: string }[] }[] } }[] };
+      const state = saved.profiles.find((p) => p.id === saved.activeId)!.state;
+      return [state.taughtMarks.length, state.drawingStandards.map((s) => [s.name, s.marks.map((m) => m.name)])];
+    });
+    expect(kept).toEqual([0, [['Bubble client', ['Client bubble']]]]);
+    // Read without the standard, its marks are not looked for.
+    await standard.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(searched).toBe(0);
+    await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
+  });
+
   test('next and previous document', async ({ app }) => {
     await app.open('plan-rev1.pdf');
     const active = async () => (await app.documents()).find((d) => d.active)!.name;

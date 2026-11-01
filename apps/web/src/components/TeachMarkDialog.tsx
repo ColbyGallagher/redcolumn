@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { MARK_KINDS, type MarkKind } from '../sheets/marks';
 
 interface Props {
-  /** Teaches the boxed example; resolves to an error message when it cannot be used. */
-  onTeach: (kind: MarkKind, name: string) => Promise<string | null>;
+  /** The drawing standard the document is read with, if any: a mark can be kept for its sets only. */
+  standard: string | null;
+  /** Teaches the boxed example (for the standard's sets, or every set); resolves to an error message when it cannot be used. */
+  onTeach: (kind: MarkKind, name: string, forStandard: boolean) => Promise<string | null>;
   onCancel: () => void;
 }
 
@@ -11,8 +13,9 @@ interface Props {
  * Links › Teach a Mark: after boxing an example on the sheet, say what kind of mark it is. The
  * example is kept in the profile and every mark like it becomes a link to review.
  */
-export function TeachMarkDialog({ onTeach, onCancel }: Props) {
+export function TeachMarkDialog({ standard, onTeach, onCancel }: Props) {
   const [kind, setKind] = useState<MarkKind>('detailCallout');
+  const [forStandard, setForStandard] = useState(!!standard);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +29,7 @@ export function TeachMarkDialog({ onTeach, onCancel }: Props) {
           e.preventDefault();
           setBusy(true);
           setError(null);
-          void onTeach(kind, name).then((err) => {
+          void onTeach(kind, name, !!standard && forStandard).then((err) => {
             setBusy(false);
             setError(err);
           });
@@ -50,6 +53,19 @@ export function TeachMarkDialog({ onTeach, onCancel }: Props) {
           Name
           <input type="text" value={name} aria-label="Name" placeholder={MARK_KINDS[kind]} onChange={(e) => setName(e.target.value)} />
         </label>
+        {standard && (
+          <fieldset>
+            <legend>Look for it in</legend>
+            <label className="row">
+              <input type="radio" name="scope" checked={forStandard} onChange={() => setForStandard(true)} />
+              Sets read with {standard}
+            </label>
+            <label className="row">
+              <input type="radio" name="scope" checked={!forStandard} onChange={() => setForStandard(false)} />
+              Every set
+            </label>
+          </fieldset>
+        )}
         {error && (
           <p className="teach-error" role="alert">
             {error}

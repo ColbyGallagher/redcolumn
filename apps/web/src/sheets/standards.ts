@@ -1,9 +1,11 @@
-import { NO_SHEET_HINTS, TITLE_FIELDS, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
+import { DEFAULT_LINK_HINTS, NO_SHEET_HINTS, TITLE_FIELDS, type LinkHints, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
+import { MARK_KINDS, type MarkKind, type MarkWord, type TaughtMark } from './marks';
 
 /**
- * A drawing standard: one client's way of drawing (title block, drawing numbers), described once
- * and chosen for every set from that client. Kept in the profile and shared as `.rcstandard` files.
- * Builds on Miche-pup's title-block and link work (#166, #167).
+ * A drawing standard: one client's way of drawing (title block, drawing numbers, the marks and
+ * words its cross-references use), described once and chosen for every set from that client.
+ * Kept in the profile and shared as `.rcstandard` files. Builds on Miche-pup's title-block and
+ * link work (#166, #167).
  */
 export interface DrawingStandard {
   id: string;
@@ -12,11 +14,19 @@ export interface DrawingStandard {
   createdAt: number;
   updatedAt: number;
   sheets: SheetHints;
+  links: LinkHints;
+  /** Section marks, titles and detail callouts taught for this client only (marks taught for every set stay in the profile). */
+  marks: TaughtMark[];
 }
 
 export function newStandard(name: string): DrawingStandard {
   const now = Date.now();
-  return { id: crypto.randomUUID(), name, notes: '', createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} } };
+  return { id: crypto.randomUUID(), name, notes: '', createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} }, links: structuredClone(DEFAULT_LINK_HINTS), marks: [] };
+}
+
+/** A standard saved before it held links and marks, with the defaults for them. */
+export function withDefaults(s: DrawingStandard): DrawingStandard {
+  return s.links && s.marks ? s : { ...s, links: s.links ?? structuredClone(DEFAULT_LINK_HINTS), marks: s.marks ?? [] };
 }
 
 /**
@@ -24,7 +34,8 @@ export function newStandard(name: string): DrawingStandard {
  * so it is read again once the standard changes.
  */
 export function standardHash(s: DrawingStandard): string {
-  const text = JSON.stringify(s.sheets);
+  const { sheets, links, marks } = withDefaults(s);
+  const text = JSON.stringify({ sheets, links, marks: marks.map((m) => m.id) });
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
@@ -33,17 +44,11 @@ export function standardHash(s: DrawingStandard): string {
   return (h >>> 0).toString(36);
 }
 
-/** What a document records about the standard it was read with. */
-export interface DocumentStandard {
-  id: string;
-  hash: string;
-}
-
 const FORMAT = 'redcolumn.drawing-standard';
 const VERSION = 1;
 
 export function exportStandard(s: DrawingStandard): string {
-  return JSON.stringify({ format: FORMAT, version: VERSION, standard: s }, null, 2);
+  return JSON.stringify({ format: FORMAT, version: VERSION, standard: withDefaults(s) }, null, 2);
 }
 
 /** A file name for a standard: its name without characters file systems refuse. */
@@ -51,9 +56,13 @@ export function standardFileName(s: DrawingStandard): string {
   return `${s.name.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'Drawing standard'}.rcstandard`;
 }
 
-const MAX_FILE = 512 * 1024;
+const MAX_FILE = 4 * 1024 * 1024;
 const MAX_BOXES = 50;
 const MAX_DISCIPLINES = 500;
+const MAX_WORDS = 40;
+const MAX_MARKS = 40;
+/** As teachMark allows: more line work than this is more than one mark. */
+const MAX_MARK_LINES = 600 * 4;
 
 function fail(message: string): never {
   throw new Error(`This is not a drawing standard redcolumn can read: ${message}.`);
@@ -69,6 +78,57 @@ const fraction = (v: unknown): number => {
   if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) fail('a title-block box is off the page');
   return v;
 };
+const finite = (v: unknown, what: string): number => {
+  if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > 1e6) fail(`${what} is not a number`);
+  return v;
+};
+const part = (v: unknown, what: string): number | null => {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 30) fail(`${what} is not a part of the number`);
+  return v;
+};
+const words = (v: unknown, what: string): string[] => {
+  if (!Array.isArray(v) || v.length > MAX_WORDS) fail(`${what} are missing`);
+  return v.map((w) => text(w, 60, what).trim()).filter(Boolean);
+};
+const plainId = (v: unknown, what: string): string => {
+  const id = text(v, 100, what);
+  if (!/^[\w-]+$/.test(id)) fail(`${what} is not one redcolumn makes`);
+  return id;
+};
+
+function parseLinks(v: unknown): LinkHints {
+  if (v === undefined) return structuredClone(DEFAULT_LINK_HINTS);
+  if (!isObject(v)) fail('the link words are missing');
+  const titles = v.titles;
+  if (!isObject(titles)) fail('the title words are missing');
+  return {
+    ids: v.ids === null ? null : words(v.ids, 'the identifier forms'),
+    titles: { section: words(titles.section, 'section words'), elevation: words(titles.elevation, 'elevation words'), enlargedPlan: words(titles.enlargedPlan, 'enlarged plan words') },
+    matchLine: words(v.matchLine, 'match line words'),
+    calloutPart: part(v.calloutPart, 'the part callouts cite'),
+  };
+}
+
+function parseMark(v: unknown): TaughtMark {
+  if (!isObject(v) || typeof v.kind !== 'string' || !Object.hasOwn(MARK_KINDS, v.kind)) fail('a taught mark has no kind');
+  if (!Array.isArray(v.lines) || v.lines.length > MAX_MARK_LINES || v.lines.length % 4) fail('a taught mark has too much line work');
+  if (!Array.isArray(v.words) || v.words.length > MAX_WORDS) fail("a taught mark's label is missing");
+  const markWords: MarkWord[] = v.words.map((w: unknown) => {
+    if (!isObject(w) || (w.role !== 'detail' && w.role !== 'sheet' && w.role !== 'text')) fail("a taught mark's label is missing");
+    return { role: w.role, text: text(w.text, 100, "a taught mark's label"), x: finite(w.x, 'a label position'), y: finite(w.y, 'a label position'), size: finite(w.size, 'a label size') };
+  });
+  return {
+    id: plainId(v.id, "a taught mark's id"),
+    kind: v.kind as MarkKind,
+    name: text(v.name, 200, "a taught mark's name"),
+    createdAt: finite(v.createdAt, 'a date'),
+    w: finite(v.w, "a taught mark's size"),
+    h: finite(v.h, "a taught mark's size"),
+    lines: v.lines.map((n: unknown) => finite(n, 'line work')),
+    words: markWords,
+  };
+}
 
 /**
  * Reads a `.rcstandard` file. Shared files come from other people, so every field is checked
@@ -96,8 +156,6 @@ export function parseStandardFile(content: string): DrawingStandard {
     return box;
   });
   const template = sheets.template === null ? null : text(sheets.template, 200, 'the drawing-number template');
-  const part = sheets.disciplinePart;
-  if (part !== null && (typeof part !== 'number' || !Number.isInteger(part) || part < 0 || part > 30)) fail('the discipline part is not a part of the number');
   if (!isObject(sheets.disciplines) || Object.keys(sheets.disciplines).length > MAX_DISCIPLINES) fail('the discipline names are missing');
   // Built as own properties: a code named `__proto__` stays a code.
   const disciplines: Record<string, string> = Object.fromEntries(
@@ -106,16 +164,17 @@ export function parseStandardFile(content: string): DrawingStandard {
       return [code, text(name, 100, 'a discipline name')];
     }),
   );
+  if (s.marks !== undefined && (!Array.isArray(s.marks) || s.marks.length > MAX_MARKS)) fail('the taught marks are missing');
   const created = typeof s.createdAt === 'number' && Number.isFinite(s.createdAt) ? s.createdAt : Date.now();
   const updated = typeof s.updatedAt === 'number' && Number.isFinite(s.updatedAt) ? s.updatedAt : created;
-  const id = text(s.id, 100, 'its id');
-  if (!/^[\w-]+$/.test(id)) fail('its id is not one redcolumn makes');
   return {
-    id,
+    id: plainId(s.id, 'its id'),
     name: text(s.name, 200, 'its name').trim() || 'Drawing standard',
     notes: s.notes === undefined ? '' : text(s.notes, 5000, 'its notes'),
     createdAt: created,
     updatedAt: updated,
-    sheets: { boxes, template: template?.trim() || null, disciplinePart: part as number | null, disciplines },
+    sheets: { boxes, template: template?.trim() || null, disciplinePart: part(sheets.disciplinePart, 'the discipline part'), disciplines },
+    links: parseLinks(s.links),
+    marks: ((s.marks as unknown[] | undefined) ?? []).map(parseMark),
   };
 }

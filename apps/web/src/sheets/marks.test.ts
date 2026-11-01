@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { detectLinks, type Word } from '@nb/sheets';
+import { DEFAULT_LINK_HINTS, detectLinks, type Word } from '@nb/sheets';
 import { findMarks, sectionFrame, teachMark, type MarkPage } from './marks.ts';
 
 const word = (text: string, cx: number, cy: number, size = 6): Word => {
@@ -227,4 +227,32 @@ test('a section title with no underline, and a detail callout with the same lett
   const t = teachMark(sheet, { x: 450, y: 190, w: 90, h: 20 }, 'sectionTitle', '', numbers);
   const links = findMarks([sheet], numbers, [c, t]);
   assert.ok(!links.some((l) => l.rect.y < 400), JSON.stringify(links));
+});
+
+test("a drawing standard's identifiers and callout part reach marks its usual reading misses", () => {
+  // The client labels details DT1, DT2 and its callouts cite the middle part of P-501-A.
+  const numbers = ['P-101-A', 'P-501-A'];
+  const plan = page(bubble(100, 100, 'DT3', '501'), bubble(400, 300, 'DT7', '501'));
+  const pages = [plan, page()];
+  const hints = { ...DEFAULT_LINK_HINTS, ids: ['@@#'], calloutPart: 1 };
+  const mark = teachMark(plan, box(100, 100), 'detailCallout', '', numbers, hints);
+  assert.deepEqual(
+    mark.words.map((w) => [w.role, w.text]),
+    [
+      ['detail', 'DT3'],
+      ['sheet', '501'],
+    ],
+  );
+  assert.deepEqual(
+    findMarks(pages, numbers, [mark], hints).map((l) => [l.label, l.targetPage]),
+    [
+      ['DT3/501', 1],
+      ['DT7/501', 1],
+    ],
+  );
+  // Without the standard, 501 names no sheet in the set.
+  assert.deepEqual(
+    findMarks(pages, numbers, [mark]).map((l) => l.targetPage),
+    [],
+  );
 });

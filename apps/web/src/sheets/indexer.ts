@@ -1,8 +1,8 @@
 import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
 import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
-import { SheetLookup, type DetectedLink } from '@nb/sheets';
+import { DEFAULT_LINK_HINTS, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
-import { detectLinks, detectSheets, type PageText, type SheetHints, type SheetInfo } from '@nb/sheets';
+import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
 import { findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
 
 export interface IndexProgress {
@@ -113,11 +113,11 @@ export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffe
  * `bytes` must return a fresh buffer on each call (engines take ownership of what they are given);
  * it is only called when this file's text is not already cached.
  */
-export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
+export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints: LinkHints = DEFAULT_LINK_HINTS) {
   const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   onProgress({ phase: 'links', done: 0, total: 1 });
   const sheets = store.allSheets();
-  store.setDetectedLinks(detectLinks(pages, pages.map((_, i) => sheets[i]?.number ?? null)));
+  store.setDetectedLinks(detectLinks(pages, pages.map((_, i) => sheets[i]?.number ?? null), hints));
 }
 
 /**
@@ -125,26 +125,27 @@ export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: Mar
  * every match in the Links tab's Needs review list. Line work is read one page at a time, and only
  * for pages whose text could hold a mark's label. `bytes` must return a fresh buffer on each call.
  */
-export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, marks: readonly TaughtMark[], onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
+export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, marks: readonly TaughtMark[], onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints: LinkHints = DEFAULT_LINK_HINTS) {
   const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   const sheets = store.allSheets();
   const numbers = pages.map((_, i) => sheets[i]?.number ?? null);
-  const lookup = new SheetLookup(numbers);
+  const lookup = new SheetLookup(numbers, hints.calloutPart);
+  const isId = idTest(hints);
   const hits: MarkHit[] = [];
-  const wanted = marks.length ? pages.flatMap((p, i) => (mayHoldMarks(p, lookup, marks) ? [i] : [])) : [];
+  const wanted = marks.length ? pages.flatMap((p, i) => (mayHoldMarks(p, lookup, marks, isId) ? [i] : [])) : [];
   const shapes = marks.some((m) => m.lines.length >= 8);
   const search = async (doc: PdfDocument | null) => {
     let done = 0;
     for (const i of wanted) {
       signal?.throwIfAborted();
       const segments = doc ? (await doc.geometry(i)).segments : new Float32Array();
-      hits.push(...findMarksOnPage({ ...pages[i]!, segments }, i, lookup, marks));
+      hits.push(...findMarksOnPage({ ...pages[i]!, segments }, i, lookup, marks, isId));
       onProgress({ phase: 'marks', done: ++done, total: wanted.length });
     }
   };
   if (wanted.length && shapes) await withBackgroundDoc(await bytes(), search);
   else await search(null);
-  store.setMarkLinks(marksToLinks(pages, numbers, hits), marks.map((m) => m.id));
+  store.setMarkLinks(marksToLinks(pages, numbers, hits, hints.calloutPart), marks.map((m) => m.id));
 }
 
 /**
@@ -337,9 +338,9 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */
-export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints?: SheetHints) {
+export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
   const pages = await pageTexts(bytes, store, onProgress, signal);
-  store.setDetectedSheets(detectSheets(pages, hints).map((info, i) => [i, info] as [number, SheetInfo]));
+  store.setDetectedSheets(detectSheets(pages, standard?.sheets).map((info, i) => [i, info] as [number, SheetInfo]));
   // Text is cached by now, so `bytes` (already handed to an engine) is not read again.
-  await linkFromText(async () => bytes, store, onProgress, signal);
+  await linkFromText(async () => bytes, store, onProgress, signal, standard?.links);
 }
