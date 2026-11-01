@@ -1,4 +1,4 @@
-# Exchange markups (XFDF, BAX, PDF)
+# Exchange markups (XFDF, FDF, BAX, PDF)
 
 Send just your **markups** to someone who has the same drawing, or bring in their markups, without passing whole PDFs around.
 
@@ -13,6 +13,7 @@ Choose from {{File > Export}}:
 | **PDF with markups** | The PDF with markups (the same as [Save](#save)). |
 | **Markups CSV** | A spreadsheet table of the markups. |
 | **Markups as XFDF…** | An XFDF file: the standard markup file that Adobe Acrobat and most PDF programs can import. |
+| **Markups as FDF…** | An FDF file, the markup file that Bluebeam® Revu® and Adobe Acrobat export and import. Replies go with it. |
 | **Markups as Bluebeam BAX…** | A BAX file that Bluebeam® Revu® can import. |
 | **Markup Summary…** | A report. See [Markup Summary](#summary). |
 
@@ -24,6 +25,7 @@ Choose from {{File > Export}}:
    ![File, Import](img/menu-import.png)
 
    - **Markups from XFDF…** — an `.xfdf` file.
+   - **Markups from FDF…** — an `.fdf` file from Bluebeam Revu or Acrobat. Annotations that cannot become a markup (a stamp's drawing) are listed rather than dropped silently.
    - **Markups from Bluebeam BAX…** — a `.bax` file from Bluebeam Revu.
    - **Markups from Another PDF…** — a marked-up copy of the same PDF. Its markups are copied onto yours.
 3. Pick the file and click **Open**.
