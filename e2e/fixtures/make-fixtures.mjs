@@ -10,7 +10,7 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const W = 1224; // 17 x 11 in
@@ -64,6 +64,16 @@ const expected = {
    * identifier above the line and the sheet it points at below, and a grid bubble of the same
    * size with no sheet number. The second is the sheet the callouts point at.
    */
+  /**
+   * rotated.pdf: sheets turned by /Rotate, as CAD exports often are, with their text drawn so it
+   * reads normally on screen. Positions are on the page as shown (top-left, y down).
+   */
+  rotated: {
+    pages: [
+      { rotate: 180, text: 'STAGE 2 SHEET C-101', x: 100, y: 200 },
+      { rotate: 90, text: 'TYPICAL CROSS SECTIONS', x: 100, y: 200 },
+    ],
+  },
   marks: {
     sheetNumbers: ['A-101', 'A-501'],
     radius: 16,
@@ -192,6 +202,25 @@ async function chainage() {
   for (let v = ticks.from, i = 0; v <= ticks.to; v += ticks.step, i++) text(pages[0], `${Math.floor(v / 100)}+${String(v % 100).padStart(2, '0')}`, ticks.x + i * ticks.dx, ticks.y);
   for (const s of sections) text(pages[1], s.label, s.x, s.y);
   text(pages[2], note.text, note.x, note.y);
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Sheets turned by /Rotate whose text reads normally on screen (see expected.rotated). */
+async function rotated() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E rotated');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const { rotate, text, x, y } of expected.rotated.pages) {
+    const p = doc.addPage([W, H]);
+    p.setRotation(degrees(rotate));
+    // Where a point on the page as shown sits on the unrotated page, and which way text must run there.
+    if (rotate === 180) p.drawText(text, { x: W - x, y, size: 20, font, color: black, rotate: degrees(180) });
+    else p.drawText(text, { x: y, y: x, size: 20, font, color: black, rotate: degrees(90) });
+  }
   return doc.save({ useObjectStreams: false });
 }
 
@@ -394,8 +423,9 @@ writeFileSync(join(here, 'sheets.pdf'), await sheets());
 writeFileSync(join(here, 'forms.pdf'), await forms());
 writeFileSync(join(here, 'marks.pdf'), await marks());
 writeFileSync(join(here, 'chainage.pdf'), await chainage());
+writeFileSync(join(here, 'rotated.pdf'), await rotated());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, rotated.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
