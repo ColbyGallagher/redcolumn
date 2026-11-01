@@ -6,7 +6,7 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 
 ## Make a standard
 
-1. Open a set from the client and choose {{Document > Drawing Standards…}}.
+1. Open a set from the client and choose {{Document > Drawing Standards…}}, or click **Drawing Standards** on the ribbon's Document tab.
 2. Type a **Name**, such as the client or consultant.
 3. Click **+ Draw box** and drag a box around the **sheet number** in the title block. Draw more boxes for the sheet title, the revision and the scale. Choose what each box holds from the list beside it.
    - Use **Ignore (other number)** for a number that is *not* the sheet's, such as a drawing-file or contract number printed beside it.
