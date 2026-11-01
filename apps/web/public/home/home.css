@@ -203,6 +203,40 @@ section.wrap {
   margin: 0;
   color: var(--muted);
 }
+.grid.cards li {
+  position: relative;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.grid.cards li:hover,
+.grid.cards li:focus-within {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.grid.cards h3 a {
+  color: var(--text);
+  text-decoration: none;
+}
+.grid.cards h3 a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+}
+.grid.cards h3 a:focus-visible {
+  outline: none;
+}
+.grid.cards li:has(a:focus-visible) {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid.cards li {
+    transition: none;
+  }
+  .grid.cards li:hover {
+    transform: none;
+  }
+}
 .grid.compact {
   margin-top: 40px;
 }
