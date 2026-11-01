@@ -3,7 +3,7 @@ import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, i
 import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
-import { findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
+import { findMarksOnPage, inked, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
 
 export interface IndexProgress {
   phase: 'annotations' | 'text' | 'links' | 'marks' | 'stitch';
@@ -148,7 +148,8 @@ export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: Ma
     let done = 0;
     for (const i of wanted) {
       signal?.throwIfAborted();
-      const segments = doc ? (await doc.geometry(i)).segments : new Float32Array();
+      const geometry = doc ? await doc.geometry(i) : null;
+      const segments = geometry ? inked(geometry.segments, geometry.paper) : new Float32Array();
       hits.push(...findMarksOnPage({ ...pages[i]!, segments }, i, lookup, marks, isId));
       onProgress({ phase: 'marks', done: ++done, total: wanted.length });
     }

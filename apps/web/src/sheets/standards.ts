@@ -175,7 +175,8 @@ export function parseStandardFile(content: string): DrawingStandard {
   if (!Array.isArray(sheets.boxes) || sheets.boxes.length > MAX_BOXES) fail('the title-block boxes are missing');
   const boxes: TitleBox[] = sheets.boxes.map((b: unknown) => {
     if (!isObject(b) || typeof b.field !== 'string' || !Object.hasOwn(TITLE_FIELDS, b.field)) fail('a title-block box has no field');
-    const box = { field: b.field as TitleField, x: fraction(b.x), y: fraction(b.y), w: fraction(b.w), h: fraction(b.h) };
+    const box: TitleBox = { field: b.field as TitleField, x: fraction(b.x), y: fraction(b.y), w: fraction(b.w), h: fraction(b.h) };
+    if (box.field === 'custom') box.name = text(b.name, 60, "a custom field's name").trim() || 'Field';
     if (box.x + box.w > 1.0001 || box.y + box.h > 1.0001) fail('a title-block box is off the page');
     return box;
   });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { CONSTRUCTION_TEMPLATE } from '../settings/settings.ts';
-import { compareSheetNumbers, matchCategory, neighbourSheet, revisionPairs, setSheets, sheetType, unindexed, wildcardMatch, type DrawingSet } from './sets.ts';
+import { compareSheetNumbers, matchCategory, neighbourSheet, revisionPairs, setSheets, sheetType, unindexed, wildcardMatch, type DrawingSet, type SheetIndex } from './sets.ts';
 
 const set: DrawingSet = {
   id: 's',
@@ -102,4 +102,12 @@ test('tags: typed values win, AutoMark off ignores what was read, discipline and
   assert.equal(list.find((x) => x.fileId === 'r0')!.title, null);
   assert.equal(sheetType('M2.01'), 'Elevations');
   assert.equal(sheetType('Cover'), null);
+});
+
+test("custom fields a drawing standard read from the title block are tags; a value typed for the sheet wins", () => {
+  const withFields: Record<string, SheetIndex> = { a: { pageCount: 2, sheets: [{ number: 'A-1', fields: { Status: 'FOR CONSTRUCTION', Package: '4' } }, { number: 'A-2', fields: { Status: 'PRELIMINARY' } }] } };
+  const s: DrawingSet = { id: 's', name: 'Set', sort: 'files', collapsed: false, entries: [{ fileId: 'a' }], tags: { 'a:1': { Status: 'SUPERSEDED' } } };
+  const list = setSheets(s, withFields);
+  assert.deepEqual(list[0]!.tags, { Status: 'FOR CONSTRUCTION', Package: '4', 'Sheet Number': 'A-1' });
+  assert.deepEqual(list[1]!.tags, { Status: 'SUPERSEDED', 'Sheet Number': 'A-2' });
 });

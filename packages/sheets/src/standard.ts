@@ -11,14 +11,18 @@ import type { PageText, SheetInfo, Word } from './types.ts';
  * its heuristics wherever a page does not fit.
  */
 
-/** What a title-block box holds. `ignore` boxes hold numbers that are not the sheet's (file, contract). */
-export type TitleField = 'number' | 'title' | 'revision' | 'scale' | 'ignore';
+/**
+ * What a title-block box holds. `ignore` boxes hold numbers that are not the sheet's (file,
+ * contract); `custom` boxes hold a field the person names (Status, Drawn by, Package).
+ */
+export type TitleField = 'number' | 'title' | 'revision' | 'scale' | 'custom' | 'ignore';
 
 export const TITLE_FIELDS: Record<TitleField, string> = {
   number: 'Sheet number',
   title: 'Sheet title',
   revision: 'Revision',
   scale: 'Scale',
+  custom: 'Your own field…',
   ignore: 'Ignore (other number)',
 };
 
@@ -28,6 +32,8 @@ export const TITLE_FIELDS: Record<TitleField, string> = {
  */
 export interface TitleBox {
   field: TitleField;
+  /** A custom field's name (Status, Drawn by). */
+  name?: string;
   x: number;
   y: number;
   w: number;
@@ -59,9 +65,11 @@ export interface SetHints {
 }
 
 /** A box drawn on a page, as a title-block box of that page. */
-export function boxFromRegion(r: Region, page: { width: number; height: number }, field: TitleField): TitleBox {
+export function boxFromRegion(r: Region, page: { width: number; height: number }, field: TitleField, name?: string): TitleBox {
   const f = (v: number, of: number) => Math.round((v / of) * 1e5) / 1e5;
-  return { field, x: f(r.x, page.width), y: f(r.y, page.height), w: f(r.w, page.width), h: f(r.h, page.height) };
+  const box: TitleBox = { field, x: f(r.x, page.width), y: f(r.y, page.height), w: f(r.w, page.width), h: f(r.h, page.height) };
+  if (field === 'custom') box.name = name?.trim() || 'Field';
+  return box;
 }
 
 /** Where a title-block box sits on a page, in page space. */
@@ -157,6 +165,7 @@ const FIELD_LABEL: Record<TitleField, RegExp> = {
   title: /^((SHEET|DRAWING|DRG|DWG)\s+)?TITLE\s*:?\s*/i,
   revision: /^(REV\.?|REVISION|ISSUE)(\s+NO\.?)?\s*:?\s*/i,
   scale: /^SCALE\s*:?\s*/i,
+  custom: /^/,
   ignore: /^/,
 };
 /** A single word that is only a label, never a sheet number. */
@@ -203,7 +212,7 @@ export function readSheet(page: PageText, hints: SheetHints): SheetInfo | null {
       .filter(Boolean)
       .join(' ') || null;
   const revision = text('revision');
-  return {
+  const info: SheetInfo = {
     number,
     title: text('title'),
     discipline: disciplineOf(number, hints),
@@ -213,6 +222,29 @@ export function readSheet(page: PageText, hints: SheetHints): SheetInfo | null {
     source: 'standard',
     confidence: pattern ? 0.95 : 0.8,
   };
+  const fields = customFields(page, hints.boxes);
+  if (fields) info.fields = fields;
+  return info;
+}
+
+/** The custom fields' values on a page, each without its own name printed in front (`STATUS: FOR CONSTRUCTION`). */
+function customFields(page: PageText, boxes: readonly TitleBox[]): Record<string, string> | null {
+  // A Map, so a field named like an Object property (`__proto__`) is still just a field.
+  const out = new Map<string, string>();
+  for (const b of boxes) {
+    if (b.field !== 'custom' || !b.name) continue;
+    let value = textInRegion(page.words, regionOfBox(b, page)).trim();
+    const name = b.name.toUpperCase();
+    if (value.toUpperCase().startsWith(name)) {
+      value = value.slice(name.length);
+      let k = 0;
+      while (k < value.length && (value[k] === ':' || value[k] === ' ')) k++;
+      value = value.slice(k);
+    }
+    // Two boxes with one name (a field split over two lines) read as one.
+    if (value) out.set(b.name, out.has(b.name) ? `${out.get(b.name)} ${value}` : value);
+  }
+  return out.size ? Object.fromEntries(out) : null;
 }
 
 /** Whether a word on a page sits in one of the standard's ignore boxes. */

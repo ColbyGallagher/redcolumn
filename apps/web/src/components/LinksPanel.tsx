@@ -19,7 +19,7 @@ interface Props {
   marks: readonly (TaughtMark & { standard?: string })[];
   /** The document takes edits (teaching adds links to review). */
   editable: boolean;
-  /** Box an example on the sheet to teach a new mark. */
+  /** Opens Teach Links: box a mark, then what it points to. */
   onTeach: () => void;
   /** Forgets a taught mark (its links still waiting for review go too). */
   onForget: (id: string) => void;
@@ -64,8 +64,8 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
           Show links
         </label>
         <span className="grow" />
-        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box an example of a section mark, section title, detail callout or detail title, so links are found from marks like it">
-          Teach a mark
+        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box a section mark, detail callout or elevation mark, then what it points to, so links are found from marks like them">
+          Teach links…
         </button>
         <button className="btn small" disabled={busy} onClick={onRedetect} title="Find callouts again using the current sheet numbers">
           Re-detect

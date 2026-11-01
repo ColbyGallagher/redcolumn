@@ -28,10 +28,10 @@ export interface DrawingSet {
   revised?: string[];
 }
 
-/** A file's sheets as last read: page count and each page's sheet number and title. */
+/** A file's sheets as last read: page count and each page's sheet number, title and the custom fields a drawing standard read. */
 export interface SheetIndex {
   pageCount: number;
-  sheets: ({ number?: string; title?: string } | null)[];
+  sheets: ({ number?: string; title?: string; fields?: Record<string, string> } | null)[];
 }
 
 /** One sheet of a set, in list order. */
@@ -260,7 +260,8 @@ export function setSheets(set: DrawingSet, idx: Readonly<Record<string, SheetInd
       const read = i.sheets[page];
       const number = typed['Sheet Number'] || (o.autoMark.number ? read?.number : undefined) || null;
       const title = typed['Sheet Name'] || (o.autoMark.title ? read?.title : undefined) || null;
-      const tags: Record<string, string> = { ...typed };
+      // Fields read from the title block are tags too; one typed for the sheet wins.
+      const tags: Record<string, string> = { ...read?.fields, ...typed };
       if (number) tags['Sheet Number'] = number;
       if (title) tags['Sheet Name'] = title;
       if (o.autoTagDiscipline && number && !tags['Discipline']) {

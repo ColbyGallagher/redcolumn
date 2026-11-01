@@ -441,6 +441,16 @@ test.describe('page labels and scales from regions', () => {
     await app.cmd('document.drawingStandards');
     const panel = app.page.locator('.drawing-standard');
     await expect(panel).toBeVisible();
+    // Dragged wider by its left edge, for long drawing numbers and titles; the right edge stays put.
+    const before = (await panel.boundingBox())!;
+    const edge = (await panel.locator('.rp-w').boundingBox())!;
+    await app.page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(edge.x + edge.width / 2 - 120, edge.y + edge.height / 2, { steps: 5 });
+    await app.page.mouse.up();
+    const after = (await panel.boundingBox())!;
+    expect(Math.round(after.width - before.width)).toBe(120);
+    expect(Math.round(after.x + after.width)).toBe(Math.round(before.x + before.width));
     await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
     await drawBox(app, S.labelBox);
     await expect(panel.locator('.lr-text').first()).toHaveText(S.labels[0]!);
@@ -449,8 +459,15 @@ test.describe('page labels and scales from regions', () => {
     await expect(panel.locator('.lr-preview')).toContainText('read on 0 of 3 pages');
     await panel.getByLabel('Template').fill('ROOM###');
     await expect(panel.locator('.lr-preview')).toContainText('read on 3 of 3 pages');
+    // A field of the client's own: the box is named, and read on every sheet without the name printed in front (SCALE:).
+    await drawBox(app, S.scaleBox);
+    await panel.getByLabel('Box 2 holds').selectOption('custom');
+    await panel.getByLabel('Box 2 field name').fill('Scale');
+    await expect(panel.locator('.lr-preview')).toContainText(`Scale: ${S.scales[0]}`);
     await panel.getByRole('button', { name: 'Save and use' }).click();
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
+    const fields = await app.page.evaluate(() => Object.values((window.__nb.tools as unknown as { store: { allSheets(): Record<number, { fields?: Record<string, string> }> } }).store.allSheets()).map((s) => s.fields));
+    expect(fields).toEqual(S.scales.map((scale) => ({ Scale: scale })));
     await expect(app.notice()).toHaveText(/with Rooms client: 3 of 3 sheet numbers/);
     await expect(panel.getByLabel('Drawing standard for this document')).toHaveValue(/.+/);
     await panel.getByLabel('Drawing standard for this document').selectOption('');

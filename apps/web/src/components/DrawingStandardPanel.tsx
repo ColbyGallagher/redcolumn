@@ -3,6 +3,7 @@ import { TITLE_FIELDS, boxFromRegion, deriveTemplate, numberParts, readSheet, re
 import { rangeText } from '../measure/scalePresets';
 import { MARK_KINDS } from '../sheets/marks';
 import { newStandard, withDefaults, type DrawingStandard } from '../sheets/standards';
+import { useResizablePanel } from './resizablePanel';
 
 interface Props {
   standards: readonly DrawingStandard[];
@@ -26,7 +27,7 @@ interface Props {
   onExport: (standard: DrawingStandard) => void;
   /** How many marks are taught for every set (they can be moved into a standard). */
   everySetMarks: number;
-  /** Box an example mark on the sheet; it can be kept for the document's standard. */
+  /** Opens Teach Links: box a mark and what it points to, and keep what they teach in the document's standard. */
   onTeach: () => void;
   /** Moves the marks taught for every set into a standard. */
   onMoveMarks: (standardId: string) => void;
@@ -93,6 +94,9 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
   const [chainLists, setChainLists] = useState<ChainLists>(() => chainListsOf(draft.chainage));
   const [identify, setIdentify] = useState(() => draft.identify.join(', '));
   const [chosen, setChosen] = useState<TitleField[]>(() => draft.sheets.boxes.map((b) => b.field));
+  /** Custom fields' names, by box. */
+  const [names, setNames] = useState<string[]>(() => draft.sheets.boxes.map((b) => b.name ?? ''));
+  const panel = useResizablePanel('nb.panel.drawingStandards');
   const [message, setMessage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
 
@@ -107,15 +111,16 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
     setChainLists(chainListsOf(s.chainage));
     setIdentify(s.identify.join(', '));
     setChosen(s.sheets.boxes.map((b) => b.field));
+    setNames(s.sheets.boxes.map((b) => b.name ?? ''));
     setMessage(null);
     onChange(s.sheets.boxes.map((b) => regionOfBox(b, pageSize)));
   }, [editing, pageSize, standards, onChange]);
 
   const fields = fieldsFor(regions.length, chosen);
   const hints: SheetHints = useMemo(
-    () => ({ ...draft.sheets, boxes: pageSize ? regions.map((r, i) => boxFromRegion(r, pageSize, fields[i]!)) : [] }),
+    () => ({ ...draft.sheets, boxes: pageSize ? regions.map((r, i) => boxFromRegion(r, pageSize, fields[i]!, names[i])) : [] }),
     // `fields` comes from `chosen` and the region count.
-    [draft.sheets, regions, pageSize, chosen],
+    [draft.sheets, regions, pageSize, chosen, names],
   );
   const coverage = useMemo(() => (texts && hints.boxes.some((b) => b.field === 'number') ? standardCoverage(texts, hints) : null), [texts, hints]);
   const here = texts?.[currentPage] ? readSheet(texts[currentPage]!, hints) : null;
@@ -156,6 +161,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
   const remove = (i: number) => {
     onChange(regions.filter((_, j) => j !== i));
     setChosen(fields.filter((_, j) => j !== i));
+    setNames(names.filter((_, j) => j !== i));
   };
   const workOut = () => {
     const template = deriveTemplate(numbers);
@@ -164,13 +170,15 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
   };
 
   return (
-    <div className="label-regions drawing-standard" role="dialog" aria-label="Drawing standards">
-      <div className="lr-head">
+    <div ref={panel.ref} style={panel.style} className="label-regions drawing-standard resizable-panel" role="dialog" aria-label="Drawing standards">
+      {panel.handles}
+      <div className="lr-head rp-head" onPointerDown={panel.onMoveStart} title="Drag to move; drag an edge to resize">
         <b>Drawing Standards</b>
         <button className="btn small flat" onClick={onClose} title="Close" aria-label="Close">
           ×
         </button>
       </div>
+      <div className="rp-body">
       <label className="lr-row">
         This document
         <select value={current ?? ''} disabled={readOnly} onChange={(e) => onUse(e.target.value || null)} aria-label="Drawing standard for this document">
@@ -279,6 +287,20 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
             <button className="btn small flat" onClick={() => remove(i)} title="Remove box" aria-label="Remove box">
               ×
             </button>
+            {fields[i] === 'custom' && (
+              <input
+                className="lr-typed ds-custom"
+                value={names[i] ?? ''}
+                placeholder="Field name: Status, Drawn by, Package"
+                aria-label={`Box ${i + 1} field name`}
+                onChange={(e) => {
+                  const next = [...names];
+                  next[i] = e.target.value;
+                  setNames(next);
+                }}
+                onKeyDown={(e) => e.stopPropagation()}
+              />
+            )}
           </li>
         ))}
       </ol>
@@ -347,6 +369,13 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
           ) : !coverage ? null : (
             <>
               Page {currentPage + 1}: <b>{here ? [here.number, here.title, here.revision && `rev ${here.revision}`].filter(Boolean).join(' · ') : 'not read'}</b>
+              {here?.fields &&
+                Object.entries(here.fields).map(([name, value]) => (
+                  <span key={name} className="ds-custom-value">
+                    <br />
+                    {name}: <b>{value}</b>
+                  </span>
+                ))}
               <br />
               Sheet number read on {coverage.read.length} of {texts.length} pages
               {coverage.missed.length > 0 && coverage.missed.length < texts.length && <> (not on {rangeText(coverage.missed.slice(0, 40))})</>}.
@@ -403,8 +432,8 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
               ))}
             </ol>
             <div className="lr-row">
-              <button className="btn small" disabled={readOnly || current !== draft.id} onClick={onTeach} title={current === draft.id ? 'Box an example of a section mark, title or detail callout' : 'Use this standard for the document to teach its marks'}>
-                Teach a mark…
+              <button className="btn small" disabled={readOnly || current !== draft.id} onClick={onTeach} title={current === draft.id ? 'Box a section mark, then the section it points to, to teach how this client links sheets' : 'Use this standard for the document to teach its links'}>
+                Teach links…
               </button>
               {everySetMarks > 0 && (
                 <button className="btn small" onClick={() => onMoveMarks(draft.id)} title="Look for the marks taught for every set only in sets read with this standard">
@@ -444,6 +473,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
         >
           Save and use
         </button>
+      </div>
       </div>
     </div>
   );

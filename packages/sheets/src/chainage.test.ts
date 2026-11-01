@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, type ChainageHints } from './chainage.ts';
+import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, readTicks, type ChainageHints } from './chainage.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 function word(text: string, x: number, y: number, size = 8): Word {
@@ -153,5 +153,80 @@ test('without a drawing standard every chainage link waits for review', () => {
   assert.deepEqual(
     links.map((l) => [l.label, l.targetPage, l.confidence, l.kind]),
     [['STA 12+75', 0, 0.6, 'chainage']],
+  );
+});
+
+/** A word turned a quarter turn, as plan ticks and grid labels often are. */
+const upright = (text: string, x: number, y: number, size = 8): Word => ({ ...word(text, x, y, size), angle: -Math.PI / 2 });
+
+test('bare plan ticks: an evenly stepped run along the alignment is chainage; a scale bar, grid labels and stray numbers are not', () => {
+  // 101140 to 101240 every 20 m, 120 pt apart, bending gently as the road curves.
+  const ticks = [101140, 101160, 101180, 101200, 101220, 101240].map((v, i) => upright(String(v), 600 + i * 120, 1500 - i * i * 4, 9));
+  const scaleBar = [0, 10, 20, 30, 40, 50].map((v, i) => word(String(v), 2500 + i * 30, 1900, 6));
+  // Eastings along the top and bottom of the frame.
+  const grid = [590100, 590200, 590300, 590400, 590500].flatMap((v, i) => [word(String(v), 400 + i * 500, 30, 7), word(String(v), 400 + i * 500, 1985, 7)]);
+  const stray = [word('20', 900, 700), word('20', 1300, 400), word('50', 1500, 800), word('0.000', 1800, 1400), ...phrase('TC 101184.655', 1000, 1300)];
+  const read = readTicks(page([...ticks, ...scaleBar, ...grid, ...stray]));
+  assert.deepEqual(
+    read.map((c) => c.value),
+    [101140, 101160, 101180, 101200, 101220, 101240],
+  );
+  // Too few to be a run.
+  assert.deepEqual(readTicks(page(ticks.slice(0, 3))), []);
+});
+
+test('a cross section at CHAINAGE 101180 links to the plan whose bare ticks cover it, and the tick links back', () => {
+  const numbers = ['RW-DRG-000022', 'RW-DRG-000011'];
+  const plan = page([...phrase('ADJOINS SHEET', 100, 100), ...[101140, 101160, 101180, 101200, 101220, 101240].map((v, i) => upright(String(v), 600 + i * 120, 1500, 9))]);
+  const section = page([...phrase('DATUM 224.0', 100, 500), ...phrase('-8.349 -7.150 0.000 3.500 7.000', 300, 900), ...phrase('CHAINAGE 101180', 1200, 1000, 12)]);
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const links = detectChainageLinks([plan, section], [sheet(numbers[0]!, 'MCR1 ROADWORKS PLAN SHEET 2'), sheet(numbers[1]!, 'MCR1 CROSS SECTIONS SHEET 11')], hints, true);
+  assert.deepEqual(pairs(links, numbers), [
+    ['RW-DRG-000022', '101180', 'RW-DRG-000011', 0.85],
+    ['RW-DRG-000011', 'CHAINAGE 101180', 'RW-DRG-000022', 0.85],
+  ]);
+  // Without plan titles that fit, bare numbers are not read as ticks.
+  assert.deepEqual(pairs(detectChainageLinks([plan, section], [sheet(numbers[0]!, 'GENERAL ARRANGEMENT'), sheet(numbers[1]!, 'MCR1 CROSS SECTIONS SHEET 11')], hints, true), numbers), []);
+});
+
+test('cross sections link to the plan, never to another cross section at the same chainage', () => {
+  const numbers = ['RW-DRG-000102', 'RW-DRG-000353', 'RW-DRG-000354'];
+  const plan = page([...[100, 120, 140, 160, 180, 200].map((v, i) => upright(String(v), 600 + i * 120, 1500, 9))]);
+  // Two roads' cross sections, both at chainage 160.
+  const one = page(phrase('CHAINAGE 160', 1200, 1000, 12));
+  const two = page(phrase('CHAINAGE 160', 1200, 1000, 12));
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const sheets = [sheet(numbers[0]!, 'ROADWORKS PLAN SHEET 1'), sheet(numbers[1]!, 'CROSS SECTIONS SHEET 1'), sheet(numbers[2]!, 'CROSS SECTIONS SHEET 2')];
+  const links = pairs(detectChainageLinks([plan, one, two], sheets, hints, true), numbers);
+  assert.deepEqual(
+    links.filter((p) => p[0] !== numbers[0]),
+    [
+      ['RW-DRG-000353', 'CHAINAGE 160', 'RW-DRG-000102', 0.85],
+      ['RW-DRG-000354', 'CHAINAGE 160', 'RW-DRG-000102', 0.85],
+    ],
+  );
+  // With no plan covering it, a cross section's chainage is not linked at all.
+  assert.deepEqual(pairs(detectChainageLinks([one, two], sheets.slice(1), hints, true), numbers.slice(1)), []);
+});
+
+test("a plan's bare ticks link to the cross sections drawn there, though the cross sections print other strings' names", () => {
+  const numbers = ['RW-DRG-000102', 'RW-DRG-000301'];
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, alignments: ['MCN1', 'MCR3'], planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const plan = page([word('MCN1', 300, 200, 14), ...[100860, 100880, 100900, 100920, 100940].map((v, i) => upright(String(v), 600 + i * 160, 900, 10))]);
+  // Each cross section names the strings it cuts (MCR3 and MCN1 among them) above it.
+  const strings = (x: number) => ['ESR0', 'LER0', 'MCR3', 'LANI', 'MCN1', 'L3N0'].map((t, i) => upright(t, x + i * 40, 300, 6));
+  const sections = page([...strings(500), ...phrase('CHAINAGE 100880', 800, 900, 10), ...strings(1500), ...phrase('CHAINAGE 100900', 1800, 900, 10)]);
+  const read = (title: string) => pairs(detectChainageLinks([plan, sections], [sheet(numbers[0]!, 'MCN1 ROADWORKS PLAN SHEET 1'), sheet(numbers[1]!, title)], hints, true), numbers);
+  // The title names the road: linked both ways.
+  assert.deepEqual(read('MCN1 CROSS SECTIONS SHEET 1'), [
+    ['RW-DRG-000102', '100880', 'RW-DRG-000301', 0.85],
+    ['RW-DRG-000102', '100900', 'RW-DRG-000301', 0.85],
+    ['RW-DRG-000301', 'CHAINAGE 100880', 'RW-DRG-000102', 0.85],
+    ['RW-DRG-000301', 'CHAINAGE 100900', 'RW-DRG-000102', 0.85],
+  ]);
+  // It does not: the same links, waiting for review.
+  assert.deepEqual(
+    read('CROSS SECTIONS SHEET 1').map((p) => p[3]),
+    [0.6, 0.6, 0.6, 0.6],
   );
 });
