@@ -55,6 +55,7 @@ import { documentDigest, signatures, type SavedSignature } from './signatures/si
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
+import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -113,6 +114,7 @@ import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
+import { PictureColoursDialog } from './components/PictureColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -1150,7 +1152,7 @@ export function App() {
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
   /** The last Snapshot taken: its picture's pixel size and the image markup it pastes as. */
   const lastSnapshot = useRef<{ width: number; height: number; markup: Markup } | null>(null);
-  const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean) => Promise<void>>(async () => {});
+  const snapshotRef = useRef<(pane: Pane, pageIndex: number, rect: { x: number; y: number; w: number; h: number }, withMarkups?: boolean, polygon?: Point[]) => Promise<void>>(async () => {});
   const pasteImageRef = useRef<(file: Blob, at?: { pane: Pane; x: number; y: number }) => void>(() => {});
   /** Images dropped on an open document, at a point on screen (Preferences › Images › Image Drag/Drop Behaviour). */
   const dropImagesRef = useRef<(pane: Pane, files: File[], x: number, y: number) => void>(() => {});
@@ -1181,6 +1183,7 @@ export function App() {
   const [multiplyFor, setMultiplyFor] = useState<Pane | null>(null);
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
+  const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -1364,6 +1367,7 @@ export function App() {
       onOpenAttachment: openAttachment,
       onEditLabel: (id) => editLabelRef.current(pane, id),
       onSnapshot: (pageIndex, rect) => snapshotRef.current(pane, pageIndex, rect),
+      onSnapshotPolygon: (pageIndex, points) => snapshotRef.current(pane, pageIndex, polygonBox(points), true, points),
       onCutContent: (pageIndex, rect) => {
         // The copy is made before the content is erased.
         void snapshotRef.current(pane, pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
@@ -2553,8 +2557,9 @@ export function App() {
    * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
    * the areas, and delete markups in them.
    */
-  const runRedact = useCallback(
+  const redactPages = useCallback(
     async (
+      { signal, progress }: JobContext,
       cur: OpenFile,
       intoB: boolean,
       mode: 'redact' | 'erase',
@@ -2563,21 +2568,25 @@ export function App() {
       erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
     ) => {
       if (!ctl || !areas.length) return;
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
-      if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
       const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
       const covering = redacting || !!erase?.cover;
-      const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
-        regions,
-        fill: covering ? fill : null,
-        imageFill: covering ? fill : [1, 1, 1],
-        ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
-        ...(erase?.textOnly ? { textOnly: true } : {}),
-      });
+      progress(0, regions.length, 'Starting');
+      const redacted = await ctl.engine.redact(
+        await readFile(cur.file.hash),
+        {
+          regions,
+          fill: covering ? fill : null,
+          imageFill: covering ? fill : [1, 1, 1],
+          ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+          ...(erase?.textOnly ? { textOnly: true } : {}),
+        },
+        { signal, onProgress: (done, total) => progress(done, total, `Page ${regions[done]!.pageIndex + 1} (${done + 1} of ${total})`) },
+      );
+      progress(regions.length, regions.length, 'Saving the redacted document');
       const report = redacted.report;
       let bytes = redacted.bytes;
       if (redacting && options?.stripMetadata) {
@@ -2598,7 +2607,9 @@ export function App() {
       // Verify: no words left inside the areas.
       const doc = (intoB ? openBRef.current : openRef.current)?.doc;
       let left = 0;
+      let checked = 0;
       for (const { pageIndex, rects } of regions) {
+        progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
         const label = new Set((options?.text ?? '').split(/\s+/).filter(Boolean));
@@ -2616,6 +2627,23 @@ export function App() {
       else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
+  );
+
+  /** `redactPages` as a job, so a large document shows its progress and can be cancelled before it is changed. */
+  const runRedact = useCallback(
+    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: Parameters<typeof redactPages>[4], options?: RedactOptions, erase?: Parameters<typeof redactPages>[6]) => {
+      if (!ctl || !areas.length) return;
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
+      if (!(await rewriteSigned(cur.doc, mode === 'redact' ? 'Redaction' : 'Erase Content'))) return;
+      const pages = new Set(areas.map((a) => a.pageIndex)).size;
+      try {
+        await runJob(`${mode === 'redact' ? 'Redact' : 'Bulk Redact'} · ${cur.file.name}`, (ctx) => redactPages(ctx, cur, intoB, mode, areas, options, erase), { ...PAGES_JOB, cancellable: true, shown: pages > 1 });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        setNotice(`${mode === 'redact' ? 'Redaction' : 'Erase'} cancelled; the document was not changed.`);
+      }
+    },
+    [ctl, redactPages],
   );
   /** Edit Text: the text object clicked is shown, its new text asked for, and replaced in the file. */
   editTextRef.current = (pageIndex, at) => {
@@ -2650,12 +2678,12 @@ export function App() {
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
-  const runProcess = useCallback(
-    async (cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
-      const rewriting = rewrites[spec.kind];
-      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+  const processDocument = useCallback(
+    async ({ signal, progress }: JobContext, cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
+      // Called between items of the long ones: a cancel stops the work before the file is changed.
+      const stopped = () => {
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      };
       const p = await import('./documents/process');
       switch (spec.kind) {
         case 'flatten': {
@@ -2686,20 +2714,45 @@ export function App() {
         case 'reduce': {
           const before = cur.file.size;
           const recompress = spec.recompress ? (jpeg: Uint8Array) => recompressJpeg(jpeg, spec.quality) : undefined;
-          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress);
+          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress, (done, total) => {
+            stopped();
+            progress(done, total, `Picture ${done + 1} of ${total}`);
+          });
           if (bytes.length >= before) return 'The file is already as small as this can make it.';
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
           return `Reduced from ${mb(before)} to ${mb(bytes.length)}${images ? ` (${images} picture${images === 1 ? '' : 's'} recompressed)` : ''}.`;
         }
         case 'colour': {
-          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg);
+          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg, (done, total, phase) => {
+            stopped();
+            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : `Picture ${done + 1} of ${total}`);
+          });
+          stopped();
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           return `Changed the colours of ${spec.pages.length} page${spec.pages.length === 1 ? '' : 's'}.`;
         }
       }
     },
     [ctl, commitDocument],
+  );
+
+  /** `processDocument` as a job, so the longer ones show progress and can be cancelled before the file is changed. */
+  const runProcess = useCallback(
+    async (cur: OpenFile, spec: Parameters<typeof processDocument>[2], revisionNote?: string): Promise<string | null> => {
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      const rewriting = rewrites[spec.kind];
+      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' }[spec.kind];
+      try {
+        return await runJob(`${title} · ${cur.file.name}`, (ctx) => processDocument(ctx, cur, spec, revisionNote), { ...PAGES_JOB, cancellable: spec.kind === 'reduce' || spec.kind === 'colour' });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        return `${title} cancelled; the document was not changed.`;
+      }
+    },
+    [processDocument],
   );
 
   /** Extract, Split, Replace, Crop and Page Setup (Document menu). */
@@ -5156,7 +5209,7 @@ export function App() {
     const store = o.store;
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     if (withMarkups) for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
-    return { canvas, x0, y0, w, h };
+    return { canvas, x0, y0, w, h, scale, originPx: [Math.floor(x0 * scale), Math.floor(y0 * scale)] as Point };
   };
 
   // --- Link previews ------------------------------------------------------------------------------
@@ -5235,14 +5288,28 @@ export function App() {
   };
 
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
-  snapshotRef.current = (pane, pageIndex, rect, withMarkups = true) => {
+  // With a `polygon` the picture is the outline's box with everything outside the outline see-through.
+  snapshotRef.current = (pane, pageIndex, rect, withMarkups = true, polygon) => {
     const { o } = paneParts(pane);
     if (!o) return Promise.resolve();
     return (async () => {
       // The resolution set in Preferences › Snapshot, within 4096 px on the longest side.
       const region = await renderRegion(o, pageIndex, rect, (w, h) => Math.min(settings.get().snapshotDpi / 72, 4096 / Math.max(w, h)), withMarkups);
       if (!region) return;
-      const { canvas, x0, y0, w, h } = region;
+      const { x0, y0, w, h } = region;
+      let canvas = region.canvas;
+      if (polygon) {
+        const clipped = document.createElement('canvas');
+        clipped.width = canvas.width;
+        clipped.height = canvas.height;
+        const g = clipped.getContext('2d')!;
+        g.beginPath();
+        polygonInPixels(polygon, region.scale, region.originPx).forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
+        g.closePath();
+        g.clip();
+        g.drawImage(canvas, 0, 0);
+        canvas = clipped;
+      }
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
       const now = Date.now();
@@ -6375,7 +6442,8 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
-      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => setChangeColoursFor({ pane, ids }) },
+      // A picture's own colours are swapped, not the line and fill colours the other markups have.
+      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
@@ -7445,6 +7513,7 @@ export function App() {
     publish: (mode) => setPublishFor(mode),
     share: () => void shareDocument(),
     markupsXfdf: (dir) => void markupsXfdf(dir),
+    markupsFdf: (dir) => void markupsFdf(dir),
     importMarkupsFromPdf: () => void importMarkupsFromPdf(),
     exportBax: () => void exportMarkupsBax(),
     importBax: () => void importMarkupsBax(),
@@ -7909,6 +7978,37 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       addImported(cur, found, file.name);
     } catch (err) {
       setError(`XFDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  /** Markups out to, or in from, an FDF file (Bluebeam Revu and Acrobat read and write it). */
+  const markupsFdf = async (dir: 'export' | 'import') => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const { fdfFromPdf, markupsFromFdf } = await import('@nb/markup/fdf');
+    try {
+      if (dir === 'export') {
+        const fdf = await fdfFromPdf(await annotatedBytes(cur, { links: false }), cur.file.name);
+        download(cur.file.name.replace(/\.pdf$/i, '') + '.fdf', new Blob([fdf as BlobPart], { type: 'application/vnd.fdf' }));
+        return;
+      }
+      const file = await pickFile('.fdf,application/vnd.fdf');
+      if (!file) return;
+      const matrices = await pageMatrices(cur);
+      const { PDFDocument } = await import('pdf-lib');
+      const sizes = (await PDFDocument.load(await readFile(cur.file.hash), { ignoreEncryption: true, updateMetadata: false })).getPages().map((p) => p.getSize());
+      const { markups, skipped } = await markupsFromFdf(await file.arrayBuffer(), (i) => matrices[i] ?? null, {
+        pageSize: (i) => sizes[i] ?? null,
+        // Stamps are only an appearance stream in an FDF; PDFium draws them from a PDF built around them.
+        open: async (pdf) => {
+          const doc = await ctl!.engine.open(pdf.slice().buffer);
+          return { pageCount: doc.pages.length, annotations: (i) => doc.annotations(i), annotationImage: (i, index, scale) => doc.annotationImage(i, index, scale), close: () => void doc.close() };
+        },
+      });
+      addImported(cur, markups, file.name);
+      if (skipped.length) setError(`${skipped.length} annotation${skipped.length === 1 ? '' : 's'} in ${file.name} could not be imported: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; …' : ''}`);
+    } catch (err) {
+      setError(`FDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -9527,6 +9627,35 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   }),
                 );
                 setChangeColoursFor(null);
+              }}
+            />
+          );
+        })()}
+      {pictureColoursFor &&
+        (() => {
+          const store = paneParts(pictureColoursFor.pane).o?.store;
+          const m = store?.get(pictureColoursFor.id);
+          if (!store || !m?.image || m.locked || !store.mayEdit(m)) return null;
+          const source = m.image;
+          return (
+            <PictureColoursDialog
+              source={source}
+              onCancel={() => setPictureColoursFor(null)}
+              onApply={async (mode) => {
+                const img = new Image();
+                img.src = source;
+                await img.decode();
+                const canvas = document.createElement('canvas');
+                canvas.width = img.naturalWidth;
+                canvas.height = img.naturalHeight;
+                const g = canvas.getContext('2d')!;
+                g.drawImage(img, 0, 0);
+                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
+                recolourPixels(pixels.data, mode);
+                g.putImageData(pixels, 0, 0);
+                store.checkpoint();
+                store.update(m.id, { image: canvas.toDataURL('image/png') });
+                setPictureColoursFor(null);
               }}
             />
           );

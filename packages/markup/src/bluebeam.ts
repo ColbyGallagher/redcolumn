@@ -12,7 +12,7 @@ import type { FontFamily, LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
 
 /** Where our own copy of a markup rides in a PDF object; must match export.ts's. */
-const APP_DATA_KEY = 'NBData';
+export const APP_DATA_KEY = 'NBData';
 
 /** A PDF name (without its slash). */
 export class PdfName {
