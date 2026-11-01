@@ -228,3 +228,29 @@ export function standardCoverage(pages: readonly PageText[], hints: SheetHints):
   pages.forEach((p, i) => (p.words.length && readSheet(p, hints) ? read : missed).push(i));
   return { read, missed };
 }
+
+/**
+ * How well a drawing standard fits a set, from 0 to 1, read from up to `sample` pages with text
+ * spread through it: the share of them whose number box holds a number in the client's scheme,
+ * or that print one of `identify` (the client's name, a project code). Null when the standard has
+ * neither a template nor identifying words, since any set would seem to fit it.
+ */
+export function standardFit(pages: readonly PageText[], hints: SheetHints, identify: readonly string[] = [], sample = 30): number | null {
+  const words = identify.map((w) => w.trim().toUpperCase().replace(/\s+/g, ' ')).filter(Boolean);
+  const scheme = !!hints.template && hints.boxes.some((b) => b.field === 'number');
+  if (!scheme && !words.length) return null;
+  const withText = pages.filter((p) => p.words.length);
+  if (!withText.length) return 0;
+  const step = Math.max(1, withText.length / sample);
+  let fits = 0;
+  let seen = 0;
+  for (let k = 0; k < withText.length && seen < sample; k += step, seen++) {
+    const page = withText[Math.floor(k)]!;
+    if (scheme && readSheet(page, hints)) fits++;
+    else if (words.length) {
+      const text = ` ${page.words.map((w) => w.text.trim().toUpperCase()).join(' ')} `;
+      if (words.some((w) => text.includes(` ${w} `))) fits++;
+    }
+  }
+  return fits / seen;
+}

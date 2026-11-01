@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectSheets } from './detect.ts';
-import { boxFromRegion, deriveTemplate, disciplineOf, numberParts, readSheet, regionOfBox, standardCoverage, templateRegex, type SheetHints } from './standard.ts';
+import { boxFromRegion, deriveTemplate, disciplineOf, numberParts, readSheet, regionOfBox, standardCoverage, standardFit, templateRegex, type SheetHints } from './standard.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2384; // A1 landscape, points
@@ -136,4 +136,17 @@ test('a number box word with long runs of brackets reads quickly and without the
   const started = performance.now();
   assert.equal(readSheet(p, { ...hints, template: '@-###', disciplinePart: null })?.number, 'C-101');
   assert.ok(performance.now() - started < 500);
+});
+
+test("a standard fits a set by its number scheme or by the client's words", () => {
+  const wsp = [sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge', 'A'), sheet('HLD1BDD-WSPAU-0508-RD-DRG-100011', 'Road', 'B')];
+  const other: PageText = { width: W, height: H, words: [...phrase('DRAWING NO.', 1900, 1610, 6), word('A-101', 1900, 1640, 14)] };
+  assert.equal(standardFit(wsp, hints), 1);
+  assert.equal(standardFit([...wsp, other, other], hints), 0.5);
+  assert.equal(standardFit([other], hints), 0);
+  // No template: only identifying words can tell; with neither, it cannot say.
+  const loose = { ...hints, template: null };
+  assert.equal(standardFit(wsp, loose), null);
+  assert.equal(standardFit([...wsp, other], loose, ['contract no.']), 2 / 3);
+  assert.equal(standardFit([{ width: W, height: H, words: [] }], hints), 0);
 });

@@ -11,6 +11,8 @@ export interface DrawingStandard {
   id: string;
   name: string;
   notes: string;
+  /** Words printed on this client's sheets (its name, a project code), for suggesting the standard when a set opens. */
+  identify: string[];
   createdAt: number;
   updatedAt: number;
   sheets: SheetHints;
@@ -23,12 +25,12 @@ export interface DrawingStandard {
 
 export function newStandard(name: string): DrawingStandard {
   const now = Date.now();
-  return { id: crypto.randomUUID(), name, notes: '', createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} }, links: structuredClone(DEFAULT_LINK_HINTS), chainage: structuredClone(DEFAULT_CHAINAGE_HINTS), marks: [] };
+  return { id: crypto.randomUUID(), name, notes: '', identify: [], createdAt: now, updatedAt: now, sheets: { ...NO_SHEET_HINTS, boxes: [], disciplines: {} }, links: structuredClone(DEFAULT_LINK_HINTS), chainage: structuredClone(DEFAULT_CHAINAGE_HINTS), marks: [] };
 }
 
 /** A standard saved before it held links, chainage and marks, with the defaults for them. */
 export function withDefaults(s: DrawingStandard): DrawingStandard {
-  return s.links && s.chainage && s.marks ? s : { ...s, links: s.links ?? structuredClone(DEFAULT_LINK_HINTS), chainage: s.chainage ?? structuredClone(DEFAULT_CHAINAGE_HINTS), marks: s.marks ?? [] };
+  return s.links && s.chainage && s.marks && s.identify ? s : { ...s, identify: s.identify ?? [], links: s.links ?? structuredClone(DEFAULT_LINK_HINTS), chainage: s.chainage ?? structuredClone(DEFAULT_CHAINAGE_HINTS), marks: s.marks ?? [] };
 }
 
 /**
@@ -51,6 +53,20 @@ const VERSION = 1;
 
 export function exportStandard(s: DrawingStandard): string {
   return JSON.stringify({ format: FORMAT, version: VERSION, standard: withDefaults(s) }, null, 2);
+}
+
+/**
+ * The standard a Project's owner chose for its files, as kept in project.json (an exported
+ * standard). Anyone who can edit the folder could have written it, so it is read like a shared file;
+ * null when there is none or it cannot be read.
+ */
+export function standardOfProject(value: unknown): DrawingStandard | null {
+  if (!value) return null;
+  try {
+    return parseStandardFile(JSON.stringify(value));
+  } catch {
+    return null;
+  }
 }
 
 /** A file name for a standard: its name without characters file systems refuse. */
@@ -179,6 +195,7 @@ export function parseStandardFile(content: string): DrawingStandard {
     id: plainId(s.id, 'its id'),
     name: text(s.name, 200, 'its name').trim() || 'Drawing standard',
     notes: s.notes === undefined ? '' : text(s.notes, 5000, 'its notes'),
+    identify: s.identify === undefined ? [] : words(s.identify, 'identifying words'),
     createdAt: created,
     updatedAt: updated,
     sheets: { boxes, template: template?.trim() || null, disciplinePart: part(sheets.disciplinePart, 'the discipline part'), disciplines },

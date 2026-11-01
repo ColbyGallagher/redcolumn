@@ -67,6 +67,19 @@ Open the set, choose {{Document > Drawing Standards…}} and pick the standard u
 - Choose **None** to go back to reading the set from its text alone.
 - If you change a standard, sets that use it are read again the next time you open them.
 
+## Offered when a set opens
+
+When you open a set that isn't read with a standard, redcolumn checks your saved standards against it. If one fits most of the sheets it checks, a bar at the top offers it: *This looks like a WSP set*.
+
+- **Use *name*** reads the set with it.
+- **Not this set** stops it being offered for this set. Choosing **None** for a set does the same.
+
+A standard is only offered when it can tell its client's sets apart. That means it either has a drawing-number **Template**, or **Words on this client's sheets** such as the client's name or a project code.
+
+## Use a standard for a whole Project
+
+If you own a [Project](#projects), open one of its files, then choose {{Document > Drawing Standards…}} and click **Use *name* for the Project**. Everyone who opens a file from the Project gets the standard added to their profile, and its files are read with it. Click **Stop** to remove it from the Project.
+
 ## Share a standard
 
 Click **Export…** to save the standard as a `.rcstandard` file, and send it to your team. They click **Import…** to add it. Importing a standard you already have updates it.

@@ -503,6 +503,17 @@ export class MarkupStore {
     }, DETECTION);
   }
 
+  /** Drawing standards a person said this document is not drawn to, so they are not suggested again. */
+  declinedStandards(): string[] {
+    const v = this.meta.get('declinedStandards');
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  }
+
+  declineStandard(id: string) {
+    if (this.locked) return;
+    this.doc.transact(() => this.meta.set('declinedStandards', [...new Set([...this.declinedStandards(), id])]), DETECTION);
+  }
+
   /** The drawing standard this document was last read with, if any (see setDrawingStandard). */
   drawingStandard(): { id: string; hash: string } | null {
     const v = this.meta.get('drawingStandard') as { id?: unknown; hash?: unknown } | undefined;

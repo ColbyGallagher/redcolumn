@@ -31,6 +31,9 @@ interface Props {
   /** Moves the marks taught for every set into a standard. */
   onMoveMarks: (standardId: string) => void;
   onForgetMark: (id: string) => void;
+  /** The Project the document belongs to, if any: its owner can choose a standard for all its files. */
+  project: { name: string; owner: boolean; standard: string | null } | null;
+  onProjectStandard: (standard: DrawingStandard | null) => void;
   onClose: () => void;
 }
 
@@ -82,12 +85,13 @@ function fieldsFor(count: number, chosen: readonly TitleField[]): TitleField[] {
  * every set from that client. Boxes are drawn on the page like Page Labels from Region; each says
  * what it holds, and the panel shows how many pages of this set the standard reads.
  */
-export function DrawingStandardPanel({ standards: stored, current, regions, drawing, currentPage, pageSize, texts, readOnly, onDraw, onChange, onSave, onDelete, onUse, onImport, onExport, everySetMarks, onTeach, onMoveMarks, onForgetMark, onClose }: Props) {
+export function DrawingStandardPanel({ standards: stored, current, regions, drawing, currentPage, pageSize, texts, readOnly, onDraw, onChange, onSave, onDelete, onUse, onImport, onExport, everySetMarks, onTeach, onMoveMarks, onForgetMark, project, onProjectStandard, onClose }: Props) {
   const standards = useMemo(() => stored.map(withDefaults), [stored]);
   const [editing, setEditing] = useState<string>(current ?? standards[0]?.id ?? NEW);
   const [draft, setDraft] = useState<DrawingStandard>(() => standards.find((s) => s.id === editing) ?? newStandard('New standard'));
   const [lists, setLists] = useState<Lists>(() => listsOf(draft.links));
   const [chainLists, setChainLists] = useState<ChainLists>(() => chainListsOf(draft.chainage));
+  const [identify, setIdentify] = useState(() => draft.identify.join(', '));
   const [chosen, setChosen] = useState<TitleField[]>(() => draft.sheets.boxes.map((b) => b.field));
   const [message, setMessage] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
@@ -101,6 +105,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
     setDraft(s);
     setLists(listsOf(s.links));
     setChainLists(chainListsOf(s.chainage));
+    setIdentify(s.identify.join(', '));
     setChosen(s.sheets.boxes.map((b) => b.field));
     setMessage(null);
     onChange(s.sheets.boxes.map((b) => regionOfBox(b, pageSize)));
@@ -177,6 +182,27 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
           ))}
         </select>
       </label>
+      {project && (
+        <p className="hint ds-project">
+          {project.standard ? (
+            <>
+              Project {project.name} reads every file with <b>{project.standard}</b>.
+            </>
+          ) : (
+            <>Project {project.name} has no drawing standard.</>
+          )}{' '}
+          {project.owner && saved && (
+            <button className="btn small flat" onClick={() => onProjectStandard(finished())} title="Everyone's copy of the Project reads its files with this standard">
+              Use {draft.name || 'this'} for the Project
+            </button>
+          )}
+          {project.owner && project.standard && (
+            <button className="btn small flat" onClick={() => onProjectStandard(null)}>
+              Stop
+            </button>
+          )}
+        </p>
+      )}
       <div className="lr-row ds-pick">
         <select value={saved ? draft.id : NEW} onChange={(e) => setEditing(e.target.value)} aria-label="Standard to edit">
           {standards.map((s) => (
@@ -205,6 +231,22 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
       <label className="ds-field">
         Name
         <input className="lr-typed" value={draft.name} placeholder="Client or consultant" onChange={(e) => setDraft({ ...draft, name: e.target.value })} onKeyDown={(e) => e.stopPropagation()} />
+      </label>
+
+      <label className="ds-field">
+        Words on this client's sheets
+        <input
+          className="lr-typed"
+          value={identify}
+          placeholder="Client name, project code"
+          onChange={(e) => {
+            setIdentify(e.target.value);
+            const list = listOf(e.target.value);
+            setDraft((d) => ({ ...d, identify: list }));
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          title="Sets that print these, or whose numbers fit the template, are offered this standard when they open"
+        />
       </label>
 
       <h4 className="ds-section">Title block</h4>
