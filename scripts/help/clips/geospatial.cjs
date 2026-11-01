@@ -1,66 +1,73 @@
-// Geospatial: lay a coordinate-system model over a sheet and line it up with the drawing.
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const { VIEWPORT } = require('../gifs-lib.cjs');
+// Geospatial: lay the Kestrel road LandXML design over the stitched plan, drag it into line with
+// the drawing and georeference every sheet, then show the coordinates read out at the bottom right.
+const { goTo, scalePlans, stitchPlans } = require('../kestrel.cjs');
 
-// A site outline and a pipe run, in MGA2020 zone 56 (EPSG:7856) metres.
-const E = 333000;
-const N = 6250000;
-const line = (pts) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: pts.map(([x, y]) => [E + x, N + y]) } });
-const model = {
-  type: 'FeatureCollection',
-  crs: { type: 'name', properties: { name: 'urn:ogc:def:crs:EPSG::7856' } },
-  features: [
-    line([[0, 0], [18, 0], [18, 12], [0, 12], [0, 0]]),
-    line([[2, 2], [16, 2], [16, 10], [2, 10], [2, 2]]),
-    line([[-8, 6], [0, 6]]),
-    line([[18, 6], [26, 6]]),
-  ],
-};
+// Where the design's start of works (CH 0) sits once laid over page 6, and where the drawing
+// has it: the sheets are 1:500 and north up, so a move lines the whole design up.
+const MODEL_START = [391.66, 701.35];
+const DRAWING_START = [184.6, 759.5];
 
 module.exports = async function (h, rec) {
   const { page } = h;
-  // A fresh private folder: nothing predictable in the shared temp directory.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rc-geo-'));
-  const file = path.join(dir, 'site-model.geojson');
-  fs.writeFileSync(file, JSON.stringify(model), { mode: 0o600 });
-  // Feet and inches (the sample sheets are imperial): the setting is read when the app starts.
-  await page.evaluate(() => localStorage.setItem('nb.settings', JSON.stringify({ unitSystem: 'imperial' })));
-  await page.reload();
-  await page.waitForSelector('.menubar');
-  await h.open('sample-plans.pdf');
-  await h.run('Window', 'Toolbar Display', 'Ribbon: Tabs and Commands');
-  await page.locator('label.field.scale select').first().selectOption({ label: `1/4" = 1'-0"` });
-  await h.wait(600);
-  await page.locator('.sidebar-rail button, nav button', { hasText: /^Geospatial$/ }).first().click();
+  const shot = (n) => process.env.DEBUG_CLIP && page.screenshot({ path: `scratch-${n}.png` });
+  await h.open('kestrel-road-set1.pdf');
+  await scalePlans(h);
+  await stitchPlans(h);
+  await goTo(h, 5);
+  await page.keyboard.press('Control+0');
   await h.wait(800);
-  if (process.env.DEBUG_CLIP) await page.screenshot({ path: 'scratch-0.png' });
+  await shot(0);
   await rec.start();
-  await rec.caption('Lay a CAD or survey model over a sheet');
-  await rec.hold(1000);
-  await rec.click(page.getByRole('button', { name: 'Open Model…' }), { after: 200 }).catch(() => {});
-  await page.setInputFiles('input[type=file][accept*=geojson]', file);
-  await h.wait(1500);
-  fs.rmSync(dir, { recursive: true, force: true });
-  await h.zoomTo(...h.plan(0, 46), ...h.plan(62, 0));
-  await h.wait(600);
-  await rec.hold(1800);
-  await rec.caption('Drag it into line with the drawing');
-  const move = page.getByRole('button', { name: 'Move', exact: true });
-  await move.scrollIntoViewIfNeeded();
-  await rec.click(move);
-  const a = await h.at(...h.plan(34, 24));
-  const b = await h.at(...h.plan(30, 22));
-  await rec.drag(a, b);
+  await rec.caption('Four plan sheets, stitched into one plan');
+  await rec.hold(1500);
+  await rec.caption('Open the Geospatial panel and choose all the stitched sheets');
+  await rec.click(page.locator('.rail button', { hasText: /^\s*Geospatial/ }));
+  await rec.hold(700);
+  await rec.click(page.locator('label', { hasText: 'All stitched sheets' }));
+  await rec.hold(700);
+  await rec.caption('Open the road design (a LandXML file)');
+  await rec.click(page.getByRole('button', { name: 'Open Modelâ€¦' }));
+  await page.setInputFiles('input[type=file][accept*=xml]', h.sample('kestrel-road-alignment.xml'));
+  await h.wait(3000);
+  await rec.hold(1500);
+  await shot(1);
+
+  await rec.caption('Drag the design into line with the drawing');
+  await h.zoomTo(100, 600, 800, 900);
   await rec.hold(1200);
-  if (process.env.DEBUG_CLIP) await page.screenshot({ path: 'scratch-1.png' });
-  await rec.caption('Georeference the sheet and save');
+  await rec.drag(await h.at(...MODEL_START, 5), await h.at(...DRAWING_START, 5), { steps: 24 });
+  await rec.hold(2500);
+  await shot(2);
+
+  await rec.caption('Georeference every sheet');
   const go = page.getByRole('button', { name: /^Georeference/ });
   await go.scrollIntoViewIfNeeded();
   await rec.hold(500);
   await rec.click(go);
-  await rec.hold(2500);
-  if (process.env.DEBUG_CLIP) await page.screenshot({ path: 'scratch-2.png' });
+  await rec.hold(1500);
+  await shot(3);
+
+  await rec.caption('Hover the drawing: real-world coordinates, bottom right');
+  const stops = [[250, 790], [400, 800], [560, 820], [720, 800]];
+  const first = await h.at(...stops[0], 5);
+  await rec.move(first.x, first.y, { steps: 18 });
+  await h.wait(500);
+  // The status bar's right-hand readout switches from sheet distances to latitude and longitude:
+  // box whatever is at its right-hand end.
+  const readout = await page.evaluate(() => {
+    const leaves = [...document.querySelectorAll('.statusbar *')].filter((e) => !e.children.length && e.textContent.trim() && e.getBoundingClientRect().left > 900);
+    if (!leaves.length) return null;
+    const rs = leaves.map((e) => e.getBoundingClientRect());
+    const x = Math.min(...rs.map((r) => r.left));
+    const y = Math.min(...rs.map((r) => r.top));
+    return { x, y, width: Math.max(...rs.map((r) => r.right)) - x, height: Math.max(...rs.map((r) => r.bottom)) - y };
+  });
+  if (readout) await h.mark([readout], { numbers: false, pad: 6 });
+  for (const [x, y] of stops) {
+    const p = await h.at(x, y, 5);
+    await rec.move(p.x, p.y, { steps: 18 });
+    await rec.hold(1500);
+  }
+  await shot(4);
 };
 module.exports.viewport = { width: 1180, height: 680 };
