@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectLinks, SheetLookup } from './links.ts';
+import { detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2592;
@@ -68,7 +68,7 @@ test('slash references and plain sheet references', () => {
     links.map((l) => [l.label, l.kind, l.targetPage]),
     [
       ['3/C-501', 'detail', 2],
-      ['C-102', 'sheet', 1],
+      ['C-102', 'matchline', 1],
     ],
   );
   // Detail 3 does not exist on C-501 here, so the link falls back to the sheet with lower confidence.
@@ -168,4 +168,111 @@ test('bare-number sheets only link where the text names a drawing', () => {
     links.map((l) => [l.label, l.rect.y < 650 ? 'prose' : 'reference']),
     [['680', 'reference']],
   );
+});
+
+test('bubbles are typed by the title they point at: section, elevation, enlarged plan', () => {
+  const pages = [
+    page([...bubble('A', 'C-501', 300, 800), ...bubble('2', 'C-501', 700, 800), ...bubble('5', 'C-501', 1100, 800), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    page([
+      ...bubble('A', 'C-501', 400, 900, 14),
+      word('SECTION A-A', 460, 900, 12),
+      ...bubble('2', 'C-501', 1000, 900, 14),
+      word('NORTH ELEVATION', 1060, 900, 12),
+      ...bubble('5', 'C-501', 1600, 900, 14),
+      word('ENLARGED PLAN AT STAIR', 1660, 900, 12),
+      ...titleBlock('C-501'),
+    ]),
+  ];
+  const links = detectLinks(pages, numbers).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.kind]),
+    [
+      ['A/C-501', 'section'],
+      ['2/C-501', 'elevation'],
+      ['5/C-501', 'enlargedPlan'],
+    ],
+  );
+  assert.ok(links.every((l) => l.targetRect), 'all three located');
+});
+
+test('a section title names the sheet it is cut on: the link back is a section', () => {
+  const pages = [
+    // C-101 carries the cut marker A over C-501 (the sheet the section is drawn on).
+    page([...bubble('A', 'C-501', 900, 800), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    // C-501: the section title A over C-101 points back at the cut.
+    page([...bubble('A', 'C-101', 600, 900, 14), word('SECTION', 660, 900, 12), ...titleBlock('C-501')]),
+  ];
+  const back = detectLinks(pages, numbers).find((l) => l.pageIndex === 2);
+  assert.ok(back);
+  assert.equal(back!.kind, 'section');
+  assert.equal(back!.targetPage, 0);
+  assert.ok(back!.targetRect, 'cut marker located');
+});
+
+test('match-line references are kept apart from other sheet references', () => {
+  const pages = [
+    page([word('MATCH', 300, 1200, 8), word('LINE', 340, 1200, 8), word('SEE', 380, 1200, 8), word('SHEET', 410, 1200, 8), word('C-102', 460, 1200, 8), word('SEE', 300, 1300, 8), word('SHEET', 330, 1300, 8), word('C-501', 380, 1300, 8), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    page(titleBlock('C-501')),
+  ];
+  const links = detectLinks(pages, numbers).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.kind]),
+    [
+      ['C-102', 'matchline'],
+      ['C-501', 'sheet'],
+    ],
+  );
+});
+
+test('doubled section letters (AA, BB) are identifiers; two different letters are not', () => {
+  const pages = [
+    // CC over C-501 is a section bubble. "TO" over C-102 in a note is not.
+    page([...bubble('CC', 'C-501', 300, 800), word('REFER', 600, 1000, 8), word('TO', 606, 1000, 8), word('C-102', 600, 1010, 8), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    page([...bubble('CC', 'C-501', 400, 900, 14), word('SECTION CC', 460, 900, 12), ...titleBlock('C-501')]),
+  ];
+  const links = detectLinks(pages, numbers).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.kind, l.detail]),
+    [
+      ['CC/C-501', 'section', 'CC'],
+      ['C-102', 'sheet', null],
+    ],
+  );
+});
+
+test('a section title written A-A is the title of the cut marked A; AA is its own section', () => {
+  const pages = [
+    page([...bubble('A', 'C-501', 300, 800), ...bubble('AA', 'C-501', 700, 800), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    page([
+      ...bubble('A-A', 'C-501', 400, 900, 14),
+      word('SECTION', 480, 900, 12),
+      ...bubble('AA', 'C-501', 1400, 900, 14),
+      word('SECTION', 1460, 900, 12),
+      ...titleBlock('C-501'),
+    ]),
+  ];
+  const links = detectLinks(pages, numbers);
+  const from = links.filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    from.map((l) => [l.label, l.detail, l.kind, Math.round(l.targetRect?.x ?? -1)]),
+    [
+      ['A/C-501', 'A', 'section', 406 - 14 * 4],
+      ['AA/C-501', 'AA', 'section', 1406 - 14 * 4],
+    ],
+  );
+  // The titles on their own sheet are destinations, not links.
+  assert.equal(links.filter((l) => l.pageIndex === 2).length, 0);
+  assert.deepEqual(['A-A', 'a–a', '1-1', 'AA', '(B2)'].map(detailId), ['A', 'A', '1', 'AA', 'B2']);
+});
+
+test('only known link kinds are kinds, not keys every object has', () => {
+  assert.ok(isLinkKind('section'));
+  assert.ok(!isLinkKind('constructor'));
+  assert.ok(!isLinkKind('toString'));
+  assert.ok(!isLinkKind('station'));
 });
