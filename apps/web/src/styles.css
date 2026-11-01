@@ -5834,6 +5834,20 @@ select[size] {
   font-size: 12px;
 }
 
+.tl-gate p {
+  margin: 8px 0 4px;
+}
+
+.tl-setup {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.tl-setup li + li {
+  margin-top: 3px;
+}
+
 /* Change Colours on a picture: the picture now beside how it will look, on a checkerboard so see-through shows. */
 .modal.picture-colours {
   width: min(1040px, calc(100vw - 32px));

@@ -726,14 +726,37 @@ function userToPageMatrix(m: WrappedPdfiumModule, page: number): Matrix {
   return [(ex[0] - o[0]) / 1000, (ex[1] - o[1]) / 1000, (ey[0] - o[0]) / 1000, (ey[1] - o[1]) / 1000, o[0], o[1]];
 }
 
-/** A page's line work as segments, and which of them were flattened from curves (1) rather than drawn straight (0). */
-function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Float32Array; curves: Uint8Array } {
+/**
+ * A page's line work as segments, which of them were flattened from curves (1) rather than drawn
+ * straight (0), and which belong to a path that paints nothing on white paper (1).
+ */
+function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Float32Array; curves: Uint8Array; paper: Uint8Array } {
   const { malloc, free } = m.pdfium.wasmExports;
   const matPtr = malloc(24);
   const ptPtr = malloc(8);
+  const colPtr = malloc(16);
   const out: number[] = [];
   const curve: number[] = [];
+  const blank: number[] = [];
   const f32 = () => m.pdfium.HEAPF32;
+
+  /**
+   * Whether a path shows nothing on white paper: neither stroked nor filled, or only in white. CAD
+   * exports draw such masks under a label (often as many thin triangles) to hide the drawing behind it.
+   */
+  const paperOnly = (path: number): boolean => {
+    if (!m.FPDFPath_GetDrawMode(path, colPtr, colPtr + 4)) return false;
+    const fillMode = m.pdfium.HEAP32[colPtr >> 2]!;
+    const stroke = m.pdfium.HEAP32[(colPtr >> 2) + 1]!;
+    // A colour that cannot be read (a pattern, say) is taken to show.
+    const shows = (get: typeof m.FPDFPageObj_GetFillColor) => {
+      if (!get(path, colPtr, colPtr + 4, colPtr + 8, colPtr + 12)) return true;
+      const u = m.pdfium.HEAPU32;
+      const i = colPtr >> 2;
+      return u[i + 3]! > 0 && Math.min(u[i]!, u[i + 1]!, u[i + 2]!) < 245;
+    };
+    return !(stroke && shows(m.FPDFPageObj_GetStrokeColor)) && !(fillMode && shows(m.FPDFPageObj_GetFillColor));
+  };
 
   const objMatrix = (obj: number): Matrix => {
     if (!m.FPDFPageObj_GetMatrix(obj, matPtr)) return [1, 0, 0, 1, 0, 0];
@@ -744,6 +767,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
 
   const walkPath = (path: number, t: Matrix) => {
     const n = m.FPDFPath_CountSegments(path);
+    const paper = paperOnly(path) ? 1 : 0;
     let cx = 0;
     let cy = 0;
     let sx = 0;
@@ -753,6 +777,7 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
       if (x1 === x2 && y1 === y2) return;
       out.push(x1, y1, x2, y2);
       curve.push(isCurve);
+      blank.push(paper);
     };
     for (let i = 0; i < n && out.length < MAX_SEGMENTS * 4; i++) {
       const seg = m.FPDFPath_GetPathSegment(path, i);
@@ -818,8 +843,9 @@ function extractSegments(m: WrappedPdfiumModule, page: number): { segments: Floa
   } finally {
     free(matPtr);
     free(ptPtr);
+    free(colPtr);
   }
-  return { segments: new Float32Array(out), curves: new Uint8Array(curve) };
+  return { segments: new Float32Array(out), curves: new Uint8Array(curve), paper: new Uint8Array(blank) };
 }
 
 function applyHidden(m: WrappedPdfiumModule, page: number, indices: Set<number> | undefined) {
@@ -1888,11 +1914,11 @@ function extractWords(m: WrappedPdfiumModule, page: number): TextWord[] {
   return [...words, ...shxWords(m, page, t)];
 }
 
-async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; ms: number }> {
+async function geometry(docId: number, pageIndex: number): Promise<{ segments: Float32Array; curves: Uint8Array; paper: Uint8Array; ms: number }> {
   const t0 = performance.now();
   const m = await lib();
-  const { segments, curves } = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
-  return { segments, curves, ms: performance.now() - t0 };
+  const { segments, curves, paper } = extractSegments(m, getPage(m, getDoc(docId), pageIndex));
+  return { segments, curves, paper, ms: performance.now() - t0 };
 }
 
 /** Full page size in device pixels at `scale`; must match the viewer's `ceil(points * scale)`. */
@@ -2056,7 +2082,7 @@ async function handle(req: WorkerRequest) {
       }
       case 'geometry': {
         const res = await geometry(req.docId, req.pageIndex);
-        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer, res.curves.buffer]);
+        reply({ id: req.id, ok: true, type: 'geometry', ...res }, [res.segments.buffer, res.curves.buffer, res.paper.buffer]);
         break;
       }
     }

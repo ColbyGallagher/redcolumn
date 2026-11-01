@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_LINK_HINTS, detectLinks, type Word } from '@nb/sheets';
-import { findMarks, sectionFrame, teachMark, type MarkPage } from './marks.ts';
+import { findMarks, inked, sectionFrame, teachMark, type MarkPage } from './marks.ts';
 
 const word = (text: string, cx: number, cy: number, size = 6): Word => {
   const w = text.length * size * 0.55;
@@ -255,4 +255,11 @@ test("a drawing standard's identifiers and callout part reach marks its usual re
     findMarks(pages, numbers, [mark]).map((l) => l.targetPage),
     [],
   );
+});
+
+test('line work painted only in white (a mask inside a bubble) is left out', () => {
+  const segments = new Float32Array([0, 0, 10, 0, 1, 1, 9, 9, 1, 9, 9, 1, 0, 10, 10, 10]);
+  assert.deepEqual([...inked(segments, new Uint8Array([0, 1, 1, 0]))], [0, 0, 10, 0, 0, 10, 10, 10]);
+  assert.equal(inked(segments, new Uint8Array(4)), segments);
+  assert.equal(inked(segments), segments);
 });

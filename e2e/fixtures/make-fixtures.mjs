@@ -16,6 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const W = 1224; // 17 x 11 in
 const H = 792;
 const black = rgb(0, 0, 0);
+const white = rgb(1, 1, 1);
 
 /** Where things are on plan.pdf, shared with the specs through expected.json. */
 const expected = {
@@ -72,8 +73,8 @@ const expected = {
   /**
    * marks.pdf: two 17 x 11 in sheets. The first has detail callouts drawn as split circles, the
    * identifier above the line and the sheet it points at below, and a grid bubble of the same
-   * size with no sheet number. The second is the sheet the callouts point at, with the title of
-   * detail 2 (DETAIL 2, underlined).
+   * size with no sheet number, each with a white mask under its label. The second is the sheet
+   * the callouts point at, with the title of detail 2 (DETAIL 2, underlined).
    */
   marks: {
     sheetNumbers: ['A-101', 'A-501'],
@@ -241,6 +242,8 @@ async function marks() {
   const bubble = (cx, cy, detail, sheet) => {
     plan.drawCircle({ x: cx, y: H - cy, size: r, borderColor: black, borderWidth: 1 });
     plan.drawLine({ start: { x: cx - r, y: H - cy }, end: { x: cx + r, y: H - cy }, thickness: 1, color: black });
+    // A white mask under the label, in strips as CAD exports draw them: it shows nothing.
+    for (let k = 0; k < 3; k++) plan.drawRectangle({ x: cx - r * 0.6, y: H - cy + 2 + k * 4, width: r * 1.2, height: 3, color: white });
     centred(detail, cx, cy - r / 2, 10);
     if (sheet) centred(sheet, cx, cy + r / 2, 6);
   };

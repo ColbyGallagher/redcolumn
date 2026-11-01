@@ -64,6 +64,22 @@ export interface MarkPage extends PageText {
   segments: ArrayLike<number>;
 }
 
+/**
+ * The line work that shows: without paths that paint only white (`paper`, one flag per segment),
+ * such as the masks CAD exports draw inside a bubble to hide the drawing behind its label.
+ */
+export function inked(segments: Float32Array, paper?: Uint8Array): Float32Array {
+  if (!paper?.includes(1)) return segments;
+  const out = new Float32Array(segments.length);
+  let n = 0;
+  for (let i = 0; i < paper.length; i++) {
+    if (paper[i]) continue;
+    out.set(segments.subarray(i * 4, i * 4 + 4), n);
+    n += 4;
+  }
+  return out.slice(0, n);
+}
+
 /** Sheet-number shape (as in links.ts), for examples taught before the set's sheet numbers are known. */
 const SHEET_SHAPE = /^[A-Z]{1,3}[-.]?\d{1,4}(?:[.-]\d{1,3})?[A-Z]?$/;
 /** More line work than this in the box means it holds more than one mark. */

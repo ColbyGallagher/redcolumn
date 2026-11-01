@@ -188,3 +188,23 @@ test('a cross section at CHAINAGE 101180 links to the plan whose bare ticks cove
   // Without plan titles that fit, bare numbers are not read as ticks.
   assert.deepEqual(pairs(detectChainageLinks([plan, section], [sheet(numbers[0]!, 'GENERAL ARRANGEMENT'), sheet(numbers[1]!, 'MCR1 CROSS SECTIONS SHEET 11')], hints, true), numbers), []);
 });
+
+test('cross sections link to the plan, never to another cross section at the same chainage', () => {
+  const numbers = ['RW-DRG-000102', 'RW-DRG-000353', 'RW-DRG-000354'];
+  const plan = page([...[100, 120, 140, 160, 180, 200].map((v, i) => upright(String(v), 600 + i * 120, 1500, 9))]);
+  // Two roads' cross sections, both at chainage 160.
+  const one = page(phrase('CHAINAGE 160', 1200, 1000, 12));
+  const two = page(phrase('CHAINAGE 160', 1200, 1000, 12));
+  const hints: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, planTitles: ['ROADWORKS PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+  const sheets = [sheet(numbers[0]!, 'ROADWORKS PLAN SHEET 1'), sheet(numbers[1]!, 'CROSS SECTIONS SHEET 1'), sheet(numbers[2]!, 'CROSS SECTIONS SHEET 2')];
+  const links = pairs(detectChainageLinks([plan, one, two], sheets, hints, true), numbers);
+  assert.deepEqual(
+    links.filter((p) => p[0] !== numbers[0]),
+    [
+      ['RW-DRG-000353', 'CHAINAGE 160', 'RW-DRG-000102', 0.85],
+      ['RW-DRG-000354', 'CHAINAGE 160', 'RW-DRG-000102', 0.85],
+    ],
+  );
+  // With no plan covering it, a cross section's chainage is not linked at all.
+  assert.deepEqual(pairs(detectChainageLinks([one, two], sheets.slice(1), hints, true), numbers.slice(1)), []);
+});

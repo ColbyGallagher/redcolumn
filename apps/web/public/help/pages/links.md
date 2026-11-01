@@ -42,13 +42,17 @@ Links are found from the text, so marks drawn as shapes, or titles set in an unu
 1. Click **Teach links…** in the Links tab (or choose {{View > Teach Sheet Links…}}). The **Teach Links** panel opens.
 2. Pick what to teach: **Sections**, **Details**, **Elevations** or **Chainage**.
 3. Drag a box around one mark, such as a section mark. Include its label: the section letter and the sheet it points to.
-4. The panel shows what you boxed. Line work that runs out of the box, such as a road edge behind the mark, is shown in red and left out. Click a line or a word to leave it out or put it back, then click **Next**.
+4. The panel shows what you boxed. Line work that runs out of the box, such as a road edge behind the mark, is shown in red and left out. White masks drawn under a label to hide the drawing behind it are not shown at all. Click a line or a word to leave it out or put it back, then click **Next**.
 5. Go to the sheet the mark points to (**Go to *sheet*** takes you there) and box the section's title.
 6. redcolumn checks the pair: the letters must match, and the mark must name the sheet the title is on. It says what it learned, for example that the client's callouts cite only part of the drawing number. Click **Keep**.
 
 Teach each kind once or twice. A callout that points to a whole sheet, with no title to box, can be kept alone: click **No title to box**.
 
 For **Chainage**, box the chainage on a cross section with the word in front of it (*CHAINAGE 101180*), then the same chainage on the plan. redcolumn learns the word, and the title words of the client's plan and cross-section sheets (see [Alignments and chainage](#drawing-standards)).
+
+Chainage needs two things first, and the panel says how to get them: a [drawing standard](#drawing-standards) to keep what you teach, and the sheet titles, which tell plans from cross sections. Give the standard a box for the sheet title (choose **Sheet title** for it) and click **Save and use**; if the standard has the box but the set has not been read with it, click **Read sheets with *standard***.
+
+A chainage on a cross section links to the plan that covers it, never to another cross section at the same chainage (often on another road).
 
 When the document is read with a [drawing standard](#drawing-standards), what you teach is kept in the standard, so it is used on every set from that client.
 

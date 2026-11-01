@@ -254,7 +254,7 @@ export function learnChainage(section: TaughtBox, plan: TaughtBox, sheets: reado
   ] as const) {
     if (sheetTitled(box.page, sheets[box.pageIndex], h[key])) continue;
     const words = titleWords(sheets[box.pageIndex]?.title);
-    if (!words) return fail(`redcolumn has not read the title of the ${what.toLowerCase()} sheet. Type the words its titles use under Alignments and chainage.`);
+    if (!words) return fail(`redcolumn has not read the title of ${sheets[box.pageIndex]?.number ?? `page ${box.pageIndex + 1}`}, so it cannot tell that it is a ${what.toLowerCase()} sheet. Check the drawing standard's Sheet title box covers the title on that sheet, or type the words its title uses under ${what === 'Plan' ? 'Plan sheet titles' : 'Cross-section sheet titles'}.`);
     h[key] = [...h[key], words];
     notes.push(`${what} sheets are titled ${words}.`);
   }

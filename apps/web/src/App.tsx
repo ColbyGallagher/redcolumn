@@ -173,7 +173,7 @@ import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { TeachLinksPanel } from './components/TeachLinksPanel';
-import { type TaughtMark } from './sheets/marks';
+import { inked, type TaughtMark } from './sheets/marks';
 import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
@@ -9442,6 +9442,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 <TeachLinksPanel
                   key={`teach:${o.file.id}`}
                   standard={standard?.name ?? null}
+                  titleBox={!!standard?.sheets.boxes.some((b) => b.field === 'title')}
                   sheetInfo={teachLinks === 'b' ? sheetsB : sheetsA}
                   pageCount={o.doc.pages.length}
                   linkHints={standard?.links ?? DEFAULT_LINK_HINTS}
@@ -9449,7 +9450,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   box={teachBox?.pane === teachLinks ? teachBox : null}
                   readPage={async (i) => {
                     const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
-                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: geometry.segments };
+                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: inked(geometry.segments, geometry.paper) };
                   }}
                   onArm={() => {
                     setActivePane(teachLinks);
@@ -9460,6 +9461,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     c.viewer.goToPage(i);
                   }}
                   onKeep={(lesson, forStandard) => keepLesson(o, lesson, forStandard)}
+                  onSetUp={() => startLabelRegions(teachLinks, 'standard')}
+                  onReadSheets={() => {
+                    if (!standard) return;
+                    void readWithStandard(o, standard).then(() => {
+                      const titled = Object.values(o.store.allSheets()).filter((s) => s.title).length;
+                      setNotice(`Read ${o.file.name} with ${standard.name}: sheet titles on ${titled} of ${o.doc.pages.length} sheets.`);
+                    });
+                  }}
                   onClose={() => {
                     setTeachLinks(null);
                     setTeachBox(null);

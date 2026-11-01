@@ -140,7 +140,8 @@ test.describe('view', () => {
     const [first] = callouts;
     await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
     await expect(wizard.locator('.tl-words button')).toHaveText(['1', 'A-501']);
-    await expect(wizard.getByText('lines kept')).toBeVisible();
+    // The circle and its line (33 segments); the white mask under the label is not line work.
+    await expect(wizard.getByText('lines kept')).toContainText('33 of 33 lines kept');
     // This callout's detail has no title to box: keep the mark alone.
     await wizard.getByRole('button', { name: 'No title to box' }).click();
     await wizard.getByLabel('Name').fill('Split bubble');
@@ -270,6 +271,32 @@ test.describe('view', () => {
     await standard.getByLabel('Name', { exact: true }).fill('Road client');
     await standard.getByRole('button', { name: 'Save and use' }).click();
     await expect.poll(chainage).toEqual(['1:12+00>2:auto', '1:13+00>2:auto', '2:STA 12+00>1:auto', '2:STA 13+00>1:auto', '3:STA 14+50>1:auto']);
+  });
+
+  test('teach links: chainage waits for a drawing standard and the sheet titles, and says how to get them', async ({ app }) => {
+    await app.open('chainage.pdf');
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('chainage.pdf');
+    await app.cmd('document.teachMark');
+    const wizard = app.page.locator('.teach-links');
+    await wizard.getByRole('tab', { name: 'Chainage' }).click();
+    // No standard: the steps to set one up, not the first box.
+    await expect(wizard.locator('.tl-gate')).toContainText('tells plans from cross sections by their sheet titles');
+    await expect(wizard.getByRole('button', { name: 'Draw box' })).toHaveCount(0);
+    await wizard.getByRole('button', { name: 'Open Drawing Standards' }).click();
+    const standard = app.page.locator('.drawing-standard');
+    await standard.getByLabel('Name', { exact: true }).fill('Road client');
+    await standard.getByRole('button', { name: 'Save and use' }).click();
+    // The standard has no box for the sheet title, so the titles are still not read.
+    await expect(wizard.locator('.tl-gate')).toContainText('Road client has no box for the sheet title yet');
+    await expect(wizard.getByRole('button', { name: 'Draw box' })).toHaveCount(0);
+    // Titles read (as a Sheet title box would read them): which sheets are plans and which cross sections; on to the boxes.
+    await app.page.evaluate((titles) => {
+      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
+      store.setDetectedSheets(titles.map((title, i) => [i, { number: `C-${i + 1}`, title, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
+    }, ['PLAN AND PROFILE', 'CROSS SECTIONS', 'GENERAL NOTES']);
+    await expect(wizard.locator('.tl-gate')).toHaveCount(0);
+    await expect(wizard.getByText('By their titles, 1 sheet is a plan and 1 is a cross section.')).toBeVisible();
+    await expect(wizard.getByRole('button', { name: 'Draw box' })).toBeVisible();
   });
 
   test('next and previous document', async ({ app }) => {

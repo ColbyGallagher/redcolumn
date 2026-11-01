@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SheetLookup, type ChainageHints, type LinkHints, type Rect, type SheetInfo } from '@nb/sheets';
+import { SheetLookup, sheetTitled, type ChainageHints, type LinkHints, type PageText, type Rect, type SheetInfo } from '@nb/sheets';
 import { backgroundLines, boxContents, type MarkPage } from '../sheets/marks';
 import { TEACH_KINDS, learnChainage, learnLink, type Lesson, type TaughtBox, type TeachKind } from '../sheets/teachLinks';
 import { useResizablePanel } from './resizablePanel';
@@ -13,6 +13,8 @@ export interface TeachBox {
 interface Props {
   /** The drawing standard the document is read with: what the pairs teach can be kept in it. */
   standard: string | null;
+  /** Whether that standard has a box for the sheet title. */
+  titleBox: boolean;
   /** The document's sheet info by page (stable until it changes), and its page count. */
   sheetInfo: Readonly<Record<number, SheetInfo>>;
   pageCount: number;
@@ -25,6 +27,10 @@ interface Props {
   onArm: () => void;
   onGoTo: (pageIndex: number) => void;
   onKeep: (lesson: Lesson, forStandard: boolean) => void;
+  /** Opens Drawing Standards, to set up the title-block boxes. */
+  onSetUp: () => void;
+  /** Reads the set with its drawing standard. */
+  onReadSheets: () => void;
   onClose: () => void;
 }
 
@@ -37,6 +43,86 @@ interface Drawn extends TaughtBox {
 }
 
 const KINDS = Object.keys(TEACH_KINDS) as TeachKind[];
+/** Sheets are told apart by their titles alone here (no page text). */
+const NO_TEXT: PageText = { width: 0, height: 0, words: [] };
+
+/** Steps for giving the standard a sheet-title box, for chainage. */
+function TitleBoxSteps({ onSetUp }: { onSetUp: () => void }) {
+  return (
+    <>
+      <ol className="tl-setup">
+        <li>
+          Open <b>Drawing Standards</b> and click <b>+ Draw box</b>.
+        </li>
+        <li>
+          Box the sheet number in the title block, then the sheet title, and choose <b>Sheet title</b> for that box.
+        </li>
+        <li>
+          Click <b>Save and use</b>. The set is read with the standard; then come back here.
+        </li>
+      </ol>
+      <div className="lr-row">
+        <button type="button" className="btn small primary" onClick={onSetUp}>
+          Open Drawing Standards
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** Whether the Chainage step must wait: no standard to keep it in, or the set's titles not read. */
+function chainageWaits(standard: string | null, sheets: readonly (SheetInfo | null)[]): boolean {
+  const titled = sheets.filter((s) => s?.title).length;
+  return !standard || titled === 0 || titled < sheets.length / 2;
+}
+
+/**
+ * What the Chainage step needs before it starts (see chainageWaits): a drawing standard to keep what
+ * it teaches, and the set's sheet titles, which tell plans from cross sections.
+ */
+function ChainageSetup({ standard, titleBox, sheets, onSetUp, onReadSheets }: { standard: string | null; titleBox: boolean; sheets: readonly (SheetInfo | null)[]; onSetUp: () => void; onReadSheets: () => void }) {
+  const titled = sheets.filter((s) => s?.title).length;
+  const read = sheets.some((s) => s?.source === 'standard');
+  const why = 'Chainage links go from a cross section to the plan that covers it, and redcolumn tells plans from cross sections by their sheet titles.';
+  if (!standard)
+    return (
+      <div className="tl-gate" role="status">
+        <p>
+          {why} What you teach is kept in the client's drawing standard, so set one up first, with a box for the sheet title:
+        </p>
+        <TitleBoxSteps onSetUp={onSetUp} />
+      </div>
+    );
+  if (!titleBox)
+    return (
+      <div className="tl-gate" role="status">
+        <p>
+          {why} {standard} has no box for the sheet title yet, so the titles have not been read. Add one:
+        </p>
+        <TitleBoxSteps onSetUp={onSetUp} />
+      </div>
+    );
+  return (
+    <div className="tl-gate" role="status">
+      <p>
+        {why}{' '}
+        {read
+          ? `${standard} read titles on only ${titled} of ${sheets.length} sheets. Check its Sheet title box covers the title on every sheet, then read the set again.`
+          : `${standard} has a box for the sheet title, but this set has not been read with it yet.`}
+      </p>
+      <div className="lr-row">
+        <button type="button" className="btn small primary" onClick={onReadSheets}>
+          {read ? 'Read again' : `Read sheets with ${standard}`}
+        </button>
+        {read && (
+          <button type="button" className="btn small" onClick={onSetUp}>
+            Open Drawing Standards
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function drawn(page: MarkPage, pageIndex: number, rect: Rect): Drawn {
   const all = boxContents(page, rect);
@@ -101,7 +187,7 @@ function BoxPreview({ d, onChange, compact = false }: { d: Drawn; onChange: (d: 
  * drawings (which part of the number callouts cite, how titles and chainages are written) goes into
  * the document's drawing standard with the marks.
  */
-export function TeachLinksPanel({ standard, sheetInfo, pageCount, linkHints: givenLinks, chainageHints: givenChainage, box, readPage, onArm, onGoTo, onKeep, onClose }: Props) {
+export function TeachLinksPanel({ standard, titleBox, sheetInfo, pageCount, linkHints: givenLinks, chainageHints: givenChainage, box, readPage, onArm, onGoTo, onKeep, onSetUp, onReadSheets, onClose }: Props) {
   const panel = useResizablePanel('nb.panel.teachLinks');
   const [kind, setKind] = useState<TeachKind>('section');
   const [mark, setMark] = useState<Drawn | null>(null);
@@ -151,13 +237,23 @@ export function TeachLinksPanel({ standard, sheetInfo, pageCount, linkHints: giv
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [box]);
 
+  const setup = kind === 'chainage' && chainageWaits(standard, sheets) ? <ChainageSetup standard={standard} titleBox={titleBox} sheets={sheets} onSetUp={onSetUp} onReadSheets={onReadSheets} /> : null;
+  /** Plans and cross sections, as their titles say. */
+  const chainageSheets = useMemo(() => {
+    if (kind !== 'chainage') return null;
+    const plans = sheets.filter((s) => s?.title && sheetTitled(NO_TEXT, s, chainageHints.planTitles)).length;
+    const sections = sheets.filter((s) => s?.title && !sheetTitled(NO_TEXT, s, chainageHints.planTitles) && sheetTitled(NO_TEXT, s, chainageHints.sectionTitles)).length;
+    return { plans, sections };
+  }, [kind, sheets, chainageHints]);
+
   const restart = (k: TeachKind = kind) => {
     setKind(k);
     setMark(null);
     setTarget(null);
     setAlone(false);
     setStage('mark');
-    onArm();
+    // Chainage waits for the sheet titles; ChainageSetup says what to do first.
+    if (k !== 'chainage' || !chainageWaits(standard, sheets)) onArm();
   };
 
   const lesson: Lesson | null = useMemo(() => {
@@ -205,124 +301,135 @@ export function TeachLinksPanel({ standard, sheetInfo, pageCount, linkHints: giv
           ))}
         </div>
 
-        <p className={`tl-step${mark ? ' done' : ''}`}>1. {step.markPrompt}</p>
-        {stage === 'mark' && (
-          <button type="button" className="btn small" onClick={onArm}>
-            {mark ? 'Box it again' : 'Draw box'}
-          </button>
-        )}
-        {mark && (
+        {setup}
+        {!setup && (
           <>
-            <p className="hint">On {where(mark.pageIndex)}:</p>
-            <BoxPreview d={mark} onChange={setMark} compact={stage !== 'mark'} />
-          </>
-        )}
-        {mark && stage === 'mark' && (
-          <div className="lr-row">
-            <button
-              type="button"
-              className="btn small primary"
-              onClick={() => {
-                setStage('target');
-                onArm();
-              }}
-            >
-              Next
-            </button>
-            {kind !== 'chainage' && (
-              <button type="button" className="btn small" onClick={() => setAlone(true)} title="Keep the mark alone: it points to a whole sheet, not a drawing with a title">
-                No title to box
-              </button>
-            )}
-          </div>
-        )}
-
-        {mark && !alone && stage !== 'mark' && (
-          <>
-            <p className={`tl-step${target ? ' done' : ''}`}>2. {step.targetPrompt}</p>
-            <div className="lr-row">
-              {pointsTo !== null && (
-                <button type="button" className="btn small" onClick={() => onGoTo(pointsTo)}>
-                  Go to {where(pointsTo)}
-                </button>
-              )}
-              <button type="button" className="btn small" onClick={onArm}>
-                {target ? 'Box it again' : 'Draw box'}
-              </button>
-              <button
-                type="button"
-                className="btn small flat"
-                onClick={() => {
-                  setTarget(null);
-                  setStage('mark');
-                }}
-              >
-                Back
-              </button>
-            </div>
-            {target && (
-              <>
-                <p className="hint">On {where(target.pageIndex)}:</p>
-                <BoxPreview d={target} onChange={setTarget} />
-              </>
-            )}
-          </>
-        )}
-        {loading && <p className="hint">Reading the box…</p>}
-        {message && <p className="tl-problem">{message}</p>}
-
-        {lesson && (
-          <div ref={result}>
-            {lesson.notes.length > 0 && (
-              <ul className="tl-notes">
-                {lesson.notes.map((n) => (
-                  <li key={n}>{n}</li>
-                ))}
-              </ul>
-            )}
-            {lesson.problem && (
-              <p className="tl-problem" role="alert">
-                {lesson.problem}
+            {chainageSheets && (
+              <p className="hint">
+                By their titles, {chainageSheets.plans} sheet{chainageSheets.plans === 1 ? ' is a plan' : 's are plans'} and {chainageSheets.sections} {chainageSheets.sections === 1 ? 'is a cross section' : 'are cross sections'}.
+                {chainageSheets.plans && chainageSheets.sections ? '' : ' The two sheets you box teach the words their titles use.'}
               </p>
             )}
-            {kind !== 'chainage' && (
-              <label className="ds-field">
-                Name
-                <input className="lr-typed" value={name} placeholder={step.label.replace(/s$/, '')} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
-              </label>
+            <p className={`tl-step${mark ? ' done' : ''}`}>1. {step.markPrompt}</p>
+            {stage === 'mark' && (
+              <button type="button" className="btn small" onClick={onArm}>
+                {mark ? 'Box it again' : 'Draw box'}
+              </button>
             )}
-            {standard ? (
-              <fieldset className="lr-row">
-                <legend>Keep in</legend>
-                <label>
-                  <input type="radio" name="tl-scope" checked={forStandard} onChange={() => setForStandard(true)} />
-                  {standard}
-                </label>
+            {mark && (
+              <>
+                <p className="hint">On {where(mark.pageIndex)}:</p>
+                <BoxPreview d={mark} onChange={setMark} compact={stage !== 'mark'} />
+              </>
+            )}
+            {mark && stage === 'mark' && (
+              <div className="lr-row">
+                <button
+                  type="button"
+                  className="btn small primary"
+                  onClick={() => {
+                    setStage('target');
+                    onArm();
+                  }}
+                >
+                  Next
+                </button>
                 {kind !== 'chainage' && (
-                  <label>
-                    <input type="radio" name="tl-scope" checked={!forStandard} onChange={() => setForStandard(false)} />
-                    Every set
+                  <button type="button" className="btn small" onClick={() => setAlone(true)} title="Keep the mark alone: it points to a whole sheet, not a drawing with a title">
+                    No title to box
+                  </button>
+                )}
+              </div>
+            )}
+
+            {mark && !alone && stage !== 'mark' && (
+              <>
+                <p className={`tl-step${target ? ' done' : ''}`}>2. {step.targetPrompt}</p>
+                <div className="lr-row">
+                  {pointsTo !== null && (
+                    <button type="button" className="btn small" onClick={() => onGoTo(pointsTo)}>
+                      Go to {where(pointsTo)}
+                    </button>
+                  )}
+                  <button type="button" className="btn small" onClick={onArm}>
+                    {target ? 'Box it again' : 'Draw box'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn small flat"
+                    onClick={() => {
+                      setTarget(null);
+                      setStage('mark');
+                    }}
+                  >
+                    Back
+                  </button>
+                </div>
+                {target && (
+                  <>
+                    <p className="hint">On {where(target.pageIndex)}:</p>
+                    <BoxPreview d={target} onChange={setTarget} />
+                  </>
+                )}
+              </>
+            )}
+            {loading && <p className="hint">Reading the box…</p>}
+            {message && <p className="tl-problem">{message}</p>}
+
+            {lesson && (
+              <div ref={result}>
+                {lesson.notes.length > 0 && (
+                  <ul className="tl-notes">
+                    {lesson.notes.map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                )}
+                {lesson.problem && (
+                  <p className="tl-problem" role="alert">
+                    {lesson.problem}
+                  </p>
+                )}
+                {kind !== 'chainage' && (
+                  <label className="ds-field">
+                    Name
+                    <input className="lr-typed" value={name} placeholder={step.label.replace(/s$/, '')} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
                   </label>
                 )}
-              </fieldset>
-            ) : (
-              keepsHints && <p className="hint">Read this document with a drawing standard to keep what this pair teaches about the client's drawings; only the marks are kept for now.</p>
+                {standard ? (
+                  <fieldset className="lr-row">
+                    <legend>Keep in</legend>
+                    <label>
+                      <input type="radio" name="tl-scope" checked={forStandard} onChange={() => setForStandard(true)} />
+                      {standard}
+                    </label>
+                    {kind !== 'chainage' && (
+                      <label>
+                        <input type="radio" name="tl-scope" checked={!forStandard} onChange={() => setForStandard(false)} />
+                        Every set
+                      </label>
+                    )}
+                  </fieldset>
+                ) : (
+                  keepsHints && <p className="hint">Read this document with a drawing standard to keep what this pair teaches about the client's drawings; only the marks are kept for now.</p>
+                )}
+                <div className="lr-actions">
+                  <button
+                    type="button"
+                    className="btn small primary"
+                    disabled={!canKeep}
+                    onClick={() => {
+                      onKeep(lesson, !!standard && (forStandard || kind === 'chainage'));
+                      setMessage(null);
+                      restart();
+                    }}
+                  >
+                    Keep
+                  </button>
+                </div>
+              </div>
             )}
-            <div className="lr-actions">
-              <button
-                type="button"
-                className="btn small primary"
-                disabled={!canKeep}
-                onClick={() => {
-                  onKeep(lesson, !!standard && (forStandard || kind === 'chainage'));
-                  setMessage(null);
-                  restart();
-                }}
-              >
-                Keep
-              </button>
-            </div>
-          </div>
+          </>
         )}
         <p className="hint">Teach each kind once or twice; every mark like the ones kept is then found in this set and in sets read with the same standard, and listed in the Links tab.</p>
       </div>

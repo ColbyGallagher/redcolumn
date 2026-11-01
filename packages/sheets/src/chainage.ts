@@ -343,8 +343,9 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
         const label = c.words.map((w) => trimWord(w.text)).join(' ');
         links.push({ id: `${pageIndex}:ch:${key}`, pageIndex, rect: rectOf(c.words), label, kind: 'chainage', detail: null, targetPage, targetRect, confidence: conf });
       };
-      // 1. The cross section drawn at this chainage.
-      const section = sections.find((s) => s.page !== pageIndex && Math.abs(s.c.value - c.value) < SAME && s.c.alignment !== null && sameLine(s.c.alignment));
+      // 1. The cross section drawn at this chainage; a cross section's own chainage goes to the plan
+      // (another cross section at the same value is most likely on another road).
+      const section = isSection[pageIndex] ? undefined : sections.find((s) => s.page !== pageIndex && Math.abs(s.c.value - c.value) < SAME && s.c.alignment !== null && sameLine(s.c.alignment));
       if (section) {
         push(section.page, frame(section.c.words[0]!, 20), `${c.alignment ?? '?'}:${c.value}>${section.page}`);
         continue;
