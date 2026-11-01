@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa';
-import { iconPngs } from './src/offline/icons.ts';
 import { buildManifest } from './src/offline/manifest.ts';
 import { appCsp, redirectCsp } from './src/security/csp.ts';
 
@@ -72,33 +71,6 @@ function spellAssets(): Plugin {
 }
 
 /**
- * PNG icons for install prompts, home screens and iOS, drawn from the SVG's shapes (see
- * src/offline/icons.ts) and served at the top of the app in development and in the build.
- */
-function appIcons(): Plugin {
-  let icons: Promise<{ name: string; bytes: Uint8Array }[]> | null = null;
-  const all = () => (icons ??= iconPngs());
-  return {
-    name: 'app-icons',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        const name = req.url?.split('?')[0]?.split('/').pop();
-        if (!name?.endsWith('.png')) return next();
-        void all().then((list) => {
-          const icon = list.find((i) => i.name === name);
-          if (!icon) return next();
-          res.setHeader('Content-Type', 'image/png');
-          res.end(icon.bytes);
-        });
-      });
-    },
-    async generateBundle() {
-      for (const icon of await all()) this.emitFile({ type: 'asset', fileName: icon.name, source: icon.bytes });
-    },
-  };
-}
-
-/**
  * Writes the Content Security Policy and referrer policy into each built page as <meta> tags
  * (GitHub Pages cannot send headers; vercel.json sends the same policy as a header). Only the
  * build: the dev server needs inline scripts for hot reload. See src/security/csp.ts.
@@ -151,7 +123,6 @@ export default defineConfig({
     react(),
     ocrAssets(),
     spellAssets(),
-    appIcons(),
     landingPage(),
     securityMeta(),
     VitePWA({

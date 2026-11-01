@@ -1660,11 +1660,9 @@ select[size] {
 }
 
 .brand-col {
-  width: 5px;
-  height: 16px;
-  border-radius: 1px;
-  background: linear-gradient(180deg, var(--brand-hi), var(--brand));
-  box-shadow: 0 0 6px rgba(200, 16, 46, 0.55);
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 
 .brand-word b {
