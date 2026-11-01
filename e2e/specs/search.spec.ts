@@ -46,3 +46,26 @@ test.describe('text search', () => {
     expect(app.errors).toEqual([]);
   });
 });
+
+// fixtures/rotated.pdf: sheets turned by /Rotate 180 and 90 whose text reads normally on screen.
+test.describe('text on rotated sheets', () => {
+  type Words = { words: { text: string; x0: number; y0: number; x1: number; y1: number }[] };
+
+  test('reads as shown: whole words, in reading order, where they appear', async ({ app }) => {
+    await app.open('rotated.pdf');
+    for (const [i, { text, x, y }] of PLAN.rotated.pages.entries()) {
+      const { words } = await app.assistant<Words>('get_page_text', { page: i + 1 });
+      expect(words.map((w) => w.text)).toEqual(text.split(' '));
+      // The first word starts where it was drawn on the page as shown, on the baseline there.
+      expect(Math.abs(words[0]!.x0 - x)).toBeLessThan(2);
+      expect(Math.abs(words[0]!.y1 - y)).toBeLessThan(6);
+    }
+  });
+
+  test('search finds whole words on sheets turned by /Rotate', async ({ app }) => {
+    await app.open('rotated.pdf');
+    // The upside-down sheet's number now reads as a whole word, so it is also its sheet number.
+    expect(await app.search('C-101')).toHaveLength(1);
+    expect(await app.search('SECTIONS')).toHaveLength(1);
+  });
+});

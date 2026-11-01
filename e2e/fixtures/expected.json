@@ -108,6 +108,22 @@
       "size": 12
     }
   },
+  "rotated": {
+    "pages": [
+      {
+        "rotate": 180,
+        "text": "STAGE 2 SHEET C-101",
+        "x": 100,
+        "y": 200
+      },
+      {
+        "rotate": 90,
+        "text": "TYPICAL CROSS SECTIONS",
+        "x": 100,
+        "y": 200
+      }
+    ]
+  },
   "marks": {
     "sheetNumbers": [
       "A-101",
