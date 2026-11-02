@@ -128,6 +128,8 @@ export interface RedcolumnDesktop {
   setUnsavedChanges?(on: boolean): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;
+  /** Refuses a command an embedding host cannot allow (one that rewrites a document its own records are linked to); null leaves the command as it was. */
+  commandPolicy?(id: string): { disabledReason: string } | null;
   /** Closing the window while documents have unsaved changes: the page asks about each, then calls closeWindow. */
   onCloseRequest?(cb: () => void): () => void;
   /** Closes the window (or quits, when quitting started it) after the page dealt with unsaved changes. */

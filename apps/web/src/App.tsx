@@ -107,6 +107,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
+import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
@@ -6595,7 +6596,7 @@ export function App() {
           { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space'), onClick: () => void flattenSelected(pane, ms) },
+      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       grouped
         ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
         : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
