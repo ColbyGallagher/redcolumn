@@ -66,6 +66,21 @@ test.describe('ribbon', () => {
     expect((await app.command('window.simplifiedToolbar')).checked).toBe(true);
   });
 
+  test('keeps ribbon height stable when its horizontal scrollbar appears', async ({ app }) => {
+    const body = ribbon(app).locator('.rb-body');
+
+    await app.page.setViewportSize({ width: 1920, height: 900 });
+    await expect.poll(() => body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const wide = await body.evaluate((el) => ({ height: el.getBoundingClientRect().height }));
+
+    await app.page.setViewportSize({ width: 640, height: 900 });
+    await expect.poll(() => body.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    const narrow = await body.evaluate((el) => ({ height: el.getBoundingClientRect().height }));
+
+    expect(Math.abs(wide.height - 106)).toBeLessThan(0.01);
+    expect(Math.abs(narrow.height - wide.height)).toBeLessThan(0.01);
+  });
+
   test('the Modify tab disables what the selection cannot take', async ({ app }) => {
     await ribbon(app).getByRole('tab', { name: 'Modify' }).click();
 

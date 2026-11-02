@@ -374,7 +374,7 @@ body,
   display: flex;
   align-items: stretch;
   /* Tall enough for the commands, and fixed: a tall Properties group (a text box's) scrolls inside itself, so the ribbon never resizes and pushes the page down. */
-  height: 96px;
+  height: 106px;
   box-sizing: border-box;
   padding: 4px 6px 0;
   overflow-x: auto;
