@@ -203,6 +203,40 @@ section.wrap {
   margin: 0;
   color: var(--muted);
 }
+.grid.cards li {
+  position: relative;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.grid.cards li:hover,
+.grid.cards li:focus-within {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+.grid.cards h3 a {
+  color: var(--text);
+  text-decoration: none;
+}
+.grid.cards h3 a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+}
+.grid.cards h3 a:focus-visible {
+  outline: none;
+}
+.grid.cards li:has(a:focus-visible) {
+  outline: 3px solid var(--link);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .grid.cards li {
+    transition: none;
+  }
+  .grid.cards li:hover {
+    transform: none;
+  }
+}
 .grid.compact {
   margin-top: 40px;
 }
@@ -233,27 +267,57 @@ section.wrap {
   font-size: 1.1rem;
 }
 
-.feature {
-  display: grid;
-  grid-template-columns: 1fr 1.3fr;
-  gap: 32px;
-  align-items: center;
-  margin-top: 48px;
+.group {
+  margin: 56px 0 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+  font-size: 1.35rem;
+  color: var(--muted);
 }
-.feature.flip .text {
-  order: 2;
+.feature {
+  margin-top: 40px;
+}
+.feature .text {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 40px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+.feature .text h3 {
+  font-size: 1.5rem;
+}
+.feature .text p {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.ticks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ticks li {
+  position: relative;
+  padding: 3px 0 3px 26px;
+}
+.ticks li::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0.8em;
+  width: 11px;
+  height: 6px;
+  border-left: 3px solid var(--accent);
+  border-bottom: 3px solid var(--accent);
+  transform: rotate(-45deg) translateY(-50%);
 }
 .feature figure {
   margin: 0;
 }
-.feature.stack {
-  grid-template-columns: 1fr;
-  gap: 24px;
-}
 .feature .gifs {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr));
-  gap: 20px;
+  grid-template-columns: 1fr;
+  gap: 24px;
 }
 .feature .gifs figcaption {
   margin-top: 8px;
@@ -263,13 +327,23 @@ section.wrap {
 .feature .gifs img {
   width: 100%;
 }
+.ask {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 18px 22px;
+}
+.ask ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.ask li {
+  padding: 3px 0;
+  font-size: 1.1rem;
+}
 @media (max-width: 860px) {
-  .feature {
+  .feature .text {
     grid-template-columns: 1fr;
-    gap: 16px;
-  }
-  .feature.flip .text {
-    order: 0;
   }
 }
 

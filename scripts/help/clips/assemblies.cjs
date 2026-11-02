@@ -20,5 +20,5 @@ module.exports = async function (h, rec) {
   await rec.caption('Studs, track, board and insulation, each with its formula and waste');
   await rec.hold(4500);
 };
-module.exports.viewport = VIEWPORT;
+module.exports.viewport = { width: 1180, height: 680 };
 module.exports.poster = 1;
