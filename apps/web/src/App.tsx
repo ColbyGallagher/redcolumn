@@ -107,6 +107,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
+import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
@@ -181,6 +182,7 @@ import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
@@ -1854,7 +1856,7 @@ export function App() {
           const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
           const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const stored = await saveFile(name, bytes.slice(0));
+          const stored = await saveFile(name, bytes.slice(0), desktop()?.documentIdFor?.(tokenOf(handleOf(file)) ?? '') ?? undefined);
           // Save writes back over the file it came from, except pictures and protected PDFs
           // (which are kept unprotected here and must not replace the original).
           const source = handleOf(file);
@@ -6595,7 +6597,7 @@ export function App() {
           { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space'), onClick: () => void flattenSelected(pane, ms) },
+      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       grouped
         ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
         : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
