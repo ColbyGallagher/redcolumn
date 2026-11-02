@@ -181,6 +181,7 @@ import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
@@ -1854,7 +1855,7 @@ export function App() {
           const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
           const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const stored = await saveFile(name, bytes.slice(0));
+          const stored = await saveFile(name, bytes.slice(0), desktop()?.documentIdFor?.(tokenOf(handleOf(file)) ?? '') ?? undefined);
           // Save writes back over the file it came from, except pictures and protected PDFs
           // (which are kept unprotected here and must not replace the original).
           const source = handleOf(file);

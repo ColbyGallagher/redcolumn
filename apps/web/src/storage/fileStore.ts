@@ -97,18 +97,22 @@ async function writeBlob(hash: string, bytes: ArrayBuffer) {
   await w.close();
 }
 
-/** Stores `bytes` (no-op if already stored) and marks it as just opened. */
-export async function saveFile(name: string, bytes: ArrayBuffer): Promise<StoredFile> {
+/** Stores `bytes` (no-op if already stored) and marks it as just opened; with `id` (host-assigned), that document's entry takes them, whatever their hash. */
+export async function saveFile(name: string, bytes: ArrayBuffer, id?: string): Promise<StoredFile> {
   const hash = await sha256(bytes);
   await writeBlob(hash, bytes);
   const now = Date.now();
-  return updateIndex((entries) => {
-    const existing = entries.find((e) => e.hash === hash);
+  let oldHash: string | null = null;
+  const entry = await updateIndex((entries) => {
+    const existing = entries.find((e) => (id ? e.id === id : e.hash === hash));
+    if (existing && existing.hash !== hash) oldHash = existing.hash;
     const entry: StoredFile = existing
-      ? { ...existing, name, lastOpenedAt: now }
-      : { id: hash, hash, name, size: bytes.byteLength, addedAt: now, lastOpenedAt: now };
+      ? { ...existing, name, hash, size: bytes.byteLength, lastOpenedAt: now }
+      : { id: id ?? hash, hash, name, size: bytes.byteLength, addedAt: now, lastOpenedAt: now };
     return { entries: [...entries.filter((e) => e.id !== entry.id), entry], result: entry };
   });
+  if (oldHash) await dropIfUnused(oldHash);
+  return entry;
 }
 
 /**

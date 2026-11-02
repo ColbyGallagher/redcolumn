@@ -111,6 +111,8 @@ export interface RedcolumnDesktop {
   folder: DesktopFolders;
   /** The key for "Encrypt local data": made once, kept encrypted by the system key store. Absent where there is none. */
   localDataKey?: () => Promise<Uint8Array>;
+  /** A document id the host assigns to a file it launched: its library entry and markups are kept under it instead of the hash of its bytes. */
+  documentIdFor?(token: string): string | null;
   /** A certificate service (time stamp server, OCSP responder, revocation list) fetched by the main process (apps/desktop/src/pki.ts). */
   pkiFetch?(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array>;
   /** The root CA certificates the desktop app knows (PEM, Mozilla's list as Node ships it). */
