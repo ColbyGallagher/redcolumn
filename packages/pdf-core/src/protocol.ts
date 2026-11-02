@@ -255,7 +255,7 @@ export type WorkerResponse =
   | { id: number; ok: true; type: 'bytes'; bytes: ArrayBuffer }
   | { id: number; ok: true; type: 'setRenderCopy' }
   | { id: number; ok: true; type: 'checkCopy'; check: CopyCheck }
-  | { id: number; ok: true; type: 'geometry'; segments: Float32Array; curves: Uint8Array; ms: number }
+  | { id: number; ok: true; type: 'geometry'; segments: Float32Array; curves: Uint8Array; paper: Uint8Array; ms: number }
   | { id: number; ok: true; type: 'text'; words: TextWord[] }
   | { id: number; ok: true; type: 'annotations'; annotations: PdfAnnotation[] }
   | { id: number; ok: true; type: 'hideAnnots' }
@@ -266,6 +266,8 @@ export type WorkerResponse =
   | { id: number; ok: true; type: 'pageLabels'; labels: (string | null)[] }
   | { id: number; ok: true; type: 'annotImage'; image: AnnotImage | null }
   | { id: number; ok: true; type: 'redact'; bytes: ArrayBuffer; report: RedactReport }
+  /** Pages of a redaction done so far; sent before the answer, which follows later. */
+  | { id: number; ok: true; type: 'progress'; done: number; total: number }
   | { id: number; ok: true; type: 'textObjectAt'; object: TextObjectInfo | null }
   | { id: number; ok: true; type: 'replaceText'; bytes: ArrayBuffer; keptFont: boolean }
   | { id: number; ok: true; type: 'addText'; bytes: ArrayBuffer }

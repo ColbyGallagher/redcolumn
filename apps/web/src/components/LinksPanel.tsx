@@ -1,5 +1,5 @@
 import type { LinkStatus, StoredLink } from '@nb/markup';
-import type { SheetInfo } from '@nb/sheets';
+import { LINK_KINDS, type SheetInfo } from '@nb/sheets';
 import { MARK_KINDS, type TaughtMark } from '../sheets/marks';
 
 interface Props {
@@ -15,11 +15,11 @@ interface Props {
   onFollow: (link: StoredLink) => void;
   onStatus: (id: string, status: LinkStatus) => void;
   onRedetect: () => void;
-  /** Section marks, titles and detail callouts taught in this profile. */
-  marks: readonly TaughtMark[];
+  /** Section marks, titles and detail callouts taught in this profile; `standard` names the drawing standard a mark belongs to. */
+  marks: readonly (TaughtMark & { standard?: string })[];
   /** The document takes edits (teaching adds links to review). */
   editable: boolean;
-  /** Box an example on the sheet to teach a new mark. */
+  /** Opens Teach Links: box a mark, then what it points to. */
   onTeach: () => void;
   /** Forgets a taught mark (its links still waiting for review go too). */
   onForget: (id: string) => void;
@@ -42,7 +42,8 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
         <span className="num">{l.label}</span>
         <span className="name">
           {from ? `→ ${sheetName(sheets, l.targetPage)}` : `from ${sheetName(sheets, l.pageIndex)}`}
-          {l.kind === 'detail' && !l.targetRect ? ' (detail not located)' : ''}
+          {l.kind !== 'sheet' ? ` · ${LINK_KINDS[l.kind]}` : ''}
+          {l.detail && !l.targetRect ? ' (not located)' : ''}
         </span>
       </button>
       {from && (
@@ -63,8 +64,8 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
           Show links
         </label>
         <span className="grow" />
-        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box an example of a section mark, section title, detail callout or detail title, so links are found from marks like it">
-          Teach a mark
+        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box a section mark, detail callout or elevation mark, then what it points to, so links are found from marks like them">
+          Teach links…
         </button>
         <button className="btn small" disabled={busy} onClick={onRedetect} title="Find callouts again using the current sheet numbers">
           Re-detect
@@ -113,7 +114,10 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
               <li key={m.id}>
                 <span className="link-row">
                   <span className="num">{m.name}</span>
-                  <span className="name taught-kind">{MARK_KINDS[m.kind]}</span>
+                  <span className="name taught-kind">
+                    {MARK_KINDS[m.kind]}
+                    {m.standard ? ` · ${m.standard}` : ''}
+                  </span>
                 </span>
                 <span className="review-actions">
                   <button className="btn small" title="Forget this mark" aria-label={`Forget ${m.name}`} disabled={busy} onClick={() => onForget(m.id)}>

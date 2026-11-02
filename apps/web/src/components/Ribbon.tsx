@@ -96,6 +96,8 @@ const ICONS: Record<string, ReactNode> = {
   'document.numberPages': MENU_ICONS.pageNumber,
   'document.headerFooter': ic('M3 1.5h10v13H3zM5 4h6M5 12h6'),
   'document.labelRegions': ic('M2 5.5 6.5 1.5H14v8l-4 4.5H2z', <circle cx="10.5" cy="4.8" r="1" />),
+  // A sheet with its title block, where a standard's boxes read the number and title.
+  'document.drawingStandards': ic('M1.5 2.5h13v11h-13zM8.5 9h6M8.5 9v4.5M8.5 11.25h6M10.5 9v2.25'),
   'document.addBookmark': ic('M4 1.5h8v13L8 11l-4 3.5z'),
   'document.ocr': ic('M2 5V2h3M11 2h3v3M14 11v3h-3M5 14H2v-3M5 6h6M5 8.5h6M5 11h4'),
   'document.flatten': MENU_ICONS.flatten,
@@ -785,6 +787,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="document.addBookmark" />
               </Stack>
+            </Group>
+            <Group label="Standards">
+              <Cmd id="document.drawingStandards" size="large" label="Drawing Standards" />
             </Group>
             <Group label="Process">
               <Cmd id="document.ocr" size="large" label="OCR" />

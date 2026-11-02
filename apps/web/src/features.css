@@ -3203,40 +3203,6 @@
   padding-left: 24px;
 }
 
-/* Links › Teach a mark */
-.teach-mark-dialog {
-  width: min(380px, calc(100vw - 32px));
-}
-
-.teach-mark-dialog fieldset {
-  display: grid;
-  gap: 4px;
-  margin: 0 0 10px;
-  padding: 0;
-  border: 0;
-}
-
-.teach-mark-dialog .row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.teach-mark-dialog .row input[type='text'] {
-  flex: 1;
-  min-width: 0;
-}
-
-.teach-hint {
-  margin: 0 0 10px;
-  color: var(--muted);
-}
-
-.teach-error {
-  margin: 10px 0 0;
-  color: var(--danger-text);
-}
-
 /* Taught marks on the Links tab, and how sure a link to review is. */
 .links .confidence {
   margin-left: 6px;

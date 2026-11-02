@@ -44,6 +44,8 @@ export interface ProjectManifest {
   createdAt: number;
   /** People the owner invited, for the members list. OneDrive's sharing decides who can really get in. */
   members: Grant[];
+  /** The drawing standard the Project's files are read with, as an exported .rcstandard (see sheets/standards.ts). */
+  standard?: unknown;
 }
 
 export interface ProjectFolder {

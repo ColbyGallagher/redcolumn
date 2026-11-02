@@ -1,4 +1,5 @@
 import { isDrawingNumberShape } from './detect.ts';
+import { templateRegex } from './standard.ts';
 import type { PageText, Word } from './types.ts';
 
 export interface Rect {
@@ -8,8 +9,27 @@ export interface Rect {
   h: number;
 }
 
-/** What a callout points at: a whole sheet, or a detail/section drawn on it. */
-export type LinkKind = 'detail' | 'sheet';
+/**
+ * What a reference points at, read from the drawings. Kinds are added as something detects them
+ * (chainage: chainage.ts); a saved kind this build does not know imports as
+ * a detail or sheet link (see import.ts).
+ */
+export type LinkKind = 'detail' | 'section' | 'elevation' | 'enlargedPlan' | 'sheet' | 'matchline' | 'chainage';
+
+/** How each kind reads in lists and tool results. */
+export const LINK_KINDS: Record<LinkKind, string> = {
+  detail: 'Detail',
+  section: 'Section',
+  elevation: 'Elevation',
+  enlargedPlan: 'Enlarged plan',
+  sheet: 'Sheet',
+  matchline: 'Match line',
+  chainage: 'Chainage',
+};
+
+export function isLinkKind(value: unknown): value is LinkKind {
+  return typeof value === 'string' && Object.hasOwn(LINK_KINDS, value);
+}
 
 export interface DetectedLink {
   /** Stable across re-detection (page + label + rounded position), so review decisions stick. */
@@ -20,7 +40,7 @@ export interface DetectedLink {
   /** Callout text as it reads, e.g. `3/C-501` or `C-102`. */
   label: string;
   kind: LinkKind;
-  /** Detail or section identifier, for detail links. */
+  /** Detail or section identifier, for detail, section, elevation and enlarged-plan links. */
   detail: string | null;
   targetPage: number;
   /** Where the referenced detail sits on the target page; null means "the whole sheet". */
@@ -29,12 +49,22 @@ export interface DetectedLink {
   confidence: number;
 }
 
-/** Detail/section identifiers in callout bubbles: 3, 12, 3A, A, B2. */
-const DETAIL_ID = /^(\d{1,3}[A-Z]?|[A-Z]\d{0,2})$/;
+/** Civil sets letter sections AA, BB, CC: the same letter twice, never two different letters (TO, OF). */
+const DOUBLED = Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ', (c) => c + c).join('|');
+/**
+ * Detail/section identifiers in callout bubbles and titles: 3, 12, 3A, A, B2, AA; section titles
+ * repeat theirs (A-A, 1-1). Shared with taught marks, so both read the same identifiers.
+ */
+export const DETAIL_ID = new RegExp(`^(?:(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2})(?:[-–—/]\\1)?|${DOUBLED})$`);
+
+/** The identifier a callout or title names: a section title's A-A is the cut mark's A. AA stays AA (the section after Z). */
+export function detailId(text: string): string {
+  return cleanWord(text).replace(/^(.+?)[-–—/]\1$/, '$1');
+}
 /** Sheet-number shape (same as sheet detection) for slash references. */
-const SHEET_PART = '[A-Z]{1,3}[-.]?\\d{1,3}(?:[.-]\\d{1,3})?[A-Z]?';
+const SHEET_PART = '[A-Z]{1,3}[-.]?\\d{1,4}(?:[.-]\\d{1,3})?[A-Z]?';
 /** `3/C-501`, `DETAIL 3/C-501`, `A/S-301`. */
-const SLASH_REF = new RegExp(`^(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2})\\/(${SHEET_PART})$`);
+const SLASH_REF = new RegExp(`^(\\d{1,3}[A-Z]?|[A-Z]\\d{0,2}|${DOUBLED})\\/(${SHEET_PART})$`);
 
 function union(a: Rect, b: Rect): Rect {
   const x = Math.min(a.x, b.x);
@@ -74,7 +104,8 @@ export class SheetLookup {
   private loose = new Map<string, number | null>();
   private tail = new Map<string, number | null>();
 
-  constructor(sheetNumbers: readonly (string | null)[]) {
+  /** `calloutPart`: the part of a drawing number callouts cite, when a drawing standard says which (else the last). */
+  constructor(sheetNumbers: readonly (string | null)[], calloutPart: number | null = null) {
     sheetNumbers.forEach((n, pageIndex) => {
       if (!n) return;
       const key = n.trim().toUpperCase();
@@ -82,8 +113,8 @@ export class SheetLookup {
       const l = key.replace(/[-.\s]/g, '');
       this.loose.set(l, this.loose.has(l) && this.loose.get(l) !== pageIndex ? null : pageIndex);
       const parts = key.split(/[-.\s_/]+/);
-      const t = parts[parts.length - 1]!;
-      if (parts.length > 1 && t.length >= 3 && /\d/.test(t)) this.tail.set(t, this.tail.has(t) && this.tail.get(t) !== pageIndex ? null : pageIndex);
+      const t = calloutPart === null ? parts[parts.length - 1]! : (parts[calloutPart] ?? '');
+      if (parts.length > 1 && t.length >= (calloutPart === null ? 3 : 1) && /\d/.test(t)) this.tail.set(t, this.tail.has(t) && this.tail.get(t) !== pageIndex ? null : pageIndex);
     });
   }
 
@@ -104,7 +135,7 @@ export function findDetailTitle(page: PageText, detail: string, ownNumber: strin
   const med = median(page.words.map((w) => w.size)) || 1;
   let best: { w: Word; score: number } | null = null;
   for (const w of page.words) {
-    if (cleanWord(w.text) !== detail) continue;
+    if (detailId(w.text) !== detail) continue;
     // Everything in the lower half of a bubble around this identifier; stray labels can sit there too.
     const below = page.words.filter((o) => o !== w && o.y0 >= w.y1 - w.size * 0.3 && o.y0 - w.y1 < w.size * 1.2 && Math.abs((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2) < Math.max(w.x1 - w.x0, o.x1 - o.x0));
     // A bubble whose lower half names another sheet is a callout, not this detail's title.
@@ -125,7 +156,7 @@ export function findDetailTitle(page: PageText, detail: string, ownNumber: strin
  */
 function findCutMarker(page: PageText, detail: string, lookup: SheetLookup, sourcePage: number): Word | null {
   for (const w of page.words) {
-    if (cleanWord(w.text) !== detail) continue;
+    if (detailId(w.text) !== detail) continue;
     const back = page.words.some(
       (o) => o !== w && o.y0 >= w.y1 - w.size * 0.3 && o.y0 - w.y1 < w.size * 1.2 && Math.abs((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2) < Math.max(w.x1 - w.x0, o.x1 - o.x0) && lookup.find(o.text, true) === sourcePage,
     );
@@ -144,6 +175,77 @@ function cutFrame(marker: Word): Rect {
 export function detailFrame(title: Word): Rect {
   const s = title.size;
   return { x: title.x0 - s * 4, y: title.y0 - s * 20, w: s * 40, h: s * 24 };
+}
+
+/** The words on the same row as `w`, in reading order, within `reach` text heights either side. */
+function rowText(page: PageText, w: Word, reach: number): string {
+  return page.words
+    .filter((o) => Math.abs(o.y1 - w.y1) < w.size * 0.5 && o.x1 > w.x0 - w.size * reach && o.x0 < w.x1 + w.size * reach)
+    .sort((a, b) => a.x0 - b.x0)
+    .map((o) => cleanWord(o.text))
+    .join(' ');
+}
+
+/**
+ * What a drawing standard knows about a client's cross-references: the identifiers its bubbles
+ * use, the words its titles and match lines are written with, and the part of a drawing number
+ * its callouts cite.
+ */
+export interface LinkHints {
+  /** Identifier forms as drawing-number templates (`#`, `@`, `@@`, `@#`); null: the usual forms (DETAIL_ID). */
+  ids: string[] | null;
+  /** Title words that say what a titled drawing is. */
+  titles: { section: string[]; elevation: string[]; enlargedPlan: string[] };
+  /** Words that mark a sheet reference as a match line. */
+  matchLine: string[];
+  /** Which part of a drawing number callouts cite (`300082` of HLD1BDD-...-300082); null: the last part. */
+  calloutPart: number | null;
+}
+
+export const DEFAULT_LINK_HINTS: LinkHints = {
+  ids: null,
+  titles: { section: ['SECTION'], elevation: ['ELEVATION'], enlargedPlan: ['ENLARGED'] },
+  matchLine: ['MATCH LINE', 'MATCH SHEET'],
+  calloutPart: null,
+};
+
+/** Whether text is a detail or section identifier: one of the standard's forms, else DETAIL_ID. A title's A-A counts as A. */
+export function idTest(hints: LinkHints = DEFAULT_LINK_HINTS): (text: string) => boolean {
+  if (!hints.ids?.length) return (t) => DETAIL_ID.test(cleanWord(t));
+  const forms = hints.ids.map(templateRegex);
+  return (t) => {
+    const c = cleanWord(t);
+    const id = detailId(c);
+    return forms.some((f) => f.test(c) || f.test(id));
+  };
+}
+
+/** Any of `words` as whole words; a phrase also matches run together (`MATCH LINE`, `MATCHLINE`). */
+function wordsPattern(words: readonly string[]): RegExp | null {
+  const parts = words
+    .map((w) => w.trim().toUpperCase())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .map((w) => w.split(/\s+/).map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s?'));
+  return parts.length ? new RegExp(`\\b(?:${parts.join('|')})\\b`) : null;
+}
+
+/**
+ * What a titled drawing is, from the words beside its title bubble: `SECTION A-A`, `ELEVATION`,
+ * `ENLARGED PLAN`, or the client's own words for them. Anything else titled is a detail.
+ */
+function titleKinds(hints: LinkHints): (page: PageText, title: Word) => LinkKind {
+  const kinds = (['section', 'elevation', 'enlargedPlan'] as const).map((k) => [k, wordsPattern(hints.titles[k])] as const);
+  return (page, title) => {
+    const text = rowText(page, title, 12);
+    return kinds.find(([, p]) => p?.test(text))?.[0] ?? 'detail';
+  };
+}
+
+/** A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH SHEET C-102`. */
+function matchLines(hints: LinkHints): (page: PageText, w: Word) => boolean {
+  const pattern = wordsPattern(hints.matchLine);
+  return (page, w) => !!pattern?.test(rowText(page, w, 30));
 }
 
 /** Words that introduce a reference to another drawing: `SEE SHEET 12`, `DRG No. 680`. */
@@ -167,13 +269,18 @@ function stableId(pageIndex: number, label: string, r: Rect): string {
  * Finds hyperlinks between sheets from the text layer:
  * - detail/section bubbles: an identifier stacked above a sheet number (`3` over `C-501`);
  * - slash references: `3/C-501`;
- * - plain sheet references: `SEE SHEET C-102`, match lines, the cover-sheet index.
+ * - plain sheet references: `SEE SHEET C-102`, the cover-sheet index;
+ * - match lines: `MATCH LINE SEE SHEET C-102`, kept apart as `matchline`.
+ * Bubbles are typed by the title they point at: a section, an elevation, an enlarged plan, else a detail.
  * Only sheet numbers that exist in the set are linked, which keeps false positives rare. Sheets
  * numbered with bare numbers or short codes (`680`, `1B`, page labels) are only linked where the
  * text says it means a drawing (`SEE SHEET 680`): elsewhere those are addresses, stages, quantities.
  */
-export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | null)[]): DetectedLink[] {
-  const lookup = new SheetLookup(sheetNumbers);
+export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | null)[], hints: LinkHints = DEFAULT_LINK_HINTS): DetectedLink[] {
+  const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
+  const isId = idTest(hints);
+  const titleKind = titleKinds(hints);
+  const onMatchLine = matchLines(hints);
   const links: DetectedLink[] = [];
   const weak = sheetNumbers.map((n) => !!n && !isDrawingNumberShape(n));
 
@@ -194,7 +301,10 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       const targetRect = title ? detailFrame(title) : cut ? cutFrame(cut) : null;
       // A detail callout whose detail cannot be found still links to the sheet, less confidently.
       const conf = detail && !targetRect ? confidence - 0.2 : confidence;
-      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind, detail, targetPage, targetRect, confidence: Math.round(conf * 100) / 100 });
+      // What the bubble points at: the title on the target sheet says section, elevation or
+      // enlarged plan; a cut marker pointing back says section.
+      const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : cut ? 'section' : 'detail';
+      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: Math.round(conf * 100) / 100 });
     };
 
     // 1. Stacked bubbles.
@@ -206,7 +316,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
         (w) =>
           w !== bottom &&
           !used.has(w) &&
-          DETAIL_ID.test(cleanWord(w.text)) &&
+          isId(w.text) &&
           w.y1 <= bottom.y0 + bottom.size * 0.3 &&
           bottom.y0 - w.y1 < bottom.size * 1.2 &&
           Math.abs((w.x0 + w.x1) / 2 - cx) < Math.max(bottom.x1 - bottom.x0, w.x1 - w.x0) * 0.6 &&
@@ -217,10 +327,10 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       used.add(top);
       used.add(bottom);
       // The bubble that titles a detail on its own sheet is what callouts point at, not a link.
-      if (target === pageIndex && resolveDetail(cleanWord(top.text), pageIndex) === top) continue;
-      const detail = cleanWord(top.text);
+      if (target === pageIndex && resolveDetail(detailId(top.text), pageIndex) === top) continue;
+      const detail = detailId(top.text);
       const pad = bottom.size * 0.5;
-      add(`${detail}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
+      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
     }
 
     for (const w of page.words) {
@@ -242,7 +352,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === null || target === pageIndex) continue;
       if (weak[target] && !introducedAsReference(page, w)) continue;
       used.add(w);
-      add(text, wordRect(w, w.size * 0.3), 'sheet', null, target, 0.8);
+      add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 0.8);
     }
   });
   return links;

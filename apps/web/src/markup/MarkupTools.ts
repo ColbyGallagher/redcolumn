@@ -147,7 +147,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   stitchRegion: 'Stitch Region',
   stitchPolygon: 'Stitch Region (Polygon)',
   stitchMove: 'Move Sheet',
-  teachMark: 'Teach a Mark',
+  teachMark: 'Teach Links',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',

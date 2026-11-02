@@ -97,7 +97,7 @@ import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
 import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
-import { drawingSets, type SetSheet } from './storage/sets';
+import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
 import { JobsBar } from './components/JobsBar';
@@ -133,6 +133,9 @@ import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
+import { DrawingStandardPanel } from './components/DrawingStandardPanel';
+import { exportStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, withDefaults, type DrawingStandard } from './sheets/standards';
+import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, standardFit } from '@nb/sheets';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -169,8 +172,9 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { TeachMarkDialog } from './components/TeachMarkDialog';
-import { teachMark, type MarkKind, type TaughtMark } from './sheets/marks';
+import { TeachLinksPanel } from './components/TeachLinksPanel';
+import { inked, type TaughtMark } from './sheets/marks';
+import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
@@ -391,6 +395,37 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
 
 /** Text written to the system clipboard when markups are copied, so pasting knows they are ours. */
 const MARKUP_CLIP = 'redcolumn markups';
+
+/** The drawing standard a document is read with, from this profile (none when it has none, or it was deleted here). */
+function standardOf(store: MarkupStore): DrawingStandard | null {
+  const chosen = store.drawingStandard();
+  const found = chosen ? profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) : undefined;
+  return found ? withDefaults(found) : null;
+}
+
+/**
+ * Keeps a Project's drawing standard in this profile, so its files read with it here too: added
+ * when new, replaced when the Project's copy is newer.
+ */
+/** A saved standard is offered for a set when at least this share of its sheets fit it. */
+const SUGGEST_FIT = 0.6;
+
+function adoptStandard(standard: DrawingStandard) {
+  const mine = profiles.active().state.drawingStandards.find((s) => s.id === standard.id);
+  if (mine && mine.updatedAt >= standard.updatedAt) return;
+  updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
+}
+
+/** The taught marks to look for in a document: those for every set, and its drawing standard's own. */
+/** A sheet as a set's index keeps it: its number, title and the custom fields its drawing standard read. */
+function indexEntry(s: SheetInfo | undefined): SheetIndex['sheets'][number] {
+  if (!s) return null;
+  return { ...(s.number ? { number: s.number } : {}), ...(s.title ? { title: s.title } : {}), ...(s.fields ? { fields: s.fields } : {}) };
+}
+
+function marksFor(store: MarkupStore): TaughtMark[] {
+  return [...profiles.active().state.taughtMarks, ...(standardOf(store)?.marks ?? [])];
+}
 
 function download(name: string, blob: Blob) {
   // Browsers with the File System Access API show a Save As dialog; others download.
@@ -1061,6 +1096,8 @@ export function App() {
   // Symbol Search › Hyperlinks…: the copies found, waiting for where their links go.
   const [vsLinks, setVsLinks] = useState<{ pane: Pane; hits: VisualSearchHit[] } | null>(null);
   const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
+  /** The pane Teach Links is open on. */
+  const [teachLinks, setTeachLinks] = useState<Pane | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -1179,7 +1216,10 @@ export function App() {
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
+  /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
+  const [suggestion, setSuggestion] = useState<{ fileId: string; standard: DrawingStandard; fit: number } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase' | 'standard'; pages?: number[]; typed?: boolean } | null>(null);
+  const setStandardRegions = useCallback((regions: Region[]) => setLabelMode((m) => (m ? { ...m, regions } : m)), []);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -1338,7 +1378,10 @@ export function App() {
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
-      onTeachMark: (pageIndex, rect) => setTeachBox({ pane, pageIndex, rect }),
+      onTeachMark: (pageIndex, rect) => {
+        setTeachBox({ pane, pageIndex, rect });
+        setTeachLinks(pane);
+      },
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
@@ -1566,7 +1609,16 @@ export function App() {
       runIndexJob(doc, async (cur, signal, report) => {
         const fresh = () => readFile(cur.file.hash);
         // Sheets first: importing the PDF's links needs sheet numbers to resolve links to files.
-        if (Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal);
+        // A Project's owner may have chosen a standard for all its files: everyone's copy reads with it.
+        const projectLink = linkOf(cur.file.id);
+        const fromProject = standardOfProject(projectLink ? projectById(projectLink.projectId)?.getSnapshot().manifest.standard : undefined);
+        if (fromProject) adoptStandard(fromProject);
+        if (fromProject && !cur.store.drawingStandard() && !cur.store.readOnly && !cur.store.declinedStandards().includes(fromProject.id)) cur.store.setDrawingStandard({ id: fromProject.id, hash: '' });
+        // A drawing standard changed since the document was read with it reads the sheets again.
+        const standard = standardOf(cur.store);
+        const stale = !!standard && cur.store.drawingStandard()?.hash !== standardHash(standard) && !cur.store.readOnly;
+        if (stale) cur.store.setDrawingStandard({ id: standard.id, hash: standardHash(standard) });
+        if (stale || Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal, standard ?? undefined);
         if (!cur.store.annotationsImported()) {
           // A Project file whose markups are already shared takes them from there, not from its PDF.
           const link = linkOf(cur.file.id);
@@ -1577,24 +1629,34 @@ export function App() {
           await hideImported(cur.doc, cur.store);
           ctl?.viewer.clearCache();
           // Detected links that duplicate imported ones are dropped on re-detection.
-          await linkFromText(fresh, cur.store, report, signal);
+          await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         } else if (!cur.store.imageMarkupsChecked()) {
           // An earlier import may have stored Bluebeam image markups as empty rectangles.
           await repairSquareImages(fresh, cur.store, signal);
           cur.store.setImageMarkupsChecked();
           ctl?.viewer.clearCache();
-          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal);
+          if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         } else if (!cur.store.linksDetected()) {
-          await linkFromText(fresh, cur.store, report, signal);
+          await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         }
         // Marks taught since this document was last searched (or ever, for a new set).
-        const marks = profiles.active().state.taughtMarks;
+        const marks = marksFor(cur.store);
         const searched = cur.store.marksSearched();
-        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal);
+        if (marks.some((m) => !searched.includes(m.id))) await linkFromMarks(fresh, cur.store, marks, report, signal, standard?.links);
         // Documents imported before maps were read: read the file for them once.
         if (!cur.store.geoChecked()) await readGeoRegions(await fresh(), cur.store);
         if (!cur.store.outlineImported()) cur.store.importOutline(outlineBookmarks(await cur.doc.outline()));
         if (!cur.store.stitchDetected()) await stitchFromText(fresh, cur.store, report, signal);
+        // A set read with no standard may be one a saved standard fits: suggest it, once.
+        if (!cur.store.drawingStandard() && !cur.store.readOnly) {
+          const declined = cur.store.declinedStandards();
+          const candidates = profiles.active().state.drawingStandards.map(withDefaults).filter((s) => !declined.includes(s.id) && (s.sheets.template || s.identify.length));
+          if (candidates.length) {
+            const pages = await loadPageTexts(fresh, cur.store, report, signal);
+            const best = candidates.map((s) => ({ standard: s, fit: standardFit(pages, s.sheets, s.identify) ?? 0 })).sort((a, b) => b.fit - a.fit)[0];
+            if (best && best.fit >= SUGGEST_FIT) setSuggestion({ fileId: cur.file.id, ...best });
+          }
+        }
       }),
     [runIndexJob, ctl],
   );
@@ -1602,10 +1664,11 @@ export function App() {
   const redetectLinks = useCallback(
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+        const standard = standardOf(cur.store);
+        await linkFromText(() => readFile(cur.file.hash), cur.store, report, signal, standard ?? undefined);
         // Sheet numbers may have changed, so taught marks may now resolve to other sheets.
-        const marks = profiles.active().state.taughtMarks;
-        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal);
+        const marks = marksFor(cur.store);
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal, standard?.links);
       }),
     [runIndexJob],
   );
@@ -1614,7 +1677,7 @@ export function App() {
   const findTaughtMarks = useCallback(
     (doc: OpenFile | null = openRef.current, announce = false) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await linkFromMarks(() => readFile(cur.file.hash), cur.store, profiles.active().state.taughtMarks, report, signal);
+        await linkFromMarks(() => readFile(cur.file.hash), cur.store, marksFor(cur.store), report, signal, standardOf(cur.store)?.links);
         if (!announce) return;
         const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
         setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
@@ -1712,8 +1775,25 @@ export function App() {
   const detectSheetsOffline = useCallback(
     (doc: OpenFile | null = openRef.current) =>
       runIndexJob(doc, async (cur, signal, report) => {
-        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standardOf(cur.store) ?? undefined);
         await stitchFromText(() => readFile(cur.file.hash), cur.store, report, signal);
+      }),
+    [runIndexJob],
+  );
+
+  /** Reads a document's sheets with a drawing standard (or none: from the text alone), then its links again. */
+  const readWithStandard = useCallback(
+    (doc: OpenFile | null, chosen: DrawingStandard | null) =>
+      runIndexJob(doc, async (cur, signal, report) => {
+        const standard = chosen && withDefaults(chosen);
+        // None, chosen by a person: the standard it had is not suggested again (nor reapplied from its Project).
+        const before = cur.store.drawingStandard();
+        if (!standard && before) cur.store.declineStandard(before.id);
+        cur.store.setDrawingStandard(standard ? { id: standard.id, hash: standardHash(standard) } : null);
+        await indexFromText(await readFile(cur.file.hash), cur.store, report, signal, standard ?? undefined);
+        // Sheet numbers may have changed, so taught marks may now resolve to other sheets; the standard brings its own.
+        const marks = marksFor(cur.store);
+        if (marks.length || cur.store.marksSearched().length) await linkFromMarks(() => readFile(cur.file.hash), cur.store, marks, report, signal, standard?.links);
       }),
     [runIndexJob],
   );
@@ -2523,8 +2603,9 @@ export function App() {
    * nothing is left inside the areas. Bulk Redact (`erase`) can take only the text, cover
    * the areas, and delete markups in them.
    */
-  const runRedact = useCallback(
+  const redactPages = useCallback(
     async (
+      { signal, progress }: JobContext,
       cur: OpenFile,
       intoB: boolean,
       mode: 'redact' | 'erase',
@@ -2533,21 +2614,25 @@ export function App() {
       erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
     ) => {
       if (!ctl || !areas.length) return;
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
       const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
       const redacting = mode === 'redact';
-      if (!(await rewriteSigned(cur.doc, redacting ? 'Redaction' : 'Erase Content'))) return;
       const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
       const fill: [number, number, number] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
       const covering = redacting || !!erase?.cover;
-      const redacted = await ctl.engine.redact(await readFile(cur.file.hash), {
-        regions,
-        fill: covering ? fill : null,
-        imageFill: covering ? fill : [1, 1, 1],
-        ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
-        ...(erase?.textOnly ? { textOnly: true } : {}),
-      });
+      progress(0, regions.length, 'Starting');
+      const redacted = await ctl.engine.redact(
+        await readFile(cur.file.hash),
+        {
+          regions,
+          fill: covering ? fill : null,
+          imageFill: covering ? fill : [1, 1, 1],
+          ...(redacting && options?.text ? { overlayText: options.text, overlayTextColor: contrastOn(hex) } : {}),
+          ...(erase?.textOnly ? { textOnly: true } : {}),
+        },
+        { signal, onProgress: (done, total) => progress(done, total, `Page ${regions[done]!.pageIndex + 1} (${done + 1} of ${total})`) },
+      );
+      progress(regions.length, regions.length, 'Saving the redacted document');
       const report = redacted.report;
       let bytes = redacted.bytes;
       if (redacting && options?.stripMetadata) {
@@ -2568,7 +2653,9 @@ export function App() {
       // Verify: no words left inside the areas.
       const doc = (intoB ? openBRef.current : openRef.current)?.doc;
       let left = 0;
+      let checked = 0;
       for (const { pageIndex, rects } of regions) {
+        progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
         const label = new Set((options?.text ?? '').split(/\s+/).filter(Boolean));
@@ -2586,6 +2673,23 @@ export function App() {
       else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
     },
     [ctl, ctlB, swapDocument],
+  );
+
+  /** `redactPages` as a job, so a large document shows its progress and can be cancelled before it is changed. */
+  const runRedact = useCallback(
+    async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: Parameters<typeof redactPages>[4], options?: RedactOptions, erase?: Parameters<typeof redactPages>[6]) => {
+      if (!ctl || !areas.length) return;
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
+      if (!(await rewriteSigned(cur.doc, mode === 'redact' ? 'Redaction' : 'Erase Content'))) return;
+      const pages = new Set(areas.map((a) => a.pageIndex)).size;
+      try {
+        await runJob(`${mode === 'redact' ? 'Redact' : 'Bulk Redact'} · ${cur.file.name}`, (ctx) => redactPages(ctx, cur, intoB, mode, areas, options, erase), { ...PAGES_JOB, cancellable: true, shown: pages > 1 });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        setNotice(`${mode === 'redact' ? 'Redaction' : 'Erase'} cancelled; the document was not changed.`);
+      }
+    },
+    [ctl, redactPages],
   );
   /** Edit Text: the text object clicked is shown, its new text asked for, and replaced in the file. */
   editTextRef.current = (pageIndex, at) => {
@@ -2620,12 +2724,12 @@ export function App() {
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
-  const runProcess = useCallback(
-    async (cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
-      const rewriting = rewrites[spec.kind];
-      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+  const processDocument = useCallback(
+    async ({ signal, progress }: JobContext, cur: OpenFile, spec: ProcessSpec | { kind: 'unflatten' } | { kind: 'repair' }, revisionNote?: string): Promise<string | null> => {
+      // Called between items of the long ones: a cancel stops the work before the file is changed.
+      const stopped = () => {
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      };
       const p = await import('./documents/process');
       switch (spec.kind) {
         case 'flatten': {
@@ -2656,20 +2760,45 @@ export function App() {
         case 'reduce': {
           const before = cur.file.size;
           const recompress = spec.recompress ? (jpeg: Uint8Array) => recompressJpeg(jpeg, spec.quality) : undefined;
-          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress);
+          const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress, (done, total) => {
+            stopped();
+            progress(done, total, `Picture ${done + 1} of ${total}`);
+          });
           if (bytes.length >= before) return 'The file is already as small as this can make it.';
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
           return `Reduced from ${mb(before)} to ${mb(bytes.length)}${images ? ` (${images} picture${images === 1 ? '' : 's'} recompressed)` : ''}.`;
         }
         case 'colour': {
-          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg);
+          const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg, (done, total, phase) => {
+            stopped();
+            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : `Picture ${done + 1} of ${total}`);
+          });
+          stopped();
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           return `Changed the colours of ${spec.pages.length} page${spec.pages.length === 1 ? '' : 's'}.`;
         }
       }
     },
     [ctl, commitDocument],
+  );
+
+  /** `processDocument` as a job, so the longer ones show progress and can be cancelled before the file is changed. */
+  const runProcess = useCallback(
+    async (cur: OpenFile, spec: Parameters<typeof processDocument>[2], revisionNote?: string): Promise<string | null> => {
+      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      const rewriting = rewrites[spec.kind];
+      if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
+      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' }[spec.kind];
+      try {
+        return await runJob(`${title} · ${cur.file.name}`, (ctx) => processDocument(ctx, cur, spec, revisionNote), { ...PAGES_JOB, cancellable: spec.kind === 'reduce' || spec.kind === 'colour' });
+      } catch (err) {
+        if (!isAbort(err)) throw err;
+        return `${title} cancelled; the document was not changed.`;
+      }
+    },
+    [processDocument],
   );
 
   /** Extract, Split, Replace, Crop and Page Setup (Document menu). */
@@ -2809,7 +2938,7 @@ export function App() {
       [open, sheetsA],
       [openB, sheetsB],
     ] as const)
-      if (o && !studioDocOf(o.file.id)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+      if (o && !studioDocOf(o.file.id)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
   }, [open, openB, sheetsA, sheetsB]);
 
   /** Sets: reads the sheet numbers of files that have not been opened (from their text if never detected). */
@@ -2836,7 +2965,7 @@ export function App() {
                 store.setDetectedSheets(detectSheets(texts).map((info, i) => [i, info] as [number, SheetInfo]));
               }
               const sheets = store.allSheets();
-              drawingSets.setIndex(file.id, { pageCount: doc.pages.length, sheets: doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+              drawingSets.setIndex(file.id, { pageCount: doc.pages.length, sheets: doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
             } finally {
               held.release();
             }
@@ -3363,7 +3492,7 @@ export function App() {
                   const pdf = await PDFDocument.load(await readFile(cur.file.hash), { updateMetadata: false });
                   writePageLabels(pdf, labels);
                   await commitDocument(cur, (await pdf.save()).slice().buffer, undefined, note);
-                  drawingSets.setIndex(cur.file.id, { pageCount: cur.doc.pages.length, sheets: cur.doc.pages.map((_, i) => (sheets[i] ? { ...(sheets[i].number ? { number: sheets[i].number } : {}), ...(sheets[i].title ? { title: sheets[i].title } : {}) } : null)) });
+                  drawingSets.setIndex(cur.file.id, { pageCount: cur.doc.pages.length, sheets: cur.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
                   message = `${n} of ${allPages.length} page${allPages.length === 1 ? '' : 's'} labelled (${labels.filter(Boolean).slice(0, 3).join(', ')}${n > 3 ? '…' : ''})`;
                   break;
                 }
@@ -7156,37 +7285,49 @@ export function App() {
     },
   ];
 
-  /** Links › Teach a mark: shows the Links tab and turns on the tool for boxing an example mark. */
+  /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
   const startTeachMark = () => {
     if (!activeTools) return;
     showBottomPanel('links');
+    setTeachBox(null);
+    setTeachLinks(activePane);
     activeTools.setTool('teachMark');
-    setNotice('Drag a box around one section mark, section title, detail callout or detail title, with its label.');
   };
 
-  /** Saves the boxed example in the profile and finds marks like it; resolves to a message when it cannot be used. */
-  const teachBoxedMark = async (box: NonNullable<typeof teachBox>, kind: MarkKind, name: string): Promise<string | null> => {
-    const { o } = paneParts(box.pane);
-    if (!o) return 'The document was closed.';
-    const size = o.doc.pages[box.pageIndex]!;
-    const sheets = o.store.allSheets();
-    let mark: TaughtMark;
-    try {
-      const [words, geometry] = await Promise.all([o.doc.text(box.pageIndex), o.doc.geometry(box.pageIndex)]);
-      mark = teachMark({ width: size.width, height: size.height, words, segments: geometry.segments }, box.rect, kind, name, o.doc.pages.map((_, i) => sheets[i]?.number ?? null));
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+  /** Forgets a taught mark, whether it was for every set or a drawing standard's own, and looks again without it. */
+  const forgetMark = (id: string, doc: OpenFile | null) => {
+    updateWorkspace((s) => ({
+      ...s,
+      taughtMarks: s.taughtMarks.filter((m) => m.id !== id),
+      drawingStandards: s.drawingStandards.map((d) => (d.marks?.some((m) => m.id === id) ? { ...d, marks: d.marks.filter((m) => m.id !== id), updatedAt: Date.now() } : d)),
+    }));
+    void findTaughtMarks(doc);
+  };
+
+  /**
+   * Keeps what a pair taught in Teach Links: its marks, in the document's drawing standard or for
+   * every set, and what it taught about the client's drawings in the standard. A standard that
+   * learned something reads the set again; otherwise only the marks are looked for.
+   */
+  const keepLesson = (o: OpenFile, lesson: Lesson, forStandard: boolean) => {
+    const standard = standardOf(o.store);
+    if (forStandard && standard) {
+      const next: DrawingStandard = { ...standard, links: lesson.links ?? standard.links, chainage: lesson.chainage ?? standard.chainage, marks: [...standard.marks, ...lesson.marks], updatedAt: Date.now() };
+      updateWorkspace((s) => ({ ...s, drawingStandards: s.drawingStandards.map((d) => (d.id === next.id ? next : d)) }));
+      if (lesson.links || lesson.chainage) void readWithStandard(o, next).then(() => setNotice(`Read ${o.file.name} again with what ${next.name} has learned. New links wait under Needs review in the Links tab.`));
+      else void findTaughtMarks(o, true);
+      return;
     }
-    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, mark] }));
-    setTeachBox(null);
+    if (!lesson.marks.length) return;
+    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, ...lesson.marks] }));
     void findTaughtMarks(o, true);
-    return null;
   };
 
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   /** `erase` is Bulk Redact, which draws its boxes the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `standard` edits drawing standards, whose title-block boxes are drawn the same way. */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' | 'standard' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
@@ -7195,11 +7336,12 @@ export function App() {
     }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    // Erase boxes are not label boxes, so switching between them starts with none.
+    // Erase boxes and a standard's boxes are not label boxes, so switching between them starts with none.
+    const own = (k: string) => (k === 'erase' || k === 'standard' ? k : 'label');
     setLabelMode((m) =>
       m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
         ? m
-        : { pane, regions: m?.pane === pane && (m.kind === 'erase') === (kind === 'erase') ? m.regions : [], kind, ...opts },
+        : { pane, regions: m?.pane === pane && own(m.kind) === own(kind) ? m.regions : [], kind, ...opts },
     );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
@@ -7744,6 +7886,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
+    drawingStandards: () => startLabelRegions(undefined, 'standard'),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     bulkRedact: () => startLabelRegions(undefined, 'erase'),
@@ -8906,13 +9049,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFollow={(l) => navigate(l.targetPage, l.targetRect)}
             onStatus={(id, status) => activeOpen?.store.setLinkStatus(id, status)}
             onRedetect={() => void redetectLinks()}
-            marks={ws.taughtMarks}
+            marks={[...ws.taughtMarks, ...((activeOpen && standardOf(activeOpen.store)?.marks.map((m) => ({ ...m, standard: standardOf(activeOpen.store)!.name }))) ?? [])]}
             editable={!!activeOpen && !activeOpen.store.readOnly}
             onTeach={startTeachMark}
-            onForget={(id) => {
-              updateWorkspace((s) => ({ ...s, taughtMarks: s.taughtMarks.filter((m) => m.id !== id) }));
-              void findTaughtMarks(activeOpen);
-            }}
+            onForget={(id) => forgetMark(id, activeOpen)}
           />
         ) : markupsPopped ? (
           <div className="popout-note">
@@ -9146,6 +9286,36 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && suggestion?.fileId === open.file.id && (
+                  <div className="slow-drawing standard-suggestion" role="status">
+                    <p>
+                      This looks like a <b>{suggestion.standard.name}</b> set: {Math.round(suggestion.fit * 100)}% of the sheets checked fit that drawing standard.
+                    </p>
+                    <div className="slow-drawing-actions">
+                      <button
+                        type="button"
+                        className="btn small"
+                        onClick={() => {
+                          open.store.declineStandard(suggestion.standard.id);
+                          setSuggestion(null);
+                        }}
+                      >
+                        Not this set
+                      </button>
+                      <button
+                        type="button"
+                        className="btn small primary"
+                        onClick={() => {
+                          const { standard } = suggestion;
+                          setSuggestion(null);
+                          void readWithStandard(open, standard).then(() => setNotice(`${open.file.name} is read with ${standard.name}.`));
+                        }}
+                      >
+                        Use {suggestion.standard.name}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </main>
               {pageNav('a')}
             </div>
@@ -9247,6 +9417,115 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
+          {labelMode?.kind === 'standard' && labelPaneParts?.o && (
+            <DrawingStandardPanel
+              key={labelPaneParts.o.file.id}
+              standards={ws.drawingStandards}
+              current={labelPaneParts.o.store.drawingStandard()?.id ?? null}
+              regions={labelMode.regions}
+              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
+              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
+              pageSize={labelPaneParts.o.doc.pages[(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
+              texts={labelTexts}
+              readOnly={labelPaneParts.o.store.readOnly}
+              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
+              onChange={setStandardRegions}
+              onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
+              onDelete={(id) => updateWorkspace((w) => ({ ...w, drawingStandards: w.drawingStandards.filter((s) => s.id !== id) }))}
+              onUse={(id) => {
+                const o = labelPaneParts.o!;
+                const standard = id ? (profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null) : null;
+                void readWithStandard(o, standard).then(() => {
+                  const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
+                  setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                });
+              }}
+              onImport={(file) =>
+                void file
+                  .text()
+                  .then((content) => {
+                    const standard = parseStandardFile(content);
+                    const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
+                    updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
+                    setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
+                  })
+                  .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+              }
+              onExport={(standard) => download(standardFileName(standard), new Blob([exportStandard(standard)], { type: 'application/json' }))}
+              everySetMarks={ws.taughtMarks.length}
+              onTeach={startTeachMark}
+              onMoveMarks={(id) => {
+                updateWorkspace((w) => ({
+                  ...w,
+                  taughtMarks: [],
+                  drawingStandards: w.drawingStandards.map((d) => (d.id === id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, ...w.taughtMarks], updatedAt: Date.now() } : d)),
+                }));
+                void findTaughtMarks(labelPaneParts.o);
+              }}
+              onForgetMark={(id) => forgetMark(id, labelPaneParts.o)}
+              project={(() => {
+                const link = linkOf(labelPaneParts.o.file.id);
+                const project = link ? projectById(link.projectId) : null;
+                if (!project) return null;
+                const { manifest } = project.getSnapshot();
+                return { name: manifest.name, owner: project.level === 'owner', standard: standardOfProject(manifest.standard)?.name ?? null };
+              })()}
+              onProjectStandard={(standard) => {
+                const link = linkOf(labelPaneParts.o!.file.id);
+                const project = link ? projectById(link.projectId) : null;
+                if (!project) return;
+                void project
+                  .setStandard(standard ? exportStandard(standard) : null, standard?.name)
+                  .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
+                  .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+              }}
+              onClose={() => setLabelMode(null)}
+            />
+          )}
+          {teachLinks &&
+            (() => {
+              const { c, o } = paneParts(teachLinks);
+              if (!c || !o) return null;
+              const standard = standardOf(o.store);
+              return (
+                <TeachLinksPanel
+                  key={`teach:${o.file.id}`}
+                  standard={standard?.name ?? null}
+                  titleBox={!!standard?.sheets.boxes.some((b) => b.field === 'title')}
+                  sheetInfo={teachLinks === 'b' ? sheetsB : sheetsA}
+                  pageCount={o.doc.pages.length}
+                  linkHints={standard?.links ?? DEFAULT_LINK_HINTS}
+                  chainageHints={standard?.chainage ?? DEFAULT_CHAINAGE_HINTS}
+                  box={teachBox?.pane === teachLinks ? teachBox : null}
+                  readPage={async (i) => {
+                    const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
+                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: inked(geometry.segments, geometry.paper) };
+                  }}
+                  onArm={() => {
+                    setActivePane(teachLinks);
+                    c.tools.setTool('teachMark');
+                  }}
+                  onGoTo={(i) => {
+                    setActivePane(teachLinks);
+                    c.viewer.goToPage(i);
+                  }}
+                  onKeep={(lesson, forStandard) => keepLesson(o, lesson, forStandard)}
+                  onSetUp={() => startLabelRegions(teachLinks, 'standard')}
+                  onReadSheets={() => {
+                    if (!standard) return;
+                    void readWithStandard(o, standard).then(() => {
+                      const titled = Object.values(o.store.allSheets()).filter((s) => s.title).length;
+                      setNotice(`Read ${o.file.name} with ${standard.name}: sheet titles on ${titled} of ${o.doc.pages.length} sheets.`);
+                    });
+                  }}
+                  onClose={() => {
+                    setTeachLinks(null);
+                    setTeachBox(null);
+                    if (c.tools.getState().tool === 'teachMark') c.tools.setTool('select');
+                  }}
+                />
+              );
+            })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
               key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
@@ -9907,7 +10186,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
-      {teachBox && <TeachMarkDialog onTeach={(kind, name) => teachBoxedMark(teachBox, kind, name)} onCancel={() => setTeachBox(null)} />}
       {visualSearchBox &&
         (() => {
           const { c, o } = paneParts(visualSearchBox.pane);

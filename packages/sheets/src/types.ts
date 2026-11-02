@@ -16,9 +16,11 @@ export interface PageText {
   words: Word[];
 }
 
-/** Where a sheet's identity came from; later sources win (manual > ai > text). */
-/** Where sheet info came from: the page's text, the PDF's own page labels, AI, or a person. */
-export type SheetSource = 'text' | 'pdf' | 'ai' | 'manual';
+/**
+ * Where sheet info came from: the page's text, the PDF's own page labels, AI, the drawing standard
+ * chosen for the set (its title-block boxes), or a person. Later sources win.
+ */
+export type SheetSource = 'text' | 'pdf' | 'ai' | 'standard' | 'manual';
 
 export interface SheetInfo {
   /** Sheet number as printed, e.g. `C-101` or `A2.01`. */
@@ -30,9 +32,11 @@ export interface SheetInfo {
   /** Scale text from the title block (e.g. `1" = 20'`), if found. */
   scaleText: string | null;
   revision: string | null;
+  /** Custom fields a drawing standard's boxes read (Status, Drawn by), by name. */
+  fields?: Record<string, string>;
   source: SheetSource;
   /** 0..1 */
   confidence: number;
 }
 
-export const SOURCE_RANK: Record<SheetSource, number> = { text: 0, pdf: 1, ai: 2, manual: 3 };
+export const SOURCE_RANK: Record<SheetSource, number> = { text: 0, pdf: 1, ai: 2, standard: 3, manual: 4 };
