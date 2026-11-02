@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.17',
+    date: '2026-11-03',
+    items: [
+      'Drawing standards: teach Redcolumn your client title blocks, marks and chainage links',
+      'Selectable themes: Navy, Graphite, Light, or match the system',
+      'New column logo as the app and taskbar icon',
+      'Import and export markups as FDF',
+      'Duplicate pages with Ctrl+C / Ctrl+V in the thumbnails',
+      'Snapshot with a polygon selection and picture colour swap',
+      'Progress bar and Cancel for Bulk Redact and other long tools',
+      'Fixed-height ribbon with a contextual Markup Format tab',
+      'Text on rotated sheets reads the way it is shown',
+      'Assemblies: round-up multiples, formula editor and examples by discipline',
+      'Tab stays inside dialogs; optional background autosave',
+    ],
+  },
+  {
     version: '0.1.16',
     date: '2026-10-28',
     items: [
