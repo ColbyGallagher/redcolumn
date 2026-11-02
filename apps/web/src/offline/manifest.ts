@@ -38,8 +38,7 @@ export function buildManifest(base: string, screenshots: ManifestScreenshot[] = 
     background_color: '#0e1729',
     categories: ['productivity', 'business', 'utilities'],
     icons: [
-      { src: at('icon.svg'), sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-      ...pngs.map((f) => ({ src: at(f.name), sizes: `${f.size}x${f.size}`, type: 'image/png', purpose: f.options.fullBleed ? 'maskable' : 'any' })),
+      ...pngs.map((f) => ({ src: at(f.name), sizes: `${f.size}x${f.size}`, type: 'image/png', purpose: f.maskable ? 'maskable' : 'any' })),
     ],
     shortcuts: [
       { name: 'Open', short_name: 'Open', description: 'Open a PDF from this device', url: `${base}?action=open`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },

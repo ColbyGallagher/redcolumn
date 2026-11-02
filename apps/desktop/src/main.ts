@@ -329,6 +329,9 @@ function createWindow() {
     minWidth: 800,
     minHeight: 600,
     title: 'redcolumn',
+    // The taskbar and window icon on Windows and Linux (an installed Windows app also has it in the
+    // exe). macOS takes the Dock icon from the app bundle.
+    icon: path.join(__dirname, '..', 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     show: false,
     autoHideMenuBar: true,
     // Windows: no native title bar. The page's menu bar fills that strip and the system window

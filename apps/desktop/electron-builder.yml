@@ -22,6 +22,9 @@ beforePack: scripts/before-pack.cjs
 files:
   - dist/**
   - package.json
+  # The window icon (main.ts): Linux and a dev run have no installer to supply one.
+  - build/icon.png
+  - build/icon.ico
   # The assistant Node binary is an extra resource. Leaving it in the asar would pack it twice.
   - "!dist/assistant/node.exe"
   - "!dist/assistant/node"
@@ -55,7 +58,7 @@ electronFuses:
   grantFileProtocolExtraPrivileges: false
 win:
   target: nsis
-  icon: ../web/dist/icon-512.png
+  icon: build/icon.ico
 nsis:
   oneClick: false
   perMachine: false
@@ -69,7 +72,7 @@ mac:
   # Hardened runtime is for notarization. With an ad-hoc signature it makes library validation
   # refuse Electron's frameworks (no Team ID), and the app fails to launch.
   hardenedRuntime: false
-  icon: ../web/dist/icon-512.png
+  icon: build/icon.icns
   category: public.app-category.productivity
 dmg:
   artifactName: redcolumn-${arch}.${ext}
@@ -80,6 +83,7 @@ dmg:
 # cannot create user namespaces (the sandbox cannot run there).
 linux:
   target: AppImage
+  icon: build/icon.png
   category: Office
   executableName: redcolumn
   executableArgs: []

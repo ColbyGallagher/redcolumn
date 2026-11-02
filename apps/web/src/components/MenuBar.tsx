@@ -641,7 +641,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   return (
     <div className="menubar" ref={root} role="menubar">
       <span className="brand-mark" aria-hidden="true">
-        <span className="brand-col" />
+        <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
         <span className="brand-word">
           <b>red</b>column
         </span>
