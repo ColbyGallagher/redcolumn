@@ -811,6 +811,9 @@ export function moved(m: Geometry, dx: number, dy: number): Geometry {
 export const TEXT_PADDING = 4;
 export const TEXT_LINE_HEIGHT = 1.2;
 
+/** A text style's line spacing: its multiple of the font size, or the default when unset. */
+export const textLineHeight = (style: { lineHeight?: number }): number => style.lineHeight ?? TEXT_LINE_HEIGHT;
+
 /**
  * Greedy word wrap into lines no wider than `maxWidth`. `measure` returns the width of a string at
  * the markup's font size, so the same layout serves canvas and PDF output.

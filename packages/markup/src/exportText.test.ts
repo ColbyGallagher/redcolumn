@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
+import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFString, decodePDFRawStream } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
@@ -40,4 +40,29 @@ test('a text box with line breaks is drawn as separate lines, not one line with 
 test('CRLF and CR breaks are line breaks too, and a tab becomes spaces', async () => {
   const lines = shown(await appearanceText(box('a\r\nb\rc\td')));
   assert.deepEqual(lines, ['a', 'b', 'c    d']);
+});
+
+test('line spacing is written to /DS and /RC, and the drawn lines follow it', async () => {
+  const withSpacing = (lineHeight?: number): Markup => ({ ...box('a\nb\nc'), style: { ...DEFAULT_STYLES.text, fontSize: 10, lineHeight } });
+  const ys = (stream: string) => [...stream.matchAll(/1 0 0 -1 \S+ (\S+) Tm/g)].map((m) => Number(m[1]));
+  const gaps = (a: number[]) => a.slice(1).map((y, i) => Math.round((y - a[i]!) * 100) / 100);
+  assert.deepEqual(gaps(ys(await appearanceText(withSpacing()))), [12, 12]);
+  assert.deepEqual(gaps(ys(await appearanceText(withSpacing(2)))), [20, 20]);
+  assert.deepEqual(gaps(ys(await appearanceText(withSpacing(1.5)))), [15, 15]);
+
+  // Extra leading is split above and below the glyphs, as CSS (the editor, rich text) does: half of the
+  // difference from the default moves the first line, and none at the default.
+  const first = async (lh?: number) => ys(await appearanceText(withSpacing(lh)))[0]!;
+  assert.ok(Math.abs((await first(2)) - (await first()) - 4) < 0.01);
+  assert.equal(await first(1.2), await first());
+
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const out = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [withSpacing(1.5)]));
+  const annot = out.context.lookup(out.getPage(0).node.Annots()!.get(0), PDFDict);
+  assert.match(annot.lookup(PDFName.of('DS'), PDFString, PDFHexString).decodeText(), /line-height:15pt/);
+  assert.match(annot.lookup(PDFName.of('RC'), PDFString, PDFHexString).decodeText(), /line-height:15pt/);
+  const plain = await PDFDocument.load(await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [withSpacing()]));
+  const ds = plain.context.lookup(plain.getPage(0).node.Annots()!.get(0), PDFDict).lookup(PDFName.of('DS'), PDFString, PDFHexString).decodeText();
+  assert.doesNotMatch(ds, /line-height/);
 });

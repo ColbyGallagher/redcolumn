@@ -106,6 +106,9 @@ export function textPage(p0: number): PageSpec {
     mk('text', 0, split(r, 1, 3).map((p, i) => (i ? [p[0], r.y + 36] : [p[0], r.y])) as Point[], { text: '   ', subject: 'TB16 spaces' }),
     mk('text', 0, split(r, 2, 3).map((p, i) => (i ? [p[0], r.y + 36] : [p[0], r.y])) as Point[], { text: '\n\n\n', subject: 'TB16 newlines' }),
   ]);
+  P.cell('TB17 line spacing 1.0 / 1.5 / 2.0', [2, 1], (r) =>
+    [1, 1.5, 2].map((lh, i) => mk('text', 0, [[r.x + i * 110, r.y], [r.x + i * 110 + 100, r.y + 20 + 3 * 12 * lh]], { text: 'Line one\nLine two\nLine three', subject: `TB17 line spacing ${lh}` }, { lineHeight: lh })),
+  );
   return P.spec;
 }
 
