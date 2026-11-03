@@ -2944,6 +2944,7 @@ export class MarkupTools implements ViewerOverlay {
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
       g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
       if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
+      else if (m && g.index < 4 && lockedRatio(m, e.shiftKey)) g.point = cornerKeepingAspect(m, g.index, g.point);
     }
     this.viewer.invalidate();
   }
@@ -4377,6 +4378,29 @@ function handleEdit(m: Markup, index: number, point: Point): Point[] {
   // Its new centre sits where the anchor is, plus its offset from the handle across, turned.
   const [ox, oy] = rotatePoint([c1[0] - across[0], c1[1] - across[1]], [0, 0], m.rotation);
   return edited.map((q): Point => [q[0] + anchor[0] + ox - c1[0], q[1] + anchor[1] + oy - c1[1]]);
+}
+
+/**
+ * Whether dragging a corner grip of `m` keeps its width / height ratio. Pictures, signatures and
+ * stamps hold it unless Shift is down; every other box is free unless Shift is down.
+ */
+function lockedRatio(m: Markup, shift: boolean): boolean {
+  if (TYPE_INFO[m.type].handles !== 'box' || m.points.length !== 2) return false;
+  const fixed = m.type === 'image' || m.type === 'signature' || m.type === 'stamp';
+  return fixed !== shift;
+}
+
+/** `point`, dragged from corner `index` of box `m`, moved onto the box's ratio (in its own frame, if turned). */
+function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
+  const [a, b] = [m.points[0]!, m.points[1]!];
+  const w = Math.abs(b[0] - a[0]);
+  const h = Math.abs(b[1] - a[1]);
+  if (!w || !h) return point;
+  const c0 = rotationCentre(m);
+  const u = m.rotation ? rotatePoint(point, c0, -m.rotation) : point;
+  const across = handlePositions({ ...m, rotation: 0 })[BOX_OPPOSITE[index]!]!;
+  const locked = keepAspect(across, u, w / h);
+  return m.rotation ? rotatePoint(locked, c0, m.rotation) : locked;
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
