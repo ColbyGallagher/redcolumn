@@ -13,6 +13,8 @@ Removes part of the drawing (lines, text and pictures) under a box.
 1. Choose {{Edit > PDF Content > Erase Content}}.
 2. Drag a box over what to remove. Let go and it is gone.
 
+   To remove an irregular area, click its corners instead. Click the first corner again, double-click or press [[Enter]] to finish; [[Esc]] cancels. Only what lies inside the outline is removed, not everything in its bounding box.
+
    ![Dragging an erase box over a line of notes](img/erase-content.png)
 
 ## Bulk Redact
@@ -37,7 +39,7 @@ On pages of another size, each box keeps its distance from the nearest edge, so 
 Like Erase, but first copies what was there to the clipboard as a picture, so you can paste it somewhere else (as an [Image](#tool-image)).
 
 1. Choose {{Edit > PDF Content > Cut Content}}.
-2. Drag a box over the area.
+2. Drag a box over the area, or click its corners to outline it (click the first corner again, double-click or press [[Enter]] to finish).
 3. Click where you want it and press [[Ctrl+V]].
 
 ## Edit Text

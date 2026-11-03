@@ -6,7 +6,8 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts"
   },
   "dependencies": {
     "@embedpdf/pdfium": "^2.15.1"

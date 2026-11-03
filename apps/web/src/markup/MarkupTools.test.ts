@@ -229,6 +229,32 @@ test('Snapshot: dragging copies a box, clicking point by point copies a polygon'
   await h.store.destroy();
 });
 
+for (const [tool, key, after] of [['eraseContent', 'onEraseContent', 'eraseContent'], ['cutContent', 'onCutContent', 'select']] as const) {
+  test(`${tool}: dragging gives a box, clicking corners gives a polygon of at least three`, async () => {
+    const calls: { pageIndex: number; rect: object; points?: Point[] }[] = [];
+    const h = await setup({ [key]: (pageIndex: number, rect: object, points?: Point[]) => calls.push({ pageIndex, rect, points }) });
+    h.tools.setTool(tool);
+    drag(h.tools, [100, 100], [300, 250]);
+    assert.deepEqual(calls, [{ pageIndex: 0, rect: { x: 100, y: 100, w: 200, h: 150 }, points: undefined }]);
+    h.tools.setTool(tool);
+    click(h.tools, [100, 100]);
+    click(h.tools, [200, 100]);
+    h.tools.finish();
+    assert.equal(calls.length, 1, 'two corners are a line, not an area');
+    h.tools.setTool(tool);
+    for (const p of [[100, 100], [300, 100], [200, 300]] as Point[]) click(h.tools, p);
+    assert.equal(calls.length, 1, 'still being outlined');
+    h.tools.finish();
+    assert.deepEqual(calls[1], { pageIndex: 0, rect: { x: 100, y: 100, w: 200, h: 200 }, points: [[100, 100], [300, 100], [200, 300]] });
+    assert.equal(h.tools.getState().tool, after);
+    h.tools.setTool(tool);
+    for (const p of [[100, 100], [200, 100], [200, 200], [100, 100]] as Point[]) click(h.tools, p);
+    assert.deepEqual(calls[2]?.points, [[100, 100], [200, 100], [200, 200]], 'closes on its first corner');
+    assert.equal(h.store.all().length, 0);
+    await h.store.destroy();
+  });
+}
+
 test('Snapshot polygon closes on its first corner and needs three corners', async () => {
   const shots: Point[][] = [];
   const h = await setup({ onSnapshotPolygon: (_, points) => shots.push(points) });

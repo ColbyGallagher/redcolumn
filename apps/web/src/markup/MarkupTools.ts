@@ -156,7 +156,9 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   ...CAD_TOOL_LABELS,
 };
 
-/** Tools that pick out an area of the page (drawn as a plain box, never snapped). */
+/** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
+const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
+/** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
 const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion', 'teachMark']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
@@ -440,7 +442,7 @@ export interface MarkupToolsOptions {
   /** The user clicked PDF text with the `editText` tool. */
   onEditPdfText?: (pageIndex: number, at: Point) => void;
   /** The user drew an area to erase the PDF content in (the `eraseContent` tool). */
-  onEraseContent?: (pageIndex: number, rect: PageRect) => void;
+  onEraseContent?: (pageIndex: number, rect: PageRect, points?: Point[]) => void;
   /** The user drew where a new form field goes (the `formField` tool). */
   onFormFieldDrawn?: (pageIndex: number, rect: PageRect) => void;
   /** The user clicked a form field's widget to fill it in. */
@@ -498,7 +500,7 @@ export interface MarkupToolsOptions {
   /** A dimension's text or a Replace Text markup's new wording needs entering or editing. */
   onEditLabel?: (id: string) => void;
   /** The user drew the area to cut from the PDF (copied as a picture, then erased). */
-  onCutContent?: (pageIndex: number, rect: PageRect) => void;
+  onCutContent?: (pageIndex: number, rect: PageRect, points?: Point[]) => void;
   /** The user drew the area to copy as a picture (the `snapshot` tool). */
   onSnapshot?: (pageIndex: number, rect: PageRect) => void;
   /** The user outlined the area to copy as a picture, corner by corner (the `snapshot` tool, clicking point by point). */
@@ -537,7 +539,7 @@ function needsScale(tool: Tool): boolean {
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'matchLine') return { min: 2, fixed: 2 };
-  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'snapshot') return { min: 3, closes: true };
+  if (tool === 'cutout' || tool === 'stitchPolygon' || POLYGON_REGION_TOOLS.has(tool)) return { min: 3, closes: true };
   // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
   if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
@@ -1859,9 +1861,17 @@ export class MarkupTools implements ViewerOverlay {
       if (points.length >= 3) this.options.onStitchRegion?.(g.markup.pageIndex, points);
       return;
     }
-    if (this.state.tool === 'snapshot') {
-      if (points.length >= 3) {
-        this.options.onSnapshotPolygon?.(g.markup.pageIndex, points);
+    if (POLYGON_REGION_TOOLS.has(this.state.tool)) {
+      if (points.length < 3) return;
+      const pageIndex = g.markup.pageIndex;
+      if (this.state.tool === 'snapshot') {
+        this.options.onSnapshotPolygon?.(pageIndex, points);
+        this.setState({ tool: 'select' });
+      } else if (this.state.tool === 'eraseContent') {
+        // The tool stays on, for erasing several areas.
+        this.options.onEraseContent?.(pageIndex, boundsOf(points), points);
+      } else {
+        this.options.onCutContent?.(pageIndex, boundsOf(points), points);
         this.setState({ tool: 'select' });
       }
       return;
@@ -2624,7 +2634,7 @@ export class MarkupTools implements ViewerOverlay {
     }
 
     // Snapshot: a press-and-drag is a box; a plain click starts a polygon, whose later clicks come here.
-    const spec = tool === 'snapshot' && this.gesture?.kind !== 'multi' ? null : clickSpec(tool);
+    const spec = POLYGON_REGION_TOOLS.has(tool) && this.gesture?.kind !== 'multi' ? null : clickSpec(tool);
     if (spec) {
       const g = this.gesture;
       const p = this.resolve(pt, e, g?.kind === 'multi' ? g.markup.points.at(-1)! : null);
@@ -3083,7 +3093,7 @@ export class MarkupTools implements ViewerOverlay {
     }
     if (g.kind === 'draw') {
       const b = boundsOf(g.markup.points);
-      if (this.state.tool === 'snapshot' && Math.max(b.w, b.h) * this.viewer.zoomFor(this.page) < this.dragPx) {
+      if (POLYGON_REGION_TOOLS.has(this.state.tool) && Math.max(b.w, b.h) * this.viewer.zoomFor(this.page) < this.dragPx) {
         // A click, not a drag: the first corner of a polygon outline.
         const at = g.markup.points[0]!;
         this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });

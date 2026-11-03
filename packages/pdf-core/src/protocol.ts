@@ -187,7 +187,12 @@ export interface PageRegion {
 
 export interface RedactRequest {
   /** Regions to clear, per page. */
-  regions: { pageIndex: number; rects: PageRegion[] }[];
+  regions: {
+    pageIndex: number;
+    rects: PageRegion[];
+    /** Outlined regions, as corners in page space (like `rects`), cleared as well. */
+    polygons?: { x: number; y: number }[][];
+  }[];
   /** Overlay drawn over each region (0–1 RGB), or null to leave it empty (Erase Content). */
   fill: [number, number, number] | null;
   /** Colour picture pixels inside a region become (0–1 RGB). */
