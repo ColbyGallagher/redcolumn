@@ -62,7 +62,51 @@ export function distribute(markups: readonly Markup[], axis: Axis): Map<string, 
   return out;
 }
 
-/** New geometry mirroring the markups across the centre line of their combined bounds. */
+/**
+ * New geometry moving the markups together so the centre of their combined bounds sits on the
+ * centre of the page. Their positions relative to each other stay as they are.
+ */
+export function centerOnPage(markups: readonly Markup[], pageW: number, pageH: number): Map<string, Geometry> {
+  const out = new Map<string, Geometry>();
+  if (!markups.length) return out;
+  const all = unionBounds(markups.map(shapeBounds));
+  const dx = pageW / 2 - (all.x + all.w / 2);
+  const dy = pageH / 2 - (all.y + all.h / 2);
+  if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return out;
+  for (const m of markups) out.set(m.id, shift(m, dx, dy));
+  return out;
+}
+
+/** A markup's geometry stretched by (`sx`, `sy`) about `base`, unlike `scaledAbout` text size and offsets are left alone. */
+function stretchedAbout(m: Markup, base: Point, sx: number, sy: number): Geometry {
+  return mapGeometry(m, ([x, y]) => [base[0] + (x - base[0]) * sx, base[1] + (y - base[1]) * sy]);
+}
+
+/**
+ * New geometry giving every markup after the first the first one's width, height or both
+ * (`shapeBounds`). Each is stretched about its own centre; text boxes change shape but keep their
+ * font size. Markups with no extent along an axis are left alone on that axis.
+ */
+export function matchSize(markups: readonly Markup[], dimension: 'width' | 'height' | 'both'): Map<string, Geometry> {
+  const out = new Map<string, Geometry>();
+  const [first, ...rest] = markups;
+  if (!first || !rest.length) return out;
+  const target = shapeBounds(first);
+  for (const m of rest) {
+    const b = shapeBounds(m);
+    const sx = dimension !== 'height' && b.w > 1e-9 ? target.w / b.w : 1;
+    const sy = dimension !== 'width' && b.h > 1e-9 ? target.h / b.h : 1;
+    if (Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9) continue;
+    out.set(m.id, stretchedAbout(m, [b.x + b.w / 2, b.y + b.h / 2], sx, sy));
+  }
+  return out;
+}
+
+/**
+ * New geometry mirroring the markups across the centre line of their combined bounds. Rotated
+ * boxes turn the other way too. Pictures and stamps are moved and turned but their pixels are not
+ * mirrored.
+ */
 export function flip(markups: readonly Markup[], axis: Axis): Map<string, Geometry> {
   const out = new Map<string, Geometry>();
   if (!markups.length) return out;
@@ -73,7 +117,7 @@ export function flip(markups: readonly Markup[], axis: Axis): Map<string, Geomet
     out.set(
       m.id,
       // A mirror image turns curved segments the other way.
-      { ...mapGeometry(m, ([x, y]) => (axis === 'horizontal' ? [2 * cx - x, y] : [x, 2 * cy - y])), ...(m.bulges ? { bulges: m.bulges.map((b) => -b) } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges.map((h) => h?.map((b) => -b) ?? null) } : {}) },
+      { ...mapGeometry(m, ([x, y]) => (axis === 'horizontal' ? [2 * cx - x, y] : [x, 2 * cy - y])), ...(m.bulges ? { bulges: m.bulges.map((b) => -b) } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges.map((h) => h?.map((b) => -b) ?? null) } : {}), ...(m.rotation ? { rotation: -m.rotation } : {}) },
     );
   }
   return out;

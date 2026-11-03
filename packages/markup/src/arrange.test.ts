@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { align, distribute, flip, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout } from './arrange.ts';
+import { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout } from './arrange.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 
 function box(id: string, x: number, y: number, w: number, h: number, type: MarkupType = 'rect', createdAt = 0): Markup {
@@ -31,6 +31,42 @@ test('flip mirrors across the selection centre', () => {
   const line: Markup = { ...box('l', 0, 0, 10, 10, 'line'), points: [[0, 0], [10, 4]] };
   assert.deepEqual(flip([line], 'horizontal').get('l')?.points, [[10, 0], [0, 4]]);
   assert.deepEqual(flip([line], 'vertical').get('l')?.points, [[0, 4], [10, 0]]);
+});
+
+test('flip turns a rotated box the other way', () => {
+  const r: Markup = { ...box('r', 0, 0, 10, 10), rotation: 30 };
+  assert.equal((flip([r], 'horizontal').get('r') as { rotation?: number }).rotation, -30);
+  assert.equal('rotation' in flip([box('p', 0, 0, 5, 5)], 'vertical').get('p')!, false);
+});
+
+test('centerOnPage moves the selection as one so its bounds centre on the page', () => {
+  const ms = [box('a', 0, 0, 10, 10), box('b', 30, 20, 10, 10)];
+  // Union 0-40 x 0-30; page 200 x 100 centre (100, 50) -> shift (80, 35).
+  const moved = centerOnPage(ms, 200, 100);
+  assert.deepEqual(moved.get('a')?.points, [[80, 35], [90, 45]]);
+  assert.deepEqual(moved.get('b')?.points, [[110, 55], [120, 65]]);
+  assert.equal(centerOnPage([box('c', 90, 45, 20, 10)], 200, 100).size, 0);
+});
+
+test('matchSize stretches the others to the first markup about their own centres', () => {
+  const first = box('f', 0, 0, 10, 20);
+  const r = box('r', 100, 100, 40, 40);
+  assert.deepEqual(matchSize([first, r], 'width').get('r')?.points, [[115, 100], [125, 140]]);
+  assert.deepEqual(matchSize([first, r], 'height').get('r')?.points, [[100, 110], [140, 130]]);
+  assert.deepEqual(matchSize([first, r], 'both').get('r')?.points, [[115, 110], [125, 130]]);
+  assert.equal(matchSize([first, r], 'both').has('f'), false);
+  assert.equal(matchSize([first], 'both').size, 0);
+  // A polyline's points follow its bounds.
+  const line: Markup = { ...box('l', 0, 0, 1, 1, 'polyline'), points: [[0, 0], [20, 10], [40, 0]] };
+  assert.deepEqual(matchSize([first, line], 'width').get('l')?.points, [[15, 0], [20, 10], [25, 0]]);
+});
+
+test('matchSize resizes a text box but not its font', () => {
+  const first = box('f', 0, 0, 100, 50);
+  const t = box('t', 0, 0, 50, 50, 'text');
+  const out = matchSize([first, t], 'both').get('t');
+  assert.deepEqual(out?.points, [[-25, 0], [75, 50]]);
+  assert.equal('style' in (out ?? {}), false);
 });
 
 test('restack moves markups one step past their neighbours', () => {

@@ -76,6 +76,12 @@ const ICONS: Record<string, ReactNode> = {
   'edit.alignTop': ic('M1.5 2h13M4 4v9M10 4v6'),
   'edit.alignMiddle': ic('M1.5 8h13M4 3v10M10 5v6'),
   'edit.alignBottom': ic('M1.5 14h13M4 3v9M10 6v6'),
+  'edit.centerInDocument': ic('M1.5 1.5h13v13h-13z', <path d="M5 5h6v6H5zM8 1.5v3M8 11.5v3" />),
+  'edit.sameWidth': ic('M2 5h12M2 11h12M2 3v4M14 3v4M2 9v4M14 9v4'),
+  'edit.sameHeight': ic('M5 2v12M11 2v12M3 2h4M3 14h4M9 2h4M9 14h4'),
+  'edit.sameSize': ic('M2 2h5v5H2zM9 9h5v5H9z'),
+  'edit.distributeHorizontal': ic('M1.5 1.5v13M14.5 1.5v13M6 5h4v6H6z'),
+  'edit.distributeVertical': ic('M1.5 1.5h13M1.5 14.5h13M5 6h6v4H5z'),
   'edit.group': ic('M1.5 1.5h13v13h-13z', <path d="M4 4h4v4H4zM8 8h4v4H8z" />),
   'edit.ungroup': ic('M2 2h5v5H2zM9 9h5v5H9z'),
   'edit.lock': ic('M4 7.5h8v6.5H4zM5.5 7.5V5a2.5 2.5 0 0 1 5 0v2.5'),
@@ -731,6 +737,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.alignTop" />
                 <Cmd id="edit.alignMiddle" />
                 <Cmd id="edit.alignBottom" />
+                <Cmd id="edit.distributeHorizontal" />
+                <Cmd id="edit.distributeVertical" />
+                <Cmd id="edit.centerInDocument" />
+                <Cmd id="edit.sameWidth" />
+                <Cmd id="edit.sameHeight" />
+                <Cmd id="edit.sameSize" />
               </div>
             </Group>
             <Group label="Group">

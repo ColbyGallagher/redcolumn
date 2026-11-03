@@ -158,6 +158,10 @@ export interface CommandActions {
   /** Arrow-key nudge of the selected markups; `large` is the Shift step. */
   nudge: (dx: -1 | 0 | 1, dy: -1 | 0 | 1, large: boolean) => void;
   flip: (axis: 'horizontal' | 'vertical') => void;
+  centerOnPage: () => void;
+  /** Resizes the selection to the first selected markup's width, height or both. */
+  matchSize: (kind: 'width' | 'height' | 'both') => void;
+  distribute: (axis: 'horizontal' | 'vertical') => void;
   scaleToLength: () => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
@@ -391,6 +395,12 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.alignTop', 'Edit', 'Align Top', () => a.align('top'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.alignMiddle', 'Edit', 'Align Middle', () => a.align('middle'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.alignBottom', 'Edit', 'Align Bottom', () => a.align('bottom'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.centerInDocument', 'Edit', 'Center in Document', a.centerOnPage, sel && s.editable && !s.selectionLocked),
+    cmd('edit.sameWidth', 'Edit', 'Same Width', () => a.matchSize('width'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.sameHeight', 'Edit', 'Same Height', () => a.matchSize('height'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.sameSize', 'Edit', 'Same Size', () => a.matchSize('both'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.distributeHorizontal', 'Edit', 'Distribute Horizontally', () => a.distribute('horizontal'), s.selectionCount > 2 && s.editable && !s.selectionLocked),
+    cmd('edit.distributeVertical', 'Edit', 'Distribute Vertically', () => a.distribute('vertical'), s.selectionCount > 2 && s.editable && !s.selectionLocked),
     cmd('edit.flipHorizontal', 'Edit', 'Flip Horizontal', () => a.flip('horizontal'), sel && s.editable && !s.selectionLocked),
     cmd('edit.flipVertical', 'Edit', 'Flip Vertical', () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
