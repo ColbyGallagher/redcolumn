@@ -439,6 +439,60 @@ test.describe('markup tools', () => {
     await expect(picker).toHaveValue(/^line:/);
   });
 
+  test('hatch color: picked from the swatch menu, then back to the line color', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag(A, B);
+    // Select the rectangle by its edge; the color menu is the same swatch grid Line and Fill use.
+    await app.tool('select');
+    const edge = await app.at([400, A[1]]);
+    await app.page.mouse.click(edge.x, edge.y);
+    await app.page.getByRole('button', { name: /^Hatch/ }).first().click();
+    await app.page.getByRole('button', { name: 'Horizontal' }).first().click();
+    await app.page.getByRole('button', { name: 'Hatch color' }).click();
+    const menu = app.page.getByRole('dialog', { name: 'Hatch color' });
+    await menu.getByRole('button', { name: '#dc2626' }).click();
+    let [m] = await app.raw();
+    expect(m).toMatchObject({ style: { hatchColor: '#dc2626' } });
+
+    // A typed hex joins the Custom row and applies.
+    await app.page.getByRole('button', { name: 'Hatch color' }).click();
+    await menu.getByLabel('Hatch color: hex').fill('#123456');
+    await menu.getByRole('button', { name: 'Add' }).click();
+    [m] = await app.raw();
+    expect(m).toMatchObject({ style: { hatchColor: '#123456' } });
+    await app.page.getByRole('button', { name: 'Hatch color' }).click();
+    await expect(menu.getByRole('button', { name: 'Custom #123456' })).toBeVisible();
+
+    // "Same as line" clears it.
+    await menu.getByRole('button', { name: 'Same as line' }).click();
+    [m] = await app.raw();
+    expect(m!.style).not.toHaveProperty('hatchColor');
+  });
+
+  test('custom colors: dragging the native picker saves one color, and it survives a reload', async ({ app }) => {
+    await app.tool('rect');
+    const fill = app.page.getByRole('button', { name: 'Fill color' });
+    await fill.click();
+    const menu = app.page.getByRole('dialog', { name: 'Fill color' });
+    // The picker fires `input` all through a drag and `change` once when it is committed.
+    await menu.getByLabel('Fill color: more colors').evaluate((el: HTMLInputElement) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      for (const v of ['#111111', '#222222', '#334455']) {
+        set.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await expect(menu.getByRole('button', { name: /^Custom #/ })).toHaveCount(1);
+    await expect(menu.getByRole('button', { name: 'Custom #334455' })).toBeVisible();
+
+    await app.page.reload();
+    await app.open('plan.pdf');
+    await app.tool('rect');
+    await app.page.getByRole('button', { name: 'Fill color' }).click();
+    await expect(app.page.getByRole('dialog', { name: 'Fill color' }).getByRole('button', { name: 'Custom #334455' })).toBeVisible();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

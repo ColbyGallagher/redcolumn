@@ -4,6 +4,7 @@ import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listCol
 import type { Tool } from '../markup/MarkupTools';
 import type { TaughtMark } from '../sheets/marks';
 import type { DrawingStandard } from '../sheets/standards';
+import { cleanCustomColors } from './customColors';
 
 /**
  * Profiles: a named arrangement of the workspace (which tools the toolbar shows, which
@@ -122,6 +123,8 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
+  customColors?: string[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
@@ -177,7 +180,9 @@ interface Saved {
 /** Fills fields added since a profile was saved. */
 function upgrade(state: Partial<WorkspaceState>): WorkspaceState {
   const d = defaultWorkspace();
-  return { ...d, ...state, list: { ...d.list, ...state.list } };
+  const next: WorkspaceState = { ...d, ...state, list: { ...d.list, ...state.list } };
+  if ('customColors' in state) next.customColors = cleanCustomColors(state.customColors);
+  return next;
 }
 
 function load(): Saved {

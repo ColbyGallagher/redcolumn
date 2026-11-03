@@ -495,10 +495,12 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
     if (!open) return;
     const close = (e: PointerEvent) => {
       const t = e.target as Node;
-      if (!root.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
+      // The color menu opened from here is its own portal, so a click in it is not outside.
+      if (!root.current?.contains(t) && !pop.current?.contains(t) && !(t as Element).closest?.('.color-pop')) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      // Escape closes the color menu opened from here first, not this popup as well.
+      if (e.key === 'Escape' && !document.querySelector('.color-pop')) setOpen(false);
     };
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', onKey);
@@ -556,8 +558,17 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
             </button>
           )}
           <div className="hatch-pop-row">
-            <span>Color</span>
-            <input type="color" aria-label="Hatch color" disabled={!active} value={color} onChange={(e) => onChange({ hatchColor: e.target.value })} />
+            <ColorMenu
+              wide
+              label="Hatch color"
+              short="Hatch"
+              icon={STYLE_ICONS.hatch}
+              value={style.hatchColor ?? null}
+              fallback={style.stroke}
+              noneLabel="Same as line"
+              disabled={!active}
+              onChange={(c) => onChange({ hatchColor: c ?? undefined })}
+            />
           </div>
           <div className="hatch-pop-row">
             <span>Scale</span>

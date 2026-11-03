@@ -467,7 +467,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             {hatchOn && (
               <>
                 <Row label="Hatch color">
-                  <input type="color" value={style.hatchColor ?? style.stroke} onChange={(e) => set('hatchColor', e.target.value)} />
+                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} />
                 </Row>
                 <Row label="Scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
                   <NumberField value={style.hatchScale ?? 100} min={50} max={200} step={1} unit="%" onChange={(v) => set('hatchScale', v ?? 100)} />
@@ -555,12 +555,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             </span>
           </Row>
           <Row label="Text color">
-            <input type="color" value={style.textColor ?? style.stroke} onChange={(e) => set('textColor', e.target.value)} />
-            {style.textColor && (
-              <button type="button" className="link" onClick={() => set('textColor', undefined)}>
-                Match line
-              </button>
-            )}
+            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
           </Row>
           {caps.textLayout && (
             <>
@@ -586,17 +581,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
                 <input type="checkbox" checked={style.showLabel ?? true} onChange={(e) => set('showLabel', e.target.checked ? undefined : false)} />
               </Row>
               <Row label="Background">
-                <label className="inline">
-                  <input
-                    type="checkbox"
-                    checked={style.labelBackground !== null}
-                    onChange={(e) => set('labelBackground', e.target.checked ? undefined : null)}
-                  />
-                  {style.labelBackground === null ? 'None' : ''}
-                </label>
-                {style.labelBackground !== null && (
-                  <input type="color" value={style.labelBackground ?? '#ffffff'} onChange={(e) => set('labelBackground', e.target.value)} />
-                )}
+                <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} />
               </Row>
             </>
           )}
