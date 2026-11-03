@@ -6,6 +6,8 @@ import { useOnline } from '../offline/network';
 import { desktop } from '../desktop/host';
 import { assistantIsOn, subscribeAssistant } from '../desktop/assistantFlag';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { shortcutLabel } from '../commands/shortcuts';
 import type { Category } from './PreferencesDialog';
 
 /** Where a toggle's settings live in Preferences. */
@@ -31,6 +33,10 @@ interface Props {
   onSync?: (mode: 'document' | 'page' | null) => void;
   /** Opens Preferences on a category and tab (right-click a toggle → Settings…). */
   onOpenSettings: (category: Category, tab: string) => void;
+  /** The active pane's tool, shown at the left so a shortcut gives a visible cue. */
+  tool: Tool;
+  /** Back to the Select tool (clicking the tool's name). */
+  onSelectTool: () => void;
 }
 
 function Toggle({
@@ -66,7 +72,7 @@ function Toggle({
  * the page's scale) on the right. It follows the pointer itself so moving the mouse does not
  * re-render the rest of the app.
  */
-export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings }: Props) {
+export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings, tool, onSelectTool }: Props) {
   const prefs = useSettings();
   const online = useOnline();
   const assistantOn = useSyncExternalStore(subscribeAssistant, assistantIsOn, () => false);
@@ -90,6 +96,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
     };
   }, [viewer]);
 
+  const shortcut = shortcutLabel(`tool.${tool}`);
   const scale = cursor ? scaleFor(cursor.pageIndex) : null;
   const size = cursor && viewer ? viewer.pageSize(cursor.pageIndex) : null;
   const onPage = cursor && size && cursor.point[0] >= 0 && cursor.point[1] >= 0 && cursor.point[0] <= size.width && cursor.point[1] <= size.height;
@@ -99,6 +106,14 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
   return (
     <div className="statusbar">
       <div className="status-group">
+        {tool !== 'select' && (
+          <>
+            <button type="button" className="status-toggle on status-tool" title="The active tool. Click (or press Esc) to go back to Select." onClick={onSelectTool}>
+              {shortcut ? `${toolLabel(tool)} (${shortcut})` : toolLabel(tool)}
+            </button>
+            <span className="status-sep" />
+          </>
+        )}
         <Toggle label="Grid" title="Show Grid (Shift+F9)" on={prefs.showGrid} onChange={(v) => settings.set({ showGrid: v })} disabled={disabled} {...at('general', 'grid')} />
         <Toggle label="Snap Grid" title="Snap to Grid (Ctrl+Shift+F9)" on={prefs.snapToGrid} onChange={(v) => settings.set({ snapToGrid: v })} disabled={disabled} {...at('general', 'grid')} />
         <Toggle label="Snap Content" title="Snap to Content (Ctrl+Shift+F8): drawing lines, ends and intersections" on={snapContent} onChange={onSnapContent} disabled={disabled} {...at('general', 'grid')} />
