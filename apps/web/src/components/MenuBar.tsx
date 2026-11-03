@@ -59,7 +59,7 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   flags: 'Flags',
   stitching: 'Stitching',
   geospatial: 'Geospatial',
-  ai: 'AI',
+  ai: 'Compare',
   search: 'Search',
   forms: 'Forms',
   sets: 'Sets',

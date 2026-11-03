@@ -10937,7 +10937,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'ai',
-    title: 'AI',
+    title: 'Compare',
     experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
