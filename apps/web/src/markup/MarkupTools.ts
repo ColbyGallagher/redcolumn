@@ -1372,6 +1372,48 @@ export class MarkupTools implements ViewerOverlay {
     });
   }
 
+  /** Moves the selected markups by a page-space offset (points) as one undo step. */
+  nudgeSelected(dxPts: number, dyPts: number) {
+    if (!dxPts && !dyPts) return;
+    const moves = new Map<string, Geometry>();
+    for (const m of this.editable()) moves.set(m.id, moved(m, dxPts, dyPts));
+    this.movePoints(moves);
+  }
+
+  /**
+   * Arrow-key nudge: one step in a screen direction (-1, 0 or 1 per axis). A step is 5 screen px
+   * (50 with `large`), or one grid spacing (ten with `large`) when snapping to the grid. Turned into
+   * page space the way a drag is, so it follows the zoom and any view rotation; markups on different
+   * pages each get the offset of their own page, all as one undo step.
+   */
+  nudgeScreen(sx: -1 | 0 | 1, sy: -1 | 0 | 1, large: boolean) {
+    const s = settings.get();
+    const grid = s.snapToGrid ? gridSpacingPoints(s) : 0;
+    const px = large ? 50 : 5;
+    const offsets = new Map<number, Point>();
+    const offsetFor = (page: number): Point => {
+      let o = offsets.get(page);
+      if (!o) {
+        const a = this.viewer.clientToPage(0, 0, page);
+        const b = this.viewer.clientToPage(sx * px, sy * px, page);
+        o = [b[0] - a[0], b[1] - a[1]];
+        if (grid) {
+          // Whole grid squares along the page axis the screen direction maps onto.
+          const step = grid * (large ? 10 : 1);
+          o = Math.abs(o[0]) >= Math.abs(o[1]) ? [Math.sign(o[0]) * step, 0] : [0, Math.sign(o[1]) * step];
+        }
+        offsets.set(page, o);
+      }
+      return o;
+    };
+    const moves = new Map<string, Geometry>();
+    for (const m of this.editable()) {
+      const [dx, dy] = offsetFor(m.pageIndex);
+      if (dx || dy) moves.set(m.id, moved(m, dx, dy));
+    }
+    this.movePoints(moves);
+  }
+
   /** Lines the selected markups up on an edge or centre line of their combined bounds. */
   alignSelected(how: Alignment) {
     this.movePoints(align(this.editable(), how));

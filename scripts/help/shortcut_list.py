@@ -44,6 +44,7 @@ def main():
     cmd_src = open(COMMANDS, encoding='utf8').read()
     labels = dict(re.findall(r"cmd\('([\w.]+)',\s*'\w+',\s*'((?:[^'\\]|\\.)*)'", cmd_src))
     labels['edit.lock'] = 'Lock'
+    labels['window.collapseRibbon'] = 'Collapse the Ribbon'
     labels.update({f'tool.{k}': v for k, v in TOOL_LABELS.items()})
     labels['help.docs'] = 'Help'
     out = ['# Shortcut reference', '', 'The standard keyboard shortcuts. You can change any of them: see [Keyboard shortcuts](#shortcuts).', '']
