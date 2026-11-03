@@ -7088,3 +7088,215 @@ tr.hidden-markup td {
     grid-template-columns: 1fr;
   }
 }
+
+/* AI Compare: a docked side panel. Each change shows the old revision's paragraph beside the new one's. */
+.semantic-compare.sc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  min-height: 0;
+}
+
+.semantic-compare .sc-heading {
+  margin: 0;
+}
+
+.semantic-compare .sc-intro {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.semantic-compare .sc-privacy {
+  font-size: 11px;
+}
+
+.semantic-compare .sc-field {
+  display: grid;
+  gap: 3px;
+}
+
+.semantic-compare .sc-docs {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.semantic-compare .sc-actions,
+.semantic-compare .sc-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.semantic-compare .sc-nav span {
+  flex: 1;
+  text-align: center;
+  color: var(--muted);
+}
+
+.semantic-compare .sc-status {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.semantic-compare .sc-status.ai {
+  border-left-color: #8b6cf0;
+}
+
+.semantic-compare .sc-status.warn {
+  border-left-color: #e0a030;
+}
+
+.semantic-compare .sc-summary {
+  margin: 6px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.semantic-compare .sc-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.semantic-compare .sc-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.semantic-compare .sc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.semantic-compare .sc-empty {
+  color: var(--muted);
+}
+
+.semantic-compare .sc-item {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.semantic-compare .sc-item.added {
+  border-left-color: #3fae5a;
+}
+
+.semantic-compare .sc-item.removed {
+  border-left-color: #e05252;
+}
+
+.semantic-compare .sc-item.modified {
+  border-left-color: #e0a030;
+}
+
+.semantic-compare .sc-item.moved {
+  border-left-color: #4b8bf5;
+}
+
+.semantic-compare .sc-item.unchanged {
+  border-left-color: var(--border);
+}
+
+.semantic-compare .sc-item:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.semantic-compare .sc-item.active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.semantic-compare .sc-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.semantic-compare .sc-kind-tag {
+  font-weight: 600;
+}
+
+.semantic-compare .sc-basis {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.semantic-compare .sc-basis.ai {
+  border-color: #8b6cf0;
+  color: #8b6cf0;
+}
+
+.semantic-compare .sc-sides {
+  display: grid;
+  gap: 4px;
+}
+
+.semantic-compare .sc-side {
+  display: grid;
+  gap: 1px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--border) 25%, transparent);
+}
+
+.semantic-compare .sc-side-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.semantic-compare .sc-text,
+.semantic-compare .sc-absent {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.semantic-compare .sc-absent {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.semantic-compare .sc-text del {
+  color: #e05252;
+}
+
+.semantic-compare .sc-text ins {
+  color: #3fae5a;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.semantic-compare .sc-note {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 11px;
+}

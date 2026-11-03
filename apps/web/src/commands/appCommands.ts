@@ -168,6 +168,8 @@ export interface CommandActions {
   digitalIds: () => void;
   ocr: () => void;
   compare: () => void;
+  /** Document › AI Compare Documents: what changed in two revisions' text, by meaning, with an AI client's help. */
+  semanticCompare: () => void;
   security: () => void;
   archivePdfA: () => void;
   autoFields: () => void;
@@ -489,6 +491,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.security', 'Document', 'Security…', a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
     cmd('document.compare', 'Document', 'Compare Documents…', a.compare, s.libraryCount > 1),
+    cmd('document.semanticCompare', 'Document', 'AI Compare Documents…', a.semanticCompare, s.libraryCount > 1, sidePanelOpen('ai')),
     cmd('document.overlay', 'Document', 'Overlay Pages…', a.overlay, s.libraryCount > 1),
     cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
     cmd('document.geospatial', 'Document', 'Geospatial…', a.geospatial, doc, sidePanelOpen('geospatial')),

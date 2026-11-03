@@ -375,6 +375,13 @@ Proposals wait in **Tools › Takeoff › Review AI Proposals**, beside the shee
 against its formula and quantities, change the assembly or a quantity, and approve or reject it. Nothing
 is added to the takeoff until you approve it, and each approval records who approved which proposal.
 
+It can also judge a **document comparison** by meaning. Ask it to compare two open revisions (you click Allow first),
+or press Compare in **Document › AI Compare Documents…**. The **AI** side panel lists each change with the
+old and new paragraph, and clicking one puts both revisions side by side at that spot. The assistant matches paragraphs that did not match word for word (a paragraph that only
+moved, or was lightly reworded, is not a change) and reports added, removed, modified, and moved
+paragraphs. Each result is marked as the AI's judgement, a same-text match, or a plain text match. Without
+an answer, redcolumn shows its own text comparison and says so.
+
 ## Install the desktop app
 
 You can use redcolumn in any modern browser at
