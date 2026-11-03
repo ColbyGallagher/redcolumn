@@ -65,3 +65,15 @@ test('flattening some markups moves the remaining imported ones to their annotat
   assert.equal(store.undoHistory().length, 0);
   await store.destroy();
 });
+
+test('an auto-sized text box grows with its line spacing', () => {
+  const measure = (s: string) => s.length * 6;
+  const height = (lineHeight?: number) => {
+    const m = mk('text', [[0, 0], [100, 50]], { text: 'one\ntwo\nthree', style: { ...DEFAULT_STYLES.text, fontSize: 10, lineHeight } });
+    const [a, b] = autoSizedPoints(m, measure)!;
+    return b![1] - a![1];
+  };
+  assert.equal(height(), Math.ceil(3 * 10 * 1.2 + 8));
+  assert.equal(height(2), 3 * 10 * 2 + 8);
+  assert.ok(height(2) > height(1));
+});

@@ -155,6 +155,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
     `text-align:${s.textAlign ?? 'left'}`,
     ...(s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
+    ...(s.lineHeight ? [`line-height:${fmt((s.fontSize ?? 12) * s.lineHeight)}pt`] : []),
     `color:${textColor(s).toUpperCase()}`,
     ...(s.bold ? ['font-weight:bold'] : []),
     ...(s.italic ? ['font-style:italic'] : []),

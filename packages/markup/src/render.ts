@@ -1,7 +1,7 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
-import { markupShape, TEXT_LINE_HEIGHT, TEXT_PADDING, type PathCmd } from './geometry';
+import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, type PathCmd } from './geometry';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
@@ -258,7 +258,9 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const size = m.style.fontSize ?? 12;
   const inner = b.w - TEXT_PADDING * 2;
   const lines = layoutParagraphs(m.text ?? '', inner, measure);
-  const lineH = size * TEXT_LINE_HEIGHT;
+  const lineH = size * textLineHeight(m.style);
+  // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
+  const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const total = lines.length * lineH;
   const valign = m.style.verticalAlign ?? 'top';
   const top =
@@ -269,7 +271,7 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
     const full = indent + width;
     const align = m.style.textAlign ?? 'left';
     const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - TEXT_PADDING - full : b.x + TEXT_PADDING) + indent;
-    return { text, x, y: top + i * lineH, width };
+    return { text, x, y: top + i * lineH + lead, width };
   });
 }
 
