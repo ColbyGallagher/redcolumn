@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
-import { importColumns, importStatuses, scaleFromMeasure } from './bluebeam.ts';
+import { importColumns, importStatuses, parseDefaultStyle, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { markupShape } from './geometry.ts';
@@ -412,4 +412,23 @@ test("another tool's file attachment shows its own appearance (icon and file nam
   assert.equal(d.get(PDFName.of('Subtype'))?.toString(), '/FileAttachment');
   assert.equal(d.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N'))?.toString(), ap.toString());
   assert.deepEqual(d.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Math.round((n as PDFNumber).asNumber())), [110, 300, 230, 358]);
+});
+
+test('line-height in a default style reads as a multiple of the font size, in pt, % or unitless', () => {
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:13.8pt; color:#000000').lineHeight, 1.15);
+  // Declared before the font size, still relative to it.
+  assert.equal(parseDefaultStyle('line-height:30pt; font: Helvetica 20pt').lineHeight, 1.5);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:150%').lineHeight, 1.5);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:2').lineHeight, 2);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:normal').lineHeight, undefined);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt').lineHeight, undefined);
+  // As the reference sample writes it (every FreeText), 12pt x 1.15 and 8pt x 1.15.
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt; color:#FF0000').lineHeight, 1.15);
+  assert.equal(parseDefaultStyle('font: Helvetica 8pt; text-align:left; line-height:9.2pt; color:#000000').lineHeight, 1.15);
+  // No size in /DS: the /DA size is the one a pt height is read against; a size of 0 (auto) is no size.
+  assert.equal(parseDefaultStyle('font: Helvetica; line-height:13.8pt', 10).lineHeight, 1.38);
+  assert.equal(parseDefaultStyle('font: Helvetica 0pt; line-height:13.8pt', 10).lineHeight, 1.38);
+  assert.equal(parseDefaultStyle('font: Helvetica 0pt; line-height:13.8pt').lineHeight, 1.15);
+  // Outside the panel's range it is left at the default.
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:600pt').lineHeight, undefined);
 });

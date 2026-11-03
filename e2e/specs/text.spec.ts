@@ -107,6 +107,29 @@ test.describe('text markups', () => {
     expect(after!.points[0]![1]).toBeCloseTo(450, 1);
   });
 
+  test('line spacing from the properties panel grows an auto-sized box', async ({ app }) => {
+    await textBox(app);
+    await app.page.keyboard.type('ONE');
+    await app.page.keyboard.press('Enter');
+    await app.page.keyboard.type('TWO');
+    await app.page.keyboard.press('Enter');
+    await app.page.keyboard.type('THREE');
+    await commit(app);
+    const [m] = await app.markups();
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), m!.id);
+    const height = async () => {
+      await app.cmd('edit.autoSize');
+      const [after] = await app.markups();
+      return Math.abs(after!.points[1]![1] - after!.points[0]![1]);
+    };
+    const normal = await height();
+    await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
+    await app.page.getByLabel('Line spacing', { exact: true }).selectOption('2');
+    expect(((await app.raw())[0]!.style as { lineHeight?: number }).lineHeight).toBe(2);
+    // Three 12 pt lines: 3 x 12 x 2 + padding, against 3 x 12 x 1.2 + padding.
+    expect(await height()).toBeGreaterThan(normal + 25);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });
