@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
-import { importColumns, importStatuses, scaleFromMeasure } from './bluebeam.ts';
+import { importColumns, importStatuses, parseDefaultStyle, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { markupShape } from './geometry.ts';
@@ -412,4 +412,14 @@ test("another tool's file attachment shows its own appearance (icon and file nam
   assert.equal(d.get(PDFName.of('Subtype'))?.toString(), '/FileAttachment');
   assert.equal(d.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N'))?.toString(), ap.toString());
   assert.deepEqual(d.lookup(PDFName.of('Rect'), PDFArray).asArray().map((n) => Math.round((n as PDFNumber).asNumber())), [110, 300, 230, 358]);
+});
+
+test('line-height in a default style reads as a multiple of the font size, in pt, % or unitless', () => {
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:13.8pt; color:#000000').lineHeight, 1.15);
+  // Declared before the font size, still relative to it.
+  assert.equal(parseDefaultStyle('line-height:30pt; font: Helvetica 20pt').lineHeight, 1.5);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:150%').lineHeight, 1.5);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:2').lineHeight, 2);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:normal').lineHeight, undefined);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt').lineHeight, undefined);
 });

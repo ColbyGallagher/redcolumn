@@ -3,7 +3,7 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexStr
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
-import { flatten, markupShape, type PathCmd } from './geometry';
+import { flatten, markupShape, textLineHeight, type PathCmd } from './geometry';
 import { connectorLabel } from './flowchart';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
 import { arcPoints, circleThrough } from './arc';
@@ -155,6 +155,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
     `text-align:${s.textAlign ?? 'left'}`,
     ...(s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
+    ...(s.lineHeight ? [`line-height:${fmt((s.fontSize ?? 12) * textLineHeight(s))}pt`] : []),
     `color:${textColor(s).toUpperCase()}`,
     ...(s.bold ? ['font-weight:bold'] : []),
     ...(s.italic ? ['font-style:italic'] : []),

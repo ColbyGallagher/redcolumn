@@ -578,6 +578,9 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
                   ))}
                 </span>
               </Row>
+              <Row label="Line spacing">
+                <LineSpacing value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
+              </Row>
             </>
           )}
           {caps.label && (
@@ -783,6 +786,39 @@ interface NumberFieldProps {
   unit: string;
   placeholder?: string;
   onChange: (v: number | undefined) => void;
+}
+
+const LINE_SPACINGS = [1, 1.15, 1.5, 2];
+
+/** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). */
+function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+  const preset = value !== undefined && LINE_SPACINGS.includes(value);
+  const [custom, setCustom] = useState(value !== undefined && !preset);
+  const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
+  return (
+    <>
+      <select
+        aria-label="Line spacing"
+        value={choice}
+        onChange={(e) => {
+          const v = e.target.value;
+          setCustom(v === 'custom');
+          if (v === 'default') onChange(undefined);
+          else if (v === 'custom') onChange(value ?? 1.2);
+          else onChange(Number(v));
+        }}
+      >
+        <option value="default">Default</option>
+        {LINE_SPACINGS.map((n) => (
+          <option key={n} value={String(n)}>
+            {n.toFixed(n === 1.15 ? 2 : 1)}
+          </option>
+        ))}
+        <option value="custom">Custom</option>
+      </select>
+      {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" onChange={(v) => onChange(v)} />}
+    </>
+  );
 }
 
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */

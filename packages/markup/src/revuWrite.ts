@@ -291,6 +291,7 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
     const ds = [`font: ${family}${s.fontSize !== undefined ? ` ${fmt(s.fontSize)}pt` : ''}`];
     if (text && type !== 'typewriter' && s.textAlign) ds.push(`text-align:${s.textAlign}`);
     if (text && type !== 'typewriter' && s.verticalAlign) ds.push(`text-valign:${s.verticalAlign}`);
+    if (text && type !== 'typewriter' && s.lineHeight && s.fontSize !== undefined) ds.push(`line-height:${fmt(s.fontSize * s.lineHeight)}pt`);
     if (text && s.textColor) ds.push(`color:${s.textColor.toUpperCase()}`);
     if (s.bold) ds.push('font-weight:bold');
     if (s.italic) ds.push('font-style:italic');

@@ -57,7 +57,7 @@ function restyled(type: MarkupType): MarkupStyle {
   if (caps.dash) s.dash = 'dashDot';
   if (caps.lineEnds) Object.assign(s, { startCap: 'openArrow', endCap: 'filledDiamond', capScale: 1.5 });
   if (caps.font) Object.assign(s, { fontSize: 14, fontFamily: 'serif', bold: true, italic: true, textColor: '#ff0000' });
-  if (caps.textLayout) Object.assign(s, { textAlign: 'center', verticalAlign: 'bottom', underline: true });
+  if (caps.textLayout) Object.assign(s, { textAlign: 'center', verticalAlign: 'bottom', underline: true, lineHeight: 1.5 });
   if (caps.label) Object.assign(s, { showLabel: true, labelBackground: null });
   if (caps.leader) s.leader = 12;
   if (caps.arcRadius) s.arcRadius = 7;

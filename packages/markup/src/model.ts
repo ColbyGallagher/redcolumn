@@ -186,6 +186,8 @@ export interface MarkupStyle {
   textColor?: string;
   textAlign?: TextAlign;
   verticalAlign?: VerticalAlign;
+  /** Line spacing as a multiple of the font size (default 1.2) for text boxes and callouts. */
+  lineHeight?: number;
   /** Measurement label visibility (default shown) and background (default white; null for none). */
   showLabel?: boolean;
   labelBackground?: string | null;

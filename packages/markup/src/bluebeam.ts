@@ -129,6 +129,7 @@ export function cleanText(s: string): string {
 /** Style bits from a /DS default-style string (CSS-like, as Acrobat and Bluebeam write it). */
 export function parseDefaultStyle(ds: string): Partial<MarkupStyle> {
   const out: Partial<MarkupStyle> = {};
+  let lineHeight: string | undefined;
   for (const decl of ds.split(';')) {
     const i = decl.indexOf(':');
     if (i < 0) continue;
@@ -156,11 +157,18 @@ export function parseDefaultStyle(ds: string): Partial<MarkupStyle> {
     } else if (key === 'color') {
       const c = cssColor(value);
       if (c) out.textColor = c;
-    } else if (key === 'text-align' && /^(left|center|right)$/.test(value)) out.textAlign = value as TextAlign;
+    } else if (key === 'line-height') lineHeight = value;
+    else if (key === 'text-align' && /^(left|center|right)$/.test(value)) out.textAlign = value as TextAlign;
     else if (key === 'text-valign' || key === 'vertical-align') {
       const v = value === 'middle' || value === 'center' ? 'middle' : value === 'bottom' ? 'bottom' : value === 'top' ? 'top' : null;
       if (v) out.verticalAlign = v as VerticalAlign;
     }
+  }
+  // As a multiple of the font size, which may be declared after it: "13.8pt", "115%" and "1.15" all read the same.
+  const n = lineHeight ? parseFloat(lineHeight) : NaN;
+  if (n > 0) {
+    const mult = /pt\s*$/i.test(lineHeight!) ? n / (out.fontSize ?? 12) : /px\s*$/i.test(lineHeight!) ? (n * 0.75) / (out.fontSize ?? 12) : /%\s*$/.test(lineHeight!) ? n / 100 : n;
+    out.lineHeight = Math.round(mult * 1000) / 1000;
   }
   return out;
 }
