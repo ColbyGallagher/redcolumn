@@ -2846,6 +2846,21 @@ select[size] {
   background: none;
 }
 
+.color-hex {
+  display: flex;
+  gap: 4px;
+}
+
+.color-hex input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+}
+
+.color-hex input[aria-invalid='true'] {
+  outline: 1px solid #dc2626;
+}
+
 .props-actions {
   display: flex;
   flex-wrap: wrap;

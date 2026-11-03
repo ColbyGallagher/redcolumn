@@ -155,6 +155,8 @@ export interface CommandActions {
   addBookmark: () => void;
   cycleDocument: (dir: 1 | -1) => void;
   align: (how: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  /** Arrow-key nudge of the selected markups; `large` is the Shift step. */
+  nudge: (dx: -1 | 0 | 1, dy: -1 | 0 | 1, large: boolean) => void;
   flip: (axis: 'horizontal' | 'vertical') => void;
   scaleToLength: () => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
@@ -308,6 +310,8 @@ export type PanelId =
 export function buildCommands(a: CommandActions, s: CommandState): Command[] {
   const doc = s.hasDocument;
   const sel = s.selectionCount > 0;
+  // Locked markups in the selection are skipped, not a reason to refuse.
+  const nudgeable = sel && s.editable;
   const sidePanelOpen = (id: string) => (s.showLeft && s.leftTab === id) || (s.showRight && s.rightTab === id);
   const cmd = (id: string, category: CommandCategory, label: string, run: () => void, enabled = true, checked?: boolean): Command => ({
     id,
@@ -373,6 +377,14 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.group', 'Edit', 'Group', a.group, s.selectionCount > 1 && s.editable),
     cmd('edit.ungroup', 'Edit', 'Ungroup', a.ungroup, s.selectionGrouped && s.editable),
     cmd('edit.lock', 'Edit', s.selectionLocked ? 'Unlock' : 'Lock', () => a.lock(!s.selectionLocked), sel && s.editable, s.selectionLocked),
+    cmd('edit.nudgeLeft', 'Edit', 'Nudge Left', () => a.nudge(-1, 0, false), nudgeable),
+    cmd('edit.nudgeRight', 'Edit', 'Nudge Right', () => a.nudge(1, 0, false), nudgeable),
+    cmd('edit.nudgeUp', 'Edit', 'Nudge Up', () => a.nudge(0, -1, false), nudgeable),
+    cmd('edit.nudgeDown', 'Edit', 'Nudge Down', () => a.nudge(0, 1, false), nudgeable),
+    cmd('edit.nudgeLeftLarge', 'Edit', 'Nudge Left (Large)', () => a.nudge(-1, 0, true), nudgeable),
+    cmd('edit.nudgeRightLarge', 'Edit', 'Nudge Right (Large)', () => a.nudge(1, 0, true), nudgeable),
+    cmd('edit.nudgeUpLarge', 'Edit', 'Nudge Up (Large)', () => a.nudge(0, -1, true), nudgeable),
+    cmd('edit.nudgeDownLarge', 'Edit', 'Nudge Down (Large)', () => a.nudge(0, 1, true), nudgeable),
     cmd('edit.alignLeft', 'Edit', 'Align Left', () => a.align('left'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.alignCenter', 'Edit', 'Align Center', () => a.align('center'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.alignRight', 'Edit', 'Align Right', () => a.align('right'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
