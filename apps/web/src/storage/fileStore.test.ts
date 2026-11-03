@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { listFiles, saveFile } from './fileStore.ts';
+import { contentHash, listFiles, replaceFileContent, saveFile } from './fileStore.ts';
 
 /** An in-memory stand-in for the Origin Private File System the library keeps its files in. */
 function opfs() {
@@ -54,19 +54,47 @@ test('a file saved with no id keeps its entry when different bytes are saved', a
   assert.equal((await listFiles()).length, 2);
 });
 
-test('a host-supplied id keys the entry whatever its bytes', async () => {
+test('a host-supplied id keeps its entry, and its contents, when other bytes come under it', async () => {
   const { files } = opfs();
   const first = await saveFile('A-101.pdf', a, 'host-record-7');
   assert.equal(first.id, 'host-record-7');
   assert.equal(first.hash, await sha256(a));
-  const second = await saveFile('A-101.pdf', b, 'host-record-7');
+  // Its markups and any open tab go with the contents it has: the caller brings new ones in as a change.
+  const second = await saveFile('A-101 rev B.pdf', b, 'host-record-7');
   assert.equal(second.id, 'host-record-7');
-  assert.equal(second.hash, await sha256(b));
-  assert.equal(second.size, b.byteLength);
+  assert.equal(second.hash, await contentHash(a));
+  assert.notEqual(second.hash, await contentHash(b));
+  assert.equal(second.size, a.byteLength);
+  assert.equal(second.name, 'A-101 rev B.pdf');
+  assert.equal(second.addedAt, first.addedAt);
   assert.equal((await listFiles()).length, 1);
-  // The contents the entry no longer uses are gone; the ones it now has are kept.
+  // The contents in use are kept; the ones nothing uses yet are not left behind.
+  assert.equal(files.has(`${await sha256(a)}.pdf`), true);
+  assert.equal(files.has(`${await sha256(b)}.pdf`), false);
+});
+
+test('new contents for a host-supplied id come in through replaceFileContent, keeping the id', async () => {
+  const { files } = opfs();
+  await saveFile('A-101.pdf', a, 'host-record-7');
+  const replaced = await replaceFileContent('host-record-7', b);
+  assert.equal(replaced.id, 'host-record-7');
+  assert.equal(replaced.hash, await sha256(b));
   assert.equal(files.has(`${await sha256(a)}.pdf`), false);
-  assert.equal(files.has(`${await sha256(b)}.pdf`), true);
+  const again = await saveFile('A-101.pdf', b, 'host-record-7');
+  assert.equal(again.hash, replaced.hash);
+  assert.equal((await listFiles()).length, 1);
+});
+
+test('the same bytes under a host id and under their hash are separate entries', async () => {
+  opfs();
+  const plain = await saveFile('A-101.pdf', a);
+  const hosted = await saveFile('A-101.pdf', a, 'host-record-7');
+  assert.notEqual(plain.id, hosted.id);
+  assert.equal(plain.hash, hosted.hash);
+  assert.equal((await listFiles()).length, 2);
+  // Neither drops the contents the other still uses.
+  await replaceFileContent('host-record-7', b);
+  assert.equal((await listFiles()).find((e) => e.id === plain.id)!.hash, await sha256(a));
 });
 
 test('a host-supplied id nobody has yet opens a new entry under it', async () => {

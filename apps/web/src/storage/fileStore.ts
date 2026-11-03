@@ -97,21 +97,27 @@ async function writeBlob(hash: string, bytes: ArrayBuffer) {
   await w.close();
 }
 
-/** Stores `bytes` (no-op if already stored) and marks it as just opened; with `id` (host-assigned), that document's entry takes them, whatever their hash. */
+/** The hash a file's entry has for `bytes`. */
+export const contentHash = sha256;
+
+/**
+ * Stores `bytes` (no-op if already stored) and marks it as just opened. With `id` (assigned by an
+ * embedding host) the entry is the one with that id, made if there is none; an entry that has other
+ * contents keeps them, since its markups and any open tab go with those: compare the result's hash
+ * with {@link contentHash} and bring the new contents in as a change to the document.
+ */
 export async function saveFile(name: string, bytes: ArrayBuffer, id?: string): Promise<StoredFile> {
   const hash = await sha256(bytes);
   await writeBlob(hash, bytes);
   const now = Date.now();
-  let oldHash: string | null = null;
   const entry = await updateIndex((entries) => {
     const existing = entries.find((e) => (id ? e.id === id : e.hash === hash));
-    if (existing && existing.hash !== hash) oldHash = existing.hash;
     const entry: StoredFile = existing
-      ? { ...existing, name, hash, size: bytes.byteLength, lastOpenedAt: now }
+      ? { ...existing, name, lastOpenedAt: now }
       : { id: id ?? hash, hash, name, size: bytes.byteLength, addedAt: now, lastOpenedAt: now };
     return { entries: [...entries.filter((e) => e.id !== entry.id), entry], result: entry };
   });
-  if (oldHash) await dropIfUnused(oldHash);
+  if (entry.hash !== hash) await dropIfUnused(hash);
   return entry;
 }
 

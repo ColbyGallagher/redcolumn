@@ -1,4 +1,4 @@
-import { desktop } from '../desktop/host';
+import { hostRefusal } from '../desktop/embedHost';
 import type { Command } from './appCommands';
 
 /** What `commandPolicy` answers: the run to use in place of the app's own, and why it is refused. */
@@ -13,15 +13,16 @@ export interface CommandPolicy {
 }
 
 /**
- * Asks the embedding host (window.redcolumn) whether the command `id` may run here. A host that
- * links its own records to a document's markups can refuse the commands that rewrite the document
+ * Asks the embedding host (window.redcolumn; experimental, see desktop/embedHost.ts) whether the
+ * command `id` may run here. A host that links its own records to a document's markups can refuse the commands that rewrite the document
  * under them (Flatten, Unflatten, Reduce File Size, Slip Sheet and their Bulk forms), whatever
  * route reaches them: `buildCommands` maps its table through `applyCommandPolicy`, which covers
  * every dispatcher that renders or runs a command; a dispatcher that does not (the Bulk dialog's
- * Run, which dispatches by kind) asks this by id. Without a host hook every answer is null.
+ * Run, which dispatches by kind) asks this by id. Without a host hook, or with the experimental
+ * setting off, every answer is null.
  */
 export function commandPolicy(id: string): CommandPolicy {
-  const reason = desktop()?.commandPolicy?.(id)?.disabledReason ?? null;
+  const reason = hostRefusal(id);
   return {
     run: (original: () => void): (() => void) => (reason === null ? original : () => console.warn(`${id}: ${reason}`)),
     disabledReason: reason,
