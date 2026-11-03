@@ -7,3 +7,4 @@ export * from './visualSearch.ts';
 export * from './rasterSearch.ts';
 export * from './geo.ts';
 export * from './crs.ts';
+export * from './paper.ts';

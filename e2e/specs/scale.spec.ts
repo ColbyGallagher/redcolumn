@@ -96,3 +96,28 @@ test.describe('metric', () => {
     expect((await app.markups()).map((m) => m.measurement)).toEqual(['2.54 m']);
   });
 });
+
+test.describe('sheet scale review', () => {
+  const P = PLAN.paper.sheets;
+
+  test.beforeEach(async ({ app }) => {
+    await app.open('paper.pdf');
+    // Sheet detection reads each title block's scale once the text is in.
+    await expect.poll(() => app.page.evaluate(() => Object.values((window.__nb.tools.store as unknown as { allSheets(): Record<number, { scaleText: string | null }> }).allSheets()).map((s) => s.scaleText)), { timeout: 30_000 }).toEqual(P.map((s) => s.scale));
+  });
+
+  test('document.scaleReview corrects a sheet saved smaller than its stated size and applies the picked pages', async ({ app }) => {
+    await app.cmd('document.scaleReview');
+    const panel = app.page.locator('.scale-review');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('tbody .sr-state')).toHaveText(P.map((s) => s.status));
+    await expect(panel.locator('tbody tr').nth(1)).toContainText('A1 → A3');
+    await panel.getByRole('button', { name: 'Apply to 2 pages' }).click();
+    const scales = await app.page.evaluate(() => (window.__nb.tools.store as unknown as { allScales(): Record<number, { label: string; metersPerPoint: number }> }).allScales());
+    expect(P.map((_, i) => scales[i]?.label ?? null)).toEqual(P.map((s) => s.applied));
+    // The A3 page is half size, so one point there is twice as long as on the A1 page.
+    expect(scales[1]!.metersPerPoint / scales[0]!.metersPerPoint).toBeCloseTo(2, 2);
+    // Applied pages agree with their title blocks now; only the not-to-scale sheet still needs a look.
+    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale']);
+  });
+});

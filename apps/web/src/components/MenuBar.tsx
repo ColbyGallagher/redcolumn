@@ -460,6 +460,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="document.thumbnails" label="Edit in Thumbnails…" />
             </Submenu>
             <Cmd id="document.scaleRegions" label="Bulk Apply Page Scale…" />
+            <Cmd id="document.scaleReview" />
             <Cmd id="document.drawingStandards" />
             <Cmd id="document.headerFooter" />
             <Cmd id="tools.bulkRedact" />

@@ -303,12 +303,53 @@ function findTitle(page: PageText, numberWord: Word, repeated: (text: string) =>
   return words.join(' ') || null;
 }
 
-function findScaleText(page: PageText, numberWord: Word): string | null {
+/** Title-block lines near the sheet number. */
+function titleBlockLines(page: PageText, numberWord: Word): Word[] {
   const cx = (numberWord.x0 + numberWord.x1) / 2;
   const cy = (numberWord.y0 + numberWord.y1) / 2;
-  const nearby = lines(page.words.filter((w) => Math.abs((w.x0 + w.x1) / 2 - cx) < page.width * 0.3 && Math.abs((w.y0 + w.y1) / 2 - cy) < page.height * 0.25));
-  const hit = nearby.find((l) => /SCALE/i.test(l.text) && /(=|:|NTS|NOT TO SCALE|AS NOTED)/i.test(l.text));
-  return hit ? hit.text.replace(/^.*?SCALE\s*:?\s*/i, '').trim() || null : null;
+  return lines(page.words.filter((w) => Math.abs((w.x0 + w.x1) / 2 - cx) < page.width * 0.3 && Math.abs((w.y0 + w.y1) / 2 - cy) < page.height * 0.25));
+}
+
+/** The line just under a title-block label that holds its value (`SCALE` over `1:500`), if one fits `value`. */
+function valueBelow(label: Word, nearby: readonly Word[], value: RegExp): Word | null {
+  const reach = Math.max(label.size, 6) * 4;
+  const pad = label.size * 2;
+  let best: Word | null = null;
+  for (const l of nearby) {
+    if (l === label || l.y0 < label.y1 - 1 || l.y0 - label.y1 > reach) continue;
+    if (l.x0 > label.x1 + pad || l.x1 < label.x0 - pad || !value.test(l.text)) continue;
+    if (!best || l.y0 < best.y0) best = l;
+  }
+  return best;
+}
+
+const SCALE_VALUE = /(=|\d\s*:\s*\d|NTS|NOT TO SCALE|AS NOTED|AS SHOWN)/i;
+const PAPER_VALUE = /^\s*((?:ANSI|ARCH)\s*-?\s*(?:E1|[A-E])|[AB][0-6])\s*$/i;
+
+function findScaleText(page: PageText, numberWord: Word): string | null {
+  const nearby = titleBlockLines(page, numberWord);
+  // The value follows the label on its line (`SCALE: 1:500`); a note such as NOT TO SCALE on an
+  // inset map is not the sheet's scale.
+  for (const l of nearby) {
+    const after = /\bSCALE\b\s*:?\s*(.*)$/i.exec(l.text)?.[1]?.trim();
+    if (after && SCALE_VALUE.test(after) && !/^(@|AT)\b/i.test(after)) return after;
+  }
+  // A label cell with its value underneath; the label can name the sheet size (`SCALE @ A1`).
+  const label = nearby.find((l) => /^\s*SCALE\b/i.test(l.text));
+  const value = label && valueBelow(label, nearby, SCALE_VALUE);
+  if (!value) return null;
+  const paper = /(?:@|\bAT\b)\s*(\S+)/i.exec(label.text)?.[1];
+  return paper && !/@|\bAT\b/i.test(value.text) ? `${value.text.trim()} @ ${paper.toUpperCase()}` : value.text.trim();
+}
+
+/** A sheet size printed in its own title-block box near the sheet number (`SHEET SIZE A1`, `SIZE: ANSI D`). */
+function findPaperText(page: PageText, numberWord: Word): string | null {
+  const nearby = titleBlockLines(page, numberWord);
+  const hit = nearby.map((l) => /\b(?:(?:SHEET|PAPER|ORIGINAL)\s+)?SIZE\s*:?\s*((?:ANSI|ARCH)\s*-?\s*(?:E1|[A-E])|[AB][0-6])\b/i.exec(l.text)).find(Boolean);
+  if (hit) return hit[1]!.toUpperCase();
+  const label = nearby.find((l) => /^\s*(?:(?:SHEET|PAPER|ORIGINAL)\s+)?SIZE\s*:?\s*$/i.test(l.text));
+  const value = label && valueBelow(label, nearby, PAPER_VALUE);
+  return value ? PAPER_VALUE.exec(value.text)![1]!.toUpperCase().replace(/\s+/g, ' ') : null;
 }
 
 /**
@@ -405,6 +446,7 @@ export function detectSheets(pages: PageText[], hints?: SheetHints): SheetInfo[]
       title: findTitle(page, c.word, repeatedLine),
       discipline: hints ? disciplineOf(c.number, hints) : disciplineFor(c.number),
       scaleText: findScaleText(page, c.word),
+      paperText: findPaperText(page, c.word),
       revision: null,
       source: 'text',
       confidence: Math.round(confidence * 100) / 100,

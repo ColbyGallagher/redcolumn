@@ -141,6 +141,7 @@ window.HELP_TOC = [
       { id: 'scale-to-length', title: 'Scale a picture or markup to a length' },
       { id: 'viewports', title: 'Several scales on one page (viewports)' },
       { id: 'scale-bulk', title: 'Apply a scale to many pages' },
+      { id: 'scale-review', title: 'Check sheet scales against the sheet size' },
       {
         title: 'Measure tools',
         children: [

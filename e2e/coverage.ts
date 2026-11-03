@@ -69,6 +69,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.rotateCounterclockwise': { spec: 'document' },
   'document.rotatePages': { spec: 'document' },
   'document.scaleRegions': { spec: 'document' },
+  'document.scaleReview': { spec: 'scale' },
   'document.security': 'todo',
   'document.slipSheet': 'todo',
   'document.splitDocument': { spec: 'document' },

@@ -6804,6 +6804,42 @@ tr.hidden-markup td {
   margin: 6px 0 2px;
 }
 
+/* Review Sheet Scales: the takeoff review panel's frame, wider for its table. */
+.scale-review {
+  width: min(780px, calc(100vw - 32px));
+}
+
+.scale-review-table tr.current td {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.sr-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.sr-state.sr-ready,
+.sr-state.sr-matches {
+  background: rgba(22, 163, 74, 0.25);
+}
+
+.sr-state.sr-resized {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.sr-state.sr-check,
+.sr-state.sr-none {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.sr-state.sr-differs,
+.sr-state.sr-nts {
+  background: rgba(220, 38, 38, 0.25);
+}
+
 .tp-vars {
   margin-bottom: 4px;
 }

@@ -125,6 +125,7 @@ const ICONS: Record<string, ReactNode> = {
   'tools.autoFields': ic('M1.5 2.5h13v4h-13zM1.5 9.5h13v4h-13zM4 4.5h1M4 11.5h1'),
   'tools.forms': ic('M3 1.5h10v13H3zM5 5h6M5 8h6M5 11h3'),
   'document.scaleRegions': MENU_ICONS.scale,
+  'document.scaleReview': MENU_ICONS.scale,
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
@@ -587,6 +588,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <ToolBtn tool="calibrate" size="large" />
               <Stack>
                 <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
+                <Cmd id="document.scaleReview" label="Review Scales" />
                 <Cmd id="tools.sketchToScale" />
               </Stack>
             </Group>

@@ -93,6 +93,7 @@ test('a sheet is read from its boxes: number by template, title and the current 
     title: 'Bridge 4 General Arrangement',
     discipline: 'Bridges',
     scaleText: null,
+    paperText: null,
     revision: 'C',
     source: 'standard',
     confidence: 0.95,
@@ -164,4 +165,11 @@ test('custom fields: each box named by the person reads its text, without the na
   assert.equal(boxFromRegion({ x: 0, y: 0, w: 1, h: 1 }, page, 'custom').name, 'Field');
   assert.equal(boxFromRegion({ x: 0, y: 0, w: 1, h: 1 }, page, 'title', 'Ignored').name, undefined);
   assert.equal(readSheet(p, hints)?.fields, undefined);
+});
+
+test('a sheet size box is read without its label', () => {
+  const p = sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4', 'C');
+  p.words.push(...phrase('SHEET SIZE A1', 1500, 1640, 10));
+  const withSize: SheetHints = { ...hints, boxes: [...hints.boxes, { field: 'sheetSize', x: 1490 / W, y: 1620 / H, w: 150 / W, h: 30 / H }] };
+  assert.equal(readSheet(p, withSize)?.paperText, 'A1');
 });

@@ -58,6 +58,37 @@
     }
   },
   "pageCount": 3,
+  "paper": {
+    "sheets": [
+      {
+        "number": "C-101",
+        "title": "ROAD PLAN 1",
+        "scale": "1:100 @ A1",
+        "width": 2384,
+        "height": 1684,
+        "status": "Ready",
+        "applied": "1:100"
+      },
+      {
+        "number": "C-102",
+        "title": "ROAD PLAN 2",
+        "scale": "1:100 @ A1",
+        "width": 1191,
+        "height": 842,
+        "status": "Resized",
+        "applied": "1:100 @ A1 (on A3)"
+      },
+      {
+        "number": "C-103",
+        "title": "LOCALITY PLAN",
+        "scale": "NTS",
+        "width": 2384,
+        "height": 1684,
+        "status": "Not to scale",
+        "applied": null
+      }
+    ]
+  },
   "sheets": {
     "labelBox": {
       "x": 980,

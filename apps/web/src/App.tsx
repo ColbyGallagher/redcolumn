@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegi
 import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -42,6 +42,8 @@ import { commentRows, type CommentRow } from './studio/comments';
 import { LinkPreviews, type LinkPreviewWindow, type PreviewDrawing, type PreviewView } from './components/LinkPreview';
 import { ScriptsDialog } from './components/ScriptsDialog';
 import { TakeoffReview } from './components/TakeoffReview';
+import { SheetScaleReview } from './components/SheetScaleReview';
+import { scaleReviewRows } from './measure/scaleReview';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
@@ -971,6 +973,7 @@ export function App() {
   } | null>(null);
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
+  const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -5504,10 +5507,6 @@ export function App() {
     const dest = paneB ? openB : open;
     dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], withDefaultUnits(scale));
   };
-  // Title-block scales that can fill pages nobody has scaled yet (never overriding a set scale).
-  const detectedScales = Object.entries(sheets)
-    .map(([i, s]) => [Number(i), s.scaleText ? parseScaleText(s.scaleText) : null] as const)
-    .filter((e): e is readonly [number, Scale] => e[1] !== null && !scales[e[0]]);
   const currentSheet = sheets[pageIndex];
   const currentStitch = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === pageIndex)) ?? null;
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
@@ -7941,6 +7940,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     drawingStandards: () => startLabelRegions(undefined, 'standard'),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
+    scaleReview: () => setScaleReviewOpen(true),
     bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
@@ -10628,6 +10628,21 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
           }}
           onClose={() => setScriptsOpen(false)}
+        />
+      )}
+      {scaleReviewOpen && activeOpen && (
+        <SheetScaleReview
+          key={activeOpen.file.id}
+          rows={scaleReviewRows(activeOpen.doc.pages, sheets, scales)}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          currentPage={pageIndex}
+          readOnly={activeOpen.store.readOnly}
+          onShow={(page) => v?.goToPage(page)}
+          onApply={(list) => {
+            activeOpen.store.setScales(list.map(({ page, scale }) => [page, withDefaultUnits(scale)] as const));
+            setNotice(`Set the scale on ${list.length} page${list.length === 1 ? '' : 's'} from their title blocks. Undo takes it back.`);
+          }}
+          onClose={() => setScaleReviewOpen(false)}
         />
       )}
       {takeoffReviewOpen && activeOpen && (

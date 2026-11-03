@@ -15,13 +15,14 @@ import type { PageText, SheetInfo, Word } from './types.ts';
  * What a title-block box holds. `ignore` boxes hold numbers that are not the sheet's (file,
  * contract); `custom` boxes hold a field the person names (Status, Drawn by, Package).
  */
-export type TitleField = 'number' | 'title' | 'revision' | 'scale' | 'custom' | 'ignore';
+export type TitleField = 'number' | 'title' | 'revision' | 'scale' | 'sheetSize' | 'custom' | 'ignore';
 
 export const TITLE_FIELDS: Record<TitleField, string> = {
   number: 'Sheet number',
   title: 'Sheet title',
   revision: 'Revision',
   scale: 'Scale',
+  sheetSize: 'Sheet size',
   custom: 'Your own field…',
   ignore: 'Ignore (other number)',
 };
@@ -165,6 +166,7 @@ const FIELD_LABEL: Record<TitleField, RegExp> = {
   title: /^((SHEET|DRAWING|DRG|DWG)\s+)?TITLE\s*:?\s*/i,
   revision: /^(REV\.?|REVISION|ISSUE)(\s+NO\.?)?\s*:?\s*/i,
   scale: /^SCALE\s*:?\s*/i,
+  sheetSize: /^((SHEET|PAPER|ORIGINAL)\s+)?SIZE\s*:?\s*/i,
   custom: /^/,
   ignore: /^/,
 };
@@ -217,6 +219,7 @@ export function readSheet(page: PageText, hints: SheetHints): SheetInfo | null {
     title: text('title'),
     discipline: disciplineOf(number, hints),
     scaleText: text('scale'),
+    paperText: text('sheetSize'),
     // A revision box often holds the whole history; the current one is the last entry.
     revision: revision ? revision.split(' ').at(-1)! : null,
     source: 'standard',

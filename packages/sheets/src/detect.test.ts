@@ -254,3 +254,34 @@ test('a word with a long run of trailing punctuation is read quickly', () => {
   assert.equal(detectSheets([p])[0]!.number, 'C-101');
   assert.ok(performance.now() - started < 500);
 });
+
+test('a sheet size printed near the number is read apart from the scale', () => {
+  const page: PageText = {
+    width: W,
+    height: H,
+    words: [...phrase('ROAD PLAN', 2250, 1590, 14), ...phrase('SCALE 1:500', 2250, 1640, 8), ...phrase('SHEET SIZE A1', 2250, 1660, 8), word('C-102', 2450, 1700, 28)],
+  };
+  const [r] = detectSheets([page]);
+  assert.equal(r!.scaleText, '1:500');
+  assert.equal(r!.paperText, 'A1');
+});
+
+test('scale and sheet size are read from label cells with the value underneath', () => {
+  const page: PageText = {
+    width: W,
+    height: H,
+    words: [...phrase('ROAD PLAN', 2250, 1560, 14), ...phrase('SHEET SIZE', 2100, 1610, 6), word('A1', 2100, 1630, 12), ...phrase('SCALE @ A1', 2250, 1610, 6), word('1:500', 2250, 1630, 12), word('C-102', 2450, 1700, 28)],
+  };
+  const [r] = detectSheets([page]);
+  assert.equal(r!.scaleText, '1:500 @ A1');
+  assert.equal(r!.paperText, 'A1');
+});
+
+test('a NOT TO SCALE note on an inset map is not taken for the sheet scale', () => {
+  const page: PageText = {
+    width: W,
+    height: H,
+    words: [...phrase('NOT TO SCALE', 2000, 1450, 6), ...phrase('ROAD PLAN', 2250, 1560, 14), ...phrase('SCALE @ A1', 2250, 1610, 6), word('1:500', 2250, 1630, 12), word('C-102', 2450, 1700, 28)],
+  };
+  assert.equal(detectSheets([page])[0]!.scaleText, '1:500 @ A1');
+});
