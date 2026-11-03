@@ -332,6 +332,66 @@ test('a turned box resizes from a grip with the grip across from it staying put'
   await h.store.destroy();
 });
 
+const ratio = (pts: readonly Point[]) => (pts[1]![0] - pts[0]![0]) / (pts[1]![1] - pts[0]![1]);
+
+test('Shift on a box corner grip keeps its ratio, without it the corner is free', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // 160 x 100
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  drag(h.tools, [260, 300], [340, 310], { shiftKey: true });
+  const [, b] = h.store.get(m!.id)!.points as [Point, Point];
+  assert.ok(Math.abs(ratio(h.store.get(m!.id)!.points) - 1.6) < 1e-9, 'ratio kept');
+  assert.ok(b[0] > 260, 'and it grew');
+  drag(h.tools, b, [300, 300]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [300, 300]], 'free without Shift');
+  await h.store.destroy();
+});
+
+test('an image corner grip keeps its ratio unless Shift is held', async () => {
+  const h = await setup();
+  await drawWith(h, 'image'); // drawn at 2:1
+  const [m] = h.store.all();
+  const [a, b] = m!.points as [Point, Point];
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  drag(h.tools, b, [b[0] + 40, b[1] + 10]);
+  assert.ok(Math.abs(ratio(h.store.get(m!.id)!.points) - 2) < 1e-9, 'ratio kept');
+  assert.ok(h.store.get(m!.id)!.points[1]![0] > b[0], 'and it did grow');
+  h.store.undo();
+  drag(h.tools, b, [b[0] + 40, b[1] + 10], { shiftKey: true });
+  assert.deepEqual(h.store.get(m!.id)?.points, [a, [b[0] + 40, b[1] + 10]], 'Shift frees it');
+  await h.store.destroy();
+});
+
+test('an image side grip stays free of the ratio lock', async () => {
+  const h = await setup();
+  await drawWith(h, 'image');
+  const [m] = h.store.all();
+  const [a, b] = m!.points as [Point, Point];
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  drag(h.tools, [b[0], (a[1] + b[1]) / 2], [b[0] + 40, (a[1] + b[1]) / 2]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [a, [b[0] + 40, b[1]]], 'only the right edge moved');
+  await h.store.destroy();
+});
+
+test('a turned box keeps its ratio on a Shift corner drag', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect'); // 160 x 100, centre (180, 250)
+  const [m] = h.store.all();
+  h.store.update(m!.id, { rotation: 90 });
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  // Turned a quarter clockwise the (260, 300) corner sits at (130, 330).
+  drag(h.tools, [130, 330], [120, 380], { shiftKey: true });
+  const after = h.store.get(m!.id)!;
+  assert.ok(Math.abs(ratio(after.points) - 1.6) < 1e-9, 'ratio kept');
+  assert.notDeepEqual(after.points, [[100, 200], [260, 300]], 'and it resized');
+  await h.store.destroy();
+});
+
 test('select, move and delete a drawn markup', async () => {
   const h = await setup();
   await drawWith(h, 'rect');
