@@ -579,7 +579,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
                 </span>
               </Row>
               <Row label="Line spacing">
-                <LineSpacing value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
+                <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
               </Row>
             </>
           )}
@@ -790,12 +790,10 @@ interface NumberFieldProps {
 
 const LINE_SPACINGS = [1, 1.15, 1.5, 2];
 
-/** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). */
+/** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). Keyed by the selection, so each starts from its own value rather than the last one's Custom. */
 function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
   const preset = value !== undefined && LINE_SPACINGS.includes(value);
   const [custom, setCustom] = useState(value !== undefined && !preset);
-  // A new selection starts from its own value, not the last one's Custom.
-  useEffect(() => setCustom(value !== undefined && !LINE_SPACINGS.includes(value)), [value]);
   const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
   return (
     <>
