@@ -61,14 +61,22 @@ export function matchPaper(width: number, height: number, tolerance = 0.015): Pa
   return best;
 }
 
+/**
+ * Upper case, curly quotes made straight, and each run of white space made one space, so the
+ * patterns below need at most one space between parts (and cannot backtrack over long runs of it).
+ */
+function tidy(text: string): string {
+  return text.toUpperCase().replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'").replace(/\s+/g, ' ');
+}
+
 /** The paper size named in text such as `A1`, `@ A3`, `ANSI D`, `ARCH D` or `24x36`. */
 export function paperFromText(text: string): PaperSize | null {
-  const t = text.toUpperCase();
-  const named = /\b(ANSI|ARCH)\s*-?\s*(E1|[A-E])\b/.exec(t);
+  const t = tidy(text);
+  const named = /\b(ANSI|ARCH)[ -]{0,3}(E1|[A-E])\b/.exec(t);
   if (named) return PAPER_SIZES.find((p) => p.name === `${named[1]} ${named[2]}`) ?? null;
-  const iso = /\b([AB])\s*([0-6])\b/.exec(t);
+  const iso = /\b([AB]) ?([0-6])\b/.exec(t);
   if (iso) return PAPER_SIZES.find((p) => p.name === `${iso[1]}${iso[2]}`) ?? null;
-  const dims = /\b(\d+(?:\.\d+)?)\s*(?:"|IN)?\s*[X×]\s*(\d+(?:\.\d+)?)(?!\d)/.exec(t);
+  const dims = /\b(\d{1,3}(?:\.\d{1,3})?) ?(?:"|IN)? ?[X×] ?(\d{1,3}(?:\.\d{1,3})?)(?!\d)/.exec(t);
   if (dims) {
     const [a, b] = [Number(dims[1]), Number(dims[2])].sort((x, y) => x - y) as [number, number];
     return PAPER_SIZES.find((p) => (p.family === 'ARCH' || p.family === 'ANSI') && Math.abs(p.widthMm / 25.4 - a) < 0.01 && Math.abs(p.heightMm / 25.4 - b) < 0.01) ?? null;
@@ -90,14 +98,18 @@ export interface ScaleStatement {
  * `1:100 AT A1 / 1:200 AT A3`. A plain `1:100` gives one statement with no paper. Empty for NTS.
  */
 export function parseScaleStatements(text: string): ScaleStatement[] {
-  const t = text.toUpperCase().replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'");
-  // Split dual statements, but not the slash inside an inch fraction such as 1/4".
-  const parts = t.split(/\s+\/\s+|\/(?=\s*1\s*:)|\s*(?:[;|,]|\bOR\b)\s*(?=[^;|,]*(?:\d\s*:\s*\d|\d\s*"\s*=))/);
+  // Split dual statements, but not the slash inside an inch fraction such as 1/4". A piece without
+  // a scale of its own (`1:100, A1`) belongs to the statement before it.
+  const parts: string[] = [];
+  for (const piece of tidy(text).split(/ \/ |\/(?= ?1 ?:)| ?(?:[;|,]|\bOR\b) ?/)) {
+    if (parts.length && !/\d ?: ?\d|\d ?" ?=/.test(piece)) parts[parts.length - 1] += ` ${piece}`;
+    else parts.push(piece);
+  }
   const statements: ScaleStatement[] = [];
   for (const part of parts) {
     const scale = parseScaleText(part);
     if (!scale) continue;
-    const after = /(?:@|\bAT\b|\bON\b|\(|\bFOR\b)\s*((?:ANSI|ARCH)\s*-?\s*(?:E1|[A-E])|[AB]\s*[0-6]|\d+(?:\.\d+)?\s*"?\s*[X×]\s*\d+(?:\.\d+)?)/.exec(part);
+    const after = /(?:@|\bAT\b|\bON\b|\(|\bFOR\b) ?((?:ANSI|ARCH)[ -]{0,3}(?:E1|[A-E])|[AB] ?[0-6]|\d{1,3}(?:\.\d{1,3})? ?"? ?[X×] ?\d{1,3}(?:\.\d{1,3})?)/.exec(part);
     statements.push({ scale, paper: after ? paperFromText(after[1]!) : null, text: part.trim() });
   }
   return statements;

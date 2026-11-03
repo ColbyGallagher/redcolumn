@@ -77,3 +77,14 @@ test('effectiveScale takes the sheet size from its own box when the scale names 
   assert.equal(half.scale.label, '1:100 @ A1 (on A3)');
   assert.equal(effectiveScale('1:200 @ A3', ...mm(420, 297), 'A1')!.printRatio, 1, 'the scale text wins');
 });
+
+test('long runs of white space read quickly and as one space', () => {
+  const spaces = '\t'.repeat(50_000);
+  const start = performance.now();
+  assert.equal(paperFromText(`ANSI${spaces}`), null);
+  assert.deepEqual(parseScaleStatements(`@ANSI${spaces}1:100`).length, 1);
+  assert.deepEqual(parseScaleStatements(`@0${spaces}`), []);
+  assert.ok(performance.now() - start < 500);
+  assert.equal(parseScaleStatements('1:100\t\t@\n A1')[0]!.paper?.name, 'A1');
+  assert.equal(parseScaleStatements('1:100, A1').length, 1);
+});
