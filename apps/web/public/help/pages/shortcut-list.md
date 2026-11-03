@@ -43,6 +43,14 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Find Text | [[Ctrl]]+[[F]] |
 | Check Spelling | [[F7]] |
 | Select Text | [[Shift]]+[[T]] |
+| Nudge Left | [[Left]] |
+| Nudge Right | [[Right]] |
+| Nudge Up | [[Up]] |
+| Nudge Down | [[Down]] |
+| Nudge Left (Large) | [[Shift]]+[[Left]] |
+| Nudge Right (Large) | [[Shift]]+[[Right]] |
+| Nudge Up (Large) | [[Shift]]+[[Up]] |
+| Nudge Down (Large) | [[Shift]]+[[Down]] |
 | Align Left | [[Ctrl]]+[[Alt]]+[[L]] |
 | Align Center | [[Ctrl]]+[[Alt]]+[[E]] |
 | Align Right | [[Ctrl]]+[[Alt]]+[[R]] |
@@ -185,6 +193,7 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Sessions | [[Alt]]+[[C]] |
 | Markups List | [[Alt]]+[[L]] |
 | Hyperlinks | [[Alt]]+[[N]] |
+| window.collapseRibbon | [[Ctrl]]+[[F1]] |
 
 ## Help
 

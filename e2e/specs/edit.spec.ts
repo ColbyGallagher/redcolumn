@@ -96,6 +96,40 @@ test.describe('edit', () => {
     expect((await app.command('edit.alignLeft')).enabled).toBe(false);
   });
 
+  // Direction (x, y) and size of each nudge command; a Large one goes further than its small twin.
+  const NUDGE: [string, number, number][] = [
+    ['edit.nudgeLeft', -1, 0], ['edit.nudgeRight', 1, 0], ['edit.nudgeUp', 0, -1], ['edit.nudgeDown', 0, 1],
+    ['edit.nudgeLeftLarge', -1, 0], ['edit.nudgeRightLarge', 1, 0], ['edit.nudgeUpLarge', 0, -1], ['edit.nudgeDownLarge', 0, 1],
+  ];
+  test('nudge commands move the selection a small or large step, one undo each', async ({ app }) => {
+    const ms = await three(app);
+    await select(app, [ms[0]!.id]);
+    const start = (await boxes(app))[0]!;
+    const step: Record<string, number> = {};
+    for (const [id, dx, dy] of NUDGE) {
+      await app.cmd(id);
+      const b = (await boxes(app))[0]!;
+      const moved = dx ? (b[0]! - start[0]!) * dx : (b[1]! - start[1]!) * dy;
+      expect(moved, id).toBeGreaterThan(0);
+      step[id] = moved;
+      await app.cmd('edit.undo');
+      expect((await boxes(app))[0], id).toEqual(start);
+    }
+    expect(step['edit.nudgeRightLarge']).toBeGreaterThan(step['edit.nudgeRight']!);
+  });
+
+  test('arrow keys nudge only while something is selected', async ({ app }) => {
+    const ms = await three(app);
+    await select(app, [ms[0]!.id]);
+    const [x0] = (await boxes(app))[0]!;
+    await app.page.keyboard.press('ArrowRight');
+    expect((await boxes(app))[0]![0]).toBeGreaterThan(x0!);
+    await app.cmd('edit.undo');
+    await select(app, []);
+    await app.page.keyboard.press('ArrowRight');
+    expect((await boxes(app))[0]![0]).toBe(x0);
+  });
+
   test('undo and redo', async ({ app }) => {
     await three(app);
     await app.cmd('edit.undo');

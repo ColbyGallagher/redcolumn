@@ -1372,6 +1372,39 @@ export class MarkupTools implements ViewerOverlay {
     });
   }
 
+  /** Moves the selected markups by a page-space offset (points) as one undo step. */
+  nudgeSelected(dxPts: number, dyPts: number) {
+    if (!dxPts && !dyPts) return;
+    const moves = new Map<string, Geometry>();
+    for (const m of this.editable()) moves.set(m.id, moved(m, dxPts, dyPts));
+    this.movePoints(moves);
+  }
+
+  /**
+   * Arrow-key nudge: one step in a screen direction (-1, 0 or 1 per axis). A step is 5 screen px
+   * (50 with `large`), or one grid spacing when snapping to the grid. Turned into page space the
+   * way a drag is, so it follows the zoom and any view rotation.
+   */
+  nudgeScreen(sx: -1 | 0 | 1, sy: -1 | 0 | 1, large: boolean) {
+    const first = this.editable()[0];
+    if (!first) return;
+    const s = settings.get();
+    const page = first.pageIndex;
+    const px = (large ? 50 : 5);
+    const grid = s.snapToGrid ? gridSpacingPoints(s) : 0;
+    const a = this.viewer.clientToPage(0, 0, page);
+    const b = this.viewer.clientToPage(sx * px, sy * px, page);
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    if (grid) {
+      // Whole grid steps along the page axes that the screen direction maps onto.
+      const len = Math.hypot(dx, dy) || 1;
+      dx = (dx / len) * grid;
+      dy = (dy / len) * grid;
+    }
+    this.nudgeSelected(dx, dy);
+  }
+
   /** Lines the selected markups up on an edge or centre line of their combined bounds. */
   alignSelected(how: Alignment) {
     this.movePoints(align(this.editable(), how));

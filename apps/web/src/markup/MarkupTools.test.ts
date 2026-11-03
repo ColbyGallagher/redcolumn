@@ -323,6 +323,28 @@ test('select, move and delete a drawn markup', async () => {
   await h.store.destroy();
 });
 
+test('nudgeSelected moves points and holes as one undo step and skips locked markups', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  await drawWith(h, 'rect');
+  const [a, b] = h.store.all();
+  h.store.update(a!.id, { holes: [[[110, 210], [120, 210], [120, 220]]] });
+  h.store.update(b!.id, { locked: true });
+  const before = structuredClone(h.store.get(b!.id)!.points);
+  h.tools.select([a!.id, b!.id]);
+  h.tools.nudgeSelected(5, -3);
+  assert.deepEqual(h.store.get(a!.id)?.points, [[105, 197], [265, 297]], 'points moved');
+  assert.deepEqual(h.store.get(a!.id)?.holes, [[[115, 207], [125, 207], [125, 217]]], 'holes moved');
+  assert.deepEqual(h.store.get(b!.id)?.points, before, 'locked markup stayed');
+  h.store.undo();
+  assert.deepEqual(h.store.get(a!.id)?.points, [[100, 200], [260, 300]], 'one undo takes the press back');
+  assert.deepEqual(h.store.get(a!.id)?.holes, [[[110, 210], [120, 210], [120, 220]]], 'holes restored');
+  h.tools.select([]);
+  h.tools.nudgeSelected(5, 5);
+  assert.deepEqual(h.store.get(a!.id)?.points, [[100, 200], [260, 300]], 'an empty selection moves nothing');
+  await h.store.destroy();
+});
+
 test('copy and paste makes a new markup; group moves together; lock stops edits', async () => {
   const h = await setup();
   await drawWith(h, 'cloud');
