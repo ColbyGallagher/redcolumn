@@ -1,5 +1,7 @@
 import {
   align,
+  centerOnPage,
+  matchSize,
   boundsOf,
   canOffset,
   canExplode,
@@ -1422,6 +1424,30 @@ export class MarkupTools implements ViewerOverlay {
   /** Spaces three or more selected markups evenly. */
   distributeSelected(axis: Axis) {
     this.movePoints(distribute(this.editable(), axis));
+  }
+
+  /** Moves the selected markups, keeping their layout, so their combined centre is the centre of the page (each page's own selection on its own page). */
+  centerSelectedOnPage() {
+    const byPage = new Map<number, Markup[]>();
+    for (const m of this.editable()) byPage.set(m.pageIndex, [...(byPage.get(m.pageIndex) ?? []), m]);
+    const moves = new Map<string, Geometry>();
+    for (const [page, ms] of byPage) {
+      const size = this.viewer.pageSize(page);
+      if (!size) continue;
+      for (const [id, g] of centerOnPage(ms, size.width, size.height)) moves.set(id, g);
+    }
+    this.movePoints(moves);
+  }
+
+  /**
+   * Resizes the selected markups to the width, height or both of the first one selected (the one
+   * clicked first; the selection keeps its click order). That one sets the size even when it is
+   * locked; only the editable others change.
+   */
+  matchSizeSelected(kind: 'width' | 'height' | 'both') {
+    const reference = this.store?.get([...this.state.selected][0] ?? '');
+    if (!reference) return;
+    this.movePoints(matchSize(reference, this.editable(), kind));
   }
 
   /** Mirrors the selected markups across their centre. */

@@ -60,6 +60,63 @@ test.describe('edit', () => {
     });
   }
 
+  // The first selected markup (r1, 50 x 50) sets the size; the others stretch about their own centres.
+  const SIZE: [string, number[][]][] = [
+    ['edit.sameWidth', [[300, 450, 350, 500], [435, 470, 485, 520], [555, 400, 605, 430]]],
+    ['edit.sameHeight', [[300, 450, 350, 500], [420, 470, 500, 520], [560, 390, 600, 440]]],
+    ['edit.sameSize', [[300, 450, 350, 500], [435, 470, 485, 520], [555, 390, 605, 440]]],
+  ];
+  for (const [id, expected] of SIZE) {
+    test(id, async ({ app }) => {
+      await selectAll(app, await three(app));
+      await app.cmd(id);
+      expect(await boxes(app)).toEqual(expected);
+      await app.cmd('edit.undo');
+      expect((await boxes(app))[1]).toEqual([420, 470, 500, 520]);
+    });
+  }
+
+  test('edit.centerInDocument keeps the layout and centres the selection on the page', async ({ app }) => {
+    const ms = await three(app);
+    await selectAll(app, ms);
+    await app.cmd('edit.centerInDocument');
+    const [a, b, c] = await boxes(app);
+    // Same spacing as before (300 wide, 120 tall), moved as one.
+    expect(Math.max(a![2]!, b![2]!, c![2]!) - Math.min(a![0]!, b![0]!, c![0]!)).toBe(300);
+    expect(b![0]! - a![0]!).toBe(120);
+    expect(c![1]! - a![1]!).toBe(-50);
+    const centreX = (Math.min(a![0]!, b![0]!, c![0]!) + Math.max(a![2]!, b![2]!, c![2]!)) / 2;
+    const centreY = (Math.min(a![1]!, b![1]!, c![1]!) + Math.max(a![3]!, b![3]!, c![3]!)) / 2;
+    // One markup alone lands on the same page centre.
+    await select(app, [ms[0]!.id]);
+    await app.cmd('edit.centerInDocument');
+    const [r1] = await boxes(app);
+    expect([(r1![0]! + r1![2]!) / 2, (r1![1]! + r1![3]!) / 2]).toEqual([centreX, centreY]);
+    await app.cmd('edit.undo');
+    expect((await boxes(app))[0]).toEqual(a);
+  });
+
+  test('a locked markup clicked first still sets the size, and is not changed', async ({ app }) => {
+    const [r1, r2] = await three(app);
+    await select(app, [r1!.id]);
+    await app.cmd('edit.lock');
+    await select(app, [r1!.id, r2!.id]);
+    expect((await app.command('edit.sameWidth')).enabled).toBe(true);
+    await app.cmd('edit.sameWidth');
+    expect((await boxes(app)).slice(0, 2)).toEqual([[300, 450, 350, 500], [435, 470, 485, 520]]);
+  });
+
+  test('same size and distribute need enough markups', async ({ app }) => {
+    const [r1, r2] = await three(app);
+    await select(app, [r1!.id]);
+    expect((await app.command('edit.sameSize')).enabled).toBe(false);
+    expect((await app.command('edit.centerInDocument')).enabled).toBe(true);
+    await select(app, [r1!.id, r2!.id]);
+    expect((await app.command('edit.sameSize')).enabled).toBe(true);
+    expect((await app.command('edit.distributeHorizontal')).enabled).toBe(false);
+    expect((await app.command('edit.distributeVertical')).enabled).toBe(false);
+  });
+
   test('tools.scripts: a script previews its changes, applies them as one undo step, and saves to the profile', async ({ app }) => {
     await three(app);
     await app.cmd('tools.scripts');
