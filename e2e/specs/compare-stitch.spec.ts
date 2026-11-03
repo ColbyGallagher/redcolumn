@@ -126,6 +126,25 @@ test.describe('compare with too many differences', () => {
     await expect(results.locator('.compare-item.active')).toHaveCount(1);
     expect(app.errors).toEqual([]);
   });
+
+  test('the Compare side panel lists 200 changes at a time', async ({ app }) => {
+    await app.open('crowded.pdf', 'crowded-rev1.pdf');
+    await app.cmd('document.semanticCompare');
+    const panel = app.page.locator('.semantic-compare');
+    await panel.getByLabel('Old revision', { exact: true }).selectOption({ label: 'crowded.pdf' });
+    await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf' });
+    await panel.getByRole('button', { name: 'Compare', exact: true }).click();
+    // 750 tags gone and 750 new ones: 1,500 changes, listed a page at a time.
+    await expect(panel.locator('.sc-nav')).toContainText('1500 shown', { timeout: 60_000 });
+    await expect(panel.locator('.sc-item')).toHaveCount(200);
+    await panel.getByRole('button', { name: 'Show 200 more of 1300' }).click();
+    await expect(panel.locator('.sc-item')).toHaveCount(400);
+    // Previous from the start wraps to the last change, which is listed for it.
+    await panel.getByRole('button', { name: '‹ Previous' }).click();
+    await expect(panel.locator('.sc-item.active')).toHaveCount(1);
+    await expect(panel.locator('.sc-item')).toHaveCount(1500);
+    expect(app.errors).toEqual([]);
+  });
 });
 
 // fixtures/stitch.pdf: a road drawn in world units and cut onto three sheets at match lines x 1000

@@ -31,6 +31,9 @@ const BASIS: Record<MatchBasis, { label: string; title: string }> = {
   text: { label: 'Text match', title: 'Matched by how many words they share. No AI was involved.' },
 };
 
+/** Changes listed at first, and added by each Show more: thousands are listed a page at a time. */
+const PAGE = 200;
+
 /** Words of context kept either side of a change; longer unchanged runs are cut to this. */
 const CONTEXT = 5;
 
@@ -83,6 +86,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
   const [error, setError] = useState('');
   const [shown, setShown] = useState<Set<ChangeKind>>(new Set(['added', 'removed', 'modified', 'moved']));
   const [at, setAt] = useState(-1);
+  const [limit, setLimit] = useState(PAGE);
 
   const changes = state?.result.changes ?? [];
   const counts = useMemo(() => countKinds(changes), [changes]);
@@ -95,6 +99,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
     try {
       await onRun(oldId, newId);
       setAt(-1);
+      setLimit(PAGE);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -106,6 +111,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
     if (!list.length) return;
     const n = (i + list.length) % list.length;
     setAt(n);
+    if (n >= limit) setLimit(Math.ceil((n + 1) / PAGE) * PAGE);
     onGo(list[n]!);
   };
 
@@ -196,6 +202,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
               onChange={(e) => {
                 setShown((s) => new Set(e.target.checked ? [...s, kind] : [...s].filter((k) => k !== kind)));
                 setAt(-1);
+                setLimit(PAGE);
               }}
             />
             {label} {counts[kind]}
@@ -213,7 +220,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
       </div>
       <ul className="sc-list">
         {!list.length && <li className="sc-empty">{changes.length ? 'Nothing of the kinds ticked above.' : 'No text found to compare. Scanned pages need OCR first.'}</li>}
-        {list.map((c, i) => (
+        {list.slice(0, limit).map((c, i) => (
           <li key={c.id}>
             <button className={`sc-item ${c.kind}${i === at ? ' active' : ''}`} onClick={() => go(i)} aria-current={i === at}>
               <span className="sc-item-head">
@@ -241,6 +248,13 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
             </button>
           </li>
         ))}
+        {list.length > limit && (
+          <li className="sc-more">
+            <button className="btn small flat" onClick={() => setLimit(limit + PAGE)}>
+              Show {Math.min(PAGE, list.length - limit)} more of {list.length - limit}
+            </button>
+          </li>
+        )}
       </ul>
       <div className="sc-actions">
         <button className="btn small" onClick={() => onSideBySide(request.oldId, request.newId)}>

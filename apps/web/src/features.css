@@ -7214,6 +7214,10 @@ tr.hidden-markup td {
   color: var(--muted);
 }
 
+.semantic-compare .sc-more {
+  text-align: center;
+}
+
 .semantic-compare .sc-item {
   display: grid;
   gap: 4px;
