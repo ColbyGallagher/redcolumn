@@ -188,7 +188,8 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   visualSearch: 'drag a box around one symbol to find every other copy',
   dynamicFill: 'click inside a room: its outline becomes the chosen markup',
   redaction: 'drag over what to remove; Tools › Redaction › Apply Redactions removes it for good',
-  eraseContent: 'drag over PDF content to remove it from the page',
+  eraseContent: 'drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)',
+  cutContent: 'drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)',
   cutout: 'click the hole inside the area; click the first point to finish',
 };
 

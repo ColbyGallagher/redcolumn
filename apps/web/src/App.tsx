@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { autoSizedPoints, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -1172,7 +1172,7 @@ export function App() {
   /** Symbol Search: the symbol box the user drew, and in which pane. */
   const [visualSearchBox, setVisualSearchBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   const followHyperlinkRef = useRef<(m: Markup) => void>(() => {});
-  const eraseRef = useRef<(pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void>(() => {});
+  const eraseRef = useRef<(pageIndex: number, rect: { x: number; y: number; w: number; h: number }, polygon?: Point[]) => void>(() => {});
   const editTextRef = useRef<(pageIndex: number, at: [number, number]) => void>(() => {});
   const formFieldRef = useRef<(pane: Pane, w: FormWidgetHit) => void>(() => {});
   const editLabelRef = useRef<(pane: Pane, id: string) => void>(() => {});
@@ -1386,7 +1386,7 @@ export function App() {
         setTeachLinks(pane);
       },
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
-      onEraseContent: (pageIndex, rect) => eraseRef.current(pageIndex, rect),
+      onEraseContent: (pageIndex, rect, points) => eraseRef.current(pageIndex, rect, points),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
       onFormField: (w) => formFieldRef.current(pane, w),
       onFormFieldDrawn: (pageIndex, rect) => formDrawnRef.current(pane, pageIndex, rect),
@@ -1399,9 +1399,9 @@ export function App() {
       onEditLabel: (id) => editLabelRef.current(pane, id),
       onSnapshot: (pageIndex, rect) => snapshotRef.current(pane, pageIndex, rect),
       onSnapshotPolygon: (pageIndex, points) => snapshotRef.current(pane, pageIndex, polygonBox(points), true, points),
-      onCutContent: (pageIndex, rect) => {
+      onCutContent: (pageIndex, rect, points) => {
         // The copy is made before the content is erased.
-        void snapshotRef.current(pane, pageIndex, rect, false).then(() => eraseRef.current(pageIndex, rect));
+        void snapshotRef.current(pane, pageIndex, rect, false, points).then(() => eraseRef.current(pageIndex, rect, points));
       },
     });
   };
@@ -2639,12 +2639,16 @@ export function App() {
       cur: OpenFile,
       intoB: boolean,
       mode: 'redact' | 'erase',
-      areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } }[],
+      areas: { pageIndex: number; rect: { x: number; y: number; w: number; h: number }; polygon?: Point[] }[],
       options?: RedactOptions,
       erase?: Pick<EraseRegionsSpec, 'textOnly' | 'cover' | 'removeMarkups'>,
     ) => {
       if (!ctl || !areas.length) return;
-      const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => ({ pageIndex, rects: areas.filter((a) => a.pageIndex === pageIndex).map((a) => a.rect) }));
+      const regions = [...new Set(areas.map((a) => a.pageIndex))].map((pageIndex) => {
+        const here = areas.filter((a) => a.pageIndex === pageIndex);
+        const polygons = here.filter((a) => a.polygon).map((a) => a.polygon!.map(([x, y]) => ({ x, y })));
+        return { pageIndex, rects: here.filter((a) => !a.polygon).map((a) => a.rect), ...(polygons.length ? { polygons } : {}) };
+      });
       const redacting = mode === 'redact';
       const hex = options?.fill ?? erase?.cover ?? '#000000';
       const n = parseInt(hex.slice(1), 16);
@@ -2671,7 +2675,17 @@ export function App() {
       }
       const overlaps = (m: Markup) => {
         const b = boundsOf(m.points);
-        return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
+        return areas.some((a) => {
+          if (a.pageIndex !== m.pageIndex || !(b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y)) return false;
+          // Inside a polygon's bounds: a markup point in it, or a polygon corner in the markup's box, or the box's centre.
+          if (!a.polygon) return true;
+          const poly = a.polygon;
+          return (
+            m.points.some((p) => pointInPolygon(p, poly)) ||
+            poly.some(([x, y]) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) ||
+            pointInPolygon([b.x + b.w / 2, b.y + b.h / 2], poly)
+          );
+        });
       };
       const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : erase?.removeMarkups ? cur.store.all().filter(overlaps) : [];
       await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
@@ -2684,7 +2698,8 @@ export function App() {
       const doc = (intoB ? openBRef.current : openRef.current)?.doc;
       let left = 0;
       let checked = 0;
-      for (const { pageIndex, rects } of regions) {
+      for (const { pageIndex } of regions) {
+        const here = areas.filter((a) => a.pageIndex === pageIndex);
         progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
@@ -2693,7 +2708,7 @@ export function App() {
           if (redacting && label.has(w.text)) return false;
           const cx = (w.x0 + w.x1) / 2;
           const cy = (w.y0 + w.y1) / 2;
-          return rects.some((r) => cx > r.x && cx < r.x + r.w && cy > r.y && cy < r.y + r.h);
+          return here.some(({ rect: r, polygon }) => cx > r.x && cx < r.x + r.w && cy > r.y && cy < r.y + r.h && (!polygon || pointInPolygon([cx, cy], polygon)));
         }).length;
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
@@ -2748,9 +2763,9 @@ export function App() {
       if (!keptFont) setNotice("The text's own font does not have all the new characters, so it is set in Helvetica.");
     })().catch((err) => setError(`Edit text failed: ${err instanceof Error ? err.message : String(err)}`));
   };
-  eraseRef.current = (pageIndex, rect) => {
+  eraseRef.current = (pageIndex, rect, polygon) => {
     const cur = activeOpen;
-    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect }]).catch((err) => setError(`Erase failed: ${err instanceof Error ? err.message : String(err)}`));
+    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(`Erase failed: ${err instanceof Error ? err.message : String(err)}`));
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */

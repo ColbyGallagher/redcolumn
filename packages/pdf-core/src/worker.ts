@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { init, type WrappedPdfiumModule } from '@embedpdf/pdfium';
 import wasmUrl from '@embedpdf/pdfium/pdfium.wasm?url';
+import { outsideParts, pointInPolygon, polygonRegion, rectRegion, regionContains, regionHits, type Region } from './regionGeometry';
 import { APP_DATA_KEY, NEEDS_PASSWORD, RENDER_CANCELLED, type AnnotImage, type CopyCheck, type RenderResult, type DocumentInfo, type OutlineItem, type PageOp, type RedactReport, type RedactRequest, type TextObjectInfo, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 declare const self: DedicatedWorkerGlobalScope;
@@ -1023,8 +1024,6 @@ function invert(t: Matrix): Matrix {
 }
 
 type Box = { l: number; b: number; r: number; t: number };
-const overlaps = (x: Box, y: Box) => x.l < y.r && x.r > y.l && x.b < y.t && x.t > y.b;
-const within = (x: Box, y: Box) => x.l >= y.l && x.r <= y.r && x.b >= y.b && x.t <= y.t;
 
 const PAGEOBJ_TEXT = 1;
 const PAGEOBJ_PATH = 2;
@@ -1049,13 +1048,13 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promi
   const f32 = (i: number) => m.pdfium.HEAPF32[(buf >> 2) + i]!;
   try {
     let donePages = 0;
-    for (const { pageIndex, rects } of req.regions) {
+    for (const { pageIndex, rects, polygons = [] } of req.regions) {
       // Progress goes out, and a cancel that came in is seen, between pages.
       reply({ id, ok: true, type: 'progress', done: donePages, total: req.regions.length });
       await yieldToMessages();
       if (cancelledRequests.has(id)) throw new Error(RENDER_CANCELLED);
       donePages++;
-      if (!rects.length) continue;
+      if (!rects.length && !polygons.length) continue;
       const page = m.FPDF_LoadPage(doc.handle, pageIndex);
       if (!page) continue;
       try {
@@ -1066,8 +1065,13 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promi
           const b = applyMatrix(toUser, r.x + r.w, r.y + r.h);
           return { l: Math.min(a[0], b[0]), r: Math.max(a[0], b[0]), b: Math.min(a[1], b[1]), t: Math.max(a[1], b[1]) };
         });
-        const hit = (box: Box) => regions.some((g) => overlaps(box, g));
-        const inside = (box: Box) => regions.some((g) => within(box, g));
+        // Polygon regions, point by point in user space (the page's rotation is undone by `toUser`).
+        const areas: Region[] = [
+          ...regions.map(rectRegion),
+          ...polygons.map((poly) => polygonRegion(poly.map((p) => applyMatrix(toUser, p.x, p.y) as [number, number]))),
+        ];
+        const hit = (box: Box) => areas.some((g) => regionHits(g, box));
+        const inside = (box: Box) => areas.some((g) => regionContains(g, box));
 
         // 1. Characters: which text objects lose characters, and the runs of characters they keep.
         const runs: { obj: number; text: string; x: number; y: number; size: number; angle: number; color: [number, number, number, number] }[] = [];
@@ -1148,11 +1152,11 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promi
             remove.push(obj);
             if (type === PAGEOBJ_IMAGE) report.images++;
             else if (type === PAGEOBJ_PATH || type === PAGEOBJ_SHADING || type === PAGEOBJ_FORM) report.paths++;
-          } else if (type === PAGEOBJ_IMAGE && blankImagePixels(m, obj, regions, req.imageFill, buf)) {
+          } else if (type === PAGEOBJ_IMAGE && blankImagePixels(m, obj, areas, req.imageFill, buf)) {
             report.images++;
           } else if (type === PAGEOBJ_PATH) {
             // Lines crossing the edge: the parts inside are cut away.
-            const cut = clipStrokedPath(m, obj, regions, buf);
+            const cut = clipStrokedPath(m, obj, areas, buf);
             if (cut !== null) {
               replaced.push([obj, cut]);
               report.paths++;
@@ -1396,48 +1400,11 @@ async function addText(req: { bytes: ArrayBuffer; pageIndex: number; x: number; 
   }
 }
 
-/** The parts of the segment a→b outside every region (parameter intervals along it). */
-function outsideParts(a: [number, number], b: [number, number], regions: Box[]): [number, number][] {
-  const inside: [number, number][] = [];
-  const dx = b[0] - a[0];
-  const dy = b[1] - a[1];
-  for (const g of regions) {
-    // Liang–Barsky: where the segment runs through the box.
-    let t0 = 0;
-    let t1 = 1;
-    let ok = true;
-    for (const [p, q] of [
-      [-dx, a[0] - g.l],
-      [dx, g.r - a[0]],
-      [-dy, a[1] - g.b],
-      [dy, g.t - a[1]],
-    ] as [number, number][]) {
-      if (p === 0) {
-        if (q < 0) ok = false;
-      } else {
-        const t = q / p;
-        if (p < 0) t0 = Math.max(t0, t);
-        else t1 = Math.min(t1, t);
-      }
-    }
-    if (ok && t0 < t1) inside.push([t0, t1]);
-  }
-  inside.sort((x, y) => x[0] - y[0]);
-  const out: [number, number][] = [];
-  let from = 0;
-  for (const [s, e] of inside) {
-    if (s > from) out.push([from, s]);
-    from = Math.max(from, e);
-  }
-  if (from < 1) out.push([from, 1]);
-  return out;
-}
-
 /**
  * A stroked (unfilled) path that crosses a region, redrawn without the parts inside it; null to
  * leave it (filled paths, which cannot be cut this way), or 0 when nothing of it is left.
  */
-function clipStrokedPath(m: WrappedPdfiumModule, obj: number, regions: Box[], buf: number): number | null {
+function clipStrokedPath(m: WrappedPdfiumModule, obj: number, regions: Region[], buf: number): number | null {
   if (!m.FPDFPath_GetDrawMode(obj, buf, buf + 4)) return null;
   const fillMode = m.pdfium.HEAP32[buf >> 2]!;
   const stroke = m.pdfium.HEAP32[(buf >> 2) + 1]!;
@@ -1516,7 +1483,7 @@ function clipStrokedPath(m: WrappedPdfiumModule, obj: number, regions: Box[], bu
 }
 
 /** Paints the pixels of a picture that fall inside any region; true if any did. */
-function blankImagePixels(m: WrappedPdfiumModule, obj: number, regions: Box[], fill: [number, number, number], buf: number): boolean {
+function blankImagePixels(m: WrappedPdfiumModule, obj: number, regions: Region[], fill: [number, number, number], buf: number): boolean {
   if (!m.FPDFPageObj_GetMatrix(obj, buf)) return false;
   const f = m.pdfium.HEAPF32;
   const t: Matrix = [f[buf >> 2]!, f[(buf >> 2) + 1]!, f[(buf >> 2) + 2]!, f[(buf >> 2) + 3]!, f[(buf >> 2) + 4]!, f[(buf >> 2) + 5]!];
@@ -1540,7 +1507,7 @@ function blankImagePixels(m: WrappedPdfiumModule, obj: number, regions: Box[], f
       for (let x = 0; x < w; x++) {
         const u = (x + 0.5) / w;
         const [px, py] = applyMatrix(t, u, v);
-        if (!regions.some((g2) => px >= g2.l && px <= g2.r && py >= g2.b && py <= g2.t)) continue;
+        if (!regions.some((g2) => px >= g2.box.l && px <= g2.box.r && py >= g2.box.b && py <= g2.box.t && (!g2.poly || pointInPolygon([px, py], g2.poly)))) continue;
         const at = data + y * stride + x * bpp;
         if (bpp === 1) heap[at] = grey;
         else {
