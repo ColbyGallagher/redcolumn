@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addCustomColor, HEX_COLOR, MAX_CUSTOM_COLORS, removeCustomColor } from './customColors.ts';
+import { addCustomColor, cleanCustomColors, parseHex, HEX_COLOR, MAX_CUSTOM_COLORS, removeCustomColor } from './customColors.ts';
 
 test('a new custom color goes first, lower-cased', () => {
   assert.deepEqual(addCustomColor(['#111111'], '#ABCDEF'), ['#abcdef', '#111111']);
@@ -26,4 +26,18 @@ test('removing a custom color leaves the rest in order', () => {
 test('the hex field takes only #rrggbb', () => {
   assert.ok(HEX_COLOR.test('#a1B2c3'));
   for (const bad of ['a1b2c3', '#abc', '#12345g', '#1234567', '']) assert.ok(!HEX_COLOR.test(bad), bad);
+});
+
+test('a saved customColors value is cleaned: junk is dropped, a missing one stays missing', () => {
+  assert.equal(cleanCustomColors(undefined), undefined);
+  assert.equal(cleanCustomColors('#ff0000'), undefined);
+  assert.deepEqual(cleanCustomColors([123, 'url(https://x.example/a)', '#FF0000', '#ff0000', null, '#00ff00']), ['#ff0000', '#00ff00']);
+  assert.equal(cleanCustomColors(Array.from({ length: 15 }, (_, i) => `#0000${i.toString(16).padStart(2, '0')}`))!.length, MAX_CUSTOM_COLORS);
+});
+
+test('the hex field takes pasted spaces and a missing #', () => {
+  assert.equal(parseHex(' #123456 '), '#123456');
+  assert.equal(parseHex('ABCDEF'), '#abcdef');
+  assert.equal(parseHex('#12345'), null);
+  assert.equal(parseHex(''), null);
 });

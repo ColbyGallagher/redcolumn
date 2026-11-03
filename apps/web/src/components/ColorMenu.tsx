@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useFloatingPopup } from './useFloatingPopup';
-import { addCustomColor, HEX_COLOR, removeCustomColor } from '../workspace/customColors';
-import { updateWorkspace, useWorkspace } from '../workspace/profiles';
+import { addCustomColor, parseHex, removeCustomColor } from '../workspace/customColors';
+import { profiles, updateWorkspace } from '../workspace/profiles';
+
+const NO_COLORS: readonly string[] = [];
 
 /** Office-style palette: a greys row, then the standard hues from light to dark. */
 const PALETTE: string[][] = [
@@ -21,6 +23,8 @@ interface ColorMenuProps {
   icon: ReactNode;
   /** Current color; null for none (only when `noneLabel` is set). */
   value: string | null;
+  /** The color shown on the button's bar while `value` is null (what "same as line" resolves to). */
+  fallback?: string;
   onChange: (color: string | null) => void;
   /** Adds a "No fill"-style entry at the top that sets the color to null. */
   noneLabel?: string;
@@ -34,10 +38,11 @@ interface ColorMenuProps {
  * A Word/Excel-style color button: the icon with a bar in the current color under it, and a palette
  * dropdown with "No fill", standard colors and a custom picker.
  */
-export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disabled, wide, title }: ColorMenuProps) {
+export function ColorMenu({ label, short, icon, value, fallback, onChange, noneLabel, disabled, wide, title }: ColorMenuProps) {
   const [open, setOpen] = useState(false);
   const [hex, setHex] = useState('');
-  const custom = useWorkspace().customColors ?? [];
+  const custom = useSyncExternalStore(profiles.subscribe, () => profiles.active().state.customColors) ?? NO_COLORS;
+  const native = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const floating = useFloatingPopup(root, open);
@@ -62,13 +67,18 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
     onChange(color);
     setOpen(false);
   };
-  /** Applies a color typed or chosen in the picker and saves it to the Custom row. */
-  const useCustom = (color: string, close: boolean) => {
-    updateWorkspace((w) => ({ ...w, customColors: addCustomColor(w.customColors ?? [], color) }));
-    if (close) pick(color);
-    else onChange(color);
-  };
-  const hexOk = HEX_COLOR.test(hex);
+  const saveCustom = (color: string) => updateWorkspace((w) => ({ ...w, customColors: addCustomColor(w.customColors ?? [], color) }));
+  // The native picker fires `input` all the while it is dragged (a live preview) and `change` once
+  // when it is committed; only that one goes in the Custom row.
+  useEffect(() => {
+    const el = native.current;
+    if (!open || !el) return;
+    const commit = () => saveCustom(el.value);
+    el.addEventListener('change', commit);
+    return () => el.removeEventListener('change', commit);
+  });
+  const forget = (c: string) => updateWorkspace((w) => ({ ...w, customColors: removeCustomColor(w.customColors ?? [], c) }));
+  const typed = parseHex(hex);
   const norm = value?.toLowerCase() ?? null;
   return (
     <div className={`color-menu${wide ? ' wide' : ''}`} ref={root}>
@@ -84,7 +94,7 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
       >
         <span className="color-btn-icon">
           <span className="field-icon">{icon}</span>
-          <span className={`color-bar${value ? '' : ' none'}`} style={value ? { background: value } : undefined} />
+          <span className={`color-bar${value || fallback ? '' : ' none'}`} style={value || fallback ? { background: value ?? fallback } : undefined} />
         </span>
         <span className="field-label">{wide ? (value ?? noneLabel ?? 'None') : short}</span>
         <span className="color-caret" aria-hidden="true">
@@ -126,13 +136,19 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
                     type="button"
                     className={`color-swatch${norm === c ? ' on' : ''}`}
                     style={{ background: c }}
-                    title={`${c} (right-click to remove)`}
+                    title={`${c} (right-click or press Delete to remove)`}
                     aria-label={`Custom ${c}`}
                     aria-pressed={norm === c}
                     onClick={() => pick(c)}
                     onContextMenu={(e) => {
                       e.preventDefault();
-                      updateWorkspace((w) => ({ ...w, customColors: removeCustomColor(w.customColors ?? [], c) }));
+                      forget(c);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Delete' || e.key === 'Backspace') {
+                        e.preventDefault();
+                        forget(c);
+                      }
                     }}
                   />
                 ))}
@@ -140,27 +156,29 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
             </>
           )}
           <label className="color-more">
-            <input type="color" aria-label={`${label}: more colors`} value={value ?? '#ffffff'} onChange={(e) => useCustom(e.target.value, false)} />
+            <input ref={native} type="color" aria-label={`${label}: more colors`} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
             More colors…
           </label>
           <form
             className="color-hex"
             onSubmit={(e) => {
               e.preventDefault();
-              if (hexOk) useCustom(hex.toLowerCase(), true);
+              if (!typed) return;
+              saveCustom(typed);
+              setHex('');
+              pick(typed);
             }}
           >
             <input
               type="text"
               aria-label={`${label}: hex`}
               placeholder="#rrggbb"
-              maxLength={7}
               spellCheck={false}
               value={hex}
-              aria-invalid={hex !== '' && !hexOk}
-              onChange={(e) => setHex(e.target.value.trim())}
+              aria-invalid={hex.trim() !== '' && !typed}
+              onChange={(e) => setHex(e.target.value)}
             />
-            <button type="submit" className="btn" disabled={!hexOk}>
+            <button type="submit" className="btn" disabled={!typed}>
               Add
             </button>
           </form>

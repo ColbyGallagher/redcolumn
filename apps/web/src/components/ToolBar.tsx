@@ -499,7 +499,8 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
       if (!root.current?.contains(t) && !pop.current?.contains(t) && !(t as Element).closest?.('.color-pop')) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      // Escape closes the color menu opened from here first, not this popup as well.
+      if (e.key === 'Escape' && !document.querySelector('.color-pop')) setOpen(false);
     };
     window.addEventListener('pointerdown', close);
     window.addEventListener('keydown', onKey);
@@ -563,6 +564,7 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
               short="Hatch"
               icon={STYLE_ICONS.hatch}
               value={style.hatchColor ?? null}
+              fallback={style.stroke}
               noneLabel="Same as line"
               disabled={!active}
               onChange={(c) => onChange({ hatchColor: c ?? undefined })}

@@ -469,6 +469,30 @@ test.describe('markup tools', () => {
     expect(m!.style).not.toHaveProperty('hatchColor');
   });
 
+  test('custom colors: dragging the native picker saves one color, and it survives a reload', async ({ app }) => {
+    await app.tool('rect');
+    const fill = app.page.getByRole('button', { name: 'Fill color' });
+    await fill.click();
+    const menu = app.page.getByRole('dialog', { name: 'Fill color' });
+    // The picker fires `input` all through a drag and `change` once when it is committed.
+    await menu.getByLabel('Fill color: more colors').evaluate((el: HTMLInputElement) => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+      for (const v of ['#111111', '#222222', '#334455']) {
+        set.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await expect(menu.getByRole('button', { name: /^Custom #/ })).toHaveCount(1);
+    await expect(menu.getByRole('button', { name: 'Custom #334455' })).toBeVisible();
+
+    await app.page.reload();
+    await app.open('plan.pdf');
+    await app.tool('rect');
+    await app.page.getByRole('button', { name: 'Fill color' }).click();
+    await expect(app.page.getByRole('dialog', { name: 'Fill color' }).getByRole('button', { name: 'Custom #334455' })).toBeVisible();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

@@ -467,7 +467,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             {hatchOn && (
               <>
                 <Row label="Hatch color">
-                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} />
+                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} />
                 </Row>
                 <Row label="Scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
                   <NumberField value={style.hatchScale ?? 100} min={50} max={200} step={1} unit="%" onChange={(v) => set('hatchScale', v ?? 100)} />
@@ -555,7 +555,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             </span>
           </Row>
           <Row label="Text color">
-            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
+            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
           </Row>
           {caps.textLayout && (
             <>
