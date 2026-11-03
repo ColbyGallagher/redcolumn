@@ -96,6 +96,16 @@ test.describe('edit', () => {
     expect((await boxes(app))[0]).toEqual(a);
   });
 
+  test('a locked markup clicked first still sets the size, and is not changed', async ({ app }) => {
+    const [r1, r2] = await three(app);
+    await select(app, [r1!.id]);
+    await app.cmd('edit.lock');
+    await select(app, [r1!.id, r2!.id]);
+    expect((await app.command('edit.sameWidth')).enabled).toBe(true);
+    await app.cmd('edit.sameWidth');
+    expect((await boxes(app)).slice(0, 2)).toEqual([[300, 450, 350, 500], [435, 470, 485, 520]]);
+  });
+
   test('same size and distribute need enough markups', async ({ app }) => {
     const [r1, r2] = await three(app);
     await select(app, [r1!.id]);

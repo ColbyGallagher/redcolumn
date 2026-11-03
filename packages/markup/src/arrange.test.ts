@@ -51,22 +51,34 @@ test('centerOnPage moves the selection as one so its bounds centre on the page',
 test('matchSize stretches the others to the first markup about their own centres', () => {
   const first = box('f', 0, 0, 10, 20);
   const r = box('r', 100, 100, 40, 40);
-  assert.deepEqual(matchSize([first, r], 'width').get('r')?.points, [[115, 100], [125, 140]]);
-  assert.deepEqual(matchSize([first, r], 'height').get('r')?.points, [[100, 110], [140, 130]]);
-  assert.deepEqual(matchSize([first, r], 'both').get('r')?.points, [[115, 110], [125, 130]]);
-  assert.equal(matchSize([first, r], 'both').has('f'), false);
-  assert.equal(matchSize([first], 'both').size, 0);
+  assert.deepEqual(matchSize(first, [first, r], 'width').get('r')?.points, [[115, 100], [125, 140]]);
+  assert.deepEqual(matchSize(first, [first, r], 'height').get('r')?.points, [[100, 110], [140, 130]]);
+  assert.deepEqual(matchSize(first, [first, r], 'both').get('r')?.points, [[115, 110], [125, 130]]);
+  assert.equal(matchSize(first, [first, r], 'both').has('f'), false);
+  assert.equal(matchSize(first, [first], 'both').size, 0);
   // A polyline's points follow its bounds.
   const line: Markup = { ...box('l', 0, 0, 1, 1, 'polyline'), points: [[0, 0], [20, 10], [40, 0]] };
-  assert.deepEqual(matchSize([first, line], 'width').get('l')?.points, [[15, 0], [20, 10], [25, 0]]);
+  assert.deepEqual(matchSize(first, [first, line], 'width').get('l')?.points, [[15, 0], [20, 10], [25, 0]]);
 });
 
 test('matchSize resizes a text box but not its font', () => {
   const first = box('f', 0, 0, 100, 50);
   const t = box('t', 0, 0, 50, 50, 'text');
-  const out = matchSize([first, t], 'both').get('t');
+  const out = matchSize(first, [first, t], 'both').get('t');
   assert.deepEqual(out?.points, [[-25, 0], [75, 50]]);
   assert.equal('style' in (out ?? {}), false);
+});
+
+test('matchSize and centerOnPage use the size a turned box shows on the page', () => {
+  // 100 x 50 turned a quarter turn looks 50 wide and 100 tall.
+  const ref: Markup = { ...box('ref', 0, 0, 100, 50), rotation: 90 };
+  const r = box('r', 200, 200, 40, 40);
+  assert.deepEqual(matchSize(ref, [ref, r], 'both').get('r')?.points, [[195, 170], [245, 270]]);
+  // A target turned a quarter turn is stretched along its own sides the other way round.
+  const t: Markup = { ...box('t', 0, 0, 20, 20), rotation: 90 };
+  assert.deepEqual(matchSize(ref, [ref, t], 'both').get('t')?.points, [[-40, -15], [60, 35]]);
+  // The turned box is measured by its turned outline (x 25-75, y -25-75) when centring.
+  assert.deepEqual(centerOnPage([ref, box('b', 100, 0, 10, 10)], 200, 100).get('b')?.points, [[132.5, 25], [142.5, 35]]);
 });
 
 test('restack moves markups one step past their neighbours', () => {

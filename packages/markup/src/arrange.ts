@@ -1,5 +1,5 @@
 import { arcPoints } from './arc';
-import { boundsOf, isTextType, mapGeometry, type Geometry, type Markup, type Point, type Rect } from './model';
+import { boundsOf, isTextType, mapGeometry, rotatePoint, type Geometry, type Markup, type Point, type Rect } from './model';
 
 export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 export type Axis = 'horizontal' | 'vertical';
@@ -7,6 +7,14 @@ export type Axis = 'horizontal' | 'vertical';
 /** The box a markup's own geometry occupies (an arc's curve included), without stroke or decorations. */
 export function shapeBounds(m: Markup): Rect {
   return boundsOf(m.type === 'arc' ? arcPoints(m.points) : m.points);
+}
+
+/** The box a markup occupies on the page: `shapeBounds`, turned by its rotation. */
+function visibleBounds(m: Markup): Rect {
+  const b = shapeBounds(m);
+  if (!m.rotation) return b;
+  const c: Point = [b.x + b.w / 2, b.y + b.h / 2];
+  return boundsOf(([[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]] as Point[]).map((p) => rotatePoint(p, c, m.rotation!)));
 }
 
 function unionBounds(rects: readonly Rect[]): Rect {
@@ -69,7 +77,7 @@ export function distribute(markups: readonly Markup[], axis: Axis): Map<string, 
 export function centerOnPage(markups: readonly Markup[], pageW: number, pageH: number): Map<string, Geometry> {
   const out = new Map<string, Geometry>();
   if (!markups.length) return out;
-  const all = unionBounds(markups.map(shapeBounds));
+  const all = unionBounds(markups.map(visibleBounds));
   const dx = pageW / 2 - (all.x + all.w / 2);
   const dy = pageH / 2 - (all.y + all.h / 2);
   if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return out;
@@ -83,20 +91,23 @@ function stretchedAbout(m: Markup, base: Point, sx: number, sy: number): Geometr
 }
 
 /**
- * New geometry giving every markup after the first the first one's width, height or both
- * (`shapeBounds`). Each is stretched about its own centre; text boxes change shape but keep their
- * font size. Markups with no extent along an axis are left alone on that axis.
+ * New geometry giving each target the `reference` markup's width, height or both, as they show on
+ * the page. Each is stretched about its own centre; text boxes change shape but keep their font
+ * size. A target turned a quarter turn is stretched along its own axes the other way round, so it
+ * still ends up the right size on the page; at other angles it is stretched in its own frame.
+ * Markups with no extent along an axis are left alone on that axis.
  */
-export function matchSize(markups: readonly Markup[], dimension: 'width' | 'height' | 'both'): Map<string, Geometry> {
+export function matchSize(reference: Markup, targets: readonly Markup[], dimension: 'width' | 'height' | 'both'): Map<string, Geometry> {
   const out = new Map<string, Geometry>();
-  const [first, ...rest] = markups;
-  if (!first || !rest.length) return out;
-  const target = shapeBounds(first);
-  for (const m of rest) {
-    const b = shapeBounds(m);
-    const sx = dimension !== 'height' && b.w > 1e-9 ? target.w / b.w : 1;
-    const sy = dimension !== 'width' && b.h > 1e-9 ? target.h / b.h : 1;
+  const want = visibleBounds(reference);
+  for (const m of targets) {
+    if (m.id === reference.id) continue;
+    const seen = visibleBounds(m);
+    let sx = dimension !== 'height' && seen.w > 1e-9 ? want.w / seen.w : 1;
+    let sy = dimension !== 'width' && seen.h > 1e-9 ? want.h / seen.h : 1;
+    if (Math.round((m.rotation ?? 0) / 90) % 2 !== 0 && (m.rotation ?? 0) % 90 === 0) [sx, sy] = [sy, sx];
     if (Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9) continue;
+    const b = shapeBounds(m);
     out.set(m.id, stretchedAbout(m, [b.x + b.w / 2, b.y + b.h / 2], sx, sy));
   }
   return out;

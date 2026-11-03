@@ -1441,10 +1441,13 @@ export class MarkupTools implements ViewerOverlay {
 
   /**
    * Resizes the selected markups to the width, height or both of the first one selected (the one
-   * clicked first; the selection keeps its click order). The first stays as it is.
+   * clicked first; the selection keeps its click order). That one sets the size even when it is
+   * locked; only the editable others change.
    */
   matchSizeSelected(kind: 'width' | 'height' | 'both') {
-    this.movePoints(matchSize(this.editable(), kind));
+    const reference = this.store?.get([...this.state.selected][0] ?? '');
+    if (!reference) return;
+    this.movePoints(matchSize(reference, this.editable(), kind));
   }
 
   /** Mirrors the selected markups across their centre. */

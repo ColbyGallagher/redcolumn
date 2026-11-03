@@ -33,7 +33,7 @@ Select two or more markups, then right-click › **Alignment**:
 - **Align Top / Middle / Bottom** — line them up down.
 - **Distribute Horizontally / Vertically** — space three or more out evenly.
 - **Center in Document** — move the selection, as it is laid out, to the middle of the page. Works on one markup or more.
-- **Same Width / Same Height / Same Size** — resize the others to match the markup you selected first. Click that one first, then Shift-click the rest. Text boxes change shape but keep their font size.
+- **Same Width / Same Height / Same Size** — resize the others to match the markup you selected first. Click that one first, then Shift-click the rest. The first one can be locked and still set the size. Sizes are the ones you see on the page, so a box turned a quarter turn counts by its turned width and height (at other angles the others are stretched along their own sides). Text boxes change shape but keep their font size. Grouped markups are each resized on their own, so size a group's members by selecting them one by one, not by its group.
 - **Flip Horizontal / Vertical** — mirror the markups. Rotated boxes turn the other way too. Pictures and stamps move and turn, but their image is not mirrored.
 
 These are also in the ribbon, in the Align group of the Modify tab.
