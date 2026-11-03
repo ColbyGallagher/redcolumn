@@ -310,7 +310,8 @@ export type PanelId =
 export function buildCommands(a: CommandActions, s: CommandState): Command[] {
   const doc = s.hasDocument;
   const sel = s.selectionCount > 0;
-  const nudgeable = sel && s.editable && !s.selectionLocked;
+  // Locked markups in the selection are skipped, not a reason to refuse.
+  const nudgeable = sel && s.editable;
   const sidePanelOpen = (id: string) => (s.showLeft && s.leftTab === id) || (s.showRight && s.rightTab === id);
   const cmd = (id: string, category: CommandCategory, label: string, run: () => void, enabled = true, checked?: boolean): Command => ({
     id,

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { METERS_PER_UNIT } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
-import { settings } from '../settings/settings';
+import { gridSpacingPoints, settings } from '../settings/settings';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
@@ -342,6 +342,61 @@ test('nudgeSelected moves points and holes as one undo step and skips locked mar
   h.tools.select([]);
   h.tools.nudgeSelected(5, 5);
   assert.deepEqual(h.store.get(a!.id)?.points, [[100, 200], [260, 300]], 'an empty selection moves nothing');
+  await h.store.destroy();
+});
+
+test('nudgeScreen turns screen steps into page space by zoom, rotation, page and grid', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [a] = h.store.all();
+  const v = viewer as unknown as { clientToPage: (x: number, y: number, page?: number) => Point };
+  const was = v.clientToPage;
+  const prefs = settings.get();
+  try {
+    // Zoom 2, view turned a quarter: screen right is page up, and a screen px is half a point.
+    v.clientToPage = (x, y) => [y / 2, -x / 2];
+    h.tools.select([a!.id]);
+    h.tools.nudgeScreen(1, 0, false);
+    assert.deepEqual(h.store.get(a!.id)?.points, [[100, 197.5], [260, 297.5]], '5 px at zoom 2');
+    h.tools.nudgeScreen(1, 0, true);
+    assert.deepEqual(h.store.get(a!.id)?.points, [[100, 172.5], [260, 272.5]], 'Shift takes 50 px');
+    h.store.undo();
+    assert.deepEqual(h.store.get(a!.id)?.points, [[100, 197.5], [260, 297.5]], 'one undo per press');
+    // Grid on: whole squares along the page axis, ten with Shift.
+    settings.set({ snapToGrid: true });
+    const g = gridSpacingPoints(settings.get());
+    h.tools.nudgeScreen(1, 0, false);
+    assert.ok(Math.abs(h.store.get(a!.id)!.points[0]![1] - (197.5 - g)) < 1e-9, 'one grid square');
+    h.tools.nudgeScreen(0, 1, true);
+    assert.ok(Math.abs(h.store.get(a!.id)!.points[0]![0] - (100 + 10 * g)) < 1e-9, 'ten squares with Shift');
+  } finally {
+    v.clientToPage = was;
+    settings.set({ snapToGrid: prefs.snapToGrid });
+  }
+  await h.store.destroy();
+});
+
+test('nudgeScreen gives each page its own offset', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  await drawWith(h, 'rect');
+  const [a, b] = h.store.all();
+  h.store.update(b!.id, { pageIndex: 1 });
+  const v = viewer as unknown as { clientToPage: (x: number, y: number, page?: number) => Point };
+  const was = v.clientToPage;
+  try {
+    // Page 1 is shown turned, so a screen step right is a page step down there.
+    v.clientToPage = (x, y, page = 0) => (page === 1 ? [y, x] : [x, y]);
+    h.tools.select([a!.id, b!.id]);
+    h.tools.nudgeScreen(1, 0, false);
+    assert.deepEqual(h.store.get(a!.id)?.points, [[105, 200], [265, 300]], 'page 0 moves right');
+    assert.deepEqual(h.store.get(b!.id)?.points, [[100, 205], [260, 305]], 'page 1 moves down');
+    h.store.undo();
+    assert.deepEqual(h.store.get(a!.id)?.points, [[100, 200], [260, 300]], 'both back in one undo');
+    assert.deepEqual(h.store.get(b!.id)?.points, [[100, 200], [260, 300]]);
+  } finally {
+    v.clientToPage = was;
+  }
   await h.store.destroy();
 });
 

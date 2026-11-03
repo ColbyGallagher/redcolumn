@@ -130,6 +130,31 @@ test.describe('edit', () => {
     expect((await boxes(app))[0]![0]).toBe(x0);
   });
 
+  test('a locked markup in the selection is skipped, the rest still nudge', async ({ app }) => {
+    const ms = await three(app);
+    const start = (await boxes(app))[0]!;
+    await select(app, [ms[1]!.id]);
+    await app.cmd('edit.lock');
+    await select(app, [ms[0]!.id, ms[1]!.id]);
+    await app.page.keyboard.press('ArrowRight');
+    const after = await boxes(app);
+    expect(after[0]![0]).toBeGreaterThan(start[0]!);
+    expect(after[1]).toEqual([420, 470, 500, 520]);
+  });
+
+  test.describe('from the ribbon', () => {
+    test.use({ toolbar: 'ribbon' });
+    test('a focused ribbon tab keeps its arrow keys', async ({ app }) => {
+      const ms = await three(app);
+      await select(app, [ms[0]!.id]);
+      const start = (await boxes(app))[0]!;
+      const tab = app.page.locator('[data-ribbon-tab]').first();
+      await tab.focus();
+      await app.page.keyboard.press('ArrowRight');
+      expect((await boxes(app))[0]).toEqual(start);
+    });
+  });
+
   test('undo and redo', async ({ app }) => {
     await three(app);
     await app.cmd('edit.undo');

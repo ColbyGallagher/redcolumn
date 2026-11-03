@@ -8,7 +8,7 @@ First [select](#select) the markup with the Select tool ([[V]]).
 
 **Drag** the markup (not a handle) to a new place.
 
-**Arrow keys** nudge the selected markups by a small step; hold [[Shift]] for a larger one. Each press is one undo step. With **Snap to Grid** on, a step is one grid square. Locked markups stay put.
+**Arrow keys** nudge the selected markups by a small step; hold [[Shift]] for a larger one. Each press is one undo step. With **Snap to Grid** on, a step is one grid square (ten with [[Shift]]). Locked markups stay put.
 
 ## Resize
 

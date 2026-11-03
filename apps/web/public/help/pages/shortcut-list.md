@@ -193,7 +193,7 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Sessions | [[Alt]]+[[C]] |
 | Markups List | [[Alt]]+[[L]] |
 | Hyperlinks | [[Alt]]+[[N]] |
-| window.collapseRibbon | [[Ctrl]]+[[F1]] |
+| Collapse the Ribbon | [[Ctrl]]+[[F1]] |
 
 ## Help
 

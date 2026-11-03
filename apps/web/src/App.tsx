@@ -4995,8 +4995,13 @@ export function App() {
           pasteFallback = window.setTimeout(() => command.enabled && command.run(), 80);
           return;
         }
-        // A disabled nudge leaves the arrow keys alone (scrolling, focused widgets).
-        if (!command.enabled && id?.startsWith('edit.nudge')) return;
+        // Nudging leaves the arrow keys alone unless the page itself has focus: a disabled nudge,
+        // a key a widget already used (ribbon tabs, panels, dialogs), a focused control, or table cells.
+        if (id?.startsWith('edit.nudge')) {
+          const t = e.target;
+          const onPage = t === document.body || t === document.documentElement || t instanceof HTMLCanvasElement;
+          if (!command.enabled || e.defaultPrevented || !onPage || tools.getState().tableCells) return;
+        }
         if (command.enabled) command.run();
       }
       e.preventDefault();
