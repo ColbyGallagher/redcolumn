@@ -1,5 +1,6 @@
 import { BATCH_LABELS, type BatchKind } from '../components/BatchDialog';
 import { desktop } from '../desktop/host';
+import { applyCommandPolicy } from './commandPolicy';
 import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
@@ -553,5 +554,5 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),
     cmd('help.logs', 'Help', 'Send Log Files', () => a.help('logs')),
-  ];
+  ].map(applyCommandPolicy);
 }

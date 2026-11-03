@@ -235,6 +235,8 @@ export interface Settings {
   hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
+  /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
+  embedHostHooks: boolean;
 
   // Preferences laid out after Bluebeam Revu's. Those marked "stored" are kept, imported and
   // exported with the rest, but nothing in RedColumn reads them yet.
@@ -461,6 +463,7 @@ export const DEFAULT_SETTINGS: Settings = {
   startTips: true,
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
+  embedHostHooks: false,
 
   tabTruncation: 'end',
   startupFile: '',

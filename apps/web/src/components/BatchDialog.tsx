@@ -13,6 +13,7 @@ import { LtvOption, savedLtv, saveLtv, savedTsa, saveTsa, TimestampOption, tsaUr
 import { recalledPassword } from '../documents/idPasswords';
 import type { SplitSpec } from '../documents/pageTools';
 import { DEFAULT_SPLIT, SplitOptions } from './SplitOptions';
+import { commandPolicy } from '../commands/commandPolicy';
 
 export type Corner = 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight';
 
@@ -229,6 +230,9 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
         onSubmit={(e) => {
           e.preventDefault();
           if (!enough || running) return;
+          // The Command select offers every Bulk kind, so Run is where the kinds a host refuses are stopped.
+          const refused = commandPolicy(`batch.${kind}`).disabledReason;
+          if (refused) return void alert(refused);
           if (kind === 'sign') {
             saveTsa(tsa);
             saveLtv(ltv);

@@ -14,7 +14,7 @@ import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useView
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
@@ -107,6 +107,7 @@ import { VisualSearchPanel, type VisualSearchAction, type VisualSearchHit } from
 import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, ToolBar, toolShortcut, type ToolBarProps, type ToolEntry, type ToolGroup } from './components/ToolBar';
 import { Ribbon, ToolbarDisplayMenu } from './components/Ribbon';
 import { buildCommands, type Command, type CommandActions } from './commands/appCommands';
+import { commandPolicy } from './commands/commandPolicy';
 import { comboOf, formatCombo, keyMap } from './commands/keys';
 import { shortcutLabel } from './commands/shortcuts';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './components/ContextMenu';
@@ -181,6 +182,8 @@ import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { hostDocumentId } from './desktop/embedHost';
+import { tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
@@ -1844,6 +1847,9 @@ export function App() {
     [ctl],
   );
 
+  /** Set once `takeHostContents` is made (below, after what it uses). */
+  const takeHostContentsRef = useRef<(file: StoredFile, bytes: ArrayBuffer) => Promise<StoredFile>>(async (file) => file);
+
   const openNewFile = useCallback(
     async (f: File | File[], target: Pane = 'a') => {
       for (const file of Array.isArray(f) ? f : [f]) {
@@ -1853,11 +1859,15 @@ export function App() {
           const raw = image ? null : await file.arrayBuffer();
           const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
           const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+          const source = handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const stored = await saveFile(name, bytes.slice(0));
+          const hostId = hostDocumentId(tokenOf(source));
+          let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+          // An embedding application's document, opened again with other contents (saved over
+          // since, say): they come in as a change to it, so its markups and open tab follow.
+          if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
           // Save writes back over the file it came from, except pictures and protected PDFs
           // (which are kept unprotected here and must not replace the original).
-          const source = handleOf(file);
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           await openStored(stored, bytes, target);
         } catch (err) {
@@ -2325,6 +2335,26 @@ export function App() {
     },
     [ctl],
   );
+
+  /**
+   * New contents for an embedding application's document (desktop/embedHost.ts), brought in the
+   * way a Project revision is: the contents before are kept as a revision, markups this app wrote
+   * into the file stay hidden (the store has them), other tools' markups are imported.
+   */
+  const takeHostContents = useCallback(
+    async (file: StoredFile, bytes: ArrayBuffer): Promise<StoredFile> => {
+      const { open, release } = await acquireDocument(file.id);
+      try {
+        const found = await readPdfAnnotations(bytes.slice(0), open.store);
+        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), 'Before reopening from the embedding application');
+      } finally {
+        release();
+      }
+      return (await listFiles()).find((f) => f.id === file.id) ?? file;
+    },
+    [acquireDocument, commitDocument],
+  );
+  takeHostContentsRef.current = takeHostContents;
 
   /** A page of a library document as an image, for picking points and regions on. */
   const previewPage = useCallback(
@@ -6595,7 +6625,7 @@ export function App() {
           { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space'), onClick: () => void flattenSelected(pane, ms) },
+      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       grouped
         ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
         : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },

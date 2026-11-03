@@ -73,7 +73,14 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
     label: 'Import/Export',
     tabs: [{ id: 'images', label: 'Images' }],
   },
-  { id: 'advanced', label: 'Advanced', tabs: [{ id: 'offline', label: 'Offline' }] },
+  {
+    id: 'advanced',
+    label: 'Advanced',
+    tabs: [
+      { id: 'offline', label: 'Offline' },
+      { id: 'experimental', label: 'Experimental' },
+    ],
+  },
   {
     id: 'account',
     label: 'Account',
@@ -854,6 +861,14 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <span className="pref-search-words">{label('Offline storage OCR languages device')}</span>
         <OfflinePrefs />
       </div>
+    ),
+    experimental: () => (
+      <Grid>
+        <C>{check('embedHostHooks', 'Let an Embedding Application Set Document IDs and Turn Off Commands')}</C>
+        <C>
+          <span className="pref-note">For applications that run RedColumn inside them. Experimental: how it works may change.</span>
+        </C>
+      </Grid>
     ),
     // Account
     access: () => (
