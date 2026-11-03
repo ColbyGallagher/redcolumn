@@ -10,7 +10,7 @@ Find words in the document, in every open document, in your recent files or in a
 
    ![A search match highlighted on the drawing](img/search-hit.png)
 
-Use **Next** to step through the matches.
+Use **Next**, or the [[Down]] and [[Up]] arrow keys, to step through the matches. The view jumps to each one, and the list wraps from the last match back to the first.
 
 ## Where to search
 
