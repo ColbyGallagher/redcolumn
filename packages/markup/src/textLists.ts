@@ -388,11 +388,14 @@ export function layoutParagraphs(text: string, maxWidth: number, measure: (s: st
   return out;
 }
 
+/** Han, kana, Hangul and CJK punctuation: written without spaces, so a line may break after any of them. */
+const CJK_CHAR = '\\u2e80-\\u9fff\\uac00-\\ud7af\\uf900-\\ufaff\\uff00-\\uffef';
+
 /** Greedy word wrap of one paragraph. */
 export function wrapParagraph(para: string, maxWidth: number, measure: (s: string) => number): string[] {
   const lines: string[] = [];
   let line = '';
-  for (const word of para.split(/(\s+)/)) {
+  for (const word of para.split(new RegExp(`(\\s+|[${CJK_CHAR}])`)).filter((w) => w !== '')) {
     const next = line + word;
     if (line && measure(next.trimEnd()) > maxWidth) {
       lines.push(line.trimEnd());

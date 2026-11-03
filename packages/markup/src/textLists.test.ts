@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type TextEdit } from './textLists.ts';
+import { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, wrapParagraph, type TextEdit } from './textLists.ts';
 import { textBoxLines } from './render.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
@@ -144,4 +144,11 @@ test('a text box draws wrapped list lines indented, and right-aligned ones as a 
   assert.deepEqual(textBoxLines(m, measure).map((l) => [l.text, l.x]), [['1. aaa bbb', 4], ['ccc ddd', 34]]);
   const right = textBoxLines({ ...m, style: { ...m.style, textAlign: 'right' } }, measure);
   assert.equal(right[1]!.x + right[1]!.width, 104);
+});
+
+test('CJK text wraps between characters, which have no spaces to break at', () => {
+  const measure = (s: string) => s.length * 10;
+  assert.deepEqual(wrapParagraph('中文文本段落', 40, measure), ['中文文本', '段落']);
+  assert.deepEqual(wrapParagraph('abc 中文 def', 50, measure), ['abc 中', '文 def']);
+  assert.deepEqual(wrapParagraph('plain words only', 100, measure), ['plain', 'words only']);
 });

@@ -1872,7 +1872,7 @@ export interface ExportOptions {
    * Used in place of the standard fonts (even without `embedFont`) when some markup text has
    * characters they cannot show (Greek, Cyrillic), which would otherwise be drawn as question marks.
    */
-  fallbackFont?: (doc: PDFDocument, name: StandardFonts) => Promise<PDFFont>;
+  fallbackFont?: (doc: PDFDocument, name: StandardFonts, text: string) => Promise<PDFFont>;
   /**
    * Loads the PDF and later saves it, in place of a plain load and rewrite: e.g. to append the
    * changes as an incremental update, which keeps a signed file's signatures valid.
@@ -1965,7 +1965,9 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
 
   // Embed only the fonts some written markup's text or label uses.
   const fonts = new Map<StandardFonts, PDFFont>();
-  const embedder = options.fallbackFont && needsUnicodeFont(written) ? options.fallbackFont : options.embedFont;
+  // `fallbackFont` is told every character the markups draw, so it can pick a font that has them all (CJK).
+  const unicode = options.fallbackFont && needsUnicodeFont(written) ? [...new Set(written.flatMap(drawnStrings).join(''))].join('') : null;
+  const embedder = unicode !== null ? (d: PDFDocument, n: StandardFonts) => options.fallbackFont!(d, n, unicode) : options.embedFont;
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [

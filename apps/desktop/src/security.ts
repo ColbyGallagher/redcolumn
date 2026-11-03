@@ -69,8 +69,8 @@ export function harden(contents: WebContents) {
   });
 }
 
-/** Clipboard, camera, fullscreen and the storage the web app already asks for. */
-const ALLOWED_PERMISSIONS = new Set(['persistent-storage', 'fileSystem', 'clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'media']);
+/** Clipboard, camera, fullscreen, the installed fonts (CJK text in exported markups) and the storage the web app already asks for. */
+const ALLOWED_PERMISSIONS = new Set(['persistent-storage', 'fileSystem', 'clipboard-sanitized-write', 'clipboard-read', 'fullscreen', 'media', 'local-fonts']);
 
 /** Granted to the app's own origin only. Help windows and anything else get nothing. */
 export function installPermissions(session: Session) {
