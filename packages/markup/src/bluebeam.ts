@@ -126,8 +126,8 @@ export function cleanText(s: string): string {
   return s.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
 }
 
-/** Style bits from a /DS default-style string (CSS-like, as Acrobat and Bluebeam write it). */
-export function parseDefaultStyle(ds: string): Partial<MarkupStyle> {
+/** Style bits from a /DS default-style string (CSS-like, as Acrobat and Bluebeam write it). `fontSize` is the size to read a line height in pt against when the string sets none (the annotation's /DA size). */
+export function parseDefaultStyle(ds: string, fontSize?: number): Partial<MarkupStyle> {
   const out: Partial<MarkupStyle> = {};
   let lineHeight: string | undefined;
   for (const decl of ds.split(';')) {
@@ -167,8 +167,11 @@ export function parseDefaultStyle(ds: string): Partial<MarkupStyle> {
   // As a multiple of the font size, which may be declared after it: "13.8pt", "115%" and "1.15" all read the same.
   const n = lineHeight ? parseFloat(lineHeight) : NaN;
   if (n > 0) {
-    const mult = /pt\s*$/i.test(lineHeight!) ? n / (out.fontSize ?? 12) : /px\s*$/i.test(lineHeight!) ? (n * 0.75) / (out.fontSize ?? 12) : /%\s*$/.test(lineHeight!) ? n / 100 : n;
-    out.lineHeight = Math.round(mult * 1000) / 1000;
+    // A size of 0 means auto, so it is no size to divide by.
+    const size = out.fontSize || fontSize || 12;
+    const mult = /pt\s*$/i.test(lineHeight!) ? n / size : /px\s*$/i.test(lineHeight!) ? (n * 0.75) / size : /%\s*$/.test(lineHeight!) ? n / 100 : n;
+    // The panel's range; anything else (a non-finite result, a runaway value) is left at the default.
+    if (Number.isFinite(mult) && mult >= 0.5 && mult <= 5) out.lineHeight = Math.round(mult * 1000) / 1000;
   }
   return out;
 }

@@ -422,4 +422,13 @@ test('line-height in a default style reads as a multiple of the font size, in pt
   assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:2').lineHeight, 2);
   assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:normal').lineHeight, undefined);
   assert.equal(parseDefaultStyle('font: Helvetica 12pt').lineHeight, undefined);
+  // As the reference sample writes it (every FreeText), 12pt x 1.15 and 8pt x 1.15.
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt; color:#FF0000').lineHeight, 1.15);
+  assert.equal(parseDefaultStyle('font: Helvetica 8pt; text-align:left; line-height:9.2pt; color:#000000').lineHeight, 1.15);
+  // No size in /DS: the /DA size is the one a pt height is read against; a size of 0 (auto) is no size.
+  assert.equal(parseDefaultStyle('font: Helvetica; line-height:13.8pt', 10).lineHeight, 1.38);
+  assert.equal(parseDefaultStyle('font: Helvetica 0pt; line-height:13.8pt', 10).lineHeight, 1.38);
+  assert.equal(parseDefaultStyle('font: Helvetica 0pt; line-height:13.8pt').lineHeight, 1.15);
+  // Outside the panel's range it is left at the default.
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:600pt').lineHeight, undefined);
 });

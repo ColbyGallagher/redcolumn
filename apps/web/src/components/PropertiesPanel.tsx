@@ -794,6 +794,8 @@ const LINE_SPACINGS = [1, 1.15, 1.5, 2];
 function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
   const preset = value !== undefined && LINE_SPACINGS.includes(value);
   const [custom, setCustom] = useState(value !== undefined && !preset);
+  // A new selection starts from its own value, not the last one's Custom.
+  useEffect(() => setCustom(value !== undefined && !LINE_SPACINGS.includes(value)), [value]);
   const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
   return (
     <>
