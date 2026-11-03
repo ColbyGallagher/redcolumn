@@ -2968,8 +2968,14 @@ export class MarkupTools implements ViewerOverlay {
     } else {
       const m = this.store?.get(g.id);
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
-      g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
-      if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
+      if (m && m.type !== 'connector' && g.index < 4 && lockedRatio(m, e.shiftKey)) {
+        // The corner rides the box's diagonal, so snapping to a point off it would only mislead.
+        this.snapHit = null;
+        g.point = cornerKeepingAspect(m, g.index, toPoint(pt));
+      } else {
+        g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
+        if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
+      }
     }
     this.viewer.invalidate();
   }
@@ -4403,6 +4409,34 @@ function handleEdit(m: Markup, index: number, point: Point): Point[] {
   // Its new centre sits where the anchor is, plus its offset from the handle across, turned.
   const [ox, oy] = rotatePoint([c1[0] - across[0], c1[1] - across[1]], [0, 0], m.rotation);
   return edited.map((q): Point => [q[0] + anchor[0] + ox - c1[0], q[1] + anchor[1] + oy - c1[1]]);
+}
+
+/**
+ * Whether dragging a corner grip of `m` keeps its width / height ratio. Pictures, signatures and
+ * stamps hold it unless Shift is down; every other box is free unless Shift is down.
+ */
+function lockedRatio(m: Markup, shift: boolean): boolean {
+  if (TYPE_INFO[m.type].handles !== 'box' || m.points.length !== 2) return false;
+  const fixed = m.type === 'image' || m.type === 'signature' || m.type === 'stamp';
+  return fixed !== shift;
+}
+
+/** `point`, dragged from corner `index` of box `m`, moved onto the box's ratio (in its own frame, if turned). */
+function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
+  const [a, b] = [m.points[0]!, m.points[1]!];
+  const w = Math.abs(b[0] - a[0]);
+  const h = Math.abs(b[1] - a[1]);
+  if (!w || !h) return point;
+  const c0 = rotationCentre(m);
+  const u = m.rotation ? rotatePoint(point, c0, -m.rotation) : point;
+  const across = handlePositions({ ...m, rotation: 0 })[BOX_OPPOSITE[index]!]!;
+  // The pointer projected onto the diagonal from the corner across, so the size follows it in any direction.
+  const corner = handlePositions({ ...m, rotation: 0 })[index]!;
+  const dx = corner[0] - across[0];
+  const dy = corner[1] - across[1];
+  const t = ((u[0] - across[0]) * dx + (u[1] - across[1]) * dy) / (dx * dx + dy * dy);
+  const locked: Point = [across[0] + t * dx, across[1] + t * dy];
+  return m.rotation ? rotatePoint(locked, c0, m.rotation) : locked;
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */

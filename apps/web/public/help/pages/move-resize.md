@@ -14,6 +14,8 @@ First [select](#select) the markup with the Select tool ([[V]]).
 
 Drag a **square handle** at a corner or side.
 
+**Keeping the proportions:** pictures, signatures and stamps keep their width-to-height ratio when you drag a **corner** handle, so they don't get squashed by accident. Hold [[Shift]] to stretch them freely. Every other box (rectangle, ellipse, cloud and so on) resizes freely, and holding [[Shift]] locks its ratio instead. Side handles always move just that one edge, so they ignore the lock.
+
 ## Rotate
 
 - Drag the **round handle** above the markup. Hold [[Shift]] to turn in 15° steps.
