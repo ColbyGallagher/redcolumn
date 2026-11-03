@@ -125,6 +125,7 @@ test.describe('keyboard shortcuts', () => {
     await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
     await app.page.keyboard.press('End');
     await expect.poll(async () => (await app.view()).pageIndex).toBe(2);
+    await expect.poll(async () => (await app.command('view.firstPage')).enabled).toBe(true);
     await app.cmd('view.firstPage');
     await expect.poll(async () => (await app.view()).pageIndex).toBe(0);
     await app.page.keyboard.press(keys('Ctrl+Right'));
