@@ -159,6 +159,8 @@ turn it on under File › Preferences › MCP.
   connect to it. That includes what the tools return: the markup list, and, when the assistant asks
   to see or read a page, a picture of that page or part of it and its text, or a picture of stitched
   sheets joined together.
+- **AI Compare Documents** (Document menu) gives the connected client the text of two open documents, but
+  only when you press Compare in that panel or click Allow on the client's request. The panel shows the result, marked as the client's judgement.
 - Turning the assistant off stops the app listening. Quitting the desktop app stops it too.
 
 ## Children
