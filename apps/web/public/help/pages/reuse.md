@@ -15,4 +15,6 @@ Click **Reuse** in the status bar. It is on when it is highlighted.
 
 It is also in {{Tools > Reuse}} and [Preferences](#preferences) › **Tools** › **Markup** (**Reuse Tools**).
 
+The status bar also names the tool you have picked, with its shortcut, for example **Snapshot (G)**. Click the name to go back to Select. It is hidden while Select is active.
+
 > **Tip:** With Reuse on, press [[Esc]] (or [[V]]) when you have finished drawing, to go back to selecting.
