@@ -154,9 +154,9 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   ...CAD_TOOL_LABELS,
 };
 
-/** Tools that pick out an area of the page (drawn as a plain box, never snapped). */
-/** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. */
+/** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
+/** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
 const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion', 'teachMark']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
@@ -2641,7 +2641,7 @@ export class MarkupTools implements ViewerOverlay {
     this.store.checkpoint();
 
     if (REGION_TOOLS.has(tool)) {
-      const p = POLYGON_REGION_TOOLS.has(tool) ? this.resolve(pt, e, null) : toPoint(pt);
+      const p = tool === 'snapshot' ? this.resolve(pt, e, null) : toPoint(pt);
       const markup = this.newMarkup('rect', pageIndex, [p, p]);
       markup.style = { ...REGION_STYLE };
       this.setGesture({ kind: 'draw', markup });
@@ -2893,7 +2893,7 @@ export class MarkupTools implements ViewerOverlay {
         m.points = [m.points[0]!, constrain(m.type, m.points[0]!, toPoint(pt))];
       } else {
         // Boxes that pick out a region (a label region, viewport or symbol to search for) do not snap.
-        const region = REGION_TOOLS.has(this.state.tool) && !POLYGON_REGION_TOOLS.has(this.state.tool);
+        const region = REGION_TOOLS.has(this.state.tool) && this.state.tool !== 'snapshot';
         m.points = [m.points[0]!, m.type === 'text' || region ? toPoint(pt) : this.resolve(pt, e, null)];
       }
     } else if (g.kind === 'segment') {
@@ -3274,7 +3274,7 @@ export class MarkupTools implements ViewerOverlay {
       }
       this.resolve(pt, mods, null);
     } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
-    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || POLYGON_REGION_TOOLS.has(tool) || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
+    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'snapshot' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
   }

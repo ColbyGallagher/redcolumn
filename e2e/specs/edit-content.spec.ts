@@ -30,6 +30,19 @@ test.describe('erase content', () => {
     expect((await app.toolState()).tool).toBe('select');
   });
 
+  test('on a sheet turned by /Rotate 90, the outline lands where it was drawn', async ({ app }) => {
+    // Page 2 shows "TYPICAL CROSS SECTIONS" at x 100, baseline y 200, 20 pt. The triangle's upper-right half
+    // takes the end of the line (from about x 290); the box it sits in also holds the start, which stays.
+    await app.open('rotated.pdf');
+    await app.cmd('view.nextPage');
+    await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+    expect(await app.search('SECTIONS')).toEqual([2]);
+    await app.cmd('edit.eraseContent');
+    await app.clicks([[200, 170], [360, 170], [360, 210], [200, 170]]);
+    await expect.poll(() => app.search('SECTIONS'), { timeout: 30_000 }).toEqual([]);
+    expect(await app.search('TYPICAL')).toEqual([2]);
+  });
+
   test('dragging still erases the whole box', async ({ app }) => {
     await app.tool('eraseContent');
     await app.drag([410, 315], [480, 340]);

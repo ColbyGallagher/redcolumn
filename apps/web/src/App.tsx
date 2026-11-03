@@ -2675,17 +2675,7 @@ export function App() {
       }
       const overlaps = (m: Markup) => {
         const b = boundsOf(m.points);
-        return areas.some((a) => {
-          if (a.pageIndex !== m.pageIndex || !(b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y)) return false;
-          // Inside a polygon's bounds: a markup point in it, or a polygon corner in the markup's box, or the box's centre.
-          if (!a.polygon) return true;
-          const poly = a.polygon;
-          return (
-            m.points.some((p) => pointInPolygon(p, poly)) ||
-            poly.some(([x, y]) => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) ||
-            pointInPolygon([b.x + b.w / 2, b.y + b.h / 2], poly)
-          );
-        });
+        return areas.some((a) => a.pageIndex === m.pageIndex && b.x < a.rect.x + a.rect.w && b.x + b.w > a.rect.x && b.y < a.rect.y + a.rect.h && b.y + b.h > a.rect.y);
       };
       const gone = redacting ? cur.store.all().filter((m) => m.type === 'redaction' || overlaps(m)) : erase?.removeMarkups ? cur.store.all().filter(overlaps) : [];
       await swapDocument(cur, intoB, bytes, () => gone.length && cur.store.remove(gone.map((m) => m.id)), undefined, redacting ? 'Redact' : 'Erase content');
@@ -5404,7 +5394,8 @@ export function App() {
         g.beginPath();
         polygonInPixels(polygon, region.scale, region.originPx).forEach(([px, py], i) => (i ? g.lineTo(px, py) : g.moveTo(px, py)));
         g.closePath();
-        g.clip();
+        // Even-odd, as the erase decides what is inside an outline that crosses itself.
+        g.clip('evenodd');
         g.drawImage(canvas, 0, 0);
         canvas = clipped;
       }

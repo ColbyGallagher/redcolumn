@@ -1220,6 +1220,16 @@ async function redact(bytes: ArrayBuffer, req: RedactRequest, id: number): Promi
             m.FPDFPath_SetDrawMode(rect, 1, false);
             m.FPDFPage_InsertObject(page, rect);
           }
+          // Outlined regions are covered by their outline.
+          for (const area of areas) {
+            if (!area.poly || area.poly.length < 3) continue;
+            const path = m.FPDFPageObj_CreateNewPath(area.poly[0]![0], area.poly[0]![1]);
+            for (const p of area.poly.slice(1)) m.FPDFPath_LineTo(path, p[0], p[1]);
+            m.FPDFPath_Close(path);
+            m.FPDFPageObj_SetFillColor(path, r, g, b, 255);
+            m.FPDFPath_SetDrawMode(path, 1, false);
+            m.FPDFPage_InsertObject(page, path);
+          }
           const label = req.overlayText?.trim();
           if (label) {
             const font = m.FPDFText_LoadStandardFont(doc.handle, 'Helvetica-Bold');
