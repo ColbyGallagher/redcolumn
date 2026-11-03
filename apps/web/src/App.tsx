@@ -755,8 +755,8 @@ async function annotatedBytes(
   return exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
     ...(appending ? { open: async (b: ArrayBuffer) => (await import('./documents/incremental')).openAppending(b) } : {}),
-    // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it.
-    fallbackFont: async (doc, name) => (await import('./documents/archiveFonts')).embedFontOrStandard(doc, name),
+    // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it, and an installed font shows CJK.
+    fallbackFont: async (doc, name, text) => (await import('./documents/archiveFonts')).embedFontForText(doc, name, text),
     scaleFor: (i) => cur.store.scaleFor(i),
     viewports: cur.store.allViewports(),
     links: options.links === false ? [] : cur.store.allLinks(),

@@ -36,6 +36,30 @@ test.describe('text search', () => {
     await expect.poll(async () => (await app.documents())[0]!.page).toBe(2);
   });
 
+  test('steps through results with Up and Down, wrapping at either end', async ({ app }) => {
+    await search(app, 'DOOR');
+    const hits = PLAN.search.DOOR!.hits;
+    await expect(app.page.locator('.search-hit')).toHaveCount(hits);
+    const input = app.page.locator('.search-bar input[placeholder="Search text"]');
+    const active = app.page.locator('.search-hit.active');
+    const index = () => app.page.locator('.search-hit').evaluateAll((els) => els.findIndex((el) => el.classList.contains('active')));
+    expect(await index()).toBe(0);
+    await input.press('ArrowDown');
+    expect(await index()).toBe(1);
+    await input.press('ArrowUp');
+    await input.press('ArrowUp');
+    // Up from the first result wraps to the last, Down from the last back to the first.
+    expect(await index()).toBe(hits - 1);
+    await input.press('ArrowDown');
+    expect(await index()).toBe(0);
+    await expect(active).toHaveCount(1);
+    await expect.poll(async () => (await app.documents())[0]!.page).toBe(PLAN.search.DOOR!.firstPage + 1);
+    // Still works after a click puts the focus on a result.
+    await app.page.locator('.search-hit').nth(1).click();
+    await app.page.keyboard.press('ArrowDown');
+    expect(await index()).toBe(2);
+  });
+
   test('reports no matches', async ({ app }) => {
     await search(app, 'WINDOW');
     await expect(app.page.locator('.search .empty')).toHaveText(/No matches\./);
