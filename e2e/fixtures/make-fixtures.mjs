@@ -165,6 +165,24 @@ async function plan(rev = 0) {
   return doc.save({ useObjectStreams: false });
 }
 
+/**
+ * crowded.pdf: one sheet with a grid of 30 x 25 tags; `rev` 1 renumbers every one of them, so a
+ * compare finds far more differences than a page keeps (as when two revisions do not line up).
+ */
+async function crowded(rev = 0) {
+  const doc = await PDFDocument.create();
+  doc.setTitle(rev ? `E2E crowded rev ${rev}` : 'E2E crowded');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const page = doc.addPage([W, H]);
+  for (let row = 0; row < 25; row++)
+    for (let col = 0; col < 30; col++) page.drawText(`${rev ? 'B' : 'A'}${row * 30 + col}`, { x: 20 + col * 40, y: H - 30 - row * 30, size: 8, font, color: black });
+  return doc.save({ useObjectStreams: false });
+}
+
 /** Three sheets with title blocks: a room name and a scale note in the same place on each. */
 async function sheets() {
   const doc = await PDFDocument.create();
@@ -434,7 +452,9 @@ writeFileSync(join(here, 'marks.pdf'), await marks());
 writeFileSync(join(here, 'chainage.pdf'), await chainage());
 writeFileSync(join(here, 'rotated.pdf'), await rotated());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
+writeFileSync(join(here, 'crowded.pdf'), await crowded());
+writeFileSync(join(here, 'crowded-rev1.pdf'), await crowded(1));
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, rotated.pdf, stitch.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, rotated.pdf, stitch.pdf, crowded.pdf, crowded-rev1.pdf, picture.png, notes.txt, expected.json');

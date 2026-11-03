@@ -3817,7 +3817,34 @@
 }
 
 .compare-results .compare-page {
+  display: block;
+  width: 100%;
   margin-bottom: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compare-results .compare-page:disabled {
+  cursor: default;
+}
+
+.compare-results .compare-page:not(:disabled)::before {
+  content: '\25B8';
+  display: inline-block;
+  width: 1em;
+}
+
+.compare-results .compare-page.open::before {
+  content: '\25BE';
+}
+
+.compare-results .compare-warning {
+  color: #e0a030;
 }
 
 .compare-results .muted {

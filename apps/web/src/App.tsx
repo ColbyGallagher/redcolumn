@@ -2517,11 +2517,12 @@ export function App() {
           });
           const sheets = done.reduce((n, r) => n + r.pages.length, 0);
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
+          const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
             setNotice('No sheets in the two sets matched.');
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
+          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
           const most = done.reduce((a, b) => (b.pages.reduce((m, p) => m + p.differences.length, 0) > a.pages.reduce((m, p) => m + p.differences.length, 0) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
@@ -2533,6 +2534,8 @@ export function App() {
       }
       try {
         const results = await runJob('Compare Documents', (ctx) => compareFiles(spec, ctx));
+        const crowded = results.pages.filter((p) => p.found).length;
+        if (crowded) setNotice(`Compare: ${crowded === 1 ? 'one page had' : `${crowded} pages had`} too many differences to mark one by one, so nearby ones were grouped. The pages may not line up.`);
         setCompareResults(results);
         await sideBySideRef.current(results.oldId, results.newId);
       } catch (err) {

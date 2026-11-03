@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffMasks, diffWords, dilate, findOffset, inkMask, mergeBoxes, type Mask } from './diff.ts';
+import { coarsen, diffMasks, diffWords, dilate, findOffset, inkMask, mergeBoxes, type Difference, type Mask } from './diff.ts';
 
 function blank(width: number, height: number): Mask {
   return { width, height, data: new Uint8Array(width * height) };
@@ -114,4 +114,33 @@ test('a word swapped for another is a change even when its pixels only grew', ()
   const merged = mergeBoxes([graphics, ...words]);
   assert.equal(merged.length, 1);
   assert.equal(merged[0]!.kind, 'changed');
+});
+
+test('mergeBoxes joins chains, and boxes a merged box reaches', () => {
+  const d = (x: number, y: number, w = 10, h = 10): Difference => ({ x, y, w, h, kind: 'added', added: 1, removed: 0 });
+  // A chain left to right is one box.
+  assert.equal(mergeBoxes([d(0, 0), d(8, 0), d(16, 0), d(24, 0)]).length, 1);
+  // (0,0) and (30,30) only touch once the first two have become one box reaching (35,35).
+  const merged = mergeBoxes([d(0, 0, 10, 40), d(5, 0, 40, 10), d(30, 30)]);
+  assert.equal(merged.length, 1);
+  assert.deepEqual([merged[0]!.x, merged[0]!.y, merged[0]!.w, merged[0]!.h], [0, 0, 45, 40]);
+});
+
+test('thousands of changed words compare quickly', () => {
+  const words = Array.from({ length: 16000 }, (_, i) => ({ text: `W${i % 40}`, x0: (i % 160) * 15, y0: Math.floor(i / 160) * 12, x1: (i % 160) * 15 + 12, y1: Math.floor(i / 160) * 12 + 8 }));
+  const t = performance.now();
+  // Every word changed in place: 32 000 boxes, overlapping in pairs.
+  const diffs = diffWords(words.map((w) => ({ ...w, text: `${w.text}x` })), words);
+  assert.ok(performance.now() - t < 5000, `took ${performance.now() - t} ms`);
+  assert.ok(diffs.length > 0 && diffs.every((d) => d.kind === 'changed'));
+});
+
+test('coarsen merges down to at most max boxes, keeping the totals', () => {
+  const list: Difference[] = Array.from({ length: 2000 }, (_, i) => ({ x: (i % 50) * 20, y: Math.floor(i / 50) * 20, w: 8, h: 8, kind: 'added', added: 3, removed: 0 }));
+  assert.equal(coarsen(list, 3000), list);
+  const out = coarsen(list, 100);
+  assert.ok(out.length <= 100 && out.length > 0);
+  assert.equal(out.reduce((n, d) => n + d.added, 0), 6000);
+  // Still covers every original box.
+  for (const b of list) assert.ok(out.some((o) => b.x >= o.x && b.y >= o.y && b.x + b.w <= o.x + o.w && b.y + b.h <= o.y + o.h));
 });

@@ -257,28 +257,112 @@ function kindOf(added: number, removed: number, words?: { added: number; removed
 
 const touches = (a: Box, b: Box) => a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
 
-/** Merges boxes that overlap until none do. */
+/** One box around all of `group`, with their changes added up. */
+function union(group: Difference[]): Difference {
+  if (group.length === 1) return group[0]!;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  let added = 0;
+  let removed = 0;
+  let wordsAdded = 0;
+  let wordsRemoved = 0;
+  let hasWords = false;
+  for (const b of group) {
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+    added += b.added;
+    removed += b.removed;
+    if (b.words) {
+      hasWords = true;
+      wordsAdded += b.words.added;
+      wordsRemoved += b.words.removed;
+    }
+  }
+  const words = hasWords ? { added: wordsAdded, removed: wordsRemoved } : undefined;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0, added, removed, ...(words ? { words } : {}), kind: kindOf(added, removed, words) };
+}
+
+/**
+ * Merges boxes that overlap until none do. Touching boxes are found with a sweep along x and
+ * joined into groups; a group's box can reach boxes none of its members did, so this repeats
+ * until a pass merges nothing. Thousands of boxes stay quick (a page that did not line up).
+ */
 export function mergeBoxes(list: Difference[]): Difference[] {
-  const boxes = [...list];
-  for (let merged = true; merged; ) {
-    merged = false;
-    outer: for (let i = 0; i < boxes.length; i++)
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i]!;
-        const b = boxes[j]!;
-        if (!touches(a, b)) continue;
-        const x = Math.min(a.x, b.x);
-        const y = Math.min(a.y, b.y);
-        const added = a.added + b.added;
-        const removed = a.removed + b.removed;
-        const words = a.words || b.words ? { added: (a.words?.added ?? 0) + (b.words?.added ?? 0), removed: (a.words?.removed ?? 0) + (b.words?.removed ?? 0) } : undefined;
-        boxes[i] = { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y, added, removed, ...(words ? { words } : {}), kind: kindOf(added, removed, words) };
-        boxes.splice(j, 1);
-        merged = true;
-        break outer;
+  let boxes = [...list];
+  for (;;) {
+    const n = boxes.length;
+    const parent = Array.from({ length: n }, (_, i) => i);
+    const find = (i: number): number => {
+      while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!;
+      return i;
+    };
+    const order = boxes.map((_, i) => i).sort((a, b) => boxes[a]!.x - boxes[b]!.x);
+    let active: number[] = [];
+    let joined = false;
+    for (const i of order) {
+      const b = boxes[i]!;
+      // Boxes ending left of this one can touch nothing further right.
+      active = active.filter((k) => boxes[k]!.x + boxes[k]!.w >= b.x);
+      for (const k of active) {
+        if (!touches(boxes[k]!, b)) continue;
+        const ri = find(i);
+        const rk = find(k);
+        if (ri !== rk) {
+          parent[ri] = rk;
+          joined = true;
+        }
       }
+      active.push(i);
+    }
+    if (!joined) break;
+    const groups = new Map<number, Difference[]>();
+    for (let i = 0; i < n; i++) {
+      const r = find(i);
+      const g = groups.get(r);
+      if (g) g.push(boxes[i]!);
+      else groups.set(r, [boxes[i]!]);
+    }
+    boxes = [...groups.values()].map(union);
   }
   return boxes.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/**
+ * At most `max` boxes: when there are more (pages that did not line up, or a sheet redrawn
+ * throughout), the area they cover is cut into at most `max` tiles and each tile's boxes become
+ * one box around them, so the changed areas are still marked, in bigger pieces.
+ */
+export function coarsen(list: Difference[], max: number): Difference[] {
+  if (list.length <= max) return list;
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const b of list) {
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+  }
+  // Tiles about square, as many as fit in `max`.
+  const w = Math.max(x1 - x0, 1);
+  const h = Math.max(y1 - y0, 1);
+  const cols = Math.max(1, Math.min(max, Math.floor(Math.sqrt((max * w) / h))));
+  const rows = Math.max(1, Math.floor(max / cols));
+  const tiles = new Map<number, Difference[]>();
+  for (const b of list) {
+    // A box goes to the tile its middle is in.
+    const c = Math.min(cols - 1, Math.floor(((b.x + b.w / 2 - x0) / w) * cols));
+    const r = Math.min(rows - 1, Math.floor(((b.y + b.h / 2 - y0) / h) * rows));
+    const tile = tiles.get(r * cols + c);
+    if (tile) tile.push(b);
+    else tiles.set(r * cols + c, [b]);
+  }
+  return [...tiles.values()].map(union).sort((a, b) => a.y - b.y || a.x - b.x);
 }
 
 /** A word with its box, in page points. */
@@ -309,11 +393,27 @@ export function diffWords(oldWords: readonly Word[], newWords: readonly Word[], 
     removed: 0,
     words: { added: kind === 'added' ? 1 : 0, removed: kind === 'removed' ? 1 : 0 },
   });
+  // Old words by text and by cell of `tolerance` size, so each new word only looks at its neighbours.
+  const cellOf = (v: number) => Math.floor(v / Math.max(tolerance, 1));
+  const cells = new Map<string, number[]>();
+  moved.forEach((o, k) => {
+    if (!key(o)) return;
+    const id = `${cellOf(o.x0)},${cellOf(o.y0)},${key(o)}`;
+    const list = cells.get(id);
+    if (list) list.push(k);
+    else cells.set(id, [k]);
+  });
   const out: Difference[] = [];
   const used = new Set<number>();
   for (const w of newWords) {
     if (!key(w)) continue;
-    const i = moved.findIndex((o, k) => !used.has(k) && matches(o, w));
+    // The first unused old word that matches, as in reading order.
+    let i = -1;
+    const cx = cellOf(w.x0);
+    const cy = cellOf(w.y0);
+    for (let oy = -1; oy <= 1; oy++)
+      for (let ox = -1; ox <= 1; ox++)
+        for (const k of cells.get(`${cx + ox},${cy + oy},${key(w)}`) ?? []) if ((i < 0 || k < i) && !used.has(k) && matches(moved[k]!, w)) i = k;
     if (i >= 0) used.add(i);
     else out.push(box(w, 'added'));
   }
