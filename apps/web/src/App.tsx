@@ -5512,6 +5512,9 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
+  const activePages = activeOpen?.doc.pages;
+  const scaleRows = useMemo(() => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales) : []), [scaleReviewOpen, activePages, sheets, scales]);
   /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
   const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
     setBulkInsertFiles(null);
@@ -10633,7 +10636,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {scaleReviewOpen && activeOpen && (
         <SheetScaleReview
           key={activeOpen.file.id}
-          rows={scaleReviewRows(activeOpen.doc.pages, sheets, scales)}
+          rows={scaleRows}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           currentPage={pageIndex}
           readOnly={activeOpen.store.readOnly}

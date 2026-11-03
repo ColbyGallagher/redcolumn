@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Scale } from '@nb/measure';
 import { defaultPicks, needsReview, type ScaleReviewRow, type ScaleReviewStatus } from '../measure/scaleReview';
 
@@ -34,6 +34,15 @@ const paperOf = (r: ScaleReviewRow) => r.actual?.paper.name ?? '—';
 export function SheetScaleReview({ rows, pageLabel, currentPage, readOnly, onShow, onApply, onClose }: Props) {
   const [show, setShow] = useState<'review' | 'all'>('review');
   const [picked, setPicked] = useState<Set<number>>(() => defaultPicks(rows));
+  // Picks are by page index: when pages move, sheets are read or scales change, start them again
+  // so Apply never reaches a page nobody ticked.
+  const rowsKey = rows.map((r) => `${r.page}:${r.status}:${r.proposed?.label ?? ''}`).join('|');
+  const seenKey = useRef(rowsKey);
+  useEffect(() => {
+    if (seenKey.current === rowsKey) return;
+    seenKey.current = rowsKey;
+    setPicked(defaultPicks(rows));
+  }, [rowsKey, rows]);
   const shown = rows.filter((r) => show === 'all' || needsReview(r));
   const applicable = rows.filter((r) => r.proposed && r.status !== 'matches' && picked.has(r.page));
   const counts = rows.reduce<Partial<Record<ScaleReviewStatus, number>>>((c, r) => ({ ...c, [r.status]: (c[r.status] ?? 0) + 1 }), {});

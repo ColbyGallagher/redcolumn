@@ -129,6 +129,12 @@ export interface EffectiveScale {
    * padded rather than only resized, and the corrected scale should be checked before use.
    */
   aspectMismatch: boolean;
+  /**
+   * The page is a different length from the stated sheet but not a standard sheet of the same
+   * family (an A1 drawing exported with a border, or put on an ANSI sheet), so it may have been
+   * padded rather than resized, and the corrected scale should be checked before use.
+   */
+  unknownSize: boolean;
 }
 
 /**
@@ -144,17 +150,18 @@ export function effectiveScale(scaleText: string, width: number, height: number,
   if (!statements.length) return null;
   const actual = matchPaper(width, height);
   const statement = (actual && statements.find((s) => s.paper?.name === actual.paper.name)) ?? statements[0]!;
-  if (!statement.paper) return { scale: statement.scale, statement, actual, printRatio: 1, aspectMismatch: false };
+  if (!statement.paper) return { scale: statement.scale, statement, actual, printRatio: 1, aspectMismatch: false, unknownSize: false };
   const pageLong = Math.max(width, height) / POINTS_PER_MM;
   const pageShort = Math.min(width, height) / POINTS_PER_MM;
   const printRatio = pageLong / statement.paper.heightMm;
   const aspectMismatch = Math.abs(pageLong / pageShort / (statement.paper.heightMm / statement.paper.widthMm) - 1) > 0.03;
-  if (Math.abs(printRatio - 1) < 0.015) return { scale: statement.scale, statement, actual, printRatio: 1, aspectMismatch };
+  if (Math.abs(printRatio - 1) < 0.015) return { scale: statement.scale, statement, actual, printRatio: 1, aspectMismatch, unknownSize: false };
   const scale: Scale = {
     ...statement.scale,
     metersPerPoint: statement.scale.metersPerPoint / printRatio,
     ...(statement.scale.yMetersPerPoint ? { yMetersPerPoint: statement.scale.yMetersPerPoint / printRatio } : {}),
     label: `${statement.scale.label} @ ${statement.paper.name} (on ${actual?.paper.name ?? `${Math.round(pageLong)} mm sheet`})`,
   };
-  return { scale, statement, actual, printRatio, aspectMismatch };
+  const unknownSize = !actual || actual.paper.family !== statement.paper.family;
+  return { scale, statement, actual, printRatio, aspectMismatch, unknownSize };
 }

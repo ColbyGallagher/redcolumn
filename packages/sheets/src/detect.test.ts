@@ -285,3 +285,30 @@ test('a NOT TO SCALE note on an inset map is not taken for the sheet scale', () 
   };
   assert.equal(detectSheets([page])[0]!.scaleText, '1:500 @ A1');
 });
+
+test('a sheet size written before the scale on one line is moved after it', () => {
+  for (const line of ['SCALE @A1 1:500', 'SCALE AT A1 1:500', 'SCALE @ A1 1:500']) {
+    const page: PageText = { width: W, height: H, words: [...phrase('ROAD PLAN', 2250, 1560, 14), ...phrase(line, 2250, 1610, 8), word('C-102', 2450, 1700, 28)] };
+    assert.equal(detectSheets([page])[0]!.scaleText, '1:500 @ A1', line);
+  }
+});
+
+test('a key plan scale near the title block does not beat the scale cell', () => {
+  const page: PageText = {
+    width: W,
+    height: H,
+    words: [...phrase('KEY PLAN SCALE 1:10000', 2000, 1450, 8), ...phrase('ROAD PLAN', 2250, 1560, 14), ...phrase('SCALE @ A1', 2250, 1610, 6), word('1:500', 2250, 1630, 12), word('C-102', 2450, 1700, 28)],
+  };
+  assert.equal(detectSheets([page])[0]!.scaleText, '1:500 @ A1');
+});
+
+test('a note that mentions a sheet size is not the sheet size', () => {
+  const page: PageText = {
+    width: W,
+    height: H,
+    words: [...phrase('ROAD PLAN', 2250, 1560, 14), ...phrase('SCALE 1:500', 2250, 1610, 8), ...phrase('IF PRINTED AT REDUCED SIZE A3 SCALE IS HALVED', 1950, 1640, 6), word('C-102', 2450, 1700, 28)],
+  };
+  const [r] = detectSheets([page]);
+  assert.equal(r!.scaleText, '1:500');
+  assert.equal(r!.paperText, null);
+});

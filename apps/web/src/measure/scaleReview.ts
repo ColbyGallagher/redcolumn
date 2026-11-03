@@ -1,4 +1,4 @@
-import { effectiveScale, matchPaper, type PaperMatch, type Scale } from '@nb/measure';
+import { effectiveScale, matchPaper, METERS_PER_UNIT, type PaperMatch, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 
 /**
@@ -6,8 +6,9 @@ import type { SheetInfo } from '@nb/sheets';
  * - `ready`: the title block gives a scale for the page's own sheet size.
  * - `resized`: the page was saved at another size than the scale was written for (A1 as A3), so
  *   the proposed scale is corrected for it.
- * - `check`: the page's proportions differ from the stated sheet's (cropped or padded), so the
- *   proposed scale needs checking against a known length.
+ * - `check`: the proposed scale needs checking against a known length: the page's proportions
+ *   differ from the stated sheet's (cropped or padded), it is resized onto a sheet that is not a
+ *   standard size of the same family, or the scale is implausibly large for a drawing (1:1).
  * - `matches`: the page's scale is set and agrees with the title block.
  * - `differs`: the page's scale is set and disagrees with the title block.
  * - `nts`: the title block says not to scale (NTS, AS NOTED, AS SHOWN).
@@ -31,6 +32,9 @@ export interface ScaleReviewRow {
   status: ScaleReviewStatus;
 }
 
+/** Below 1:2 a title-block scale is far more likely misread (1:1,000 as 1:1) than a full-size sheet. */
+const MIN_PLAUSIBLE_METERS_PER_POINT = (2 * METERS_PER_UNIT.in) / 72;
+
 const NOT_TO_SCALE = /\b(NTS|N\.T\.S\.?|NOT TO SCALE|AS NOTED|AS SHOWN|VARIES)\b/i;
 
 /** Whether two scales measure the same, within half a percent. */
@@ -53,7 +57,7 @@ export function scaleReviewRows(sizes: readonly { width: number; height: number 
     const effective = effectiveScale(text, size.width, size.height, sheet?.paperText);
     if (!effective) return { ...row, status: NOT_TO_SCALE.test(text) ? 'nts' : 'none' };
     const proposed = effective.scale;
-    const status: ScaleReviewStatus = current ? (sameScale(current, proposed) ? 'matches' : 'differs') : effective.aspectMismatch ? 'check' : effective.printRatio === 1 ? 'ready' : 'resized';
+    const status: ScaleReviewStatus = current ? (sameScale(current, proposed) ? 'matches' : 'differs') : effective.aspectMismatch || effective.unknownSize || proposed.metersPerPoint < MIN_PLAUSIBLE_METERS_PER_POINT ? 'check' : effective.printRatio === 1 ? 'ready' : 'resized';
     return { ...row, stated: effective.statement.paper?.name ?? null, proposed, printRatio: effective.printRatio, status };
   });
 }

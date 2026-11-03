@@ -26,3 +26,9 @@ test('pages already scaled are compared against the title block, and NTS or miss
   assert.deepEqual([...defaultPicks(rows)], []);
   assert.deepEqual(rows.filter(needsReview).map((r) => r.page), [1, 2, 3]);
 });
+
+test('padded pages and implausibly large scales are left for checking', () => {
+  const rows = scaleReviewRows([mm(901, 654), A1], { 0: sheet('1:500 @ A1'), 1: sheet('1:1') }, {});
+  assert.deepEqual(rows.map((r) => r.status), ['check', 'check']);
+  assert.deepEqual([...defaultPicks(rows)], []);
+});

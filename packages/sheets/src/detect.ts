@@ -317,39 +317,71 @@ function valueBelow(label: Word, nearby: readonly Word[], value: RegExp): Word |
   let best: Word | null = null;
   for (const l of nearby) {
     if (l === label || l.y0 < label.y1 - 1 || l.y0 - label.y1 > reach) continue;
-    if (l.x0 > label.x1 + pad || l.x1 < label.x0 - pad || !value.test(l.text)) continue;
+    if (l.x0 > label.x1 + pad || l.x1 < label.x0 - pad || !value.test(oneSpaced(l.text))) continue;
     if (!best || l.y0 < best.y0) best = l;
   }
   return best;
 }
 
-const SCALE_VALUE = /(=|\d\s*:\s*\d|NTS|NOT TO SCALE|AS NOTED|AS SHOWN)/i;
-const PAPER_VALUE = /^\s*((?:ANSI|ARCH)\s*-?\s*(?:E1|[A-E])|[AB][0-6])\s*$/i;
+const SCALE_VALUE = /(=|\d ?: ?\d|NTS|NOT TO SCALE|AS NOTED|AS SHOWN)/i;
+const PAPER_VALUE = /^((?:ANSI|ARCH)[ -]{0,3}(?:E1|[A-E])|[AB][0-6])$/i;
+const PAPER_LINE = /^(?:(?:SHEET|PAPER|ORIGINAL) )?SIZE[ :]*((?:ANSI|ARCH)[ -]{0,3}(?:E1|[A-E])|[AB][0-6])?$/i;
+
+/** A line's text trimmed, with each run of white space as one space. */
+function oneSpaced(text: string): string {
+  return text.trim().replace(/\s+/g, ' ');
+}
+
+/**
+ * The scale written after `SCALE` on a line (`SCALE: 1:500`), with a sheet size written first
+ * moved after it (`SCALE @A1 1:500` reads `1:500 @ A1`). `atStart`: only where the line starts
+ * with `SCALE`, as a title block's own label does.
+ */
+function inlineScale(text: string, atStart: boolean): string | null {
+  const after = (atStart ? /^SCALE\b[ :]*(.*)$/i : /\bSCALE\b[ :]*(.*)$/i).exec(text)?.[1];
+  if (!after || !SCALE_VALUE.test(after)) return null;
+  const sized = /^(?:@|AT\b) ?(\S+) (.+)$/i.exec(after);
+  if (!sized) return after;
+  return SCALE_VALUE.test(sized[2]!) ? `${sized[2]} @ ${sized[1]!.toUpperCase()}` : null;
+}
 
 function findScaleText(page: PageText, numberWord: Word): string | null {
   const nearby = titleBlockLines(page, numberWord);
-  // The value follows the label on its line (`SCALE: 1:500`); a note such as NOT TO SCALE on an
-  // inset map is not the sheet's scale.
-  for (const l of nearby) {
-    const after = /\bSCALE\b\s*:?\s*(.*)$/i.exec(l.text)?.[1]?.trim();
-    if (after && SCALE_VALUE.test(after) && !/^(@|AT)\b/i.test(after)) return after;
+  const texts = nearby.map((l) => oneSpaced(l.text));
+  // Best first: a line that starts with SCALE and holds the value; then a SCALE label cell with
+  // its value underneath (the label can name the sheet size, `SCALE @ A1`); last, SCALE inside a
+  // line. A key plan's `KEY PLAN SCALE 1:10000` or an inset's NOT TO SCALE is not the sheet's.
+  for (const t of texts) {
+    const inline = inlineScale(t, true);
+    if (inline) return inline;
   }
-  // A label cell with its value underneath; the label can name the sheet size (`SCALE @ A1`).
-  const label = nearby.find((l) => /^\s*SCALE\b/i.test(l.text));
-  const value = label && valueBelow(label, nearby, SCALE_VALUE);
-  if (!value) return null;
-  const paper = /(?:@|\bAT\b)\s*(\S+)/i.exec(label.text)?.[1];
-  return paper && !/@|\bAT\b/i.test(value.text) ? `${value.text.trim()} @ ${paper.toUpperCase()}` : value.text.trim();
+  const i = texts.findIndex((t) => /^SCALE\b/i.test(t));
+  const value = i >= 0 ? valueBelow(nearby[i]!, nearby, SCALE_VALUE) : null;
+  if (value) {
+    const paper = /(?:@|\bAT\b) ?(\S+)/i.exec(texts[i]!)?.[1];
+    const v = oneSpaced(value.text);
+    return paper && !/@|\bAT\b/i.test(v) ? `${v} @ ${paper.toUpperCase()}` : v;
+  }
+  for (const t of texts) {
+    const inline = inlineScale(t, false);
+    if (inline) return inline;
+  }
+  return null;
 }
 
-/** A sheet size printed in its own title-block box near the sheet number (`SHEET SIZE A1`, `SIZE: ANSI D`). */
+/**
+ * A sheet size in its own title-block box near the sheet number: `SHEET SIZE A1` or `SIZE: ANSI D`
+ * as a whole line, or a `SHEET SIZE` label with the size underneath. Not a note that mentions one
+ * (`IF PRINTED AT REDUCED SIZE A3 ...`).
+ */
 function findPaperText(page: PageText, numberWord: Word): string | null {
   const nearby = titleBlockLines(page, numberWord);
-  const hit = nearby.map((l) => /\b(?:(?:SHEET|PAPER|ORIGINAL)\s+)?SIZE\s*:?\s*((?:ANSI|ARCH)\s*-?\s*(?:E1|[A-E])|[AB][0-6])\b/i.exec(l.text)).find(Boolean);
-  if (hit) return hit[1]!.toUpperCase();
-  const label = nearby.find((l) => /^\s*(?:(?:SHEET|PAPER|ORIGINAL)\s+)?SIZE\s*:?\s*$/i.test(l.text));
-  const value = label && valueBelow(label, nearby, PAPER_VALUE);
-  return value ? PAPER_VALUE.exec(value.text)![1]!.toUpperCase().replace(/\s+/g, ' ') : null;
+  const lines = nearby.map((l) => PAPER_LINE.exec(oneSpaced(l.text)));
+  const hit = lines.find((m) => m?.[1]);
+  if (hit) return hit[1]!.toUpperCase().replace(/[ -]+/g, ' ');
+  const i = lines.findIndex(Boolean);
+  const value = i >= 0 ? valueBelow(nearby[i]!, nearby, PAPER_VALUE) : null;
+  return value ? PAPER_VALUE.exec(oneSpaced(value.text))![1]!.toUpperCase().replace(/[ -]+/g, ' ') : null;
 }
 
 /**

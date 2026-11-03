@@ -88,3 +88,18 @@ test('long runs of white space read quickly and as one space', () => {
   assert.equal(parseScaleStatements('1:100\t\t@\n A1')[0]!.paper?.name, 'A1');
   assert.equal(parseScaleStatements('1:100, A1').length, 1);
 });
+
+test('digit groups in a ratio are one number', () => {
+  assert.equal(parseScaleStatements('1:1,000 @ A1')[0]!.scale.label, '1:1000');
+  assert.equal(parseScaleStatements('SCALE 1:2 500')[0]!.scale.label, '1:2500');
+  const dual = parseScaleStatements('1:1,000@A1/1:2,000@A3');
+  assert.deepEqual(dual.map((s) => [s.scale.label, s.paper?.name]), [['1:1000', 'A1'], ['1:2000', 'A3']]);
+});
+
+test('a page padded to a size that is not a standard sheet is flagged, not only corrected', () => {
+  const padded = effectiveScale('1:500 @ A1', ...mm(901, 654))!;
+  assert.equal(padded.aspectMismatch, false);
+  assert.equal(padded.unknownSize, true);
+  assert.equal(effectiveScale('1:500 @ A1', ...mm(420, 297))!.unknownSize, false);
+  assert.equal(effectiveScale('1:500 @ A1', 17 * 72, 11 * 72)!.unknownSize, true, 'A1 on ANSI B');
+});
