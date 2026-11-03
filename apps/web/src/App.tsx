@@ -9611,6 +9611,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         geoRegions={() => activeOpen?.store.allGeoRegions() ?? []}
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
+        tool={toolsState.tool}
+        onSelectTool={() => activeTools?.setTool('select')}
         onOpenSettings={(category, tab) => {
           setPrefsCategory({ category, tab });
           setPrefsOpen(true);

@@ -97,6 +97,21 @@ test.describe('keyboard shortcuts', () => {
     expect(wrong).toEqual([]);
   });
 
+  test('the status bar names the active tool', async ({ app }) => {
+    const label = app.page.locator('.statusbar .status-tool');
+    await app.page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(label).toHaveCount(0);
+    await app.page.keyboard.press('KeyG');
+    await expect(label).toHaveText('Snapshot (G)');
+    await app.page.keyboard.press('Escape');
+    await expect(label).toHaveCount(0);
+    await app.page.keyboard.press('KeyG');
+    await expect(label).toBeVisible();
+    await label.click();
+    await expect(label).toHaveCount(0);
+    expect((await app.toolState()).tool).toBe('select');
+  });
+
   test('Ctrl+Shift+R rotates the page like document.rotatePages', async ({ app }) => {
     await app.page.keyboard.press(keys('Ctrl+Shift+R'));
     await expect.poll(async () => [(await app.pageInfo(1)).width, (await app.pageInfo(1)).height], { timeout: 20_000 }).toEqual([792, 1224]);
