@@ -29,6 +29,19 @@ async function usesFallback(text: string, extra: Partial<Markup> = {}): Promise<
   return used > 0;
 }
 
+test('the fallback font is told which characters the markups draw', async () => {
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 400]);
+  const seen: string[] = [];
+  const fallbackFont = (d: PDFDocument, name: StandardFonts, text: string) => {
+    seen.push(text);
+    return d.embedFont(name);
+  };
+  await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, [box('中文 abc 中')], { fallbackFont });
+  assert.ok(seen.length > 0);
+  for (const text of seen) assert.deepEqual([...text].sort(), [...'中文 abc'].sort());
+});
+
 test('the fallback font is used only for text the standard fonts cannot show', async () => {
   assert.equal(await usesFallback('Plain text, caf\u00e9 \u00b1 5mm, \u201cquotes\u201d \u2013 dashes \u2026'), false);
   assert.equal(await usesFallback('\u0391\u03b8\u03ae\u03bd\u03b1'), true, 'Greek');
