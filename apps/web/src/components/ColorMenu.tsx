@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useFloatingPopup } from './useFloatingPopup';
+import { addCustomColor, HEX_COLOR, removeCustomColor } from '../workspace/customColors';
+import { updateWorkspace, useWorkspace } from '../workspace/profiles';
 
 /** Office-style palette: a greys row, then the standard hues from light to dark. */
 const PALETTE: string[][] = [
@@ -34,6 +36,8 @@ interface ColorMenuProps {
  */
 export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disabled, wide, title }: ColorMenuProps) {
   const [open, setOpen] = useState(false);
+  const [hex, setHex] = useState('');
+  const custom = useWorkspace().customColors ?? [];
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const floating = useFloatingPopup(root, open);
@@ -58,6 +62,13 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
     onChange(color);
     setOpen(false);
   };
+  /** Applies a color typed or chosen in the picker and saves it to the Custom row. */
+  const useCustom = (color: string, close: boolean) => {
+    updateWorkspace((w) => ({ ...w, customColors: addCustomColor(w.customColors ?? [], color) }));
+    if (close) pick(color);
+    else onChange(color);
+  };
+  const hexOk = HEX_COLOR.test(hex);
   const norm = value?.toLowerCase() ?? null;
   return (
     <div className={`color-menu${wide ? ' wide' : ''}`} ref={root}>
@@ -105,10 +116,54 @@ export function ColorMenu({ label, short, icon, value, onChange, noneLabel, disa
               )),
             )}
           </div>
+          {custom.length > 0 && (
+            <>
+              <div className="color-pop-title">Custom</div>
+              <div className="color-grid">
+                {custom.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`color-swatch${norm === c ? ' on' : ''}`}
+                    style={{ background: c }}
+                    title={`${c} (right-click to remove)`}
+                    aria-label={`Custom ${c}`}
+                    aria-pressed={norm === c}
+                    onClick={() => pick(c)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      updateWorkspace((w) => ({ ...w, customColors: removeCustomColor(w.customColors ?? [], c) }));
+                    }}
+                  />
+                ))}
+              </div>
+            </>
+          )}
           <label className="color-more">
-            <input type="color" aria-label={`${label}: more colors`} value={value ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
+            <input type="color" aria-label={`${label}: more colors`} value={value ?? '#ffffff'} onChange={(e) => useCustom(e.target.value, false)} />
             More colors…
           </label>
+          <form
+            className="color-hex"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (hexOk) useCustom(hex.toLowerCase(), true);
+            }}
+          >
+            <input
+              type="text"
+              aria-label={`${label}: hex`}
+              placeholder="#rrggbb"
+              maxLength={7}
+              spellCheck={false}
+              value={hex}
+              aria-invalid={hex !== '' && !hexOk}
+              onChange={(e) => setHex(e.target.value.trim())}
+            />
+            <button type="submit" className="btn" disabled={!hexOk}>
+              Add
+            </button>
+          </form>
         </div>,
         document.body,
       )}

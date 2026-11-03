@@ -7,7 +7,7 @@ The style controls are on the toolbar, to the right of the tools.
 
 ![The style controls on the toolbar](img/toolbar-style.png)
 
-1. **Colour** — click the swatch and pick a colour.
+1. **Colour** — click the swatch and pick a colour. More about the picker is under *Pick and save colours* below.
 2. **Fill** — tick to fill the shape with colour.
 3. **Line width** — pick a thickness, or type one in points (pt).
 4. **Line style** — Solid, dashed, dotted and more.
@@ -15,6 +15,17 @@ The style controls are on the toolbar, to the right of the tools.
 6. **Bubbles** (clouds only) — the size of the cloud's bumps.
 
 Text tools also show font controls. See [Format text](#text-formatting).
+
+## Pick and save colours
+
+Line, fill, hatch, text and label background colours all open the same picker: a grid of standard colours, plus the options below.
+
+- **No fill** / **Same as line** — at the top of the list where the colour is optional. Hatch and text colours follow the line colour until you pick one.
+- **Custom** — colours you have saved. Choose **More colors…** and pick any colour to add it. The newest ten are kept, newest first, and they stay with your profile.
+- **#rrggbb** — type an exact hex value and click **Add** (or press Enter).
+- **Remove** a saved colour by right-clicking it.
+
+Hatch colour is in the **Hatch** menu on the toolbar and in the Properties panel.
 
 ## More options
 

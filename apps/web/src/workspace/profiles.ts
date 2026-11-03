@@ -122,6 +122,8 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
+  customColors?: string[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
