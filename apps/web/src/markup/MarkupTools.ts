@@ -2942,9 +2942,14 @@ export class MarkupTools implements ViewerOverlay {
     } else {
       const m = this.store?.get(g.id);
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
-      g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
-      if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
-      else if (m && g.index < 4 && lockedRatio(m, e.shiftKey)) g.point = cornerKeepingAspect(m, g.index, g.point);
+      if (m && m.type !== 'connector' && g.index < 4 && lockedRatio(m, e.shiftKey)) {
+        // The corner rides the box's diagonal, so snapping to a point off it would only mislead.
+        this.snapHit = null;
+        g.point = cornerKeepingAspect(m, g.index, toPoint(pt));
+      } else {
+        g.point = m?.type === 'connector' ? toPoint(pt) : this.resolve(pt, e, anchor, g.id);
+        if (m?.type === 'connector') this.connectHover = { pageIndex, at: g.point };
+      }
     }
     this.viewer.invalidate();
   }
@@ -4399,7 +4404,12 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
   const c0 = rotationCentre(m);
   const u = m.rotation ? rotatePoint(point, c0, -m.rotation) : point;
   const across = handlePositions({ ...m, rotation: 0 })[BOX_OPPOSITE[index]!]!;
-  const locked = keepAspect(across, u, w / h);
+  // The pointer projected onto the diagonal from the corner across, so the size follows it in any direction.
+  const corner = handlePositions({ ...m, rotation: 0 })[index]!;
+  const dx = corner[0] - across[0];
+  const dy = corner[1] - across[1];
+  const t = ((u[0] - across[0]) * dx + (u[1] - across[1]) * dy) / (dx * dx + dy * dy);
+  const locked: Point = [across[0] + t * dx, across[1] + t * dy];
   return m.rotation ? rotatePoint(locked, c0, m.rotation) : locked;
 }
 

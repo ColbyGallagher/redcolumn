@@ -315,8 +315,10 @@ test('Shift on a box corner grip keeps its ratio, without it the corner is free'
   h.tools.setTool('select');
   h.tools.select([m!.id]);
   drag(h.tools, [260, 300], [340, 310], { shiftKey: true });
-  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [340, 350]]);
-  drag(h.tools, [340, 350], [300, 300]);
+  const [, b] = h.store.get(m!.id)!.points as [Point, Point];
+  assert.ok(Math.abs(ratio(h.store.get(m!.id)!.points) - 1.6) < 1e-9, 'ratio kept');
+  assert.ok(b[0] > 260, 'and it grew');
+  drag(h.tools, b, [300, 300]);
   assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [300, 300]], 'free without Shift');
   await h.store.destroy();
 });
@@ -334,6 +336,18 @@ test('an image corner grip keeps its ratio unless Shift is held', async () => {
   h.store.undo();
   drag(h.tools, b, [b[0] + 40, b[1] + 10], { shiftKey: true });
   assert.deepEqual(h.store.get(m!.id)?.points, [a, [b[0] + 40, b[1] + 10]], 'Shift frees it');
+  await h.store.destroy();
+});
+
+test('an image side grip stays free of the ratio lock', async () => {
+  const h = await setup();
+  await drawWith(h, 'image');
+  const [m] = h.store.all();
+  const [a, b] = m!.points as [Point, Point];
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  drag(h.tools, [b[0], (a[1] + b[1]) / 2], [b[0] + 40, (a[1] + b[1]) / 2]);
+  assert.deepEqual(h.store.get(m!.id)?.points, [a, [b[0] + 40, b[1]]], 'only the right edge moved');
   await h.store.destroy();
 });
 
