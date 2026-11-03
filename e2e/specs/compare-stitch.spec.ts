@@ -63,6 +63,42 @@ test.describe('compare and overlay', () => {
     for (const p of [1, 2, 3]) expect(await app.pageInfo(p)).toMatchObject({ width: PLAN.page.width, height: PLAN.page.height });
   });
 
+  test('document.semanticCompare shows a text comparison, then an AI client judges it through the assistant', async ({ app }) => {
+    await app.cmd('document.semanticCompare');
+    const panel = app.page.locator('.semantic-compare');
+    await expect(panel).toBeVisible();
+    await panel.getByLabel('Old revision', { exact: true }).selectOption({ label: 'plan.pdf' });
+    await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'plan-rev1.pdf' });
+    await panel.getByRole('button', { name: 'Compare', exact: true }).click();
+    // Nobody has answered yet: the plain text comparison shows, and says so.
+    await expect(panel.locator('.sc-status')).toContainText(/text comparison/i);
+    await expect(panel.locator('.sc-item').filter({ hasText: 'REVISION 1' })).toBeVisible();
+
+    // An AI client reads what text matching could not settle and answers through the same tools.
+    const read = await app.assistant<{ requestId: string; oldParagraphs: { id: string }[]; newParagraphs: { id: string; text: string }[] }>('get_comparison');
+    const added = read.newParagraphs.find((p) => p.text.includes('REVISION 1'));
+    expect(added).toBeTruthy();
+    await app.assistant('report_document_changes', { requestId: read.requestId, source: 'Test client', changes: [{ kind: 'added', new: added!.id, note: 'A revision note.' }] });
+    await expect(panel.locator('.sc-status.ai')).toContainText('Test client judged these by meaning');
+    await expect(panel.locator('.sc-item.added .sc-basis.ai')).toHaveText('AI judgement');
+    await expect(panel.locator('.sc-item.added .sc-note')).toHaveText('A revision note.');
+
+    // Each change shows what is in the old revision and in the new; clicking it brings the two side by side.
+    await expect(panel.locator('.sc-item.added .sc-side.old')).toContainText('Not in the old revision');
+    await expect(panel.locator('.sc-item.added .sc-side.new')).toContainText('REVISION 1');
+    await panel.locator('.sc-item.added').click();
+    await expect.poll(async () => (await app.command('view.split')).checked || (await app.command('view.splitHorizontal')).checked).toBe(true);
+  });
+
+  test('an AI client starts a comparison with start_comparison, and the panel opens by itself', async ({ app }) => {
+    const started = await app.assistant<{ ok: boolean }>('start_comparison', { oldDocument: 'plan.pdf', newDocument: 'plan-rev1.pdf' });
+    expect(started.ok).toBe(true);
+    const panel = app.page.locator('.semantic-compare');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.sc-docs')).toContainText('plan.pdf');
+    await expect(panel.locator('.sc-item').filter({ hasText: 'REVISION 1' })).toBeVisible();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

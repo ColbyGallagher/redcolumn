@@ -26,6 +26,9 @@ export const ASSISTANT_METHODS = [
   'list_assemblies',
   'propose_takeoff',
   'list_takeoff_proposals',
+  'start_comparison',
+  'get_comparison',
+  'report_document_changes',
   'get_stitching',
   'set_stitch_region',
   'place_match_lines',
@@ -443,6 +446,66 @@ const TOOLS: ToolDef[] = [
     description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
+  },
+  {
+    name: 'start_comparison',
+    title: 'Start a document comparison',
+    description:
+      'Starts an AI comparison of two open documents (old revision, new revision) in redcolumn. redcolumn asks the person for Allow first, because the text of both goes to you. The person then sees a text comparison at once in the AI Compare panel; you improve on it: call get_comparison to read the paragraphs that did not match word for word, then report_document_changes with your verdicts. Nothing in either document changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        oldDocument: { type: 'string', description: 'The old revision: name or id from list_open_documents.' },
+        newDocument: { type: 'string', description: 'The new revision: name or id from list_open_documents.' },
+      },
+      required: ['oldDocument', 'newDocument'],
+    },
+    annotations: CHANGES,
+  },
+  {
+    name: 'get_comparison',
+    title: 'Read a document comparison',
+    description:
+      'The comparison in redcolumn that the person started (Document › AI Compare Documents…) or you started with start_comparison: two revisions of a document cut into paragraphs. Paragraphs with the same text in both revisions are matched already, moved or not, and only counted here. The rest come back with ids (o12 old, n7 new), pages and text: match them by meaning, not position, and answer with report_document_changes. 100 paragraphs per side per call when limit is omitted; the reply has nextOffset while more remain. Fails when no comparison has been started: use start_comparison.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 400, description: 'Most paragraphs per side. 100 when omitted.' },
+        offset: { type: 'integer', minimum: 0, description: 'Paragraphs to skip on each side, from nextOffset of the last reply.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'report_document_changes',
+    title: 'Report document changes',
+    description:
+      'Gives your verdict on paragraphs from get_comparison. Each change is { kind, old, new, note }: modified (reworded or edited; old and new), moved (same content in another place, even if lightly reworded; old and new), unchanged (same meaning, only reformatted; old and new), added (new only) or removed (old only). Say why in note when it is not obvious. The person sees each one in redcolumn marked as your judgement, with the changed wording. Paragraphs you leave out are compared by text similarity and marked as that. Call it as often as you like, a page of paragraphs at a time; a later verdict on a paragraph replaces an earlier one. If you cannot judge the comparison, pass error with the reason instead of changes. Nothing in the document changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: 'requestId from get_comparison, to be sure it is still the comparison the person has open.' },
+        source: { type: 'string', description: 'Your name, shown to the person as who judged it.' },
+        changes: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 500,
+          items: {
+            type: 'object',
+            properties: {
+              kind: { type: 'string', enum: ['added', 'removed', 'modified', 'moved', 'unchanged'] },
+              old: { type: 'string', description: 'Paragraph id of the old revision, such as o12.' },
+              new: { type: 'string', description: 'Paragraph id of the new revision, such as n7.' },
+              note: { type: 'string', description: 'Why, in a sentence.' },
+            },
+            required: ['kind'],
+          },
+        },
+        summary: { type: 'string', description: 'Two or three sentences on what changed overall, shown above the list.' },
+        error: { type: 'string', description: 'Why you could not judge the comparison. Used instead of changes.' },
+      },
+    },
+    annotations: CHANGES,
   },
   {
     name: 'get_stitching',
