@@ -253,7 +253,7 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
  * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
  * space, for the box's alignment. `measure` gives a string's width at the box's font size.
  */
-export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number }[] {
+export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number; gap: number }[] {
   const b = contentBox(m);
   const size = m.style.fontSize ?? 12;
   const inner = b.w - TEXT_PADDING * 2;
@@ -265,14 +265,36 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const valign = m.style.verticalAlign ?? 'top';
   const top =
     valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - TEXT_PADDING - total : b.y + TEXT_PADDING;
-  return lines.map(({ text, indent }, i) => {
-    const width = measure(text);
+  return lines.map(({ text, indent, last }, i) => {
+    let width = measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
     const full = indent + width;
     const align = m.style.textAlign ?? 'left';
     const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - TEXT_PADDING - full : b.x + TEXT_PADDING) + indent;
-    return { text, x, y: top + i * lineH + lead, width };
+    // Justified: spread the slack over the spaces of every line but a paragraph's last.
+    let gap = 0;
+    const spaces = (text.match(/ /g) ?? []).length;
+    if (align === 'justify' && !last && spaces > 0 && inner - full > 0) {
+      gap = (inner - full) / spaces;
+      width += gap * spaces;
+    }
+    return { text, x, y: top + i * lineH + lead, width, gap };
   });
+}
+
+/** Draws one laid-out line, widening its word gaps when the line is justified. */
+function drawJustified(ctx: CanvasRenderingContext2D, line: { text: string; x: number; y: number; gap: number }) {
+  if (!line.gap) {
+    ctx.fillText(line.text, line.x, line.y);
+    return;
+  }
+  // Word by word, so it works where canvas wordSpacing is missing.
+  let x = line.x;
+  const space = ctx.measureText(' ').width + line.gap;
+  for (const word of line.text.split(' ')) {
+    ctx.fillText(word, x, line.y);
+    x += ctx.measureText(word).width + space;
+  }
 }
 
 /**
@@ -406,7 +428,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
     for (const line of textBoxLines(m, (s) => ctx.measureText(s).width)) {
-      ctx.fillText(line.text, line.x, line.y);
+      drawJustified(ctx, line);
       if (style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
       if (style.strikethrough && line.text) underline(ctx, line.x, line.y + size * 0.55, line.width, size);
     }
@@ -479,7 +501,7 @@ function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
     ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
     ctx.clip();
     for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
-      ctx.fillText(line.text, line.x, line.y);
+      drawJustified(ctx, line);
       if (cell.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
     }
     ctx.restore();

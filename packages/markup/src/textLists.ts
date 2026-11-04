@@ -374,15 +374,17 @@ export function autoFormatList(text: string, caret: number): TextEdit | null {
  * text rather than under its marker. Each line's `indent` is how far in it starts; the first line
  * of an item carries its marker, and `indent` 0. `measure` gives a string's width.
  */
-export function layoutParagraphs(text: string, maxWidth: number, measure: (s: string) => number): { text: string; indent: number }[] {
-  const out: { text: string; indent: number }[] = [];
+export function layoutParagraphs(text: string, maxWidth: number, measure: (s: string) => number): { text: string; indent: number; last: boolean }[] {
+  const out: { text: string; indent: number; last: boolean }[] = [];
   for (const para of text.split('\n')) {
     const item = parseListItem(para);
     const prefix = item ? para.slice(0, item.prefixLen) : '';
     // Measured with a trailing glyph, since widths of trailing spaces may not count.
     const hang = item ? Math.min(measure(`${prefix}|`) - measure('|'), maxWidth / 2) : 0;
-    wrapParagraph(item ? item.content : para, maxWidth - hang, measure).forEach((line, i) => {
-      out.push(i === 0 ? { text: prefix + line, indent: 0 } : { text: line, indent: hang });
+    const wrapped = wrapParagraph(item ? item.content : para, maxWidth - hang, measure);
+    wrapped.forEach((line, i) => {
+      const last = i === wrapped.length - 1;
+      out.push(i === 0 ? { text: prefix + line, indent: 0, last } : { text: line, indent: hang, last });
     });
   }
   return out;

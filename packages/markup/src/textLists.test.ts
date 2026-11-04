@@ -132,9 +132,9 @@ test('typing a space after -, * or [] starts a list', () => {
 test('wrapped list lines hang under their text', () => {
   const measure = (s: string) => s.length * 10;
   assert.deepEqual(layoutParagraphs('• aaa bbb ccc ddd\nplain text', 120, measure), [
-    { text: '• aaa bbb', indent: 0 },
-    { text: 'ccc ddd', indent: 20 },
-    { text: 'plain text', indent: 0 },
+    { text: '• aaa bbb', indent: 0, last: false },
+    { text: 'ccc ddd', indent: 20, last: true },
+    { text: 'plain text', indent: 0, last: true },
   ]);
 });
 
@@ -144,6 +144,16 @@ test('a text box draws wrapped list lines indented, and right-aligned ones as a 
   assert.deepEqual(textBoxLines(m, measure).map((l) => [l.text, l.x]), [['1. aaa bbb', 4], ['ccc ddd', 34]]);
   const right = textBoxLines({ ...m, style: { ...m.style, textAlign: 'right' } }, measure);
   assert.equal(right[1]!.x + right[1]!.width, 104);
+});
+
+test('justified text fills each line but a paragraph\'s last', () => {
+  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [108, 100]], style: { ...DEFAULT_STYLES.text, fontSize: 10, textAlign: 'justify' }, status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'aaa bbb ccc ddd' } as Markup;
+  const measure = (s: string) => s.length * 10;
+  const lines = textBoxLines(m, measure);
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0]!.width, 100);
+  assert.ok(lines[0]!.gap > 0);
+  assert.equal(lines[1]!.gap, 0);
 });
 
 test('CJK text wraps between characters, which have no spaces to break at', () => {

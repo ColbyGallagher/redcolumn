@@ -118,9 +118,13 @@ const SCREENSHOTS = [
   { src: `${base}screenshots/narrow.png`, sizes: '390x844', type: 'image/png', form_factor: 'narrow' as const, label: 'redcolumn on a phone' },
 ];
 
+/** Shown in About; the desktop package's version is the one releases bump. */
+const appVersion: string = JSON.parse(readFileSync(new URL('../desktop/package.json', import.meta.url), 'utf8')).version;
+
 export default defineConfig({
   // Project Pages live at /redcolumn/; local `pnpm dev` stays at /.
   base,
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [
     react(),
     ocrAssets(),

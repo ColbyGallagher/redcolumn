@@ -495,9 +495,9 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
       // Page space is y-down; flip the text matrix so glyphs stay upright.
-      ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${font.encodeText(line.text).toString()} Tj`);
+      ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${fmt(line.gap)} Tw`, `${font.encodeText(line.text).toString()} Tj`);
     }
-    ops.push('ET');
+    ops.push('0 Tw', 'ET');
     if (style.underline) {
       ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} RG`);
       for (const line of lines) if (line.text) ops.push(underlineOps(line.x, line.y + size * 0.98, line.width, size));
@@ -588,7 +588,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const [cr, cg, cb] = rgb(textColor(cell.style));
       const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);
-      for (const line of lines) ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${font.encodeText(line.text).toString()} Tj`);
+      for (const line of lines) ops.push(`1 0 0 -1 ${fmt(line.x)} ${fmt(line.y + ascent)} Tm`, `${fmt(line.gap)} Tw`, `${font.encodeText(line.text).toString()} Tj`);
       ops.push('ET');
       if (cell.style.underline) {
         ops.push(`${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`);
