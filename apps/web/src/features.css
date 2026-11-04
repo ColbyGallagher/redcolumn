@@ -6813,6 +6813,14 @@ tr.hidden-markup td {
   background: rgba(59, 130, 246, 0.12);
 }
 
+.scale-review-table .sr-check-agrees {
+  color: rgb(74, 222, 128);
+}
+
+.scale-review-table .sr-check-disagrees {
+  color: rgb(248, 113, 113);
+}
+
 .sr-state {
   font-size: 11px;
   padding: 1px 6px;

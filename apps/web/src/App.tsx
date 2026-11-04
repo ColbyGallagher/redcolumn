@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegi
 import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -44,6 +44,7 @@ import { ScriptsDialog } from './components/ScriptsDialog';
 import { TakeoffReview } from './components/TakeoffReview';
 import { SheetScaleReview } from './components/SheetScaleReview';
 import { scaleReviewRows } from './measure/scaleReview';
+import { pageReadings, type ScaleReading } from './measure/scaleCheck';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
@@ -974,6 +975,8 @@ export function App() {
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
+  /** Scale bars and dimensions read for Review Sheet Scales, by page, for one file. */
+  const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, ScaleReading[]>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -5514,7 +5517,33 @@ export function App() {
   const activeOpen = paneB && openB ? openB : open;
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
-  const scaleRows = useMemo(() => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales) : []), [scaleReviewOpen, activePages, sheets, scales]);
+  const scaleRows = useMemo(
+    () => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales, scaleReadings?.file === activeOpen?.file.id ? scaleReadings.pages : {}) : []),
+    [scaleReviewOpen, activePages, sheets, scales, scaleReadings, activeOpen?.file.id],
+  );
+  // While Review Sheet Scales is open, each page's scale bars and dimensions are read in the
+  // background (text from the session cache, geometry from the viewer's document).
+  useEffect(() => {
+    if (!scaleReviewOpen || !activeOpen) return;
+    const o = activeOpen;
+    const ctrl = new AbortController();
+    setScaleReadings({ file: o.file.id, pages: {}, done: false });
+    void (async () => {
+      const texts = await loadPageTexts(() => readFile(o.file.hash), o.store, () => {}, ctrl.signal);
+      const pages: Record<number, ScaleReading[]> = {};
+      for (let i = 0; i < texts.length; i++) {
+        if (ctrl.signal.aborted) return;
+        const sheet = o.store.allSheets()[i];
+        const unit = o.store.hasScale(i) ? o.store.scaleFor(i).unit : (parseScaleText(sheet?.scaleText ?? '')?.unit ?? 'm');
+        const segments = unit === 'ft' || unit === 'in' ? null : (await o.doc.geometry(i)).segments;
+        pages[i] = pageReadings(texts[i]!.words, segments, unit);
+        if (i % 8 === 7 || i === texts.length - 1) setScaleReadings({ file: o.file.id, pages: { ...pages }, done: i === texts.length - 1 });
+      }
+    })().catch((err) => {
+      if (!isAbort(err) && !ctrl.signal.aborted) setError(`Could not read the pages' scale bars: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return () => ctrl.abort();
+  }, [scaleReviewOpen, activeOpen]);
   /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
   const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
     setBulkInsertFiles(null);
@@ -10637,6 +10666,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SheetScaleReview
           key={activeOpen.file.id}
           rows={scaleRows}
+          reading={!scaleReadings?.done}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           currentPage={pageIndex}
           readOnly={activeOpen.store.readOnly}

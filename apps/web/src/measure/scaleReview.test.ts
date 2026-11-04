@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseScaleText, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { defaultPicks, needsReview, scaleReviewRows } from './scaleReview.ts';
+import type { ScaleReading } from './scaleCheck.ts';
 
 const mm = (w: number, h: number) => ({ width: (w * 72) / 25.4, height: (h * 72) / 25.4 });
 const A1 = mm(841, 594);
@@ -31,4 +32,12 @@ test('padded pages and implausibly large scales are left for checking', () => {
   const rows = scaleReviewRows([mm(901, 654), A1], { 0: sheet('1:500 @ A1'), 1: sheet('1:1') }, {});
   assert.deepEqual(rows.map((r) => r.status), ['check', 'check']);
   assert.deepEqual([...defaultPicks(rows)], []);
+});
+
+test('a proposal the page’s own scale bar disagrees with is left for checking', () => {
+  const bar = (mpp: number): ScaleReading => ({ kind: 'bar', metersPerPoint: mpp, rect: { x: 0, y: 0, w: 1, h: 1 }, text: '0 10 20m' });
+  const at500 = parseScaleText('1:500')!.metersPerPoint;
+  const rows = scaleReviewRows([A1, A1, A1], { 0: sheet('1:500 @ A1'), 1: sheet('1:500 @ A1'), 2: sheet('1:500 @ A1') }, {}, { 0: [bar(at500)], 1: [bar(at500 * 2)], 2: [] });
+  assert.deepEqual(rows.map((r) => [r.status, r.check?.result]), [['ready', 'agrees'], ['check', 'disagrees'], ['ready', 'none']]);
+  assert.deepEqual([...defaultPicks(rows)], [0, 2]);
 });

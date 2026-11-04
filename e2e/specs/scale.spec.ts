@@ -106,10 +106,13 @@ test.describe('sheet scale review', () => {
     await expect.poll(() => app.page.evaluate(() => Object.values((window.__nb.tools.store as unknown as { allSheets(): Record<number, { scaleText: string | null }> }).allSheets()).map((s) => s.scaleText)), { timeout: 30_000 }).toEqual(P.map((s) => s.scale));
   });
 
-  test('document.scaleReview corrects a sheet saved smaller than its stated size and applies the picked pages', async ({ app }) => {
+  test('document.scaleReview corrects a sheet saved smaller than its stated size, checks scale bars, and applies the picked pages', async ({ app }) => {
     await app.cmd('document.scaleReview');
     const panel = app.page.locator('.scale-review');
     await expect(panel).toBeVisible();
+    // Each page's scale bar is measured against its proposal; the A3 page whose title block does
+    // not say it was drawn for A1 is caught by its bar.
+    await expect(panel.locator('tbody td:nth-child(7)')).toHaveText(P.map((s) => s.checked));
     await expect(panel.locator('tbody .sr-state')).toHaveText(P.map((s) => s.status));
     await expect(panel.locator('tbody tr').nth(1)).toContainText('A1 → A3');
     await panel.getByRole('button', { name: 'Apply to 2 pages' }).click();
@@ -117,7 +120,8 @@ test.describe('sheet scale review', () => {
     expect(P.map((_, i) => scales[i]?.label ?? null)).toEqual(P.map((s) => s.applied));
     // The A3 page is half size, so one point there is twice as long as on the A1 page.
     expect(scales[1]!.metersPerPoint / scales[0]!.metersPerPoint).toBeCloseTo(2, 2);
-    // Applied pages agree with their title blocks now; only the not-to-scale sheet still needs a look.
-    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale']);
+    // Applied pages agree with their title blocks now; the not-to-scale sheet and the one its bar
+    // disagrees with still need a look.
+    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale', 'Check']);
   });
 });

@@ -67,7 +67,8 @@
         "width": 2384,
         "height": 1684,
         "status": "Ready",
-        "applied": "1:100"
+        "applied": "1:100",
+        "checked": "✓ scale bar"
       },
       {
         "number": "C-102",
@@ -76,7 +77,8 @@
         "width": 1191,
         "height": 842,
         "status": "Resized",
-        "applied": "1:100 @ A1 (on A3)"
+        "applied": "1:100 @ A1 (on A3)",
+        "checked": "✓ scale bar"
       },
       {
         "number": "C-103",
@@ -85,7 +87,19 @@
         "width": 2384,
         "height": 1684,
         "status": "Not to scale",
-        "applied": null
+        "applied": null,
+        "checked": "—",
+        "bar": false
+      },
+      {
+        "number": "C-104",
+        "title": "ROAD PLAN 3",
+        "scale": "1:100",
+        "width": 1191,
+        "height": 842,
+        "status": "Check",
+        "applied": null,
+        "checked": "✗ scale bar ×2.00"
       }
     ]
   },

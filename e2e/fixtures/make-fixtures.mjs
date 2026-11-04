@@ -40,15 +40,18 @@ const expected = {
   },
   pageCount: 3,
   /**
-   * paper.pdf: sheets drawn for A1 with the scale stated for A1 in the title block, one saved at
-   * A1, one shrunk to A3 (so it measures at half the stated scale) and one not to scale. Sizes are
-   * landscape page points; the title block is placed as fractions of the page so it shrinks too.
+   * paper.pdf: sheets drawn for A1 at 1:100 with the scale stated in the title block: one saved
+   * at A1, one shrunk to A3 (so it measures at half the stated scale), one not to scale, and one
+   * shrunk to A3 whose title block does not say it was for A1, so only its scale bar shows it is
+   * wrong. Sizes are landscape page points; the title block and the scale bar (0 1 2 4m, 1 m is
+   * 10 mm at A1) are placed as fractions of the page so they shrink too.
    */
   paper: {
     sheets: [
-      { number: 'C-101', title: 'ROAD PLAN 1', scale: '1:100 @ A1', width: 2384, height: 1684, status: 'Ready', applied: '1:100' },
-      { number: 'C-102', title: 'ROAD PLAN 2', scale: '1:100 @ A1', width: 1191, height: 842, status: 'Resized', applied: '1:100 @ A1 (on A3)' },
-      { number: 'C-103', title: 'LOCALITY PLAN', scale: 'NTS', width: 2384, height: 1684, status: 'Not to scale', applied: null },
+      { number: 'C-101', title: 'ROAD PLAN 1', scale: '1:100 @ A1', width: 2384, height: 1684, status: 'Ready', applied: '1:100', checked: '✓ scale bar' },
+      { number: 'C-102', title: 'ROAD PLAN 2', scale: '1:100 @ A1', width: 1191, height: 842, status: 'Resized', applied: '1:100 @ A1 (on A3)', checked: '✓ scale bar' },
+      { number: 'C-103', title: 'LOCALITY PLAN', scale: 'NTS', width: 2384, height: 1684, status: 'Not to scale', applied: null, checked: '—', bar: false },
+      { number: 'C-104', title: 'ROAD PLAN 3', scale: '1:100', width: 1191, height: 842, status: 'Check', applied: null, checked: '✗ scale bar ×2.00' },
     ],
   },
   /** sheets.pdf: three sheets whose title blocks hold a room name and a scale note. */
@@ -215,6 +218,12 @@ async function paper() {
     text(sheet.title, 1900, 1560, 18);
     text(`SCALE: ${sheet.scale}`, 1900, 1600, 10);
     text(sheet.number, 1900, 1650, 32);
+    if (sheet.bar === false) continue;
+    for (const v of [0, 1, 2, 4]) {
+      const label = v === 4 ? '4m' : String(v);
+      const x = (100 + (v * 10 * 72) / 25.4) * k - font.widthOfTextAtSize(label, 8 * k) / 2;
+      p.drawText(label, { x, y: sheet.height - 1600 * k, size: 8 * k, font, color: black });
+    }
   }
   return doc.save({ useObjectStreams: false });
 }

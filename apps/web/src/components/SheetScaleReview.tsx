@@ -4,6 +4,8 @@ import { defaultPicks, needsReview, type ScaleReviewRow, type ScaleReviewStatus 
 
 interface Props {
   rows: ScaleReviewRow[];
+  /** The pages' scale bars and dimensions are still being read. */
+  reading: boolean;
   pageLabel: (pageIndex: number) => string;
   currentPage: number;
   readOnly: boolean;
@@ -25,13 +27,26 @@ const STATUS: Record<ScaleReviewStatus, { label: string; hint: string }> = {
 
 const paperOf = (r: ScaleReviewRow) => r.actual?.paper.name ?? '—';
 
+const WITNESS = { bar: 'scale bar', dimensions: 'dimensions' } as const;
+
+/** What the page's own lengths said, short for the table and in full for its tooltip. */
+function checkCell(r: ScaleReviewRow, reading: boolean): { text: string; title: string } {
+  const c = r.check;
+  if (!c) return reading && (r.proposed || r.current) ? { text: '…', title: 'Reading the page' } : { text: '—', title: '' };
+  if (c.result === 'none') return { text: '—', title: 'No scale bar or dimensions found on the page' };
+  const what = c.reading!.kind === 'bar' ? `scale bar ${c.reading!.text}` : c.reading!.text;
+  if (c.result === 'agrees') return { text: `✓ ${WITNESS[c.reading!.kind]}`, title: `Agrees with the ${what}` };
+  const times = c.ratio! >= 1 ? `×${c.ratio!.toFixed(2)}` : `÷${(1 / c.ratio!).toFixed(2)}`;
+  return { text: `✗ ${WITNESS[c.reading!.kind]} ${times}`, title: `The ${what} measures ${times} the proposed scale. Check against a known length.` };
+}
+
 /**
  * Document › Review Sheet Scales: every page's title-block scale against the size the page was
  * actually saved at, so a drawing stated 1:100 @ A1 but saved at A3 measures as 1:200. Pages
  * without a scale yet whose proposal needs no checking start ticked; nothing changes until Apply.
  * A panel beside the sheet (not a dialog), so each page can be checked while it is in view.
  */
-export function SheetScaleReview({ rows, pageLabel, currentPage, readOnly, onShow, onApply, onClose }: Props) {
+export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOnly, onShow, onApply, onClose }: Props) {
   const [show, setShow] = useState<'review' | 'all'>('review');
   const [picked, setPicked] = useState<Set<number>>(() => defaultPicks(rows));
   // Picks are by page index: when pages move, sheets are read or scales change, start them again
@@ -67,7 +82,7 @@ export function SheetScaleReview({ rows, pageLabel, currentPage, readOnly, onSho
           ×
         </button>
       </header>
-      <p className="hint-text takeoff-review-note">Each page's scale is read from its title block and corrected for the sheet size the page was saved at. Every quantity depends on this, so check the pages marked Resized, Check or Differs.</p>
+      <p className="hint-text takeoff-review-note">Each page's scale is read from its title block and corrected for the sheet size the page was saved at. Each scale is also measured against the page's own scale bars and dimensions. Every quantity depends on this, so check the pages marked Resized, Check or Differs.</p>
       <div className="takeoff-review-list">
         {!shown.length ? (
           <p className="empty">{rows.length ? 'Every page agrees with its title block.' : 'No pages.'}</p>
@@ -81,6 +96,7 @@ export function SheetScaleReview({ rows, pageLabel, currentPage, readOnly, onSho
                 <th title="The sheet size the scale was written for, and the size the page actually is">Sheet</th>
                 <th>Proposed</th>
                 <th>Current</th>
+                <th title="What the page's own scale bars and dimensions say about the proposed scale">Checked</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -107,6 +123,9 @@ export function SheetScaleReview({ rows, pageLabel, currentPage, readOnly, onSho
                     </td>
                     <td>{r.proposed?.label ?? '—'}</td>
                     <td>{r.current?.label ?? <span className="hint-text">not set</span>}</td>
+                    <td className={r.check ? `sr-check-${r.check.result}` : undefined} title={checkCell(r, reading).title}>
+                      {checkCell(r, reading).text}
+                    </td>
                     <td>
                       <span className={`sr-state sr-${r.status}`} title={STATUS[r.status].hint}>
                         {STATUS[r.status].label}
