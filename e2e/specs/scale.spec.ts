@@ -106,10 +106,13 @@ test.describe('sheet scale review', () => {
     await expect.poll(() => app.page.evaluate(() => Object.values((window.__nb.tools.store as unknown as { allSheets(): Record<number, { scaleText: string | null }> }).allSheets()).map((s) => s.scaleText)), { timeout: 30_000 }).toEqual(P.map((s) => s.scale));
   });
 
-  test('document.scaleReview corrects a sheet saved smaller than its stated size and applies the picked pages', async ({ app }) => {
+  test('document.scaleReview corrects a sheet saved smaller than its stated size, checks scale bars, and applies the picked pages', async ({ app }) => {
     await app.cmd('document.scaleReview');
     const panel = app.page.locator('.scale-review');
     await expect(panel).toBeVisible();
+    // Each page's scale bar is measured against its proposal; the A3 page whose title block does
+    // not say it was drawn for A1 is caught by its bar.
+    await expect(panel.locator('tbody td:nth-child(7)')).toHaveText(P.map((s) => s.checked));
     await expect(panel.locator('tbody .sr-state')).toHaveText(P.map((s) => s.status));
     await expect(panel.locator('tbody tr').nth(1)).toContainText('A1 → A3');
     await panel.getByRole('button', { name: 'Apply to 2 pages' }).click();
@@ -117,7 +120,70 @@ test.describe('sheet scale review', () => {
     expect(P.map((_, i) => scales[i]?.label ?? null)).toEqual(P.map((s) => s.applied));
     // The A3 page is half size, so one point there is twice as long as on the A1 page.
     expect(scales[1]!.metersPerPoint / scales[0]!.metersPerPoint).toBeCloseTo(2, 2);
-    // Applied pages agree with their title blocks now; only the not-to-scale sheet still needs a look.
-    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale']);
+    // Applied pages agree with their title blocks now; the not-to-scale sheet, the one its bar
+    // disagrees with and the details sheet (viewports are never ticked for you) still need a look.
+    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale', 'Check', 'Views']);
+  });
+
+  test('document.scaleReview proposes a viewport for each detail of an AS SHOWN sheet', async ({ app }) => {
+    const i = P.findIndex((s) => s.details);
+    const details = P[i]!.details!;
+    await app.cmd('document.scaleReview');
+    const panel = app.page.locator('.scale-review');
+    const row = panel.locator('tbody tr').filter({ hasText: P[i]!.number });
+    await expect(row.locator('.sr-viewports')).toHaveText(`${details.length} viewports`);
+    await panel.getByRole('button', { name: 'Clear' }).click();
+    await row.getByRole('checkbox').check();
+    await panel.getByRole('button', { name: 'Apply to 1 page' }).click();
+    const viewports = await app.page.evaluate(() =>
+      (window.__nb.tools.store as unknown as { allViewports(): { pageIndex: number; name: string; rect: { x: number; y: number; w: number; h: number }; scale: { label: string } }[] }).allViewports(),
+    );
+    expect(viewports.map((v) => [v.pageIndex, v.name, v.scale.label])).toEqual(details.map((d) => [i, d.title, d.title.split(' ').at(-1)]));
+    // Each viewport covers its own detail and stops short of the next one and the title block.
+    for (const [k, d] of details.entries()) {
+      const r = viewports[k]!.rect;
+      expect(r.x <= d.box.x && r.x + r.w >= d.box.x + d.box.w && r.y <= d.box.y && r.y + r.h >= d.box.y + d.box.h, `${d.title} covers its box`).toBe(true);
+      expect(r.x + r.w < (details[k + 1]?.box.x ?? 1880), `${d.title} stops before the next`).toBe(true);
+    }
+    // With its viewports in, the AS SHOWN sheet no longer needs a look.
+    await expect(row).toHaveCount(0);
+  });
+
+  test('an AI client reads sheet scales, proposes one for review, and cannot measure until a person applies it', async ({ app }) => {
+    type Info = { number: string; status: string; measurable: boolean; source: string };
+    const { pages } = await app.assistant<{ pages: Info[] }>('get_sheet_info');
+    expect(pages.map((p) => [p.number, p.status, p.measurable])).toEqual(P.map((s) => [s.number, s.status === 'Check' ? 'ready' : s.status.toLowerCase().replace('not to scale', 'nts'), false]));
+    // Measuring before the page has a scale is refused.
+    await expect(app.assistant('place_markup', { page: 1, type: 'length', points: [[300, 300], [400, 300]] })).rejects.toThrow(/no scale yet/);
+    // The A3 sheet whose title block omits "@ A1": the client reads the drawing and proposes the
+    // sheet size it was drawn for.
+    const c104 = P.findIndex((s) => s.number === 'C-104');
+    const proposed = await app.assistant<Info>('propose_page_scale', { page: c104 + 1, scale: '1:100', sheetSize: 'A1', reasoning: 'The scale bar under the plan is drawn for A1.' });
+    expect([proposed.source, proposed.status]).toEqual(['ai', 'resized']);
+    await app.cmd('document.scaleReview');
+    const panel = app.page.locator('.scale-review');
+    const row = panel.locator('tbody tr').filter({ hasText: 'C-104' });
+    await expect(row.locator('.sr-ai')).toHaveText('AI');
+    await expect(row.locator('td:nth-child(7)')).toHaveText('✓ scale bar');
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+    // A person applies the first sheet's scale; then the client can measure on it.
+    await panel.getByRole('button', { name: 'Clear' }).click();
+    await panel.locator('tbody tr').filter({ hasText: 'C-101' }).getByRole('checkbox').check();
+    await panel.getByRole('button', { name: 'Apply to 1 page' }).click();
+    await app.assistant('place_markup', { page: 1, type: 'length', points: [[300, 300], [400, 300]] });
+    expect((await app.markups(1)).map((m) => m.type)).toEqual(['length']);
+  });
+
+  test('measuring on a sheet marked NOT TO SCALE warns instead of asking for a scale', async ({ app }) => {
+    const nts = P.findIndex((s) => s.scale === 'NTS');
+    await app.page.evaluate((i) => window.__nb.viewer.goToPage(i), nts);
+    await app.tool('length');
+    await app.clicks([[300, 450]]);
+    const ask = app.page.locator('.modal').filter({ hasText: 'This sheet is not to scale' });
+    await expect(ask).toBeVisible();
+    await expect(ask.getByRole('button', { name: 'Set Scale Anyway…' })).toBeVisible();
+    await ask.getByRole('button', { name: 'Cancel' }).click();
+    await expect(ask).toBeHidden();
+    expect((await app.pageInfo(nts + 1)).scale).toBeUndefined();
   });
 });

@@ -18,6 +18,8 @@ test.describe('viewports with the assistant tools', () => {
     expect(placed.viewport.rect).toEqual({ x: 100, y: 100, w: 300, h: 200 });
     expect((await app.assistant<{ viewports: number }>('get_page', { page: 1 })).viewports).toBe(1);
 
+    // The assistant measures only where there is a scale: the page gets one from the page bar.
+    await app.scaleSelect().selectOption({ label: `1" = 20'` });
     // The same 100-point line, one inside the viewport and one outside it.
     await app.assistant('place_markups', {
       page: 1,

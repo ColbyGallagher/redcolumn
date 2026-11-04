@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegi
 import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -43,7 +43,9 @@ import { LinkPreviews, type LinkPreviewWindow, type PreviewDrawing, type Preview
 import { ScriptsDialog } from './components/ScriptsDialog';
 import { TakeoffReview } from './components/TakeoffReview';
 import { SheetScaleReview } from './components/SheetScaleReview';
-import { scaleReviewRows } from './measure/scaleReview';
+import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleReview';
+import { pageReadings } from './measure/scaleCheck';
+import { proposeViews } from './measure/viewScales';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
@@ -978,6 +980,8 @@ export function App() {
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
   const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
+  /** Scale bars, dimensions and view titles read for Review Sheet Scales, by page, for one file. */
+  const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -5522,7 +5526,41 @@ export function App() {
   const activeOpen = paneB && openB ? openB : open;
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
-  const scaleRows = useMemo(() => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales) : []), [scaleReviewOpen, activePages, sheets, scales]);
+  const scaleRows = useMemo(
+    () => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales, scaleReadings?.file === activeOpen?.file.id ? scaleReadings.pages : {}, new Set(viewports.map((vp) => vp.pageIndex))) : []),
+    [scaleReviewOpen, activePages, sheets, scales, scaleReadings, activeOpen?.file.id, viewports],
+  );
+  /** Where a sheet's number is printed (its largest copy), which tells its title block from the drawing. */
+  const numberRect = (words: readonly { text: string; x0: number; y0: number; x1: number; y1: number; size: number }[], number: string | null | undefined) => {
+    const hit = number ? words.filter((w) => w.text.trim() === number).sort((a, b) => b.size - a.size)[0] : undefined;
+    return hit ? { x: hit.x0, y: hit.y0, w: hit.x1 - hit.x0, h: hit.y1 - hit.y0 } : null;
+  };
+  // While Review Sheet Scales is open, each page's scale bars, dimensions and view titles are read
+  // in the background (text from the session cache, geometry from the viewer's document).
+  useEffect(() => {
+    if (!scaleReviewOpen || !activeOpen) return;
+    const o = activeOpen;
+    const ctrl = new AbortController();
+    setScaleReadings({ file: o.file.id, pages: {}, done: false });
+    void (async () => {
+      const texts = await loadPageTexts(() => readFile(o.file.hash), o.store, () => {}, ctrl.signal);
+      const pages: Record<number, PageScan> = {};
+      for (let i = 0; i < texts.length; i++) {
+        if (ctrl.signal.aborted) return;
+        const sheet = o.store.allSheets()[i];
+        const unit = o.store.hasScale(i) ? o.store.scaleFor(i).unit : (parseScaleText(sheet?.scaleText ?? '')?.unit ?? 'm');
+        const { segments } = await o.doc.geometry(i);
+        // Views at the page's own scale need no viewport; pages that have viewports keep theirs.
+        const own = sheet?.scaleText ? parseScaleText(sheet.scaleText) : null;
+        const views = o.store.allViewports().some((vp) => vp.pageIndex === i) ? [] : proposeViews(texts[i]!, texts[i]!.words, segments, own, numberRect(texts[i]!.words, sheet?.number));
+        pages[i] = { readings: pageReadings(texts[i]!.words, segments, unit), views };
+        if (i % 8 === 7 || i === texts.length - 1) setScaleReadings({ file: o.file.id, pages: { ...pages }, done: i === texts.length - 1 });
+      }
+    })().catch((err) => {
+      if (!isAbort(err) && !ctrl.signal.aborted) setError(`Could not read the pages' scale bars: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    return () => ctrl.abort();
+  }, [scaleReviewOpen, activeOpen]);
   /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
   const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
     setBulkInsertFiles(null);
@@ -5571,6 +5609,7 @@ export function App() {
         return { png, width: canvas.width, height: canvas.height, scale, region: { x: x0, y: y0, w, h } };
       },
       text: (pageIndex: number) => t.doc.text(pageIndex),
+      geometry: (pageIndex: number) => t.doc.geometry(pageIndex),
       // get_stitch_image: each sheet drawn at the size it has in the group, cut at its region and
       // match lines, outlined and numbered so the joins can be checked.
       renderStitch: async (group: StoredStitchGroup, bounds: PageRegion, scale: number, withMarkups: boolean) => {
@@ -10599,6 +10638,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <ScaleRequiredDialog
           scaleToLength={scaleNeeded.tool === 'scaleLength'}
           page={pageLabelFor(scaleNeeded.pane === 'b' ? openB : open, scaleNeeded.pageIndex)}
+          notToScale={isNotToScale((scaleNeeded.pane === 'b' ? openB : open)?.store.allSheets()[scaleNeeded.pageIndex]?.scaleText)}
           onCancel={() => setScaleNeeded(null)}
           onSetScale={() => {
             setCustomScalePage(scaleNeeded.pageIndex);
@@ -10694,15 +10734,32 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SheetScaleReview
           key={activeOpen.file.id}
           rows={scaleRows}
+          reading={!scaleReadings?.done}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           currentPage={pageIndex}
           readOnly={activeOpen.store.readOnly}
-          onShow={(page) => v?.goToPage(page)}
-          onApply={(list) => {
-            activeOpen.store.setScales(list.map(({ page, scale }) => [page, withDefaultUnits(scale)] as const));
-            setNotice(`Set the scale on ${list.length} page${list.length === 1 ? '' : 's'} from their title blocks. Undo takes it back.`);
+          onShow={(page, views) => {
+            v?.goToPage(page);
+            activeTools?.setRegions(views.map((view) => view.rect));
           }}
-          onClose={() => setScaleReviewOpen(false)}
+          onApply={(list) => {
+            const store = activeOpen.store;
+            const viewports = list.flatMap(({ page, views }) => views.map((view) => ({ id: crypto.randomUUID(), pageIndex: page, name: view.name, rect: view.rect, scale: withDefaultUnits(view.scale) })));
+            const scaled = list.filter((p) => p.scale);
+            // One undo step for the page scales and viewports together.
+            store.checkpoint();
+            store.batch(() => {
+              store.setScales(scaled.map(({ page, scale }) => [page, withDefaultUnits(scale!)] as const));
+              for (const vp of viewports) store.setViewport(vp);
+            });
+            activeTools?.setRegions([]);
+            const parts = [scaled.length ? `set the scale on ${scaled.length} page${scaled.length === 1 ? '' : 's'}` : '', viewports.length ? `added ${viewports.length} viewport${viewports.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+            setNotice(`From the title blocks: ${parts.join(' and ')}. Undo takes it back.`);
+          }}
+          onClose={() => {
+            activeTools?.setRegions([]);
+            setScaleReviewOpen(false);
+          }}
         />
       )}
       {takeoffReviewOpen && activeOpen && (
