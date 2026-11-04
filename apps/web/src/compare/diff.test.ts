@@ -143,4 +143,15 @@ test('coarsen merges down to at most max boxes, keeping the totals', () => {
   assert.equal(out.reduce((n, d) => n + d.added, 0), 6000);
   // Still covers every original box.
   for (const b of list) assert.ok(out.some((o) => b.x >= o.x && b.y >= o.y && b.x + b.w <= o.x + o.w && b.y + b.h <= o.y + o.h));
+
+  // Boxes straddling a tile edge do not leave overlapping clouds.
+  const straddling: Difference[] = Array.from({ length: 2000 }, (_, i) => ({ x: (i % 50) * 13, y: Math.floor(i / 50) * 13, w: 11, h: 11, kind: 'added', added: 1, removed: 0 }));
+  const apart = coarsen(straddling, 100);
+  assert.ok(apart.length <= 100);
+  for (let i = 0; i < apart.length; i++)
+    for (let j = i + 1; j < apart.length; j++) {
+      const a = apart[i]!;
+      const b = apart[j]!;
+      assert.ok(a.x + a.w < b.x || b.x + b.w < a.x || a.y + a.h < b.y || b.y + b.h < a.y, 'clouds overlap');
+    }
 });

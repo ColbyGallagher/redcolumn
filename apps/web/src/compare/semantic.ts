@@ -338,7 +338,8 @@ function prefixLength(words: number): number {
 
 /**
  * Past this many old-and-new pairs, the similarity pass works to a budget: words shared by more
- * than `COMMON` paragraphs do not suggest pairs, and each new paragraph keeps its `BEST` closest.
+ * than `COMMON` paragraphs suggest only the `COMMON` nearest in order, and each new paragraph keeps
+ * its `BEST` closest.
  * Below it, every pair alike enough is found. A drawing's thousands of labels ("TAG A1 TYPE 3")
  * all read alike, and pairing them all would take minutes and run out of memory.
  */
@@ -366,10 +367,25 @@ function similarPairs(oldList: readonly Paragraph[], newList: readonly Paragraph
     const own = tokens.get(n)!;
     if (!own.length) return;
     const candidates = new Set<number>();
+    // Old paragraphs in about the same place in the document as this one.
+    const near = Math.round((ni * oldList.length) / newList.length);
     for (const t of own.slice(0, prefixLength(own.length))) {
       const at = index.get(t);
-      if (!at || (budget && at.length > COMMON)) continue;
-      for (const oi of at) candidates.add(oi);
+      if (!at) continue;
+      if (!budget || at.length <= COMMON) {
+        for (const oi of at) candidates.add(oi);
+        continue;
+      }
+      // A word shared by many: the `COMMON` paragraphs nearest in order (the list is in order).
+      let lo = 0;
+      let hi = at.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (at[mid]! < near) lo = mid + 1;
+        else hi = mid;
+      }
+      const from = Math.max(0, Math.min(at.length - COMMON, lo - COMMON / 2));
+      for (let k = from; k < from + COMMON; k++) candidates.add(at[k]!);
     }
     const mine: typeof scored = [];
     for (const oi of candidates) {
@@ -381,7 +397,7 @@ function similarPairs(oldList: readonly Paragraph[], newList: readonly Paragraph
       const score = (2 * shared) / (set.size + own.length);
       if (score >= SIMILAR) mine.push({ o: oldList[oi]!, n, oi, ni, score });
     }
-    if (budget && mine.length > BEST) mine.sort((x, y) => y.score - x.score || x.oi - y.oi).length = BEST;
+    if (budget && mine.length > BEST) mine.sort((x, y) => y.score - x.score || Math.abs(x.oi - near) - Math.abs(y.oi - near) || x.oi - y.oi).length = BEST;
     for (const s of mine) scored.push(s);
   });
   // Best first; ties in old then new order.

@@ -188,6 +188,15 @@ test('thousands of leftover paragraphs pair as an all-pairs search would, and qu
   assert.ok(performance.now() - t < 5000, `took ${Math.round(performance.now() - t)} ms`);
 });
 
+test('past the pair budget, paragraphs made only of common words still pair up', () => {
+  // 1,500 × 1,500 is over the budget, and every word but the last is in every paragraph.
+  const notes = (p: 'o' | 'n') => paras(p, Array.from({ length: 1500 }, () => `SEE DETAIL 3 TYPE ${p === 'o' ? 'A' : 'B'}`));
+  const { changes } = compareParagraphs(notes('o'), notes('n'));
+  const kinds = countKinds(changes);
+  assert.equal(kinds.modified, 1500);
+  assert.equal(kinds.added + kinds.removed, 0);
+});
+
 test('wordDiff of two very long paragraphs stays within memory and keeps their ends', () => {
   const words = (k: number, tag: string) => Array.from({ length: k }, (_, i) => `${tag}${i}`).join(' ');
   const a = `START ${words(6000, 'a')} END`;

@@ -93,7 +93,7 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
       )}
       {!!stops.length && (
         <div className="vs-nav">
-          <button className="btn small" onClick={() => go(at - 1)}>
+          <button className="btn small" onClick={() => go(at < 0 ? -1 : at - 1)}>
             ‹ Previous
           </button>
           <span>{at >= 0 ? `${at + 1} of ${stops.length}` : ''}</span>

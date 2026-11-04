@@ -70,6 +70,14 @@ function compareWorker(): Worker {
     if (e.data.error) job.reject(new Error(e.data.error));
     else job.resolve(e.data);
   };
+  // A worker that fails to load or to read a request would leave every compare waiting.
+  worker.onerror = worker.onmessageerror = (e: Event) => {
+    const error = new Error((e as ErrorEvent).message || 'The compare worker failed');
+    for (const job of pending.values()) job.reject(error);
+    pending.clear();
+    worker?.terminate();
+    worker = null;
+  };
   return worker;
 }
 

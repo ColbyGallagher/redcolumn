@@ -301,12 +301,14 @@ export function mergeBoxes(list: Difference[]): Difference[] {
       return i;
     };
     const order = boxes.map((_, i) => i).sort((a, b) => boxes[a]!.x - boxes[b]!.x);
-    let active: number[] = [];
+    const active: number[] = [];
     let joined = false;
     for (const i of order) {
       const b = boxes[i]!;
       // Boxes ending left of this one can touch nothing further right.
-      active = active.filter((k) => boxes[k]!.x + boxes[k]!.w >= b.x);
+      let kept = 0;
+      for (const k of active) if (boxes[k]!.x + boxes[k]!.w >= b.x) active[kept++] = k;
+      active.length = kept;
       for (const k of active) {
         if (!touches(boxes[k]!, b)) continue;
         const ri = find(i);
@@ -362,7 +364,9 @@ export function coarsen(list: Difference[], max: number): Difference[] {
     if (tile) tile.push(b);
     else tiles.set(r * cols + c, [b]);
   }
-  return [...tiles.values()].map(union).sort((a, b) => a.y - b.y || a.x - b.x);
+  // A box straddling a tile edge makes its tile's box overlap the next; merging those keeps
+  // clouds apart and can only lower the count.
+  return mergeBoxes([...tiles.values()].map(union));
 }
 
 /** A word with its box, in page points. */

@@ -86,6 +86,8 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
   const [error, setError] = useState('');
   const [shown, setShown] = useState<Set<ChangeKind>>(new Set(['added', 'removed', 'modified', 'moved']));
   const [at, setAt] = useState(-1);
+  // The changes listed: from `start` up to `limit`, around the one gone to.
+  const [start, setStart] = useState(0);
   const [limit, setLimit] = useState(PAGE);
 
   const changes = state?.result.changes ?? [];
@@ -99,6 +101,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
     try {
       await onRun(oldId, newId);
       setAt(-1);
+      setStart(0);
       setLimit(PAGE);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -111,7 +114,12 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
     if (!list.length) return;
     const n = (i + list.length) % list.length;
     setAt(n);
-    if (n >= limit) setLimit(Math.ceil((n + 1) / PAGE) * PAGE);
+    // Going outside the listed changes lists the page of them it is on, not all up to it.
+    if (n < start || n >= limit) {
+      const from = Math.floor(n / PAGE) * PAGE;
+      setStart(from);
+      setLimit(from + PAGE);
+    }
     onGo(list[n]!);
   };
 
@@ -202,6 +210,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
               onChange={(e) => {
                 setShown((s) => new Set(e.target.checked ? [...s, kind] : [...s].filter((k) => k !== kind)));
                 setAt(-1);
+                setStart(0);
                 setLimit(PAGE);
               }}
             />
@@ -210,7 +219,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
         ))}
       </div>
       <div className="sc-nav">
-        <button className="btn small" disabled={!list.length} onClick={() => go(at - 1)}>
+        <button className="btn small" disabled={!list.length} onClick={() => go(at < 0 ? -1 : at - 1)}>
           ‹ Previous
         </button>
         <span>{at >= 0 ? `${at + 1} of ${list.length}` : `${list.length} shown`}</span>
@@ -220,34 +229,44 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
       </div>
       <ul className="sc-list">
         {!list.length && <li className="sc-empty">{changes.length ? 'Nothing of the kinds ticked above.' : 'No text found to compare. Scanned pages need OCR first.'}</li>}
-        {list.slice(0, limit).map((c, i) => (
-          <li key={c.id}>
-            <button className={`sc-item ${c.kind}${i === at ? ' active' : ''}`} onClick={() => go(i)} aria-current={i === at}>
-              <span className="sc-item-head">
-                <span className={`sc-kind-tag ${c.kind}`}>{KINDS.find((k) => k.kind === c.kind)!.label}</span>
-                {c.reordered && (
-                  <span className="sc-basis" title="This paragraph also changed place">
-                    moved too
-                  </span>
-                )}
-                <span className={`sc-basis ${c.basis}`} title={BASIS[c.basis].title}>
-                  {BASIS[c.basis].label}
-                </span>
-              </span>
-              <span className="sc-sides">
-                <span className="sc-side old">
-                  <span className="sc-side-label">Old{c.old ? ` · p.${c.old.page}` : ''}</span>
-                  <Side side="old" change={c} full={i === at} />
-                </span>
-                <span className="sc-side new">
-                  <span className="sc-side-label">New{c.new ? ` · p.${c.new.page}` : ''}</span>
-                  <Side side="new" change={c} full={i === at} />
-                </span>
-              </span>
-              {c.note && <span className="sc-note">{c.note}</span>}
+        {start > 0 && (
+          <li className="sc-more">
+            <button className="btn small flat" onClick={() => setStart(Math.max(0, start - PAGE))}>
+              Show {Math.min(PAGE, start)} earlier of {start}
             </button>
           </li>
-        ))}
+        )}
+        {list.slice(start, limit).map((c, j) => {
+          const i = start + j;
+          return (
+            <li key={c.id}>
+              <button className={`sc-item ${c.kind}${i === at ? ' active' : ''}`} onClick={() => go(i)} aria-current={i === at}>
+                <span className="sc-item-head">
+                  <span className={`sc-kind-tag ${c.kind}`}>{KINDS.find((k) => k.kind === c.kind)!.label}</span>
+                  {c.reordered && (
+                    <span className="sc-basis" title="This paragraph also changed place">
+                      moved too
+                    </span>
+                  )}
+                  <span className={`sc-basis ${c.basis}`} title={BASIS[c.basis].title}>
+                    {BASIS[c.basis].label}
+                  </span>
+                </span>
+                <span className="sc-sides">
+                  <span className="sc-side old">
+                    <span className="sc-side-label">Old{c.old ? ` · p.${c.old.page}` : ''}</span>
+                    <Side side="old" change={c} full={i === at} />
+                  </span>
+                  <span className="sc-side new">
+                    <span className="sc-side-label">New{c.new ? ` · p.${c.new.page}` : ''}</span>
+                    <Side side="new" change={c} full={i === at} />
+                  </span>
+                </span>
+                {c.note && <span className="sc-note">{c.note}</span>}
+              </button>
+            </li>
+          );
+        })}
         {list.length > limit && (
           <li className="sc-more">
             <button className="btn small flat" onClick={() => setLimit(limit + PAGE)}>
