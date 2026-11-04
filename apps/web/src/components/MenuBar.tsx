@@ -37,6 +37,7 @@ export type LeftTab =
   | 'flags'
   | 'stitching'
   | 'geospatial'
+  | 'ai'
   | 'search'
   | 'forms'
   | 'sets'
@@ -58,6 +59,7 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   flags: 'Flags',
   stitching: 'Stitching',
   geospatial: 'Geospatial',
+  ai: 'Compare',
   search: 'Search',
   forms: 'Forms',
   sets: 'Sets',
@@ -467,6 +469,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.security" />
             <Sep />
             <Cmd id="document.compare" />
+            <Cmd id="document.semanticCompare" />
             <Cmd id="document.overlay" />
             <Cmd id="document.slipSheet" />
             <Cmd id="document.revisions" />

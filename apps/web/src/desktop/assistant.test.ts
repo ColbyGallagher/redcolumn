@@ -5,6 +5,8 @@ import { parseScaleText } from '@nb/measure';
 import { assistantCall, assistantDocuments, isDestructiveCommand, type AssistantCommand, type AssistantDocument, type AssistantTools } from './assistant.ts';
 import { allowAssistant, assistantPrompt, confirmAssistant, denyAssistant } from './assistantConfirm.ts';
 import { clientSetups } from './clients.ts';
+import { countKinds } from '../compare/semantic.ts';
+import { semanticCompare } from '../compare/semanticStore.ts';
 
 function markup(partial: Partial<Markup> & Pick<Markup, 'id' | 'type'>): Markup {
   return {
@@ -559,4 +561,95 @@ test('placing many viewports is one undo step, and one bad item places none', as
   assert.equal(drawing.store.allViewports().length, 0);
   drawing.store.setReadOnly(true);
   await assert.rejects(() => assistantCall([drawing], 'place_viewport', { page: 1, points: [[0, 0], [10, 10]] }), /read-only/);
+});
+
+test('an AI client judges a comparison the person started: only unmatched paragraphs come back, and its verdicts are marked as its own', async () => {
+  const para = (prefix: 'o' | 'n', i: number, text: string) => ({ id: `${prefix}${i}`, page: 1, text, box: { x: 0, y: i * 20, w: 100, h: 15 } });
+  const same = 'The foundation is poured concrete on a compacted gravel bed.';
+  const before = [para('o', 1, same), para('o', 2, 'Payment is due within thirty days of the invoice date.'), para('o', 3, 'Retired clause about site hoarding.')];
+  const after = [para('n', 1, 'Invoices must be settled one month after they are issued.'), para('n', 2, same)];
+
+  semanticCompare.clear();
+  await assert.rejects(() => assistantCall([], 'get_comparison', {}), /No comparison is waiting/);
+  const started = semanticCompare.begin({ oldId: 'a', newId: 'b', oldName: 'Spec rev A.pdf', newName: 'Spec rev B.pdf', old: before, new: after });
+  assert.deepEqual(countKinds(started.result.changes), { added: 1, removed: 2, modified: 0, moved: 0, unchanged: 1 });
+
+  const read = (await assistantCall([], 'get_comparison', {})) as { requestId: string; sameText: { matched: number }; unmatched: { old: number; new: number }; oldParagraphs: { id: string }[]; newParagraphs: { id: string }[] };
+  assert.equal(read.sameText.matched, 1);
+  assert.deepEqual(read.oldParagraphs.map((p) => p.id), ['o2', 'o3']);
+  assert.deepEqual(read.newParagraphs.map((p) => p.id), ['n1']);
+
+  // Checked first: a paragraph that matched by text, a made-up id and a wrong kind each refuse the whole report.
+  await assert.rejects(() => assistantCall([], 'report_document_changes', { changes: [{ kind: 'moved', old: 'o1', new: 'n2' }] }), /o1 has the same text in both revisions/);
+  await assert.rejects(() => assistantCall([], 'report_document_changes', { changes: [{ kind: 'unchanged', old: 'o9', new: 'n1' }] }), /o9 is not a paragraph of the old revision/);
+  await assert.rejects(() => assistantCall([], 'report_document_changes', { changes: [{ kind: 'removed', old: 'o3', new: 'n1' }] }), /removed takes the old paragraph only/);
+  await assert.rejects(() => assistantCall([], 'report_document_changes', { requestId: 'stale', changes: [{ kind: 'removed', old: 'o3' }] }), /no longer open/);
+  assert.equal(semanticCompare.get()!.phase, 'waiting');
+
+  const reported = (await assistantCall([], 'report_document_changes', { requestId: read.requestId, source: 'Claude', changes: [{ kind: 'unchanged', old: 'o2', new: 'n1', note: 'Same payment term.' }, { kind: 'removed', old: 'o3' }] })) as { accepted: number; stillUnreported: { old: number; new: number } };
+  assert.equal(reported.accepted, 2);
+  assert.deepEqual(reported.stillUnreported, { old: 0, new: 0 });
+  const after1 = semanticCompare.get()!;
+  assert.equal(after1.phase, 'ai');
+  assert.equal(after1.source, 'Claude');
+  assert.deepEqual(countKinds(after1.result.changes), { added: 0, removed: 1, modified: 0, moved: 1, unchanged: 1 });
+  assert.deepEqual(after1.result.changes.map((c) => [c.kind, c.basis]).sort(), [['moved', 'ai'], ['removed', 'ai'], ['unchanged', 'exact']]);
+
+  // Nothing left to judge: the next read is empty.
+  const again = (await assistantCall([], 'get_comparison', {})) as { oldParagraphs: unknown[]; newParagraphs: unknown[] };
+  assert.deepEqual([again.oldParagraphs.length, again.newParagraphs.length], [0, 0]);
+  semanticCompare.clear();
+});
+
+test('a client that cannot judge a comparison says so, and the text comparison stands', async () => {
+  const para = (prefix: 'o' | 'n', i: number, text: string) => ({ id: `${prefix}${i}`, page: 1, text, box: { x: 0, y: i * 20, w: 100, h: 15 } });
+  semanticCompare.begin({ oldId: 'a', newId: 'b', oldName: 'a.pdf', newName: 'b.pdf', old: [para('o', 1, 'Alpha beta gamma')], new: [para('n', 1, 'Alpha beta delta')] });
+  await assistantCall([], 'report_document_changes', { source: 'Claude', error: 'The documents were too long for me.' });
+  const state = semanticCompare.get()!;
+  assert.equal(state.phase, 'fallback');
+  assert.equal(state.failure, 'The documents were too long for me.');
+  assert.equal(state.result.changes[0]!.kind, 'modified');
+  assert.equal(state.result.changes[0]!.basis, 'text');
+  semanticCompare.clear();
+});
+
+test('with no answer in time, the comparison falls back to text', async () => {
+  const para = (prefix: 'o' | 'n', text: string) => ({ id: `${prefix}1`, page: 1, text, box: { x: 0, y: 0, w: 100, h: 15 } });
+  semanticCompare.begin({ oldId: 'a', newId: 'b', oldName: 'a.pdf', newName: 'b.pdf', old: [para('o', 'One two three')], new: [para('n', 'One two four')] }, 20);
+  assert.equal(semanticCompare.get()!.phase, 'waiting');
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(semanticCompare.get()!.phase, 'fallback');
+  semanticCompare.clear();
+});
+
+test('an AI client starts a comparison: the person says Allow first, then the panel is shown and the text comparison is ready', async () => {
+  const word = (text: string, y: number, x = 50) => ({ text, x0: x, y0: y, x1: x + text.length * 5, y1: y + 10, size: 10, angle: 0 });
+  const old = { ...(await doc('Spec A.pdf', false)), pageCount: 1, text: async () => [word('Alpha', 50), word('beta', 50, 90), word('Gamma', 120)] };
+  const now = { ...(await doc('Spec B.pdf', true)), pageCount: 1, text: async () => [word('Gamma', 50), word('Alpha', 120), word('beta', 120, 90), word('Delta', 200)] };
+  semanticCompare.clear();
+
+  let asked = '';
+  let revealed = 0;
+  const env = { confirm: async (message: string) => ((asked = message), false), revealComparison: () => void revealed++ };
+  await assert.rejects(() => assistantCall([old, now], 'start_comparison', { oldDocument: 'Spec A.pdf', newDocument: 'Spec B.pdf' }, env), /Not confirmed/);
+  assert.match(asked, /compare Spec A\.pdf \(old\) with Spec B\.pdf \(new\)/);
+  assert.match(asked, /text of both documents goes to your AI client/);
+  assert.equal(semanticCompare.get(), null, 'nothing is read without Allow');
+
+  await assert.rejects(() => assistantCall([old, now], 'start_comparison', { oldDocument: 'Spec A.pdf' }, { ...env, confirm: async () => true }), /Say which two documents/);
+  await assert.rejects(() => assistantCall([old, now], 'start_comparison', { oldDocument: 'Spec A.pdf', newDocument: 'Spec A.pdf' }, { ...env, confirm: async () => true }), /two different documents/);
+
+  const started = (await assistantCall([old, now], 'start_comparison', { oldDocument: 'Spec A.pdf', newDocument: 'Spec B.pdf' }, { ...env, confirm: async () => true })) as { ok: boolean; requestId: string };
+  assert.equal(started.ok, true);
+  assert.equal(revealed, 1);
+  const state = semanticCompare.get()!;
+  assert.equal(state.request.id, started.requestId);
+  assert.equal(state.phase, 'waiting');
+  // Gamma moved to the top; "Alpha beta" and the new "Delta" are paragraphs of their own.
+  assert.deepEqual(state.request.new.map((p) => p.text), ['Gamma', 'Alpha beta', 'Delta']);
+  const read = (await assistantCall([], 'get_comparison', {})) as { newParagraphs: { text: string }[] };
+  assert.deepEqual(read.newParagraphs.map((p) => p.text), ['Delta']);
+  await assistantCall([], 'report_document_changes', { source: 'Claude', summary: 'One new paragraph; the rest only moved.', changes: [{ kind: 'added', new: 'n3' }] });
+  assert.equal(semanticCompare.get()!.summary, 'One new paragraph; the rest only moved.');
+  semanticCompare.clear();
 });

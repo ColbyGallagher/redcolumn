@@ -59,6 +59,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.numberPages': { spec: 'document' },
   'document.ocr': 'todo',
   'document.overlay': { spec: 'compare-stitch' },
+  'document.semanticCompare': { spec: 'compare-stitch' },
   'document.pageSetup': { spec: 'document' },
   'document.pdfa': 'todo',
   'document.properties': { spec: 'document' },
