@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { searchText, type SearchHit, type SheetInfo } from '@nb/sheets';
 import { fileSource, type Labelled, type SearchSource } from '../search/sources';
 
@@ -240,6 +240,30 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     open((selected + delta + hits.length) % hits.length);
   };
 
+  // Keep the active result in view in the list, whether it was reached by key or from the page.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    listRef.current?.querySelector('.search-hit.active')?.scrollIntoView?.({ block: 'nearest' });
+  }, [selected, hits, collapsed]);
+
+  // Up and Down step through the results (wrapping at either end) from the query box or a result,
+  // so a text field elsewhere keeps its own arrow keys.
+  const onArrow = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const t = e.target as HTMLElement;
+    if (t !== inputRef.current && !t.classList.contains('search-hit')) return;
+    if (!hits?.length || progress) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = selected < 0 ? (e.key === 'ArrowDown' ? 0 : hits.length - 1) : (selected + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+    // A result in a collapsed file group is not on screen, so open its group.
+    const doc = hits[next]!.docId;
+    if (collapsed.includes(doc)) setCollapsed(collapsed.filter((c) => c !== doc));
+    open(next);
+    if (t !== inputRef.current) requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>('.search-hit.active')?.focus());
+  };
+
   const scopeLabel = (s: SearchScope) =>
     s === 'document' ? 'Current Document' : s === 'page' ? `Current Page (${sheets[currentPage]?.number ?? `Page ${currentPage + 1}`})` : s === 'open' ? 'All Open Documents' : s === 'recents' ? 'Recents' : 'Folder';
 
@@ -273,7 +297,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   );
 
   return (
-    <div className="search">
+    <div className="search" ref={listRef} onKeyDownCapture={onArrow}>
       <form
         className="search-bar"
         onSubmit={(e) => {

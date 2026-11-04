@@ -112,6 +112,8 @@ const ICONS: Record<string, ReactNode> = {
   'document.repair': ic('M10.5 2a3 3 0 0 0-3.7 3.7L2 10.5 4.5 13l4.8-4.8A3 3 0 0 0 13 4.5l-2 2-1.5-1.5 2-2z'),
   'document.colour': ic('M8 2c3 3.5 4.5 5.5 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.5 5 5.5 8 2z'),
   'document.compare': ic('M1.5 2.5h5.5v11H1.5zM9 2.5h5.5v11H9zM3 6h2.5M10.5 6H13M3 9h2.5M10.5 9H13'),
+  // Two sheets with a spark between them: the comparison an AI judges by meaning.
+  'document.semanticCompare': ic('M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10zM8 4.5v2M7 5.5h2M8 9.5v2M7 10.5h2'),
   'document.overlay': ic('M2 2h8v8H2z', <path d="M6 6h8v8H6z" strokeDasharray="1.5 1.2" />),
   'document.slipSheet': ic('M3.5 3.5h9v11h-9zM5.5 1.5h9v11'),
   'document.revisions': ic('M3 1.5h10v13H3zM5.5 5h5M5.5 8h5M5.5 11h3'),
@@ -820,7 +822,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
             <Group label="Compare">
               <Cmd id="document.compare" size="large" label="Compare" />
               <Stack>
+                <Cmd id="document.semanticCompare" label="AI Compare" />
                 <Cmd id="document.overlay" label="Overlay" />
+              </Stack>
+              <Stack>
                 <Cmd id="document.slipSheet" label="Slip Sheet" />
                 <Cmd id="document.revisions" label="Revisions" />
               </Stack>

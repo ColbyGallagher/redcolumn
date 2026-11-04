@@ -63,7 +63,89 @@ test.describe('compare and overlay', () => {
     for (const p of [1, 2, 3]) expect(await app.pageInfo(p)).toMatchObject({ width: PLAN.page.width, height: PLAN.page.height });
   });
 
+  test('document.semanticCompare shows a text comparison, then an AI client judges it through the assistant', async ({ app }) => {
+    await app.cmd('document.semanticCompare');
+    const panel = app.page.locator('.semantic-compare');
+    await expect(panel).toBeVisible();
+    await panel.getByLabel('Old revision', { exact: true }).selectOption({ label: 'plan.pdf' });
+    await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'plan-rev1.pdf' });
+    await panel.getByRole('button', { name: 'Compare', exact: true }).click();
+    // Nobody has answered yet: the plain text comparison shows, and says so.
+    await expect(panel.locator('.sc-status')).toContainText(/text comparison/i);
+    await expect(panel.locator('.sc-item').filter({ hasText: 'REVISION 1' })).toBeVisible();
+
+    // An AI client reads what text matching could not settle and answers through the same tools.
+    const read = await app.assistant<{ requestId: string; oldParagraphs: { id: string }[]; newParagraphs: { id: string; text: string }[] }>('get_comparison');
+    const added = read.newParagraphs.find((p) => p.text.includes('REVISION 1'));
+    expect(added).toBeTruthy();
+    await app.assistant('report_document_changes', { requestId: read.requestId, source: 'Test client', changes: [{ kind: 'added', new: added!.id, note: 'A revision note.' }] });
+    await expect(panel.locator('.sc-status.ai')).toContainText('Test client judged these by meaning');
+    await expect(panel.locator('.sc-item.added .sc-basis.ai')).toHaveText('AI judgement');
+    await expect(panel.locator('.sc-item.added .sc-note')).toHaveText('A revision note.');
+
+    // Each change shows what is in the old revision and in the new; clicking it brings the two side by side.
+    await expect(panel.locator('.sc-item.added .sc-side.old')).toContainText('Not in the old revision');
+    await expect(panel.locator('.sc-item.added .sc-side.new')).toContainText('REVISION 1');
+    await panel.locator('.sc-item.added').click();
+    await expect.poll(async () => (await app.command('view.split')).checked || (await app.command('view.splitHorizontal')).checked).toBe(true);
+  });
+
+  test('an AI client starts a comparison with start_comparison, and the panel opens by itself', async ({ app }) => {
+    const started = await app.assistant<{ ok: boolean }>('start_comparison', { oldDocument: 'plan.pdf', newDocument: 'plan-rev1.pdf' });
+    expect(started.ok).toBe(true);
+    const panel = app.page.locator('.semantic-compare');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.sc-docs')).toContainText('plan.pdf');
+    await expect(panel.locator('.sc-item').filter({ hasText: 'REVISION 1' })).toBeVisible();
+  });
+
   test.afterEach(async ({ app }) => {
+    expect(app.errors).toEqual([]);
+  });
+});
+
+// crowded-rev1.pdf renumbers all 750 tags of crowded.pdf: more differences than one page keeps.
+test.describe('compare with too many differences', () => {
+  test('groups them into at most 300 clouds and says why', async ({ app }) => {
+    await app.open('crowded.pdf', 'crowded-rev1.pdf');
+    await app.cmd('document.compare');
+    const dialog = modal(app, 'Compare Documents');
+    await dialog.getByLabel('Old revision', { exact: true }).selectOption({ label: 'crowded.pdf (open)' });
+    await dialog.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf (open)' });
+    await dialog.getByLabel('All pages, in page order').check();
+    await dialog.locator('button[type=submit]').click();
+    const results = app.page.locator('.compare-results');
+    await expect(results.locator('.compare-warning')).toContainText('too many differences', { timeout: 60_000 });
+    await expect(results.locator('.compare-page')).toContainText(/grouped from [\d,]+/);
+    const marks = (await app.assistant<{ markups: unknown[] }>('list_markups', { document: 'crowded-rev1.pdf' })).markups;
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.length).toBeLessThanOrEqual(300);
+    // Many differences: the page lists them only when opened, and Next opens it.
+    await expect(results.locator('.compare-item')).toHaveCount(0);
+    await results.getByRole('button', { name: 'Next ›' }).click();
+    await expect(results.locator('.compare-item.active')).toHaveCount(1);
+    expect(app.errors).toEqual([]);
+  });
+
+  test('the Compare side panel lists 200 changes at a time', async ({ app }) => {
+    await app.open('crowded.pdf', 'crowded-rev1.pdf');
+    await app.cmd('document.semanticCompare');
+    const panel = app.page.locator('.semantic-compare');
+    await panel.getByLabel('Old revision', { exact: true }).selectOption({ label: 'crowded.pdf' });
+    await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf' });
+    await panel.getByRole('button', { name: 'Compare', exact: true }).click();
+    // 750 tags gone and 750 new ones: 1,500 changes, listed a page at a time.
+    await expect(panel.locator('.sc-nav')).toContainText('1500 shown', { timeout: 60_000 });
+    await expect(panel.locator('.sc-item')).toHaveCount(200);
+    await panel.getByRole('button', { name: 'Show 200 more of 1300' }).click();
+    await expect(panel.locator('.sc-item')).toHaveCount(400);
+    // Previous from the start wraps to the last change: its page of changes is listed, not all.
+    await panel.getByRole('button', { name: '‹ Previous' }).click();
+    await expect(panel.locator('.sc-item.active')).toHaveCount(1);
+    await expect(panel.locator('.sc-item')).toHaveCount(100);
+    await expect(panel.locator('.sc-nav')).toContainText('1500 of 1500');
+    await panel.getByRole('button', { name: 'Show 200 earlier of 1400' }).click();
+    await expect(panel.locator('.sc-item')).toHaveCount(300);
     expect(app.errors).toEqual([]);
   });
 });

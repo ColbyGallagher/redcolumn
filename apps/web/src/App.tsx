@@ -61,6 +61,9 @@ import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
+import type { SemanticChange } from './compare/semantic';
+import { semanticCompare } from './compare/semanticStore';
+import { SemanticComparePanel } from './components/SemanticComparePanel';
 import { SpellCheckDialog } from './components/SpellCheckDialog';
 import { WhatsNewDialog } from './components/WhatsNewDialog';
 import { PublishDialog, type PublishRequest } from './components/PublishDialog';
@@ -192,7 +195,7 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
-import { assistantCall, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
+import { assistantCall, beginComparison, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
 import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
@@ -1124,6 +1127,7 @@ export function App() {
   /** Closes a tab, asking first about unsaved changes (set after it is defined, for the Sets panel). */
   const closeTabRef = useRef<(pane: Pane, fileId: string) => Promise<boolean>>(async () => false);
   const sideBySideRef = useRef<(oldId: string, newId: string) => Promise<void>>(async () => {});
+  const semanticGoRef = useRef<(change: SemanticChange, shown?: boolean) => Promise<void>>(async () => {});
   /** An open page tool dialog; crop keeps a rectangle drawn on the page. */
   const [pageTool, setPageTool] = useState<{ kind: PageToolKind; drawnRect: { x: number; y: number; w: number; h: number } | null } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -2520,12 +2524,15 @@ export function App() {
           });
           const sheets = done.reduce((n, r) => n + r.pages.length, 0);
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
+          const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
             setNotice('No sheets in the two sets matched.');
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
-          const most = done.reduce((a, b) => (b.pages.reduce((m, p) => m + p.differences.length, 0) > a.pages.reduce((m, p) => m + p.differences.length, 0) ? b : a));
+          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
+          // Ranked by what was found, not what one page keeps.
+          const weight = (r: (typeof done)[number]) => r.pages.reduce((m, p) => m + (p.found ?? p.differences.length), 0);
+          const most = done.reduce((a, b) => (weight(b) > weight(a) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
@@ -5654,6 +5661,7 @@ export function App() {
     toolsFor: (id: string) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
     confirm: confirmAssistant,
     stitch: assistantStitching,
+    revealComparison: undefined as (() => void) | undefined,
   });
   assistantRuntime.current = {
     documents: () => assistantHost.current(),
@@ -5661,6 +5669,7 @@ export function App() {
     toolsFor: (id) => (open?.file.id === id ? (ctl?.tools ?? null) : openB?.file.id === id ? (ctlB?.tools ?? null) : null),
     confirm: confirmAssistant,
     stitch: assistantStitching,
+    revealComparison: () => showPanel('ai'),
   };
   useEffect(() => installAssistant(() => assistantRuntime.current), []);
 
@@ -6930,6 +6939,31 @@ export function App() {
     }
   };
 
+  /** AI Compare Documents: reads both open documents' text and starts the comparison. */
+  const runSemanticCompare = (oldId: string, newId: string) => beginComparison(assistantHost.current(), oldId, newId);
+
+  /** Shows one change in both revisions, bringing them side by side first when they are not. */
+  const goToParagraph = async (change: SemanticChange, shown = false): Promise<void> => {
+    const req = semanticCompare.get()?.request;
+    if (!req) return;
+    const ctlFor = (id: string) => (openRef.current?.file.id === id ? ctl : openBRef.current?.file.id === id ? ctlB : null);
+    const wanted = [
+      { id: req.newId, p: change.new },
+      { id: req.oldId, p: change.old },
+    ].filter((w): w is { id: string; p: NonNullable<SemanticChange['new']> } => !!w.p);
+    // Both revisions have to be on screen, even for a change only one of them has.
+    if (!shown && [req.oldId, req.newId].some((id) => !ctlFor(id))) {
+      await showSideBySide(req.oldId, req.newId);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      return semanticGoRef.current(change, true);
+    }
+    for (const { id, p } of wanted) {
+      const pad = Math.max(p.box.w, p.box.h) * 0.3 + 24;
+      ctlFor(id)?.viewer.zoomToRect({ x: p.box.x - pad, y: p.box.y - pad, w: p.box.w + pad * 2, h: p.box.h + pad * 2 }, 1, p.page - 1);
+    }
+  };
+  semanticGoRef.current = goToParagraph;
+
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
     const tabs = pane === 'b' ? tabsB : tabsA;
@@ -7867,6 +7901,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
     },
     compare: () => setCompareOpen('compare'),
+    semanticCompare: () => showPanel('ai'),
     batch: (kind) => (kind === 'summary' ? setSummaryOpen(true) : setBatchOpen(kind)),
     security: () => setSecurityOpen(true),
     showPanel: (tab) => showPanel(tab),
@@ -8757,6 +8792,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               activeOpen?.store.checkpoint();
               activeOpen?.store.remove([id]);
             }}
+          />
+        ) : tab === 'ai' ? (
+          <SemanticComparePanel
+            docs={[...new Map([...tabsA, ...tabsB].map((t) => [t.file.id, { id: t.file.id, name: t.file.name }])).values()]}
+            currentId={activeOpen?.file.id ?? null}
+            onRun={runSemanticCompare}
+            onGo={(change) => void goToParagraph(change)}
+            onSideBySide={(oldId, newId) => void showSideBySide(oldId, newId)}
+            onMessage={setNotice}
           />
         ) : tab === 'geospatial' ? (
           <GeospatialPanel
@@ -10177,6 +10221,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setCompareResults(null)}
         />
       )}
+
       {ocrFor && activeOpen && (
         <OcrDialog
           pageCount={activeOpen.doc.pages.length}
@@ -10908,6 +10953,17 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.5" d="M8 1.5v13" />
+      </svg>
+    ),
+  },
+  {
+    id: 'ai',
+    title: 'Compare',
+    experimental: true,
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10z" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" d="M8 4.5v2M7 5.5h2M8 9.5v2M7 10.5h2" />
       </svg>
     ),
   },

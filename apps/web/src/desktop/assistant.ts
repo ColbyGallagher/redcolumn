@@ -5,6 +5,8 @@ import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
 import { MEASURED_NAMES } from '../assemblies/quantities';
+import { documentParagraphs, exactMatches, type AiDecision, type ChangeKind, type Paragraph } from '../compare/semantic';
+import { semanticCompare, type SemanticState } from '../compare/semanticStore';
 
 /** A picture of part of a page, as `get_page_image` returns it. */
 export interface PageImage {
@@ -87,6 +89,8 @@ export interface AssistantEnv {
   toolsFor?: (documentId: string) => AssistantTools | null;
   confirm?: (message: string) => Promise<boolean>;
   stitch?: AssistantStitching;
+  /** Brings the AI panel into view, so a person sees a comparison the assistant started. */
+  revealComparison?: () => void;
 }
 
 /**
@@ -1015,6 +1019,136 @@ function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknow
   };
 }
 
+// ---- Semantic compare: the person asks in the panel, the AI judges, the person reads --------------
+
+/** Longest paragraph text one call returns. A paragraph past this is cut, with an ellipsis. */
+const MAX_PARAGRAPH_CHARS = 4000;
+const DEFAULT_PARAGRAPHS = 100;
+const MAX_PARAGRAPHS = 400;
+
+/**
+ * Reads two open documents' text into paragraphs and starts a comparison, with the text comparison
+ * ready at once. The panel's Compare button and `start_comparison` both come here.
+ */
+export async function beginComparison(docs: readonly AssistantDocument[], oldId: string, newId: string): Promise<void> {
+  const oldDoc = docs.find((d) => d.id === oldId);
+  const newDoc = docs.find((d) => d.id === newId);
+  if (!oldDoc?.text || !newDoc?.text) throw new Error('Open both revisions in tabs first: their text is read from the open documents.');
+  const [old, now] = await Promise.all([documentParagraphs('o', oldDoc.pageCount, oldDoc.text), documentParagraphs('n', newDoc.pageCount, newDoc.text)]);
+  if (!old.length && !now.length) throw new Error('Neither document has text to compare. Scanned pages need OCR first (Document › OCR).');
+  semanticCompare.begin({ oldId, newId, oldName: oldDoc.name, newName: newDoc.name, old, new: now });
+}
+
+/** The assistant starts a comparison: the person says Allow first, because both documents' text goes to the AI client. */
+async function startComparison(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
+  const args = record(params);
+  if (typeof args.oldDocument !== 'string' || typeof args.newDocument !== 'string') throw new Error('Say which two documents: oldDocument and newDocument, by name or id (list_open_documents).');
+  const oldDoc = findDocument(docs, args.oldDocument);
+  const newDoc = findDocument(docs, args.newDocument);
+  if (oldDoc.id === newDoc.id) throw new Error('Choose two different documents.');
+  await ask(env, `Allow the assistant to compare ${oldDoc.name} (old) with ${newDoc.name} (new)? The text of both documents goes to your AI client.`);
+  await beginComparison(docs, oldDoc.id, newDoc.id);
+  env.revealComparison?.();
+  const state = semanticCompare.get()!;
+  return { ok: true, requestId: state.request.id, old: oldDoc.name, new: newDoc.name, note: 'Started. The person sees a text comparison now. Call get_comparison, then report_document_changes with your verdicts.' };
+}
+
+function openComparison() {
+  const state = semanticCompare.get();
+  if (!state) throw new Error('No comparison is waiting. Start one with start_comparison, or ask the person to open Document › AI Compare Documents… and press Compare.');
+  return state;
+}
+
+function leftOver(state: SemanticState) {
+  return exactMatches(state.request.old, state.request.new);
+}
+
+function clipped(p: Paragraph) {
+  return { id: p.id, page: p.page, text: p.text.length > MAX_PARAGRAPH_CHARS ? `${p.text.slice(0, MAX_PARAGRAPH_CHARS)}…` : p.text };
+}
+
+/**
+ * What the person asked to have compared. Paragraphs with the same text were matched here already
+ * (moved or not), so only the rest come back: what the AI is needed for, and a fraction of a long report.
+ */
+function getComparison(params: unknown) {
+  const args = record(params);
+  const state = openComparison();
+  const { pairs, unmatchedOld, unmatchedNew } = leftOver(state);
+  const reported = new Set(state.decisions.flatMap((d) => [d.old, d.new].filter((x): x is string => !!x)));
+  const openOld = unmatchedOld.filter((p) => !reported.has(p.id));
+  const openNew = unmatchedNew.filter((p) => !reported.has(p.id));
+  const limit = args.limit === undefined ? DEFAULT_PARAGRAPHS : Math.min(wholeNumber(args.limit, 'Limit', 1), MAX_PARAGRAPHS);
+  const offset = args.offset === undefined ? 0 : wholeNumber(args.offset, 'Offset', 0);
+  const old = openOld.slice(offset, offset + limit);
+  const now = openNew.slice(offset, offset + limit);
+  const more = offset + limit < Math.max(openOld.length, openNew.length);
+  return {
+    requestId: state.request.id,
+    old: { name: state.request.oldName, paragraphs: state.request.old.length },
+    new: { name: state.request.newName, paragraphs: state.request.new.length },
+    sameText: { matched: pairs.length },
+    unmatched: { old: openOld.length, new: openNew.length },
+    offset,
+    ...(more ? { nextOffset: offset + limit } : {}),
+    oldParagraphs: old.map(clipped),
+    newParagraphs: now.map(clipped),
+    instructions:
+      'Match old and new paragraphs by meaning, not position. For each pair call report_document_changes with kind modified (reworded or edited), moved (the same content elsewhere, even if lightly reworded) or unchanged (same meaning, only reformatted). A new paragraph with no old counterpart is added; an old one with no new counterpart is removed. Paragraphs that have the same text were matched already and are not listed.',
+  };
+}
+
+const DECISION_KINDS = new Set<ChangeKind>(['added', 'removed', 'modified', 'moved', 'unchanged']);
+
+/** An AI client's verdicts on the paragraphs `get_comparison` listed. All are checked before any is kept. */
+function reportDocumentChanges(params: unknown) {
+  const args = record(params);
+  const state = openComparison();
+  if (typeof args.requestId === 'string' && args.requestId && args.requestId !== state.request.id) throw new Error('That comparison is no longer open: the person started another. Call get_comparison again.');
+  const source = typeof args.source === 'string' && args.source.trim() ? args.source.trim().slice(0, 80) : 'AI assistant';
+  if (typeof args.error === 'string' && args.error.trim()) {
+    semanticCompare.fail(state.request.id, args.error.trim().slice(0, 500), source);
+    return { ok: true, note: 'Noted. redcolumn shows its own text comparison and tells the person you could not judge it.' };
+  }
+  const { unmatchedOld, unmatchedNew } = leftOver(state);
+  const openOld = new Set(unmatchedOld.map((p) => p.id));
+  const openNew = new Set(unmatchedNew.map((p) => p.id));
+  const items = batchItems(args.changes, 'Give changes: a list of { kind, old and/or new (paragraph ids from get_comparison), note }.');
+  const seen = new Set<string>();
+  const decisions: AiDecision[] = items.map((item, n) => {
+    try {
+      const kind = item.kind;
+      if (typeof kind !== 'string' || !DECISION_KINDS.has(kind as ChangeKind)) throw new Error('kind has to be added, removed, modified, moved, or unchanged');
+      const old = typeof item.old === 'string' && item.old ? item.old : undefined;
+      const now = typeof item.new === 'string' && item.new ? item.new : undefined;
+      if (kind === 'added' && (!now || old)) throw new Error('added takes the new paragraph only');
+      if (kind === 'removed' && (!old || now)) throw new Error('removed takes the old paragraph only');
+      if (kind !== 'added' && kind !== 'removed' && (!old || !now)) throw new Error(`${kind} takes both the old and the new paragraph`);
+      for (const [id, open, side] of [[old, openOld, 'old'], [now, openNew, 'new']] as const) {
+        if (!id) continue;
+        if (!(id.startsWith(side === 'old' ? 'o' : 'n') && state.request[side].some((p) => p.id === id))) throw new Error(`${id} is not a paragraph of the ${side} revision`);
+        if (!open.has(id)) throw new Error(`${id} has the same text in both revisions, so redcolumn matched it already`);
+        if (seen.has(id)) throw new Error(`${id} is in the list twice`);
+        seen.add(id);
+      }
+      const note = typeof item.note === 'string' && item.note.trim() ? item.note.trim().slice(0, 500) : undefined;
+      return { kind: kind as ChangeKind, ...(old ? { old } : {}), ...(now ? { new: now } : {}), ...(note ? { note } : {}) };
+    } catch (err) {
+      throw new Error(`Change ${n + 1}: ${errorText(err)}`);
+    }
+  });
+  const summary = typeof args.summary === 'string' && args.summary.trim() ? args.summary.trim().slice(0, 1000) : undefined;
+  semanticCompare.decide(state.request.id, decisions, source, summary);
+  const after = semanticCompare.get()!;
+  const decided = new Set(after.decisions.flatMap((d) => [d.old, d.new].filter((x): x is string => !!x)));
+  return {
+    ok: true,
+    accepted: decisions.length,
+    stillUnreported: { old: unmatchedOld.filter((p) => !decided.has(p.id)).length, new: unmatchedNew.filter((p) => !decided.has(p.id)).length },
+    note: 'Shown to the person in AI Compare Documents, marked as your judgement. Paragraphs you did not report are compared by text similarity and marked so.',
+  };
+}
+
 export async function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv = {}): Promise<unknown> {
   if (method === 'list_open_documents') return { documents: assistantDocuments(docs).map(publicDocument) };
   if (method === 'list_markups') return listMarkups(docs, params);
@@ -1034,6 +1168,9 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'list_assemblies') return listAssemblies(docs, params);
   if (method === 'propose_takeoff') return proposeTakeoff(docs, params);
   if (method === 'list_takeoff_proposals') return listTakeoffProposals(docs, params);
+  if (method === 'start_comparison') return startComparison(docs, params, env);
+  if (method === 'get_comparison') return getComparison(params);
+  if (method === 'report_document_changes') return reportDocumentChanges(params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
   throw new Error('Unknown tool.');
