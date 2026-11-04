@@ -223,6 +223,11 @@ function candidatesFor(page: PageText, hints?: SheetHints): Candidate[] {
   return out;
 }
 
+/** A page's horizontal words joined into lines, each a Word spanning its line (view titles, notes). */
+export function textLines(words: readonly Word[]): Word[] {
+  return lines([...words]);
+}
+
 /** Groups words into horizontal text lines (reading order), used to find the sheet title. */
 function lines(words: Word[]): Word[] {
   // Lines are built per font size, so smaller text overlapping a line (labels, dimensions) can

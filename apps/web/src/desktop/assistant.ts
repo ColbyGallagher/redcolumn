@@ -1,6 +1,7 @@
 import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
+import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -37,6 +38,8 @@ export interface AssistantDocument {
   render?: (pageIndex: number, region: PageRegion, scale: number, withMarkups: boolean) => Promise<PageImage | null>;
   /** The words on a page, in page space. Absent in tests. */
   text?: (pageIndex: number) => Promise<TextWord[]>;
+  /** A page's line segments, `[x1, y1, x2, y2, ...]` in page space. Absent in tests. */
+  geometry?: (pageIndex: number) => Promise<{ segments: ArrayLike<number> }>;
   /**
    * A stitched group drawn as one picture: `bounds` (the group's world space) at `scale` pixels
    * per world unit, each sheet cut at its region and match lines. Absent in tests.
@@ -524,6 +527,7 @@ async function placeGesture(doc: AssistantDocument, tool: string, pageIndex: num
   }
   if (!tools.fill) throw new Error('Smart Fill is not available.');
   if (points.length !== 1) throw new Error('Smart Fill needs one point inside a closed outline.');
+  requireScaleFor(doc, 'area', pageIndex, points[0]);
   const markup = await tools.fill(pageIndex, points[0]!, extras);
   return { document: doc.name, markup: publicMarkup(doc, markup) };
 }
@@ -539,6 +543,7 @@ async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, 
   refuseFileType(type);
   const points = pointsOf(args.points);
   requirePoints(type, points);
+  requireScaleFor(doc, type, pageIndex, points[0]);
   const extras = extrasOf(args);
   const tools = env.toolsFor?.(doc.id) ?? null;
   const markup = tools?.owns(doc.store) ? tools.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras);
@@ -566,6 +571,7 @@ function placeMarkups(docs: readonly AssistantDocument[], params: unknown, env: 
       refuseFileType(type);
       const points = pointsOf(item.points);
       requirePoints(type, points);
+      requireScaleFor(doc, type, pageIndex, points[0]);
       return { type, pageIndex, points, extras: extrasOf(item) };
     } catch (err) {
       throw new Error(`${where}: ${errorText(err)}`);
@@ -1173,5 +1179,6 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'report_document_changes') return reportDocumentChanges(params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
+  if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
   throw new Error('Unknown tool.');
 }

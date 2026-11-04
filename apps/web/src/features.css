@@ -6840,6 +6840,22 @@ tr.hidden-markup td {
   background: rgba(59, 130, 246, 0.12);
 }
 
+.scale-review-table .sr-check-agrees {
+  color: rgb(74, 222, 128);
+}
+
+.scale-review-table .sr-check-disagrees {
+  color: rgb(248, 113, 113);
+}
+
+.sr-ai {
+  margin-left: 6px;
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(168, 85, 247, 0.3);
+}
+
 .sr-state {
   font-size: 11px;
   padding: 1px 6px;

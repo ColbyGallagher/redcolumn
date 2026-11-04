@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MarkupStore, type Markup } from '@nb/markup';
+import { parseScaleText } from '@nb/measure';
 import { assistantCall, assistantDocuments, isDestructiveCommand, type AssistantCommand, type AssistantDocument, type AssistantTools } from './assistant.ts';
 import { allowAssistant, assistantPrompt, confirmAssistant, denyAssistant } from './assistantConfirm.ts';
 import { clientSetups } from './clients.ts';
@@ -414,6 +415,9 @@ test('Cloud+ and Smart Fill go through the tools on screen, and say why when the
   assert.equal(pair.callout.type, 'callout');
   await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'cloudPlus', page: 1, points: [[0, 0]] }, env), /Cloud needs two opposite corners/);
 
+  // Smart Fill measures an area, so the page needs a scale first.
+  await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5]] }, env), /Page 1 has no scale yet/);
+  drawing.store.setScale([0], parseScaleText('1:100')!);
   const area = (await assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5]] }, env)) as { markup: { type: string } };
   assert.equal(area.markup.type, 'area');
   await assert.rejects(() => assistantCall([drawing], 'place_markup', { type: 'dynamicFill', page: 1, points: [[5, 5], [9, 9]] }, env), /one point inside a closed outline/);
