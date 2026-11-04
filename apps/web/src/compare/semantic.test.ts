@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TextWord } from '@nb/pdf-core';
-import { compareParagraphs, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, wordDiff, type AiDecision, type Paragraph } from './semantic.ts';
+import { compareParagraphs, counterpart, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, wordDiff, type AiDecision, type Paragraph } from './semantic.ts';
 
 /** Words of one text line starting at (x, y), 10pt type, 5pt per letter. */
 function line(text: string, x: number, y: number): TextWord[] {
@@ -151,4 +151,21 @@ test('a long reordered document is cheap to compare', () => {
   assert.equal(counts.added + counts.removed + counts.modified, 0);
   assert.equal(counts.moved, 300);
   assert.equal(counts.unchanged, 300);
+});
+
+test('an added or removed paragraph is placed in the other revision beside its nearest shared neighbour', () => {
+  const A = 'The contractor shall provide all labour and plant.';
+  const B = 'Fire stopping is to be installed at every penetration.';
+  const C = 'Drawings are not to be scaled.';
+  const old = paras('o', [A, C]);
+  const cur = paras('n', [A, B, C]).map((p, i) => ({ ...p, box: { ...p.box, y: 100 + i * 40 } }));
+  const { changes } = compareParagraphs(old, cur);
+  const added = changes.find((c) => c.kind === 'added')!;
+  // A is at y 0 in the old revision and y 100 in the new: B (y 140 in the new) goes at y 40 in the old.
+  assert.deepEqual(counterpart(changes, added), { page: 1, box: { ...cur[1]!.box, y: 40 } });
+  // The other way round, B is removed, and goes where it would be in the new revision.
+  const back = compareParagraphs(cur, old).changes;
+  assert.deepEqual(counterpart(back, back.find((c) => c.kind === 'removed')!), { page: 1, box: { ...cur[1]!.box, y: 40 } });
+  // A change both revisions have needs no stand-in.
+  assert.equal(counterpart(changes, changes.find((c) => c.kind === 'unchanged')!), null);
 });

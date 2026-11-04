@@ -59,7 +59,7 @@ import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
-import type { SemanticChange } from './compare/semantic';
+import { counterpart, type Paragraph, type SemanticChange } from './compare/semantic';
 import { semanticCompare } from './compare/semanticStore';
 import { SemanticComparePanel } from './components/SemanticComparePanel';
 import { SpellCheckDialog } from './components/SpellCheckDialog';
@@ -6939,13 +6939,16 @@ export function App() {
 
   /** Shows one change in both revisions, bringing them side by side first when they are not. */
   const goToParagraph = async (change: SemanticChange, shown = false): Promise<void> => {
-    const req = semanticCompare.get()?.request;
-    if (!req) return;
+    const state = semanticCompare.get();
+    if (!state) return;
+    const req = state.request;
     const ctlFor = (id: string) => (openRef.current?.file.id === id ? ctl : openBRef.current?.file.id === id ? ctlB : null);
+    // An added or removed paragraph has one side: the other revision goes to where it would be.
+    const stand = counterpart(state.result.changes, change);
     const wanted = [
-      { id: req.newId, p: change.new },
-      { id: req.oldId, p: change.old },
-    ].filter((w): w is { id: string; p: NonNullable<SemanticChange['new']> } => !!w.p);
+      { id: req.newId, p: change.new ?? (change.old ? stand : null) },
+      { id: req.oldId, p: change.old ?? (change.new ? stand : null) },
+    ].filter((w): w is { id: string; p: Pick<Paragraph, 'page' | 'box'> } => !!w.p);
     // Both revisions have to be on screen, even for a change only one of them has.
     if (!shown && [req.oldId, req.newId].some((id) => !ctlFor(id))) {
       await showSideBySide(req.oldId, req.newId);
