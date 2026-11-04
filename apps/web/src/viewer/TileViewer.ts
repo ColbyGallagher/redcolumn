@@ -868,6 +868,8 @@ export class TileViewer {
 
   /** Centers and zooms to a rect in a page's space, with `margin` (1 = edge to edge) around it. */
   zoomToRect(r: { x: number; y: number; w: number; h: number }, margin = 1.3, pageIndex = this.pageIndex) {
+    // A page not laid out (another page, one page at a time) is shown first.
+    if (this.doc && pageIndex >= 0 && pageIndex < this.doc.pages.length && !this.placementOf(pageIndex)) this.showPages(pageIndex);
     const corners = [
       [r.x, r.y],
       [r.x + r.w, r.y],
