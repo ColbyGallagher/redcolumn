@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TextWord } from '@nb/pdf-core';
-import { compareParagraphs, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, wordDiff, type AiDecision, type Paragraph } from './semantic.ts';
+import { compareParagraphs, counterpart, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, SIMILAR, wordDiff, type AiDecision, type Paragraph, type SemanticChange } from './semantic.ts';
 
 /** Words of one text line starting at (x, y), 10pt type, 5pt per letter. */
 function line(text: string, x: number, y: number): TextWord[] {
@@ -151,4 +151,97 @@ test('a long reordered document is cheap to compare', () => {
   assert.equal(counts.added + counts.removed + counts.modified, 0);
   assert.equal(counts.moved, 300);
   assert.equal(counts.unchanged, 300);
+});
+
+test('an added or removed paragraph is placed in the other revision beside its nearest shared neighbour', () => {
+  const A = 'The contractor shall provide all labour and plant.';
+  const B = 'Fire stopping is to be installed at every penetration.';
+  const C = 'Drawings are not to be scaled.';
+  const old = paras('o', [A, C]);
+  const cur = paras('n', [A, B, C]).map((p, i) => ({ ...p, box: { ...p.box, y: 100 + i * 40 } }));
+  const { changes } = compareParagraphs(old, cur);
+  const added = changes.find((c) => c.kind === 'added')!;
+  // A is at y 0 in the old revision and y 100 in the new: B (y 140 in the new) goes at y 40 in the old.
+  assert.deepEqual(counterpart(changes, added), { page: 1, box: { ...cur[1]!.box, y: 40 } });
+  // The other way round, B is removed, and goes where it would be in the new revision.
+  const back = compareParagraphs(cur, old).changes;
+  assert.deepEqual(counterpart(back, back.find((c) => c.kind === 'removed')!), { page: 1, box: { ...cur[1]!.box, y: 40 } });
+  // A change both revisions have needs no stand-in.
+  assert.equal(counterpart(changes, changes.find((c) => c.kind === 'unchanged')!), null);
+});
+
+test('a stand-in prefers a neighbour on its own page, and one that did not move', () => {
+  const box = (y: number) => ({ x: 0, y, w: 400, h: 30 });
+  const p = (id: string, page: number, y: number): Paragraph => ({ id, page, text: id, box: box(y) });
+  const added = (n: Paragraph) => ({ id: n.id, kind: 'added', basis: 'text', new: n }) as SemanticChange;
+  const pair = (o: Paragraph, n: Paragraph, kind: SemanticChange['kind'] = 'unchanged') => ({ id: n.id, kind, basis: 'exact', old: o, new: n }) as SemanticChange;
+  // The paragraph before ends page 2; the one after sits below on page 3, like the added one.
+  const before = pair(p('o1', 2, 700), p('n1', 2, 700));
+  const after = pair(p('o2', 3, 80), p('n2', 3, 80));
+  const first = added(p('n3', 3, 40));
+  assert.deepEqual(counterpart([before, first, after], first), { page: 3, box: box(40) });
+  // A moved neighbour on the same page loses to one that stayed, even further away.
+  const moved = pair(p('o4', 9, 500), p('n4', 3, 120), 'moved');
+  const stayed = pair(p('o5', 3, 200), p('n5', 3, 200));
+  const lone = added(p('n6', 3, 160));
+  assert.deepEqual(counterpart([moved, lone, first, stayed], lone), { page: 3, box: box(160) });
+  // On another page and nothing closer: the neighbour's place in the other revision.
+  const solo = added(p('n7', 5, 40));
+  assert.deepEqual(counterpart([before, solo], solo), { page: 2, box: box(700) });
+  // Nothing both revisions have.
+  assert.equal(counterpart([solo], solo), null);
+});
+
+test('thousands of leftover paragraphs pair as an all-pairs search would, and quickly', () => {
+  // Pseudo-random wording from a small vocabulary, so many pairs share words and some read alike.
+  let seed = 7;
+  const rand = (n: number) => ((seed = (seed * 1103515245 + 12345) % 2 ** 31), seed % n);
+  const vocab = ['the', 'pipe', 'valve', 'to', 'be', 'replaced', 'new', 'existing', 'see', 'detail', 'A', 'B', 'C', 'mm', 'dia'];
+  const text = () => Array.from({ length: 2 + rand(8) }, () => vocab[rand(vocab.length)]).join(' ');
+  const old = paras('o', Array.from({ length: 300 }, text));
+  const cur = paras('n', Array.from({ length: 300 }, text));
+  const { pairs, unmatchedOld, unmatchedNew } = exactMatches(old, cur);
+  // The pairs the text pass makes of what is left: as an all-pairs search makes them, best score
+  // first, ties in old then new order.
+  const left = compareParagraphs(unmatchedOld, unmatchedNew).changes.filter((c) => c.basis === 'text' && c.old && c.new).map((c) => c.id);
+  const expected = (() => {
+    const s: { o: (typeof unmatchedOld)[number]; n: (typeof unmatchedNew)[number]; s: number }[] = [];
+    for (const o of unmatchedOld) for (const n of unmatchedNew) {
+      const v = similarity(o.text, n.text);
+      if (v >= SIMILAR) s.push({ o, n, s: v });
+    }
+    s.sort((x, y) => y.s - x.s);
+    const uo = new Set<string>();
+    const un = new Set<string>();
+    const out: string[] = [];
+    for (const { o, n } of s) if (!uo.has(o.id) && !un.has(n.id)) uo.add(o.id), un.add(n.id), out.push(`${o.id}-${n.id}`);
+    return out;
+  })();
+  assert.ok(pairs.length > 0 && expected.length > 0);
+  assert.deepEqual([...left].sort(), [...expected].sort());
+
+  const many = 8000;
+  const big = (p: 'o' | 'n') => paras(p, Array.from({ length: many }, (_, i) => `TAG ${p === 'o' ? 'A' : 'B'}${i} TYPE ${i % 7} SEE DETAIL ${i % 13}`));
+  const t = performance.now();
+  compareParagraphs(big('o'), big('n'));
+  assert.ok(performance.now() - t < 5000, `took ${Math.round(performance.now() - t)} ms`);
+});
+
+test('past the pair budget, paragraphs made only of common words still pair up', () => {
+  // 1,500 × 1,500 is over the budget, and every word but the last is in every paragraph.
+  const notes = (p: 'o' | 'n') => paras(p, Array.from({ length: 1500 }, () => `SEE DETAIL 3 TYPE ${p === 'o' ? 'A' : 'B'}`));
+  const { changes } = compareParagraphs(notes('o'), notes('n'));
+  const kinds = countKinds(changes);
+  assert.equal(kinds.modified, 1500);
+  assert.equal(kinds.added + kinds.removed, 0);
+});
+
+test('wordDiff of two very long paragraphs stays within memory and keeps their ends', () => {
+  const words = (k: number, tag: string) => Array.from({ length: k }, (_, i) => `${tag}${i}`).join(' ');
+  const a = `START ${words(6000, 'a')} END`;
+  const b = `START ${words(6000, 'b')} END`;
+  const parts = wordDiff(a, b);
+  assert.deepEqual(parts.map((p) => p.op), ['same', 'del', 'ins', 'same']);
+  assert.equal(parts[0]!.text, 'START');
+  assert.equal(parts[3]!.text, 'END');
 });

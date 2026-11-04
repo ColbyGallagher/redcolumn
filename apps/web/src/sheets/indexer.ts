@@ -211,7 +211,7 @@ export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, st
   // read from the text; AI and manual numbers still win over them. Plain page numbers say nothing.
   const sheets = store.allSheets();
   const labelled = found.labels.flatMap((label, i): [number, SheetInfo][] =>
-    label && label !== String(i + 1) ? [[i, { number: label, title: sheets[i]?.title ?? null, discipline: sheets[i]?.discipline ?? null, scaleText: sheets[i]?.scaleText ?? null, revision: sheets[i]?.revision ?? null, source: 'pdf', confidence: 1 }]] : [],
+    label && label !== String(i + 1) ? [[i, { number: label, title: sheets[i]?.title ?? null, discipline: sheets[i]?.discipline ?? null, scaleText: sheets[i]?.scaleText ?? null, paperText: sheets[i]?.paperText ?? null, revision: sheets[i]?.revision ?? null, source: 'pdf', confidence: 1 }]] : [],
   );
   if (labelled.length) store.setDetectedSheets(labelled);
 }

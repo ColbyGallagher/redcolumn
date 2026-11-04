@@ -15,3 +15,5 @@ Each page gets the scale read from the same box on that page. Pages where no sca
 > **Tip:** If one box doesn't catch every sheet (title blocks differ), draw another box. Each box is tried in turn.
 
 For a single scale on every page, it is quicker to choose **Custom…** in the navigation bar's Scale list and set **Pages** to **All**. See [Set the scale](#scale).
+
+To read every sheet's scale for you and correct it for sheets saved at another size (A1 drawings as A3), see [Check sheet scales against the sheet size](#scale-review).

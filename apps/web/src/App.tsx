@@ -5,7 +5,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegi
 import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -42,6 +42,8 @@ import { commentRows, type CommentRow } from './studio/comments';
 import { LinkPreviews, type LinkPreviewWindow, type PreviewDrawing, type PreviewView } from './components/LinkPreview';
 import { ScriptsDialog } from './components/ScriptsDialog';
 import { TakeoffReview } from './components/TakeoffReview';
+import { SheetScaleReview } from './components/SheetScaleReview';
+import { scaleReviewRows } from './measure/scaleReview';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
@@ -59,7 +61,7 @@ import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
-import type { SemanticChange } from './compare/semantic';
+import { counterpart, type Paragraph, type SemanticChange } from './compare/semantic';
 import { semanticCompare } from './compare/semanticStore';
 import { SemanticComparePanel } from './components/SemanticComparePanel';
 import { SpellCheckDialog } from './components/SpellCheckDialog';
@@ -975,6 +977,7 @@ export function App() {
   } | null>(null);
   const [scriptsOpen, setScriptsOpen] = useState(false);
   const [takeoffReviewOpen, setTakeoffReviewOpen] = useState(false);
+  const [scaleReviewOpen, setScaleReviewOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const exportBusy = useJobRunning('export');
@@ -2522,12 +2525,15 @@ export function App() {
           });
           const sheets = done.reduce((n, r) => n + r.pages.length, 0);
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
+          const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
             setNotice('No sheets in the two sets matched.');
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
-          const most = done.reduce((a, b) => (b.pages.reduce((m, p) => m + p.differences.length, 0) > a.pages.reduce((m, p) => m + p.differences.length, 0) ? b : a));
+          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
+          // Ranked by what was found, not what one page keeps.
+          const weight = (r: (typeof done)[number]) => r.pages.reduce((m, p) => m + (p.found ?? p.differences.length), 0);
+          const most = done.reduce((a, b) => (weight(b) > weight(a) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
@@ -5509,15 +5515,14 @@ export function App() {
     const dest = paneB ? openB : open;
     dest?.store.setScale(allPages ? Array.from({ length: pageCount }, (_, i) => i) : [pageIndex], withDefaultUnits(scale));
   };
-  // Title-block scales that can fill pages nobody has scaled yet (never overriding a set scale).
-  const detectedScales = Object.entries(sheets)
-    .map(([i, s]) => [Number(i), s.scaleText ? parseScaleText(s.scaleText) : null] as const)
-    .filter((e): e is readonly [number, Scale] => e[1] !== null && !scales[e[0]]);
   const currentSheet = sheets[pageIndex];
   const currentStitch = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === pageIndex)) ?? null;
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
+  const activePages = activeOpen?.doc.pages;
+  const scaleRows = useMemo(() => (scaleReviewOpen && activePages ? scaleReviewRows(activePages, sheets, scales) : []), [scaleReviewOpen, activePages, sheets, scales]);
   /** Document → Insert → Bulk Insert PDFs: every file's pages go into the current document, in the listed order. */
   const bulkInsertDocuments = async (files: File[], where: BulkInsertWhere) => {
     setBulkInsertFiles(null);
@@ -6940,13 +6945,16 @@ export function App() {
 
   /** Shows one change in both revisions, bringing them side by side first when they are not. */
   const goToParagraph = async (change: SemanticChange, shown = false): Promise<void> => {
-    const req = semanticCompare.get()?.request;
-    if (!req) return;
+    const state = semanticCompare.get();
+    if (!state) return;
+    const req = state.request;
     const ctlFor = (id: string) => (openRef.current?.file.id === id ? ctl : openBRef.current?.file.id === id ? ctlB : null);
+    // An added or removed paragraph has one side: the other revision goes to where it would be.
+    const stand = counterpart(state.result.changes, change);
     const wanted = [
-      { id: req.newId, p: change.new },
-      { id: req.oldId, p: change.old },
-    ].filter((w): w is { id: string; p: NonNullable<SemanticChange['new']> } => !!w.p);
+      { id: req.newId, p: change.new ?? stand },
+      { id: req.oldId, p: change.old ?? stand },
+    ].filter((w): w is { id: string; p: Pick<Paragraph, 'page' | 'box'> } => !!w.p);
     // Both revisions have to be on screen, even for a change only one of them has.
     if (!shown && [req.oldId, req.newId].some((id) => !ctlFor(id))) {
       await showSideBySide(req.oldId, req.newId);
@@ -6954,8 +6962,16 @@ export function App() {
       return semanticGoRef.current(change, true);
     }
     for (const { id, p } of wanted) {
-      const pad = Math.max(p.box.w, p.box.h) * 0.3 + 24;
-      ctlFor(id)?.viewer.zoomToRect({ x: p.box.x - pad, y: p.box.y - pad, w: p.box.w + pad * 2, h: p.box.h + pad * 2 }, 1, p.page - 1);
+      const viewer = ctlFor(id)?.viewer;
+      if (!viewer) continue;
+      // A stand-in placed beside its neighbour can run off the page: kept on it.
+      const size = viewer.pageSize(p.page - 1);
+      const w = size ? Math.min(p.box.w, size.width) : p.box.w;
+      const h = size ? Math.min(p.box.h, size.height) : p.box.h;
+      const x = size ? Math.min(Math.max(p.box.x, 0), size.width - w) : p.box.x;
+      const y = size ? Math.min(Math.max(p.box.y, 0), size.height - h) : p.box.y;
+      const pad = Math.max(w, h) * 0.3 + 24;
+      viewer.zoomToRect({ x: x - pad, y: y - pad, w: w + pad * 2, h: h + pad * 2 }, 1, p.page - 1);
     }
   };
   semanticGoRef.current = goToParagraph;
@@ -7974,6 +7990,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     drawingStandards: () => startLabelRegions(undefined, 'standard'),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
+    scaleReview: () => setScaleReviewOpen(true),
     bulkRedact: () => startLabelRegions(undefined, 'erase'),
     thumbnails: () => showPanel('pages'),
     setTool: (tool) => activeTools?.setTool(tool),
@@ -10671,6 +10688,21 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
           }}
           onClose={() => setScriptsOpen(false)}
+        />
+      )}
+      {scaleReviewOpen && activeOpen && (
+        <SheetScaleReview
+          key={activeOpen.file.id}
+          rows={scaleRows}
+          pageLabel={(i) => pageLabelFor(activeOpen, i)}
+          currentPage={pageIndex}
+          readOnly={activeOpen.store.readOnly}
+          onShow={(page) => v?.goToPage(page)}
+          onApply={(list) => {
+            activeOpen.store.setScales(list.map(({ page, scale }) => [page, withDefaultUnits(scale)] as const));
+            setNotice(`Set the scale on ${list.length} page${list.length === 1 ? '' : 's'} from their title blocks. Undo takes it back.`);
+          }}
+          onClose={() => setScaleReviewOpen(false)}
         />
       )}
       {takeoffReviewOpen && activeOpen && (

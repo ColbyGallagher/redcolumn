@@ -470,6 +470,15 @@ export class MarkupStore {
     }, LOCAL);
   }
 
+  /** A different scale on each of several pages, as one undo step. */
+  setScales(entries: Iterable<readonly [number, Scale]>) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      for (const [i, scale] of entries) this.scales.set(String(i), scale);
+    }, LOCAL);
+  }
+
   /** Stable object until the next change (safe for React's useSyncExternalStore). */
   allSheets(): Readonly<Record<number, SheetInfo>> {
     return this.sheetSnapshot;

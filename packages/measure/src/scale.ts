@@ -259,7 +259,12 @@ function parseInches(text: string): number | null {
  * for "NTS", "AS NOTED" and anything unrecognised.
  */
 export function parseScaleText(text: string): Scale | null {
-  const t = text.toUpperCase().replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'");
+  // Digit groups (1:1,000, 1:2 500) are one number.
+  const t = text
+    .toUpperCase()
+    .replace(/[“”″]/g, '"')
+    .replace(/[‘’′]/g, "'")
+    .replace(/(\d)[,   ](?=\d{3}(?!\d))/g, '$1');
   if (/\b(NTS|N\.T\.S\.?|NOT TO SCALE|AS NOTED|AS SHOWN)\b/.test(t)) return null;
   const imperial = /(\d+(?:\.\d+)?(?:[\s-]+\d+\/\d+)?|\d+\/\d+)\s*"\s*=\s*(\d+(?:\.\d+)?)\s*'(?:\s*-?\s*(\d+(?:\.\d+)?)\s*")?/.exec(t);
   if (imperial) {

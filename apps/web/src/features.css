@@ -3817,7 +3817,34 @@
 }
 
 .compare-results .compare-page {
+  display: block;
+  width: 100%;
   margin-bottom: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.compare-results .compare-page:disabled {
+  cursor: default;
+}
+
+.compare-results .compare-page:not(:disabled)::before {
+  content: '\25B8';
+  display: inline-block;
+  width: 1em;
+}
+
+.compare-results .compare-page.open::before {
+  content: '\25BE';
+}
+
+.compare-results .compare-warning {
+  color: #e0a030;
 }
 
 .compare-results .muted {
@@ -6804,6 +6831,42 @@ tr.hidden-markup td {
   margin: 6px 0 2px;
 }
 
+/* Review Sheet Scales: the takeoff review panel's frame, wider for its table. */
+.scale-review {
+  width: min(780px, calc(100vw - 32px));
+}
+
+.scale-review-table tr.current td {
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.sr-state {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.sr-state.sr-ready,
+.sr-state.sr-matches {
+  background: rgba(22, 163, 74, 0.25);
+}
+
+.sr-state.sr-resized {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.sr-state.sr-check,
+.sr-state.sr-none {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.sr-state.sr-differs,
+.sr-state.sr-nts {
+  background: rgba(220, 38, 38, 0.25);
+}
+
 .tp-vars {
   margin-bottom: 4px;
 }
@@ -7185,6 +7248,10 @@ tr.hidden-markup td {
 
 .semantic-compare .sc-empty {
   color: var(--muted);
+}
+
+.semantic-compare .sc-more {
+  text-align: center;
 }
 
 .semantic-compare .sc-item {
