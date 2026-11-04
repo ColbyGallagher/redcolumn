@@ -22,6 +22,7 @@ interface Window {
       pageToClient(p: [number, number], pageIndex: number): [number, number];
       fit(): void;
       goToPage(i: number): void;
+      setPageMode(mode: 'single' | 'continuous'): void;
       zoomFor(pageIndex: number): number;
       getView(): { pageIndex: number; zoom: number; mode: string };
       pageView(): { pageIndex: number; zoom: number; rotation: number };
