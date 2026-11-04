@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch } from '@nb/markup';
+import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
@@ -457,6 +458,24 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           <FormatToggle on={!!textStyle.underline} label="U" title="Underline" className="u" onChange={(v) => tools.setStyle(textType, { underline: v || undefined })} />
           <FormatToggle on={!!textStyle.strikethrough} label="S" title="Strikethrough" className="s" onChange={(v) => tools.setStyle(textType, { strikethrough: v || undefined })} />
         </span>
+      )}
+      {textStyle && textType && styleCapabilities(textType).font && styleCapabilities(textType).textLayout && (
+        <>
+          <span className="seg" role="group" aria-label="Text alignment">
+            {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} className="" onChange={() => tools.setStyle(textType, { textAlign: a === 'left' ? undefined : a })} />
+            ))}
+          </span>
+          <span className="seg" role="group" aria-label="Vertical alignment">
+            {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={`Align ${a}`} className="" onChange={() => tools.setStyle(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+            ))}
+          </span>
+          <label className="field" title="Line spacing">
+            Spacing
+            <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => tools.setStyle(textType, { lineHeight: v })} />
+          </label>
+        </>
       )}
     </>
   );

@@ -594,8 +594,8 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
   );
 }
 
-const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '↔', right: '⇥', justify: '☰' };
-const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle: '↕', bottom: '⤓' };
+export const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '↔', right: '⇥', justify: '☰' };
+export const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle: '↕', bottom: '⤓' };
 
 const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
   { value: 'pitch', label: 'Pitch', unit: ':12' },
@@ -776,7 +776,7 @@ interface NumberFieldProps {
 const LINE_SPACINGS = [1, 1.15, 1.5, 2];
 
 /** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). Keyed by the selection, so each starts from its own value rather than the last one's Custom. */
-function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+export function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
   const preset = value !== undefined && LINE_SPACINGS.includes(value);
   const [custom, setCustom] = useState(value !== undefined && !preset);
   const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
