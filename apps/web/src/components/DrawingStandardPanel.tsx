@@ -73,7 +73,7 @@ const LIST_LABELS: [keyof Lists, string, string][] = [
 
 const NEW = '';
 /** The order new boxes take fields in: number first, then the rest; once all are used, ignore. */
-const FIELD_ORDER: TitleField[] = ['number', 'title', 'revision', 'scale'];
+const FIELD_ORDER: TitleField[] = ['number', 'title', 'revision', 'scale', 'sheetSize'];
 
 function fieldsFor(count: number, chosen: readonly TitleField[]): TitleField[] {
   const out: TitleField[] = [];

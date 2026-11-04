@@ -39,6 +39,18 @@ const expected = {
     'GENERAL NOTES': { hits: 1, firstPage: 2 },
   },
   pageCount: 3,
+  /**
+   * paper.pdf: sheets drawn for A1 with the scale stated for A1 in the title block, one saved at
+   * A1, one shrunk to A3 (so it measures at half the stated scale) and one not to scale. Sizes are
+   * landscape page points; the title block is placed as fractions of the page so it shrinks too.
+   */
+  paper: {
+    sheets: [
+      { number: 'C-101', title: 'ROAD PLAN 1', scale: '1:100 @ A1', width: 2384, height: 1684, status: 'Ready', applied: '1:100' },
+      { number: 'C-102', title: 'ROAD PLAN 2', scale: '1:100 @ A1', width: 1191, height: 842, status: 'Resized', applied: '1:100 @ A1 (on A3)' },
+      { number: 'C-103', title: 'LOCALITY PLAN', scale: 'NTS', width: 2384, height: 1684, status: 'Not to scale', applied: null },
+    ],
+  },
   /** sheets.pdf: three sheets whose title blocks hold a room name and a scale note. */
   sheets: {
     /** A box around each sheet's room name, and what it reads. */
@@ -201,6 +213,27 @@ async function sheets() {
     text(label, labelBox.x + 10, labelBox.y + labelBox.h - 10, 12);
     text(`SCALE: ${scales[i]}`, scaleBox.x + 10, scaleBox.y + scaleBox.h - 10, 10);
   });
+  return doc.save({ useObjectStreams: false });
+}
+
+/** Sheets saved at A1 and A3 with their scale stated for A1 (see expected.paper). */
+async function paper() {
+  const doc = await PDFDocument.create();
+  doc.setTitle('E2E paper sizes');
+  doc.setProducer('redcolumn e2e fixtures');
+  doc.setCreator('redcolumn e2e fixtures');
+  doc.setCreationDate(new Date(0));
+  doc.setModificationDate(new Date(0));
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (const sheet of expected.paper.sheets) {
+    const p = doc.addPage([sheet.width, sheet.height]);
+    // The title block of the A1 sheet, shrunk with the page: k is 1 at A1, 0.5 at A3.
+    const k = sheet.width / 2384;
+    const text = (s, x, y, size) => p.drawText(s, { x: x * k, y: sheet.height - y * k, size: size * k, font, color: black });
+    text(sheet.title, 1900, 1560, 18);
+    text(`SCALE: ${sheet.scale}`, 1900, 1600, 10);
+    text(sheet.number, 1900, 1650, 32);
+  }
   return doc.save({ useObjectStreams: false });
 }
 
@@ -450,6 +483,7 @@ writeFileSync(join(here, 'sheets.pdf'), await sheets());
 writeFileSync(join(here, 'forms.pdf'), await forms());
 writeFileSync(join(here, 'marks.pdf'), await marks());
 writeFileSync(join(here, 'chainage.pdf'), await chainage());
+writeFileSync(join(here, 'paper.pdf'), await paper());
 writeFileSync(join(here, 'rotated.pdf'), await rotated());
 writeFileSync(join(here, 'stitch.pdf'), stitchPdf());
 writeFileSync(join(here, 'crowded.pdf'), await crowded());
@@ -457,4 +491,4 @@ writeFileSync(join(here, 'crowded-rev1.pdf'), await crowded(1));
 writeFileSync(join(here, 'picture.png'), png());
 writeFileSync(join(here, 'notes.txt'), 'Attached notes for the e2e tests.\n');
 writeFileSync(join(here, 'expected.json'), JSON.stringify(expected, null, 2) + '\n');
-console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, rotated.pdf, stitch.pdf, crowded.pdf, crowded-rev1.pdf, picture.png, notes.txt, expected.json');
+console.log('wrote plan.pdf, plan-rev1.pdf, sheets.pdf, forms.pdf, marks.pdf, chainage.pdf, paper.pdf, rotated.pdf, stitch.pdf, crowded.pdf, crowded-rev1.pdf, picture.png, notes.txt, expected.json');

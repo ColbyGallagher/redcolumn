@@ -184,6 +184,8 @@ export interface CommandActions {
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
+  /** Document › Review Sheet Scales: title-block scales against the size each page was saved at. */
+  scaleReview: () => void;
   /** Bulk Redact: removes what is inside the same boxes on many pages. */
   bulkRedact: () => void;
   thumbnails: () => void;
@@ -498,6 +500,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
+    cmd('document.scaleReview', 'Document', 'Review Sheet Scales…', a.scaleReview, doc),
     cmd('document.drawingStandards', 'Document', 'Drawing Standards…', a.drawingStandards, doc),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
     cmd('document.teachMark', 'Document', 'Teach Sheet Links…', a.teachMark, doc && s.editable),

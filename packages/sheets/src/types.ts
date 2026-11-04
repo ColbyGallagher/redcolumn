@@ -31,6 +31,8 @@ export interface SheetInfo {
   discipline: string | null;
   /** Scale text from the title block (e.g. `1" = 20'`), if found. */
   scaleText: string | null;
+  /** Sheet size the title block says the drawing is for (`A1`, `ANSI D`), when it names one apart from the scale. */
+  paperText?: string | null;
   revision: string | null;
   /** Custom fields a drawing standard's boxes read (Status, Drawn by), by name. */
   fields?: Record<string, string>;

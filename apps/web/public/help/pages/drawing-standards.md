@@ -8,7 +8,7 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
 
 1. Open a set from the client and choose {{Document > Drawing Standards…}}, or click **Drawing Standards** on the ribbon's Document tab.
 2. Type a **Name**, such as the client or consultant.
-3. Click **+ Draw box** and drag a box around the **sheet number** in the title block. Draw more boxes for the sheet title, the revision and the scale. Choose what each box holds from the list beside it.
+3. Click **+ Draw box** and drag a box around the **sheet number** in the title block. Draw more boxes for the sheet title, the revision, the scale and the sheet size (*A1*, *ANSI D*). Choose what each box holds from the list beside it. The sheet size lets [Review Sheet Scales](#scale-review) correct the scale on sheets saved at another size.
    - Use **Ignore (other number)** for a number that is *not* the sheet's, such as a drawing-file or contract number printed beside it.
    - Use **Your own field…** for anything else the title block holds, such as *Status*, *Drawn by* or *Package*, and type its name. Each sheet's value is read from the box (without the name, if the sheet prints it in front) and becomes a tag of the sheet in [Sets](#sets).
 
