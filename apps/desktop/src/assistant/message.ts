@@ -38,6 +38,8 @@ export const ASSISTANT_METHODS = [
   'place_viewport',
   'place_viewports',
   'set_viewport_scale',
+  'get_sheet_info',
+  'propose_page_scale',
 ] as const;
 
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number];
@@ -278,7 +280,8 @@ const TOOLS: ToolDef[] = [
   {
     name: 'place_markup',
     title: 'Draw a markup',
-    description: 'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups.',
+    description:
+      'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups. Measurements of length, area and volume need a page (or viewport) with a scale: on a page without one, or marked NOT TO SCALE, they are refused (see get_sheet_info and propose_page_scale).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -675,6 +678,38 @@ const TOOLS: ToolDef[] = [
       required: ['id', 'scale'],
     },
     annotations: CHANGES,
+  },
+  {
+    name: 'get_sheet_info',
+    title: 'Get sheet info and scale status',
+    description:
+      "What each sheet's title block says and where its scale stands: number, title, discipline, the scale text, the sheet size it was stated for and the size the page actually is, the scale that gives (corrected when an A1 drawing was saved at A3), the review status (ready, resized, check, matches, differs, views, nts, none), the page's scale and viewports, and whether it can be measured. For one page it also checks the scale against the page's scale bars and dimensions, and proposes viewports from its view titles. Without a page, every page is listed. Check this before measuring.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number. Every page when omitted (without the scale-bar check).' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'propose_page_scale',
+    title: 'Propose a page scale',
+    description:
+      "Proposes the scale a page's title block states, when redcolumn did not read it (or read it wrong). It sets no scale: it waits in Document › Review Sheet Scales, marked as from AI with your reasoning, where a person checks it against the page and applies it. Sheet info from the drawing standard or typed by a person is never replaced. Give the scale as written (1:100, 1/4\" = 1'-0\", NTS, AS SHOWN) and the sheet size it is for when the title block says (A1).",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: '1-based page number.' },
+        scale: { type: 'string', description: 'The scale as the title block writes it, such as 1:100 or 1/4" = 1\'-0".' },
+        sheetSize: { type: 'string', description: 'The sheet size the scale is stated for (A1, ANSI D), when the title block says.' },
+        reasoning: { type: 'string', description: 'Where on the sheet you read it, for the person checking it.' },
+      },
+      required: ['page', 'scale', 'reasoning'],
+    },
+    annotations: ADDS,
   },
 ];
 

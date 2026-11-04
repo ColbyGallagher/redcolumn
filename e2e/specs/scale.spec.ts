@@ -149,6 +149,31 @@ test.describe('sheet scale review', () => {
     await expect(row).toHaveCount(0);
   });
 
+  test('an AI client reads sheet scales, proposes one for review, and cannot measure until a person applies it', async ({ app }) => {
+    type Info = { number: string; status: string; measurable: boolean; source: string };
+    const { pages } = await app.assistant<{ pages: Info[] }>('get_sheet_info');
+    expect(pages.map((p) => [p.number, p.status, p.measurable])).toEqual(P.map((s) => [s.number, s.status === 'Check' ? 'ready' : s.status.toLowerCase().replace('not to scale', 'nts'), false]));
+    // Measuring before the page has a scale is refused.
+    await expect(app.assistant('place_markup', { page: 1, type: 'length', points: [[300, 300], [400, 300]] })).rejects.toThrow(/no scale yet/);
+    // The A3 sheet whose title block omits "@ A1": the client reads the drawing and proposes the
+    // sheet size it was drawn for.
+    const c104 = P.findIndex((s) => s.number === 'C-104');
+    const proposed = await app.assistant<Info>('propose_page_scale', { page: c104 + 1, scale: '1:100', sheetSize: 'A1', reasoning: 'The scale bar under the plan is drawn for A1.' });
+    expect([proposed.source, proposed.status]).toEqual(['ai', 'resized']);
+    await app.cmd('document.scaleReview');
+    const panel = app.page.locator('.scale-review');
+    const row = panel.locator('tbody tr').filter({ hasText: 'C-104' });
+    await expect(row.locator('.sr-ai')).toHaveText('AI');
+    await expect(row.locator('td:nth-child(7)')).toHaveText('✓ scale bar');
+    await expect(row.getByRole('checkbox')).not.toBeChecked();
+    // A person applies the first sheet's scale; then the client can measure on it.
+    await panel.getByRole('button', { name: 'Clear' }).click();
+    await panel.locator('tbody tr').filter({ hasText: 'C-101' }).getByRole('checkbox').check();
+    await panel.getByRole('button', { name: 'Apply to 1 page' }).click();
+    await app.assistant('place_markup', { page: 1, type: 'length', points: [[300, 300], [400, 300]] });
+    expect((await app.markups(1)).map((m) => m.type)).toEqual(['length']);
+  });
+
   test('measuring on a sheet marked NOT TO SCALE warns instead of asking for a scale', async ({ app }) => {
     const nts = P.findIndex((s) => s.scale === 'NTS');
     await app.page.evaluate((i) => window.__nb.viewer.goToPage(i), nts);

@@ -5601,6 +5601,7 @@ export function App() {
         return { png, width: canvas.width, height: canvas.height, scale, region: { x: x0, y: y0, w, h } };
       },
       text: (pageIndex: number) => t.doc.text(pageIndex),
+      geometry: (pageIndex: number) => t.doc.geometry(pageIndex),
       // get_stitch_image: each sheet drawn at the size it has in the group, cut at its region and
       // match lines, outlined and numbered so the joins can be checked.
       renderStitch: async (group: StoredStitchGroup, bounds: PageRegion, scale: number, withMarkups: boolean) => {

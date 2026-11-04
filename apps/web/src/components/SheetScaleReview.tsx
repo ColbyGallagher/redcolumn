@@ -114,7 +114,14 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
                         {pageLabel(r.page)}
                       </button>
                     </td>
-                    <td>{r.sheet?.scaleText ?? <span className="hint-text">—</span>}</td>
+                    <td>
+                      {r.sheet?.scaleText ?? <span className="hint-text">—</span>}
+                      {r.sheet?.source === 'ai' && (
+                        <span className="sr-ai" title={`Proposed by an AI client${r.sheet.scaleReason ? `: ${r.sheet.scaleReason}` : ''}`}>
+                          AI
+                        </span>
+                      )}
+                    </td>
                     <td title={r.printRatio !== 1 ? `Saved at ${Math.round(r.printRatio * 100)}% of the stated sheet` : undefined}>
                       {r.stated && r.stated !== r.actual?.paper.name ? (
                         <>

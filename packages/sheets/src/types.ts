@@ -33,6 +33,8 @@ export interface SheetInfo {
   scaleText: string | null;
   /** Sheet size the title block says the drawing is for (`A1`, `ANSI D`), when it names one apart from the scale. */
   paperText?: string | null;
+  /** Where an AI client read the scale, for the person reviewing it (with source `ai`). */
+  scaleReason?: string;
   revision: string | null;
   /** Custom fields a drawing standard's boxes read (Status, Drawn by), by name. */
   fields?: Record<string, string>;

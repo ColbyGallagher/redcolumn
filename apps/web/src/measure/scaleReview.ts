@@ -127,9 +127,12 @@ function rowFor(size: { width: number; height: number }, page: number, sheet: Sh
   return { ...row, stated: effective.statement.paper?.name ?? null, proposed, printRatio: effective.printRatio, status };
 }
 
-/** Rows picked to apply when the review opens: unscaled pages whose title-block scale needs no checking. Viewports are always checked first. */
+/**
+ * Rows picked to apply when the review opens: unscaled pages whose title-block scale needs no
+ * checking. Viewports, and scales an AI client proposed, are always checked first.
+ */
 export function defaultPicks(rows: readonly ScaleReviewRow[]): Set<number> {
-  return new Set(rows.filter((r) => (r.status === 'ready' || r.status === 'resized') && !r.views.length).map((r) => r.page));
+  return new Set(rows.filter((r) => (r.status === 'ready' || r.status === 'resized') && !r.views.length && r.sheet?.source !== 'ai').map((r) => r.page));
 }
 
 /** Rows a person should look at: everything except pages agreeing with their title block and their own lengths, with no viewports to add. */
