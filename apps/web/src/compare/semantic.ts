@@ -378,7 +378,9 @@ export function compareParagraphs(oldList: readonly Paragraph[], newList: readon
 /**
  * Where an added paragraph would be in the old revision, or a removed one in the new: beside the
  * nearest paragraph both revisions have, the same distance from it as on the side that has it.
- * Null when the change has both sides, or no paragraph is in both.
+ * A neighbour on the change's own page is preferred, and one that moved is used only when no other
+ * is found, since where it went says nothing of the text around it. Null when the change has both
+ * sides, or no paragraph is in both.
  */
 export function counterpart(changes: readonly SemanticChange[], change: SemanticChange): { page: number; box: Box } | null {
   const has = change.new ?? change.old;
@@ -387,17 +389,21 @@ export function counterpart(changes: readonly SemanticChange[], change: Semantic
   const other = side === 'new' ? 'old' : 'new';
   const at = changes.indexOf(change);
   if (at < 0) return null;
-  // The closest paragraph in both, looking back first: the list is in reading order.
-  for (let d = 1; d < changes.length; d++)
+  // The closest such paragraph, looking back first at each distance: the list is in reading order.
+  let best: { c: SemanticChange; rank: number } | null = null;
+  for (let d = 1; d < changes.length && best?.rank !== 0; d++)
     for (const i of [at - d, at + d]) {
       const c = changes[i];
-      const mine = c?.[side];
-      const theirs = c?.[other];
-      if (!mine || !theirs) continue;
-      if (mine.page !== has.page) return { page: theirs.page, box: theirs.box };
-      return { page: theirs.page, box: { ...has.box, x: has.box.x + theirs.box.x - mine.box.x, y: has.box.y + theirs.box.y - mine.box.y } };
+      if (!c?.[side] || !c[other]) continue;
+      const rank = (c.kind === 'moved' || c.reordered ? 2 : 0) + (c[side]!.page === has.page ? 0 : 1);
+      if (!best || rank < best.rank) best = { c, rank };
+      if (rank === 0) break;
     }
-  return null;
+  if (!best) return null;
+  const mine = best.c[side]!;
+  const theirs = best.c[other]!;
+  if (mine.page !== has.page) return { page: theirs.page, box: theirs.box };
+  return { page: theirs.page, box: { ...has.box, x: has.box.x + theirs.box.x - mine.box.x, y: has.box.y + theirs.box.y - mine.box.y } };
 }
 
 export function countKinds(changes: readonly SemanticChange[]): Record<ChangeKind, number> {

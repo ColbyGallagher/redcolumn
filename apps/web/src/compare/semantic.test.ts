@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TextWord } from '@nb/pdf-core';
-import { compareParagraphs, counterpart, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, wordDiff, type AiDecision, type Paragraph } from './semantic.ts';
+import { compareParagraphs, counterpart, countKinds, documentParagraphs, exactMatches, normalise, pageParagraphs, similarity, wordDiff, type AiDecision, type Paragraph, type SemanticChange } from './semantic.ts';
 
 /** Words of one text line starting at (x, y), 10pt type, 5pt per letter. */
 function line(text: string, x: number, y: number): TextWord[] {
@@ -168,4 +168,26 @@ test('an added or removed paragraph is placed in the other revision beside its n
   assert.deepEqual(counterpart(back, back.find((c) => c.kind === 'removed')!), { page: 1, box: { ...cur[1]!.box, y: 40 } });
   // A change both revisions have needs no stand-in.
   assert.equal(counterpart(changes, changes.find((c) => c.kind === 'unchanged')!), null);
+});
+
+test('a stand-in prefers a neighbour on its own page, and one that did not move', () => {
+  const box = (y: number) => ({ x: 0, y, w: 400, h: 30 });
+  const p = (id: string, page: number, y: number): Paragraph => ({ id, page, text: id, box: box(y) });
+  const added = (n: Paragraph) => ({ id: n.id, kind: 'added', basis: 'text', new: n }) as SemanticChange;
+  const pair = (o: Paragraph, n: Paragraph, kind: SemanticChange['kind'] = 'unchanged') => ({ id: n.id, kind, basis: 'exact', old: o, new: n }) as SemanticChange;
+  // The paragraph before ends page 2; the one after sits below on page 3, like the added one.
+  const before = pair(p('o1', 2, 700), p('n1', 2, 700));
+  const after = pair(p('o2', 3, 80), p('n2', 3, 80));
+  const first = added(p('n3', 3, 40));
+  assert.deepEqual(counterpart([before, first, after], first), { page: 3, box: box(40) });
+  // A moved neighbour on the same page loses to one that stayed, even further away.
+  const moved = pair(p('o4', 9, 500), p('n4', 3, 120), 'moved');
+  const stayed = pair(p('o5', 3, 200), p('n5', 3, 200));
+  const lone = added(p('n6', 3, 160));
+  assert.deepEqual(counterpart([moved, lone, first, stayed], lone), { page: 3, box: box(160) });
+  // On another page and nothing closer: the neighbour's place in the other revision.
+  const solo = added(p('n7', 5, 40));
+  assert.deepEqual(counterpart([before, solo], solo), { page: 2, box: box(700) });
+  // Nothing both revisions have.
+  assert.equal(counterpart([solo], solo), null);
 });
