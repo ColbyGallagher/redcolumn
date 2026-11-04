@@ -43,8 +43,10 @@ const expected = {
    * paper.pdf: sheets drawn for A1 at 1:100 with the scale stated in the title block: one saved
    * at A1, one shrunk to A3 (so it measures at half the stated scale), one not to scale, and one
    * shrunk to A3 whose title block does not say it was for A1, so only its scale bar shows it is
-   * wrong. Sizes are landscape page points; the title block and the scale bar (0 1 2 4m, 1 m is
-   * 10 mm at A1) are placed as fractions of the page so they shrink too.
+   * wrong; then a sheet of details AS SHOWN, each detail a box with its title and scale under it,
+   * inside a frame with the title block in a strip down the right. Sizes are landscape page points;
+   * the title block and the scale bar (0 1 2 4m, 1 m is 10 mm at A1) are placed as fractions of the
+   * page so they shrink too.
    */
   paper: {
     sheets: [
@@ -52,6 +54,21 @@ const expected = {
       { number: 'C-102', title: 'ROAD PLAN 2', scale: '1:100 @ A1', width: 1191, height: 842, status: 'Resized', applied: '1:100 @ A1 (on A3)', checked: '✓ scale bar' },
       { number: 'C-103', title: 'LOCALITY PLAN', scale: 'NTS', width: 2384, height: 1684, status: 'Not to scale', applied: null, checked: '—', bar: false },
       { number: 'C-104', title: 'ROAD PLAN 3', scale: '1:100', width: 1191, height: 842, status: 'Check', applied: null, checked: '✗ scale bar ×2.00' },
+      {
+        number: 'C-105',
+        title: 'DETAILS',
+        scale: 'AS SHOWN @ A1',
+        width: 2384,
+        height: 1684,
+        status: 'Views',
+        applied: null,
+        checked: '—',
+        bar: false,
+        details: [
+          { title: 'DETAIL 1 SCALE 1:20', box: { x: 200, y: 300, w: 500, h: 500 } },
+          { title: 'DETAIL 2 SCALE 1:50', box: { x: 1000, y: 300, w: 500, h: 500 } },
+        ],
+      },
     ],
   },
   /** sheets.pdf: three sheets whose title blocks hold a room name and a scale note. */
@@ -218,6 +235,16 @@ async function paper() {
     text(sheet.title, 1900, 1560, 18);
     text(`SCALE: ${sheet.scale}`, 1900, 1600, 10);
     text(sheet.number, 1900, 1650, 32);
+    if (sheet.details) {
+      const rule = (x1, y1, x2, y2) => p.drawLine({ start: { x: x1, y: sheet.height - y1 }, end: { x: x2, y: sheet.height - y2 }, thickness: 1, color: black });
+      p.drawRectangle({ x: 20, y: 20, width: sheet.width - 40, height: sheet.height - 40, borderColor: black, borderWidth: 1 });
+      rule(1880, 20, 1880, sheet.height - 20);
+      for (const { title, box } of sheet.details) {
+        p.drawRectangle({ x: box.x, y: sheet.height - box.y - box.h, width: box.w, height: box.h, borderColor: black, borderWidth: 1 });
+        rule(box.x + 50, box.y + box.h / 2, box.x + box.w - 50, box.y + box.h / 2);
+        text(title, box.x + 100, box.y + box.h + 40, 12);
+      }
+    }
     if (sheet.bar === false) continue;
     for (const v of [0, 1, 2, 4]) {
       const label = v === 4 ? '4m' : String(v);

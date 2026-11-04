@@ -20,7 +20,7 @@ export const PLAN = JSON.parse(readFileSync(join(FIXTURES, 'expected.json'), 'ut
   stitch: { page: { width: number; height: number }; sheets: { number: string; from: number; to: number; angle: number }[] };
   marks: { sheetNumbers: string[]; radius: number; callouts: { x: number; y: number; detail: string; sheet: string }[]; grid: { x: number; y: number; label: string }; title: { x: number; y: number; detail: string; text: string } };
   rotated: { pages: { rotate: number; text: string; x: number; y: number }[] };
-  paper: { sheets: { number: string; title: string; scale: string; width: number; height: number; status: string; applied: string | null; checked: string; bar?: boolean }[] };
+  paper: { sheets: { number: string; title: string; scale: string; width: number; height: number; status: string; applied: string | null; checked: string; bar?: boolean; details?: { title: string; box: { x: number; y: number; w: number; h: number } }[] }[] };
 };
 
 type Box = { x: number; y: number; w: number; h: number };

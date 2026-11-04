@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Scale } from '@nb/measure';
-import { defaultPicks, needsReview, type ScaleReviewRow, type ScaleReviewStatus } from '../measure/scaleReview';
+import { canApply, defaultPicks, needsReview, type ScaleReviewRow, type ScaleReviewStatus } from '../measure/scaleReview';
+import type { ViewProposal } from '../measure/viewScales';
 
 interface Props {
   rows: ScaleReviewRow[];
@@ -9,18 +10,20 @@ interface Props {
   pageLabel: (pageIndex: number) => string;
   currentPage: number;
   readOnly: boolean;
-  /** Brings a page into view. */
-  onShow: (pageIndex: number) => void;
-  onApply: (scales: { page: number; scale: Scale }[]) => void;
+  /** Brings a page into view, outlining the viewports proposed on it. */
+  onShow: (pageIndex: number, views: readonly ViewProposal[]) => void;
+  /** Sets each page's scale (when it has a new one) and adds its viewports. */
+  onApply: (pages: { page: number; scale?: Scale; views: ViewProposal[] }[]) => void;
   onClose: () => void;
 }
 
 const STATUS: Record<ScaleReviewStatus, { label: string; hint: string }> = {
   ready: { label: 'Ready', hint: 'The title block gives a scale for this sheet size.' },
   resized: { label: 'Resized', hint: 'Saved at another sheet size than the scale was written for; the proposed scale is corrected for it.' },
-  check: { label: 'Check', hint: 'The page is cropped or padded against the stated sheet size. Check the proposed scale against a known dimension before applying it.' },
-  matches: { label: 'Matches', hint: 'The page scale is set and agrees with the title block.' },
+  check: { label: 'Check', hint: "Cropped or padded against the stated sheet size, an unlikely scale, or the page's scale bar or dimensions disagree. Check the proposed scale against a known dimension before applying it." },
+  matches: { label: 'Matches', hint: 'The page scale, or its viewports, are set and agree with the title block.' },
   differs: { label: 'Differs', hint: 'The page scale is set and disagrees with the title block. Check which is right.' },
+  views: { label: 'Views', hint: 'The title block gives the scale view by view (AS SHOWN). Viewports are proposed from the view titles: show them on the sheet and check each before applying.' },
   nts: { label: 'Not to scale', hint: 'The title block says the sheet is not to scale. Do not measure it.' },
   none: { label: 'No scale', hint: 'No scale was read from the title block. Set or calibrate this page by hand.' },
 };
@@ -51,7 +54,7 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
   const [picked, setPicked] = useState<Set<number>>(() => defaultPicks(rows));
   // Picks are by page index: when pages move, sheets are read or scales change, start them again
   // so Apply never reaches a page nobody ticked.
-  const rowsKey = rows.map((r) => `${r.page}:${r.status}:${r.proposed?.label ?? ''}`).join('|');
+  const rowsKey = rows.map((r) => `${r.page}:${r.status}:${r.proposed?.label ?? ''}:${r.views.length}`).join('|');
   const seenKey = useRef(rowsKey);
   useEffect(() => {
     if (seenKey.current === rowsKey) return;
@@ -59,7 +62,7 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
     setPicked(defaultPicks(rows));
   }, [rowsKey, rows]);
   const shown = rows.filter((r) => show === 'all' || needsReview(r));
-  const applicable = rows.filter((r) => r.proposed && r.status !== 'matches' && picked.has(r.page));
+  const applicable = rows.filter((r) => canApply(r) && picked.has(r.page));
   const counts = rows.reduce<Partial<Record<ScaleReviewStatus, number>>>((c, r) => ({ ...c, [r.status]: (c[r.status] ?? 0) + 1 }), {});
   const pick = (page: number, on: boolean) => setPicked((s) => (on ? new Set([...s, page]) : new Set([...s].filter((p) => p !== page))));
 
@@ -82,7 +85,7 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
           ×
         </button>
       </header>
-      <p className="hint-text takeoff-review-note">Each page's scale is read from its title block and corrected for the sheet size the page was saved at. Each scale is also measured against the page's own scale bars and dimensions. Every quantity depends on this, so check the pages marked Resized, Check or Differs.</p>
+      <p className="hint-text takeoff-review-note">Each page's scale is read from its title block and corrected for the sheet size the page was saved at. Each scale is also measured against the page's own scale bars and dimensions. Sheets with views at their own scales get viewports from the view titles. Every quantity depends on this, so check the pages marked Resized, Check, Differs or Views.</p>
       <div className="takeoff-review-list">
         {!shown.length ? (
           <p className="empty">{rows.length ? 'Every page agrees with its title block.' : 'No pages.'}</p>
@@ -102,12 +105,12 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
             </thead>
             <tbody>
               {shown.map((r) => {
-                const canPick = !!r.proposed && r.status !== 'matches';
+                const canPick = canApply(r);
                 return (
                   <tr key={r.page} className={`sr-${r.status}${r.page === currentPage ? ' current' : ''}`}>
                     <td>{canPick && <input type="checkbox" aria-label={`Apply to ${pageLabel(r.page)}`} checked={picked.has(r.page)} disabled={readOnly} onChange={(e) => pick(r.page, e.target.checked)} />}</td>
                     <td>
-                      <button type="button" className="tp-measure" title={r.sheet?.title ?? 'Show this page'} onClick={() => onShow(r.page)}>
+                      <button type="button" className="tp-measure" title={r.sheet?.title ?? 'Show this page'} onClick={() => onShow(r.page, r.views)}>
                         {pageLabel(r.page)}
                       </button>
                     </td>
@@ -121,7 +124,15 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
                         paperOf(r)
                       )}
                     </td>
-                    <td>{r.proposed?.label ?? '—'}</td>
+                    <td>
+                      {r.proposed?.label ?? (r.views.length ? null : '—')}
+                      {r.views.length > 0 && (
+                        <button type="button" className="tp-measure sr-viewports" title={r.views.map((v) => `${v.name}: ${v.scale.label}`).join('\n')} onClick={() => onShow(r.page, r.views)}>
+                          {r.proposed ? ' + ' : ''}
+                          {r.views.length} viewport{r.views.length === 1 ? '' : 's'}
+                        </button>
+                      )}
+                    </td>
                     <td>{r.current?.label ?? <span className="hint-text">not set</span>}</td>
                     <td className={r.check ? `sr-check-${r.check.result}` : undefined} title={checkCell(r, reading).title}>
                       {checkCell(r, reading).text}
@@ -149,7 +160,7 @@ export function SheetScaleReview({ rows, reading, pageLabel, currentPage, readOn
         <button type="button" className="btn small" onClick={onClose}>
           Close
         </button>
-        <button type="button" className="btn small primary" disabled={readOnly || !applicable.length} onClick={() => onApply(applicable.map((r) => ({ page: r.page, scale: r.proposed! })))}>
+        <button type="button" className="btn small primary" disabled={readOnly || !applicable.length} onClick={() => onApply(applicable.map((r) => ({ page: r.page, ...(r.proposed && r.status !== 'matches' ? { scale: r.proposed } : {}), views: r.views })))}>
           Apply to {applicable.length} page{applicable.length === 1 ? '' : 's'}
         </button>
       </footer>

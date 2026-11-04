@@ -120,8 +120,45 @@ test.describe('sheet scale review', () => {
     expect(P.map((_, i) => scales[i]?.label ?? null)).toEqual(P.map((s) => s.applied));
     // The A3 page is half size, so one point there is twice as long as on the A1 page.
     expect(scales[1]!.metersPerPoint / scales[0]!.metersPerPoint).toBeCloseTo(2, 2);
-    // Applied pages agree with their title blocks now; the not-to-scale sheet and the one its bar
-    // disagrees with still need a look.
-    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale', 'Check']);
+    // Applied pages agree with their title blocks now; the not-to-scale sheet, the one its bar
+    // disagrees with and the details sheet (viewports are never ticked for you) still need a look.
+    await expect(panel.locator('tbody .sr-state')).toHaveText(['Not to scale', 'Check', 'Views']);
+  });
+
+  test('document.scaleReview proposes a viewport for each detail of an AS SHOWN sheet', async ({ app }) => {
+    const i = P.findIndex((s) => s.details);
+    const details = P[i]!.details!;
+    await app.cmd('document.scaleReview');
+    const panel = app.page.locator('.scale-review');
+    const row = panel.locator('tbody tr').filter({ hasText: P[i]!.number });
+    await expect(row.locator('.sr-viewports')).toHaveText(`${details.length} viewports`);
+    await panel.getByRole('button', { name: 'Clear' }).click();
+    await row.getByRole('checkbox').check();
+    await panel.getByRole('button', { name: 'Apply to 1 page' }).click();
+    const viewports = await app.page.evaluate(() =>
+      (window.__nb.tools.store as unknown as { allViewports(): { pageIndex: number; name: string; rect: { x: number; y: number; w: number; h: number }; scale: { label: string } }[] }).allViewports(),
+    );
+    expect(viewports.map((v) => [v.pageIndex, v.name, v.scale.label])).toEqual(details.map((d) => [i, d.title, d.title.split(' ').at(-1)]));
+    // Each viewport covers its own detail and stops short of the next one and the title block.
+    for (const [k, d] of details.entries()) {
+      const r = viewports[k]!.rect;
+      expect(r.x <= d.box.x && r.x + r.w >= d.box.x + d.box.w && r.y <= d.box.y && r.y + r.h >= d.box.y + d.box.h, `${d.title} covers its box`).toBe(true);
+      expect(r.x + r.w < (details[k + 1]?.box.x ?? 1880), `${d.title} stops before the next`).toBe(true);
+    }
+    // With its viewports in, the AS SHOWN sheet no longer needs a look.
+    await expect(row).toHaveCount(0);
+  });
+
+  test('measuring on a sheet marked NOT TO SCALE warns instead of asking for a scale', async ({ app }) => {
+    const nts = P.findIndex((s) => s.scale === 'NTS');
+    await app.page.evaluate((i) => window.__nb.viewer.goToPage(i), nts);
+    await app.tool('length');
+    await app.clicks([[300, 450]]);
+    const ask = app.page.locator('.modal').filter({ hasText: 'This sheet is not to scale' });
+    await expect(ask).toBeVisible();
+    await expect(ask.getByRole('button', { name: 'Set Scale Anyway…' })).toBeVisible();
+    await ask.getByRole('button', { name: 'Cancel' }).click();
+    await expect(ask).toBeHidden();
+    expect((await app.pageInfo(nts + 1)).scale).toBeUndefined();
   });
 });
