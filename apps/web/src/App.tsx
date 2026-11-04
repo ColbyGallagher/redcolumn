@@ -61,7 +61,7 @@ import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
-import type { SemanticChange } from './compare/semantic';
+import { counterpart, type Paragraph, type SemanticChange } from './compare/semantic';
 import { semanticCompare } from './compare/semanticStore';
 import { SemanticComparePanel } from './components/SemanticComparePanel';
 import { SpellCheckDialog } from './components/SpellCheckDialog';
@@ -6944,13 +6944,16 @@ export function App() {
 
   /** Shows one change in both revisions, bringing them side by side first when they are not. */
   const goToParagraph = async (change: SemanticChange, shown = false): Promise<void> => {
-    const req = semanticCompare.get()?.request;
-    if (!req) return;
+    const state = semanticCompare.get();
+    if (!state) return;
+    const req = state.request;
     const ctlFor = (id: string) => (openRef.current?.file.id === id ? ctl : openBRef.current?.file.id === id ? ctlB : null);
+    // An added or removed paragraph has one side: the other revision goes to where it would be.
+    const stand = counterpart(state.result.changes, change);
     const wanted = [
-      { id: req.newId, p: change.new },
-      { id: req.oldId, p: change.old },
-    ].filter((w): w is { id: string; p: NonNullable<SemanticChange['new']> } => !!w.p);
+      { id: req.newId, p: change.new ?? stand },
+      { id: req.oldId, p: change.old ?? stand },
+    ].filter((w): w is { id: string; p: Pick<Paragraph, 'page' | 'box'> } => !!w.p);
     // Both revisions have to be on screen, even for a change only one of them has.
     if (!shown && [req.oldId, req.newId].some((id) => !ctlFor(id))) {
       await showSideBySide(req.oldId, req.newId);
@@ -6958,8 +6961,16 @@ export function App() {
       return semanticGoRef.current(change, true);
     }
     for (const { id, p } of wanted) {
-      const pad = Math.max(p.box.w, p.box.h) * 0.3 + 24;
-      ctlFor(id)?.viewer.zoomToRect({ x: p.box.x - pad, y: p.box.y - pad, w: p.box.w + pad * 2, h: p.box.h + pad * 2 }, 1, p.page - 1);
+      const viewer = ctlFor(id)?.viewer;
+      if (!viewer) continue;
+      // A stand-in placed beside its neighbour can run off the page: kept on it.
+      const size = viewer.pageSize(p.page - 1);
+      const w = size ? Math.min(p.box.w, size.width) : p.box.w;
+      const h = size ? Math.min(p.box.h, size.height) : p.box.h;
+      const x = size ? Math.min(Math.max(p.box.x, 0), size.width - w) : p.box.x;
+      const y = size ? Math.min(Math.max(p.box.y, 0), size.height - h) : p.box.y;
+      const pad = Math.max(w, h) * 0.3 + 24;
+      viewer.zoomToRect({ x: x - pad, y: y - pad, w: w + pad * 2, h: h + pad * 2 }, 1, p.page - 1);
     }
   };
   semanticGoRef.current = goToParagraph;
