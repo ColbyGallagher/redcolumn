@@ -51,6 +51,23 @@ test.describe('compare and overlay', () => {
     expect((await app.command('view.split')).checked || (await app.command('view.splitHorizontal')).checked).toBe(true);
   });
 
+  test('a compare result on another page turns to it, one page at a time', async ({ app }) => {
+    await app.cmd('document.compare');
+    const dialog = await pick(app, 'Compare Documents');
+    await dialog.locator('button[type=submit]').click();
+    const results = app.page.locator('.compare-results');
+    await expect(results.locator('.compare-item')).toHaveCount(1, { timeout: 60_000 });
+    // The new revision (pane A) shows one page at a time, on its last page.
+    await app.page.evaluate(() => {
+      window.__nb.viewer.setPageMode('single');
+      window.__nb.viewer.goToPage(2);
+    });
+    await expect.poll(() => app.page.evaluate(() => [window.__nb.viewer.getView().mode, window.__nb.viewer.currentPageIndex])).toEqual(['single', 2]);
+    // The change is on page 1.
+    await results.locator('.compare-item').click();
+    await expect.poll(() => app.page.evaluate(() => [window.__nb.viewer.getView().mode, window.__nb.viewer.currentPageIndex])).toEqual(['single', 0]);
+  });
+
   test('document.overlay stacks the pages into a new PDF', async ({ app }) => {
     await app.cmd('document.overlay');
     const dialog = await pick(app, 'Overlay Pages');
