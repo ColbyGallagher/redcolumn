@@ -74,7 +74,7 @@ export const FONT_FAMILIES: { value: FontFamily; label: string; css: string }[] 
   { value: 'mono', label: 'Courier New', css: '"Courier New", Courier, monospace' },
 ];
 
-export type TextAlign = 'left' | 'center' | 'right';
+export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
 
 /** Which style properties mean something for a markup type (drives the Properties panel). */

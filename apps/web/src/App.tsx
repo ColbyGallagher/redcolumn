@@ -71,6 +71,7 @@ import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
 import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
+import { APP_VERSION } from './version';
 import { BookmarksPanel, type ViewTarget } from './components/BookmarksPanel';
 import { HyperlinkDialog } from './components/HyperlinkDialog';
 import { TableDialog } from './components/TableDialog';
@@ -7659,7 +7660,7 @@ export function App() {
     about: () =>
       alert(
         [
-          'redcolumn: PDF markup and takeoff for construction drawings.',
+          `redcolumn ${APP_VERSION}: PDF markup and takeoff for construction drawings.`,
           'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
           `Your documents stay ${desktop() ? 'on this computer' : 'in this browser'}; there is no redcolumn server or account. Privacy policy: ` + `${PROJECT_URL}/blob/master/PRIVACY.md`,
           'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',

@@ -561,8 +561,8 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
             <>
               <Row label="Align">
                 <span className="seg">
-                  {(['left', 'center', 'right'] as TextAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={`Align ${a}`} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
+                  {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
+                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
@@ -594,7 +594,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
   );
 }
 
-const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '↔', right: '⇥' };
+const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '↔', right: '⇥', justify: '☰' };
 const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle: '↕', bottom: '⤓' };
 
 const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
