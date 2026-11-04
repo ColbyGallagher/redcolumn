@@ -121,6 +121,52 @@ test.describe('compare and overlay', () => {
   });
 });
 
+// crowded-rev1.pdf renumbers all 750 tags of crowded.pdf: more differences than one page keeps.
+test.describe('compare with too many differences', () => {
+  test('groups them into at most 300 clouds and says why', async ({ app }) => {
+    await app.open('crowded.pdf', 'crowded-rev1.pdf');
+    await app.cmd('document.compare');
+    const dialog = modal(app, 'Compare Documents');
+    await dialog.getByLabel('Old revision', { exact: true }).selectOption({ label: 'crowded.pdf (open)' });
+    await dialog.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf (open)' });
+    await dialog.getByLabel('All pages, in page order').check();
+    await dialog.locator('button[type=submit]').click();
+    const results = app.page.locator('.compare-results');
+    await expect(results.locator('.compare-warning')).toContainText('too many differences', { timeout: 60_000 });
+    await expect(results.locator('.compare-page')).toContainText(/grouped from [\d,]+/);
+    const marks = (await app.assistant<{ markups: unknown[] }>('list_markups', { document: 'crowded-rev1.pdf' })).markups;
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.length).toBeLessThanOrEqual(300);
+    // Many differences: the page lists them only when opened, and Next opens it.
+    await expect(results.locator('.compare-item')).toHaveCount(0);
+    await results.getByRole('button', { name: 'Next ›' }).click();
+    await expect(results.locator('.compare-item.active')).toHaveCount(1);
+    expect(app.errors).toEqual([]);
+  });
+
+  test('the Compare side panel lists 200 changes at a time', async ({ app }) => {
+    await app.open('crowded.pdf', 'crowded-rev1.pdf');
+    await app.cmd('document.semanticCompare');
+    const panel = app.page.locator('.semantic-compare');
+    await panel.getByLabel('Old revision', { exact: true }).selectOption({ label: 'crowded.pdf' });
+    await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf' });
+    await panel.getByRole('button', { name: 'Compare', exact: true }).click();
+    // 750 tags gone and 750 new ones: 1,500 changes, listed a page at a time.
+    await expect(panel.locator('.sc-nav')).toContainText('1500 shown', { timeout: 60_000 });
+    await expect(panel.locator('.sc-item')).toHaveCount(200);
+    await panel.getByRole('button', { name: 'Show 200 more of 1300' }).click();
+    await expect(panel.locator('.sc-item')).toHaveCount(400);
+    // Previous from the start wraps to the last change: its page of changes is listed, not all.
+    await panel.getByRole('button', { name: '‹ Previous' }).click();
+    await expect(panel.locator('.sc-item.active')).toHaveCount(1);
+    await expect(panel.locator('.sc-item')).toHaveCount(100);
+    await expect(panel.locator('.sc-nav')).toContainText('1500 of 1500');
+    await panel.getByRole('button', { name: 'Show 200 earlier of 1400' }).click();
+    await expect(panel.locator('.sc-item')).toHaveCount(300);
+    expect(app.errors).toEqual([]);
+  });
+});
+
 // fixtures/stitch.pdf: a road drawn in world units and cut onto three sheets at match lines x 1000
 // and x 2000, each sheet turned by its own angle about the middle of its slice (make-fixtures.mjs).
 test.describe('stitched view', () => {

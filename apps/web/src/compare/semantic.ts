@@ -178,6 +178,9 @@ export function normalise(text: string): string {
 
 const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean);
 
+/** Largest word table `wordDiff` builds (old words times new words); past it, the middle is diffed coarsely. */
+const MAX_DIFF_CELLS = 4_000_000;
+
 /** Word-level diff old to new (longest common subsequence). Words compare ignoring case and punctuation. */
 export function wordDiff(oldText: string, newText: string): WordPart[] {
   const a = wordsOf(oldText);
@@ -185,10 +188,6 @@ export function wordDiff(oldText: string, newText: string): WordPart[] {
   const key = (w: string) => normalise(w) || w;
   const ka = a.map(key);
   const kb = b.map(key);
-  const n = a.length;
-  const m = b.length;
-  const table = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) table[i]![j] = ka[i] === kb[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
   const parts: WordPart[] = [];
   const push = (op: WordPart['op'], word: string) => {
     const last = parts[parts.length - 1];
@@ -197,16 +196,44 @@ export function wordDiff(oldText: string, newText: string): WordPart[] {
   };
   let i = 0;
   let j = 0;
+  let n = a.length;
+  let m = b.length;
+  // Two very long paragraphs: the words they start and end with in common are kept as they are,
+  // so the table only covers the middle; a middle still too big is shown as removed then added.
+  let tail: string[] = [];
+  if (n * m > MAX_DIFF_CELLS) {
+    while (i < n && i < m && ka[i] === kb[i]) push('same', b[i++]!);
+    j = i;
+    while (n > i && m > j && ka[n - 1] === kb[m - 1]) {
+      n--;
+      m--;
+    }
+    tail = b.slice(m);
+    if ((n - i) * (m - j) > MAX_DIFF_CELLS) {
+      while (i < n) push('del', a[i++]!);
+      while (j < m) push('ins', b[j++]!);
+      for (const w of tail) push('same', w);
+      return parts;
+    }
+  }
+  const i0 = i;
+  const j0 = j;
+  const cols = m - j0 + 1;
+  // table[(i - i0) * cols + (j - j0)]: the longest common run of a[i..n) and b[j..m).
+  const table = new Uint32Array((n - i0 + 1) * cols);
+  const at = (x: number, y: number) => (x - i0) * cols + (y - j0);
+  for (let x = n - 1; x >= i0; x--) for (let y = m - 1; y >= j0; y--) table[at(x, y)] = ka[x] === kb[y] ? table[at(x + 1, y + 1)]! + 1 : Math.max(table[at(x + 1, y)]!, table[at(x, y + 1)]!);
   while (i < n && j < m) {
     if (ka[i] === kb[j]) {
       push('same', b[j]!);
       i++;
       j++;
-    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) push('del', a[i++]!);
+    } else if (table[at(i + 1, j)]! >= table[at(i, j + 1)]!) push('del', a[i++]!);
     else push('ins', b[j++]!);
   }
   while (i < n) push('del', a[i++]!);
   while (j < m) push('ins', b[j++]!);
+  for (const w of tail) push('same', w);
   return parts;
 }
 
@@ -235,10 +262,13 @@ export const SIMILAR = 0.55;
 
 /** Pairs of paragraphs with the same text, and the paragraphs left without a partner. */
 export function exactMatches(oldList: readonly Paragraph[], newList: readonly Paragraph[]) {
-  const free = new Map<string, Paragraph[]>();
+  // Old paragraphs by text, each with how many of them are already taken.
+  const free = new Map<string, { list: Paragraph[]; next: number }>();
   for (const p of oldList) {
     const key = normalise(p.text);
-    free.set(key, [...(free.get(key) ?? []), p]);
+    const entry = free.get(key);
+    if (entry) entry.list.push(p);
+    else free.set(key, { list: [p], next: 0 });
   }
   const pairs: { old: Paragraph; new: Paragraph }[] = [];
   const unmatchedNew: Paragraph[] = [];
@@ -246,7 +276,8 @@ export function exactMatches(oldList: readonly Paragraph[], newList: readonly Pa
   for (const p of newList) {
     const key = normalise(p.text);
     const candidates = key ? free.get(key) : undefined;
-    const old = candidates?.shift();
+    const old = candidates?.list[candidates.next];
+    if (candidates && old) candidates.next++;
     if (old) {
       pairs.push({ old, new: p });
       taken.add(old.id);
@@ -275,14 +306,102 @@ function longestIncreasing(values: readonly number[]): Set<number> {
   return keep;
 }
 
+/**
+ * Each paragraph's words, the second "the" told apart from the first, rarest first. Two
+ * paragraphs as alike as `SIMILAR` share a word among the first few of each (prefix filtering),
+ * so only pairs that do need scoring: thousands of leftovers stay quick.
+ */
+function rareFirst(lists: readonly (readonly Paragraph[])[]): Map<Paragraph, string[]> {
+  const tokens = new Map<Paragraph, string[]>();
+  const freq = new Map<string, number>();
+  for (const list of lists)
+    for (const p of list) {
+      const seen = new Map<string, number>();
+      const own = wordsOf(normalise(p.text)).map((w) => {
+        const k = seen.get(w) ?? 0;
+        seen.set(w, k + 1);
+        return `${w}\u0001${k}`;
+      });
+      for (const t of own) freq.set(t, (freq.get(t) ?? 0) + 1);
+      tokens.set(p, own);
+    }
+  for (const own of tokens.values()) own.sort((x, y) => freq.get(x)! - freq.get(y)! || (x < y ? -1 : x > y ? 1 : 0));
+  return tokens;
+}
+
+/** How many of a paragraph's rarest words a pair at least `SIMILAR` alike must share one of. */
+function prefixLength(words: number): number {
+  // Dice ≥ s needs a shared count of at least s·|x| / (2 − s), whatever the other paragraph's length.
+  const least = Math.ceil((SIMILAR * words) / (2 - SIMILAR) - 1e-9);
+  return Math.min(words, Math.max(1, words - least + 1));
+}
+
+/**
+ * Past this many old-and-new pairs, the similarity pass works to a budget: words shared by more
+ * than `COMMON` paragraphs suggest only the `COMMON` nearest in order, and each new paragraph keeps
+ * its `BEST` closest.
+ * Below it, every pair alike enough is found. A drawing's thousands of labels ("TAG A1 TYPE 3")
+ * all read alike, and pairing them all would take minutes and run out of memory.
+ */
+const EXACT_PAIRS = 1_000_000;
+const COMMON = 256;
+const BEST = 16;
+
 /** Greedy best-first pairing of leftover paragraphs that read alike. */
 function similarPairs(oldList: readonly Paragraph[], newList: readonly Paragraph[]): { old: Paragraph; new: Paragraph }[] {
-  const scored: { o: Paragraph; n: Paragraph; score: number }[] = [];
-  for (const o of oldList) for (const n of newList) {
-    const score = similarity(o.text, n.text);
-    if (score >= SIMILAR) scored.push({ o, n, score });
-  }
-  scored.sort((x, y) => y.score - x.score);
+  const budget = oldList.length * newList.length > EXACT_PAIRS;
+  const tokens = rareFirst([oldList, newList]);
+  const index = new Map<string, number[]>();
+  oldList.forEach((o, i) => {
+    const own = tokens.get(o)!;
+    for (const t of own.slice(0, prefixLength(own.length))) {
+      const at = index.get(t);
+      if (at) at.push(i);
+      else index.set(t, [i]);
+    }
+  });
+  // An old paragraph's words as a set: its (word, occurrence) tokens.
+  const oldSets = oldList.map((o) => new Set(tokens.get(o)));
+  const scored: { o: Paragraph; n: Paragraph; oi: number; ni: number; score: number }[] = [];
+  newList.forEach((n, ni) => {
+    const own = tokens.get(n)!;
+    if (!own.length) return;
+    const candidates = new Set<number>();
+    // Old paragraphs in about the same place in the document as this one.
+    const near = Math.round((ni * oldList.length) / newList.length);
+    for (const t of own.slice(0, prefixLength(own.length))) {
+      const at = index.get(t);
+      if (!at) continue;
+      if (!budget || at.length <= COMMON) {
+        for (const oi of at) candidates.add(oi);
+        continue;
+      }
+      // A word shared by many: the `COMMON` paragraphs nearest in order (the list is in order).
+      let lo = 0;
+      let hi = at.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (at[mid]! < near) lo = mid + 1;
+        else hi = mid;
+      }
+      const from = Math.max(0, Math.min(at.length - COMMON, lo - COMMON / 2));
+      for (let k = from; k < from + COMMON; k++) candidates.add(at[k]!);
+    }
+    const mine: typeof scored = [];
+    for (const oi of candidates) {
+      const set = oldSets[oi]!;
+      if (!set.size) continue;
+      // Shared words counted with repeats: what `similarity` measures.
+      let shared = 0;
+      for (const t of own) if (set.has(t)) shared++;
+      const score = (2 * shared) / (set.size + own.length);
+      if (score >= SIMILAR) mine.push({ o: oldList[oi]!, n, oi, ni, score });
+    }
+    if (budget && mine.length > BEST) mine.sort((x, y) => y.score - x.score || Math.abs(x.oi - near) - Math.abs(y.oi - near) || x.oi - y.oi).length = BEST;
+    for (const s of mine) scored.push(s);
+  });
+  // Best first; ties in old then new order.
+  scored.sort((x, y) => y.score - x.score || x.oi - y.oi || x.ni - y.ni);
   const usedOld = new Set<string>();
   const usedNew = new Set<string>();
   const out: { old: Paragraph; new: Paragraph }[] = [];

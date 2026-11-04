@@ -2521,12 +2521,15 @@ export function App() {
           });
           const sheets = done.reduce((n, r) => n + r.pages.length, 0);
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
+          const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
             setNotice('No sheets in the two sets matched.');
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded. Showing the pair with the most.`);
-          const most = done.reduce((a, b) => (b.pages.reduce((m, p) => m + p.differences.length, 0) > a.pages.reduce((m, p) => m + p.differences.length, 0) ? b : a));
+          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
+          // Ranked by what was found, not what one page keeps.
+          const weight = (r: (typeof done)[number]) => r.pages.reduce((m, p) => m + (p.found ?? p.differences.length), 0);
+          const most = done.reduce((a, b) => (weight(b) > weight(a) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
