@@ -182,3 +182,32 @@ test('scales snap to standard ratios', () => {
   assert.deepEqual(snapRatio(96.2, true), { ratio: 96, label: '1/8" = 1\'-0"', standard: true });
   assert.equal(snapRatio(333.3, false).standard, false);
 });
+
+test('a supplied reference drawing is drawn in place of its xref', async () => {
+  const without = await convertCad('missing-refs.dxf', bytes('missing-refs'), { fonts });
+  assert.ok(without.report.warnings.some((w) => w.kind === 'missing-xref'));
+  // Any drawing will do as the reference: the blocks fixture, under the xref's file name.
+  const references = [{ name: 'survey-base.dxf', bytes: bytes('blocks') }];
+  const { report } = await convertCad('missing-refs.dxf', bytes('missing-refs'), { fonts, references });
+  assert.ok(!report.warnings.some((w) => w.kind === 'missing-xref'), JSON.stringify(report.warnings));
+  assert.deepEqual(report.references, ['survey-base.dxf']);
+  const { drawing } = readDrawing('missing-refs.dxf', bytes('missing-refs'));
+  const refs = new Map([['survey-base', readDrawing('survey-base.dxf', bytes('blocks')).drawing]]);
+  const all = planSheets(drawing, { colorMode: 'color', lineweights: true, references: refs }).sheets.flatMap((s) => texts(s.prims));
+  assert.ok(all.includes('P1') && all.includes('SHX TEXT'), all.join(','));
+});
+
+test('an unreadable reference is reported, not fatal', async () => {
+  const { report } = await convertCad('missing-refs.dxf', bytes('missing-refs'), { fonts, references: [{ name: 'survey-base.dwg', bytes: new Uint8Array([1, 2, 3]) }] });
+  assert.ok(report.warnings.some((w) => w.kind === 'reference-unreadable' && w.file === 'survey-base.dwg'));
+  assert.ok(report.warnings.some((w) => w.kind === 'missing-xref'));
+});
+
+test('the report lists every layout, converted or not', async () => {
+  const { report } = await convertCad('kestrel-plan.dxf', bytes('kestrel-plan'), { fonts, layouts: ['C-501 DETAIL'] });
+  assert.deepEqual(report.layouts, ['C-101 PLAN', 'C-501 DETAIL']);
+  assert.deepEqual(
+    report.pages.map((p) => p.name),
+    ['C-501 DETAIL'],
+  );
+});

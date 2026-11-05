@@ -79,6 +79,8 @@ export type ColorMode = 'color' | 'grey' | 'mono';
 export interface RenderOptions {
   colorMode: ColorMode;
   lineweights: boolean;
+  /** Drawings supplied for external references, by `referenceKey` of their file name. */
+  references?: ReadonlyMap<string, Drawing>;
 }
 
 /** What rendering met that the report should mention. */
@@ -426,7 +428,8 @@ const METRIC_SAFE = /^(arial|arialbd|ariali|arialbi|arialn|helvetica|times|times
 /** The font drawn for a text style, noting a substitution unless it is metric-compatible. */
 export function fontFor(c: Pick<Ctx, 'dwg' | 'stats'>, styleName: string): FontKey {
   const st = c.dwg.styles.get((styleName || 'STANDARD').toUpperCase());
-  const file = (st?.font || '').toLowerCase().replace(/^.*[\\/]/, '');
+  const shown = (st?.font || '').replace(/^.*[\\/]/, '');
+  const file = shown.toLowerCase();
   const family = (st?.family || '').toLowerCase();
   const name = file || family || 'txt.shx';
   const base = name.replace(/\.(shx|ttf|ttc|otf)$/, '');
@@ -435,7 +438,7 @@ export function fontFor(c: Pick<Ctx, 'dwg' | 'stats'>, styleName: string): FontK
   else if (/times|roman[tcd]?|serif|georgia|garamond|cambria|book/.test(base) && !/romans/.test(base)) key = 'serif';
   const shx = name.endsWith('.shx') || !/\.(ttf|ttc|otf)$/.test(name);
   if (shx || !METRIC_SAFE.test(base)) {
-    const label = file || family || 'txt.shx';
+    const label = shown || st?.family || 'txt.shx';
     if (!(file === '' && METRIC_SAFE.test(family))) c.stats.fonts.set(label, key);
   }
   return key;
@@ -551,23 +554,40 @@ function inheritOf(c: Ctx, e: Entity): Inherit {
   return { layer: layerOf(c, e).name, rgb: rawRgb(c, e), linetype: linetypeName(c, e), lineweight: lineweightOf(c, e) };
 }
 
-function drawBlock(c: Ctx, e: Entity, b: Block, blockM: M) {
-  if (c.depth >= MAX_DEPTH || c.stack.has(b.name)) {
+function drawBlock(c: Ctx, e: Entity, b: Pick<Block, 'name' | 'entities'>, blockM: M, dwg: Drawing = c.dwg) {
+  const key = dwg === c.dwg ? b.name : `xref:${b.name}`;
+  if (c.depth >= MAX_DEPTH || c.stack.has(key)) {
     count(c, 'INSERT (nested too deep)');
     return;
   }
-  c.stack.add(b.name);
-  const child: Ctx = { ...c, m: then(blockM, c.m), parent: inheritOf(c, e), depth: c.depth + 1 };
+  c.stack.add(key);
+  const child: Ctx = { ...c, dwg, m: then(blockM, c.m), parent: inheritOf(c, e), depth: c.depth + 1 };
   renderEntities(child, b.entities);
-  c.stack.delete(b.name);
+  c.stack.delete(key);
+}
+
+/** The key a reference drawing is supplied under: its file name, lower case, without folder or extension. */
+export const referenceKey = (path: string) =>
+  path
+    .replace(/^.*[\\/]/, '')
+    .replace(/\.(dwg|dxf)$/i, '')
+    .toLowerCase();
+
+/** The drawing supplied for an external reference, by its path's file name or else its block name. */
+function referenceFor(c: Ctx, b: Block): Drawing | null {
+  const refs = c.opts.references;
+  if (!refs?.size) return null;
+  return refs.get(referenceKey(b.xrefPath || b.name)) ?? refs.get(referenceKey(b.name)) ?? null;
 }
 
 function insert(c: Ctx, e: Entity) {
   const g = e.g;
   const name = str(g, 2);
   const b = c.dwg.blocks.get(name.toUpperCase());
-  if (b && (b.flags & 4 || b.xrefPath)) {
-    c.stats.xrefs.set(b.name, b.xrefPath);
+  const isXref = !!b && !!(b.flags & 4 || b.xrefPath);
+  const ref = isXref ? referenceFor(c, b!) : null;
+  if (isXref && !ref) {
+    c.stats.xrefs.set(b!.name, b!.xrefPath);
   } else if (!b) {
     count(c, 'INSERT (missing block)');
   } else {
@@ -582,7 +602,9 @@ function insert(c: Ctx, e: Entity) {
     for (let r = 0; r < rows; r++) {
       for (let col = 0; col < cols; col++) {
         const m = then(then(then(translate(-b.base[0], -b.base[1]), scale(sx, sy)), translate(col * cs, r * rs)), tail);
-        drawBlock(c, e, b, m);
+        // A supplied reference drawing is drawn from its model space, with its own tables.
+        if (ref) drawBlock(c, e, { name: b.name, entities: ref.modelSpace }, m, ref);
+        else drawBlock(c, e, b, m);
       }
     }
   }

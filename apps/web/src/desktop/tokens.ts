@@ -102,5 +102,7 @@ export function mimeFor(name: string): string {
   if (/\.gif$/i.test(name)) return 'image/gif';
   if (/\.bmp$/i.test(name)) return 'image/bmp';
   if (/\.webp$/i.test(name)) return 'image/webp';
+  if (/\.dwg$/i.test(name)) return 'image/vnd.dwg';
+  if (/\.dxf$/i.test(name)) return 'image/vnd.dxf';
   return 'application/pdf';
 }

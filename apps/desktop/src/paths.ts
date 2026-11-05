@@ -1,7 +1,7 @@
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { isOpenable, OPENABLE_EXTENSIONS, PathAllowlist } from './allowlist';
+import { DRAWING_EXTENSIONS, isOpenable, isWritable, OPENABLE_EXTENSIONS, PathAllowlist } from './allowlist';
 import { saveError, writeAtomic } from './atomic';
 import { isDev } from './dev';
 import type { LaunchQueue } from './launch';
@@ -12,7 +12,11 @@ export interface TokenName {
   name: string;
 }
 
-const FILE_FILTERS = [{ name: 'PDF and pictures', extensions: OPENABLE_EXTENSIONS }];
+const FILE_FILTERS = [
+  { name: 'PDF, pictures and drawings', extensions: OPENABLE_EXTENSIONS },
+  { name: 'PDF and pictures', extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e)) },
+  { name: 'DWG and DXF drawings', extensions: DRAWING_EXTENSIONS },
+];
 
 /** True when the message came from the app's own page, not a help window or a blob preview. */
 export function fromApp(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -67,7 +71,8 @@ export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue,
     if (!fromApp(event) || typeof token !== 'string') return false;
     const filePath = allowlist.get(token);
     const bytes = bytesOf(data);
-    if (!filePath || !bytes) return false;
+    // Drawings opened as PDFs are sources: never written, even through Save As onto one.
+    if (!filePath || !bytes || !isWritable(filePath)) return false;
     try {
       await writeAtomic(filePath, bytes);
     } catch (err) {

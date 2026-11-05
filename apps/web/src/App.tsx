@@ -138,6 +138,13 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
+import { pdfNameFor, type CadOptions } from './cad/client';
+import type { CadFile } from './cad/convert';
+import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { convertAsJob, convertFile } from './cad/open';
+import { cadSession, useCadConversion } from './cad/session';
+import { CadConvertDialog } from './components/CadConvertDialog';
+import { CadReportBar } from './components/CadReportBar';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
@@ -900,6 +907,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   /** A passing confirmation (e.g. how many pages were labelled); clears itself. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** Convert Again for the PDF converted from a drawing with this id; and whether it is running. */
+  const [cadAgain, setCadAgain] = useState<string | null>(null);
+  const [cadBusy, setCadBusy] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 5000);
@@ -1866,29 +1876,56 @@ export function App() {
     async (f: File | File[], target: Pane = 'a') => {
       for (const file of Array.isArray(f) ? f : [f]) {
         try {
-          // Pictures open as one-page PDFs at their real size.
-          const image = isImageFile(file);
-          const raw = image ? null : await file.arrayBuffer();
-          const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
-          const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+          // Pictures open as one-page PDFs at their real size; DWG/DXF drawings as vector PDFs.
+          const cad = isCadFile(file);
+          const image = !cad && isImageFile(file);
+          const conversion = cad ? await convertFile(file) : null;
+          const raw = image || cad ? null : await file.arrayBuffer();
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           const source = handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const hostId = hostDocumentId(tokenOf(source));
+          const hostId = cad ? null : hostDocumentId(tokenOf(source));
           let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
           // An embedding application's document, opened again with other contents (saved over
           // since, say): they come in as a change to it, so its markups and open tab follow.
           if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
-          // Save writes back over the file it came from, except pictures and protected PDFs
-          // (which are kept unprotected here and must not replace the original).
+          // Save writes back over the file it came from, except pictures, drawings and protected
+          // PDFs (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           await openStored(stored, bytes, target);
+          if (conversion) cadSession.set(stored.id, conversion);
         } catch (err) {
+          if (isAbort(err)) continue;
           setError(err instanceof Error ? err.message : String(err));
         }
       }
       void refreshLibrary();
     },
     [openStored, refreshLibrary, unlockBytes],
+  );
+
+  /** Converts the drawing behind a converted PDF again (other pages, line options or reference files), opening the result as a new PDF. */
+  const convertAgain = useCallback(
+    async (fileId: string, options: CadOptions, references: CadFile[]) => {
+      const entry = cadSession.get(fileId);
+      if (!entry) return;
+      setCadBusy(true);
+      try {
+        const conversion = await convertAsJob(entry.conversion.source, options, references);
+        settings.set({ cadColorMode: options.colorMode ?? 'color', cadLineweights: options.lineweights ?? true });
+        const stored = await saveFile(pdfNameFor(entry.conversion.source.name), conversion.pdf.slice(0));
+        await openStored(stored, conversion.pdf, split && activePaneRef.current === 'b' ? 'b' : 'a');
+        cadSession.set(stored.id, conversion);
+        setCadAgain(null);
+        void refreshLibrary();
+      } catch (err) {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCadBusy(false);
+      }
+    },
+    [openStored, refreshLibrary, split],
   );
 
   /** The system Open dialog where the browser has one (so Save can write back to the file), else the file input. */
@@ -1937,7 +1974,7 @@ export function App() {
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
-            parts.push(isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
+            parts.push(isCadFile(src.file) ? (await convertFile(src.file)).pdf : isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
           }
         }
         const [first, ...rest] = parts;
@@ -5524,6 +5561,8 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** The drawing the active PDF was converted from in this visit, if any. */
+  const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
   const scaleRows = useMemo(
@@ -5567,7 +5606,7 @@ export function App() {
     if (!open || !files.length) return;
     try {
       const sources: ArrayBuffer[] = [];
-      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      for (const file of files) sources.push(isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
       const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
       // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
@@ -7897,6 +7936,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    convertDrawingAgain: () => {
+      if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
+    },
     split: () => {
       setSplitHorizontal(false);
       startSplit();
@@ -8437,6 +8479,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
@@ -9235,7 +9278,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={openFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9247,20 +9290,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={insertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file || !open) return;
           const at = (v?.currentPageIndex ?? pageIndex) + 1;
-          void applyPageOps([{ type: 'insert', source: 0, at }], [isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
+          void applyPageOps([{ type: 'insert', source: 0, at }], [isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
         }}
       />
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9436,6 +9479,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && <CadReportBar fileId={open.file.id} onConvertAgain={() => setCadAgain(open.file.id)} />}
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
@@ -9511,6 +9555,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {openB && <CadReportBar fileId={openB.file.id} onConvertAgain={() => setCadAgain(openB.file.id)} />}
                     {ctlB && openB && toolsStateB.textSelection && (
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
@@ -9846,6 +9891,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {cadAgain && cadSession.get(cadAgain) && (
+        <CadConvertDialog
+          conversion={cadSession.get(cadAgain)!.conversion}
+          busy={cadBusy}
+          onCancel={() => setCadAgain(null)}
+          onConvert={(options, references) => void convertAgain(cadAgain, options, references)}
         />
       )}
       {bulkInsertFiles && (

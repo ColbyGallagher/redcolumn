@@ -2,8 +2,8 @@ import { CadReadError, readDxf } from './dxf';
 import { readDwg } from './dwg';
 import type { Drawing } from './drawing';
 import { writePdf, type CadFonts } from './pdf';
-import type { FontKey } from './render';
-import { planSheets, type SheetOptions } from './sheets';
+import { referenceKey, type FontKey } from './render';
+import { paperLayouts, planSheets, type SheetOptions } from './sheets';
 
 /**
  * DWG/DXF to vector PDF, entirely in memory: read the drawing, plan a page per layout, write the
@@ -14,6 +14,7 @@ export { CadReadError } from './dxf';
 
 export type CadWarning =
   | { kind: 'missing-xref'; name: string; path: string }
+  | { kind: 'reference-unreadable'; file: string; message: string }
   | { kind: 'missing-image'; path: string }
   | { kind: 'font-substituted'; font: string; with: FontKey }
   | { kind: 'unsupported'; type: string; count: number }
@@ -33,18 +34,25 @@ export interface ConversionReport {
     viewports: { name: string; scale: string; ratio: number; twistDeg: number; frozen: string[] }[];
   }[];
   layers: string[];
+  /** Every paper-space layout in the drawing, converted or not (for choosing them again). */
+  layouts: string[];
+  /** Reference drawings that were supplied and drawn. */
+  references: string[];
   warnings: CadWarning[];
 }
 
-export interface ConvertOptions extends Partial<SheetOptions> {
+export interface CadFile {
+  name: string;
+  bytes: Uint8Array;
+}
+
+export interface ConvertOptions extends Partial<Omit<SheetOptions, 'references'>> {
   fonts: CadFonts;
+  /** Drawings for external references, matched to them by file name. */
+  references?: readonly CadFile[];
 }
 
-export const CAD_EXTENSIONS = ['.dwg', '.dxf'];
-
-export function isCadFile(file: { name: string }): boolean {
-  return /\.(dwg|dxf)$/i.test(file.name);
-}
+export { CAD_EXTENSIONS, isCadFile } from './files';
 
 /** Reads a drawing: DWG (R2000–R2018) or ASCII DXF, told apart by content. */
 export function readDrawing(name: string, bytes: Uint8Array): { drawing: Drawing; format: 'dxf' | 'dwg'; unreadable: number } {
@@ -59,12 +67,20 @@ export function readDrawing(name: string, bytes: Uint8Array): { drawing: Drawing
 
 export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertOptions): Promise<{ pdf: Uint8Array; report: ConversionReport }> {
   const { drawing, format, unreadable } = readDrawing(name, bytes);
-  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'color', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel });
+  const warnings: CadWarning[] = [];
+  const references = new Map<string, Drawing>();
+  for (const ref of opts.references ?? []) {
+    try {
+      references.set(referenceKey(ref.name), readDrawing(ref.name, ref.bytes).drawing);
+    } catch (err) {
+      warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'color', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
   const pdf = await writePdf(sheets, opts.fonts, { title, source: name });
 
-  const warnings: CadWarning[] = [];
   for (const [blockName, path] of stats.xrefs) warnings.push({ kind: 'missing-xref', name: blockName, path });
   for (const path of stats.images) warnings.push({ kind: 'missing-image', path });
   for (const [font, sub] of stats.fonts) warnings.push({ kind: 'font-substituted', font, with: sub });
@@ -99,6 +115,8 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
         viewports: s.viewports.map((v) => ({ name: v.name, scale: v.scale.label, ratio: v.scale.ratio, twistDeg: v.twistDeg, frozen: v.frozen })),
       })),
       layers: [...layers],
+      layouts: paperLayouts(drawing).map((l) => l.layout.name),
+      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n))),
       warnings,
     },
   };
