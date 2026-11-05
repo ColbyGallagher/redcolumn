@@ -71,6 +71,9 @@ export function noteLocation(id: string, token: string | null) {
   if ((token ?? null) !== prev) for (const listener of listeners) listener();
 }
 
+/** The token of the file a document was opened from or saved to, if the desktop app holds one. */
+export const fileLocationToken = (id: string) => byDocument.get(id) ?? null;
+
 export const hasFileLocation = (id: string) => byDocument.has(id);
 
 export function subscribeFileLocations(listener: () => void) {

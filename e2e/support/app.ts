@@ -18,6 +18,10 @@ export interface App extends Driver {
   saved(): Promise<Saved[]>;
   /** Print jobs the app has sent, oldest first, with their page counts. Nothing reaches a printer. */
   printed(): Promise<{ pages: number }[]>;
+  /** Desktop only: the next native Open dialog picks this file (the web build uses a file chooser instead). */
+  answerOpenDialog(file: string): Promise<void>;
+  /** Desktop only: how many app windows are open (0 in the web build). */
+  windowCount(): Promise<number>;
 }
 
 const pdfPageCount = async (b64: string) => (await PDFDocument.load(Buffer.from(b64, 'base64'), { ignoreEncryption: true })).getPageCount();
@@ -131,7 +135,15 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
             process.getBuiltinModule('node:fs').mkdirSync(sub);
             return { canceled: false, filePath: `${sub}/${name}` };
           }) as typeof dialog.showSaveDialog;
+          // Open dialogs are cancelled unless a test has named the file to pick.
+          dialog.showOpenDialog = (async () => {
+            const next = (globalThis as unknown as { __e2eOpen?: string }).__e2eOpen;
+            delete (globalThis as unknown as { __e2eOpen?: string }).__e2eOpen;
+            return next ? { canceled: false, filePaths: [next] } : { canceled: true, filePaths: [] };
+          }) as typeof dialog.showOpenDialog;
         }, saves);
+        const windowCount = () => electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+        const answerOpenDialog = (file: string) => electronApp.evaluate((_e, f) => void ((globalThis as unknown as { __e2eOpen?: string }).__e2eOpen = f), file);
         const saved = async () =>
           readdirSync(saves)
             .sort()
@@ -168,7 +180,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
         await win.reload();
         await win.waitForSelector('.menubar', { timeout: 30_000 });
         await win.waitForFunction(() => !!window.__nb?.commands);
-        await use({ kind: 'desktop', errors, saved, printed, ...driver(win) });
+        await use({ kind: 'desktop', errors, saved, printed, answerOpenDialog, windowCount, ...driver(win) });
       } finally {
         // app.exit skips the close handlers, so an unsaved document's "Save changes?" prompt
         // never opens and holds the window (close() would wait on it forever).
@@ -199,7 +211,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
     const saved = async () =>
       (await page.evaluate(() => (window as unknown as { __e2eSaved: { name: string; b64: string }[] }).__e2eSaved)).map((f) => ({ name: f.name, bytes: Buffer.from(f.b64, 'base64') }));
     const printed = async () => Promise.all((await page.evaluate(() => (window as unknown as { __e2ePrinted: string[] }).__e2ePrinted)).map(async (b64) => ({ pages: await pdfPageCount(b64) })));
-    await use({ kind: 'web', errors, saved, printed, ...driver(page) });
+    await use({ kind: 'web', errors, saved, printed, answerOpenDialog: async () => {}, windowCount: async () => 0, ...driver(page) });
   },
 });
 

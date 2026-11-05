@@ -191,7 +191,7 @@ import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
-import { tokenOf } from './desktop/tokens';
+import { fileLocationToken, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
@@ -6285,6 +6285,11 @@ export function App() {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ pane, id: t.file.id }));
                 e.dataTransfer.effectAllowed = 'move';
               }}
+              onDragEnd={(e) => {
+                // Let go outside the window: the tab moves to a window of its own.
+                const outside = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight;
+                if (e.dataTransfer.dropEffect === 'none' && outside) void detachTab(pane, t);
+              }}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes(TAB_DRAG_TYPE)) {
                   e.preventDefault();
@@ -7015,6 +7020,22 @@ export function App() {
   };
   semanticGoRef.current = goToParagraph;
 
+  /**
+   * Moves a tab to a new window of its own (desktop app). The new window opens the file from disk,
+   * so unsaved changes are saved first and a document that has no file yet cannot move.
+   */
+  const detachTab = async (pane: Pane, t: OpenFile) => {
+    const host = desktop();
+    const token = fileLocationToken(t.file.id);
+    if (!host?.detachDocument) return;
+    if (!token) return setError('Save this document to a file first; then it can open in its own window.');
+    if (studioDocOf(t.file.id)) return setError('A Live Session document stays in the window it was opened in.');
+    // A window opened from disk shows what is saved, so settle unsaved changes before it opens.
+    if (!(await settleUnsaved(pane, t.file.id))) return;
+    if (!(await host.detachDocument(token, t.file.name))) return setError('Could not open a new window.');
+    closeTab(pane, t.file.id);
+  };
+
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
     const tabs = pane === 'b' ? tabsB : tabsA;
@@ -7035,6 +7056,13 @@ export function App() {
       SEP,
       { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
       { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
+      ...(desktop()?.detachDocument
+        ? [{
+            label: 'Move to New Window',
+            disabled: !fileLocationToken(t.file.id),
+            onClick: () => void detachTab(pane, t),
+          }]
+        : []),
       ...(desktop()
         ? [{
             label: 'Open File Location',

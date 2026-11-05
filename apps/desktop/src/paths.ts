@@ -57,7 +57,7 @@ function bytesOf(data: unknown): Uint8Array | null {
 }
 
 /** Dialogs, drops and launch paths. The renderer receives tokens, never paths. */
-export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue, parent: () => BrowserWindow | null) {
+export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents: Electron.WebContents) => LaunchQueue | null, parent: () => BrowserWindow | null) {
   ipcMain.handle('paths:pick-open', async (event, kind?: unknown): Promise<TokenName[] | null> => {
     if (!fromApp(event)) return null;
     const window = parent();
@@ -141,7 +141,7 @@ export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue,
 
   ipcMain.handle('launch:take', (event) => {
     if (!fromApp(event)) return [];
-    return launches.take();
+    return launchesFor(event.sender)?.take() ?? [];
   });
 }
 

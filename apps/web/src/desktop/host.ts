@@ -128,6 +128,8 @@ export interface RedcolumnDesktop {
   onAssistantCall(cb: (call: AssistantCall) => void): () => void;
   replyAssistant(id: string, body: { result?: unknown; error?: string }): void;
   /** Tells the main process whether any open document has unsaved changes, so closing the window asks first. */
+  /** Opens a file this app already holds a token for in a new window, at the pointer. */
+  detachDocument?(token: string, name: string): Promise<boolean>;
   setUnsavedChanges?(on: boolean): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;

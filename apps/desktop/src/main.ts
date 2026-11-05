@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -27,11 +27,19 @@ import { createUpdater } from './updater';
 const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
 const launches = new LaunchQueue(allowlist);
+/** The app window that last had focus: where dialogs and assistant calls go. */
 let mainWindow: BrowserWindow | null = null;
-/** The page has documents with unsaved changes (it reports this as they change). */
-let unsavedChanges = false;
-/** The page dealt with its unsaved changes, so the next close goes ahead. */
-let closeConfirmed = false;
+/** Each app window's own state. A tab dragged out of a window opens another. */
+interface WindowState {
+  win: BrowserWindow;
+  /** The page has documents with unsaved changes (it reports this as they change). */
+  unsaved: boolean;
+  /** The page dealt with its unsaved changes, so the next close goes ahead. */
+  confirmed: boolean;
+  launches: LaunchQueue;
+}
+const windows = new Map<Electron.WebContents, WindowState>();
+const anyUnsaved = () => [...windows.values()].some((w) => w.unsaved);
 /** A quit is under way, so confirming the close quits rather than only closing the window. */
 let quitting = false;
 
@@ -83,11 +91,11 @@ async function start() {
     event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
-  registerPathIpc(allowlist, launches, () => mainWindow);
+  registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
-      if (event.sender !== mainWindow?.webContents || !fromApp(event)) throw new Error('Denied');
+      if (!windows.has(event.sender) || !fromApp(event)) throw new Error('Denied');
       return fn(...args);
     });
   };
@@ -108,7 +116,7 @@ async function start() {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
   // Updates: checked at every launch, and the page shows the state in its header bar.
-  const updater = createUpdater(() => unsavedChanges);
+  const updater = createUpdater(anyUnsaved);
   updater.onChange = (state) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
   };
@@ -269,7 +277,7 @@ async function start() {
   const assistantFile = smoke ? path.join(app.getPath('userData'), 'assistant.json') : endpointFile();
   const assistant = new AssistantService(assistantFile, (method, params) => askPage(() => mainWindow, method, params));
   ipcMain.on('assistant:result', (event, body) => {
-    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
+    if (!windows.has(event.sender) || !fromApp(event)) return;
     takeAssistantResult(body);
   });
   const assistantDir = app.isPackaged ? path.join(process.resourcesPath, 'assistant') : path.join(__dirname, 'assistant');
@@ -295,21 +303,31 @@ async function start() {
 
   // Unsaved changes: the page says whether it has any; closing the window then asks the page first.
   ipcMain.on('window:unsaved', (event, on) => {
-    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
-    unsavedChanges = on === true;
+    const state = windows.get(event.sender);
+    if (!state || !fromApp(event)) return;
+    state.unsaved = on === true;
   });
   // The page's theme: the title-bar buttons are drawn over it, so their symbols must contrast.
   ipcMain.on('window:theme-symbols', (event, color) => {
-    if (event.sender !== mainWindow?.webContents || !fromApp(event)) return;
+    const state = windows.get(event.sender);
+    if (!state || !fromApp(event)) return;
     if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
-    if (process.platform === 'win32') mainWindow.setTitleBarOverlay({ color: '#00000000', symbolColor: color, height: 36 });
+    if (process.platform === 'win32') state.win.setTitleBarOverlay({ color: '#00000000', symbolColor: color, height: 36 });
   });
   ipcMain.on('window:close', (event) => {
-    const win = mainWindow;
-    if (!win || event.sender !== win.webContents || !fromApp(event)) return;
-    closeConfirmed = true;
+    const state = windows.get(event.sender);
+    if (!state || !fromApp(event)) return;
+    state.confirmed = true;
     if (quitting) app.quit();
-    else win.close();
+    else state.win.close();
+  });
+  // A tab dragged out of a window (or "Move to New Window"): the document opens in a window of its
+  // own, at the pointer. Only a file this app already holds a token for can be sent.
+  ipcMain.handle('window:detach', (event, token: unknown, name: unknown) => {
+    if (!windows.has(event.sender) || !fromApp(event) || typeof token !== 'string' || typeof name !== 'string' || !allowlist.get(token)) return false;
+    const at = screen.getCursorScreenPoint();
+    createWindow({ x: Math.max(0, at.x - 200), y: Math.max(0, at.y - 20), open: { token, name } });
+    return true;
   });
 
   app.on('web-contents-created', (_event, contents) => harden(contents));
@@ -323,14 +341,14 @@ async function start() {
   });
 }
 
-function createWindow() {
+function createWindow(child?: { x: number; y: number; open: { token: string; name: string } }) {
   // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
   // out of the taskbar and never takes focus, so the machine stays usable while it runs.
   const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
-    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : {}),
+    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : child ? { x: child.x, y: child.y } : {}),
     minWidth: 800,
     minHeight: 600,
     title: 'redcolumn',
@@ -354,23 +372,29 @@ function createWindow() {
     },
   });
   mainWindow = win;
-  unsavedChanges = false;
-  closeConfirmed = false;
-  launches.attach(win);
+  // The first window takes files opened from outside; a window made for a moved tab has its own queue.
+  const queue = child ? new LaunchQueue(allowlist) : launches;
+  const state: WindowState = { win, unsaved: false, confirmed: false, launches: queue };
+  const contents = win.webContents;
+  windows.set(contents, state);
+  queue.attach(win);
+  if (child) queue.open(child.open);
+  win.on('focus', () => (mainWindow = win));
   win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;
   win.on('unresponsive', () => (hung = true));
   win.on('responsive', () => (hung = false));
-  win.webContents.on('render-process-gone', () => (unsavedChanges = false));
+  win.webContents.on('render-process-gone', () => (state.unsaved = false));
   win.on('close', (event) => {
-    if (closeConfirmed || !unsavedChanges || hung || win.webContents.isCrashed()) return;
+    if (state.confirmed || !state.unsaved || hung || win.webContents.isCrashed()) return;
     event.preventDefault();
     win.webContents.send('window:close-request');
   });
   win.on('closed', () => {
-    if (mainWindow === win) mainWindow = null;
+    windows.delete(contents);
+    if (mainWindow === win) mainWindow = [...windows.values()].find((w) => !w.win.isDestroyed())?.win ?? null;
   });
   if (isDev()) void win.loadURL(DEV_ORIGIN);
   else void win.loadURL('app://redcolumn/index.html');

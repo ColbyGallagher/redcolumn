@@ -94,6 +94,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return () => unsubscribe('assistant:call', listener as (...args: unknown[]) => void);
   },
   replyAssistant: (id: string, body: { result?: unknown; error?: string }) => ipcRenderer.send('assistant:result', { id, ...body }),
+  detachDocument: (token: string, name: string) => call<boolean>('window:detach', token, name),
   setUnsavedChanges: (on: boolean) => ipcRenderer.send('window:unsaved', on === true),
   setTitleBarSymbols: (color: string) => ipcRenderer.send('window:theme-symbols', color),
   onCloseRequest(cb: () => void) {

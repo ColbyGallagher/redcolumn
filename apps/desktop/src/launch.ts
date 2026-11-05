@@ -50,6 +50,12 @@ export class LaunchQueue {
     this.focus();
   }
 
+  /** Hands the page an already-registered file (a tab moved here from another window). */
+  open(item: LaunchItem) {
+    this.deliver(item);
+    this.focus();
+  }
+
   private deliver(item: LaunchItem) {
     const contents: WebContents | undefined = this.window?.webContents;
     if (!this.listening || !contents || contents.isDestroyed()) {
