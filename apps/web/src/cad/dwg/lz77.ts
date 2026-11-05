@@ -1,6 +1,20 @@
 import { CadReadError } from '../dxf';
 
 /**
+ * Copies `count` bytes from `offset` bytes back to `at`. When they overlap, the last `offset`
+ * bytes repeat, as byte-by-byte copying would: done as non-overlapping runs of at most `offset`.
+ */
+export function backCopy(dst: Uint8Array, at: number, offset: number, count: number) {
+  if (count > 0 && !(offset >= 1 && offset <= at && at + count <= dst.length)) throw new CadReadError('This DWG file is damaged (bad compressed page).');
+  for (let done = 0; done < count; ) {
+    const n = Math.min(offset, count - done);
+    const from = at + done - offset;
+    dst.copyWithin(at + done, from, from + n);
+    done += n;
+  }
+}
+
+/**
  * The LZ77 variant of R2004+ DWG section pages (ODA spec 4.7). Decompresses from `src` at `at`
  * into `dst` (a buffer of the page's decompressed size); returns the number of bytes written.
  */
@@ -70,8 +84,8 @@ export function lz77ac18(src: Uint8Array, at: number, dst: Uint8Array): number {
       op1 = b1;
     }
     if (offset > op || op + count > dst.length) throw bad();
-    // Overlapping copies repeat the pattern, as byte-by-byte copying does.
-    for (let k = 0; k < count; k++, op++) dst[op] = dst[op - offset]!;
+    backCopy(dst, op, offset, count);
+    op += count;
     let lit = op1 & 3;
     if (lit === 0) {
       op1 = next();

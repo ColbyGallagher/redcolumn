@@ -1,5 +1,6 @@
 import { CadReadError } from '../dxf';
 import { codePageDecoder, R2007 } from './bits';
+import { backCopy } from './lz77';
 import { sectionLimit, type DwgFile } from './container';
 
 /**
@@ -29,24 +30,11 @@ function rsDecode(encoded: Uint8Array, out: Uint8Array, factor: number, blockSiz
 // ---- LZ77, R2007 variant --------------------------------------------------------------------
 
 type CopyFn = (s: Uint8Array, si: number, d: Uint8Array, di: number) => void;
-const c1: CopyFn = (s, si, d, di) => {
-  d[di] = s[si]!;
-};
-const c2: CopyFn = (s, si, d, di) => {
-  d[di] = s[si + 1]!;
-  d[di + 1] = s[si]!;
-};
-const c3: CopyFn = (s, si, d, di) => {
-  d[di] = s[si + 2]!;
-  d[di + 1] = s[si + 1]!;
-  d[di + 2] = s[si]!;
-};
-const c4: CopyFn = (s, si, d, di) => {
-  d[di] = s[si]!;
-  d[di + 1] = s[si + 1]!;
-  d[di + 2] = s[si + 2]!;
-  d[di + 3] = s[si + 3]!;
-};
+// Byte runs, some stored reversed. Written through typed-array methods.
+const c1: CopyFn = (s, si, d, di) => d.set(s.subarray(si, si + 1), di);
+const c2: CopyFn = (s, si, d, di) => d.set(s.slice(si, si + 2).reverse(), di);
+const c3: CopyFn = (s, si, d, di) => d.set(s.slice(si, si + 3).reverse(), di);
+const c4: CopyFn = (s, si, d, di) => d.set(s.subarray(si, si + 4), di);
 const c8: CopyFn = (s, si, d, di) => {
   c4(s, si, d, di);
   c4(s, si + 4, d, di + 4);
@@ -136,7 +124,11 @@ export function lz77ac21(src: Uint8Array, start: number, length: number, dst: Ui
       c4(src, s, dst, d + 24);
       c4(src, s + 4, dst, d + 28);
     }
-    if (n > 0) COPIES[n]!(src, s, dst, d);
+    if (n > 0) {
+      const copy = COPIES[n];
+      if (typeof copy !== 'function') throw bad();
+      copy(src, s, dst, d);
+    }
     si += len;
     di += len;
   };
@@ -182,7 +174,8 @@ export function lz77ac21(src: Uint8Array, start: number, length: number, dst: Ui
     instructions();
     for (;;) {
       if (off > di || di + len > dst.length) throw bad();
-      for (let k = 0; k < len; k++, di++) dst[di] = dst[di - off]!;
+      backCopy(dst, di, off, len);
+      di += len;
       len = op & 7;
       if (len !== 0 || si >= end) break;
       op = byte();
