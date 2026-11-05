@@ -34,7 +34,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
       return Promise.resolve(null);
     }
   },
-  pickOpen: () => call('paths:pick-open'),
+  pickOpen: (kind?: 'document' | 'image' | 'any') => call('paths:pick-open', kind),
   pickSave: (suggestedName: string) => call('paths:pick-save', suggestedName),
   readToken: async (token: string) => new Uint8Array(await call<Uint8Array>('paths:read', token)),
   writeToken: (token: string, data: Uint8Array) => call('paths:write', token, data),

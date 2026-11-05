@@ -15,7 +15,7 @@ import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue } from './launch';
-import { fromApp, persistAllowlist, registerPathIpc, restoreAllowlist } from './paths';
+import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -82,6 +82,7 @@ async function start() {
   ipcMain.on('desktop:info', (event) => {
     event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE };
   });
+  await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
   registerPathIpc(allowlist, launches, () => mainWindow);
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
@@ -153,12 +154,15 @@ async function start() {
   handle('token:add-module', async () => {
     const options: Electron.OpenDialogOptions = {
       title: 'Choose the card’s PKCS#11 driver',
+      defaultPath: startDir(),
       properties: ['openFile'],
       filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
     };
     const win = mainWindow;
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
-    return result.canceled || !result.filePaths[0] ? null : tokens.addModule(result.filePaths[0]);
+    if (result.canceled || !result.filePaths[0]) return null;
+    rememberDir(result.filePaths[0]);
+    return tokens.addModule(result.filePaths[0]);
   });
   handle('token:remove-module', (id) => {
     if (typeof id === 'string') return tokens.removeModule(id);
@@ -195,9 +199,10 @@ async function start() {
       'session-open': 'Open a Live Session folder',
       'session-create': 'Choose a shared folder for the Live Session',
     };
-    const options = { title: titles[String(purpose)] ?? titles.create!, properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const options = { title: titles[String(purpose)] ?? titles.create!, defaultPath: startDir(), properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return null;
+    rememberDir(result.filePaths[0], true);
     const id = await folders.addRoot(result.filePaths[0]);
     await saveFolders();
     return { id, name: path.basename(result.filePaths[0]) };

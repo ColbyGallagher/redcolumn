@@ -82,7 +82,8 @@ export interface RedcolumnDesktop {
   nativeFiles: boolean;
   printMode: PrintMode;
   tokenForFile(file: File): Promise<string | null>;
-  pickOpen(): Promise<DesktopToken[] | null>;
+  /** `kind` narrows the dialog to pictures or opens it to any file; the default is PDFs and pictures. */
+  pickOpen(kind?: 'document' | 'image' | 'any'): Promise<DesktopToken[] | null>;
   pickSave(suggestedName: string): Promise<DesktopToken | null>;
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
