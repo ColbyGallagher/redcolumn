@@ -1,5 +1,5 @@
 import { desktop, type DesktopToken, type RedcolumnDesktop } from './host';
-import { tokenHandle } from './tokens';
+import { tokenHandle, transferHandle } from './tokens';
 
 /** Feeds launchQueue from the command line and the operating system's Open With. */
 export function installDesktopBridge() {
@@ -14,22 +14,24 @@ function installLaunch(host: RedcolumnDesktop) {
   type Consumer = (params: { files: FileSystemFileHandle[] }) => void;
   let consumer: Consumer | null = null;
   const buffer: DesktopToken[] = [];
+  const handleFor = (item: DesktopToken) =>
+    item.transfer ? transferHandle(item, async () => (await host.takeTransfer?.(item.transfer!)) ?? null) : tokenHandle(item.token, item.name);
   const deliver = (items: DesktopToken[]) => {
     if (!items.length) return;
     if (!consumer) {
       buffer.push(...items);
       return;
     }
-    consumer({ files: items.map((item) => tokenHandle(item.token, item.name)) });
+    consumer({ files: items.map(handleFor) });
   };
   host.onLaunchFiles(deliver);
   const queue = {
     setConsumer(fn: Consumer) {
       consumer = fn;
       const queued = buffer.splice(0);
-      if (queued.length) fn({ files: queued.map((item) => tokenHandle(item.token, item.name)) });
+      if (queued.length) fn({ files: queued.map(handleFor) });
       void host.takeLaunchFiles().then((items) => {
-        if (items.length) fn({ files: items.map((item) => tokenHandle(item.token, item.name)) });
+        if (items.length) fn({ files: items.map(handleFor) });
       });
     },
   };

@@ -191,7 +191,7 @@ import { InstallDialog } from './components/InstallDialog';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
-import { tokenOf } from './desktop/tokens';
+import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
 import { confirmAssistant } from './desktop/assistantConfirm';
 import { installAssistant } from './desktop/installAssistant';
@@ -258,9 +258,13 @@ const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
   savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
 }
+/** Documents that arrived from another window with changes not yet saved to their file. */
+const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
   let base = savedState.get(t.store);
   if (!base) {
+    if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
+    else
     // Document Recovery: changes kept from an earlier session that never reached the file.
     if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
     else markSaved(t);
@@ -1871,7 +1875,9 @@ export function App() {
           const raw = image ? null : await file.arrayBuffer();
           const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
           const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
-          const source = handleOf(file);
+          // A document moved from another window with no file of its own has nowhere to save back to.
+          const moved = movedFiles.get(file);
+          const source = moved && !moved.hasFile ? undefined : handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
           const hostId = hostDocumentId(tokenOf(source));
           let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
@@ -1881,6 +1887,7 @@ export function App() {
           // Save writes back over the file it came from, except pictures and protected PDFs
           // (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
+          if (moved?.dirty) movedDirty.add(stored.id);
           await openStored(stored, bytes, target);
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
@@ -6285,6 +6292,11 @@ export function App() {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ pane, id: t.file.id }));
                 e.dataTransfer.effectAllowed = 'move';
               }}
+              onDragEnd={(e) => {
+                // Let go outside the window: the tab moves to a window of its own.
+                const outside = e.clientX < 0 || e.clientY < 0 || e.clientX > window.innerWidth || e.clientY > window.innerHeight;
+                if (e.dataTransfer.dropEffect === 'none' && outside) void detachTab(pane, t);
+              }}
               onDragOver={(e) => {
                 if (e.dataTransfer.types.includes(TAB_DRAG_TYPE)) {
                   e.preventDefault();
@@ -7015,6 +7027,29 @@ export function App() {
   };
   semanticGoRef.current = goToParagraph;
 
+  /**
+   * Moves a tab to a new window of its own (desktop app). A document with changes, or with no file
+   * yet, goes as it stands now (markups included) and stays unsaved there; a saved one is simply
+   * opened from its file.
+   */
+  const detachTab = async (pane: Pane, t: OpenFile) => {
+    const host = desktop();
+    if (!host?.detachDocument) return;
+    if (studioDocOf(t.file.id)) return setError('A Live Session document stays in the window it was opened in.');
+    try {
+      const token = fileLocationToken(t.file.id);
+      const dirty = hasUnsavedChanges(t);
+      const contents = dirty || !token ? await annotatedBytes(t, { keepSigned: true }) : null;
+      if (!(await host.detachDocument(token ?? '', t.file.name, contents, dirty))) return setError('Could not open a new window.');
+      // Its changes live on in the new window, so closing here must not ask about them or keep them for recovery.
+      rememberUnsaved(new Map([[t.file.id, false]]));
+      markSaved(t);
+      closeTab(pane, t.file.id);
+    } catch (err) {
+      setError(`Could not move the document: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
     const tabs = pane === 'b' ? tabsB : tabsA;
@@ -7035,6 +7070,12 @@ export function App() {
       SEP,
       { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
       { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
+      ...(desktop()?.detachDocument
+        ? [{
+            label: 'Move to New Window',
+            onClick: () => void detachTab(pane, t),
+          }]
+        : []),
       ...(desktop()
         ? [{
             label: 'Open File Location',

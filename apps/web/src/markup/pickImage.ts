@@ -1,6 +1,28 @@
 import type { Attachment } from '@nb/markup';
 import { settings } from '../settings/settings';
 import { imageDpi, resolutionScale } from '../documents/imagePdf';
+import { desktop } from '../desktop/host';
+import { mimeFor, ownedBytes } from '../desktop/tokens';
+
+/**
+ * In the desktop app, one file from the native dialog, which starts in the folder the last dialog
+ * ended in (a web file input starts in Downloads). null if cancelled; undefined where there is no
+ * native dialog, so the caller uses a file input.
+ */
+async function pickNative(kind: 'image' | 'any'): Promise<File | null | undefined> {
+  const host = desktop();
+  if (!host?.nativeFiles) return undefined;
+  try {
+    const picked = await host.pickOpen(kind);
+    const item = picked?.[0];
+    if (!item) return null;
+    const bytes = ownedBytes(await host.readToken(item.token));
+    void host.forgetToken(item.token);
+    return new File([bytes], item.name, { type: mimeFor(item.name) });
+  } catch {
+    return undefined;
+  }
+}
 
 /** Longest side, in pixels, of pictures stored in markups (they are synced and saved inline). */
 const MAX_SIDE = 2048;
@@ -10,7 +32,9 @@ const MAX_SIDE = 2048;
  * is at most 2048 px, with its width / height. Resolves null if the user cancels or the file is
  * not a readable image.
  */
-export function pickImage(): Promise<{ image: string; aspect: number } | null> {
+export async function pickImage(): Promise<{ image: string; aspect: number } | null> {
+  const native = await pickNative('image');
+  if (native !== undefined) return native ? imageToDataUrl(native).catch(() => { alert(`Could not read ${native.name} as an image.`); return null; }) : null;
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -54,7 +78,16 @@ export async function imageToDataUrl(file: Blob): Promise<{ image: string; aspec
 const MAX_ATTACHMENT = 25 * 1024 * 1024;
 
 /** Asks the user for any file to attach; resolves null if they cancel or it is too large. */
-export function pickAttachment(): Promise<Attachment | null> {
+export async function pickAttachment(): Promise<Attachment | null> {
+  const native = await pickNative('any');
+  if (native !== undefined) {
+    if (!native) return null;
+    if (native.size > MAX_ATTACHMENT) {
+      alert(`${native.name} is ${(native.size / 1048576).toFixed(1)} MB; attachments can be up to 25 MB.`);
+      return null;
+    }
+    return fileToAttachment(native).catch(() => null);
+  }
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
