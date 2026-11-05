@@ -1,8 +1,13 @@
 /** The preload bridge. Present only inside the Electron app. */
 
 export interface DesktopToken {
+  /** Empty for a document moved from another window that has no file on disk. */
   token: string;
   name: string;
+  /** A document moved from another window: collect its contents with `takeTransfer`. */
+  transfer?: string;
+  /** The moved document has changes not yet saved to its file. */
+  dirty?: boolean;
 }
 
 export interface DesktopAuth {
@@ -128,8 +133,13 @@ export interface RedcolumnDesktop {
   onAssistantCall(cb: (call: AssistantCall) => void): () => void;
   replyAssistant(id: string, body: { result?: unknown; error?: string }): void;
   /** Tells the main process whether any open document has unsaved changes, so closing the window asks first. */
-  /** Opens a file this app already holds a token for in a new window, at the pointer. */
-  detachDocument?(token: string, name: string): Promise<boolean>;
+  /**
+   * Opens a document in a new window, at the pointer. `contents` are its current bytes with markups,
+   * for a document with changes or no file; otherwise the new window reads the file at `token`.
+   */
+  detachDocument?(token: string, name: string, contents: Uint8Array | null, dirty: boolean): Promise<boolean>;
+  /** Collects (once) the contents of a document moved here from another window. */
+  takeTransfer?(id: string): Promise<Uint8Array | null>;
   setUnsavedChanges?(on: boolean): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;

@@ -71,6 +71,31 @@ export function noteLocation(id: string, token: string | null) {
   if ((token ?? null) !== prev) for (const listener of listeners) listener();
 }
 
+/** Files that arrived from another window as contents rather than from disk: whether they carry unsaved changes, and whether they have a file to save back to. */
+export const movedFiles = new WeakMap<File, { dirty: boolean; hasFile: boolean }>();
+
+/**
+ * A file handed over by another window. With a token, saving writes back to that file; without
+ * one the document is new and Save asks where to put it.
+ */
+export function transferHandle(item: { token: string; name: string; dirty?: boolean }, read: () => Promise<Uint8Array | null>): FileSystemFileHandle {
+  let file: Promise<File> | null = null;
+  const getFile = () =>
+    (file ??= read().then((bytes) => {
+      if (!bytes) throw new Error('That document is no longer available.');
+      const f = new File([ownedBytes(bytes)], item.name, { type: mimeFor(item.name) });
+      movedFiles.set(f, { dirty: item.dirty === true, hasFile: !!item.token });
+      return f;
+    }));
+  if (item.token) {
+    // Saving goes to the original file; reading gives the moved contents instead.
+    const handle = tokenHandle(item.token, item.name) as unknown as { getFile: () => Promise<File> };
+    handle.getFile = getFile;
+    return handle as unknown as FileSystemFileHandle;
+  }
+  return { kind: 'file', name: item.name, getFile } as unknown as FileSystemFileHandle;
+}
+
 /** The token of the file a document was opened from or saved to, if the desktop app holds one. */
 export const fileLocationToken = (id: string) => byDocument.get(id) ?? null;
 

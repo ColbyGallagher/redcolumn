@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
@@ -14,7 +15,7 @@ import { checkTable, loadExcelLinks, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
-import { captureEarlyOpens, LaunchQueue } from './launch';
+import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
@@ -26,7 +27,17 @@ import { createUpdater } from './updater';
 
 const earlyOpens = captureEarlyOpens();
 const allowlist = new PathAllowlist();
-const launches = new LaunchQueue(allowlist);
+/** The window files opened from outside the app (Explorer, the command line) go to: the one last in front. */
+const focusedLaunches = () => (mainWindow ? windows.get(mainWindow.webContents)?.launches : undefined) ?? [...windows.values()][0]?.launches;
+/** Files named before any window exists wait here for the first one. */
+const waitingArgv: string[][] = [];
+const noteArgv = (argv: readonly string[]) => {
+  const queue = focusedLaunches();
+  if (queue) queue.noteArgv(argv);
+  else waitingArgv.push([...argv]);
+};
+/** Contents of documents moved between windows, until the receiving page collects them. */
+const transfers = new Map<string, Uint8Array>();
 /** The app window that last had focus: where dialogs and assistant calls go. */
 let mainWindow: BrowserWindow | null = null;
 /** Each app window's own state. A tab dragged out of a window opens another. */
@@ -54,7 +65,7 @@ if (!app.requestSingleInstanceLock()) {
   } else app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    launches.noteArgv(argv);
+    noteArgv(argv);
     if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -321,19 +332,37 @@ async function start() {
     if (quitting) app.quit();
     else state.win.close();
   });
-  // A tab dragged out of a window (or "Move to New Window"): the document opens in a window of its
-  // own, at the pointer. Only a file this app already holds a token for can be sent.
-  ipcMain.handle('window:detach', (event, token: unknown, name: unknown) => {
-    if (!windows.has(event.sender) || !fromApp(event) || typeof token !== 'string' || typeof name !== 'string' || !allowlist.get(token)) return false;
+  // A tab dragged out of a window (or "Move to New Window"): the document opens in a window of its own,
+  // at the pointer. A document with changes, or none on disk, travels as its current contents;
+  // a file is only ever named by a token this app already holds.
+  const MAX_TRANSFER = 1024 * 1024 * 1024;
+  ipcMain.handle('window:detach', (event, token: unknown, name: unknown, contents: unknown, dirty: unknown) => {
+    if (!windows.has(event.sender) || !fromApp(event) || typeof token !== 'string' || typeof name !== 'string') return false;
+    if (token && !allowlist.get(token)) return false;
+    const bytes = contents === null || contents === undefined ? null : contents instanceof Uint8Array ? contents : null;
+    if ((contents !== null && contents !== undefined && !bytes) || (bytes && bytes.byteLength > MAX_TRANSFER) || (!token && !bytes)) return false;
     const at = screen.getCursorScreenPoint();
-    createWindow({ x: Math.max(0, at.x - 200), y: Math.max(0, at.y - 20), open: { token, name } });
+    const item: LaunchItem = { token, name: path.basename(name) || 'Document.pdf' };
+    if (bytes) {
+      item.transfer = randomUUID();
+      item.dirty = dirty === true;
+      transfers.set(item.transfer, bytes);
+    }
+    createWindow({ x: Math.max(0, at.x - 200), y: Math.max(0, at.y - 20), open: item });
     return true;
+  });
+  ipcMain.handle('window:take-transfer', (event, id: unknown) => {
+    if (!windows.has(event.sender) || !fromApp(event) || typeof id !== 'string') return null;
+    const bytes = transfers.get(id) ?? null;
+    transfers.delete(id);
+    return bytes;
   });
 
   app.on('web-contents-created', (_event, contents) => harden(contents));
   createWindow();
-  for (const filePath of earlyOpens) launches.note(filePath);
-  launches.noteArgv(process.argv);
+  for (const filePath of earlyOpens) focusedLaunches()?.note(filePath);
+  noteArgv(process.argv);
+  for (const argv of waitingArgv.splice(0)) focusedLaunches()?.noteArgv(argv);
   // A moment after launch, so the check never competes with the page loading.
   if (app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
   app.on('activate', () => {
@@ -341,7 +370,7 @@ async function start() {
   });
 }
 
-function createWindow(child?: { x: number; y: number; open: { token: string; name: string } }) {
+function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
   // out of the taskbar and never takes focus, so the machine stays usable while it runs.
   const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
@@ -372,8 +401,8 @@ function createWindow(child?: { x: number; y: number; open: { token: string; nam
     },
   });
   mainWindow = win;
-  // The first window takes files opened from outside; a window made for a moved tab has its own queue.
-  const queue = child ? new LaunchQueue(allowlist) : launches;
+  // Each window has its own queue; files opened from outside go to the one in front.
+  const queue = new LaunchQueue(allowlist);
   const state: WindowState = { win, unsaved: false, confirmed: false, launches: queue };
   const contents = win.webContents;
   windows.set(contents, state);
