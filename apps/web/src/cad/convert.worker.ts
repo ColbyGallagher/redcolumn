@@ -27,6 +27,10 @@ async function fonts(): Promise<CadFonts> {
 }
 
 self.onmessage = async (e: MessageEvent<CadConvertRequest>) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored, as is anything that is not a conversion request.
+  if (e.origin && e.origin !== self.location.origin) return;
+  if (!e.data || typeof e.data.name !== 'string' || !(e.data.bytes instanceof Uint8Array) || !Array.isArray(e.data.references)) return;
   const { name, bytes, options, references } = e.data;
   let reply: CadConvertResponse;
   try {
