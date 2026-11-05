@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.18',
+    date: '2026-11-05',
+    items: [
+      'AI Compare: semantic document comparison through the local assistant',
+      'Compare results zoom both revisions and turn to the result page',
+      'Scale checks, and viewports named from view titles',
+      'Justified text alignment and line spacing for text boxes and callouts',
+      'Arrow keys nudge selected markups; Center, Same Size and Distribute commands',
+      'Step through search results with Up and Down arrows',
+      'CJK markup text no longer exports as question marks',
+      'Active tool name shown in the status bar',
+    ],
+  },
+  {
     version: '0.1.17',
     date: '2026-11-03',
     items: [
