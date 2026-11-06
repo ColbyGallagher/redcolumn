@@ -2,6 +2,7 @@ import { CadReadError, readDxf } from './dxf';
 import { readDwg } from './dwg';
 import type { Drawing } from './drawing';
 import { writePdf, type CadFonts } from './pdf';
+import { parseCtb, type PlotStyleTable } from './ctb';
 import { imageKey, referenceKey, type FontKey } from './render';
 import { paperLayouts, planSheets, type SheetOptions } from './sheets';
 
@@ -15,6 +16,7 @@ export { CadReadError } from './dxf';
 export type CadWarning =
   | { kind: 'missing-xref'; name: string; path: string }
   | { kind: 'reference-unreadable'; file: string; message: string }
+  | { kind: 'plot-style-missing'; name: string }
   | { kind: 'missing-image'; path: string }
   | { kind: 'font-substituted'; font: string; with: FontKey }
   | { kind: 'unsupported'; type: string; count: number }
@@ -71,7 +73,16 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
   const references = new Map<string, Drawing>();
   // Supplied files: drawings for external references, PNG/JPEG pictures for images.
   const images = new Map<string, { name: string; bytes: Uint8Array; format: 'png' | 'jpg' }>();
+  const plotStyles = new Map<string, PlotStyleTable>();
   for (const ref of opts.references ?? []) {
+    if (/\.ctb$/i.test(ref.name)) {
+      try {
+        plotStyles.set(ref.name.toLowerCase(), await parseCtb(ref.name, ref.bytes));
+      } catch (err) {
+        warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
+      }
+      continue;
+    }
     if (/\.(png|jpe?g)$/i.test(ref.name)) {
       images.set(imageKey(ref.name), { name: ref.name, bytes: ref.bytes, format: /\.png$/i.test(ref.name) ? 'png' : 'jpg' });
       continue;
@@ -82,7 +93,7 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
       warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references, images });
+  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references, images, plotStyles });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
   const pdf = await writePdf(sheets, opts.fonts, { title, source: name });
@@ -122,7 +133,7 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
       })),
       layers: [...layers],
       layouts: paperLayouts(drawing).map((l) => l.layout.name),
-      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n)) || images.has(imageKey(n))),
+      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n)) || images.has(imageKey(n)) || plotStyles.has(n.toLowerCase())),
       warnings,
     },
   };

@@ -12,6 +12,8 @@ export function warningText(w: CadWarning): string {
       return `Reference ${w.path || w.name} was not found, so it is not drawn. Add it with Convert Again.`;
     case 'reference-unreadable':
       return `${w.file} could not be read as a reference: ${w.message}`;
+    case 'plot-style-missing':
+      return `Plot style table ${w.name} was not supplied, so lines plot in their drawn colours and lineweights. Add it with Convert Again.`;
     case 'missing-image':
       return `Picture ${w.path || '(no file name)'} was not found; a frame shows where it goes. Add it with Convert Again (PNG or JPEG).`;
     case 'font-substituted':

@@ -29,7 +29,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
   const [lineweights, setLineweights] = useState(options.lineweights ?? true);
   const [references, setReferences] = useState<CadFile[]>(conversion.references);
   const input = useRef<HTMLInputElement>(null);
-  const missing = report.warnings.flatMap((w) => (w.kind === 'missing-xref' ? [w.path || w.name] : w.kind === 'missing-image' && w.path ? [w.path] : []));
+  const missing = report.warnings.flatMap((w) => (w.kind === 'missing-xref' ? [w.path || w.name] : w.kind === 'missing-image' && w.path ? [w.path] : w.kind === 'plot-style-missing' ? [w.name] : []));
   const shortName = (p: string) => p.replace(/^.*[\\/]/, '');
   const valid = layouts.length > 0 || model;
 
@@ -90,11 +90,11 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
         </fieldset>
 
         <fieldset>
-          <legend>Reference drawings and pictures</legend>
+          <legend>Reference drawings, pictures and plot styles</legend>
           {missing.length > 0 ? (
-            <p>Not found: {[...new Set(missing.map(shortName))].join(', ')}. Add them here: drawings as DWG or DXF, pictures as PNG or JPEG, matched by file name.</p>
+            <p>Not found: {[...new Set(missing.map(shortName))].join(', ')}. Add them here: drawings as DWG or DXF, pictures as PNG or JPEG, plot styles as CTB, matched by file name.</p>
           ) : (
-            <p>Add the drawings and pictures this one references, to draw them in place.</p>
+            <p>Add the drawings, pictures and plot style table (.ctb) this one uses.</p>
           )}
           {references.length > 0 && (
             <ul className="cad-ref-list">
@@ -116,7 +116,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
             type="file"
             multiple
             hidden
-            accept={`${CAD_ACCEPT},.png,.jpg,.jpeg`}
+            accept={`${CAD_ACCEPT},.png,.jpg,.jpeg,.ctb`}
             onChange={(e) => {
               void addFiles(e.target.files);
               e.target.value = '';
