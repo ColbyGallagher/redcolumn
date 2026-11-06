@@ -1,7 +1,7 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
-import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, type PathCmd } from './geometry';
+import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
@@ -255,8 +255,9 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
  */
 export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number; gap: number }[] {
   const b = contentBox(m);
+  const pad = textPadding(m.style);
   const size = m.style.fontSize ?? 12;
-  const inner = b.w - TEXT_PADDING * 2;
+  const inner = b.w - pad * 2;
   const lines = layoutParagraphs(m.text ?? '', inner, measure);
   const lineH = size * textLineHeight(m.style);
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
@@ -264,13 +265,13 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const total = lines.length * lineH;
   const valign = m.style.verticalAlign ?? 'top';
   const top =
-    valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - TEXT_PADDING - total : b.y + TEXT_PADDING;
+    valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - pad - total : b.y + pad;
   return lines.map(({ text, indent, last }, i) => {
     let width = measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
     const full = indent + width;
     const align = m.style.textAlign ?? 'left';
-    const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - TEXT_PADDING - full : b.x + TEXT_PADDING) + indent;
+    const x = (align === 'center' ? b.x + (b.w - full) / 2 : align === 'right' ? b.x + b.w - pad - full : b.x + pad) + indent;
     // Justified: spread the slack over the spaces of every line but a paragraph's last.
     let gap = 0;
     const spaces = (text.match(/ /g) ?? []).length;
