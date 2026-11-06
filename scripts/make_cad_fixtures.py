@@ -323,12 +323,73 @@ def imperial():
     return doc, expected
 
 
+# ---------------------------------------------------------------- 6. masks and leaders
+def masks():
+    """Wipeouts over linework (rectangular and polygonal), mm."""
+    doc = new_doc(units.MM)
+    msp = doc.modelspace()
+    layer(doc, "LINES", color=7)
+    layer(doc, "MASKS", color=7)
+    for i in range(11):
+        msp.add_line((0, i * 10), (100, i * 10), dxfattribs={"layer": "LINES"})
+    # Drawn after the lines, so they hide them.
+    msp.add_wipeout([(20, 20), (50, 50)], dxfattribs={"layer": "MASKS"})
+    msp.add_wipeout([(60, 60), (90, 60), (75, 90)], dxfattribs={"layer": "MASKS"})
+    # A polyface mesh of two squares side by side, on its own layer.
+    layer(doc, "MESH", color=3)
+    mesh = msp.add_polyface(dxfattribs={"layer": "MESH"})
+    mesh.append_faces([[(120, 0, 0), (140, 0, 0), (140, 20, 0), (120, 20, 0)], [(140, 0, 0), (160, 0, 0), (160, 20, 0), (140, 20, 0)]])
+    mesh.optimize()
+    expected = {
+        "units": "mm",
+        "pages": [page("Model", 0, 0, PT_PER_MM, note="no layouts: one page around the model extents, 1:1; size filled in by main()")],
+        "wipeouts": [
+            {"box": [20, 20, 50, 50]},
+            {"box": [60, 60, 90, 90]},
+        ],
+        # Each square's four edges, the shared one drawn by both.
+        "meshEdges": {"layer": "MESH", "count": 8, "box": [120, 0, 160, 20]},
+    }
+    return doc, expected
+
+
+def leaders():
+    """Multileaders, mm: one with text, one with a block (a tag circle)."""
+    from ezdxf.math import Vec2
+    from ezdxf.render.mleader import ConnectionSide
+
+    doc = new_doc(units.MM)
+    msp = doc.modelspace()
+    layer(doc, "NOTES", color=7)
+    tag = doc.blocks.new("TAG")
+    tag.add_circle((0, 0), 3)
+    ml = msp.add_multileader_mtext("Standard", dxfattribs={"layer": "NOTES"})
+    ml.set_content("NOTE ONE", char_height=2.5)
+    ml.add_leader_line(ConnectionSide.left, [Vec2(0, 0), Vec2(10, 10)])
+    ml.build(insert=Vec2(30, 20))
+    mb = msp.add_multileader_block("Standard", dxfattribs={"layer": "NOTES"})
+    mb.set_content(name="TAG", scale=1)
+    mb.add_leader_line(ConnectionSide.left, [Vec2(0, 40)])
+    mb.build(insert=Vec2(30, 50))
+    expected = {
+        "units": "mm",
+        "pages": [page("Model", 0, 0, PT_PER_MM, note="no layouts: one page around the model extents, 1:1; size filled in by main()")],
+        "text": ["NOTE ONE"],
+        "leaders": 2,
+        # ezdxf measures text with its own fonts: the page can differ by a few millimetres.
+        "sizeTolerancePt": 20,
+    }
+    return doc, expected
+
+
 FIXTURES = {
     "basic-entities": basic_entities,
     "blocks": blocks,
     "kestrel-plan": kestrel_plan,
     "missing-refs": missing_refs,
     "imperial": imperial,
+    "masks": masks,
+    "leaders": leaders,
 }
 
 
@@ -436,6 +497,9 @@ def write_dwg(out):
     for name in FIXTURES:
         src = os.path.join(out, name + ".dxf")
         for ver in DWG_VERSIONS:
+            # Twins are written once: ODA's output differs on every run (timestamps).
+            if os.path.exists(os.path.join(out, "dwg", "%s.%s.dwg" % (name, ver))) and os.environ.get("CAD_FIXTURES_REWRITE") != "1":
+                continue
             odafc.convert(src, os.path.join(out, "dwg", "%s.%s.dwg" % (name, ver)), version=ver, replace=True)
 
 

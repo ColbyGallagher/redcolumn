@@ -21,7 +21,7 @@ export interface CadConversion {
 /** The options a drawing is converted with when nothing else is chosen: the remembered ones. */
 export function defaultCadOptions(): CadOptions {
   const s = settings.get();
-  const colorMode = s.cadColorMode === 'grey' || s.cadColorMode === 'mono' ? s.cadColorMode : 'color';
+  const colorMode = s.cadColorMode === 'color' || s.cadColorMode === 'grey' || s.cadColorMode === 'mono' ? s.cadColorMode : 'auto';
   return { colorMode, lineweights: s.cadLineweights !== false };
 }
 

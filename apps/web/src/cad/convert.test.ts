@@ -6,7 +6,7 @@ import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
 import { CadReadError, convertCad, readDrawing } from './convert';
 import { readDxf } from './dxf';
-import { apply, bulgeCmds, ocs } from './geom';
+import { apply, bulgeCmds, ocs, pathBox } from './geom';
 import type { Prim } from './render';
 import { planSheets, snapRatio } from './sheets';
 import { decodeSpecial, mtextParagraphs } from './text';
@@ -23,6 +23,8 @@ const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtures), 'ut
       pages: { name: string; widthPt: number; heightPt: number; viewports: { ratio: string; twistDeg?: number; frozen?: string[] }[] }[];
       nonPlotLayers?: string[];
       dimensions?: { measurement: number }[];
+      leaders?: number;
+      sizeTolerancePt?: number;
       warnings?: Record<string, string>[];
       text?: string[];
     }
@@ -49,7 +51,8 @@ for (const file of cases) {
     );
     exp.pages.forEach((ep, i) => {
       const p = report.pages[i]!;
-      assert.ok(Math.abs(p.widthPt - ep.widthPt) < 1.5 && Math.abs(p.heightPt - ep.heightPt) < 1.5, `${ep.name}: ${p.widthPt} x ${p.heightPt}, expected ${ep.widthPt} x ${ep.heightPt}`);
+      const tol = exp.sizeTolerancePt ?? 1.5;
+      assert.ok(Math.abs(p.widthPt - ep.widthPt) < tol && Math.abs(p.heightPt - ep.heightPt) < tol, `${ep.name}: ${p.widthPt} x ${p.heightPt}, expected ${ep.widthPt} x ${ep.heightPt}`);
       assert.equal(p.viewports.length, ep.viewports.length, `${ep.name}: viewports`);
       ep.viewports.forEach((ev, j) => {
         const v = p.viewports[j]!;
@@ -95,6 +98,12 @@ for (const file of cases) {
         return f ? f.values().map((v) => doc.context.lookup(v, PDFDict)) : [];
       });
       assert.ok(fontsOf.length && fontsOf.every((f) => f.has(PDFName.of('ToUnicode'))), 'fonts map glyphs back to text');
+    }
+
+    // Each leader ends in a closed arrowhead (a filled triangle).
+    if (exp.leaders) {
+      const arrows = planned.sheets.flatMap((s) => s.prims).filter((p) => p.k === 'fill' && p.d.length === 4 && p.d[3]![0] === 'Z');
+      assert.equal(arrows.length, exp.leaders, file);
     }
 
     // Dimensions seen through their viewport's scale measure the lengths they were drawn at.
@@ -210,4 +219,41 @@ test('the report lists every layout, converted or not', async () => {
     report.pages.map((p) => p.name),
     ['C-501 DETAIL'],
   );
+});
+
+test('wipeouts hide what is under them, in every format', () => {
+  const exp = manifest.fixtures.masks as unknown as { pages: { extents: number[] }[]; wipeouts: { box: number[] }[] };
+  const [x0, y0] = exp.pages[0]!.extents;
+  const ptPerMm = 72 / 25.4;
+  for (const file of ['masks.dxf', ...DWG_VERSIONS.map((v) => `dwg/masks.${v}.dwg`)]) {
+    const { drawing } = readDrawing(file, fileBytes(file));
+    const { sheets } = planSheets(drawing, { colorMode: 'mono', lineweights: true });
+    const prims = sheets[0]!.prims;
+    const fills = prims.filter((p) => p.k === 'fill' && p.rgb.every((c) => c === 1));
+    assert.equal(fills.length, exp.wipeouts.length, file);
+    exp.wipeouts.forEach((w, i) => {
+      const f = fills[i]!;
+      const b = pathBox(f.k === 'fill' ? f.d : []);
+      const mm = [b.x0 / ptPerMm + x0!, b.y0 / ptPerMm + y0!, b.x1 / ptPerMm + x0!, b.y1 / ptPerMm + y0!];
+      mm.forEach((v, k) => assert.ok(Math.abs(v - w.box[k]!) < 0.01, `${file} wipeout ${i}: ${mm} vs ${w.box}`));
+    });
+    // Drawn after the lines, so they cover them.
+    assert.ok(prims.indexOf(fills[0]!) > prims.findIndex((p) => p.k === 'stroke'), file);
+  }
+});
+
+test('polyface meshes draw their visible edges, in every format', () => {
+  const exp = manifest.fixtures.masks as unknown as { pages: { extents: number[] }[]; meshEdges: { layer: string; count: number; box: number[] } };
+  const [x0, y0] = exp.pages[0]!.extents;
+  const ptPerMm = 72 / 25.4;
+  for (const file of ['masks.dxf', ...DWG_VERSIONS.map((v) => `dwg/masks.${v}.dwg`)]) {
+    const { drawing } = readDrawing(file, fileBytes(file));
+    const prims = planSheets(drawing, { colorMode: 'color', lineweights: true }).sheets[0]!.prims;
+    const mesh = prims.filter((p) => p.k === 'stroke' && p.layer === exp.meshEdges.layer);
+    const segments = mesh.flatMap((p) => (p.k === 'stroke' ? p.d.filter((c) => c[0] === 'M') : []));
+    assert.equal(segments.length, exp.meshEdges.count, file);
+    const b = pathBox(mesh.flatMap((p) => (p.k === 'stroke' ? p.d : [])));
+    const mm = [b.x0 / ptPerMm + x0!, b.y0 / ptPerMm + y0!, b.x1 / ptPerMm + x0!, b.y1 / ptPerMm + y0!];
+    mm.forEach((v, k) => assert.ok(Math.abs(v - exp.meshEdges.box[k]!) < 0.01, `${file}: ${mm}`));
+  }
 });

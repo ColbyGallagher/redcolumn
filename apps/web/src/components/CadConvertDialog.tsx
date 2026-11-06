@@ -13,6 +13,7 @@ interface Props {
 }
 
 const COLOR_MODES: [ColorMode, string][] = [
+  ['auto', 'As plotted'],
   ['color', 'Colour'],
   ['grey', 'Greyscale'],
   ['mono', 'Black'],
@@ -24,7 +25,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
   const all = report.layouts;
   const [layouts, setLayouts] = useState<string[]>(options.layouts ? options.layouts.filter((l) => all.includes(l)) : all);
   const [model, setModel] = useState(!all.length || !!options.includeModel);
-  const [colorMode, setColorMode] = useState<ColorMode>(options.colorMode ?? 'color');
+  const [colorMode, setColorMode] = useState<ColorMode>(options.colorMode ?? 'auto');
   const [lineweights, setLineweights] = useState(options.lineweights ?? true);
   const [references, setReferences] = useState<CadFile[]>(conversion.references);
   const input = useRef<HTMLInputElement>(null);

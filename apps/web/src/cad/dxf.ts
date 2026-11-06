@@ -126,6 +126,7 @@ export function readDxf(input: string | Uint8Array): Drawing {
     modelSpace: [],
     byHandle: new Map(),
     imageDefs: new Map(),
+    activeView: null,
   };
   const sections = new Map<string, [number, number]>();
   for (let i = 0; i < groups.length; i++) {
@@ -175,6 +176,8 @@ export function readDxf(input: string | Uint8Array): Drawing {
       } else if (o.type === 'LTYPE') {
         // Element lengths (49), each possibly followed by shape/text data (74 > 0) we skip.
         d.linetypes.set(str(g, 2).toUpperCase(), { name: str(g, 2), pattern: nums(g, 49) });
+      } else if (o.type === 'VPORT') {
+        if (str(g, 2).toUpperCase() === '*ACTIVE' && !d.activeView) d.activeView = { twist: num(g, 51), target: [num(g, 17), num(g, 27)] };
       } else if (o.type === 'STYLE') {
         const xdata = g.findIndex(([c, v]) => c === 1001 && v === 'ACAD');
         const family = xdata >= 0 ? (g.slice(xdata).find(([c]) => c === 1000)?.[1] ?? '') : '';
@@ -286,5 +289,6 @@ function layoutOf(g: Groups): Layout {
     rotation: num(plot, 73) & 3,
     printScale: num_ > 0 && den > 0 ? num_ / den : 1,
     isModel: name.toUpperCase() === 'MODEL',
+    styleSheet: str(plot, 7),
   };
 }

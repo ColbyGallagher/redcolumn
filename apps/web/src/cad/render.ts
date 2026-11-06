@@ -74,7 +74,8 @@ export interface ClipPrim {
 }
 export type Prim = StrokePrim | FillPrim | HatchPrim | TextPrim | ClipPrim;
 
-export type ColorMode = 'color' | 'grey' | 'mono';
+/** 'auto' follows the plot style table each page setup names (monochrome, grayscale), else colour. */
+export type ColorMode = 'auto' | 'color' | 'grey' | 'mono';
 
 export interface RenderOptions {
   colorMode: ColorMode;
@@ -309,6 +310,9 @@ function renderEntity(c: Ctx, e: Entity) {
       c.out.push(strokeOf(c, e, polyPath(p, true)));
       return;
     }
+    case 'MULTILEADER':
+    case 'MLEADER':
+      return multileader(c, e);
     case 'LEADER': {
       const xs = nums(g, 10);
       const ys = nums(g, 20);
@@ -329,14 +333,15 @@ function renderEntity(c: Ctx, e: Entity) {
     case 'ARC_DIMENSION':
     case 'LARGE_RADIAL_DIMENSION':
       return dimension(c, e);
-    case 'ACAD_TABLE': {
-      const b = c.dwg.blocks.get(str(g, 2).toUpperCase());
-      if (b) drawBlock(c, e, b, then(translate(-b.base[0], -b.base[1]), then(translate(...pt(g, 10)), ocs(e.extrusion))));
-      else count(c, 'ACAD_TABLE');
+    case 'ACAD_TABLE':
+      // Drawn by its anonymous block, placed as an insert.
+      if (c.dwg.blocks.get(str(g, 2).toUpperCase())) return insert(c, { ...e, children: [] });
+      count(c, 'ACAD_TABLE');
       return;
-    }
     case 'IMAGE':
       return image(c, e);
+    case 'WIPEOUT':
+      return wipeout(c, e);
     case 'ATTDEF':
       return;
     default:
@@ -361,8 +366,9 @@ function lwpolyline(c: Ctx, e: Entity) {
 
 function polyline(c: Ctx, e: Entity) {
   const flags = num(e.g, 70);
-  if (flags & (16 | 64)) {
-    count(c, flags & 64 ? 'POLYFACE MESH' : 'POLYGON MESH');
+  if (flags & 64) return polyface(c, e);
+  if (flags & 16) {
+    count(c, 'POLYGON MESH');
     return;
   }
   // Spline frame control points (vertex flag 16) are not on the curve; fit vertices are.
@@ -372,6 +378,31 @@ function polyline(c: Ctx, e: Entity) {
   const m = flags & 8 ? c.m : om(c, e);
   const width = num(e.g, 40);
   c.out.push(strokeOf(c, e, mapCmds(m, bulgePath(verts, closed)), width > 0 ? width * meanScale(m) : undefined));
+}
+
+/** A polyface mesh, seen from above: each face's visible edges (vertices are WCS). */
+function polyface(c: Ctx, e: Entity) {
+  const points: P[] = [];
+  const edges: Cmd[] = [];
+  for (const v of e.children) {
+    const vf = num(v.g, 70);
+    if (vf & 64) points.push(pt(v.g, 10));
+    else if (vf & 128) {
+      const idx = [71, 72, 73, 74].map((code) => num(v.g, code)).filter((i) => i !== 0);
+      idx.forEach((i, k) => {
+        const j = idx[(k + 1) % idx.length]!;
+        // A negative index hides the edge that starts at that vertex.
+        if (i < 0 || idx.length < 2) return;
+        const a = points[Math.abs(i) - 1];
+        const b = points[Math.abs(j) - 1];
+        if (!a || !b) return;
+        const p = apply(c.m, a);
+        const q = apply(c.m, b);
+        edges.push(['M', p[0], p[1]], ['L', q[0], q[1]]);
+      });
+    }
+  }
+  if (edges.length) c.out.push(strokeOf(c, e, edges));
 }
 
 function bulgePath(verts: { p: P; bulge: number }[], closed: boolean): Cmd[] {
@@ -502,6 +533,105 @@ function text(c: Ctx, e: Entity) {
   });
 }
 
+/**
+ * A multileader: each leader line through its vertices to the landing point, a dogleg along the
+ * landing direction, a closed arrowhead at its start, and its text (as MTEXT) or block.
+ */
+function multileader(c: Ctx, e: Entity) {
+  type Root = { conn: P | null; dir: P; landing: number; lines: P[][] };
+  const roots: Root[] = [];
+  let root: Root | null = null;
+  let line: P[] | null = null;
+  let arrow = 0;
+  /** The content's text height, given before the text itself. */
+  let textHeight = 0;
+  let text: { label: string; at: P; dir: P; h: number; width: number; attach: number; spacing: number } | null = null;
+  let record = '';
+  const blk = { at: [0, 0] as P, sx: 1, sy: 1, rot: 0 };
+  // Content is read only inside CONTEXT_DATA{ }: the codes after it (341 linetype, 40 …) mean
+  // other things.
+  let inContext = false;
+  const g = e.g;
+  for (let i = 0; i < g.length; i++) {
+    const [code, v] = g[i]!;
+    const next = () => Number(g[i + 1]?.[1] ?? 0);
+    if (code === 300) inContext = true;
+    else if (code === 301) inContext = false;
+    if (!inContext) continue;
+    if (code === 302 && v === 'LEADER{') roots.push((root = { conn: null, dir: [1, 0], landing: 0, lines: [] }));
+    else if (code === 303) root = null;
+    else if (code === 304 && v === 'LEADER_LINE{' && root) root.lines.push((line = []));
+    else if (code === 305) line = null;
+    else if (line && code === 10) line.push([Number(v), next()]);
+    else if (root && !line && code === 10) root.conn = [Number(v), next()];
+    else if (root && !line && code === 11) root.dir = [Number(v), next()];
+    else if (root && !line && code === 40) root.landing = Number(v);
+    else if (!root && code === 140) arrow = Number(v);
+    else if (!root && code === 304) text = { label: v, at: [0, 0], dir: [1, 0], h: textHeight || 2.5, width: 0, attach: 1, spacing: 1 };
+    else if (!root && text && code === 12) text.at = [Number(v), next()];
+    else if (!root && text && code === 13) text.dir = [Number(v), next()];
+    else if (!root && !text && code === 41) textHeight = Number(v);
+    else if (!root && text && code === 43) text.width = Number(v);
+    else if (!root && text && code === 45) text.spacing = Number(v) || 1;
+    else if (!root && text && code === 171) text.attach = Number(v) || 1;
+    else if (!root && code === 341) record = v;
+    else if (!root && code === 15) blk.at = [Number(v), next()];
+    else if (!root && code === 16) blk.sx = Number(v) || 1;
+    else if (!root && code === 26) blk.sy = Number(v) || 1;
+    else if (!root && code === 46) blk.rot = Number(v);
+  }
+  const block = record ? { record, ...blk } : null;
+
+  const base = strokeOf(c, e, []);
+  for (const r of roots) {
+    for (const pts of r.lines) {
+      const all = r.conn ? [...pts, r.conn] : pts;
+      if (all.length < 2) continue;
+      c.out.push({ ...base, d: polyPath(all.map((q) => apply(c.m, q))) });
+      if (arrow > 0) {
+        const [tip, from] = [all[0]!, all[1]!];
+        const len = Math.hypot(from[0] - tip[0], from[1] - tip[1]) || 1;
+        const ux = (from[0] - tip[0]) / len;
+        const uy = (from[1] - tip[1]) / len;
+        const bx = tip[0] + ux * arrow;
+        const by = tip[1] + uy * arrow;
+        const w = arrow / 6;
+        const tri: P[] = [tip, [bx - uy * w, by + ux * w], [bx + uy * w, by - ux * w]];
+        c.out.push({ k: 'fill', d: polyPath(tri.map((q) => apply(c.m, q)), true), rgb: base.rgb, layer: base.layer });
+      }
+    }
+    if (r.conn && r.landing > 0) {
+      const dl = Math.hypot(r.dir[0], r.dir[1]) || 1;
+      const end: P = [r.conn[0] + (r.dir[0] / dl) * r.landing, r.conn[1] + (r.dir[1] / dl) * r.landing];
+      c.out.push({ ...base, d: polyPath([apply(c.m, r.conn), apply(c.m, end)]) });
+    }
+  }
+  if (text && text.label.trim()) {
+    mtext(c, {
+      ...e,
+      type: 'MTEXT',
+      extrusion: [0, 0, 1],
+      g: [
+        [1, text.label],
+        [10, String(text.at[0])],
+        [20, String(text.at[1])],
+        [11, String(text.dir[0])],
+        [21, String(text.dir[1])],
+        [40, String(text.h)],
+        [41, String(text.width)],
+        [71, String(text.attach)],
+        [44, String(text.spacing)],
+      ],
+    });
+  }
+  if (block) {
+    const b = c.dwg.blockByRecord.get(block.record);
+    if (b) {
+      const m = then(then(then(translate(-b.base[0], -b.base[1]), scale(block.sx, block.sy)), rotate(block.rot)), translate(block.at[0], block.at[1]));
+      drawBlock(c, e, b, m);
+    }
+  }
+}
 function mtext(c: Ctx, e: Entity) {
   const g = e.g;
   const raw = g.filter(([code]) => code === 3).map(([, v]) => v).join('') + str(g, 1);
@@ -642,6 +772,27 @@ function dimension(c: Ctx, e: Entity) {
     const mid = apply(c.m, [(p13[0] + p14[0]) / 2, (p13[1] + p14[1]) / 2]);
     c.stats.dims.push({ pageLength: Math.hypot(pv[0], pv[1]), measurement: measurement > 0 ? measurement : null, at: mid });
   }
+}
+
+/**
+ * A wipeout: its boundary filled with the paper colour, hiding what was drawn before it. The
+ * boundary is in image pixels (y down, origin at the top-left), as for a clipped image.
+ */
+function wipeout(c: Ctx, e: Entity) {
+  const g = e.g;
+  const ins = pt(g, 10);
+  const u = pt(g, 11);
+  const v = pt(g, 12);
+  const height = pt(g, 13, [1, 1])[1];
+  const xs = nums(g, 14);
+  const ys = nums(g, 24);
+  let px: P[] = xs.map((x, i): P => [x, ys[i] ?? 0]);
+  if (px.length === 2) px = [px[0]!, [px[1]![0], px[0]![1]], px[1]!, [px[0]![0], px[1]![1]]];
+  if (px.length < 3) return;
+  const o: P = [ins[0] + u[0] * 0.5 - v[0] * 0.5, ins[1] + u[1] * 0.5 - v[1] * 0.5];
+  const world = px.map(([x, y]): P => [o[0] + u[0] * x + v[0] * (height - y), o[1] + u[1] * x + v[1] * (height - y)]);
+  // Always white: it is the paper, whatever the colour mode.
+  c.out.push({ k: 'fill', d: polyPath(world.map((q) => apply(c.m, q)), true), rgb: [1, 1, 1], layer: layerOf(c, e).name });
 }
 
 function image(c: Ctx, e: Entity) {

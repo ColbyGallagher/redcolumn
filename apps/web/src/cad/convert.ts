@@ -76,7 +76,7 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
       warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'color', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references });
+  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
   const pdf = await writePdf(sheets, opts.fonts, { title, source: name });

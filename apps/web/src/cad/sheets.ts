@@ -72,12 +72,34 @@ export interface Planned {
 }
 
 /** Drawing units: metres per unit and whether the drawing is imperial. */
-export function drawingUnits(d: Drawing): { metersPerUnit: number; imperial: boolean; assumed: boolean } {
+export function drawingUnits(d: Drawing): { metersPerUnit: number; imperial: boolean; assumed: boolean; grid?: boolean } {
   const code = headerNum(d, '$INSUNITS', 0);
   const metric = headerNum(d, '$MEASUREMENT', 1) === 1;
   const m = INSUNITS_M[code];
   if (m) return { metersPerUnit: m, imperial: [1, 2, 3, 8, 9, 10, 21].includes(code), assumed: false };
+  // Unitless, but drawn at survey grid coordinates (eastings and northings in the hundreds of
+  // thousands): metres, not millimetres.
+  if (metric && onGrid(d)) return { metersPerUnit: 1, imperial: false, assumed: true, grid: true };
   return { metersPerUnit: metric ? 0.001 : 0.0254, imperial: !metric, assumed: true };
+}
+
+const gridCache = new WeakMap<Drawing, boolean>();
+/** Most model-space points lie at projected grid coordinates (both |x| and |y| over 100 000). */
+function onGrid(d: Drawing): boolean {
+  let hit = gridCache.get(d);
+  if (hit !== undefined) return hit;
+  let n = 0;
+  let far = 0;
+  for (const e of d.modelSpace.slice(0, 5000)) {
+    const x = Number(e.g.find(([c]) => c === 10)?.[1]);
+    const y = Number(e.g.find(([c]) => c === 20)?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) continue;
+    n++;
+    if (Math.abs(x) >= 1e5 && Math.abs(y) >= 1e5) far++;
+  }
+  hit = n >= 10 && far / n > 0.8;
+  gridCache.set(d, hit);
+  return hit;
 }
 
 /** The unit measurements are shown in, for drawing units of `metersPerUnit`. */
@@ -179,7 +201,7 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   const stats = newStats();
   const notes: Planned['notes'] = [];
   const units = drawingUnits(d);
-  if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.imperial ? 'inches' : 'millimetres' });
+  if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.grid ? 'metres (it is drawn at survey grid coordinates)' : units.imperial ? 'inches' : 'millimetres' });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
   const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities));
   if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats));
@@ -188,7 +210,16 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
 
 // ---- layouts ---------------------------------------------------------------------------------
 
-function layoutSheet(d: Drawing, opts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[]): Sheet {
+/** 'auto' as the page setup's plot style table would plot it: monochrome or grey tables by name. */
+export function colorModeFor(mode: SheetOptions['colorMode'], styleSheet: string): Exclude<SheetOptions['colorMode'], 'auto'> {
+  if (mode !== 'auto') return mode;
+  if (/monochrome/i.test(styleSheet)) return 'mono';
+  if (/gr[ae]yscale/i.test(styleSheet)) return 'grey';
+  return 'color';
+}
+
+function layoutSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[]): Sheet {
+  const opts = { ...allOpts, colorMode: colorModeFor(allOpts.colorMode, layout.styleSheet) };
   const unitPt = layout.mm ? PT_PER_MM : 72;
   const p = layout.printScale || 1;
   const w = layout.paperWidth * PT_PER_MM;
@@ -294,10 +325,14 @@ const mapCmds = (m: M, d: Cmd[]): Cmd[] =>
 /** Largest page a model-space drawing is fitted to (A0, either way round), in mm. */
 const MODEL_MAX_MM: [number, number] = [1189, 841];
 
-function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
+function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats): Sheet {
+  const modelLayout = d.layouts.find((l) => l.isModel);
+  const opts = { ...allOpts, colorMode: colorModeFor(allOpts.colorMode, modelLayout?.styleSheet ?? '') };
+  // Model space plots as it was last seen: turned by the active view's twist.
+  const twist: M = d.activeView?.twist ? rotate((d.activeView.twist * Math.PI) / 180) : [1, 0, 0, 1, 0, 0];
   const { metersPerUnit, imperial } = drawingUnits(d);
   // First pass in drawing units, for the extents.
-  const probe = ctxFor(d, opts, newStats(), [1, 0, 0, 1, 0, 0], 1);
+  const probe = ctxFor(d, opts, newStats(), twist, 1);
   renderEntities(probe, d.modelSpace);
   const box = primsBox(probe.out);
   if (boxEmpty(box)) {
@@ -310,7 +345,7 @@ function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
   const ratios = imperial ? IMPERIAL.map(([n]) => n).sort((a, b) => a - b) : METRIC_RATIOS;
   const ratio = ratios.find(fits) ?? Math.max(...ext) / MODEL_MAX_MM[0];
   const s = (mmPerUnit * PT_PER_MM) / ratio;
-  const m = then(translate(-box.x0, -box.y0), scale(s));
+  const m = then(then(twist, translate(-box.x0, -box.y0)), scale(s));
   const ctx = ctxFor(d, opts, stats, m, s);
   renderEntities(ctx, d.modelSpace);
   return { name: 'Model', width: ext[0]! / ratio * PT_PER_MM, height: ext[1]! / ratio * PT_PER_MM, prims: ctx.out, viewports: [], pageScale: measureScale(d, s), scaleChecks: [] };
@@ -323,8 +358,12 @@ export function primsBox(prims: readonly Prim[], box: Box = emptyBox()): Box {
     else if (p.k === 'hatch') pathBox(p.clip, box);
     else if (p.k === 'clip') pathBox(p.clip, box);
     else {
-      const chars = Math.max(...p.lines.map((l) => l.length), 1);
-      const len = p.fit ?? p.wrap ?? chars * 0.6 * p.h * p.widthFactor;
+      // Capitals run about 0.8 of the cap height wide in the fonts used. Wrapped text keeps to
+      // its box, except a word longer than the box, which runs over it.
+      const perChar = 0.8 * p.h * p.widthFactor;
+      const longestLine = Math.max(...p.lines.map((l) => l.length), 1);
+      const longestWord = Math.max(...p.lines.flatMap((l) => l.split(/\s+/).map((w) => w.length)), 1);
+      const len = p.fit ?? (p.wrap ? Math.max(p.wrap, longestWord * perChar) : longestLine * perChar);
       const x0 = -len * (p.halign / 2);
       const lines = p.block ? p.lines.length : 1;
       const top = p.valign === 3 ? 0 : p.valign === 2 ? (p.h + (lines - 1) * p.spacing) / 2 : p.valign === 1 ? p.h + (lines - 1) * p.spacing : p.h;

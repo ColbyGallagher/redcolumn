@@ -92,6 +92,15 @@ export interface Layout {
   /** Paper units per drawing unit when plotting paper space (normally 1). */
   printScale: number;
   isModel: boolean;
+  /** The plot style table its page setup names (monochrome.ctb, acad.stb …), or ''. */
+  styleSheet: string;
+}
+
+/** The model-space view the drawing was saved with (the *Active viewport). */
+export interface ActiveView {
+  /** Degrees: model space plots turned by this, as on screen. */
+  twist: number;
+  target: [number, number];
 }
 
 export interface ImageDef {
@@ -115,6 +124,7 @@ export interface Drawing {
   /** Entities by handle, for clip boundaries. */
   byHandle: Map<string, Entity>;
   imageDefs: Map<string, ImageDef>;
+  activeView: ActiveView | null;
 }
 
 // ---- group access ---------------------------------------------------------------------------
