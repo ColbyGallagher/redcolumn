@@ -295,6 +295,49 @@ its report are kept for the visit only. The worker chunk is 1.2 MB (531 KB gzip)
 is pdf-lib and fontkit, which the app already loads but a worker cannot share. That is over the
 400 KB budget set in phase 0.
 
+## Phase 4 status (2026-11-06)
+
+Checked against real drawings: 393 files, of which 183 are unique drawings (the rest are
+copies or Git LFS pointers). There are 133 R2018, 42 R2000 and 8 R2013. They stay outside the
+repo.
+
+`pnpm cad:corpus <folder> [--pdf]` converts each drawing in its own thread with a timeout and
+writes `corpus.json` and `corpus.md` (to `reference_data/cad-corpus`, not committed).
+
+Result: **183 of 183 convert**, median 250 ms, slowest 6.2 s (a 16 MB 3D model).
+
+Fixed from real drawings:
+- **Handle map sections over 2032 bytes:** the CRC follows the last entry. This was misread,
+  and 35 drawings failed.
+- **R2018 multi-line attributes:** their MTEXT carries its own entity properties. 336 objects
+  in one drawing were unreadable.
+- **Model space rotation:** model space plots turned by the active view's twist, as AutoCAD
+  plots it.
+- **Units:** unitless drawings at survey grid coordinates are taken as metres (they were
+  measuring 1000× wrong) and reported.
+- **"As plotted" colour (the new default):** monochrome and grayscale plot style tables plot
+  black and grey.
+
+Newly drawn:
+- wipeouts, as white masks;
+- tables, via their block (DWG too);
+- multileaders: leader lines, landing, arrowheads, text or block content;
+- polyface meshes, as visible face edges;
+- **pictures, PNG/JPEG supplied in Convert Again**, embedded and drawn across the image;
+- **plot style tables (.ctb) supplied in Convert Again**, giving each ACI colour its plotted
+  colour, greyscale, screening and lineweight. A page setup naming a table that wasn't
+  supplied is reported. 26 layouts in the set name one.
+
+Narrow fonts (Arial Narrow) are squeezed to their width. A plotted cover sheet compared with
+its conversion (with its `.ctb`): layout, linework and text match within about 2%.
+
+New fixtures `masks` (wipeouts, polyface) and `leaders`, with DWG copies. Converter tests: 68.
+Help: Getting Started › Open a DWG or DXF drawing, with screenshots.
+
+Still not drawn: REGION (27 drawings; the outlines are stored as 3D-modeller (ACIS) data), 3D
+solids, surfaces and bodies, OLE frames, and colour set inside MTEXT. CAD fonts are substituted
+(no SHX rendering). The Experimental label stays until these drawings have been checked in use.
+
 ## Decisions (2026-11-05)
 
 1. Engine: port the DWG reader from ACadSharp (MIT). No LibreDWG, no ODA SDK.
