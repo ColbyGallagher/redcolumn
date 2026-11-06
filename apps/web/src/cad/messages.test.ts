@@ -11,6 +11,8 @@ test('skipped entities are named in words, with plurals', () => {
 });
 
 test('references, fonts and scales read as instructions', () => {
+  assert.match(warningText({ kind: 'model-fit', scale: '1:20' }), /fitted at 1:20.*may differ.*known length/);
+  assert.equal(warningText({ kind: 'unsupported', type: 'LEADER arrowhead (style unavailable)', count: 2 }), '2 leader arrowheads not drawn (style unavailable).');
   assert.match(warningText({ kind: 'missing-xref', name: 'SURVEY', path: 'survey.dwg' }), /^Reference survey\.dwg was not found.*Convert Again/);
   assert.match(warningText({ kind: 'font-substituted', font: 'romans.shx', with: 'sans' }), /romans\.shx is drawn in Liberation Sans/);
   assert.match(warningText({ kind: 'scale-check', sheet: 'A-101', viewport: 'Viewport 1', measured: 10.2, stated: 10 }), /stating 10 measures 10\.2/);

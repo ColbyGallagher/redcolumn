@@ -39,3 +39,44 @@ python scripts/make_cad_fixtures.py --dwg --check
 the converter and checks it has the same entities per layout, the same layers and the same
 layouts as its DXF. `--ref DIR` renders every layout to PDF with ezdxf's drawing add-on, as a
 second opinion for visual comparison. Those PDFs are not committed.
+
+## Optional public compatibility checks
+
+Source: [haiha-ux/cad-sample-tests](https://github.com/haiha-ux/cad-sample-tests),
+author Ha Phan Thanh Hai, pinned revision and all nine SHA-256 hashes in
+`scripts/cad-public-samples.json`. No license grant was found. These are optional local
+checks: do not commit or redistribute originals, rendered PDFs or images without permission.
+Only our synthetic regression cases and test code are included in this contribution.
+The supplied reference PDFs were made with ezdxf/PyMuPDF and are not an AutoCAD oracle.
+
+From repository root, using the pinned project Node/pnpm toolchain:
+
+```sh
+node --experimental-transform-types --import ./apps/web/test/resolve-ts.mjs scripts/check-cad-samples.mjs --download
+```
+
+Alternatively use `--fixtures DIR --output DIR` with existing downloads. Downloads are explicit,
+pinned and hash-checked; existing mismatching originals fail rather than being overwritten.
+The default `reference-data/` directory is ignored. Conversion itself makes no network calls.
+The harness checks all six files, dimension counts, exact sheets, viewer calibration, expected
+warnings and unchanged source hashes. Expected model-fit policy is fixed separately from the
+intended title-block scale: A 1:1/A3, B 1:20/1050×742.5 mm, C 1:1/A1. Do not change these
+expectations to hide an inaccurate transform.
+
+Independent PDF/source checks (Python development tools only, never bundled):
+
+```sh
+python -m pip install ezdxf==1.4.3 pypdf==6.10.0 pikepdf==10.17.0
+python scripts/validate-cad-samples.py
+```
+
+Use the same `--fixtures` and `--output` overrides when needed. This checks strict PDF syntax
+with pikepdf/qpdf, MediaBoxes within 0.001 mm, every expanded straight segment including saved
+dimensions/nested inserts, curve anchors, up to 50 hatch-stroke midpoints per hatch, text
+character content and five explicit lineweights. Geometric tolerance is 0.02 mm; lineweights
+0.001 mm. It writes `numeric-results.json` and never modifies source files. It does not certify
+curve interiors, glyph outlines, clipping of every hatch stroke, or independently decode DWG.
+Two mounting-plate DWG arrowheads remain explicitly warned and outside the supported subset.
+
+Existing `e2e/specs/cad-import.spec.ts` covers browser/PDFium opening, multi-layout plotting,
+calibration, Save As source preservation, supplied references, reconversion and malformed input.

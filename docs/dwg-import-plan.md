@@ -76,10 +76,11 @@ are listed by path. Raster images: embed when supplied, else warn.
 
 ### Scale
 
-- Viewport scale = paper height / view height; snap to the nearest standard ratio within 0.5%
-  and write it, else write the exact ratio and flag it.
-- Model-space only (no layouts, or user picks Model): use the active PLOTSETTINGS scale; if it is
-  "fit", warn that measurements need calibration.
+- Viewport scale = paper height / view height. Preserve the exact transform ratio in PDF
+  calibration; identify nonstandard ratios without rounding measurement metadata.
+- Model-space only (no layouts, or user picks Model): fit the model extents using the existing
+  A0-fit policy. Report the actual physical scale and warn that it can differ from a title-block
+  or plot-setting scale. Do not infer intended scale from drawing text.
 - **Self-check:** for every DIMENSION in a viewport, measure its definition points through the
   written PDF scale and compare to the dimension's stored measurement. Mismatch > 1% → warning
   ("viewport 2 on A-101 measures 2% long"). This catches transform bugs and non-uniform scaling,
@@ -202,7 +203,7 @@ calls it until phase 3.
 | `geom.ts` | Affine maps, OCS, arcs and bulges as Béziers, B-splines |
 | `text.ts` | `%%` codes, `\U+`, MTEXT formatting to plain paragraphs |
 | `render.ts` | Entities to page primitives: properties (BYLAYER/BYBLOCK, layer 0), linetypes as PDF dashes, lineweights, blocks/MINSERT/attributes, dimensions, hatches (solid, pattern lines clipped even-odd), text |
-| `sheets.ts` | Pages: layouts at plot paper size, viewports (twist, frozen layers, clip), scales snapped to standard ratios, model-space page fitted to A0 |
+| `sheets.ts` | Pages: layouts at plot paper size, viewports (twist, frozen layers, clip), exact viewport calibration, model-space page fitted to A0 |
 | `pdf.ts` | pdf-lib writer: one PDF layer per CAD layer, searchable text in subset Liberation fonts, `/VP` + `/Measure`, page labels |
 | `convert.ts` | `convertCad(name, bytes, { fonts, layouts, includeModel, colorMode, lineweights })` → PDF bytes plus a report |
 
@@ -301,3 +302,35 @@ is pdf-lib and fontkit, which the app already loads but a worker cannot share. T
 2. Model space: not a page when layouts exist. It is an opt-in in the Convert dialog, and the
    only page when a drawing has no paper-space layouts.
 3. Fonts: v1 substitutes bundled Liberation fonts for SHX and lists each substitution.
+
+
+## Focused compatibility contribution (2026-11-05)
+
+The phase-3 TypeScript architecture is retained. Regression fixes preserve exact viewport
+calibration, give zero-area models positive sheets, reject non-finite geometry, bound arc
+normalization and HATCH item/pattern work, respect hatch island styles, preserve inline MTEXT
+heights, and reject wrapped/styled model text that would extend beyond the estimated page.
+DXF straight leaders support the default closed-filled arrowhead using DIMSTYLE size/scale.
+Custom or unavailable arrow styles and spline leader paths are reported explicitly. The DWG
+reader retains leader flags but does not yet decode DIMSTYLE; two mounting-plate DWG
+arrowheads therefore remain absent with a specific warning. Do not infer their size from text.
+Inline-height MTEXT requiring wrapping is rejected. Font substitution remains reported.
+
+Optional pinned external checks are documented in `apps/web/test/fixtures/cad/README.md`.
+No external drawing bytes or comparison images are included: no redistribution grant was found.
+All six files produce valid vector PDFs and render with PDFium; all source straight segments,
+curve anchors, sampled hatch strokes, dimension pictures and text content were checked against
+the paired DXF, not just the supplied ezdxf/PyMuPDF reference. Maximum endpoint error is
+0.000242 mm, curve-anchor error 0.000242 mm, sampled hatch error 0.001045 mm; five explicit
+lineweights agree within 0.001 mm. This is sampled geometric validation, not CAD certification.
+DWG is checked against its paired DXF; no second independent DWG decoder is used.
+
+| Pair | Actual model page / scale | Title-block intended scale | Remaining difference |
+|---|---|---|---|
+| Mounting plate | 420 × 297 mm / 1:1 | 1:1 | DWG: two warned arrowheads; substituted font |
+| Studio | 1050 × 742.5 mm / 1:20 | 1:50 | Existing model-fit policy; substituted font |
+| Bearing | 840 × 594 mm / 1:1 | 1:2 | Existing model-fit policy; substituted font |
+
+The model-fit policy is not changed to force A3. Users must verify the reported scale before
+measurement. Public examples have no paper-space layouts; existing multi-layout CAD browser
+regressions remain the paper-space coverage. No claim of arbitrary drawing support is made.

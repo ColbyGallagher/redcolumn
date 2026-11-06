@@ -68,7 +68,7 @@ export interface Planned {
   sheets: Sheet[];
   stats: RenderStats;
   /** Notes for the report: units assumed, non-standard scales, non-plan views. */
-  notes: { kind: 'units-assumed'; unit: string }[];
+  notes: ({ kind: 'units-assumed'; unit: string } | { kind: 'model-fit'; scale: string })[];
 }
 
 /** Drawing units: metres per unit and whether the drawing is imperial. */
@@ -147,9 +147,12 @@ function measureScale(d: Drawing, ptPerUnit: number): MeasureScale {
   const exact = metersPerUnit / (ptPerUnit * paperMetersPerPoint);
   const snapped = snapRatio(exact, imperial);
   const { unit, feetInches } = measureUnit(metersPerUnit, imperial);
-  // Snapped ratios measure at the standard scale: the drawing's own error is under 0.5%.
-  const metersPerPoint = paperMetersPerPoint * snapped.ratio;
-  return { label: snapped.label, ratio: snapped.ratio, standard: snapped.standard, unit, feetInches, unitsPerPoint: metersPerPoint / METERS_PER_UNIT[unit] };
+  // A nearby standard is useful for naming, but must not change PDF calibration.
+  // Only absorb floating-point noise around an exactly standard ratio.
+  const matches = Math.abs(exact - snapped.ratio) <= Math.max(1, Math.abs(exact)) * 1e-12;
+  const ratio = matches ? snapped.ratio : exact;
+  const label = matches ? snapped.label : `1:${Number(exact.toPrecision(12))}`;
+  return { label, ratio, standard: matches && snapped.standard, unit, feetInches, unitsPerPoint: paperMetersPerPoint * ratio / METERS_PER_UNIT[unit] };
 }
 
 const ctxFor = (d: Drawing, opts: RenderOptions, stats: RenderStats, m: M, dashPt: number, frozen: ReadonlySet<string> = new Set()): Ctx => ({
@@ -182,7 +185,11 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.imperial ? 'inches' : 'millimetres' });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
   const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities));
-  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats));
+  if (!paperLayouts(d).length || opts.includeModel) {
+    const model = modelSheet(d, opts, stats);
+    sheets.push(model);
+    notes.push({ kind: 'model-fit', scale: model.pageScale!.label });
+  }
   return { sheets, stats, notes };
 }
 
@@ -305,6 +312,11 @@ function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
     box.x1 = box.y1 = 1;
   }
   const mmPerUnit = metersPerUnit * 1000;
+  // A line can have zero width/height. Give such a model a real sheet and stroke clearance.
+  if (box.x1 - box.x0 < 1e-9 || box.y1 - box.y0 < 1e-9) {
+    const pad = 1 / mmPerUnit;
+    box.x0 -= pad; box.y0 -= pad; box.x1 += pad; box.y1 += pad;
+  }
   const ext = [(box.x1 - box.x0) * mmPerUnit, (box.y1 - box.y0) * mmPerUnit];
   const fits = (n: number) => Math.max(...ext) / n <= MODEL_MAX_MM[0] && Math.min(...ext) / n <= MODEL_MAX_MM[1];
   const ratios = imperial ? IMPERIAL.map(([n]) => n).sort((a, b) => a - b) : METRIC_RATIOS;

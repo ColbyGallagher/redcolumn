@@ -19,6 +19,7 @@ export type CadWarning =
   | { kind: 'font-substituted'; font: string; with: FontKey }
   | { kind: 'unsupported'; type: string; count: number }
   | { kind: 'units-assumed'; unit: string }
+  | { kind: 'model-fit'; scale: string }
   | { kind: 'nonstandard-scale'; sheet: string; viewport: string; label: string }
   | { kind: 'non-plan-view'; sheet: string; viewport: string }
   | { kind: 'scale-check'; sheet: string; viewport: string; measured: number; stated: number };

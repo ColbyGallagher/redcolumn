@@ -25,6 +25,10 @@ export function tokenize(text: string): Groups {
   for (let i = 0; i + 1 < lines.length; i += 2) {
     const code = Number(lines[i]!.trim());
     if (!Number.isInteger(code)) throw new CadReadError(`This is not a readable DXF file (bad group code on line ${i + 1}).`);
+    const numeric = (code >= 10 && code <= 99) || (code >= 110 && code <= 179) || (code >= 210 && code <= 239)
+      || (code >= 270 && code <= 299) || (code >= 370 && code <= 389) || (code >= 400 && code <= 409)
+      || (code >= 420 && code <= 429) || (code >= 440 && code <= 469) || (code >= 1010 && code <= 1071);
+    if (numeric && !Number.isFinite(Number(lines[i + 1]!.trim()))) throw new CadReadError(`This drawing contains an invalid numeric value on line ${i + 2}.`);
     // Values keep leading spaces (text), but not the trailing ones some writers add.
     out.push([code, lines[i + 1]!.replace(/\s+$/, '')]);
   }
@@ -120,6 +124,7 @@ export function readDxf(input: string | Uint8Array): Drawing {
     layerByHandle: new Map(),
     linetypes: new Map(),
     styles: new Map(),
+    dimstyles: new Map(),
     blocks: new Map(),
     blockByRecord: new Map(),
     layouts: [],
@@ -175,6 +180,8 @@ export function readDxf(input: string | Uint8Array): Drawing {
       } else if (o.type === 'LTYPE') {
         // Element lengths (49), each possibly followed by shape/text data (74 > 0) we skip.
         d.linetypes.set(str(g, 2).toUpperCase(), { name: str(g, 2), pattern: nums(g, 49) });
+      } else if (o.type === 'DIMSTYLE') {
+        d.dimstyles!.set(str(g, 2).toUpperCase(), g);
       } else if (o.type === 'STYLE') {
         const xdata = g.findIndex(([c, v]) => c === 1001 && v === 'ACAD');
         const family = xdata >= 0 ? (g.slice(xdata).find(([c]) => c === 1000)?.[1] ?? '') : '';

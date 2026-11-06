@@ -1,7 +1,7 @@
 import { aciRgb, trueRgb, type Rgb } from './aci';
 import { headerNum, num, nums, pt, str, type Block, type Drawing, type Entity, type Groups, type Layer } from './drawing';
-import { apply, applyV, arcCmds, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
-import { decodeSpecial, mtextParagraphs } from './text';
+import { apply, applyV, arcCmds, arcInterval, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
+import { decodeSpecial, mtextParagraphs, mtextHeightRuns, type HeightRun } from './text';
 
 /**
  * Entities to page primitives. Everything comes out in page points: the context's matrix maps
@@ -41,6 +41,8 @@ export interface TextPrim {
   rgb: Rgb;
   font: FontKey;
   lines: string[];
+  /** MTEXT inline cap-height runs, when any height differs from the base height. */
+  runs?: HeightRun[][];
   /** Insertion point on the page. */
   origin: P;
   /** Page vectors for one drawing unit along the baseline and up the glyphs. */
@@ -269,9 +271,7 @@ function renderEntity(c: Ctx, e: Entity) {
     }
     case 'ARC': {
       const m = then(circleM(pt(g, 10), num(g, 40)), om(c, e));
-      const a0 = (num(g, 50) * Math.PI) / 180;
-      let a1 = (num(g, 51) * Math.PI) / 180;
-      while (a1 <= a0) a1 += 2 * Math.PI;
+      const [a0, a1] = arcInterval(((num(g, 50) % 360) * Math.PI) / 180, ((num(g, 51) % 360) * Math.PI) / 180);
       c.out.push(strokeOf(c, e, arcCmds(m, a0, a1, true)));
       return;
     }
@@ -282,9 +282,7 @@ function renderEntity(c: Ctx, e: Entity) {
       const ratio = num(g, 40, 1);
       const flip = e.extrusion[2] < 0 ? -1 : 1;
       const m: M = then([maj[0], maj[1], -maj[1] * ratio * flip, maj[0] * ratio * flip, ctr[0], ctr[1]], c.m);
-      const t0 = num(g, 41, 0);
-      let t1 = num(g, 42, 2 * Math.PI);
-      while (t1 <= t0) t1 += 2 * Math.PI;
+      const [t0, t1] = arcInterval(num(g, 41, 0), num(g, 42, 2 * Math.PI));
       const full = Math.abs(t1 - t0 - 2 * Math.PI) < 1e-9;
       c.out.push(strokeOf(c, e, [...arcCmds(m, t0, t1, true), ...(full ? [['Z'] as Cmd] : [])]));
       return;
@@ -310,10 +308,23 @@ function renderEntity(c: Ctx, e: Entity) {
       return;
     }
     case 'LEADER': {
+      if (num(g, 72) !== 0) { count(c, 'LEADER (spline path)'); return; }
       const xs = nums(g, 10);
       const ys = nums(g, 20);
       const p = xs.map((x, i): P => apply(c.m, [x, ys[i] ?? 0]));
       if (p.length > 1) c.out.push(strokeOf(c, e, polyPath(p)));
+      if (p.length < 2 || num(g, 71, 1) === 0) return;
+      const style = c.dwg.dimstyles?.get(str(g, 3, 'STANDARD').toUpperCase());
+      if (!style || [str(style, 5), str(style, 341), str(style, 342)].some(value => value && value !== '0') || num(style, 173)) {
+        count(c, 'LEADER arrowhead (style unavailable)'); return;
+      }
+      const size = num(style, 41, 2.5) * num(style, 40, 1);
+      const dx = xs[1]! - xs[0]!, dy = ys[1]! - ys[0]!, length = Math.hypot(dx, dy);
+      if (!(size > 0) || !Number.isFinite(size) || !length) { count(c, 'LEADER arrowhead (invalid geometry)'); return; }
+      const ux = dx / length, uy = dy / length, x = xs[0]!, y = ys[0]!;
+      const points: P[] = [[x, y], [x + ux * size - uy * size / 6, y + uy * size + ux * size / 6],
+        [x + ux * size + uy * size / 6, y + uy * size - ux * size / 6]];
+      c.out.push({ k: 'fill', d: polyPath(points.map(q => apply(c.m, q)), true), rgb: plotRgb(rawRgb(c, e), c.opts.colorMode), layer: layerOf(c, e).name });
       return;
     }
     case 'TEXT':
@@ -526,12 +537,14 @@ function mtext(c: Ctx, e: Entity) {
   const flip = e.extrusion[2] < 0 && m === c.m ? -1 : 1;
   const up: P = [-dir[1] * flip, dir[0] * flip];
   const wrap = num(g, 41);
+  const runs = mtextHeightRuns(raw, h);
   c.out.push({
     k: 'text',
     layer: layerOf(c, e).name,
     rgb: plotRgb(rawRgb(c, e), c.opts.colorMode),
     font: fontFor(c, str(g, 7, 'STANDARD')),
     lines: mtextParagraphs(raw),
+    runs: runs.some(line => line.some(run => run.scale !== 1)) ? runs : undefined,
     origin: apply(m, pt(g, 10)),
     u: applyV(m, dir),
     v: applyV(m, up),
@@ -676,18 +689,27 @@ export function readHatch(g: Groups): HatchData {
     while (i < g.length && g[i]![0] !== code) i++;
     return i < g.length ? Number(g[i++]![1]) : 0;
   };
+  let remainingWork = 100_000;
+  const count = (value: number) => {
+    if (!Number.isSafeInteger(value) || value < 0 || value > g.length - i || value > remainingWork)
+      throw new Error('Invalid or excessive HATCH item count. The drawing may be truncated.');
+    remainingWork -= value;
+    return value;
+  };
   const next = () => g[i++]!;
   const peek = () => g[i]?.[0];
   const solid = num(g, 70) === 1;
   const loops: Cmd[][] = [];
-  const count91 = at(91);
+  const flags: number[] = [];
+  const count91 = count(at(91));
   for (let l = 0; l < count91 && i < g.length; l++) {
     const type = at(92);
+    flags.push(type);
     const d: Cmd[] = [];
     if (type & 2) {
       const hasBulge = at(72);
       at(73); // closed flag: hatch loops are closed whatever it says
-      const n = at(93);
+      const n = count(at(93));
       const verts: { p: P; bulge: number }[] = [];
       for (let k = 0; k < n; k++) {
         const x = at(10);
@@ -698,7 +720,7 @@ export function readHatch(g: Groups): HatchData {
       }
       d.push(...bulgePath(verts, true));
     } else {
-      const n = at(93);
+      const n = count(at(93));
       let cur: P | null = null;
       const goTo = (p: P) => {
         if (!cur) d.push(['M', p[0], p[1]]);
@@ -721,21 +743,11 @@ export function readHatch(g: Groups): HatchData {
             const ratio = at(40);
             m = [maj[0], maj[1], -maj[1] * ratio, maj[0] * ratio, ctr[0], ctr[1]];
           }
-          const s = (at(50) * Math.PI) / 180;
-          const e = (at(51) * Math.PI) / 180;
+          const s = ((at(50) % 360) * Math.PI) / 180;
+          const e = ((at(51) % 360) * Math.PI) / 180;
           const ccw = at(73) !== 0;
-          let a0: number;
-          let a1: number;
-          if (ccw) {
-            a0 = s;
-            a1 = e;
-            while (a1 <= a0) a1 += 2 * Math.PI;
-          } else {
-            // Clockwise edges store complementary angles (360 - a).
-            a0 = -s;
-            a1 = -e;
-            while (a1 >= a0) a1 -= 2 * Math.PI;
-          }
+          // Clockwise edges store complementary angles (360 - a).
+          const [a0, a1] = arcInterval(ccw ? s : -s, ccw ? e : -e, ccw);
           goTo(apply(m, [Math.cos(a0), Math.sin(a0)]));
           d.push(...arcCmds(m, a0, a1, false));
           cur = apply(m, [Math.cos(a1), Math.sin(a1)]);
@@ -743,8 +755,8 @@ export function readHatch(g: Groups): HatchData {
           const degree = at(94);
           at(73);
           at(74);
-          const nk = at(95);
-          const nc = at(96);
+          const nk = count(at(95));
+          const nc = count(at(96));
           const knots: number[] = [];
           for (let q = 0; q < nk; q++) knots.push(at(40));
           const ctrl: P[] = [];
@@ -774,19 +786,24 @@ export function readHatch(g: Groups): HatchData {
     const j = g.findIndex(([code]) => code === 78);
     if (j >= 0) {
       i = j + 1;
-      const n = Number(g[j]![1]);
+      const n = count(Number(g[j]![1]));
       for (let k = 0; k < n; k++) {
         const angle = (at(53) * Math.PI) / 180;
         const base: P = [at(43), at(44)];
         const offset: P = [at(45), at(46)];
-        const nd = at(79);
+        const nd = count(at(79));
         const dashes: number[] = [];
         for (let q = 0; q < nd; q++) dashes.push(at(49));
         lines.push({ angle, base, offset, dashes });
       }
     }
   }
-  return { solid, loops, lines };
+  // Island style selects path classes before even-odd filling. Keeping every
+  // loop incorrectly restores inner islands in Outer/Ignore hatches.
+  const style = num(g, 75);
+  if (!Number.isInteger(style) || style < 0 || style > 2) throw new Error('Invalid hatch island style.');
+  const selected = loops.filter((_, index) => style === 0 || (flags[index]! & (style === 1 ? 17 : 1)) !== 0);
+  return { solid, loops: selected, lines };
 }
 
 function hatch(c: Ctx, e: Entity) {
@@ -823,7 +840,9 @@ function hatch(c: Ctx, e: Entity) {
   ];
   const segs: Cmd[] = [];
   let total = 0;
+  let work = 0;
   for (const line of data.lines) {
+    if (line.dashes.length && line.dashes.every(dash => dash < 0)) continue;
     const dir: P = [Math.cos(line.angle), Math.sin(line.angle)];
     const nrm: P = [-dir[1], dir[0]];
     const spacing = line.offset[0] * nrm[0] + line.offset[1] * nrm[1];
@@ -831,8 +850,12 @@ function hatch(c: Ctx, e: Entity) {
     const proj = corners.map((q) => ((q[0] - line.base[0]) * nrm[0] + (q[1] - line.base[1]) * nrm[1]) / spacing);
     const k0 = Math.floor(Math.min(...proj));
     const k1 = Math.ceil(Math.max(...proj));
+    if (!Number.isSafeInteger(k0) || !Number.isSafeInteger(k1) || k1 - k0 > MAX_HATCH_SEGMENTS) {
+      count(c, 'HATCH (pattern too dense)'); return;
+    }
     const period = line.dashes.reduce((a, b) => a + Math.abs(b), 0);
     for (let k = k0; k <= k1; k++) {
+      if (++work > MAX_HATCH_SEGMENTS) { count(c, 'HATCH (pattern too dense)'); return; }
       const o: P = [line.base[0] + line.offset[0] * k, line.base[1] + line.offset[1] * k];
       const along = corners.map((q) => (q[0] - o[0]) * dir[0] + (q[1] - o[1]) * dir[1]);
       const s0 = Math.min(...along);
@@ -847,13 +870,16 @@ function hatch(c: Ctx, e: Entity) {
       else {
         let s = Math.floor(s0 / period) * period;
         while (s < s1 && total <= MAX_HATCH_SEGMENTS) {
+          const before = s;
           for (const dash of line.dashes) {
+            if (++work > MAX_HATCH_SEGMENTS) { count(c, 'HATCH (pattern too dense)'); return; }
             const len = Math.abs(dash);
             if (dash > 0) seg(Math.max(s, s0), Math.min(s + len, s1));
             else if (dash === 0) seg(s, s + period * 0.001);
             s += len;
             if (s >= s1) break;
           }
+          if (s <= before) throw new Error('Hatch pattern cannot advance at this coordinate precision.');
         }
       }
       if (total > MAX_HATCH_SEGMENTS) break;

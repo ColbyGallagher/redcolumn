@@ -119,7 +119,18 @@ export const boxEmpty = (b: Box) => !(b.x1 >= b.x0 && b.y1 >= b.y0);
  * Cubic Béziers for the unit-circle arc from angle a0 to a1 (radians, counter-clockwise when
  * a1 > a0), mapped by `m` (which can make it any ellipse). Starts with a move when `move`.
  */
+/** One directed turn, without loops that can stall on huge or non-finite angles. */
+export function arcInterval(start: number, end: number, ccw = true): [number, number] {
+  if (!Number.isFinite(start) || !Number.isFinite(end)) throw new Error('Invalid CAD arc angle.');
+  const turn = 2 * Math.PI;
+  const wrap = (n: number) => ((n % turn) + turn) % turn;
+  const a = wrap(start), b = wrap(end);
+  const span = wrap(ccw ? b - a : a - b) || turn;
+  return [a, a + (ccw ? span : -span)];
+}
+
 export function arcCmds(m: M, a0: number, a1: number, move: boolean): Cmd[] {
+  if (![...m, a0, a1].every(Number.isFinite) || Math.abs(a1 - a0) > 2 * Math.PI + 1e-8) throw new Error('Invalid CAD curve geometry.');
   const out: Cmd[] = [];
   const sweep = a1 - a0;
   const n = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 2) - 1e-9));
