@@ -109,6 +109,9 @@ if (!isMainThread) {
   console.log(`\nWrote ${join(out, 'corpus.md')}`);
 }
 
+/** Text for a Markdown table cell: backslashes first, then pipes, escaped; line breaks as spaces. */
+const cell = (s) => String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+
 function summary(records) {
   const tried = records.filter((r) => !r.skipped);
   const ok = tried.filter((r) => r.ok);
@@ -126,7 +129,7 @@ function summary(records) {
   for (const r of failed) (errors[`${r.kind}: ${r.error}`] ??= []).push(r.file);
   if (failed.length) {
     lines.push('## Failures', '', '| Error | Drawings | Example |', '|---|---|---|');
-    for (const [e, fs] of Object.entries(errors).sort((a, b) => b[1].length - a[1].length)) lines.push(`| ${e.replace(/\|/g, '\\|')} | ${fs.length} | ${fs[0]} |`);
+    for (const [e, fs] of Object.entries(errors).sort((a, b) => b[1].length - a[1].length)) lines.push(`| ${cell(e)} | ${fs.length} | ${cell(fs[0])} |`);
     lines.push('');
   }
   const kinds = {};
