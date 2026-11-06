@@ -7389,8 +7389,8 @@ export function App() {
         icon: MENU_ICONS.pageRotate,
         disabled: none || !editable,
         items: [
-          { label: 'Rotate 90° Clockwise', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
-          { label: 'Rotate 90° Counterclockwise', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
+          { label: 'Clockwise 90°', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
+          { label: 'Counterclockwise 90°', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
           { label: 'Rotate 180°', onClick: rotate(2) },
         ],
       },
