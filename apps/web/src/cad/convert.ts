@@ -2,7 +2,7 @@ import { CadReadError, readDxf } from './dxf';
 import { readDwg } from './dwg';
 import type { Drawing } from './drawing';
 import { writePdf, type CadFonts } from './pdf';
-import { referenceKey, type FontKey } from './render';
+import { imageKey, referenceKey, type FontKey } from './render';
 import { paperLayouts, planSheets, type SheetOptions } from './sheets';
 
 /**
@@ -69,14 +69,20 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
   const { drawing, format, unreadable } = readDrawing(name, bytes);
   const warnings: CadWarning[] = [];
   const references = new Map<string, Drawing>();
+  // Supplied files: drawings for external references, PNG/JPEG pictures for images.
+  const images = new Map<string, { name: string; bytes: Uint8Array; format: 'png' | 'jpg' }>();
   for (const ref of opts.references ?? []) {
+    if (/\.(png|jpe?g)$/i.test(ref.name)) {
+      images.set(imageKey(ref.name), { name: ref.name, bytes: ref.bytes, format: /\.png$/i.test(ref.name) ? 'png' : 'jpg' });
+      continue;
+    }
     try {
       references.set(referenceKey(ref.name), readDrawing(ref.name, ref.bytes).drawing);
     } catch (err) {
       warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references });
+  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references, images });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
   const pdf = await writePdf(sheets, opts.fonts, { title, source: name });
@@ -116,7 +122,7 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
       })),
       layers: [...layers],
       layouts: paperLayouts(drawing).map((l) => l.layout.name),
-      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n))),
+      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n)) || images.has(imageKey(n))),
       warnings,
     },
   };

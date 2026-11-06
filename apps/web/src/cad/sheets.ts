@@ -356,6 +356,14 @@ export function primsBox(prims: readonly Prim[], box: Box = emptyBox()): Box {
   for (const p of prims) {
     if (p.k === 'stroke' || p.k === 'fill') pathBox(p.d, box);
     else if (p.k === 'hatch') pathBox(p.clip, box);
+    else if (p.k === 'image')
+      for (const [a, b] of [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ])
+        grow(box, p.origin[0] + p.u[0] * a! + p.v[0] * b!, p.origin[1] + p.u[1] * a! + p.v[1] * b!);
     else if (p.k === 'clip') pathBox(p.clip, box);
     else {
       // Capitals run about 0.8 of the cap height wide in the fonts used. Wrapped text keeps to

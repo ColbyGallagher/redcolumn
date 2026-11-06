@@ -33,8 +33,8 @@ You might see:
 
 - **Reference … was not found.** The drawing uses another drawing (an *xref*) that wasn't supplied. Add it with **Convert Again** (below).
 - **Font … is drawn in Liberation Sans.** CAD fonts are replaced with similar ones, so text may run a little longer or shorter.
-- **Picture … is not drawn.** Pictures in drawings aren't shown yet; a frame shows where each one goes.
-- **… not drawn.** A few kinds of object aren't drawn yet (for example multileaders, tables and 3D solids).
+- **Picture … was not found.** The picture isn't inside the drawing file. A frame shows where it goes. Add it with **Convert Again** (PNG or JPEG).
+- **… not drawn.** A few kinds of object aren't drawn yet, mostly 3D ones (solids, regions, surfaces).
 - **… not a standard scale** or **a dimension … measures …** The viewport's scale may not be what it looks like. [Calibrate](#calibrate) before measuring.
 
 Click **Close** to hide the bar.
@@ -47,7 +47,7 @@ Click **Close** to hide the bar.
 2. Choose what you want:
    - **Pages**: tick the layouts to include. Tick **Model space** to add a page of the whole model.
    - **Lines**: **As plotted** (black or grey when the drawing's page setup plots that way, otherwise in colour), **Colour**, **Greyscale** or **Black**, and whether to use the drawing's lineweights.
-   - **Reference drawings**: click **Add Reference Files…** and pick the drawings it references. They're matched by file name and drawn in place.
+   - **Reference drawings and pictures**: click **Add Reference Files…** and pick the drawings (DWG or DXF) and pictures (PNG or JPEG) it uses. They're matched by file name and drawn in place.
 3. Click **Convert**. The result opens as a new PDF.
 
 redcolumn remembers your **Lines** choices for the next drawing you open.

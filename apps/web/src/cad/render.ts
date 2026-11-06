@@ -72,7 +72,19 @@ export interface ClipPrim {
   clip: Cmd[];
   prims: Prim[];
 }
-export type Prim = StrokePrim | FillPrim | HatchPrim | TextPrim | ClipPrim;
+/** A picture: its pixels drawn across the parallelogram from `origin` along `u` (width) and `v` (height). */
+export interface ImagePrim {
+  k: 'image';
+  layer: string;
+  /** File name it was supplied under (one embedded copy per file). */
+  name: string;
+  bytes: Uint8Array;
+  format: 'png' | 'jpg';
+  origin: P;
+  u: P;
+  v: P;
+}
+export type Prim = StrokePrim | FillPrim | HatchPrim | TextPrim | ClipPrim | ImagePrim;
 
 /** 'auto' follows the plot style table each page setup names (monochrome, grayscale), else colour. */
 export type ColorMode = 'auto' | 'color' | 'grey' | 'mono';
@@ -82,6 +94,8 @@ export interface RenderOptions {
   lineweights: boolean;
   /** Drawings supplied for external references, by `referenceKey` of their file name. */
   references?: ReadonlyMap<string, Drawing>;
+  /** Pictures supplied for IMAGE entities (PNG or JPEG), by `referenceKey`-style file name with extension. */
+  images?: ReadonlyMap<string, { name: string; bytes: Uint8Array; format: 'png' | 'jpg' }>;
 }
 
 /** What rendering met that the report should mention. */
@@ -795,11 +809,17 @@ function wipeout(c: Ctx, e: Entity) {
   c.out.push({ k: 'fill', d: polyPath(world.map((q) => apply(c.m, q)), true), rgb: [1, 1, 1], layer: layerOf(c, e).name });
 }
 
+/** The key a picture is supplied under: its file name, lower case, with its extension. */
+export const imageKey = (path: string) => path.replace(/^.*[\\/]/, '').toLowerCase();
+
 function image(c: Ctx, e: Entity) {
   const g = e.g;
   const def = c.dwg.imageDefs.get(str(g, 340));
-  if (def) c.stats.images.add(def.path);
-  else count(c, 'IMAGE');
+  const supplied = def?.path ? c.opts.images?.get(imageKey(def.path)) : undefined;
+  if (!supplied) {
+    if (def) c.stats.images.add(def.path);
+    else count(c, 'IMAGE');
+  }
   const p = pt(g, 10);
   const uu = pt(g, 11);
   const vv = pt(g, 12);
@@ -808,6 +828,12 @@ function image(c: Ctx, e: Entity) {
   const b: P = [vv[0] * size[1], vv[1] * size[1]];
   const local: P[] = [p, [p[0] + a[0], p[1] + a[1]], [p[0] + a[0] + b[0], p[1] + a[1] + b[1]], [p[0] + b[0], p[1] + b[1]]];
   const corners = local.map((q) => apply(c.m, q));
+  if (supplied) {
+    // The insertion point is the picture's lower-left corner; u runs along its width, v up it.
+    const o = corners[0]!;
+    c.out.push({ k: 'image', layer: layerOf(c, e).name, name: supplied.name, bytes: supplied.bytes, format: supplied.format, origin: o, u: [corners[1]![0] - o[0], corners[1]![1] - o[1]], v: [corners[3]![0] - o[0], corners[3]![1] - o[1]] });
+    return;
+  }
   // A placeholder frame where the picture would be.
   c.out.push({ ...strokeOf(c, e, polyPath(corners, true)), rgb: [0.5, 0.5, 0.5], dash: null });
 }

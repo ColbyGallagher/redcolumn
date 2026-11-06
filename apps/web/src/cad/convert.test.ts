@@ -257,3 +257,13 @@ test('polyface meshes draw their visible edges, in every format', () => {
     mm.forEach((v, k) => assert.ok(Math.abs(v - exp.meshEdges.box[k]!) < 0.01, `${file}: ${mm}`));
   }
 });
+
+test('a supplied picture is embedded where its image is', async () => {
+  const png = new Uint8Array(readFileSync(new URL('../../../../e2e/fixtures/picture.png', import.meta.url)));
+  const { pdf, report } = await convertCad('missing-refs.dxf', bytes('missing-refs'), { fonts, references: [{ name: 'aerial-2026.png', bytes: png }] });
+  assert.ok(!report.warnings.some((w) => w.kind === 'missing-image'), JSON.stringify(report.warnings));
+  assert.ok(report.references.includes('aerial-2026.png'));
+  const doc = await PDFDocument.load(pdf);
+  const xobjects = doc.getPages()[0]!.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  assert.equal(xobjects?.keys().length, 1);
+});
