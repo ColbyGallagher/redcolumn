@@ -1,3 +1,4 @@
+import type { PlotStyleTable } from './ctb';
 import type { LengthUnit } from '@nb/measure';
 import { headerNum, INSUNITS_M, num, pt, type Drawing, type Entity, type Layout } from './drawing';
 import { apply, boxEmpty, emptyBox, grow, pathBox, polyPath, rotate, scale, then, translate, type Box, type Cmd, type M, type P } from './geom';
@@ -57,7 +58,9 @@ export interface Sheet {
   scaleChecks: ScaleCheck[];
 }
 
-export interface SheetOptions extends RenderOptions {
+export interface SheetOptions extends Omit<RenderOptions, 'plotStyle'> {
+  /** Supplied plot style tables, by lower-case file name (tfnsw_a1.ctb). */
+  plotStyles?: ReadonlyMap<string, PlotStyleTable>;
   /** Layout names to convert; all paper-space layouts when absent. */
   layouts?: readonly string[];
   /** Also a page for model space when the drawing has layouts. */
@@ -68,7 +71,7 @@ export interface Planned {
   sheets: Sheet[];
   stats: RenderStats;
   /** Notes for the report: units assumed, non-standard scales, non-plan views. */
-  notes: { kind: 'units-assumed'; unit: string }[];
+  notes: ({ kind: 'units-assumed'; unit: string } | { kind: 'plot-style-missing'; name: string })[];
 }
 
 /** Drawing units: metres per unit and whether the drawing is imperial. */
@@ -203,14 +206,29 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   const units = drawingUnits(d);
   if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.grid ? 'metres (it is drawn at survey grid coordinates)' : units.imperial ? 'inches' : 'millimetres' });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
-  const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities));
-  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats));
+  const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities, notes));
+  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats, notes));
   return { sheets, stats, notes };
 }
 
 // ---- layouts ---------------------------------------------------------------------------------
 
 /** 'auto' as the page setup's plot style table would plot it: monochrome or grey tables by name. */
+/** Tables whose effect 'As plotted' already gives, or that leave colours as drawn. */
+const BUILT_IN_STYLES = /^(monochrome|grayscale|greyscale|acad|default|screening.*|fill patterns|.*\.stb)$/i;
+
+/** The supplied plot style table for a page setup, by the name it gives (or the only one supplied, when it names none). */
+function plotStyleFor(opts: SheetOptions, styleSheet: string, notes: Planned['notes']): PlotStyleTable | undefined {
+  const tables = opts.plotStyles;
+  const name = styleSheet.replace(/^.*[\\/]/, '');
+  if (name) {
+    const t = tables?.get(name.toLowerCase());
+    if (!t && !BUILT_IN_STYLES.test(name.replace(/\.ctb$/i, '')) && !notes.some((n) => n.kind === 'plot-style-missing' && n.name === name)) notes.push({ kind: 'plot-style-missing', name });
+    return t;
+  }
+  return tables?.size === 1 ? [...tables.values()][0] : undefined;
+}
+
 export function colorModeFor(mode: SheetOptions['colorMode'], styleSheet: string): Exclude<SheetOptions['colorMode'], 'auto'> {
   if (mode !== 'auto') return mode;
   if (/monochrome/i.test(styleSheet)) return 'mono';
@@ -218,8 +236,10 @@ export function colorModeFor(mode: SheetOptions['colorMode'], styleSheet: string
   return 'color';
 }
 
-function layoutSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[]): Sheet {
-  const opts = { ...allOpts, colorMode: colorModeFor(allOpts.colorMode, layout.styleSheet) };
+function layoutSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[], notes: Planned['notes']): Sheet {
+  const plotStyle = plotStyleFor(allOpts, layout.styleSheet, notes);
+  // A supplied table decides the colours itself.
+  const opts: RenderOptions = { ...allOpts, plotStyle, colorMode: plotStyle && allOpts.colorMode === 'auto' ? 'color' : colorModeFor(allOpts.colorMode, layout.styleSheet) };
   const unitPt = layout.mm ? PT_PER_MM : 72;
   const p = layout.printScale || 1;
   const w = layout.paperWidth * PT_PER_MM;
@@ -325,9 +345,10 @@ const mapCmds = (m: M, d: Cmd[]): Cmd[] =>
 /** Largest page a model-space drawing is fitted to (A0, either way round), in mm. */
 const MODEL_MAX_MM: [number, number] = [1189, 841];
 
-function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats): Sheet {
+function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, notes: Planned['notes']): Sheet {
   const modelLayout = d.layouts.find((l) => l.isModel);
-  const opts = { ...allOpts, colorMode: colorModeFor(allOpts.colorMode, modelLayout?.styleSheet ?? '') };
+  const plotStyle = plotStyleFor(allOpts, modelLayout?.styleSheet ?? '', notes);
+  const opts: RenderOptions = { ...allOpts, plotStyle, colorMode: plotStyle && allOpts.colorMode === 'auto' ? 'color' : colorModeFor(allOpts.colorMode, modelLayout?.styleSheet ?? '') };
   // Model space plots as it was last seen: turned by the active view's twist.
   const twist: M = d.activeView?.twist ? rotate((d.activeView.twist * Math.PI) / 180) : [1, 0, 0, 1, 0, 0];
   const { metersPerUnit, imperial } = drawingUnits(d);

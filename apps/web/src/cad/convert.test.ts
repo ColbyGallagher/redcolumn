@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { test } from 'node:test';
 import { importViewports } from '../../../../packages/markup/src/bluebeam';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
 import { CadReadError, convertCad, readDrawing } from './convert';
+import { parseCtb } from './ctb';
 import { readDxf } from './dxf';
 import { apply, bulgeCmds, ocs, pathBox } from './geom';
 import type { Prim } from './render';
@@ -266,4 +268,42 @@ test('a supplied picture is embedded where its image is', async () => {
   const doc = await PDFDocument.load(pdf);
   const xobjects = doc.getPages()[0]!.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
   assert.equal(xobjects?.keys().length, 1);
+});
+
+/** A tiny colour-dependent plot style table: ACI 1 plots black at 0.7 mm. */
+function testCtb(): Uint8Array {
+  const text = ['description="test', 'plot_style{', ' 0{', '  name="Color_1', '  color=-1023410176', '  color_policy=5', '  screen=100', '  lineweight=3', ' }', '}', 'custom_lineweight_table{', ' 3=0.7', '}', ''].join('\n');
+  const head = Buffer.alloc(60);
+  head.write('PIAFILEVERSION_2.0,CTBVER1,compress\r\npmzlibcodec', 'latin1');
+  return new Uint8Array(Buffer.concat([head, deflateSync(Buffer.from(text, 'latin1'))]));
+}
+
+test('a supplied plot style table sets the colour and lineweight of each ACI colour', async () => {
+  const table = await parseCtb('test.ctb', testCtb());
+  assert.deepEqual(table.byAci.get(1), { rgb: [0, 0, 0], grey: false, screen: 100, lineweightMm: 0.7 });
+  const { drawing } = readDrawing('kestrel-plan.dxf', bytes('kestrel-plan'));
+  drawing.layouts.find((l) => l.name === 'C-101 PLAN')!.styleSheet = 'Test.ctb';
+  // The other page names another table (a page that names none would take the only one supplied).
+  drawing.layouts.find((l) => l.name === 'C-501 DETAIL')!.styleSheet = 'other.ctb';
+  const { sheets } = planSheets(drawing, { colorMode: 'auto', lineweights: true, plotStyles: new Map([['test.ctb', table]]) });
+  const inViewports = (prims: readonly Prim[]): Prim[] => prims.flatMap((p) => (p.k === 'clip' ? inViewports(p.prims) : [p]));
+  // C-ROAD-CL is red (ACI 1): black at 0.7 mm through the table, on that page only.
+  const cl = (s: number) => inViewports(sheets[s]!.prims).find((p) => p.k === 'stroke' && p.layer === 'C-ROAD-CL');
+  const styled = cl(0);
+  assert.ok(styled && styled.k === 'stroke');
+  assert.deepEqual(styled.rgb, [0, 0, 0]);
+  assert.ok(Math.abs(styled.width - (0.7 * 72) / 25.4) < 1e-9);
+  const plain = cl(1);
+  assert.ok(plain && plain.k === 'stroke' && plain.rgb[0] === 1);
+});
+
+test('a plot style table the drawing names but is not supplied is reported', () => {
+  const { drawing } = readDrawing('kestrel-plan.dxf', bytes('kestrel-plan'));
+  drawing.layouts.find((l) => l.name === 'C-101 PLAN')!.styleSheet = 'Company A1.ctb';
+  drawing.layouts.find((l) => l.name === 'C-501 DETAIL')!.styleSheet = 'monochrome.ctb';
+  const { notes } = planSheets(drawing, { colorMode: 'auto', lineweights: true });
+  assert.deepEqual(
+    notes.filter((n) => n.kind === 'plot-style-missing'),
+    [{ kind: 'plot-style-missing', name: 'Company A1.ctb' }],
+  );
 });

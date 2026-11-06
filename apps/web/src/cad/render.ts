@@ -1,6 +1,7 @@
 import { aciRgb, trueRgb, type Rgb } from './aci';
 import { headerNum, num, nums, pt, str, type Block, type Drawing, type Entity, type Groups, type Layer } from './drawing';
 import { apply, applyV, arcCmds, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
+import { styledRgb, type PlotStyleTable } from './ctb';
 import { decodeSpecial, mtextParagraphs } from './text';
 
 /**
@@ -94,6 +95,8 @@ export interface RenderOptions {
   lineweights: boolean;
   /** Drawings supplied for external references, by `referenceKey` of their file name. */
   references?: ReadonlyMap<string, Drawing>;
+  /** The plot style table (.ctb) to plot with, when one was supplied for the page's setup. */
+  plotStyle?: PlotStyleTable;
   /** Pictures supplied for IMAGE entities (PNG or JPEG), by `referenceKey`-style file name with extension. */
   images?: ReadonlyMap<string, { name: string; bytes: Uint8Array; format: 'png' | 'jpg' }>;
 }
@@ -130,6 +133,8 @@ const MAX_HATCH_SEGMENTS = 200_000;
 interface Inherit {
   layer: string;
   rgb: Rgb | null;
+  /** The ACI index the insert plots as (for plot style tables), or null for a true colour. */
+  aci: number | null;
   linetype: string;
   lineweight: number;
 }
@@ -170,6 +175,34 @@ function visible(c: Ctx, e: Entity): boolean {
   return true;
 }
 
+/** The ACI index an entity plots as, through BYLAYER and BYBLOCK; null for a true colour. */
+function aciOf(c: Ctx, e: Entity): number | null {
+  if (e.trueColor !== null) return null;
+  if (e.color === 0) return c.parent ? c.parent.aci : 7;
+  if (e.color === 256 || !e.color) {
+    const { layer } = layerOf(c, e);
+    return layer.trueColor !== null ? null : layer.color;
+  }
+  return e.color;
+}
+
+/**
+ * The colour an entity plots in: through the plot style table when there is one (by its ACI
+ * colour), then the colour mode.
+ */
+function inkRgb(c: Ctx, e: Entity): Rgb {
+  const raw = rawRgb(c, e);
+  const aci = aciOf(c, e);
+  const style = aci !== null ? c.opts.plotStyle?.byAci.get(aci) : undefined;
+  if (!style) return plotRgb(raw, c.opts.colorMode);
+  const out = styledRgb(raw, style);
+  if (c.opts.colorMode === 'mono') return [0, 0, 0];
+  if (c.opts.colorMode === 'grey') return plotRgb(out, 'grey');
+  // The table's own colours plot as they are (white included); only the object's own colour
+  // keeps the white-plots-black rule.
+  return style.rgb ? out : plotRgb(out, 'color');
+}
+
 function rawRgb(c: Ctx, e: Entity): Rgb {
   if (e.trueColor !== null) return trueRgb(e.trueColor);
   if (e.color === 0) return c.parent?.rgb ?? aciRgb(7);
@@ -208,8 +241,11 @@ function lineweightOf(c: Ctx, e: Entity): number {
 }
 
 function strokeOf(c: Ctx, e: Entity, d: Cmd[], widthPt?: number): StrokePrim {
-  const lwMm = c.opts.lineweights ? Math.max(lineweightOf(c, e) / 100, MIN_LW_MM) : NO_LW_MM;
-  return { k: 'stroke', d, rgb: plotRgb(rawRgb(c, e), c.opts.colorMode), layer: layerOf(c, e).name, width: widthPt && widthPt > 0 ? widthPt : lwMm * PT_PER_MM, dash: dashOf(c, e) };
+  const aci = aciOf(c, e);
+  const styled = aci !== null ? c.opts.plotStyle?.byAci.get(aci)?.lineweightMm : null;
+  const own = styled ?? lineweightOf(c, e) / 100;
+  const lwMm = c.opts.lineweights ? Math.max(own, MIN_LW_MM) : NO_LW_MM;
+  return { k: 'stroke', d, rgb: inkRgb(c, e), layer: layerOf(c, e).name, width: widthPt && widthPt > 0 ? widthPt : lwMm * PT_PER_MM, dash: dashOf(c, e) };
 }
 
 function dashOf(c: Ctx, e: Entity): number[] | null {
@@ -310,13 +346,13 @@ function renderEntity(c: Ctx, e: Entity) {
     case 'POINT': {
       const p = apply(c.m, pt(g, 10));
       const r = 0.15 * PT_PER_MM;
-      c.out.push({ k: 'fill', d: [...arcCmds(circleM(p, r), 0, 2 * Math.PI, true), ['Z']], rgb: plotRgb(rawRgb(c, e), c.opts.colorMode), layer: layerOf(c, e).name });
+      c.out.push({ k: 'fill', d: [...arcCmds(circleM(p, r), 0, 2 * Math.PI, true), ['Z']], rgb: inkRgb(c, e), layer: layerOf(c, e).name });
       return;
     }
     case 'SOLID':
     case 'TRACE': {
       const p = [pt(g, 10), pt(g, 11), pt(g, 13, pt(g, 12)), pt(g, 12)].map((q) => apply(om(c, e), q));
-      c.out.push({ k: 'fill', d: polyPath(p, true), rgb: plotRgb(rawRgb(c, e), c.opts.colorMode), layer: layerOf(c, e).name });
+      c.out.push({ k: 'fill', d: polyPath(p, true), rgb: inkRgb(c, e), layer: layerOf(c, e).name });
       return;
     }
     case '3DFACE': {
@@ -471,6 +507,16 @@ function spline(c: Ctx, e: Entity) {
 const METRIC_SAFE = /^(arial|arialbd|ariali|arialbi|arialn|helvetica|times|timesbd|timesi|timesbi|tnr|cour|courbd|couri|courbi|liberation)/i;
 
 /** The font drawn for a text style, noting a substitution unless it is metric-compatible. */
+/**
+ * Narrow and condensed faces (Arial Narrow, …) are drawn in the regular font squeezed to about
+ * their width, so text fills the space it was laid out in.
+ */
+export function fontWidthFor(c: Pick<Ctx, 'dwg'>, styleName: string): number {
+  const st = c.dwg.styles.get((styleName || 'STANDARD').toUpperCase());
+  const name = `${st?.font ?? ''} ${st?.family ?? ''}`.toLowerCase();
+  return /narrow|condensed|\barialn\b|\bcond\b/.test(name) ? 0.82 : 1;
+}
+
 export function fontFor(c: Pick<Ctx, 'dwg' | 'stats'>, styleName: string): FontKey {
   const st = c.dwg.styles.get((styleName || 'STANDARD').toUpperCase());
   const shown = (st?.font || '').replace(/^.*[\\/]/, '');
@@ -528,14 +574,14 @@ function text(c: Ctx, e: Entity) {
   c.out.push({
     k: 'text',
     layer: layerOf(c, e).name,
-    rgb: plotRgb(rawRgb(c, e), c.opts.colorMode),
+    rgb: inkRgb(c, e),
     font: fontFor(c, str(g, 7, 'STANDARD')),
     lines: [decodeSpecial(raw)],
     origin: apply(m, origin),
     u,
     v,
     h,
-    widthFactor: width,
+    widthFactor: width * fontWidthFor(c, str(g, 7, 'STANDARD')),
     oblique,
     halign,
     valign,
@@ -673,14 +719,14 @@ function mtext(c: Ctx, e: Entity) {
   c.out.push({
     k: 'text',
     layer: layerOf(c, e).name,
-    rgb: plotRgb(rawRgb(c, e), c.opts.colorMode),
+    rgb: inkRgb(c, e),
     font: fontFor(c, str(g, 7, 'STANDARD')),
     lines: mtextParagraphs(raw),
     origin: apply(m, pt(g, 10)),
     u: applyV(m, dir),
     v: applyV(m, up),
     h,
-    widthFactor: st?.widthFactor || 1,
+    widthFactor: (st?.widthFactor || 1) * fontWidthFor(c, str(g, 7, 'STANDARD')),
     oblique: ((st?.oblique ?? 0) * Math.PI) / 180,
     halign: ((attach - 1) % 3) as 0 | 1 | 2,
     valign: attach <= 3 ? 3 : attach <= 6 ? 2 : 1,
@@ -695,7 +741,7 @@ function mtext(c: Ctx, e: Entity) {
 // ---- blocks ----------------------------------------------------------------------------------
 
 function inheritOf(c: Ctx, e: Entity): Inherit {
-  return { layer: layerOf(c, e).name, rgb: rawRgb(c, e), linetype: linetypeName(c, e), lineweight: lineweightOf(c, e) };
+  return { layer: layerOf(c, e).name, rgb: rawRgb(c, e), aci: aciOf(c, e), linetype: linetypeName(c, e), lineweight: lineweightOf(c, e) };
 }
 
 function drawBlock(c: Ctx, e: Entity, b: Pick<Block, 'name' | 'entities'>, blockM: M, dwg: Drawing = c.dwg) {
@@ -971,7 +1017,7 @@ function hatch(c: Ctx, e: Entity) {
   if (!data.loops.length) return;
   const m = om(c, e);
   const clip = data.loops.flatMap((d) => mapCmds(m, d));
-  const rgb = plotRgb(rawRgb(c, e), c.opts.colorMode);
+  const rgb = inkRgb(c, e);
   const layer = layerOf(c, e).name;
   const gradient = e.g.some(([code]) => code === 450) && num(e.g, 450) !== 0;
   if (data.solid || gradient || !data.lines.length) {
