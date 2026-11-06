@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -1657,6 +1657,12 @@ export function App() {
           if (!cur.store.linksDetected()) await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
         } else if (!cur.store.linksDetected()) {
           await linkFromText(fresh, cur.store, report, signal, standard ?? undefined);
+        }
+        // Markups other tools made, read by an older importer: read again those not edited since.
+        if (!cur.store.readOnly && cur.store.annotationsImported() && cur.store.importVersion() < IMPORT_VERSION) {
+          const found = await readPdfAnnotations(await fresh(), cur.store, report, signal);
+          cur.store.refreshImported(found.markups.filter(fromOtherTools), IMPORT_VERSION);
+          ctl?.viewer.clearCache();
         }
         // Marks taught since this document was last searched (or ever, for a new set).
         const marks = marksFor(cur.store);

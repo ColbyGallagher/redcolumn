@@ -188,6 +188,8 @@ export interface MarkupStyle {
   verticalAlign?: VerticalAlign;
   /** Line spacing as a multiple of the font size (default 1.2) for text boxes and callouts. */
   lineHeight?: number;
+  /** Gap between a text box's edge and its text, in points (default `TEXT_PADDING`); Bluebeam's `margin` in /DS. */
+  textMargin?: number;
   /** Measurement label visibility (default shown) and background (default white; null for none). */
   showLabel?: boolean;
   labelBackground?: string | null;

@@ -11,9 +11,9 @@ export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCatego
 export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
 export * from './assemblies';
-export { MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
+export { IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
-export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, translated, withSegment } from './geometry';
+export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, textPadding, translated, withSegment } from './geometry';
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
