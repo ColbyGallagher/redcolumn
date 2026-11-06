@@ -5,6 +5,7 @@ import type { SheetInfo } from '@nb/sheets';
 import { yScaleLabel, type Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
 import { OverflowMenu } from './OverflowMenu';
+import { DeletePagesDialog } from './DeletePagesDialog';
 import { SetScaleDialog } from './SetScaleDialog';
 
 /** Thumbnail width in CSS px. The slider moves between these; 150 is the default. */
@@ -381,6 +382,7 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
   }, [!!doc]);
   const [rename, setRename] = useState<{ page: number; tick: number } | null>(null);
   const [scaleOpen, setScaleOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Selection refers to page numbers of the current document; reset when it changes.
   useEffect(() => setSelected([]), [doc]);
@@ -428,6 +430,12 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
 
   // Ctrl+C / Ctrl+V here copy and paste pages, not markups: the thumbnails' keys stop at the panel.
   const keys = (e: React.KeyboardEvent) => {
+    if (e.key === 'Delete' && !(e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) && !(e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!busy && count > 1) setDeleteOpen(true);
+      return;
+    }
     if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || (e.target as HTMLElement).closest('input, textarea, select, [contenteditable="true"]')) return;
     const key = e.key.toLowerCase();
     if (key === 'c') onCopyPages(chosen);
@@ -436,11 +444,7 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
     e.stopPropagation();
   };
 
-  const deletePages = () => {
-    if (confirm(`Delete ${plural} (${chosen.map((p) => p + 1).join(', ')})? Markups on ${chosen.length > 1 ? 'them' : 'it'} are deleted too.`)) {
-      onPageOps([{ type: 'delete', pages: chosen }]);
-    }
-  };
+  const deletePages = () => setDeleteOpen(true);
 
   const moveTo = (before: number) => {
     const pages = dragging.current;
@@ -600,6 +604,18 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
             setScaleOpen(false);
           }}
           onCancel={() => setScaleOpen(false)}
+        />
+      )}
+      {deleteOpen && (
+        <DeletePagesDialog
+          pageCount={count}
+          selected={chosen}
+          onDelete={(pages) => {
+            setDeleteOpen(false);
+            setSelected([]);
+            onPageOps([{ type: 'delete', pages }]);
+          }}
+          onCancel={() => setDeleteOpen(false)}
         />
       )}
     </div>
