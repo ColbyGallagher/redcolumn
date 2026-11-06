@@ -107,6 +107,8 @@ export interface Drawing {
   layerByHandle: Map<string, string>;
   linetypes: Map<string, Linetype>;
   styles: Map<string, TextStyle>;
+  /** Dimension-style groups available to LEADER; readers may omit unsupported tables. */
+  dimstyles?: Map<string, Groups>;
   blocks: Map<string, Block>;
   blockByRecord: Map<string, Block>;
   /** Paper-space layouts and the model layout, in tab order. */

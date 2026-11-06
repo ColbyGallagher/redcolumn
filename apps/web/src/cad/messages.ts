@@ -21,6 +21,8 @@ export function warningText(w: CadWarning): string {
       return `${plural(w.count, ...entityWord(w.type))} not drawn (${describe(w.type)}).`;
     case 'units-assumed':
       return `The drawing does not say its units; they are taken as ${w.unit}. Check a known length before measuring.`;
+    case 'model-fit':
+      return `Model space is fitted at ${w.scale}. This may differ from a scale written in the drawing; check the intended sheet size and a known length before measuring.`;
     case 'nonstandard-scale':
       return `${w.sheet}, ${w.viewport} is at ${w.label}, not a standard scale. Check a known length before measuring.`;
     case 'non-plan-view':
