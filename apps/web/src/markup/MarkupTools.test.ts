@@ -1406,3 +1406,83 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
 });
+
+test('Resume: a count carries on in the same markup, with its subject, label and total', async () => {
+  const h = await setup();
+  const counted = put(h, 'count', [[10, 10], [20, 10], [30, 10], [40, 10]], { subject: 'Poles', layer: 'L1', text: 'P' });
+  assert.equal(h.tools.resume(counted.id, [500, 500]), true);
+  click(h.tools, [50, 10]);
+  click(h.tools, [60, 10]);
+  assert.equal(h.store.all().length, 1, 'still one markup');
+  const m = h.store.get(counted.id)!;
+  assert.equal(m.points.length, 6);
+  assert.deepEqual([m.subject, m.layer, m.text], ['Poles', 'L1', 'P']);
+  // Escape ends the resume and keeps every point.
+  h.tools.cancel();
+  assert.equal(h.store.get(counted.id)!.points.length, 6);
+  assert.equal(h.tools.getState().measuring, false);
+  click(h.tools, [70, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 6, 'a click after Escape starts a new count, not another resumed point');
+});
+
+test('Resume: undo takes resumed points off one at a time and keeps the original', async () => {
+  const h = await setup();
+  const counted = put(h, 'count', [[10, 10], [20, 10]]);
+  h.store.checkpoint();
+  h.tools.resume(counted.id);
+  click(h.tools, [30, 10]);
+  click(h.tools, [40, 10]);
+  click(h.tools, [50, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 5);
+  h.store.undo();
+  assert.equal(h.store.get(counted.id)!.points.length, 4);
+  h.store.undo();
+  assert.equal(h.store.get(counted.id)!.points.length, 3);
+  // Still resumed: the next click adds to the same markup.
+  click(h.tools, [60, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 4);
+  h.store.undo();
+  h.store.undo();
+  assert.deepEqual(h.store.get(counted.id)!.points, [[10, 10], [20, 10]]);
+  // Backspace also removes only resumed points.
+  click(h.tools, [70, 10]);
+  h.tools.removeLastPoint();
+  h.tools.removeLastPoint();
+  assert.equal(h.store.get(counted.id)!.points.length, 2, 'the original points stay');
+});
+
+test('Resume: a polylength grows from its end, or from its start with the order and curves turned around', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.01, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  const line = put(h, 'polylength', [[0, 0], [100, 0], [100, 100]], { bulges: [0.5, 0], subject: 'Pipe' });
+  assert.equal(h.tools.resume(line.id, [100, 90]), true);
+  click(h.tools, [200, 100]);
+  h.tools.finish();
+  let m = h.store.get(line.id)!;
+  assert.deepEqual(m.points, [[0, 0], [100, 0], [100, 100], [200, 100]]);
+  assert.deepEqual(m.bulges, [0.5, 0]);
+  assert.equal(m.subject, 'Pipe');
+  assert.equal(h.store.all().length, 1);
+
+  // Nearest the first point: the order is turned around (and each curve with it) before the new point.
+  assert.equal(h.tools.resume(line.id, [2, 2]), true);
+  click(h.tools, [-50, 0]);
+  h.tools.finish();
+  m = h.store.get(line.id)!;
+  assert.deepEqual(m.points, [[200, 100], [100, 100], [100, 0], [0, 0], [-50, 0]]);
+  assert.deepEqual(m.bulges, [0, -0.5]);
+  assert.equal(h.store.all().length, 1);
+});
+
+test('Resume: only counts and open lines can be resumed', async () => {
+  const h = await setup();
+  const area = put(h, 'area', [[0, 0], [100, 0], [100, 100]]);
+  const perimeter = put(h, 'perimeter', [[0, 0], [100, 0], [100, 100]]);
+  const rect = put(h, 'rect', [[0, 0], [10, 10]]);
+  const poly = put(h, 'polyline', [[0, 0], [10, 10]]);
+  assert.equal(h.tools.canResumeMarkup(area.id), false);
+  assert.equal(h.tools.canResumeMarkup(perimeter.id), false);
+  assert.equal(h.tools.canResumeMarkup(rect.id), false);
+  assert.equal(h.tools.resume(area.id), false);
+  assert.equal(h.tools.canResumeMarkup(poly.id), true);
+});
