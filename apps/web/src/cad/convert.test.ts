@@ -6,6 +6,8 @@ import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
 import { CadReadError, convertCad, readDrawing } from './convert';
 import { readDxf } from './dxf';
+import { BitReader } from './dwg/bits';
+import { readObject } from './dwg/objects';
 import { apply, bulgeCmds, ocs } from './geom';
 import type { Prim } from './render';
 import { planSheets, snapRatio } from './sheets';
@@ -131,6 +133,42 @@ test('old and unknown DWG versions are refused with a clear message', () => {
   assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1040\0\0\0')), /newer than the converter knows/);
 });
 
+test('bit reads refuse negative lengths and stop at their end', () => {
+  const r = new BitReader(new Uint8Array(64), 1015, undefined, 16 * 8);
+  assert.throws(() => r.skipBytes(-1), CadReadError);
+  assert.throws(() => r.bytes(-8), CadReadError);
+  r.skipBytes(16);
+  assert.throws(() => r.RC(), CadReadError);
+  // Clones keep the end and the budget.
+  const budget = { bits: 24 };
+  const b = new BitReader(new Uint8Array(64), 1015, undefined, undefined, budget);
+  b.RC();
+  b.clone().RC();
+  b.RC();
+  assert.throws(() => b.RC(), /damaged/);
+});
+
+test('an object cannot read past its own size, and every read is charged to the file', () => {
+  // MS size 2, then nothing but set bits: an unbounded reader would run on through them.
+  const buf = new Uint8Array(1 << 16).fill(0xff);
+  buf[0] = 2;
+  const budget = { bits: 1_000_000 };
+  const ctx = { version: 1015, classes: new Map<number, string>(), decoder: new TextDecoder(), budget };
+  assert.throws(() => readObject(buf, 0, ctx), CadReadError);
+  assert.ok(1_000_000 - budget.bits <= 128, `read ${1_000_000 - budget.bits} bits`);
+  // Many handles into the same bytes spend the budget, and then reading stops.
+  budget.bits = 200;
+  assert.throws(() => {
+    for (let k = 0; k < 100; k++) {
+      try {
+        readObject(buf, 0, ctx);
+      } catch (err) {
+        if (budget.bits < 0) throw err;
+      }
+    }
+  }, /damaged\.$/);
+});
+
 test('a truncated or corrupted DWG fails cleanly, never hangs', () => {
   for (const file of ['dwg/kestrel-plan.R2018.dwg', 'dwg/kestrel-plan.R2007.dwg', 'dwg/kestrel-plan.R2004.dwg', 'dwg/kestrel-plan.R2000.dwg']) {
     const src = fileBytes(file);
@@ -210,4 +248,67 @@ test('the report lists every layout, converted or not', async () => {
     report.pages.map((p) => p.name),
     ['C-501 DETAIL'],
   );
+});
+
+/** Paper-space viewports of a drawing read from a fixture, with their raw groups. */
+const viewportsOf = (d: ReturnType<typeof readDxf>) => [...d.blocks.values()].flatMap((b) => b.entities).filter((e) => e.type === 'VIEWPORT');
+
+test('a viewport near a standard scale measures at its own scale and says so', () => {
+  const d = readDxf(bytes('kestrel-plan'));
+  for (const vp of viewportsOf(d)) {
+    const g = vp.g.find(([c]) => c === 45)!;
+    g[1] = String(Number(g[1]) * (502 / 500));
+  }
+  const plan = planSheets(d, { colorMode: 'color', lineweights: true }).sheets[0]!;
+  const v = plan.viewports.find((x) => Math.round(x.scale.ratio) === 502)!;
+  assert.ok(v, plan.viewports.map((x) => x.scale.label).join());
+  assert.equal(v.scale.label, '1:502');
+  assert.equal(v.scale.standard, false);
+  // 1 pt on the page is 502 pt in metres, not 500.
+  assert.ok(Math.abs(v.scale.unitsPerPoint / ((0.0254 / 72) * 502) - 1) < 1e-9, String(v.scale.unitsPerPoint));
+});
+
+test('float noise on a standard scale still labels it standard', () => {
+  const d = readDxf(bytes('kestrel-plan'));
+  for (const vp of viewportsOf(d)) {
+    const g = vp.g.find(([c]) => c === 45)!;
+    g[1] = String(Number(g[1]) * (1 + 1e-7));
+  }
+  const labels = planSheets(d, { colorMode: 'color', lineweights: true }).sheets[0]!.viewports.map((v) => [v.scale.label, v.scale.standard]);
+  assert.deepEqual(labels, [
+    ['1:500', true],
+    ['1:2000', true],
+  ]);
+});
+
+const dxfOf = (blocks: string[][], entities: string[]) =>
+  ['0', 'SECTION', '2', 'BLOCKS', ...blocks.flat(), '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES', ...entities, '0', 'ENDSEC', '0', 'EOF', ''].join('\n');
+const block = (name: string, body: string[]) => ['0', 'BLOCK', '2', name, '70', '0', '10', '0', '20', '0', ...body, '0', 'ENDBLK'];
+const insertOf = (name: string, extra: string[] = []) => ['0', 'INSERT', '2', name, '10', '0', '20', '0', ...extra];
+
+test('block fan-out stops with a clear error instead of running for ever', () => {
+  // Ten levels of ten inserts each: 10^10 lines.
+  const blocks = Array.from({ length: 10 }, (_, k) => block(`B${k}`, k === 9 ? ['0', 'LINE', '10', '0', '20', '0', '11', '1', '21', '0'] : Array.from({ length: 10 }, () => insertOf(`B${k + 1}`)).flat()));
+  const t = Date.now();
+  assert.throws(() => planSheets(readDxf(dxfOf(blocks, insertOf('B0'))), { colorMode: 'color', lineweights: true }), /too complex to convert/);
+  assert.ok(Date.now() - t < 30_000, `${Date.now() - t} ms`);
+});
+
+test('a huge MINSERT array is refused up front', () => {
+  const blocks = [block('B', ['0', 'LINE', '10', '0', '20', '0', '11', '1', '21', '0'])];
+  const t = Date.now();
+  assert.throws(() => planSheets(readDxf(dxfOf(blocks, insertOf('B', ['70', '100000', '71', '100000', '44', '1', '45', '1']))), { colorMode: 'color', lineweights: true }), /too complex/);
+  assert.ok(Date.now() - t < 2000);
+});
+
+test('a hatch pattern of only gaps draws nothing and finishes', () => {
+  const edges = ['91', '1', '92', '1', '93', '4', ...[[0, 0, 100, 0], [100, 0, 100, 100], [100, 100, 0, 100], [0, 100, 0, 0]].flatMap(([a, b, x, y]) => ['72', '1', '10', `${a}`, '20', `${b}`, '11', `${x}`, '21', `${y}`]), '97', '0'];
+  const pattern = (dashes: string[]) => ['75', '0', '76', '1', '52', '0', '41', '1', '77', '0', '78', '1', '53', '0', '43', '0', '44', '0', '45', '0', '46', '1', '79', `${dashes.length}`, ...dashes.flatMap((x) => ['49', x]), '98', '0'];
+  const hatchOf = (dashes: string[]) => ['0', 'HATCH', '10', '0', '20', '0', '30', '0', '2', 'TEST', '70', '0', '71', '0', ...edges, ...pattern(dashes)];
+  const t = Date.now();
+  const gaps = planSheets(readDxf(dxfOf([], hatchOf(['-1', '-2']))), { colorMode: 'color', lineweights: true }).sheets[0]!;
+  assert.deepEqual(gaps.prims.map((p) => (p.k === 'hatch' ? p.lines.length : -1)), [0]);
+  // Dashes far finer than the area are not stepped through one by one.
+  planSheets(readDxf(dxfOf([], hatchOf(['1e-9', '-1e-9']))), { colorMode: 'color', lineweights: true });
+  assert.ok(Date.now() - t < 5000, `${Date.now() - t} ms`);
 });

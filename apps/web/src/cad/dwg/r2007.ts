@@ -1,7 +1,7 @@
 import { CadReadError } from '../dxf';
 import { codePageDecoder, R2007 } from './bits';
 import { backCopy } from './lz77';
-import { sectionLimit, type DwgFile } from './container';
+import { memoryBudget, sectionLimit, type DwgFile } from './container';
 
 /**
  * R2007 (AC1021) container (ODA spec 5): a Reed-Solomon coded file header, a page map and a
@@ -399,13 +399,25 @@ export function readAc21(bytes: Uint8Array): DwgFile {
   }
 
   const cache = new Map<string, Uint8Array | null>();
+  const spend = memoryBudget(bytes.length);
   const section = (name: string): Uint8Array | null => {
     if (cache.has(name)) return cache.get(name)!;
     const s = sections.get(name);
     let out: Uint8Array | null = null;
     if (s) {
+      const bad = () => new CadReadError('This DWG file is damaged (bad section size).');
       const total = s.pages.reduce((a, p) => Math.max(a, p.offset + p.uncompressed), 0);
-      if (total > sectionLimit(bytes.length)) throw new CadReadError('This DWG file is damaged (bad section size).');
+      if (total > sectionLimit(bytes.length)) throw bad();
+      // Pages tile the section once: overlapping ones would be decompressed again and again.
+      const offsets = new Set<number>();
+      let sum = 0;
+      for (const p of s.pages) {
+        if (offsets.has(p.offset)) throw bad();
+        offsets.add(p.offset);
+        sum += p.uncompressed;
+      }
+      if (sum > total) throw bad();
+      spend(total);
       out = new Uint8Array(total);
       for (const p of s.pages) {
         const rec = records.get(p.id);
@@ -416,12 +428,16 @@ export function readAc21(bytes: Uint8Array): DwgFile {
         if (s.encoding === 4) {
           const aligned = (p.compressed + 7) & ~7;
           const factor = Math.ceil(aligned / 251);
+          // Reed-Solomon stores 255 bytes for every 251: the page must hold them all.
+          if (factor * 255 > page.length) throw new CadReadError('This DWG file is damaged or truncated.');
+          spend(factor * 251);
           const arr = new Uint8Array(factor * 251);
           rsDecode(page, arr, factor, 251);
           page = arr;
         }
         if (p.uncompressed > sectionLimit(bytes.length)) throw new CadReadError('This DWG file is damaged (bad page size).');
         if (p.compressed !== p.uncompressed) {
+          spend(p.uncompressed);
           const arr = new Uint8Array(p.uncompressed);
           lz77ac21(page, 0, p.compressed, arr);
           page = arr;

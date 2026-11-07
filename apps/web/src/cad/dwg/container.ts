@@ -34,6 +34,17 @@ const MAX_SECTION = 1 << 30;
 /** Largest a decompressed section can plausibly be for a file of `n` bytes (corrupt sizes stop here). */
 export const sectionLimit = (n: number) => Math.min(MAX_SECTION, n * 64 + (1 << 20));
 
+/**
+ * Memory every section of one file may take together: twice the largest one section may. Each
+ * allocation is charged before it is made; a file whose sections claim more is damaged.
+ */
+export function memoryBudget(fileLength: number): (bytes: number) => void {
+  let left = sectionLimit(fileLength) * 2;
+  return (bytes) => {
+    if (!(bytes >= 0) || (left -= bytes) < 0) throw new CadReadError('This DWG file is damaged (bad section size).');
+  };
+}
+
 export function versionOf(bytes: Uint8Array): number {
   const tag = String.fromCharCode(...bytes.subarray(0, 6));
   const m = /^AC(\d{4})$/.exec(tag);
@@ -162,12 +173,23 @@ function openR2004(bytes: Uint8Array, version: number): DwgFile {
   }
 
   const cache = new Map<string, Uint8Array | null>();
+  const spend = memoryBudget(bytes.length);
   const section = (name: string): Uint8Array | null => {
     if (cache.has(name)) return cache.get(name)!;
     const d = descriptors.get(name);
     let out: Uint8Array | null = null;
     if (d) {
-      if (d.size > sectionLimit(bytes.length) || d.maxPage > 0x100000) throw new CadReadError('This DWG file is damaged (bad section size).');
+      const bad = () => new CadReadError('This DWG file is damaged (bad section size).');
+      if (d.size > sectionLimit(bytes.length) || d.maxPage > 0x100000) throw bad();
+      // A section has just the pages its size needs, each once and inside it: more would be
+      // decompressed (a page at a time) for nothing.
+      if (d.pages.length > (d.maxPage > 0 ? Math.ceil(d.size / d.maxPage) + 1 : 1)) throw bad();
+      const numbers = new Set<number>();
+      for (const p of d.pages) {
+        if (numbers.has(p.number) || p.offset >= Math.max(d.size, 1)) throw bad();
+        numbers.add(p.number);
+      }
+      spend(d.size + d.maxPage);
       out = new Uint8Array(d.size);
       const page = new Uint8Array(d.maxPage);
       for (const p of d.pages) {
@@ -181,7 +203,7 @@ function openR2004(bytes: Uint8Array, version: number): DwgFile {
         let n: number;
         if (d.compressed) {
           page.fill(0);
-          n = lz77ac18(bytes, start, page);
+          n = lz77ac18(bytes.subarray(0, Math.min(bytes.length, start + compSize)), start, page);
         } else {
           n = Math.min(compSize, d.maxPage, bytes.length - start);
           page.set(bytes.subarray(start, start + n));
