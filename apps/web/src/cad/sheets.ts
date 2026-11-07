@@ -302,8 +302,8 @@ const MODEL_MAX_MM: [number, number] = [1189, 841];
 
 function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
   const { metersPerUnit, imperial } = drawingUnits(d);
-  // First pass in drawing units, for the extents.
-  const probe = ctxFor(d, opts, newStats(), [1, 0, 0, 1, 0, 0], 1);
+  // First pass in drawing units, for the extents: it is real work, so it shares the budget.
+  const probe = ctxFor(d, opts, newStats(stats.budget), [1, 0, 0, 1, 0, 0], 1);
   renderEntities(probe, d.modelSpace);
   const box = primsBox(probe.out);
   if (boxEmpty(box)) {
