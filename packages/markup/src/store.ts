@@ -10,6 +10,10 @@ import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
+import { unchangedSinceImport } from './digest';
+
+/** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
+export const IMPORT_VERSION = 2;
 import { gluedTo, relinkCopies, routeConnector } from './flowchart';
 
 /**
@@ -675,6 +679,28 @@ export class MarkupStore {
     return this.meta.get('annotationsImported') === true;
   }
 
+  /** Which version of the importer read this document's own markups (0 before versions were kept). */
+  importVersion(): number {
+    return (this.meta.get('importVersion') as number | undefined) ?? 0;
+  }
+
+  /**
+   * Reads other tools' markups again with a newer importer: those not edited since they were
+   * imported are replaced by the fresh reading (same ID and place in the order); edited and deleted
+   * ones are left as they are. Not an undo step.
+   */
+  refreshImported(markups: readonly Markup[], version: number) {
+    if (this.locked) return;
+    this.doc.transact(() => {
+      for (const m of markups) {
+        const old = this.map.get(m.id);
+        if (!old || !old.pdfAnnot || !unchangedSinceImport(old)) continue;
+        this.map.set(m.id, { ...m, seq: old.seq, createdAt: old.createdAt, modifiedAt: old.modifiedAt });
+      }
+      this.meta.set('importVersion', version);
+    }, DETECTION);
+  }
+
   /** True after image markups imported as empty rectangles have been checked once. */
   imageMarkupsChecked(): boolean {
     return this.meta.get('imageMarkupsChecked') === true;
@@ -751,6 +777,7 @@ export class MarkupStore {
         this.meta.set('geoChecked', true);
       }
       this.meta.set('annotationsImported', true);
+      this.meta.set('importVersion', IMPORT_VERSION);
     }, DETECTION);
   }
 

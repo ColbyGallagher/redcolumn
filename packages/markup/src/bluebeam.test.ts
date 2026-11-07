@@ -380,6 +380,31 @@ test("Bluebeam callouts: the text box where Revu draws it (/RD's insets read Rev
   assert.equal(saved.lookup(PDFName.of('BS'), PDFDict).lookup(PDFName.of('W'), PDFNumber).asNumber(), 0);
 });
 
+test('a Bluebeam callout whose leader ends on the box top keeps its corner and its box (RD tie), and a narrow box wraps mid-word', async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595.2756, 841.8895]);
+  const ctx = doc.context;
+  const ds = 'font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt; color:#FF0000';
+  const corner = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('CORNER'), Contents: text('e5yerureu\re5yerureu'), DA: text('1 0 0 rg /Helv 12 Tf'), DS: text(ds), C: [], BS: { W: 0, S: 'S' }, LE: 'OpenArrow', Rect: [59.58131, 532.9078, 214.5954, 663.5325], RD: [5.5, 5.5, 23.51414, 63.72467], CL: [209.0954, 650.8649, 128.0813, 658.0325, 128.0813, 599.8078] }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([corner]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: 'FreeTextCallout', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const { markups } = importAnnotations(0, [{ ...base, index: 0, objectNumber: corner.objectNumber, subtype: 'FreeText', contents: '' }], () => null, extras);
+  const m = markups[0]!;
+  // PDF space (y up): the text box is 538.4-599.8 and the leader goes up from its top (y 599.8) to the knee (y 658).
+  const ys = [841.8895 - m.points[2]![1], 841.8895 - m.points[3]![1]].sort((x, y) => x - y).map((v) => Math.round(v * 10) / 10);
+  assert.deepEqual(ys, [538.4, 599.8]);
+  assert.equal(m.style.textMargin, 4);
+  const { calloutLanding } = await import('./callout.ts');
+  const box = { x: Math.min(m.points[2]![0], m.points[3]![0]), y: Math.min(m.points[2]![1], m.points[3]![1]), w: Math.abs(m.points[3]![0] - m.points[2]![0]), h: Math.abs(m.points[3]![1] - m.points[2]![1]) };
+  const land = calloutLanding(m.points[1]!, box);
+  assert.equal(land.side, 'top');
+  assert.ok(Math.abs(land.attach[0] - 128.0813) < 0.01 && Math.abs(841.8895 - land.knee[1] - 658.0325) < 0.01, 'the knee stays up where it was drawn');
+  const { wrapParagraph } = await import('./textLists.ts');
+  assert.deepEqual(wrapParagraph('e5yerureu', 39, (s) => s.length * 6.5), ['e5yeru', 'reu']);
+});
+
 test("another tool's file attachment shows its own appearance (icon and file name), and keeps it when moved", async () => {
   const doc = await PDFDocument.create();
   const page = doc.addPage([400, 400]);
@@ -431,4 +456,31 @@ test('line-height in a default style reads as a multiple of the font size, in pt
   assert.equal(parseDefaultStyle('font: Helvetica 0pt; line-height:13.8pt').lineHeight, 1.15);
   // Outside the panel's range it is left at the default.
   assert.equal(parseDefaultStyle('font: Helvetica 12pt; line-height:600pt').lineHeight, undefined);
+});
+
+test('a default style\'s margin reads as the text inset in points', () => {
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt').textMargin, 4);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; margin:4px').textMargin, 4);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt').textMargin, undefined);
+});
+
+test('a newer importer refreshes other tools\' markups that were not edited, and leaves edited and deleted ones', async () => {
+  const { MarkupStore } = await import('./store.ts');
+  const { markupDigest } = await import('./digest.ts');
+  const mk = (n: number, x: number): Markup => {
+    const m = { id: `pdf-0-${n}`, type: 'rect', pageIndex: 0, points: [[x, 0], [x + 10, 10]], style: { stroke: '#f00', width: 1, fill: null, opacity: 1 }, createdAt: 1, modifiedAt: 1, author: '', pdfAnnot: { index: n, digest: '', id: `pdf-0-${n}` } } as unknown as Markup;
+    m.pdfAnnot!.digest = markupDigest(m);
+    return m;
+  };
+  const store = await MarkupStore.open('refresh', { persist: false });
+  // Imported by an older importer (version 0): untouched, edited, and deleted since.
+  store.importAnnotations([mk(1, 0), mk(2, 0), mk(3, 0)], [], {});
+  store.update('pdf-0-2', { points: [[5, 5], [15, 15]] });
+  store.remove(['pdf-0-3']);
+  store.refreshImported([mk(1, 100), mk(2, 100), mk(3, 100)], 2);
+  assert.deepEqual(store.get('pdf-0-1')!.points[0], [100, 0], 'untouched: refreshed');
+  assert.deepEqual(store.get('pdf-0-2')!.points[0], [5, 5], 'edited: kept');
+  assert.equal(store.get('pdf-0-3'), undefined, 'deleted: stays deleted');
+  assert.equal(store.importVersion(), 2);
+  await store.destroy();
 });

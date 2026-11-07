@@ -24,6 +24,22 @@ export function calloutLanding(knee: Point, box: Rect): { side: CalloutSide; kne
     const side = knee[1] < box.y ? 'top' : 'bottom';
     return { side, knee: [x, knee[1]], attach: [x, side === 'top' ? box.y : bottom] };
   }
+  // A knee on the box's own edge (a two-point leader that ends there, as Bluebeam writes) lands where it is.
+  const eps = 0.01;
+  if (knee[0] >= box.x - eps && knee[0] <= right + eps && knee[1] >= box.y - eps && knee[1] <= bottom + eps) {
+    const onLeft = Math.abs(knee[0] - box.x) <= eps;
+    const onRight = Math.abs(knee[0] - right) <= eps;
+    const onTop = Math.abs(knee[1] - box.y) <= eps;
+    const onBottom = Math.abs(knee[1] - bottom) <= eps;
+    if (onLeft || onRight) {
+      const y = clamp(knee[1], box.y, bottom);
+      return { side: onLeft ? 'left' : 'right', knee: [knee[0], y], attach: [onLeft ? box.x : right, y] };
+    }
+    if (onTop || onBottom) {
+      const x = clamp(knee[0], box.x, right);
+      return { side: onTop ? 'top' : 'bottom', knee: [x, knee[1]], attach: [x, onTop ? box.y : bottom] };
+    }
+  }
   const cx = box.x + box.w / 2;
   const top = knee[1] < box.y + box.h / 2;
   return { side: top ? 'top' : 'bottom', knee: [cx, knee[1]], attach: [cx, top ? box.y : bottom] };

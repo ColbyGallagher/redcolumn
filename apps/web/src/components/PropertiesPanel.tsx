@@ -18,6 +18,7 @@ import {
   type Markup,
   type MarkupStore,
   type MarkupStyle,
+  type Alignment,
   type MarkupType,
   type StoredHatch,
   type StyleCapabilities,
@@ -25,6 +26,7 @@ import {
   type VerticalAlign,
   labelPatch,
   markupLabel,
+  ROTATABLE,
 } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
@@ -195,6 +197,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           />
         </Row>
       </Section>
+      {tools && !readOnly && !chosen.some((c) => c.locked) && <ArrangeSection chosen={chosen} tools={tools} />}
       {chosen.length === 1 && m.stamp?.form && (
         <Section title="Stamp Fields">
           <StampFieldsForm
@@ -298,6 +301,67 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         </div>
       )}
     </div>
+  );
+}
+
+/** Rotation, flip and alignment of the selected markups, as buttons and a value. */
+function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTools }) {
+  const rotatable = chosen.every((c) => ROTATABLE.has(c.type));
+  const angle = chosen[0]!.rotation ?? 0;
+  const sameAngle = chosen.every((c) => (c.rotation ?? 0) === angle);
+  const aligns: { how: Alignment; label: string; icon: string }[] = [
+    { how: 'left', label: 'Align left edges', icon: '⇤' },
+    { how: 'center', label: 'Align centres horizontally', icon: '↔' },
+    { how: 'right', label: 'Align right edges', icon: '⇥' },
+    { how: 'top', label: 'Align top edges', icon: '⤒' },
+    { how: 'middle', label: 'Align centres vertically', icon: '↕' },
+    { how: 'bottom', label: 'Align bottom edges', icon: '⤓' },
+  ];
+  return (
+    <Section title="Arrange">
+      {rotatable && (
+        <Row label="Rotation" title="Degrees clockwise about the centre of the markup">
+          <NumberField value={sameAngle ? angle : undefined} placeholder={sameAngle ? undefined : 'Mixed'} min={0} max={359.99} step={1} unit="°" onChange={(v) => v !== undefined && tools.setRotation(v)} />
+          <button className="btn" title="Turn 90° anticlockwise" onClick={() => tools.setRotation(angle - 90)}>
+            ↺
+          </button>
+          <button className="btn" title="Turn 90° clockwise" onClick={() => tools.setRotation(angle + 90)}>
+            ↻
+          </button>
+        </Row>
+      )}
+      <Row label="Flip" title="Mirror across the centre of the selection">
+        <button className="btn" title="Flip horizontal (left to right)" onClick={() => tools.flipSelected('horizontal')}>
+          ⇋ Horizontal
+        </button>
+        <button className="btn" title="Flip vertical (top to bottom)" onClick={() => tools.flipSelected('vertical')}>
+          ⥮ Vertical
+        </button>
+      </Row>
+      {chosen.length > 1 && (
+        <>
+          <Row label="Align" title="Line the selection up along its combined bounds">
+            <span className="seg">
+              {aligns.map((a) => (
+                <button key={a.how} className="btn" title={a.label} aria-label={a.label} onClick={() => tools.alignSelected(a.how)}>
+                  {a.icon}
+                </button>
+              ))}
+            </span>
+          </Row>
+          {chosen.length > 2 && (
+            <Row label="Distribute" title="Space the selection evenly between its outermost markups">
+              <button className="btn" title="Even gaps left to right" onClick={() => tools.distributeSelected('horizontal')}>
+                ⇹ Horizontal
+              </button>
+              <button className="btn" title="Even gaps top to bottom" onClick={() => tools.distributeSelected('vertical')}>
+                ⇳ Vertical
+              </button>
+            </Row>
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 

@@ -405,6 +405,14 @@ export function wrapParagraph(para: string, maxWidth: number, measure: (s: strin
     } else {
       line = next;
     }
+    // A word wider than the box breaks where it runs out, as other tools break it.
+    while (maxWidth > 0 && !/^\s*$/.test(line) && measure(line.trimEnd()) > maxWidth && Array.from(line).length > 1) {
+      const chars = Array.from(line);
+      let n = chars.length - 1;
+      while (n > 1 && measure(chars.slice(0, n).join('')) > maxWidth) n--;
+      lines.push(chars.slice(0, n).join(''));
+      line = chars.slice(n).join('');
+    }
   }
   lines.push(line.trimEnd());
   return lines;

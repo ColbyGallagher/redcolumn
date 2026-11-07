@@ -18,7 +18,8 @@ function isReload(input: Input): boolean {
   if (input.type !== 'keyDown') return false;
   const key = input.key.toLowerCase();
   if (key === 'f5') return true;
-  return key === 'r' && (input.control || input.meta) && !input.alt;
+  // Ctrl+Shift+R is the app's Rotate Pages shortcut: the page must see it. No menu reloads on it.
+  return key === 'r' && (input.control || input.meta) && !input.alt && !input.shift;
 }
 
 /**
