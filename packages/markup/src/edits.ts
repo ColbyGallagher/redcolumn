@@ -1,5 +1,5 @@
 import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
-import { textLineHeight, TEXT_PADDING } from './geometry';
+import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
 
 // ---- Change Colours -------------------------------------------------------------------------------
@@ -53,8 +53,8 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   const size = m.style.fontSize ?? 12;
   const lines = (m.text ?? '').split('\n');
   const textW = Math.max(...lines.map((l) => measure(l.trimEnd())));
-  const w = Math.ceil(textW + TEXT_PADDING * 2 + 1);
-  const h = Math.ceil(lines.length * size * textLineHeight(m.style) + TEXT_PADDING * 2);
+  const w = Math.ceil(textW + textPadding(m.style) * 2 + 1);
+  const h = Math.ceil(lines.length * size * textLineHeight(m.style) + textPadding(m.style) * 2);
   const box = contentBox(m);
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;

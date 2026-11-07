@@ -3835,6 +3835,11 @@ select[size] {
   z-index: 60;
 }
 
+.ctx-menu .menu-item {
+  /* One line: the fixed row height would otherwise clip a label the shortcut squeezes onto two. */
+  white-space: nowrap;
+}
+
 .ctx-menu {
   min-width: 210px;
   padding: 4px 0;

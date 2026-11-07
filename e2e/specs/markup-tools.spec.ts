@@ -25,6 +25,12 @@ async function typeAndCommit(app: App, text: string) {
 
 /** Runs a command that opens the file picker and answers it with a fixture. */
 async function pickFile(app: App, command: string, fixture: string) {
+  if (app.kind === 'desktop') {
+    // The desktop app uses its native dialog, which starts where the last one ended.
+    await app.answerOpenDialog(app.fixture(fixture));
+    await app.cmd(command);
+    return;
+  }
   const chooser = app.page.waitForEvent('filechooser');
   await app.cmd(command);
   await (await chooser).setFiles(app.fixture(fixture));
