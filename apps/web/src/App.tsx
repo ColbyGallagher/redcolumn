@@ -85,6 +85,8 @@ import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
 import { TextSelectionBar } from './components/TextSelectionBar';
+import { RecoveredMarkupsBar } from './components/RecoveredMarkupsBar';
+import { planDiscard } from './documents/discardUnsaved';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -217,7 +219,7 @@ interface OpenFile {
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
-const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+const savedState = new WeakMap<MarkupStore, { edits: number; hash: string; undo?: number }>();
 /** File contents an open document's undo history can bring back, kept stored until it closes. */
 const heldContents = new WeakMap<MarkupStore, string[]>();
 function holdFor(store: MarkupStore, hashes: string[]) {
@@ -256,8 +258,13 @@ function stepLabel(revisionNote: string | undefined): string | undefined {
 /** Autosave waits this long after the last change, so a burst of edits is written once. */
 const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
-  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
+  // Later edits are their own undo steps, so Don't Save can undo just those.
+  t.store.checkpoint();
+  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash, undo: t.store.undoHistory().length });
 }
+/** Documents that opened with unsaved markups kept from an earlier session, and those whose bar was answered with Keep. */
+const recoveredOnOpen = new Set<string>();
+const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
@@ -266,8 +273,10 @@ function hasUnsavedChanges(t: OpenFile) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
     else
     // Document Recovery: changes kept from an earlier session that never reached the file.
-    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
-    else markSaved(t);
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) {
+      savedState.set(t.store, { edits: -1, hash: t.file.hash });
+      recoveredOnOpen.add(t.file.id);
+    } else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
@@ -4104,6 +4113,24 @@ export function App() {
    * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
    * false on Cancel or when the save does not happen; true when the document can go.
    */
+  /**
+   * Puts a document's markups back to what its file holds: undoes what was done since it matched
+   * the file, or, when that is not known (changes kept from an earlier session), reads them from the file again.
+   */
+  const discardUnsavedChanges = useCallback(async (t: OpenFile) => {
+    const plan = planDiscard(savedState.get(t.store), t.store.undoHistory().length);
+    if (plan.kind === 'undo') t.store.undoSteps(plan.steps);
+    else if (!linkOf(t.file.id)) {
+      const found = await readPdfAnnotations(await readFile(t.file.hash), t.store);
+      t.store.resetMarkups([]);
+      t.store.importAnnotations(found.markups, found.links, found.imported, found.extras);
+    }
+    markSaved(t);
+    recoveredOnOpen.delete(t.file.id);
+    rememberUnsaved(new Map([[t.file.id, false]]));
+    setSavedTick((n) => n + 1);
+  }, []);
+
   const settleUnsaved = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
       const find = () => (pane === 'b' ? tabsBRef.current : tabsARef.current).find((x) => x.file.id === fileId);
@@ -4112,18 +4139,14 @@ export function App() {
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
       if (choice === 'discard') {
-        // Without Document Recovery, changes that are not saved are not kept either.
-        if (!settings.get().documentRecovery) {
-          t.store.undoSteps(t.store.undoHistory().length);
-          markSaved(t);
-          rememberUnsaved(new Map([[fileId, false]]));
-        }
+        // Don't Save always means it: Document Recovery is for crashes, not for changes the person turned down.
+        await discardUnsavedChanges(t);
         return true;
       }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
-    [saveDocument],
+    [saveDocument, discardUnsavedChanges],
   );
 
   /**
@@ -9468,6 +9491,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
+                  <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />
+                )}
                 {ctl && open && toolsStateA.textSelection && (
                   <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
                 )}
@@ -9558,6 +9584,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
+                      <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
+                    )}
                     {ctlB && openB && toolsStateB.textSelection && (
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
