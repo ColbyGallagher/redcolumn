@@ -24,6 +24,8 @@ import {
   drawSelection,
   distribute,
   flip,
+  isImageType,
+  ROTATABLE,
   BOX_OPPOSITE,
   handlePositions,
   hitTest,
@@ -1452,9 +1454,30 @@ export class MarkupTools implements ViewerOverlay {
     this.movePoints(matchSize(reference, this.editable(), kind));
   }
 
-  /** Mirrors the selected markups across their centre. */
+  /**
+   * Mirrors the selected markups across their centre. A picture is mirrored too, since a plain
+   * rectangle turned over about its own centre would look exactly as it did.
+   */
   flipSelected(axis: Axis) {
-    this.movePoints(flip(this.editable(), axis));
+    const ms = this.editable();
+    this.movePoints(flip(ms, axis));
+    const store = this.store;
+    if (!store) return;
+    for (const m of ms) {
+      if (isImageType(m.type) && m.image) void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image }), () => undefined);
+    }
+  }
+
+  /** Turns the selected rotatable markups to an angle, in degrees clockwise, as one undo step. */
+  setRotation(degrees: number) {
+    const ms = this.editable().filter((m) => ROTATABLE.has(m.type));
+    if (!this.store || !ms.length || !Number.isFinite(degrees)) return;
+    const rotation = ((Math.round(degrees * 100) / 100) % 360 + 360) % 360;
+    const store = this.store;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of ms) store.update(m.id, { rotation: rotation || undefined });
+    });
   }
 
   /** Joins the selected markups into one group (selected, moved and deleted together). */
@@ -4853,4 +4876,21 @@ function drawSnapIndicator(ctx: CanvasRenderingContext2D, snap: Snap, zoom: numb
 function sameSketch(a: SketchState | null, b: SketchState | null): boolean {
   if (!a || !b) return a === b;
   return a.mode === b.mode && a.type === b.type && a.pageIndex === b.pageIndex && a.from[0] === b.from[0] && a.from[1] === b.from[1];
+}
+
+
+/** A picture (as a data URL) turned over left to right or top to bottom; null if it cannot be decoded. */
+async function mirrorDataUrl(dataUrl: string, axis: Axis): Promise<string | null> {
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || !canvas.width || !canvas.height) return null;
+  if (axis === 'horizontal') ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
+  else ctx.setTransform(1, 0, 0, -1, 0, canvas.height);
+  ctx.drawImage(img, 0, 0);
+  return canvas.toDataURL(dataUrl.startsWith('data:image/jpeg') ? 'image/jpeg' : 'image/png', 0.92);
 }

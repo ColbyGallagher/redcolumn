@@ -17,6 +17,35 @@ const FILE_FILTERS = [
   { name: 'PDF and pictures', extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e)) },
   { name: 'DWG and DXF drawings', extensions: DRAWING_EXTENSIONS },
 ];
+const IMAGE_FILTERS = [{ name: 'Pictures', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }];
+
+/** What the page may ask the Open dialog for: PDFs and pictures, just pictures, or any file. */
+export type PickKind = 'document' | 'image' | 'any';
+
+let lastDirFile: string | null = null;
+let lastDir: string | null = null;
+
+/** The folder the last file dialog ended in, so the next one starts there instead of in Downloads. */
+export function startDir(): string | undefined {
+  return lastDir ?? undefined;
+}
+
+/** Remembers the folder of a chosen file (or the folder itself) for the next dialog, and saves it. */
+export function rememberDir(chosen: string, isFolder = false) {
+  lastDir = isFolder ? chosen : path.dirname(chosen);
+  if (lastDirFile) void writeAtomic(lastDirFile, JSON.stringify({ dir: lastDir })).catch(() => undefined);
+}
+
+export async function restoreLastDir(filePath: string) {
+  lastDirFile = filePath;
+  try {
+    const dir = (JSON.parse(await fs.readFile(filePath, 'utf8')) as { dir?: unknown }).dir;
+    // A folder that has since gone is no use as a starting point.
+    if (typeof dir === 'string' && path.isAbsolute(dir) && (await fs.stat(dir)).isDirectory()) lastDir = dir;
+  } catch {
+    // First run, or an unreadable file: the system's default applies.
+  }
+}
 
 /** True when the message came from the app's own page, not a help window or a blob preview. */
 export function fromApp(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
@@ -32,13 +61,20 @@ function bytesOf(data: unknown): Uint8Array | null {
 }
 
 /** Dialogs, drops and launch paths. The renderer receives tokens, never paths. */
-export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue, parent: () => BrowserWindow | null) {
-  ipcMain.handle('paths:pick-open', async (event): Promise<TokenName[] | null> => {
+export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents: Electron.WebContents) => LaunchQueue | null, parent: () => BrowserWindow | null) {
+  ipcMain.handle('paths:pick-open', async (event, kind?: unknown): Promise<TokenName[] | null> => {
     if (!fromApp(event)) return null;
     const window = parent();
-    const options = { title: 'Open', properties: ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[], filters: FILE_FILTERS };
+    const what: PickKind = kind === 'image' || kind === 'any' ? kind : 'document';
+    const options = {
+      title: 'Open',
+      defaultPath: startDir(),
+      properties: (what === 'document' ? ['openFile', 'multiSelections'] : ['openFile']) as ('openFile' | 'multiSelections')[],
+      filters: what === 'any' ? [{ name: 'All files', extensions: ['*'] }] : what === 'image' ? IMAGE_FILTERS : FILE_FILTERS,
+    };
     const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
     if (result.canceled) return null;
+    if (result.filePaths[0]) rememberDir(result.filePaths[0]);
     return result.filePaths.map((filePath) => ({ token: allowlist.add(filePath), name: path.basename(filePath) }));
   });
 
@@ -47,9 +83,11 @@ export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue,
     const name = typeof suggestedName === 'string' && suggestedName.trim() ? path.basename(suggestedName.trim()) : 'document.pdf';
     const ext = path.extname(name).replace(/^\./, '') || 'pdf';
     const window = parent();
-    const options = { title: 'Save', defaultPath: name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] };
+    const dir = startDir();
+    const options = { title: 'Save', defaultPath: dir ? path.join(dir, name) : name, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] };
     const result = window ? await dialog.showSaveDialog(window, options) : await dialog.showSaveDialog(options);
     if (result.canceled || !result.filePath) return null;
+    rememberDir(result.filePath);
     return { token: allowlist.add(result.filePath), name: path.basename(result.filePath) };
   });
 
@@ -108,7 +146,7 @@ export function registerPathIpc(allowlist: PathAllowlist, launches: LaunchQueue,
 
   ipcMain.handle('launch:take', (event) => {
     if (!fromApp(event)) return [];
-    return launches.take();
+    return launchesFor(event.sender)?.take() ?? [];
   });
 }
 

@@ -590,6 +590,14 @@ function distanceToBox(p: Point, [a, b]: Point[]): number {
  * Markup shapes from an annotation's raw dictionary: every geometric and stylistic detail other
  * tools (Bluebeam Revu in particular) record, in page space.
  */
+/** How far a point is from the outline of a box given by two opposite corners (zero on it, positive inside or out). */
+function distanceToEdge(p: Point, box: Point[]): number {
+  const [a, b] = [box[0]!, box[1]!];
+  const inside = p[0] >= a[0] && p[0] <= b[0] && p[1] >= a[1] && p[1] <= b[1];
+  if (!inside) return distanceToBox(p, box);
+  return Math.min(p[0] - a[0], b[0] - p[0], p[1] - a[1], b[1] - p[1]);
+}
+
 function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y: number) => Point, extras: PdfExtras, pageIndex: number): Found[] {
   const intent = nameOf(r.IT) ?? a.intent;
   const rect = nums(r.Rect);
@@ -698,11 +706,25 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
           if (rd.length === 4 && Math.abs(rd[1]! - rd[3]!) > 0.5) {
             const flipped = innerBox([rd[0]!, rd[3]!, rd[2]!, rd[1]!]);
             const end = cl[cl.length - 1]!;
-            if (distanceToBox(end, flipped) < distanceToBox(end, box)) box = flipped;
+            // The leader ends on the box's edge: the reading it lies nearer to is the one meant (a tie, as
+            // when the end sits inside both, goes to Bluebeam's own way up).
+            if (distanceToEdge(end, flipped) <= distanceToEdge(end, box)) box = flipped;
           }
           // A callout without a border still draws its leader (Bluebeam: at one point); its box keeps its fill.
+          // A three-point leader (tip, knee, end): the model lands its last stretch square on the box
+          // edge the end touches, so level the knee with the end to keep the end where it was drawn.
+          let knee = cl[1]!;
+          if (cl.length >= 3) {
+            const end = cl[cl.length - 1]!;
+            const [lo, hi] = [box[0]!, box[1]!];
+            const eps = 0.5;
+            const inY = end[1] >= lo[1] - eps && end[1] <= hi[1] + eps;
+            const inX = end[0] >= lo[0] - eps && end[0] <= hi[0] + eps;
+            if (inY && (Math.abs(end[0] - lo[0]) <= eps || Math.abs(end[0] - hi[0]) <= eps)) knee = [knee[0], end[1]];
+            else if (inX && (Math.abs(end[1] - lo[1]) <= eps || Math.abs(end[1] - hi[1]) <= eps)) knee = [end[0], knee[1]];
+          }
           const leader = width > 0 ? {} : { width: 1, ...(color ? { borderless: true } : { noBox: true }) };
-          return [{ type: 'callout', points: [cl[0]!, cl[1]!, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' } }];
+          return [{ type: 'callout', points: [cl[0]!, knee, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' } }];
         }
       }
       if (intent === 'FreeTextTypeWriter') return [{ type: 'typewriter', points: box, filled: false, style: { ...style, width: 0, fill: null } }];
