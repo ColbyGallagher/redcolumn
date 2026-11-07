@@ -80,6 +80,11 @@ export interface Color {
   book?: boolean;
 }
 
+/** Bits a whole read may take, shared by every reader of one file: a bound on overlapping objects. */
+export interface ReadBudget {
+  bits: number;
+}
+
 export class BitReader {
   pos = 0;
   readonly end: number;
@@ -90,18 +95,22 @@ export class BitReader {
     /** Version number (1015, 1018, …) for version-dependent types. */
     readonly version: number,
     readonly decoder: TextDecoder = new TextDecoder('windows-1252'),
+    /** Bit position nothing may be read at or past (the end of one object, say). */
+    end = buf.length * 8,
+    readonly budget: ReadBudget | null = null,
   ) {
-    this.end = buf.length * 8;
+    this.end = Math.min(end, buf.length * 8);
   }
 
-  clone(pos = this.pos): BitReader {
-    const r = new BitReader(this.buf, this.version, this.decoder);
+  clone(pos = this.pos, end = this.end): BitReader {
+    const r = new BitReader(this.buf, this.version, this.decoder, end, this.budget);
     r.pos = pos;
     return r;
   }
 
   private need(bits: number) {
-    if (this.pos + bits > this.end || this.pos < 0) throw new CadReadError('This DWG file is damaged or truncated.');
+    if (!(bits >= 0) || this.pos < 0 || this.pos + bits > this.end) throw new CadReadError('This DWG file is damaged or truncated.');
+    if (this.budget && (this.budget.bits -= bits) < 0) throw new CadReadError('This DWG file is damaged.');
   }
 
   get bytePos(): number {
