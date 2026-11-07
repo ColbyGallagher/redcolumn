@@ -924,12 +924,30 @@ export function App() {
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
-  const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
+  // The side panels' open state and tab are remembered between sessions.
+  const savedPanel = (side: DockSide) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
+      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
+    } catch {
+      return { tab: null, open: null };
+    }
+  };
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => savedPanel('left').tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
+  const [leftOpen, setLeftOpen] = useState(() => savedPanel('left').open ?? !narrowScreen());
   const [leftWidth, setLeftWidth] = useState(440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
-  const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
+  const [rightTab, setRightTab] = useState<LeftTab>(() => savedPanel('right').tab ?? firstPanelOn('right') ?? 'properties');
+  const [rightOpen, setRightOpen] = useState(() => savedPanel('right').open ?? !!firstPanelOn('right'));
+  useEffect(() => {
+    try {
+      localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
+      localStorage.setItem('nb.panel.right', JSON.stringify({ tab: rightTab, open: rightOpen }));
+    } catch {
+      /* storage off limits: the layout lasts for this session */
+    }
+  }, [leftTab, leftOpen, rightTab, rightOpen]);
   const [rightWidth, setRightWidth] = useState(360);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -1587,9 +1605,10 @@ export function App() {
       const at = front ? tabs.indexOf(front) + 1 : tabs.length;
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
       activateTab(pane, packed);
-      if (pane === 'a') {
-        // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
-        // On narrow screens the panel covers the drawing, so it opens only when asked.
+      if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
+        // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
+        // when opening from them (or joining from an invite link). On narrow screens the panel covers the
+        // drawing, so it opens only when asked.
         revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search', !narrowScreen());
       }
     },

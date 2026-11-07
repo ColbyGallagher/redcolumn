@@ -380,6 +380,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </span>
         </Row>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
+        <C>{check('showThumbnailsOnOpen', 'Show Thumbnails When Opening a File')}</C>
         <C>{check('startTips', 'Show a Tip on the Start Screen')}</C>
       </Grid>
     ),
