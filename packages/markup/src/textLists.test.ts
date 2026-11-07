@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, wrapParagraph, type TextEdit } from './textLists.ts';
-import { textBoxLines } from './render.ts';
+import { TEXT_INK_METRICS, textBoxLines } from './render.ts';
+import { TEXT_PADDING } from './geometry.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
 /** Reads a text with `|` for the caret, or «» around the selection. */
@@ -161,4 +162,23 @@ test('CJK text wraps between characters, which have no spaces to break at', () =
   assert.deepEqual(wrapParagraph('中文文本段落', 40, measure), ['中文文本', '段落']);
   assert.deepEqual(wrapParagraph('abc 中文 def', 50, measure), ['abc 中', '文 def']);
   assert.deepEqual(wrapParagraph('plain words only', 100, measure), ['plain', 'words only']);
+});
+
+test('middle and bottom vertical alignment place the visible text block, not the line boxes', () => {
+  const measure = (s: string) => s.length * 6;
+  for (const family of ['sans', 'serif', 'mono'] as const) {
+    for (const text of ['one', 'one\ntwo\nthree']) {
+      const size = 12;
+      const base = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [200, 100]], status: 'none', author: '', createdAt: 1, modifiedAt: 1, text } as Markup;
+      const fm = TEXT_INK_METRICS[family];
+      const ink = (valign: 'middle' | 'bottom') => {
+        const lines = textBoxLines({ ...base, style: { ...DEFAULT_STYLES.text, fontSize: size, fontFamily: family, verticalAlign: valign } }, measure);
+        return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + (fm.ascent + fm.descent) * size };
+      };
+      const mid = ink('middle');
+      assert.ok(Math.abs((mid.top + mid.bottom) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
+      const bot = ink('bottom');
+      assert.ok(Math.abs(bot.bottom - (100 - TEXT_PADDING)) < 0.5, `${family} ${text.length} bottom`);
+    }
+  }
 });

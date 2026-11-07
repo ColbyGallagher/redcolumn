@@ -250,6 +250,17 @@ export function dimensionText(m: Markup): { text: string; at: [number, number]; 
 }
 
 /**
+ * Standard-font metrics in em units: `ascent` is the baseline's distance below the line's top,
+ * `cap` the capital height and `descent` the descender depth below the baseline. They place the
+ * visible text block for middle and bottom vertical alignment.
+ */
+export const TEXT_INK_METRICS = {
+  sans: { ascent: 0.931, cap: 0.718, descent: 0.207 }, // Helvetica
+  serif: { ascent: 0.891, cap: 0.662, descent: 0.216 }, // Times
+  mono: { ascent: 0.805, cap: 0.562, descent: 0.186 }, // Courier
+} as const;
+
+/**
  * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
  * space, for the box's alignment. `measure` gives a string's width at the box's font size.
  */
@@ -262,10 +273,17 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const lineH = size * textLineHeight(m.style);
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
-  const total = lines.length * lineH;
   const valign = m.style.verticalAlign ?? 'top';
+  // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
+  const fm = TEXT_INK_METRICS[m.style.fontFamily ?? 'sans'];
+  const inkTopOffset = (fm.ascent - fm.cap) * size + lead;
+  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + fm.descent) * size;
   const top =
-    valign === 'middle' ? b.y + (b.h - total) / 2 : valign === 'bottom' ? b.y + b.h - pad - total : b.y + pad;
+    valign === 'middle'
+      ? b.y + (b.h - inkH) / 2 - inkTopOffset
+      : valign === 'bottom'
+        ? b.y + b.h - pad - inkH - inkTopOffset
+        : b.y + pad;
   return lines.map(({ text, indent, last }, i) => {
     let width = measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
