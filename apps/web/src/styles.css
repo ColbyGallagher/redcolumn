@@ -423,7 +423,8 @@ body,
 
 .rb-icon-grid {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
   gap: 1px;
 }
 
