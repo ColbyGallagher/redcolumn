@@ -7,6 +7,7 @@
 
 import { desktop } from '../desktop/host';
 import { isTokenRecord } from '../desktop/record';
+import { isCadFile } from '../cad/files';
 import { hasFileLocation, mimeFor, noteLocation, ownedBytes, revealFileLocation, subscribeFileLocations, toBytes, tokenHandle, tokenOf } from '../desktop/tokens';
 
 export { hasFileLocation, revealFileLocation, subscribeFileLocations };
@@ -143,7 +144,11 @@ export async function primeFileLocations(): Promise<void> {
   }
 }
 
-const PDF_TYPES: PickerOptions['types'] = [{ description: 'PDF and pictures', accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'] } }];
+const PDF_TYPES: PickerOptions['types'] = [
+  { description: 'PDF and pictures', accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'] } },
+  // Opened as vector PDFs (Experimental).
+  { description: 'DWG and DXF drawings', accept: { 'image/vnd.dwg': ['.dwg'], 'image/vnd.dxf': ['.dxf'] } },
+];
 
 /** Shows the system Open dialog; null if the browser has none (use the file input) or it was cancelled. */
 export async function pickFilesToOpen(): Promise<File[] | null> {
@@ -222,11 +227,12 @@ export async function saveAsWithPicker(name: string, mime: string, data: Blob | 
 }
 
 /**
- * The PDFs in a drop, each linked to its file on disk where the browser allows (so Save can write
+ * The PDFs (and DWG/DXF drawings) in a drop, each linked to its file on disk where the browser allows (so Save can write
  * back to it). The handles must be requested before the drop event ends, hence no awaiting first.
  */
 export async function droppedPdfs(dt: DataTransfer): Promise<File[]> {
-  const isPdf = (f: { name: string; type: string }) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+  // DWG/DXF drawings open too: they are converted to PDF.
+  const isPdf = (f: { name: string; type: string }) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name) || isCadFile(f);
   // Electron's drop files carry a path. A File System Access handle from the same drop does not.
   if (desktop()) return bindDesktopPaths([...dt.files].filter(isPdf));
   const asked = [...dt.items]
