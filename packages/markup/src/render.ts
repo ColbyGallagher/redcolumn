@@ -301,6 +301,18 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   });
 }
 
+/**
+ * How far below a top-aligned text its first line sits for the box's vertical alignment, in page
+ * units (0 for top; can be negative when the text overflows). The in-place editor adds it to its
+ * top padding so typing starts where the rendered text sits.
+ */
+export function textBlockShift(m: Markup, measure: (s: string) => number): number {
+  if ((m.style.verticalAlign ?? 'top') === 'top') return 0;
+  const aligned = textBoxLines(m, measure)[0];
+  const top = textBoxLines({ ...m, style: { ...m.style, verticalAlign: 'top' } }, measure)[0];
+  return aligned && top ? aligned.y - top.y : 0;
+}
+
 /** Draws one laid-out line, widening its word gaps when the line is justified. */
 function drawJustified(ctx: CanvasRenderingContext2D, line: { text: string; x: number; y: number; gap: number }) {
   if (!line.gap) {

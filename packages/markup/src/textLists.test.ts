@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, wrapParagraph, type TextEdit } from './textLists.ts';
-import { TEXT_INK_METRICS, textBoxLines } from './render.ts';
+import { TEXT_INK_METRICS, textBlockShift, textBoxLines } from './render.ts';
 import { TEXT_PADDING } from './geometry.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 
@@ -162,6 +162,17 @@ test('CJK text wraps between characters, which have no spaces to break at', () =
   assert.deepEqual(wrapParagraph('中文文本段落', 40, measure), ['中文文本', '段落']);
   assert.deepEqual(wrapParagraph('abc 中文 def', 50, measure), ['abc 中', '文 def']);
   assert.deepEqual(wrapParagraph('plain words only', 100, measure), ['plain', 'words only']);
+});
+
+test('textBlockShift is the first line\'s drop below top alignment, for the editor to pad by', () => {
+  const measure = (s: string) => s.length * 6;
+  const m = { id: 't', type: 'text', pageIndex: 0, points: [[0, 0], [200, 100]], status: 'none', author: '', createdAt: 1, modifiedAt: 1, text: 'one\ntwo' } as Markup;
+  const at = (verticalAlign: 'top' | 'middle' | 'bottom') => ({ ...m, style: { ...DEFAULT_STYLES.text, fontSize: 12, verticalAlign } });
+  assert.equal(textBlockShift(at('top'), measure), 0);
+  const lines = (v: 'top' | 'middle' | 'bottom') => textBoxLines(at(v), measure)[0]!.y;
+  assert.ok(Math.abs(textBlockShift(at('middle'), measure) - (lines('middle') - lines('top'))) < 1e-9);
+  assert.ok(textBlockShift(at('middle'), measure) > 0);
+  assert.ok(textBlockShift(at('bottom'), measure) > textBlockShift(at('middle'), measure));
 });
 
 test('middle and bottom vertical alignment place the visible text block, not the line boxes', () => {
