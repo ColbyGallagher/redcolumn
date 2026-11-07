@@ -100,9 +100,15 @@ export function readDwg(bytes: Uint8Array): DwgReadResult {
 
   const recs = new Map<number, Rec>();
   const failed = new Map<string, number>();
-  const ctx = { version, classes, decoder };
+  // Objects may not overlap much: a file whose map points many handles into one big object would
+  // otherwise read it again and again. Real files read each bit about once.
+  const budget = { bits: objects.length * 8 * 4 + 1_000_000 };
+  const ctx = { version, classes, decoder, budget };
+  const seen = new Set<number>();
   for (const [handle, offset] of map) {
-    if (offset < 0 || offset >= objects.length) continue;
+    if (offset < 0 || offset >= objects.length || seen.has(offset)) continue;
+    seen.add(offset);
+    if (budget.bits < 0) throw new CadReadError('This DWG file is damaged.');
     try {
       const rec = readObject(objects, offset, ctx);
       if (rec && rec.kind === 'entity' && !rec.handle) rec.handle = handle;

@@ -6,6 +6,8 @@ import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
 import { CadReadError, convertCad, readDrawing } from './convert';
 import { readDxf } from './dxf';
+import { BitReader } from './dwg/bits';
+import { readObject } from './dwg/objects';
 import { apply, bulgeCmds, ocs } from './geom';
 import type { Prim } from './render';
 import { planSheets, snapRatio } from './sheets';
@@ -129,6 +131,42 @@ test('undeclared layers get defaults instead of failing', () => {
 test('old and unknown DWG versions are refused with a clear message', () => {
   assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1014\0\0\0')), /older than AutoCAD 2000/);
   assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1040\0\0\0')), /newer than the converter knows/);
+});
+
+test('bit reads refuse negative lengths and stop at their end', () => {
+  const r = new BitReader(new Uint8Array(64), 1015, undefined, 16 * 8);
+  assert.throws(() => r.skipBytes(-1), CadReadError);
+  assert.throws(() => r.bytes(-8), CadReadError);
+  r.skipBytes(16);
+  assert.throws(() => r.RC(), CadReadError);
+  // Clones keep the end and the budget.
+  const budget = { bits: 24 };
+  const b = new BitReader(new Uint8Array(64), 1015, undefined, undefined, budget);
+  b.RC();
+  b.clone().RC();
+  b.RC();
+  assert.throws(() => b.RC(), /damaged/);
+});
+
+test('an object cannot read past its own size, and every read is charged to the file', () => {
+  // MS size 2, then nothing but set bits: an unbounded reader would run on through them.
+  const buf = new Uint8Array(1 << 16).fill(0xff);
+  buf[0] = 2;
+  const budget = { bits: 1_000_000 };
+  const ctx = { version: 1015, classes: new Map<number, string>(), decoder: new TextDecoder(), budget };
+  assert.throws(() => readObject(buf, 0, ctx), CadReadError);
+  assert.ok(1_000_000 - budget.bits <= 128, `read ${1_000_000 - budget.bits} bits`);
+  // Many handles into the same bytes spend the budget, and then reading stops.
+  budget.bits = 200;
+  assert.throws(() => {
+    for (let k = 0; k < 100; k++) {
+      try {
+        readObject(buf, 0, ctx);
+      } catch (err) {
+        if (budget.bits < 0) throw err;
+      }
+    }
+  }, /damaged\.$/);
 });
 
 test('a truncated or corrupted DWG fails cleanly, never hangs', () => {
