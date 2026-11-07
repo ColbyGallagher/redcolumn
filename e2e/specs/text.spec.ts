@@ -130,6 +130,22 @@ test.describe('text markups', () => {
     expect(await height()).toBeGreaterThan(normal + 25);
   });
 
+  test('a middle-aligned box edits with its text centred, as it renders', async ({ app }) => {
+    await app.tool('text');
+    await app.page.getByRole('button', { name: 'Align middle' }).click();
+    await app.drag([300, 450], [600, 600]);
+    await expect(editor(app)).toBeVisible();
+    await app.page.keyboard.type('CENTRED');
+    // One line: its box (a line high) should sit in the middle of the editor, not at the top.
+    const m = await editor(app).evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { h: el.clientHeight, padTop: parseFloat(cs.paddingTop), padBottom: parseFloat(cs.paddingBottom), font: parseFloat(cs.fontSize), lh: parseFloat(cs.lineHeight) };
+    });
+    expect(m.padBottom).toBe(0);
+    expect(Math.abs(m.padTop - (m.h - m.lh) / 2)).toBeLessThan(Math.max(2, m.font * 0.25));
+    await commit(app);
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });
