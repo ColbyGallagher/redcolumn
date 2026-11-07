@@ -47,6 +47,20 @@ describe('countsFromHits', () => {
   });
 });
 
+describe('countsFromHits from a saved markup', () => {
+  it('leaves behind what belongs to the saved markup', () => {
+    const saved = { id: 'x', type: 'count' as const, pageIndex: 7, points: [[0, 0]] as [number, number][], style: toolStyle, layer: 'Doors', label: 'D1', subject: 'Doors', groupId: 'g', locked: true, capture: 'data:image/jpeg;base64,AA', checked: true, flagged: true, comment: 'hi', ...base };
+    const tool: CountTool = { id: 't', name: 'D1', style: toolStyle, subject: 'Doors', label: 'D1', markups: [saved] };
+    const [m] = countsFromHits(hits, { base, style, subject: 'Search', tool, newId });
+    assert.equal(m!.groupId, undefined);
+    assert.equal(m!.locked, undefined);
+    assert.equal(m!.capture, undefined);
+    assert.equal(m!.checked, undefined);
+    assert.equal(m!.comment, undefined);
+    assert.deepEqual([m!.layer, m!.label, m!.subject], ['Doors', 'D1', 'Doors']);
+  });
+});
+
 describe('centreOf', () => {
   it('is the middle of the box', () => assert.deepEqual(centreOf({ x: 10, y: 20, w: 4, h: 6 }), [12, 23]));
 });

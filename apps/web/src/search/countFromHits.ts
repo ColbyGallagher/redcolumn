@@ -28,6 +28,9 @@ export interface CountOptions {
   newId?: () => string;
 }
 
+/** The properties of a saved count that a tool hands on to the counts it makes. */
+const TOOL_PROPERTIES = ['layer', 'legendHidden', 'assemblyId'] as const satisfies readonly (keyof Markup)[];
+
 /** The centre of a rectangle, which is where a count symbol goes on a found item. */
 export const centreOf = (r: { x: number; y: number; w: number; h: number }): [number, number] => [r.x + r.w / 2, r.y + r.h / 2];
 
@@ -40,8 +43,11 @@ export function countsFromHits(hits: readonly CountHit[], o: CountOptions): Mark
   for (const h of hits) byPage.set(h.pageIndex, [...(byPage.get(h.pageIndex) ?? []), h.point]);
   const newId = o.newId ?? (() => crypto.randomUUID());
   const saved = o.tool?.markups?.find((m) => m.type === 'count');
-  // What the tool saved, less what belongs to the one markup it was copied from.
-  const { id: _id, seq: _seq, pageIndex: _page, points: _points, replies: _replies, style: _style, fields: savedFields, ...carried } = saved ?? ({} as Partial<Markup>);
+  // Only what a tool carries, not what belongs to the one markup it was saved from (its group,
+  // lock, capture, import link, replies, status...).
+  const carried: Partial<Markup> = {};
+  for (const k of TOOL_PROPERTIES) if (saved?.[k] !== undefined) Object.assign(carried, { [k]: saved[k] });
+  const savedFields = saved?.fields;
   const fields = o.base.fields || savedFields ? { ...o.base.fields, ...savedFields } : undefined;
   const label = o.tool ? (o.tool.label ?? saved?.label) : undefined;
   return [...byPage].map(([pageIndex, points]) => ({
