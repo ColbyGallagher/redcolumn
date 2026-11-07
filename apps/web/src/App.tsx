@@ -941,7 +941,7 @@ export function App() {
   const [leftWidth, setLeftWidth] = useState(440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => saved.right.open ??!!firstPanelOn('right'));
+  const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
   useEffect(() => {
     try {
       localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
