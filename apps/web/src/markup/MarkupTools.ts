@@ -109,7 +109,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -2054,7 +2054,7 @@ export class MarkupTools implements ViewerOverlay {
         // The readout shows angles as they are typed: relative to the last segment when set so.
         const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
-        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(realLengthAlong(scale, hover[0] - from[0], hover[1] - from[1]), scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }
     }
     // Draw to Scale: the box from its first corner to the pointer, with its width and height.
@@ -2063,7 +2063,10 @@ export class MarkupTools implements ViewerOverlay {
       const [a, b] = [anchor.at, anchor.hover];
       drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
       const scale = store.scaleAt(pageIndex, a);
-      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      // Widths count across the page, heights up it, a radius along the pointer's own direction.
+      const wide = (d: number) => formatLength(realLengthAlong(scale, d, 0), scale);
+      const high = (d: number) => formatLength(realLengthAlong(scale, 0, d), scale);
+      const radius = realLengthAlong(scale, b[0] - a[0], b[1] - a[1]);
       const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (r * zoom >= 2) {
         if (sketchesCircle(anchor.type)) {
@@ -2077,13 +2080,13 @@ export class MarkupTools implements ViewerOverlay {
           ctx.lineTo(b[0], b[1]);
           ctx.stroke();
           ctx.restore();
-          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
-        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${formatLength(2 * radius, scale)}` : `R ${formatLength(radius, scale)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${wide(Math.abs(b[0] - a[0]))} × ${high(Math.abs(b[1] - a[1]))}`, b, zoom);
       }
     }
     if (g?.kind === 'scaleRef' && g.pageIndex === pageIndex) {
       const scale = store.scaleAt(pageIndex, g.ref[0]!);
-      const size = (a: Point, b: Point) => formatLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * scale.metersPerPoint, scale);
+      const size = (a: Point, b: Point) => formatLength(realLengthAlong(scale, b[0] - a[0], b[1] - a[1]), scale);
       const ref = g.ref.length === 2 ? g.ref : g.stage === 'ref' && g.hover ? [g.ref[0]!, g.hover] : g.ref;
       drawScaleLine(ctx, ref, '#2563eb', zoom);
       if (ref.length === 2 && g.stage === 'ref') drawSketchReadout(ctx, `Reference ${size(ref[0]!, ref[1]!)}`, ref[1]!, zoom);
@@ -2100,7 +2103,7 @@ export class MarkupTools implements ViewerOverlay {
       drawTracked(ctx, tracked, zoom);
       const scale = store.scaleAt(pageIndex, tracked.point);
       const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
-      const distance = one ? `: ${formatLength(Math.hypot(tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]) * scale.metersPerPoint, scale)}` : '';
+      const distance = one ? `: ${formatLength(realLengthAlong(scale, tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]), scale)}` : '';
       const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
       drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
     }
@@ -4221,13 +4224,21 @@ export class MarkupTools implements ViewerOverlay {
    * the one typed (in the markup's scale) or, with none, through the pointer.
    */
   private offsetCopiesAt(source: Markup, p: Point): Point[][] {
-    const through = offsetDistance(source, p);
     const { offsetDistance: typed, offsetCount } = settings.get();
     const scale = this.store?.scaleOf(source);
+    // With a separate Y scale the page is stretched up it, so the offset is made (and typed
+    // distances measured) in the stretched space, then mapped back.
+    const k = scale?.yMetersPerPoint && scale.metersPerPoint > 0 ? scale.yMetersPerPoint / scale.metersPerPoint : 1;
+    const stretched = Math.abs(k - 1) > 1e-9;
+    const to = (q: Point): Point => [q[0], q[1] * k];
+    const back = (q: Point): Point => [q[0], q[1] / k];
+    const flat = stretched ? { ...source, points: source.points.map(to) } : source;
+    const through = offsetDistance(flat, stretched ? to(p) : p);
     const value = typed.trim() && scale ? parseLength(typed, scale.unit) : null;
     const d = value !== null && value > 0 ? ((value * METERS_PER_UNIT[scale!.unit]) / scale!.metersPerPoint) * (through < 0 ? -1 : 1) : through;
     if (!d) return [];
-    return offsetCopies(source, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    const copies = offsetCopies(flat, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    return stretched ? copies.map((c) => c.map(back)) : copies;
   }
 
   private hitAt(p: Point): Markup | undefined {

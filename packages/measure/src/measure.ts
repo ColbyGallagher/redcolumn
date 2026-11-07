@@ -276,6 +276,36 @@ function applyY(points: readonly Pt[], props: MeasureProps, x: number, y?: numbe
   return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
 }
 
+/** The scale fields that decide how page offsets become real lengths. */
+interface AxisScale {
+  metersPerPoint: number;
+  yMetersPerPoint?: number;
+}
+
+/** Page Y stretched to X's units: 1 unless the page has a separate vertical scale. */
+function yStretch(scale: AxisScale): number {
+  const y = scale.yMetersPerPoint;
+  return y !== undefined && y > 0 && scale.metersPerPoint > 0 ? y / scale.metersPerPoint : 1;
+}
+
+/**
+ * Real length (meters) of a page-space offset `(dx, dy)`, using the X scale across the page and
+ * the separate Y scale up it. The one place live readouts convert page points to real lengths.
+ */
+export function realLengthAlong(scale: AxisScale, dx: number, dy: number): number {
+  return Math.hypot(dx, dy * yStretch(scale)) * scale.metersPerPoint;
+}
+
+/**
+ * Page points that make a real length of `meters` along the direction `(dx, dy)` (across the page
+ * by default). The inverse of `realLengthAlong`, for typed lengths.
+ */
+export function pageLengthFor(scale: AxisScale, meters: number, dx = 1, dy = 0): number {
+  const per = realLengthAlong(scale, dx, dy);
+  const len = Math.hypot(dx, dy);
+  return per > 0 && len > 0 ? (meters * len) / per : meters / scale.metersPerPoint;
+}
+
 /**
  * Numeric value of a measurement: meters for lengths, square meters for areas, cubic meters for
  * volumes, items for counts, degrees for angles. Slopes apply to lengths and areas; cutouts to

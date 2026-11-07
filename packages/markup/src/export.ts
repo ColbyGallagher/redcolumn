@@ -283,11 +283,14 @@ async function embedDataUrl(doc: PDFDocument, url: string): Promise<PDFImage | n
 function measureDict(scale: Scale): LiteralObject {
   const format = (unit: string, factor: number) => ({ Type: 'NumberFormat', U: PDFString.of(unit), C: factor, D: 100 });
   const unitsPerPoint = scale.metersPerPoint / METERS_PER_UNIT[scale.unit];
+  const separateY = scale.yMetersPerPoint !== undefined && scale.yMetersPerPoint > 0 && Math.abs(scale.yMetersPerPoint / scale.metersPerPoint - 1) > 1e-9;
   return {
     Type: 'Measure',
     Subtype: 'RL',
     R: PDFString.of(scale.label),
     X: [format(scale.unit, unitsPerPoint)],
+    // A separate vertical scale: /Y gives the units per point up the page when it is not /X's.
+    ...(separateY ? { Y: [format(scale.unit, scale.yMetersPerPoint! / METERS_PER_UNIT[scale.unit])] } : {}),
     D: [format(scale.unit, 1)],
     A: [format(areaLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
     V: [format(volumeLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
