@@ -314,3 +314,11 @@ test('dimension text follows its offsets and turns', () => {
   const d = markup('dimension', [[0, 0], [100, 0]], { text: 'A', style: { ...DEFAULT_STYLES.dimension, labelRotation: 30 } });
   assert.ok(Math.abs(dimensionText(d)!.angle - Math.PI / 6) < 1e-9);
 });
+
+test('a callout knee on the box edge lands there instead of jumping to the top or bottom middle', async () => {
+  const { calloutLanding } = await import('./callout.ts');
+  const box = { x: 100, y: 40, w: 80, h: 20 };
+  assert.deepEqual(calloutLanding([100, 45], box), { side: 'left', knee: [100, 45], attach: [100, 45] });
+  assert.deepEqual(calloutLanding([180, 55], box), { side: 'right', knee: [180, 55], attach: [180, 55] });
+  assert.deepEqual(calloutLanding([120, 40], box), { side: 'top', knee: [120, 40], attach: [120, 40] });
+});

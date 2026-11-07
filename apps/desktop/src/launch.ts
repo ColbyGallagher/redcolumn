@@ -4,8 +4,13 @@ import type { PathAllowlist } from './allowlist';
 import { pdfArguments } from './pdf-args';
 
 export interface LaunchItem {
+  /** The file's token; empty for a document moved from another window that has no file on disk. */
   token: string;
   name: string;
+  /** A document moved from another window: its current contents wait in the main process under this id. */
+  transfer?: string;
+  /** The moved document has changes not yet saved to its file. */
+  dirty?: boolean;
 }
 
 /**
@@ -46,6 +51,12 @@ export class LaunchQueue {
     if (this.last && this.last.path === resolved && now - this.last.at < 1000) return;
     this.last = { path: resolved, at: now };
     const item = { token: this.allowlist.add(resolved), name: path.basename(resolved) };
+    this.deliver(item);
+    this.focus();
+  }
+
+  /** Hands the page an already-registered file (a tab moved here from another window). */
+  open(item: LaunchItem) {
     this.deliver(item);
     this.focus();
   }

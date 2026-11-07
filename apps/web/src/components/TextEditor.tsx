@@ -1,5 +1,5 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textLineHeight, TEXT_PADDING, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
+import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
 import { settings, useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
@@ -27,8 +27,8 @@ function typewriterBox(m: Markup, text: string): [Point, Point] {
   const ctx = document.createElement('canvas').getContext('2d')!;
   ctx.font = cssFont(m.style, size);
   const lines = text.split('\n');
-  const w = Math.max(...lines.map((l) => ctx.measureText(l).width), size) + TEXT_PADDING * 2;
-  const h = lines.length * size * textLineHeight(m.style) + TEXT_PADDING * 2;
+  const w = Math.max(...lines.map((l) => ctx.measureText(l).width), size) + textPadding(m.style) * 2;
+  const h = lines.length * size * textLineHeight(m.style) + textPadding(m.style) * 2;
   const x = Math.min(m.points[0]![0], m.points[1]![0]);
   const y = Math.min(m.points[0]![1], m.points[1]![1]);
   return [
@@ -193,7 +193,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           lineHeight: textLineHeight(markup.style),
           textAlign: markup.style.textAlign ?? 'left',
           textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
-          padding: 4 * scale,
+          padding: textPadding(markup.style) * scale,
           color: textColor(markup.style),
           background: editorBackground(markup),
         }}
