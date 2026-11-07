@@ -14,7 +14,10 @@ const ribbon = (app: App) => app.page.locator('.ribbon');
 const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
 const clear = (app: App) => select(app, []);
 const fillOpacities = (app: App, ids: string[]) =>
-  app.page.evaluate((ids) => ids.map((id) => (window.__nb.tools.store.get(id)!.style as { fillOpacity?: number }).fillOpacity), ids);
+  app.page.evaluate((ids) => {
+    const store = window.__nb.tools.store as unknown as { get(id: string): { style: { fillOpacity?: number } } | undefined };
+    return ids.map((id) => store.get(id)!.style.fillOpacity);
+  }, ids);
 
 async function draw(app: App, tool: string, points: readonly Pt[], finish?: 'enter' | 'dbl') {
   await app.tool(tool);
