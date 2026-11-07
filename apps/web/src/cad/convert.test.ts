@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { importViewports } from '../../../../packages/markup/src/bluebeam';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
-import { CadReadError, convertCad, readDrawing } from './convert';
+import { CadReadError, CadUnitsNeeded, convertCad, readDrawing } from './convert';
 import { parseCtb } from './ctb';
 import { readDxf } from './dxf';
 import { BitReader } from './dwg/bits';
@@ -206,6 +206,35 @@ test('a truncated or corrupted DWG fails cleanly, never hangs', () => {
       }
     }
   }
+});
+
+test('a drawing without units asks for them, with a guess, and converts with the chosen ones', async () => {
+  const line = (x: number, y: number) => ['0', 'LINE', '8', '0', '10', `${x}`, '20', `${y}`, '11', `${x + 5}`, '21', `${y + 5}`];
+  const dxf = (lines: string[][], header: string[] = []) =>
+    [...(header.length ? ['0', 'SECTION', '2', 'HEADER', ...header, '0', 'ENDSEC'] : []), '0', 'SECTION', '2', 'ENTITIES', ...lines.flat(), '0', 'ENDSEC', '0', 'EOF', ''].join('\n');
+  const near = dxf(Array.from({ length: 12 }, (_, k) => line(k * 10, 0)));
+  const grid = dxf(Array.from({ length: 12 }, (_, k) => line(500000 + k * 10, 6000000)));
+  const gridFeet = dxf(Array.from({ length: 12 }, (_, k) => line(1500000 + k * 10, 600000)), ['9', '$MEASUREMENT', '70', '0']);
+  const guess = async (s: string) => {
+    try {
+      await convertCad('x.dxf', new TextEncoder().encode(s), { fonts, askUnits: true });
+    } catch (err) {
+      if (err instanceof CadUnitsNeeded) return err.guess;
+      throw err;
+    }
+    return null;
+  };
+  assert.equal(await guess(near), 4);
+  assert.equal(await guess(grid), 6);
+  assert.equal(await guess(gridFeet), 2);
+  // A drawing that states its units is never asked about.
+  assert.equal(await guess(new TextDecoder().decode(bytes('blocks'))), null);
+
+  const chosen = await convertCad('x.dxf', new TextEncoder().encode(near), { fonts, askUnits: true, units: 2 });
+  assert.equal(chosen.report.unitsStated, false);
+  assert.ok(!chosen.report.warnings.some((w) => w.kind === 'units-assumed'));
+  const assumed = await convertCad('x.dxf', new TextEncoder().encode(near), { fonts });
+  assert.ok(assumed.report.warnings.some((w) => w.kind === 'units-assumed' && w.unit === 'millimetres'), JSON.stringify(assumed.report.warnings));
 });
 
 test('bulges are arcs through both ends', () => {

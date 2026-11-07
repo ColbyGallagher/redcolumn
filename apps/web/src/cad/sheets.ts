@@ -1,3 +1,4 @@
+import { unitName } from './units';
 import type { PlotStyleTable } from './ctb';
 import type { LengthUnit } from '@nb/measure';
 import { headerNum, INSUNITS_M, num, pt, type Drawing, type Entity, type Layout } from './drawing';
@@ -80,10 +81,22 @@ export function drawingUnits(d: Drawing): { metersPerUnit: number; imperial: boo
   const metric = headerNum(d, '$MEASUREMENT', 1) === 1;
   const m = INSUNITS_M[code];
   if (m) return { metersPerUnit: m, imperial: [1, 2, 3, 8, 9, 10, 21].includes(code), assumed: false };
-  // Unitless, but drawn at survey grid coordinates (eastings and northings in the hundreds of
-  // thousands): metres, not millimetres.
-  if (metric && onGrid(d)) return { metersPerUnit: 1, imperial: false, assumed: true, grid: true };
-  return { metersPerUnit: metric ? 0.001 : 0.0254, imperial: !metric, assumed: true };
+  const guess = unitsGuess(d);
+  return { metersPerUnit: INSUNITS_M[guess]!, imperial: !metric, assumed: true, grid: guess === 6 || guess === 2 };
+}
+
+/** Whether the drawing states its units ($INSUNITS is one the converter knows). */
+export const unitsStated = (d: Drawing) => !!INSUNITS_M[headerNum(d, '$INSUNITS', 0)];
+
+/**
+ * The best guess (an INSUNITS code) for a drawing that does not state its units: millimetres or
+ * inches by $MEASUREMENT, but metres or feet when it is drawn at survey grid coordinates
+ * (eastings and northings in the hundreds of thousands). Only a suggestion: the person decides.
+ */
+export function unitsGuess(d: Drawing): number {
+  const metric = headerNum(d, '$MEASUREMENT', 1) === 1;
+  if (onGrid(d)) return metric ? 6 : 2;
+  return metric ? 4 : 1;
 }
 
 const gridCache = new WeakMap<Drawing, boolean>();
@@ -213,7 +226,7 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   const stats = newStats();
   const notes: Planned['notes'] = [];
   const units = drawingUnits(d);
-  if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.grid ? 'metres (it is drawn at survey grid coordinates)' : units.imperial ? 'inches' : 'millimetres' });
+  if (units.assumed) notes.push({ kind: 'units-assumed', unit: `${unitName(unitsGuess(d))}${units.grid ? ' (it is drawn at survey grid coordinates)' : ''}` });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
   const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities, notes));
   if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats, notes));
