@@ -190,6 +190,36 @@ Lessons for the converter:
   scale look right on every fixture), but it is not ground truth for clipping or hatch
   islands. Real CAD plots remain the reference for phase 4.
 
+## Phase 1 status (2026-11-05)
+
+DXF to PDF works end to end in `apps/web/src/cad/`. It is a library only; nothing in the app
+calls it until phase 3.
+
+| File | Role |
+|---|---|
+| `drawing.ts` | The `Drawing` model and group-code helpers |
+| `dxf.ts` | ASCII DXF reader (UTF-8 / code-page decoding, sections, tables, blocks, layouts, image defs) |
+| `geom.ts` | Affine maps, OCS, arcs and bulges as Béziers, B-splines |
+| `text.ts` | `%%` codes, `\U+`, MTEXT formatting to plain paragraphs |
+| `render.ts` | Entities to page primitives: properties (BYLAYER/BYBLOCK, layer 0), linetypes as PDF dashes, lineweights, blocks/MINSERT/attributes, dimensions, hatches (solid, pattern lines clipped even-odd), text |
+| `sheets.ts` | Pages: layouts at plot paper size, viewports (twist, frozen layers, clip), scales snapped to standard ratios, model-space page fitted to A0 |
+| `pdf.ts` | pdf-lib writer: one PDF layer per CAD layer, searchable text in subset Liberation fonts, `/VP` + `/Measure`, page labels |
+| `convert.ts` | `convertCad(name, bytes, { fonts, layouts, includeModel, colorMode, lineweights })` → PDF bytes plus a report |
+
+`convert.test.ts` checks every fixture against `manifest.json`: page names and sizes,
+viewport ratios, twist and frozen layers, non-plotting layers, expected warnings, and text. It
+also reads the written scales back through the viewer's own `importViewports`. All five
+fixtures convert in 10–140 ms.
+
+Notes:
+- The dimension scale check uses the measurement a dimension records (group 42). ezdxf does
+  not write it, so the fixtures test the same thing another way: each dimension measured
+  through its viewport's scale must equal the manifest's length.
+- Not yet drawn: MLEADER, WIPEOUT, linetype shapes and text, arrowheads on LEADER, polyline
+  widths that vary along a segment, raster images (a frame stands in), non-rectangular viewport
+  clips other than LWPOLYLINE, and plot style tables. Each skipped entity type is counted in
+  the report.
+
 ## Decisions (2026-11-05)
 
 1. Engine: port the DWG reader from ACadSharp (MIT). No LibreDWG, no ODA SDK.
