@@ -925,7 +925,7 @@ export function App() {
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
   // The side panels' open state and tab are remembered between sessions.
-  const savedPanel = (side: DockSide) => {
+  const readSavedPanel = (side: DockSide) => {
     try {
       const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
       const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
@@ -934,12 +934,14 @@ export function App() {
       return { tab: null, open: null };
     }
   };
-  const [leftTab, setLeftTab] = useState<LeftTab>(() => savedPanel('left').tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
-  const [leftOpen, setLeftOpen] = useState(() => savedPanel('left').open ?? !narrowScreen());
+  const [saved] = useState(() => ({ left: readSavedPanel('left'), right: readSavedPanel('right') }));
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
+  // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
+  const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
   const [leftWidth, setLeftWidth] = useState(440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
-  const [rightTab, setRightTab] = useState<LeftTab>(() => savedPanel('right').tab ?? firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => savedPanel('right').open ?? !!firstPanelOn('right'));
+  const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
+  const [rightOpen, setRightOpen] = useState(() => saved.right.open ??!!firstPanelOn('right'));
   useEffect(() => {
     try {
       localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
