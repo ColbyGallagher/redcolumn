@@ -1406,3 +1406,28 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
 });
+
+test('Subject, Label and Layer edited on the running tool go on the next markups without leaving the tool', async () => {
+  const h = await setup();
+  h.tools.setTool('rect', { id: 'chest-1', style: h.tools.getState().styles.rect, subject: 'Original', layer: 'Base' });
+  drag(h.tools, [100, 200], [160, 260]);
+  assert.equal(h.created.at(-1)!.subject, 'Original');
+  assert.equal(h.created.at(-1)!.layer, 'Base');
+
+  h.tools.setToolFields({ subject: 'Downlight Type A', label: 'Lights', layer: 'Electrical' });
+  assert.equal(h.tools.getState().tool, 'rect', 'the command carries on');
+  drag(h.tools, [200, 200], [260, 260]);
+  const m = h.created.at(-1)!;
+  assert.deepEqual([m.subject, m.label, m.layer], ['Downlight Type A', 'Lights', 'Electrical']);
+  assert.equal(h.tools.getState().tool, 'rect');
+
+  // Clearing the layer on the tool beats the layer the Tool Chest tool carries.
+  h.tools.setToolFields({ layer: '' });
+  drag(h.tools, [300, 200], [360, 260]);
+  assert.equal(h.created.at(-1)!.layer, undefined);
+
+  // Choosing another tool starts afresh.
+  h.tools.setTool('rect');
+  drag(h.tools, [100, 300], [160, 360]);
+  assert.equal(h.created.at(-1)!.subject, undefined);
+});

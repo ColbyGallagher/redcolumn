@@ -2,13 +2,13 @@ import { Children, createContext, Fragment, isValidElement, useContext, useEffec
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
-import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
 import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { StampMenu } from './StampsDialog';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -609,7 +609,18 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'markup':
         return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}</>;
       case 'format':
-        return properties;
+        return (
+          <>
+            {(toolbar.selection?.markups.length || isMarkupTool(toolbar.state.tool) || toolbar.state.tool === 'cloudPlus') && (
+              <Group label="Markup" wide>
+                <div className="rb-props">
+                  <MarkupFields {...toolbar} />
+                </div>
+              </Group>
+            )}
+            {properties}
+          </>
+        );
       case 'measure':
         return (
           <>

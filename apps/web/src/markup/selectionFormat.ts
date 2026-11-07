@@ -1,4 +1,4 @@
-import { styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type StyleCapabilities } from '@nb/markup';
+import { labelPatch, markupLabel, styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type StyleCapabilities } from '@nb/markup';
 
 /**
  * Pure parts of the Markup Format tab's follow-the-selection behaviour: which style fields a
@@ -76,4 +76,52 @@ export function followFormat(s: FormatFollow, e: FormatFollowEvent): FormatFollo
       return { onFormat: true, auto: true, seen: e.key };
     }
   }
+}
+
+// --- Subject, Label and Layer -----------------------------------------------------------------
+
+/** The three identifying fields the Markup Format tab edits, for a selection or for the active tool. */
+export type IdentityField = 'subject' | 'label' | 'layer';
+export const IDENTITY_FIELDS: readonly IdentityField[] = ['subject', 'label', 'layer'];
+
+/** What the active tool stamps on the markups it places; a field left out keeps the tool's own. */
+export type ToolFields = Partial<Record<IdentityField, string>>;
+
+type Identified = Pick<Markup, 'type' | 'text' | 'label' | 'subject' | 'layer'>;
+
+/** A markup's value of one field ('' when it has none). */
+export function identityOf(m: Identified, field: IdentityField): string {
+  if (field === 'subject') return (m.subject ?? '').trim();
+  if (field === 'layer') return m.layer ?? '';
+  return markupLabel(m);
+}
+
+/** The value a selection shares for a field; where the markups disagree it is mixed and the value empty. */
+export function sharedIdentity(markups: readonly Identified[], field: IdentityField): { value: string; mixed: boolean } {
+  const values = markups.map((m) => identityOf(m, field));
+  return isMixed(values) ? { value: '', mixed: true } : { value: values[0] ?? '', mixed: false };
+}
+
+/** The change that sets one field on a markup (an empty value clears it). */
+export function identityPatch(m: Pick<Markup, 'type'>, field: IdentityField, value: string): Partial<Markup> {
+  if (field === 'label') return labelPatch(m, value);
+  if (field === 'subject') return { subject: value.trim() || undefined };
+  return { layer: value || undefined };
+}
+
+/** The sorted, distinct non-empty values a field takes across markups (subject suggestions, layer choices). */
+export function distinctIdentities(markups: readonly Identified[], field: IdentityField, extra: readonly string[] = []): string[] {
+  return [...new Set([...markups.map((m) => identityOf(m, field)), ...extra].filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/** What a tool shows for a field: its edit if it has one, else the value the armed Tool Chest tool carries. */
+export function toolIdentity(base: Partial<Record<IdentityField, string>> | undefined, edits: ToolFields | undefined, field: IdentityField): string {
+  return edits?.[field] ?? base?.[field] ?? '';
+}
+
+/** The change that stamps the tool's edited fields on a markup it is placing (nothing for fields not edited). */
+export function toolFieldsPatch(m: Pick<Markup, 'type'>, edits: ToolFields | undefined): Partial<Markup> {
+  let patch: Partial<Markup> = {};
+  for (const f of IDENTITY_FIELDS) if (edits && f in edits) patch = { ...patch, ...identityPatch(m, f, edits[f] ?? '') };
+  return patch;
 }

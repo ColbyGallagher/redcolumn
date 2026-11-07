@@ -113,6 +113,7 @@ import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, p
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
+import { toolFieldsPatch, type ToolFields } from './selectionFormat';
 import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
@@ -331,6 +332,9 @@ export interface ToolPreset {
   id?: string;
   style?: MarkupStyle;
   subject?: string;
+  /** The Label and Layer a Tool Chest tool carries for the markups it places. */
+  label?: string;
+  layer?: string;
   /** Signature image (data URL) and its width / height. */
   image?: string;
   aspect?: number;
@@ -361,6 +365,8 @@ export interface ToolsState {
   showLinks: boolean;
   /** A Tool Library tool or signature in use: new markups of its type take its style, subject and image. */
   preset: (ToolPreset & { type: MarkupType }) | null;
+  /** Subject, Label and Layer edited on the active drawing tool: the next markups placed take them, and the tool keeps running. */
+  toolFields?: ToolFields;
   /** Format Painter: the markup whose look is being copied; Offset: the markup being offset. */
   painterSource: Markup | null;
   /** What Smart Fill makes from the region it finds. */
@@ -566,7 +572,7 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, toolFields: {}, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
   /** The lines of the selected PDF text (see `ToolsState.textSelection`). */
   private pickedText: Markup | null = null;
   /** Where a Tool Library copy would land, previewed under the pointer. */
@@ -969,7 +975,7 @@ export class MarkupTools implements ViewerOverlay {
       // Offset copies the one selected line or shape; with nothing suitable selected, the first click picks it.
       const [id] = this.state.selected;
       const source = this.state.selected.size === 1 && id ? this.store?.get(id) : undefined;
-      this.setState({ tool, preset: null, painterSource: source && canOffset(source) ? structuredClone(source) : null, cad: null });
+      this.setState({ tool, preset: null, toolFields: {}, painterSource: source && canOffset(source) ? structuredClone(source) : null, cad: null });
       return;
     }
     if (tool === 'painter') {
@@ -977,14 +983,14 @@ export class MarkupTools implements ViewerOverlay {
       const [id] = this.state.selected;
       const source = this.state.selected.size === 1 && id ? this.store?.get(id) : undefined;
       if (!source) return;
-      this.setState({ tool, preset: null, painterSource: structuredClone(source) });
+      this.setState({ tool, preset: null, toolFields: {}, painterSource: structuredClone(source) });
       return;
     }
     // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
     const keepSelection = tool === 'select' || tool === 'lasso' || tool === 'scaleLength' || isCadTool(tool);
-    this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
+    this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, toolFields: {}, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
     // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
     if (tool === 'highlighter') this.wordsFor(this.page);
     this.viewer.refreshPointerCursor();
@@ -1732,6 +1738,7 @@ export class MarkupTools implements ViewerOverlay {
         createdAt: now + i,
         modifiedAt: now + i,
         ...(m.fields || !fields || !Object.keys(fields).length ? {} : { fields }),
+        ...this.toolFieldsFor(m, this.state.preset),
       });
     });
     if (keepTool) return;
@@ -1914,6 +1921,11 @@ export class MarkupTools implements ViewerOverlay {
     this.store.add(done);
     this.options.onCreated?.(done);
     if (done.type === 'space') this.options.onSpaceDrawn?.(done.id);
+  }
+
+  /** Edits the Subject, Label or Layer the active tool gives its next markups (the command carries on). */
+  setToolFields(patch: ToolFields) {
+    this.setState({ toolFields: { ...(this.state.toolFields ?? {}), ...patch } });
   }
 
   setFillAs(fillAs: FillType) {
@@ -3432,7 +3444,7 @@ export class MarkupTools implements ViewerOverlay {
     const now = Date.now();
     const fields = this.options.defaultFields?.();
     const drawnDefaults = isMeasureKind(type) && !preset?.template ? this.options.measureDefaults?.() : undefined;
-    return {
+    const markup: Markup = {
       id: crypto.randomUUID(),
       type,
       pageIndex,
@@ -3453,6 +3465,12 @@ export class MarkupTools implements ViewerOverlay {
       ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
       ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
+    return Object.assign(markup, this.toolFieldsFor(markup, preset));
+  }
+
+  /** The Subject, Label and Layer the active tool gives a markup it places: the armed Tool Chest tool's, then the Format tab's edits. */
+  private toolFieldsFor(m: Pick<Markup, 'type'>, preset: Pick<ToolPreset, 'label' | 'layer'> | null | undefined): Partial<Markup> {
+    return toolFieldsPatch(m, { ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(this.state.toolFields ?? {}) });
   }
 
   private completeIfFixed() {
@@ -3821,7 +3839,7 @@ export class MarkupTools implements ViewerOverlay {
     this.store!.add(m);
     this.options.onCreated?.(m);
     if (m.type === 'signature' || this.state.preset?.once || (!settings.get().reuseTool && !this.state.preset)) {
-      this.setState({ tool: 'select', preset: null, selected: new Set([m.id]) });
+      this.setState({ tool: 'select', preset: null, toolFields: {}, selected: new Set([m.id]) });
       return;
     }
     if (isTextType(m.type)) {
