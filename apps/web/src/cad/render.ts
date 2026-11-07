@@ -104,8 +104,9 @@ export interface Budget {
 }
 export const MAX_ENTITY_DRAWS = 10_000_000;
 export const MAX_BLOCK_DRAWS = 2_000_000;
-/** About what a worker can hold as primitives and still write the PDF: a few hundred MB. */
-export const MAX_OUTPUT = 4_000_000;
+/** About what a worker can hold as primitives and still write the PDF (about 1 GB). The busiest
+ * real drawing tried needs 5.3M. */
+export const MAX_OUTPUT = 12_000_000;
 const tooComplex = () => new CadReadError('This drawing is too complex to convert.');
 
 /** What one primitive costs the output budget. */
