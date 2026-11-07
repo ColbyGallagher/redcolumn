@@ -3,7 +3,8 @@
 ## Delete pages
 
 1. In the [Thumbnails panel](#thumbnails), select the pages to delete.
-2. Click **Delete**, then **OK**.
+2. Click **Delete**, or press [[Delete]] with a thumbnail focused.
+3. In the Delete Pages box, choose the selected page or pages, or type a range such as `1-3, 5`, then click **Delete**.
 
 Or, to delete the page you are on, choose {{Document > Delete Pages…}} (or [[Ctrl+Shift+D]]) and click **OK**.
 
