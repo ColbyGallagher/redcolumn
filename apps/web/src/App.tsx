@@ -6,6 +6,7 @@ import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset,
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -877,6 +878,9 @@ export function App() {
   const canvasBRef = useRef<HTMLCanvasElement>(null);
   const [ctl, setCtl] = useState<Controllers | null>(null);
   const [ctlB, setCtlB] = useState<{ viewer: TileViewer; tools: MarkupTools } | null>(null);
+  /** The second pane's viewer and the problem pill's Retry, for the renderer supervisor. */
+  const viewerBRef = useRef<TileViewer | null>(null);
+  const retryRef = useRef<(() => void | Promise<void>) | undefined>(undefined);
   const prefs = useSettings();
   // Preference changes apply to the open panes straight away (new panes read them on creation).
   const ctlsRef = useRef<(MarkupTools | undefined)[]>([]);
@@ -1428,6 +1432,26 @@ export function App() {
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
+    // A renderer that crashes or stops answering is replaced, and the open documents reopened in it
+    // from the copies kept on this device (markups live outside the renderer and are untouched).
+    const tabOf = (doc: PdfDocument) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.doc === doc);
+    const supervisor = new EngineSupervisor<PdfDocument>(engine, {
+      bytesFor: async (doc) => {
+        const tab = tabOf(doc);
+        return tab ? readFile(tab.file.hash) : null;
+      },
+      sizeOf: (doc) => tabOf(doc)?.file.size,
+      onRestarted: ({ lost }) => {
+        viewer.engineRestarted();
+        viewerBRef.current?.engineRestarted();
+        setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
+      },
+      onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),
+      log: (message, detail) => console.error(message, detail),
+    });
+    const retry = () => (supervisor.needsRetry ? supervisor.retry().then(() => undefined) : undefined);
+    viewer.setRetryHandler(retry);
+    retryRef.current = retry;
     // Debugging handle for the browser console and the end-to-end tests. `commands` are the live
     // commands by id; `assistant` answers the MCP tools (list_markups, get_page...) without asking.
     if (TEST_HOOK)
@@ -1444,6 +1468,7 @@ export function App() {
         },
       });
     return () => {
+      supervisor.dispose();
       tools.dispose();
       viewer.destroy();
       engine.terminate();
@@ -1458,7 +1483,10 @@ export function App() {
     const tools = createTools('b', viewer);
     viewer.setOverlay(tools);
     setCtlB({ viewer, tools });
+    viewer.setRetryHandler(retryRef.current ?? null);
+    viewerBRef.current = viewer;
     return () => {
+      viewerBRef.current = null;
       tools.dispose();
       viewer.destroy();
       setCtlB(null);
