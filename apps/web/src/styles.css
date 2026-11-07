@@ -5904,3 +5904,34 @@ select[size] {
   font-size: 12px;
   text-align: center;
 }
+
+.search-count-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.search-hit-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.search-hit-row .search-check {
+  margin: 8px 0 0 10px;
+  flex: none;
+}
+
+.search-hit-row .search-hit {
+  padding-left: 6px;
+}
+
+.count-tool-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border, currentColor);
+  margin: 0 6px;
+}
