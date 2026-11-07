@@ -27,11 +27,28 @@ export interface PlotStyleTable {
 const USE_OBJECT = -1006632961;
 const MAX_TEXT = 4 << 20;
 
+/** Inflates at most MAX_TEXT bytes: a small file that expands without end is stopped as it goes. */
 async function inflate(bytes: Uint8Array): Promise<string> {
-  const stream = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream('deflate'));
-  const buf = await new Response(stream).arrayBuffer();
-  if (buf.byteLength > MAX_TEXT) throw new CadReadError('This plot style table is too large.');
-  return new TextDecoder('latin1').decode(buf);
+  const reader = new Blob([bytes.slice()]).stream().pipeThrough(new DecompressionStream('deflate')).getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_TEXT) {
+      await reader.cancel().catch(() => {});
+      throw new CadReadError('This plot style table is too large.');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.byteLength;
+  }
+  return new TextDecoder('latin1').decode(out);
 }
 
 /** Nested `name{ … }` blocks of `key=value` lines. */

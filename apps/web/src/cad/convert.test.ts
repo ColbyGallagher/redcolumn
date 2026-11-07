@@ -316,6 +316,15 @@ function testCtb(): Uint8Array {
   return new Uint8Array(Buffer.concat([head, deflateSync(Buffer.from(text, 'latin1'))]));
 }
 
+test('a plot style table that inflates past its cap is stopped, not held in memory', async () => {
+  const head = Buffer.alloc(60);
+  head.write('PIAFILEVERSION_2.0,CTBVER1,compress\r\npmzlibcodec', 'latin1');
+  // 64 MiB of zeros compresses to about 64 KiB.
+  const bomb = new Uint8Array(Buffer.concat([head, deflateSync(Buffer.alloc(64 << 20))]));
+  assert.ok(bomb.length < 1 << 20);
+  await assert.rejects(parseCtb('bomb.ctb', bomb), /too large/);
+});
+
 test('a supplied plot style table sets the colour and lineweight of each ACI colour', async () => {
   const table = await parseCtb('test.ctb', testCtb());
   assert.deepEqual(table.byAci.get(1), { rgb: [0, 0, 0], grey: false, screen: 100, lineweightMm: 0.7 });
