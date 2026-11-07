@@ -60,3 +60,13 @@ test('the label and every segment label are drawn into the exported PDF', async 
   const bytes = await exportWithAnnotations(await blank(), [m]);
   assert.ok(bytes.byteLength > 0);
 });
+
+test('a curved polylength segment is labelled with its arc length, on the middle of the arc', () => {
+  // Chord 80 points, half circle (bulge 1): the arc is 40 * pi long, its middle 40 points off the chord.
+  const m = base({ id: 'p4', type: 'polylength', points: [[0, 0], [100, 0], [180, 0]], bulges: [0, 1] });
+  const [straight, curved] = segmentLabels(m, { metersPerPoint: 1, unit: 'm', label: '1:1' } as never);
+  assert.equal(straight!.text, '100 m');
+  assert.match(curved!.text, /^125.66/);
+  assert.equal(curved!.at[0], 140);
+  assert.equal(Math.abs(curved!.at[1]), 40);
+});

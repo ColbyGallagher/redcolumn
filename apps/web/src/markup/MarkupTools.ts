@@ -254,6 +254,19 @@ const CALIBRATE_STYLE: MarkupStyle = { stroke: '#2563eb', fill: null, width: 1, 
 const MATCH_LINE_STYLE: MarkupStyle = { stroke: '#dc2626', fill: null, width: 2, opacity: 1, dash: 'dashed' };
 const REGION_STYLE: MarkupStyle = { stroke: '#2563eb', fill: '#2563eb', width: 1, opacity: 1, fillOpacity: 0.08, dash: 'dashed' };
 
+/**
+ * Ctrl+drag while placing points: the vertex just placed at `down` ends segment `segment`, which bends
+ * live to pass through the pointer. The pointer is the arc's middle (as when Alt-dragging a segment
+ * knob), so the segment's bulge is `bulgeThrough(from, vertex, pointer)`; releasing keeps it. A press
+ * that never moves beyond the drag threshold stays a plain (Ctrl-)click with a straight segment.
+ */
+interface MultiCurve {
+  segment: number;
+  from: Point;
+  /** The button is still down. */
+  active: boolean;
+}
+
 type Gesture =
   /** Dragging one end (`end` 0 or 1) of a hand-placed match line. */
   | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
@@ -264,7 +277,7 @@ type Gesture =
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; curve?: MultiCurve }
   | { kind: 'move'; start: Point; dx: number; dy: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
@@ -1859,6 +1872,8 @@ export class MarkupTools implements ViewerOverlay {
     if (!g) return;
     if (g.kind === 'multi' && g.markup.points.length > 1) {
       g.markup.points = g.markup.points.slice(0, -1);
+      g.curve = undefined;
+      trimBulges(g.markup);
       g.down = g.markup.points.at(-1)!;
       this.refreshSketch();
       this.viewer.invalidate();
@@ -1911,6 +1926,7 @@ export class MarkupTools implements ViewerOverlay {
     if (!spec || points.length < spec.min) return;
     this.store.checkpoint();
     const done = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
+    trimBulges(done, points.length - 1);
     this.store.add(done);
     this.options.onCreated?.(done);
     if (done.type === 'space') this.options.onSpaceDrawn?.(done.id);
@@ -1987,6 +2003,8 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind !== 'multi') return;
     g.markup.points = g.markup.points.slice(0, -1);
+    g.curve = undefined;
+    trimBulges(g.markup);
     if (!g.markup.points.length) this.setGesture(null);
     else this.refreshSketch();
   }
@@ -2669,7 +2687,14 @@ export class MarkupTools implements ViewerOverlay {
           this.finish();
           return true;
         }
+        // Ctrl-press and drag away from the new point bends the segment arriving at it (see MultiCurve).
+        // Ctrl alone changes nothing here: snapping is switched off with Alt, not Ctrl. The first point has no segment
+        // to bend, so a Ctrl press there still starts a drag-rectangle as it always did.
+        const curves = e.button === 0 && (e.ctrlKey || e.metaKey) && !g.calibrate && ARC_TYPES.has(markup.type) && markup.points.length >= 1;
+        const from = markup.points.at(-1)!;
         markup.points = [...markup.points, p];
+        if (curves || markup.bulges) markup.bulges = Array.from({ length: markup.points.length - 1 }, (_, i) => markup.bulges?.[i] ?? 0);
+        g.curve = curves ? { segment: markup.points.length - 2, from, active: true } : undefined;
         g.down = p;
         this.clearTracking();
         this.completeIfFixed();
@@ -2915,7 +2940,18 @@ export class MarkupTools implements ViewerOverlay {
       const last = g.path[g.path.length - 1]!;
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) * this.viewer.zoomFor(this.page) >= 3) g.path = [...g.path, p];
     } else if (g.kind === 'multi') {
-      g.hover = this.resolve(pt, e, g.markup.points.at(-1)!);
+      const curve = g.curve;
+      if (curve?.active) {
+        // Bend the segment just placed through the pointer; a short drag leaves it straight (a Ctrl-click).
+        const q = toPoint(pt);
+        const far = Math.hypot(q[0] - g.down[0], q[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx;
+        const bulge = far ? bulgeThrough(curve.from, g.down, q) : 0;
+        // Nearly straight snaps straight; at most three-quarters of a circle (as Alt-dragging a knob).
+        const bulges = [...(g.markup.bulges ?? [])];
+        bulges[curve.segment] = Math.abs(bulge) < 0.02 ? 0 : Math.max(-2.4, Math.min(2.4, bulge));
+        g.markup.bulges = bulges;
+        g.hover = null;
+      } else g.hover = this.resolve(pt, e, g.markup.points.at(-1)!);
     } else if (g.kind === 'draw') {
       const m = g.markup;
       if (TYPE_INFO[m.type].draw === 'freehand') {
@@ -3063,6 +3099,13 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.kind === 'multi') {
+      if (g.curve?.active) {
+        // Releasing sets the curved point; the segments after it are straight again.
+        g.curve.active = false;
+        g.hover = g.down;
+        this.viewer.invalidate();
+        return;
+      }
       // Pressing, dragging and releasing places the second point, so a length can be dragged out.
       const p = this.resolve(pt, e, g.markup.points.at(-1)!);
       if (g.markup.points.length === 1 && Math.hypot(p[0] - g.down[0], p[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx) {
@@ -3317,7 +3360,7 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     const mods = lastModifiers;
     const anchor = this.sketchAnchor;
-    if (g?.kind === 'multi') g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!);
+    if (g?.kind === 'multi') { if (!g.curve?.active) g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!); }
     else if (g?.kind === 'scaleRef') {
       if (g.stage !== 'ask' && g.pageIndex === pageIndex) g.hover = this.resolve(pt, mods, (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null);
     } else if (tool === 'scaleLength') {
@@ -4374,6 +4417,13 @@ function canEditVertices(m: Markup): boolean {
 
 /** Measurements whose segments can curve. */
 const ARC_TYPES: ReadonlySet<MarkupType> = new Set<MarkupType>(['polylength', 'area', 'perimeter', 'volume']);
+
+/** Drops the bulges of segments that are gone (one fewer than the points, unless `segments` says otherwise); all straight is none at all. */
+function trimBulges(m: Markup, segments = m.points.length - 1) {
+  if (!m.bulges) return;
+  const bulges = m.bulges.slice(0, Math.max(0, segments));
+  m.bulges = bulges.some(Boolean) ? bulges : undefined;
+}
 
 /** A markup's bulges with one segment's changed (all straight is none at all). */
 function withBulge(m: Markup, segment: number, bulge: number): number[] | undefined {

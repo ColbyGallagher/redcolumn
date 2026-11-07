@@ -4,7 +4,7 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { METERS_PER_UNIT } from '@nb/measure';
+import { METERS_PER_UNIT, measureValue } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -1405,4 +1405,85 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   const k = h.store.get('k')!;
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
+});
+
+// Ctrl+drag while placing points bends the segment arriving at the new point.
+async function polylengthHarness() {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.05, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('polylength');
+  return h;
+}
+
+test('Ctrl-dragging a placed point curves its segment through the pointer, and later clicks are straight', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  click(h.tools, [150, 300]);
+  // The pointer is the middle of the arc: a half circle over a chord of 80 points.
+  drag(h.tools, [230, 300], [190, 340], { ctrlKey: true });
+  click(h.tools, [290, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.length, 3);
+  assert.equal(m.bulges![0], 0);
+  assert.ok(Math.abs(Math.abs(m.bulges![1]!) - 1) < 1e-9, 'half circle');
+  assert.equal(m.bulges![2], 0, 'the click after the curve is straight');
+  // 5 m + a half circle of radius 2 m + 3 m.
+  const metres = measureValue('polylength', m.points, 0.05, { bulges: m.bulges });
+  assert.ok(Math.abs(metres - (5 + 2 * Math.PI + 3)) < 1e-6, `${metres}`);
+  assert.ok(Math.abs(metres - 14.283) < 1e-3);
+});
+
+test('the segment bends live while Ctrl-dragging', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  press(h.tools, [130, 300], { ctrlKey: true });
+  move(h.tools, [90, 340], { ctrlKey: true });
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.ok(Math.abs(Math.abs(g.markup.bulges![0]!) - 1) < 1e-9);
+  release(h.tools, [90, 340], { ctrlKey: true });
+  h.tools.finish();
+});
+
+test('Ctrl-click without a drag places a straight point', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  press(h.tools, [150, 300], { ctrlKey: true });
+  release(h.tools, [150, 300], { ctrlKey: true });
+  click(h.tools, [250, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 3);
+  assert.equal(m.bulges, undefined);
+});
+
+test('Backspace removes a curved point with its bulge', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  drag(h.tools, [130, 300], [90, 340], { ctrlKey: true });
+  click(h.tools, [200, 300]);
+  h.tools.removeLastPoint();
+  h.tools.removeLastPoint();
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 1);
+  assert.equal(g.markup.bulges, undefined);
+  click(h.tools, [140, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.bulges, undefined, 'the new straight segment is not curved');
+});
+
+test('an area curves a segment with Ctrl+drag and leaves the closing segment straight', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.05, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('area');
+  click(h.tools, [100, 100]);
+  drag(h.tools, [200, 100], [150, 60], { ctrlKey: true });
+  click(h.tools, [200, 200]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 3);
+  assert.ok(m.bulges![0] !== 0);
+  assert.equal(m.bulges!.slice(1).every((b) => b === 0), true);
 });

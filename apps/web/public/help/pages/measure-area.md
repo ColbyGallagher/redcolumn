@@ -24,3 +24,5 @@ Select the area and open the [Properties panel](#properties):
 - **Add cutout** subtracts a hole, such as a stair or lift. See [Cut a hole out of an area](#cutouts).
 
 > **Tip:** To outline a room in one click, use [Smart Fill](#smart-fill).
+
+> **Tip:** To draw a curved section as you go, hold [[Ctrl]], press where the next corner goes and drag away from it. The section bends through the pointer; release to set it, then let go of [[Ctrl]]. Further clicks are straight again, and [[Backspace]] removes the curved corner. The length and area follow the curve.

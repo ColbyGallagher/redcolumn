@@ -2,6 +2,7 @@ import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale }
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
+import { bulgeMidpoint } from './cad';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
@@ -216,8 +217,11 @@ export function segmentLabels(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureL
     let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
     if (angle > Math.PI / 2) angle -= Math.PI;
     else if (angle < -Math.PI / 2) angle += Math.PI;
-    const text = measureLabel('length', [a, b], scale, measureProps(m));
-    return { text, lines: [text], at: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], angle };
+    // A curved segment shows its arc length, on the middle of the arc (whose tangent there runs parallel to the chord).
+    const bulge = m.bulges?.[i] ?? 0;
+    const text = measureLabel('polylength', [a, b], scale, { ...measureProps(m), bulges: [bulge] });
+    const at: [number, number] = bulge ? bulgeMidpoint(a, b, bulge) : [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    return { text, lines: [text], at, angle };
   });
 }
 
