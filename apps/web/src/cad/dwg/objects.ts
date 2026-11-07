@@ -1,5 +1,5 @@
 import { CadReadError } from '../dxf';
-import { BitReader, R2004, R2007, R2010, R2013, R2018, stringStream, type Color } from './bits';
+import { BitReader, R2004, R2007, R2010, R2013, R2018, stringStream, type Color, type ReadBudget } from './bits';
 
 /**
  * DWG objects (ODA spec 20): the common object and entity data, then each type's own fields.
@@ -182,12 +182,14 @@ export interface ReadContext {
   version: number;
   classes: Map<number, string>;
   decoder: TextDecoder;
+  /** Shared by every object of the file: reading stops once it is spent. */
+  budget?: ReadBudget;
 }
 
 /** Reads the object at byte `offset` of `buf`. */
 export function readObject(buf: Uint8Array, offset: number, ctx: ReadContext): Rec | null {
   const { version } = ctx;
-  const head = new BitReader(buf, version, ctx.decoder);
+  const head = new BitReader(buf, version, ctx.decoder, undefined, ctx.budget ?? null);
   head.bytePos = offset;
   const size = head.MS();
   if (size <= 0) return null;
@@ -197,7 +199,8 @@ export function readObject(buf: Uint8Array, offset: number, ctx: ReadContext): R
     handleStart = head.pos + size * 8 - handleBits;
   }
   const start = head.pos;
-  const d = head.clone(start);
+  // Nothing in the object may be read past its own end (its size counts whole bytes from here).
+  const d = head.clone(start, start + size * 8);
   const o = new Obj(d, version, start, handleStart);
   const code = d.OT();
   const type = code >= 500 ? (ctx.classes.get(code) ?? `CLASS_${code}`) : (FIXED[code] ?? `TYPE_${code}`);

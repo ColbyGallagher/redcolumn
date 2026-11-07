@@ -162,6 +162,13 @@ export function snapRatio(ratio: number, imperial: boolean): { ratio: number; la
   return { ratio, label: `1:${Number(shown)}`, standard: false };
 }
 
+/** "1:502.4": a ratio as found, to one decimal (four significant figures under 10). */
+function exactLabel(ratio: number): string {
+  const rounded = Math.round(ratio);
+  if (rounded > 0 && Math.abs(rounded / ratio - 1) < 1e-4) return `1:${rounded}`;
+  return `1:${Number(ratio >= 10 ? ratio.toFixed(1) : ratio.toPrecision(4))}`;
+}
+
 /**
  * The measure scale for `ptPerUnit` page points per drawing unit, given the paper's millimetres
  * per point: ratio N in "1:N" compares real length with length on paper.
@@ -172,9 +179,11 @@ function measureScale(d: Drawing, ptPerUnit: number): MeasureScale {
   const exact = metersPerUnit / (ptPerUnit * paperMetersPerPoint);
   const snapped = snapRatio(exact, imperial);
   const { unit, feetInches } = measureUnit(metersPerUnit, imperial);
-  // Snapped ratios measure at the standard scale: the drawing's own error is under 0.5%.
-  const metersPerPoint = paperMetersPerPoint * snapped.ratio;
-  return { label: snapped.label, ratio: snapped.ratio, standard: snapped.standard, unit, feetInches, unitsPerPoint: metersPerPoint / METERS_PER_UNIT[unit] };
+  // Measurements always use the exact ratio. The standard label is kept only when the viewport
+  // is at it (within float noise); one zoomed to 1:502 says so, and is reported as non-standard.
+  const atStandard = snapped.standard && Math.abs(snapped.ratio / exact - 1) < 1e-4;
+  const label = atStandard ? snapped.label : snapRatio(exact, false).standard ? exactLabel(exact) : snapped.label;
+  return { label, ratio: atStandard ? snapped.ratio : exact, standard: atStandard, unit, feetInches, unitsPerPoint: (paperMetersPerPoint * exact) / METERS_PER_UNIT[unit] };
 }
 
 const ctxFor = (d: Drawing, opts: RenderOptions, stats: RenderStats, m: M, dashPt: number, frozen: ReadonlySet<string> = new Set()): Ctx => ({
@@ -290,7 +299,7 @@ function layoutSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, layo
     const boundary = num(g, 90) & 0x10000 ? d.byHandle.get(g.find(([c]) => c === 340)?.[1] ?? '') : undefined;
     const clipPaper = boundary ? boundaryPath(boundary) : null;
     const clip: Cmd[] = clipPaper ? mapCmds(m, clipPaper) : polyPath(rectPaper.map((q) => apply(m, q)), true);
-    const vpStats = newStats();
+    const vpStats = newStats(stats.budget);
     const inner = ctxFor(d, opts, vpStats, then(toPaper, m), psLtScale ? paperDash : paperDash * k, new Set(frozen));
     renderEntities(inner, d.modelSpace);
     mergeStats(stats, vpStats);

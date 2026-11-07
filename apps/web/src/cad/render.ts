@@ -1,3 +1,4 @@
+import { CadReadError } from './dxf';
 import { aciRgb, trueRgb, type Rgb } from './aci';
 import { headerNum, num, nums, pt, str, type Block, type Drawing, type Entity, type Groups, type Layer } from './drawing';
 import { apply, applyV, arcCmds, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
@@ -110,7 +111,18 @@ export interface RenderStats {
   fonts: Map<string, FontKey>;
   /** Linear and aligned dimensions drawn, for the scale check. */
   dims: DimSample[];
+  /** Work done so far, shared by every pass over one drawing. */
+  budget: Budget;
 }
+
+/** How much drawing one conversion may do: a bound on hostile or runaway files (block fan-out). */
+export interface Budget {
+  entities: number;
+  blocks: number;
+}
+export const MAX_ENTITY_DRAWS = 10_000_000;
+export const MAX_BLOCK_DRAWS = 2_000_000;
+const tooComplex = () => new CadReadError('This drawing is too complex to convert.');
 
 export interface DimSample {
   /** Length on the page in points. */
@@ -121,7 +133,7 @@ export interface DimSample {
   at: P;
 }
 
-export const newStats = (): RenderStats => ({ skipped: new Map(), xrefs: new Map(), images: new Set(), fonts: new Map(), dims: [] });
+export const newStats = (budget: Budget = { entities: 0, blocks: 0 }): RenderStats => ({ skipped: new Map(), xrefs: new Map(), images: new Set(), fonts: new Map(), dims: [], budget });
 
 const PT_PER_MM = 72 / 25.4;
 const MIN_LW_MM = 0.1;
@@ -284,9 +296,12 @@ export function renderEntities(c: Ctx, list: readonly Entity[]) {
   for (const e of list) {
     if (e.type === 'VIEWPORT') continue;
     if (!visible(c, e)) continue;
+    if (++c.stats.budget.entities > MAX_ENTITY_DRAWS) throw tooComplex();
     try {
       renderEntity(c, e);
-    } catch {
+    } catch (err) {
+      // Running out of budget stops the conversion; anything else loses just this entity.
+      if (err instanceof CadReadError) throw err;
       count(c, `${e.type} (unreadable)`);
     }
   }
@@ -745,6 +760,7 @@ function inheritOf(c: Ctx, e: Entity): Inherit {
 }
 
 function drawBlock(c: Ctx, e: Entity, b: Pick<Block, 'name' | 'entities'>, blockM: M, dwg: Drawing = c.dwg) {
+  if (++c.stats.budget.blocks > MAX_BLOCK_DRAWS) throw tooComplex();
   const key = dwg === c.dwg ? b.name : `xref:${b.name}`;
   if (c.depth >= MAX_DEPTH || c.stack.has(key)) {
     count(c, 'INSERT (nested too deep)');
@@ -784,8 +800,9 @@ function insert(c: Ctx, e: Entity) {
     const sx = num(g, 41, 1) || 1;
     const sy = num(g, 42, 1) || 1;
     const rot = (num(g, 50) * Math.PI) / 180;
-    const cols = Math.max(1, num(g, 70, 1));
-    const rows = Math.max(1, num(g, 71, 1));
+    const cols = Math.max(1, Math.floor(num(g, 70, 1)) || 1);
+    const rows = Math.max(1, Math.floor(num(g, 71, 1)) || 1);
+    if (cols * rows > MAX_BLOCK_DRAWS) throw tooComplex();
     const cs = num(g, 44);
     const rs = num(g, 45);
     const tail = then(rotate(rot), then(translate(...pt(g, 10)), ocs(e.extrusion)));
@@ -1055,6 +1072,8 @@ function hatch(c: Ctx, e: Entity) {
     const k0 = Math.floor(Math.min(...proj));
     const k1 = Math.ceil(Math.max(...proj));
     const period = line.dashes.reduce((a, b) => a + Math.abs(b), 0);
+    // A line of nothing but gaps draws nothing (and would otherwise step along forever).
+    if (line.dashes.length && !line.dashes.some((d) => d >= 0)) continue;
     for (let k = k0; k <= k1; k++) {
       const o: P = [line.base[0] + line.offset[0] * k, line.base[1] + line.offset[1] * k];
       const along = corners.map((q) => (q[0] - o[0]) * dir[0] + (q[1] - o[1]) * dir[1]);
@@ -1067,17 +1086,25 @@ function hatch(c: Ctx, e: Entity) {
         total++;
       };
       if (!line.dashes.length || period <= 0) seg(s0, s1);
-      else {
+      else if (period < (s1 - s0) / 1e6) {
+        // Dashes far too fine for the area: give up rather than step a million times.
+        total = MAX_HATCH_SEGMENTS + 1;
+      } else {
         let s = Math.floor(s0 / period) * period;
-        while (s < s1 && total <= MAX_HATCH_SEGMENTS) {
+        let steps = 0;
+        while (s < s1 && total <= MAX_HATCH_SEGMENTS && steps++ <= MAX_HATCH_SEGMENTS * 4) {
           for (const dash of line.dashes) {
             const len = Math.abs(dash);
             if (dash > 0) seg(Math.max(s, s0), Math.min(s + len, s1));
             else if (dash === 0) seg(s, s + period * 0.001);
-            s += len;
+            const next = s + len;
+            // Past what floating point can still add to, s stops moving: stop too.
+            if (next === s && len > 0) steps = Infinity;
+            s = next;
             if (s >= s1) break;
           }
         }
+        if (steps > MAX_HATCH_SEGMENTS * 4) total = MAX_HATCH_SEGMENTS + 1;
       }
       if (total > MAX_HATCH_SEGMENTS) break;
     }
