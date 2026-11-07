@@ -16,7 +16,8 @@ import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
+import { daFontName, fontKeyword, fontPermissions, isNamedFont, isTrueTypeOutline, type FontKeyword } from './fonts';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -150,7 +151,7 @@ function richParagraph(line: string): string {
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
 function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
   const s = m.style;
-  const family = { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[s.fontFamily ?? 'sans'];
+  const family = isNamedFont(s.fontFamily) ? s.fontFamily : { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[fontKeyword(s.fontFamily)];
   const ds = [
     `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
     `text-align:${s.textAlign ?? 'left'}`,
@@ -174,18 +175,69 @@ function pdfDate(ms: number) {
 }
 
 /** The standard 14 font for a family and weight/slant, so exports need no embedded font files. */
-const STANDARD_FONTS: Record<FontFamily, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
+const STANDARD_FONTS: Record<FontKeyword, [StandardFonts, StandardFonts, StandardFonts, StandardFonts]> = {
   sans: [StandardFonts.Helvetica, StandardFonts.HelveticaBold, StandardFonts.HelveticaOblique, StandardFonts.HelveticaBoldOblique],
   serif: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold, StandardFonts.TimesRomanItalic, StandardFonts.TimesRomanBoldItalic],
   mono: [StandardFonts.Courier, StandardFonts.CourierBold, StandardFonts.CourierOblique, StandardFonts.CourierBoldOblique],
 };
 
-/** Acrobat's default-resource names for each family, used in FreeText /DA strings. */
-const DA_FONT_NAMES: Record<FontFamily, string> = { sans: 'Helv', serif: 'TiRo', mono: 'Cour' };
+/**
+ * Identifies a font in `Ctx.fonts`: a standard font's name, or `named:<family>|<bold><italic>` for an
+ * installed font (which maps to its embedded font, or to the nearest standard font if it could not be embedded).
+ */
+type FontKey = string;
+const NAMED_PREFIX = 'named:';
 
-function standardFont(style: MarkupStyle, measure: boolean): StandardFonts {
+function standardFont(style: MarkupStyle, measure: boolean): FontKey {
   const bold = style.bold ?? measure;
-  return STANDARD_FONTS[style.fontFamily ?? 'sans'][(bold ? 1 : 0) + (style.italic ? 2 : 0)]!;
+  if (isNamedFont(style.fontFamily)) return `${NAMED_PREFIX}${style.fontFamily}|${bold ? 1 : 0}${style.italic ? 1 : 0}`;
+  return STANDARD_FONTS[fontKeyword(style.fontFamily)][(bold ? 1 : 0) + (style.italic ? 2 : 0)]!;
+}
+
+/** The nearest standard font to a `named:` key. */
+function keywordFontOf(key: FontKey): StandardFonts {
+  const [family, variant] = key.slice(NAMED_PREFIX.length).split('|') as [string, string];
+  return STANDARD_FONTS[fontKeyword(family)][(variant[0] === '1' ? 1 : 0) + (variant[1] === '1' ? 2 : 0)]!;
+}
+
+/** Why an installed font was not embedded: it is not available, forbids embedding, or is not a TrueType-outline font. */
+export type FontFallbackReason = 'unavailable' | 'restricted' | 'unsupported';
+
+/** Where export gets installed fonts' files from. */
+export interface SystemFontSource {
+  /** The font library to register with the PDF document (@pdf-lib/fontkit). */
+  fontkit: Parameters<PDFDocument['registerFontkit']>[0];
+  /** The font file for a family at a weight and slant, or null where it is not installed. */
+  load(family: string, bold: boolean, italic: boolean): Promise<Uint8Array | ArrayBuffer | null>;
+}
+
+/** Embeds an installed font (a subset, unless the font forbids subsetting); a reason when it cannot be. */
+async function embedInstalled(doc: PDFDocument, source: SystemFontSource, family: string, bold: boolean, italic: boolean): Promise<PDFFont | FontFallbackReason> {
+  let data: Uint8Array | ArrayBuffer | null;
+  try {
+    data = await source.load(family, bold, italic);
+  } catch {
+    return 'unavailable';
+  }
+  if (!data) return 'unavailable';
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const permissions = fontPermissions(bytes);
+  // Restricted license embedding means the font may not go in a document at all.
+  if (!permissions || permissions.embedding === 'restricted' || permissions.bitmapOnly) return permissions ? 'restricted' : 'unsupported';
+  if (!isTrueTypeOutline(bytes)) return 'unsupported';
+  try {
+    doc.registerFontkit(source.fontkit);
+    return await doc.embedFont(bytes, { subset: !permissions.noSubsetting });
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/** A markup whose installed font could not be embedded, drawn in the nearest keyword font instead. */
+function withExportFont(ctx: Ctx, m: Markup): Markup {
+  const family = m.style.fontFamily;
+  if (!isNamedFont(family) || !ctx.unembedded.has(family)) return m;
+  return { ...m, style: { ...m.style, fontFamily: fontKeyword(family) } };
 }
 
 /** The standard font a custom line style's text is set in. */
@@ -251,7 +303,9 @@ interface Ctx {
   doc: PDFDocument;
   page: PDFPage;
   matrix: Matrix;
-  fonts: Map<StandardFonts, PDFFont>;
+  fonts: Map<FontKey, PDFFont>;
+  /** Installed fonts that could not be embedded; their markups are written in the nearest standard font. */
+  unembedded: ReadonlySet<string>;
   /** Embedded markup images (signatures) by data URL. */
   images: Map<string, PDFImage>;
   scale: Scale;
@@ -573,7 +627,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     // The grid is drawn with the shape; each cell's text is laid out in its box and clipped to it,
     // in the cell's own font, size and colour. The table's font is F0, any others F1, F2, ...
     const tableFont = ctx.fonts.get(standardFont(style, false))!;
-    const fontNames = new Map<StandardFonts, string>([[standardFont(style, false), 'F0']]);
+    const fontNames = new Map<FontKey, string>([[standardFont(style, false), 'F0']]);
     const fontRefs: Record<string, PDFRef> = { F0: tableFont.ref };
     for (const cell of tableCells(m)) {
       if (!cell.text) continue;
@@ -772,7 +826,7 @@ function bluebeamArc(m: Markup): Markup {
 
 function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const { doc, matrix } = ctx;
-  const m = bluebeamArc(source);
+  const m = withExportFont(ctx, bluebeamArc(source));
   const b = boundsWithText(ctx, m);
   const corners = [apply(matrix, [b.x, b.y]), apply(matrix, [b.x + b.w, b.y + b.h])];
   const rect: [number, number, number, number] = [
@@ -1040,7 +1094,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
     case 'flagLabel':
     case 'typewriter': {
       const [r, g, bl] = rgb(textColor(m.style));
-      const font = DA_FONT_NAMES[m.style.fontFamily ?? 'sans'];
+      const font = daFontName(m.style.fontFamily);
       specific = {
         Subtype: 'FreeText',
         RD: rd,
@@ -1102,7 +1156,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
     }
     case 'callout': {
       const [r, g, bl] = rgb(textColor(m.style));
-      const font = DA_FONT_NAMES[m.style.fontFamily ?? 'sans'];
+      const font = daFontName(m.style.fontFamily);
       const box = contentBox(m);
       const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
       const bx = [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])] as const;
@@ -1875,6 +1929,15 @@ export interface ExportOptions {
    */
   fallbackFont?: (doc: PDFDocument, name: StandardFonts, text: string) => Promise<PDFFont>;
   /**
+   * Where the files of installed fonts come from. Markups whose `fontFamily` is an installed font's
+   * name get that font embedded (a subset), unless its license forbids embedding (OS/2 fsType
+   * "restricted"), it is not TrueType-outlined, or it cannot be loaded: then they are written in the
+   * nearest standard font and `onFontFallback` is told. Unset, every named font falls back.
+   */
+  systemFonts?: SystemFontSource;
+  /** Called once per installed font that was not embedded, with why. */
+  onFontFallback?: (family: string, reason: FontFallbackReason) => void;
+  /**
    * Loads the PDF and later saves it, in place of a plain load and rewrite: e.g. to append the
    * changes as an incremental update, which keeps a signed file's signatures valid.
    */
@@ -1965,10 +2028,12 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const written = markups.filter((m) => link.get(m) !== 'space' && !isNewSpace(m) && changed(m));
 
   // Embed only the fonts some written markup's text or label uses.
-  const fonts = new Map<StandardFonts, PDFFont>();
+  const fonts = new Map<FontKey, PDFFont>();
+  const namedKeys = new Set<FontKey>();
   // `fallbackFont` is told every character the markups draw, so it can pick a font that has them all (CJK).
   const unicode = options.fallbackFont && needsUnicodeFont(written) ? [...new Set(written.flatMap(drawnStrings).join(''))].join('') : null;
   const embedder = unicode !== null ? (d: PDFDocument, n: StandardFonts) => options.fallbackFont!(d, n, unicode) : options.embedFont;
+  const embedStandard = (name: StandardFonts) => (embedder ? embedder(doc, name) : doc.embedFont(name));
   for (const m of written) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
@@ -1979,7 +2044,39 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),
     ];
-    for (const name of names) if (!fonts.has(name)) fonts.set(name, await (embedder ? embedder(doc, name) : doc.embedFont(name)));
+    for (const name of names) {
+      if (fonts.has(name)) continue;
+      if (name.startsWith(NAMED_PREFIX)) namedKeys.add(name);
+      else fonts.set(name, await embedStandard(name as StandardFonts));
+    }
+  }
+  // Installed fonts: all the variants of a family that markups use are embedded, or none are (so a
+  // family never mixes its own look with a standard font's).
+  const unembedded = new Set<string>();
+  const byFamily = new Map<string, FontKey[]>();
+  for (const key of namedKeys) {
+    const family = key.slice(NAMED_PREFIX.length).split('|')[0]!;
+    byFamily.set(family, [...(byFamily.get(family) ?? []), key]);
+  }
+  for (const [family, keys] of byFamily) {
+    const loaded = new Map<FontKey, PDFFont>();
+    let failure: FontFallbackReason | null = options.systemFonts ? null : 'unavailable';
+    for (const key of keys) {
+      if (failure) break;
+      const variant = key.split('|')[1]!;
+      const result = await embedInstalled(doc, options.systemFonts!, family, variant[0] === '1', variant[1] === '1');
+      if (typeof result === 'string') failure = result;
+      else loaded.set(key, result);
+    }
+    if (failure) {
+      unembedded.add(family);
+      options.onFontFallback?.(family, failure);
+      for (const key of keys) {
+        const std = keywordFontOf(key);
+        if (!fonts.has(std)) fonts.set(std, await embedStandard(std));
+        fonts.set(key, fonts.get(std)!);
+      }
+    } else for (const [key, font] of loaded) fonts.set(key, font);
   }
   const images = new Map<string, PDFImage>();
   for (const m of written) {
@@ -2008,7 +2105,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const page = pages[pageIndex];
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames };
+    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
     const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.

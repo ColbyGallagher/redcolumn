@@ -3,7 +3,8 @@ import type { Dropped } from './diagnostics';
 import { mimeOf } from './import';
 import { removePredictor, rgbaToPngDataUrl, samplesToRgba } from './pdfExtras';
 import type { StampContent } from './stamp';
-import type { FontFamily, LineDash, LineEnding } from './style';
+import { familyFromPdfName, type FontFamily } from './fonts';
+import type { LineDash, LineEnding } from './style';
 
 /**
  * .btx tool sets. A .btx is XML: a <Title> and one <ToolChestItem> per tool, whose
@@ -596,7 +597,14 @@ export function toolStyle(type: MarkupType, d: PdfDict, defaults: Defaults): Mar
   // A text box with no border colour or width and no fill is just its text.
   if (type === 'text' && (!stroke || w === 0) && !fill) style.noBox = true;
   const font = `${/\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(da)?.[1] ?? ''} ${/font(?:-family)?:\s*([^;]+)/i.exec(ds)?.[1] ?? ''}`.toLowerCase();
-  const family: FontFamily | null = /times|tiro|serif(?!-)/.test(font) && !/sans/.test(font) ? 'serif' : /cour|mono/.test(font) ? 'mono' : null;
+  let family: FontFamily | null = /times|tiro|serif(?!-)/.test(font) && !/sans/.test(font) ? 'serif' : /cour|mono/.test(font) ? 'mono' : null;
+  if (!family) {
+    // Any other font in the style's text is an installed font, kept by name: the style's font, else the /DA resource name.
+    const dsFont = /font(?:-family)?:\s*([^;]+)/i.exec(ds)?.[1]?.replace(/[\d.]+\s*(?:pt|px)/gi, '').replace(/\b(?:bold|italic|oblique|normal)\b/gi, '').split(',')[0]?.replace(/^['"\s]+|['"\s]+$/g, '');
+    const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(da)?.[1];
+    const named = familyFromPdfName(dsFont || daFont || '');
+    if (named !== 'sans' && !/^(zadb|symb)/i.test(named)) family = named;
+  }
   if (family) style.fontFamily = family;
   if (/bold/.test(font) || /font-weight:\s*bold/i.test(ds)) style.bold = true;
   if (/italic|oblique/.test(font) || /font-style:\s*italic/i.test(ds)) style.italic = true;

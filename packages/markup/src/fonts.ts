@@ -1,0 +1,149 @@
+/**
+ * Font choice for text markups. A markup's `fontFamily` is either one of three keywords, which map
+ * to the PDF standard fonts so they look the same in every viewer, or the family name of a font
+ * installed on the computer ("Segoe UI", "Calibri"), which is embedded into exported PDFs.
+ */
+
+/** The three built-in families. */
+export type FontKeyword = 'sans' | 'serif' | 'mono';
+
+/** A keyword, or an installed font's family name. (`string & {}` keeps the keywords in editor completion.) */
+export type FontFamily = FontKeyword | (string & {});
+
+export const FONT_KEYWORDS: readonly FontKeyword[] = ['sans', 'serif', 'mono'];
+
+/** CSS stacks for the keywords. */
+export const FONT_FAMILIES: { value: FontKeyword; label: string; css: string }[] = [
+  { value: 'sans', label: 'Helvetica / Arial', css: 'Helvetica, Arial, sans-serif' },
+  { value: 'serif', label: 'Times New Roman', css: '"Times New Roman", Times, serif' },
+  { value: 'mono', label: 'Courier New', css: '"Courier New", Courier, monospace' },
+];
+
+/** True for 'sans', 'serif' and 'mono' (so a font family literally named one of those cannot be chosen by name). */
+export function isFontKeyword(family: string | undefined | null): family is FontKeyword {
+  return family === 'sans' || family === 'serif' || family === 'mono';
+}
+
+/** True for an installed font's family name: any non-empty string that is not a keyword. */
+export function isNamedFont(family: string | undefined | null): family is string {
+  return typeof family === 'string' && family.trim() !== '' && !isFontKeyword(family);
+}
+
+/**
+ * The family name as stored: trimmed, control characters and markup characters removed, at most 100
+ * characters. A keyword (in any case) gives that keyword; an empty name gives undefined.
+ */
+export function cleanFontName(raw: string): FontFamily | undefined {
+  const name = raw.replace(/[\u0000-\u001f\u007f<>";]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+  if (!name) return undefined;
+  const lower = name.toLowerCase();
+  return isFontKeyword(lower) ? lower : name;
+}
+
+/**
+ * The keyword nearest a font, for everywhere only the three standard fonts are available (a font
+ * that cannot be embedded, a viewer without the font). Deliberately simple: a name containing
+ * Mono, Courier, Consolas, Typewriter or the like is mono; Times, Georgia, Garamond, Cambria, a
+ * "Serif" without "Sans", and similar are serif; everything else is sans.
+ */
+export function fontKeyword(family: FontFamily | undefined | null): FontKeyword {
+  if (!family) return 'sans';
+  if (isFontKeyword(family)) return family;
+  const n = family.toLowerCase();
+  if (/mono|courier|consolas|typewriter|fixed|lucida console|menlo|monaco|source code/.test(n)) return 'mono';
+  if (/sans|gothic|grotesk|arial|helvetica|calibri|verdana|tahoma|segoe/.test(n)) return 'sans';
+  if (/serif|times|georgia|garamond|palatino|cambria|bookman|book antiqua|century|didot|bodoni|baskerville|minion|roman|caslon|constantia/.test(n)) return 'serif';
+  return 'sans';
+}
+
+/** A CSS font-family list: the keyword's stack, or the quoted family name followed by the nearest keyword's stack. */
+export function cssFontFamily(family: FontFamily | undefined | null): string {
+  const keyword = FONT_FAMILIES.find((f) => f.value === fontKeyword(family))!;
+  if (!isNamedFont(family)) return keyword.css;
+  return `"${family.replace(/["\\]/g, '')}", ${keyword.css}`;
+}
+
+/** Acrobat's default-resource names for the keywords, used in FreeText /DA strings. */
+const DA_KEYWORD_NAMES: Record<FontKeyword, string> = { sans: 'Helv', serif: 'TiRo', mono: 'Cour' };
+
+/** The font name for a FreeText /DA: Acrobat's name for a keyword, else the family name made safe as a PDF name (no spaces). */
+export function daFontName(family: FontFamily | undefined | null): string {
+  if (!isNamedFont(family)) return DA_KEYWORD_NAMES[fontKeyword(family)];
+  return family.replace(/[^A-Za-z0-9_.+-]/g, '') || DA_KEYWORD_NAMES[fontKeyword(family)];
+}
+
+/**
+ * The family a /DA font name or rich text font-family stands for: the keyword for the standard
+ * names (Helv, Arial, Times New Roman, Courier ...), else the name itself, with the style
+ * suffixes PostScript names carry ("Calibri-Bold", "ComicSansMS,Italic") taken off.
+ */
+export function familyFromPdfName(raw: string): FontFamily {
+  const name = raw.replace(/^[A-Z]{6}\+/, '').trim();
+  const base = name.replace(/(?:[-,\s]*(?:bold|italic|oblique|regular))+$/i, '').replace(/(?:PSMT|MT|PS)$/, '');
+  const squashed = base.toLowerCase().replace(/[\s_-]+/g, '');
+  if (['helv', 'helvetica', 'arial'].includes(squashed)) return 'sans';
+  if (['tiro', 'times', 'timesroman', 'timesnewroman'].includes(squashed)) return 'serif';
+  if (['cour', 'courier', 'couriernew'].includes(squashed)) return 'mono';
+  return cleanFontName(base) ?? 'sans';
+}
+
+// ---- Embedding permission (OS/2 fsType) ---------------------------------------------------------------
+
+export type FontEmbedding = 'installable' | 'editable' | 'preview' | 'restricted';
+
+export interface FontPermissions {
+  embedding: FontEmbedding;
+  /** The font says it must not be subset: embed all of it. */
+  noSubsetting: boolean;
+  /** Only bitmaps may be embedded, which a PDF text font cannot use. */
+  bitmapOnly: boolean;
+}
+
+const u16 = (v: DataView, o: number) => v.getUint16(o, false);
+const u32 = (v: DataView, o: number) => v.getUint32(o, false);
+
+/** The location of a table in a single-font sfnt file (TrueType or OpenType), or null. */
+function sfntTable(v: DataView, tag: string): { offset: number; length: number } | null {
+  if (v.byteLength < 12) return null;
+  const count = u16(v, 4);
+  for (let i = 0; i < count; i++) {
+    const rec = 12 + i * 16;
+    if (rec + 16 > v.byteLength) return null;
+    const t = String.fromCharCode(v.getUint8(rec), v.getUint8(rec + 1), v.getUint8(rec + 2), v.getUint8(rec + 3));
+    if (t === tag) return { offset: u32(v, rec + 8), length: u32(v, rec + 12) };
+  }
+  return null;
+}
+
+const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+/** Whether the bytes are a single sfnt font with TrueType outlines (the only kind pdf-lib embeds correctly as FontFile2). */
+export function isTrueTypeOutline(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  const v = view(bytes);
+  const version = u32(v, 0);
+  return (version === 0x00010000 || version === 0x74727565) && !!sfntTable(v, 'glyf');
+}
+
+/**
+ * What the font's OS/2 table (fsType) allows. Restricted license embedding (0x0002) forbids
+ * embedding at all; preview and print (0x0004), editable (0x0008) and installable (0) allow it.
+ * A font without an OS/2 table states no restriction. null when the bytes are not an sfnt font.
+ */
+export function fontPermissions(bytes: Uint8Array): FontPermissions | null {
+  if (bytes.length < 12) return null;
+  const v = view(bytes);
+  const version = u32(v, 0);
+  if (version !== 0x00010000 && version !== 0x74727565 && version !== 0x4f54544f) return null;
+  const os2 = sfntTable(v, 'OS/2');
+  if (!os2 || os2.offset + 10 > v.byteLength) return { embedding: 'installable', noSubsetting: false, bitmapOnly: false };
+  const fs = u16(v, os2.offset + 8);
+  const embedding: FontEmbedding = fs & 0x0002 ? 'restricted' : fs & 0x0008 ? 'editable' : fs & 0x0004 ? 'preview' : 'installable';
+  return { embedding, noSubsetting: !!(fs & 0x0100), bitmapOnly: !!(fs & 0x0200) };
+}
+
+/** Whether a font may be embedded in an exported PDF. */
+export function canEmbedFont(bytes: Uint8Array): boolean {
+  const p = fontPermissions(bytes);
+  return !!p && p.embedding !== 'restricted' && !p.bitmapOnly;
+}

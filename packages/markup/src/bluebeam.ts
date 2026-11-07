@@ -8,7 +8,8 @@ import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
-import type { FontFamily, LineEnding, TextAlign, VerticalAlign } from './style';
+import { familyFromPdfName, type FontFamily } from './fonts';
+import type { LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
 
 /** Where our own copy of a markup rides in a PDF object; must match export.ts's. */
@@ -139,7 +140,7 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
       // e.g. "Helvetica 12pt", "bold italic Arial 10pt", "Times New Roman,Bold 9pt"
       const size = /([\d.]+)\s*pt/.exec(value);
       if (size) out.fontSize = Number(size[1]);
-      const family = fontFamilyOf(value);
+      const family = fontFamilyOf(value.replace(/[\d.]+\s*pt/i, '').replace(/\b(bold|italic|oblique|normal)\b/gi, ''));
       if (family !== 'sans') out.fontFamily = family;
       if (/\bbold\b/i.test(value)) out.bold = true;
       if (/\b(italic|oblique)\b/i.test(value)) out.italic = true;
@@ -182,10 +183,15 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
   return out;
 }
 
+/**
+ * The family in a CSS font shorthand or font-family list ("Calibri 12pt", "'Segoe UI', sans-serif"):
+ * its first name. The three standard families (and generic names) read as keywords; any other name
+ * is kept as an installed font's name.
+ */
 function fontFamilyOf(s: string): FontFamily {
-  if (/times|serif(?!-)|roman|georgia|garamond/i.test(s) && !/sans/i.test(s)) return 'serif';
-  if (/cour|mono|consol/i.test(s)) return 'mono';
-  return 'sans';
+  const first = s.split(/,\s*(?!bold|italic|oblique)/i)[0]!.replace(/^['"\s]+|['"\s]+$/g, '');
+  if (/^(sans-serif|serif|monospace|system-ui)$/i.test(first)) return first.toLowerCase() === 'serif' ? 'serif' : first.toLowerCase() === 'monospace' ? 'mono' : 'sans';
+  return familyFromPdfName(first);
 }
 
 function cssColor(s: string): string | null {

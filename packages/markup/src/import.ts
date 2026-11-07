@@ -28,6 +28,7 @@ import {
 import { markupDigest } from './digest';
 import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
+import { familyFromPdfName } from './fonts';
 import type { LineDash } from './style';
 import type { Viewport } from './viewports';
 
@@ -373,9 +374,16 @@ export function importAnnotations(
         if (f.type === 'text' || f.type === 'typewriter') {
           style.fontSize = Number(/([\d.]+)\s+Tf/.exec(a.da)?.[1]) || 12;
           // Font resource names in /DA hint at the family (Acrobat: Helv, TiRo, Cour).
-          const font = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1]?.toLowerCase() ?? '';
+          const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1] ?? '';
+          const font = daFont.toLowerCase();
           if (/^(tiro|times)/.test(font)) style.fontFamily = 'serif';
           else if (/^cour/.test(font)) style.fontFamily = 'mono';
+          else if (daFont && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
+            // Any other font name is an installed font's, kept as it is (a name written by an
+            // earlier export has its spaces taken out; the rich text, read later, has them).
+            const named = familyFromPdfName(daFont.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
+            if (named !== 'sans') style.fontFamily = named;
+          }
           if (/bold|,b/.test(font)) style.bold = true;
         }
         if (f.type === 'area') style.fillOpacity = 0.2;
