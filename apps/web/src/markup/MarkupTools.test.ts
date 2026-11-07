@@ -1406,3 +1406,44 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
 });
+
+test('Area, Volume and Perimeter: dragging makes a four-point rectangle in one motion and keeps the tool', async () => {
+  for (const type of ['area', 'volume', 'perimeter'] as const) {
+    const h = await setup();
+    h.tools.setTool(type);
+    drag(h.tools, [100, 100], [300, 250]);
+    const [m] = h.store.all();
+    assert.equal(m?.type, type);
+    assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 250], [100, 250]]);
+    assert.equal(h.tools.getState().tool, type, 'still armed');
+    assert.equal(h.tools.inProgress, false);
+    // Dragging up and to the left gives the same kind of rectangle.
+    drag(h.tools, [500, 500], [400, 450]);
+    assert.equal(h.store.all()[1]?.points.length, 4);
+    await h.store.destroy();
+  }
+});
+
+test('Area: a small movement still starts a polygon point by point', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [102, 101]);
+  assert.equal(h.store.all().length, 0, 'not finished');
+  assert.equal(h.tools.inProgress, true);
+  click(h.tools, [200, 100]);
+  click(h.tools, [200, 200]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]?.points.length, 3);
+  await h.store.destroy();
+});
+
+test('Area: Shift drags a square in real-world units, even with a separate vertical scale', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.01, yMetersPerPoint: 0.02, unit: 'm', label: 'x' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [300, 160], { shiftKey: true });
+  const [m] = h.store.all();
+  // 200 pt wide at 0.01 is 2 m, so the height is 2 m: 100 pt at 0.02.
+  assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 200], [100, 200]]);
+  await h.store.destroy();
+});
