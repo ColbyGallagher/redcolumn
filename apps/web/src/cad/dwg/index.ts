@@ -67,6 +67,8 @@ function readHandleMap(data: Uint8Array | null, version: number): Map<number, nu
     const size = (data[r.bytePos]! << 8) | data[r.bytePos + 1]!;
     r.bytePos += 2;
     if (size <= 2) break;
+    // Entries start while within 2032 bytes; the last one can run past that, and the CRC follows
+    // wherever it ends (a section of size 2035 holds 2033 bytes of entries).
     const end = r.bytePos + Math.min(size - 2, 2032);
     let handle = 0;
     let loc = 0;
@@ -77,7 +79,7 @@ function readHandleMap(data: Uint8Array | null, version: number): Map<number, nu
       if (dh > 0) map.set(handle, loc);
       if (map.size > MAX_OBJECTS) throw new CadReadError('This drawing is too large to convert.');
     }
-    r.bytePos = end + 2;
+    r.bytePos += 2;
   }
   return map;
 }
@@ -148,6 +150,7 @@ function assemble(recs: Map<number, Rec>, version: number, header: ReturnType<ty
     modelSpace: [],
     byHandle: new Map(),
     imageDefs: new Map(),
+    activeView: null,
   };
 
   for (const l of objs('LAYER')) {
@@ -182,6 +185,11 @@ function assemble(recs: Map<number, Rec>, version: number, header: ReturnType<ty
     });
   }
   for (const i of objs('IMAGEDEF')) d.imageDefs.set(hex(i.handle), { path: String(i.data.path ?? '') });
+  const active = objs('VPORT').find((v) => String(v.data.name).toUpperCase() === '*ACTIVE');
+  if (active) {
+    const t = (active.data.target as number[]) ?? [0, 0];
+    d.activeView = { twist: ((Number(active.data.twist) || 0) * 180) / Math.PI, target: [t[0] ?? 0, t[1] ?? 0] };
+  }
 
   // Entities in the Drawing's form.
   const converted = new Map<number, Entity>();
@@ -319,6 +327,7 @@ function assemble(recs: Map<number, Rec>, version: number, header: ReturnType<ty
       rotation: (Number(l.data.rotation) || 0) & 3,
       printScale: num > 0 && den > 0 ? num / den : 1,
       isModel: nameOf.toUpperCase() === 'MODEL',
+      styleSheet: String(l.data.styleSheet ?? ''),
     };
     d.layouts.push(layout);
     // The first viewport of a layout is its overall paper viewport (DXF id 1).

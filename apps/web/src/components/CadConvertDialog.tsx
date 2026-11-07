@@ -4,6 +4,7 @@ import type { KeptConversion } from '../cad/session';
 import type { CadFile } from '../cad/convert';
 import { CAD_ACCEPT } from '../cad/files';
 import type { ColorMode } from '../cad/render';
+import { UNIT_CHOICES } from '../cad/units';
 
 interface Props {
   conversion: KeptConversion;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 const COLOR_MODES: [ColorMode, string][] = [
+  ['auto', 'As plotted'],
   ['color', 'Colour'],
   ['grey', 'Greyscale'],
   ['mono', 'Black'],
@@ -24,11 +26,14 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
   const all = report.layouts;
   const [layouts, setLayouts] = useState<string[]>(options.layouts ? options.layouts.filter((l) => all.includes(l)) : all);
   const [model, setModel] = useState(!all.length || !!options.includeModel);
-  const [colorMode, setColorMode] = useState<ColorMode>(options.colorMode ?? 'color');
+  const [colorMode, setColorMode] = useState<ColorMode>(options.colorMode ?? 'auto');
   const [lineweights, setLineweights] = useState(options.lineweights ?? true);
   const [references, setReferences] = useState<CadFile[]>(conversion.references);
+  // Only a drawing that does not state its units has them chosen here.
+  const [units, setUnits] = useState<number>(options.units ?? 4);
   const input = useRef<HTMLInputElement>(null);
-  const missing = report.warnings.flatMap((w) => (w.kind === 'missing-xref' ? [w.path || w.name] : []));
+  const missing = report.warnings.flatMap((w) => (w.kind === 'missing-xref' ? [w.path || w.name] : w.kind === 'missing-image' && w.path ? [w.path] : w.kind === 'plot-style-missing' ? [w.name] : []));
+  const shortName = (p: string) => p.replace(/^.*[\\/]/, '');
   const valid = layouts.length > 0 || model;
 
   const addFiles = async (files: FileList | null) => {
@@ -47,7 +52,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
           if (!valid || busy) return;
           // All layouts chosen is the default, so a drawing with more layouts later gets them all.
           const chosen = layouts.length === all.length ? undefined : layouts;
-          onConvert({ ...options, layouts: chosen, includeModel: all.length ? model : undefined, colorMode, lineweights }, references);
+          onConvert({ ...options, layouts: chosen, includeModel: all.length ? model : undefined, colorMode, lineweights, units: report.unitsStated ? options.units : units }, references);
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -71,6 +76,22 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
           </label>
         </fieldset>
 
+        {!report.unitsStated && (
+          <fieldset>
+            <legend>Units</legend>
+            <label>
+              The drawing does not say its units. It is drawn in{' '}
+              <select aria-label="Drawing units" value={units} onChange={(e) => setUnits(Number(e.target.value))}>
+                {UNIT_CHOICES.map((u) => (
+                  <option key={u.code} value={u.code}>
+                    {u.label.split(':')[0]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+        )}
+
         <fieldset>
           <legend>Lines</legend>
           <div className="row" role="radiogroup" aria-label="Colour">
@@ -88,8 +109,12 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
         </fieldset>
 
         <fieldset>
-          <legend>Reference drawings</legend>
-          {missing.length > 0 ? <p>Not found: {missing.join(', ')}. Add them here (DWG or DXF, matched by file name).</p> : <p>Add the drawings this one references, to draw them in place.</p>}
+          <legend>Reference drawings, pictures and plot styles</legend>
+          {missing.length > 0 ? (
+            <p>Not found: {[...new Set(missing.map(shortName))].join(', ')}. Add them here: drawings as DWG or DXF, pictures as PNG or JPEG, plot styles as CTB, matched by file name.</p>
+          ) : (
+            <p>Add the drawings, pictures and plot style table (.ctb) this one uses.</p>
+          )}
           {references.length > 0 && (
             <ul className="cad-ref-list">
               {references.map((r) => (
@@ -110,7 +135,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
             type="file"
             multiple
             hidden
-            accept={CAD_ACCEPT}
+            accept={`${CAD_ACCEPT},.png,.jpg,.jpeg,.ctb`}
             onChange={(e) => {
               void addFiles(e.target.files);
               e.target.value = '';

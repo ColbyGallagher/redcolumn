@@ -6,6 +6,7 @@ window.HELP_TOC = [
       { id: 'welcome', title: 'Welcome to redcolumn' },
       { id: 'workspace', title: 'A tour of the screen' },
       { id: 'open', title: 'Open a PDF' },
+      { id: 'open-drawings', title: 'Open a DWG or DXF drawing' },
       { id: 'save', title: 'Save your work' },
       { id: 'tabs', title: 'Work with several documents' },
       { id: 'file-access', title: 'File Access (your files on this device)' },

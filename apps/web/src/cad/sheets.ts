@@ -1,3 +1,5 @@
+import { unitName } from './units';
+import type { PlotStyleTable } from './ctb';
 import type { LengthUnit } from '@nb/measure';
 import { headerNum, INSUNITS_M, num, pt, type Drawing, type Entity, type Layout } from './drawing';
 import { apply, boxEmpty, emptyBox, grow, pathBox, polyPath, rotate, scale, then, translate, type Box, type Cmd, type M, type P } from './geom';
@@ -57,7 +59,9 @@ export interface Sheet {
   scaleChecks: ScaleCheck[];
 }
 
-export interface SheetOptions extends RenderOptions {
+export interface SheetOptions extends Omit<RenderOptions, 'plotStyle'> {
+  /** Supplied plot style tables, by lower-case file name (tfnsw_a1.ctb). */
+  plotStyles?: ReadonlyMap<string, PlotStyleTable>;
   /** Layout names to convert; all paper-space layouts when absent. */
   layouts?: readonly string[];
   /** Also a page for model space when the drawing has layouts. */
@@ -68,16 +72,50 @@ export interface Planned {
   sheets: Sheet[];
   stats: RenderStats;
   /** Notes for the report: units assumed, non-standard scales, non-plan views. */
-  notes: { kind: 'units-assumed'; unit: string }[];
+  notes: ({ kind: 'units-assumed'; unit: string } | { kind: 'plot-style-missing'; name: string })[];
 }
 
 /** Drawing units: metres per unit and whether the drawing is imperial. */
-export function drawingUnits(d: Drawing): { metersPerUnit: number; imperial: boolean; assumed: boolean } {
+export function drawingUnits(d: Drawing): { metersPerUnit: number; imperial: boolean; assumed: boolean; grid?: boolean } {
   const code = headerNum(d, '$INSUNITS', 0);
   const metric = headerNum(d, '$MEASUREMENT', 1) === 1;
   const m = INSUNITS_M[code];
   if (m) return { metersPerUnit: m, imperial: [1, 2, 3, 8, 9, 10, 21].includes(code), assumed: false };
-  return { metersPerUnit: metric ? 0.001 : 0.0254, imperial: !metric, assumed: true };
+  const guess = unitsGuess(d);
+  return { metersPerUnit: INSUNITS_M[guess]!, imperial: !metric, assumed: true, grid: guess === 6 || guess === 2 };
+}
+
+/** Whether the drawing states its units ($INSUNITS is one the converter knows). */
+export const unitsStated = (d: Drawing) => !!INSUNITS_M[headerNum(d, '$INSUNITS', 0)];
+
+/**
+ * The best guess (an INSUNITS code) for a drawing that does not state its units: millimetres or
+ * inches by $MEASUREMENT, but metres or feet when it is drawn at survey grid coordinates
+ * (eastings and northings in the hundreds of thousands). Only a suggestion: the person decides.
+ */
+export function unitsGuess(d: Drawing): number {
+  const metric = headerNum(d, '$MEASUREMENT', 1) === 1;
+  if (onGrid(d)) return metric ? 6 : 2;
+  return metric ? 4 : 1;
+}
+
+const gridCache = new WeakMap<Drawing, boolean>();
+/** Most model-space points lie at projected grid coordinates (both |x| and |y| over 100 000). */
+function onGrid(d: Drawing): boolean {
+  let hit = gridCache.get(d);
+  if (hit !== undefined) return hit;
+  let n = 0;
+  let far = 0;
+  for (const e of d.modelSpace.slice(0, 5000)) {
+    const x = Number(e.g.find(([c]) => c === 10)?.[1]);
+    const y = Number(e.g.find(([c]) => c === 20)?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || (x === 0 && y === 0)) continue;
+    n++;
+    if (Math.abs(x) >= 1e5 && Math.abs(y) >= 1e5) far++;
+  }
+  hit = n >= 10 && far / n > 0.8;
+  gridCache.set(d, hit);
+  return hit;
 }
 
 /** The unit measurements are shown in, for drawing units of `metersPerUnit`. */
@@ -188,16 +226,42 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   const stats = newStats();
   const notes: Planned['notes'] = [];
   const units = drawingUnits(d);
-  if (units.assumed) notes.push({ kind: 'units-assumed', unit: units.imperial ? 'inches' : 'millimetres' });
+  if (units.assumed) notes.push({ kind: 'units-assumed', unit: `${unitName(unitsGuess(d))}${units.grid ? ' (it is drawn at survey grid coordinates)' : ''}` });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
-  const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities));
-  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats));
+  const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities, notes));
+  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats, notes));
   return { sheets, stats, notes };
 }
 
 // ---- layouts ---------------------------------------------------------------------------------
 
-function layoutSheet(d: Drawing, opts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[]): Sheet {
+/** 'auto' as the page setup's plot style table would plot it: monochrome or grey tables by name. */
+/** Tables whose effect 'As plotted' already gives, or that leave colours as drawn. */
+const BUILT_IN_STYLES = /^(monochrome|grayscale|greyscale|acad|default|screening.*|fill patterns|.*\.stb)$/i;
+
+/** The supplied plot style table for a page setup, by the name it gives (or the only one supplied, when it names none). */
+function plotStyleFor(opts: SheetOptions, styleSheet: string, notes: Planned['notes']): PlotStyleTable | undefined {
+  const tables = opts.plotStyles;
+  const name = styleSheet.replace(/^.*[\\/]/, '');
+  if (name) {
+    const t = tables?.get(name.toLowerCase());
+    if (!t && !BUILT_IN_STYLES.test(name.replace(/\.ctb$/i, '')) && !notes.some((n) => n.kind === 'plot-style-missing' && n.name === name)) notes.push({ kind: 'plot-style-missing', name });
+    return t;
+  }
+  return tables?.size === 1 ? [...tables.values()][0] : undefined;
+}
+
+export function colorModeFor(mode: SheetOptions['colorMode'], styleSheet: string): Exclude<SheetOptions['colorMode'], 'auto'> {
+  if (mode !== 'auto') return mode;
+  if (/monochrome/i.test(styleSheet)) return 'mono';
+  if (/gr[ae]yscale/i.test(styleSheet)) return 'grey';
+  return 'color';
+}
+
+function layoutSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, layout: Layout, entities: Entity[], notes: Planned['notes']): Sheet {
+  const plotStyle = plotStyleFor(allOpts, layout.styleSheet, notes);
+  // A supplied table decides the colours itself.
+  const opts: RenderOptions = { ...allOpts, plotStyle, colorMode: plotStyle && allOpts.colorMode === 'auto' ? 'color' : colorModeFor(allOpts.colorMode, layout.styleSheet) };
   const unitPt = layout.mm ? PT_PER_MM : 72;
   const p = layout.printScale || 1;
   const w = layout.paperWidth * PT_PER_MM;
@@ -303,10 +367,15 @@ const mapCmds = (m: M, d: Cmd[]): Cmd[] =>
 /** Largest page a model-space drawing is fitted to (A0, either way round), in mm. */
 const MODEL_MAX_MM: [number, number] = [1189, 841];
 
-function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
+function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, notes: Planned['notes']): Sheet {
+  const modelLayout = d.layouts.find((l) => l.isModel);
+  const plotStyle = plotStyleFor(allOpts, modelLayout?.styleSheet ?? '', notes);
+  const opts: RenderOptions = { ...allOpts, plotStyle, colorMode: plotStyle && allOpts.colorMode === 'auto' ? 'color' : colorModeFor(allOpts.colorMode, modelLayout?.styleSheet ?? '') };
+  // Model space plots as it was last seen: turned by the active view's twist.
+  const twist: M = d.activeView?.twist ? rotate((d.activeView.twist * Math.PI) / 180) : [1, 0, 0, 1, 0, 0];
   const { metersPerUnit, imperial } = drawingUnits(d);
   // First pass in drawing units, for the extents.
-  const probe = ctxFor(d, opts, newStats(), [1, 0, 0, 1, 0, 0], 1);
+  const probe = ctxFor(d, opts, newStats(), twist, 1);
   renderEntities(probe, d.modelSpace);
   const box = primsBox(probe.out);
   if (boxEmpty(box)) {
@@ -319,7 +388,7 @@ function modelSheet(d: Drawing, opts: SheetOptions, stats: RenderStats): Sheet {
   const ratios = imperial ? IMPERIAL.map(([n]) => n).sort((a, b) => a - b) : METRIC_RATIOS;
   const ratio = ratios.find(fits) ?? Math.max(...ext) / MODEL_MAX_MM[0];
   const s = (mmPerUnit * PT_PER_MM) / ratio;
-  const m = then(translate(-box.x0, -box.y0), scale(s));
+  const m = then(then(twist, translate(-box.x0, -box.y0)), scale(s));
   const ctx = ctxFor(d, opts, stats, m, s);
   renderEntities(ctx, d.modelSpace);
   return { name: 'Model', width: ext[0]! / ratio * PT_PER_MM, height: ext[1]! / ratio * PT_PER_MM, prims: ctx.out, viewports: [], pageScale: measureScale(d, s), scaleChecks: [] };
@@ -330,10 +399,22 @@ export function primsBox(prims: readonly Prim[], box: Box = emptyBox()): Box {
   for (const p of prims) {
     if (p.k === 'stroke' || p.k === 'fill') pathBox(p.d, box);
     else if (p.k === 'hatch') pathBox(p.clip, box);
+    else if (p.k === 'image')
+      for (const [a, b] of [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ])
+        grow(box, p.origin[0] + p.u[0] * a! + p.v[0] * b!, p.origin[1] + p.u[1] * a! + p.v[1] * b!);
     else if (p.k === 'clip') pathBox(p.clip, box);
     else {
-      const chars = Math.max(...p.lines.map((l) => l.length), 1);
-      const len = p.fit ?? p.wrap ?? chars * 0.6 * p.h * p.widthFactor;
+      // Capitals run about 0.8 of the cap height wide in the fonts used. Wrapped text keeps to
+      // its box, except a word longer than the box, which runs over it.
+      const perChar = 0.8 * p.h * p.widthFactor;
+      const longestLine = Math.max(...p.lines.map((l) => l.length), 1);
+      const longestWord = Math.max(...p.lines.flatMap((l) => l.split(/\s+/).map((w) => w.length)), 1);
+      const len = p.fit ?? (p.wrap ? Math.max(p.wrap, longestWord * perChar) : longestLine * perChar);
       const x0 = -len * (p.halign / 2);
       const lines = p.block ? p.lines.length : 1;
       const top = p.valign === 3 ? 0 : p.valign === 2 ? (p.h + (lines - 1) * p.spacing) / 2 : p.valign === 1 ? p.h + (lines - 1) * p.spacing : p.h;

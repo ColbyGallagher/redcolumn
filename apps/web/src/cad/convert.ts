@@ -1,9 +1,10 @@
 import { CadReadError, readDxf } from './dxf';
 import { readDwg } from './dwg';
-import type { Drawing } from './drawing';
 import { writePdf, type CadFonts } from './pdf';
-import { referenceKey, type FontKey } from './render';
-import { paperLayouts, planSheets, type SheetOptions } from './sheets';
+import { parseCtb, type PlotStyleTable } from './ctb';
+import { imageKey, referenceKey, type FontKey } from './render';
+import { paperLayouts, planSheets, unitsGuess, unitsStated, type SheetOptions } from './sheets';
+import { INSUNITS_M, type Drawing } from './drawing';
 
 /**
  * DWG/DXF to vector PDF, entirely in memory: read the drawing, plan a page per layout, write the
@@ -15,6 +16,7 @@ export { CadReadError } from './dxf';
 export type CadWarning =
   | { kind: 'missing-xref'; name: string; path: string }
   | { kind: 'reference-unreadable'; file: string; message: string }
+  | { kind: 'plot-style-missing'; name: string }
   | { kind: 'missing-image'; path: string }
   | { kind: 'font-substituted'; font: string; with: FontKey }
   | { kind: 'unsupported'; type: string; count: number }
@@ -38,6 +40,8 @@ export interface ConversionReport {
   layouts: string[];
   /** Reference drawings that were supplied and drawn. */
   references: string[];
+  /** The drawing states its own units (otherwise they were chosen, or assumed). */
+  unitsStated: boolean;
   warnings: CadWarning[];
 }
 
@@ -50,6 +54,17 @@ export interface ConvertOptions extends Partial<Omit<SheetOptions, 'references'>
   fonts: CadFonts;
   /** Drawings for external references, matched to them by file name. */
   references?: readonly CadFile[];
+  /** Units (an INSUNITS code) for a drawing that does not state its own; ignored when it does. */
+  units?: number;
+  /** For a drawing that does not state its units and has none above: stop with CadUnitsNeeded. */
+  askUnits?: boolean;
+}
+
+/** The drawing does not say its units, and the caller wants to ask: `guess` is the suggestion. */
+export class CadUnitsNeeded extends Error {
+  constructor(readonly guess: number) {
+    super('The drawing does not say its units.');
+  }
 }
 
 export { CAD_EXTENSIONS, isCadFile } from './files';
@@ -67,16 +82,36 @@ export function readDrawing(name: string, bytes: Uint8Array): { drawing: Drawing
 
 export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertOptions): Promise<{ pdf: Uint8Array; report: ConversionReport }> {
   const { drawing, format, unreadable } = readDrawing(name, bytes);
+  const stated = unitsStated(drawing);
+  if (!stated) {
+    if (opts.units !== undefined && INSUNITS_M[opts.units]) drawing.header.set('$INSUNITS', [[70, String(opts.units)]]);
+    else if (opts.askUnits) throw new CadUnitsNeeded(unitsGuess(drawing));
+  }
   const warnings: CadWarning[] = [];
   const references = new Map<string, Drawing>();
+  // Supplied files: drawings for external references, PNG/JPEG pictures for images.
+  const images = new Map<string, { name: string; bytes: Uint8Array; format: 'png' | 'jpg' }>();
+  const plotStyles = new Map<string, PlotStyleTable>();
   for (const ref of opts.references ?? []) {
+    if (/\.ctb$/i.test(ref.name)) {
+      try {
+        plotStyles.set(ref.name.toLowerCase(), await parseCtb(ref.name, ref.bytes));
+      } catch (err) {
+        warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
+      }
+      continue;
+    }
+    if (/\.(png|jpe?g)$/i.test(ref.name)) {
+      images.set(imageKey(ref.name), { name: ref.name, bytes: ref.bytes, format: /\.png$/i.test(ref.name) ? 'png' : 'jpg' });
+      continue;
+    }
     try {
       references.set(referenceKey(ref.name), readDrawing(ref.name, ref.bytes).drawing);
     } catch (err) {
       warnings.push({ kind: 'reference-unreadable', file: ref.name, message: err instanceof Error ? err.message : String(err) });
     }
   }
-  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'color', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references });
+  const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'auto', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel, references, images, plotStyles });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
   const pdf = await writePdf(sheets, opts.fonts, { title, source: name });
@@ -116,7 +151,8 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
       })),
       layers: [...layers],
       layouts: paperLayouts(drawing).map((l) => l.layout.name),
-      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n))),
+      unitsStated: stated,
+      references: (opts.references ?? []).map((r) => r.name).filter((n) => references.has(referenceKey(n)) || images.has(imageKey(n)) || plotStyles.has(n.toLowerCase())),
       warnings,
     },
   };
