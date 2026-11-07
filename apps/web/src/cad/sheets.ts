@@ -374,8 +374,8 @@ function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, notes
   // Model space plots as it was last seen: turned by the active view's twist.
   const twist: M = d.activeView?.twist ? rotate((d.activeView.twist * Math.PI) / 180) : [1, 0, 0, 1, 0, 0];
   const { metersPerUnit, imperial } = drawingUnits(d);
-  // First pass in drawing units, for the extents.
-  const probe = ctxFor(d, opts, newStats(), twist, 1);
+  // First pass in drawing units, for the extents: it is real work, so it shares the budget.
+  const probe = ctxFor(d, opts, newStats(stats.budget), twist, 1);
   renderEntities(probe, d.modelSpace);
   const box = primsBox(probe.out);
   if (boxEmpty(box)) {

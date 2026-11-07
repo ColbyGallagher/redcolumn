@@ -119,10 +119,38 @@ export interface RenderStats {
 export interface Budget {
   entities: number;
   blocks: number;
+  /** Output so far: path commands, hatch segments and text characters. */
+  output: number;
 }
 export const MAX_ENTITY_DRAWS = 10_000_000;
 export const MAX_BLOCK_DRAWS = 2_000_000;
+/** About what a worker can hold as primitives and still write the PDF: a few hundred MB. */
+export const MAX_OUTPUT = 4_000_000;
 const tooComplex = () => new CadReadError('This drawing is too complex to convert.');
+
+/** What one primitive costs the output budget. */
+function outputCost(p: Prim): number {
+  switch (p.k) {
+    case 'stroke':
+    case 'fill':
+      return p.d.length + 1;
+    case 'hatch':
+      return p.clip.length + p.lines.length + 1;
+    case 'text':
+      return p.lines.reduce((a, l) => a + l.length, 0) + 1;
+    case 'clip':
+      return p.clip.length + 1;
+    default:
+      return 1;
+  }
+}
+
+/** Adds a primitive to the output, charging it to the conversion's budget: a small file that
+ * draws a great deal (one dense hatch in a block repeated many times) stops before memory runs out. */
+function emit(c: Ctx, p: Prim) {
+  if ((c.stats.budget.output += outputCost(p)) > MAX_OUTPUT) throw tooComplex();
+  c.out.push(p);
+}
 
 export interface DimSample {
   /** Length on the page in points. */
@@ -133,7 +161,7 @@ export interface DimSample {
   at: P;
 }
 
-export const newStats = (budget: Budget = { entities: 0, blocks: 0 }): RenderStats => ({ skipped: new Map(), xrefs: new Map(), images: new Set(), fonts: new Map(), dims: [], budget });
+export const newStats = (budget: Budget = { entities: 0, blocks: 0, output: 0 }): RenderStats => ({ skipped: new Map(), xrefs: new Map(), images: new Set(), fonts: new Map(), dims: [], budget });
 
 const PT_PER_MM = 72 / 25.4;
 const MIN_LW_MM = 0.1;
@@ -321,7 +349,7 @@ function renderEntity(c: Ctx, e: Entity) {
       // LINE points are WCS.
       const a = apply(c.m, pt(g, 10));
       const b = apply(c.m, pt(g, 11));
-      c.out.push(strokeOf(c, e, [['M', a[0], a[1]], ['L', b[0], b[1]]]));
+      emit(c, strokeOf(c, e, [['M', a[0], a[1]], ['L', b[0], b[1]]]));
       return;
     }
     case 'LWPOLYLINE':
@@ -330,7 +358,7 @@ function renderEntity(c: Ctx, e: Entity) {
       return polyline(c, e);
     case 'CIRCLE': {
       const m = then(circleM(pt(g, 10), num(g, 40)), om(c, e));
-      c.out.push(strokeOf(c, e, [...arcCmds(m, 0, 2 * Math.PI, true), ['Z']]));
+      emit(c, strokeOf(c, e, [...arcCmds(m, 0, 2 * Math.PI, true), ['Z']]));
       return;
     }
     case 'ARC': {
@@ -338,7 +366,7 @@ function renderEntity(c: Ctx, e: Entity) {
       const a0 = (num(g, 50) * Math.PI) / 180;
       let a1 = (num(g, 51) * Math.PI) / 180;
       while (a1 <= a0) a1 += 2 * Math.PI;
-      c.out.push(strokeOf(c, e, arcCmds(m, a0, a1, true)));
+      emit(c, strokeOf(c, e, arcCmds(m, a0, a1, true)));
       return;
     }
     case 'ELLIPSE': {
@@ -352,7 +380,7 @@ function renderEntity(c: Ctx, e: Entity) {
       let t1 = num(g, 42, 2 * Math.PI);
       while (t1 <= t0) t1 += 2 * Math.PI;
       const full = Math.abs(t1 - t0 - 2 * Math.PI) < 1e-9;
-      c.out.push(strokeOf(c, e, [...arcCmds(m, t0, t1, true), ...(full ? [['Z'] as Cmd] : [])]));
+      emit(c, strokeOf(c, e, [...arcCmds(m, t0, t1, true), ...(full ? [['Z'] as Cmd] : [])]));
       return;
     }
     case 'SPLINE':
@@ -361,18 +389,18 @@ function renderEntity(c: Ctx, e: Entity) {
     case 'POINT': {
       const p = apply(c.m, pt(g, 10));
       const r = 0.15 * PT_PER_MM;
-      c.out.push({ k: 'fill', d: [...arcCmds(circleM(p, r), 0, 2 * Math.PI, true), ['Z']], rgb: inkRgb(c, e), layer: layerOf(c, e).name });
+      emit(c, { k: 'fill', d: [...arcCmds(circleM(p, r), 0, 2 * Math.PI, true), ['Z']], rgb: inkRgb(c, e), layer: layerOf(c, e).name });
       return;
     }
     case 'SOLID':
     case 'TRACE': {
       const p = [pt(g, 10), pt(g, 11), pt(g, 13, pt(g, 12)), pt(g, 12)].map((q) => apply(om(c, e), q));
-      c.out.push({ k: 'fill', d: polyPath(p, true), rgb: inkRgb(c, e), layer: layerOf(c, e).name });
+      emit(c, { k: 'fill', d: polyPath(p, true), rgb: inkRgb(c, e), layer: layerOf(c, e).name });
       return;
     }
     case '3DFACE': {
       const p = [pt(g, 10), pt(g, 11), pt(g, 12), pt(g, 13, pt(g, 12))].map((q) => apply(c.m, q));
-      c.out.push(strokeOf(c, e, polyPath(p, true)));
+      emit(c, strokeOf(c, e, polyPath(p, true)));
       return;
     }
     case 'MULTILEADER':
@@ -382,7 +410,7 @@ function renderEntity(c: Ctx, e: Entity) {
       const xs = nums(g, 10);
       const ys = nums(g, 20);
       const p = xs.map((x, i): P => apply(c.m, [x, ys[i] ?? 0]));
-      if (p.length > 1) c.out.push(strokeOf(c, e, polyPath(p)));
+      if (p.length > 1) emit(c, strokeOf(c, e, polyPath(p)));
       return;
     }
     case 'TEXT':
@@ -426,7 +454,7 @@ function lwpolyline(c: Ctx, e: Entity) {
   const m = om(c, e);
   const d = bulgePath(verts, closed);
   const width = num(g, 43);
-  c.out.push(strokeOf(c, e, mapCmds(m, d), width > 0 ? width * meanScale(m) : undefined));
+  emit(c, strokeOf(c, e, mapCmds(m, d), width > 0 ? width * meanScale(m) : undefined));
 }
 
 function polyline(c: Ctx, e: Entity) {
@@ -442,7 +470,7 @@ function polyline(c: Ctx, e: Entity) {
   // 3D polylines are WCS; 2D ones are in the polyline's OCS.
   const m = flags & 8 ? c.m : om(c, e);
   const width = num(e.g, 40);
-  c.out.push(strokeOf(c, e, mapCmds(m, bulgePath(verts, closed)), width > 0 ? width * meanScale(m) : undefined));
+  emit(c, strokeOf(c, e, mapCmds(m, bulgePath(verts, closed)), width > 0 ? width * meanScale(m) : undefined));
 }
 
 /** A polyface mesh, seen from above: each face's visible edges (vertices are WCS). */
@@ -467,7 +495,7 @@ function polyface(c: Ctx, e: Entity) {
       });
     }
   }
-  if (edges.length) c.out.push(strokeOf(c, e, edges));
+  if (edges.length) emit(c, strokeOf(c, e, edges));
 }
 
 function bulgePath(verts: { p: P; bulge: number }[], closed: boolean): Cmd[] {
@@ -514,7 +542,7 @@ function spline(c: Ctx, e: Entity) {
   else if (fit.length >= 2) d = throughPoints(fit, closed);
   else return;
   // SPLINE coordinates are WCS.
-  c.out.push(strokeOf(c, e, mapCmds(c.m, d)));
+  emit(c, strokeOf(c, e, mapCmds(c.m, d)));
 }
 
 // ---- text ------------------------------------------------------------------------------------
@@ -586,7 +614,7 @@ function text(c: Ctx, e: Entity) {
   let v = applyV(m, [-Math.sin(rot), Math.cos(rot)]);
   if (gen & 2) u = [-u[0], -u[1]];
   if (gen & 4) v = [-v[0], -v[1]];
-  c.out.push({
+  emit(c, {
     k: 'text',
     layer: layerOf(c, e).name,
     rgb: inkRgb(c, e),
@@ -662,7 +690,7 @@ function multileader(c: Ctx, e: Entity) {
     for (const pts of r.lines) {
       const all = r.conn ? [...pts, r.conn] : pts;
       if (all.length < 2) continue;
-      c.out.push({ ...base, d: polyPath(all.map((q) => apply(c.m, q))) });
+      emit(c, { ...base, d: polyPath(all.map((q) => apply(c.m, q))) });
       if (arrow > 0) {
         const [tip, from] = [all[0]!, all[1]!];
         const len = Math.hypot(from[0] - tip[0], from[1] - tip[1]) || 1;
@@ -672,13 +700,13 @@ function multileader(c: Ctx, e: Entity) {
         const by = tip[1] + uy * arrow;
         const w = arrow / 6;
         const tri: P[] = [tip, [bx - uy * w, by + ux * w], [bx + uy * w, by - ux * w]];
-        c.out.push({ k: 'fill', d: polyPath(tri.map((q) => apply(c.m, q)), true), rgb: base.rgb, layer: base.layer });
+        emit(c, { k: 'fill', d: polyPath(tri.map((q) => apply(c.m, q)), true), rgb: base.rgb, layer: base.layer });
       }
     }
     if (r.conn && r.landing > 0) {
       const dl = Math.hypot(r.dir[0], r.dir[1]) || 1;
       const end: P = [r.conn[0] + (r.dir[0] / dl) * r.landing, r.conn[1] + (r.dir[1] / dl) * r.landing];
-      c.out.push({ ...base, d: polyPath([apply(c.m, r.conn), apply(c.m, end)]) });
+      emit(c, { ...base, d: polyPath([apply(c.m, r.conn), apply(c.m, end)]) });
     }
   }
   if (text && text.label.trim()) {
@@ -731,7 +759,7 @@ function mtext(c: Ctx, e: Entity) {
   const flip = e.extrusion[2] < 0 && m === c.m ? -1 : 1;
   const up: P = [-dir[1] * flip, dir[0] * flip];
   const wrap = num(g, 41);
-  c.out.push({
+  emit(c, {
     k: 'text',
     layer: layerOf(c, e).name,
     rgb: inkRgb(c, e),
@@ -869,7 +897,7 @@ function wipeout(c: Ctx, e: Entity) {
   const o: P = [ins[0] + u[0] * 0.5 - v[0] * 0.5, ins[1] + u[1] * 0.5 - v[1] * 0.5];
   const world = px.map(([x, y]): P => [o[0] + u[0] * x + v[0] * (height - y), o[1] + u[1] * x + v[1] * (height - y)]);
   // Always white: it is the paper, whatever the colour mode.
-  c.out.push({ k: 'fill', d: polyPath(world.map((q) => apply(c.m, q)), true), rgb: [1, 1, 1], layer: layerOf(c, e).name });
+  emit(c, { k: 'fill', d: polyPath(world.map((q) => apply(c.m, q)), true), rgb: [1, 1, 1], layer: layerOf(c, e).name });
 }
 
 /** The key a picture is supplied under: its file name, lower case, with its extension. */
@@ -894,11 +922,11 @@ function image(c: Ctx, e: Entity) {
   if (supplied) {
     // The insertion point is the picture's lower-left corner; u runs along its width, v up it.
     const o = corners[0]!;
-    c.out.push({ k: 'image', layer: layerOf(c, e).name, name: supplied.name, bytes: supplied.bytes, format: supplied.format, origin: o, u: [corners[1]![0] - o[0], corners[1]![1] - o[1]], v: [corners[3]![0] - o[0], corners[3]![1] - o[1]] });
+    emit(c, { k: 'image', layer: layerOf(c, e).name, name: supplied.name, bytes: supplied.bytes, format: supplied.format, origin: o, u: [corners[1]![0] - o[0], corners[1]![1] - o[1]], v: [corners[3]![0] - o[0], corners[3]![1] - o[1]] });
     return;
   }
   // A placeholder frame where the picture would be.
-  c.out.push({ ...strokeOf(c, e, polyPath(corners, true)), rgb: [0.5, 0.5, 0.5], dash: null });
+  emit(c, { ...strokeOf(c, e, polyPath(corners, true)), rgb: [0.5, 0.5, 0.5], dash: null });
 }
 
 // ---- hatch -----------------------------------------------------------------------------------
@@ -1038,7 +1066,7 @@ function hatch(c: Ctx, e: Entity) {
   const layer = layerOf(c, e).name;
   const gradient = e.g.some(([code]) => code === 450) && num(e.g, 450) !== 0;
   if (data.solid || gradient || !data.lines.length) {
-    c.out.push({ k: 'fill', d: clip, rgb, layer });
+    emit(c, { k: 'fill', d: clip, rgb, layer });
     return;
   }
   // Pattern lines across the boundary's box, in OCS, then clipped by the boundary when drawn.
@@ -1115,5 +1143,5 @@ function hatch(c: Ctx, e: Entity) {
     return;
   }
   const s = strokeOf(c, e, []);
-  c.out.push({ k: 'hatch', clip, lines: segs, rgb, layer, width: Math.min(s.width, 0.25 * PT_PER_MM) });
+  emit(c, { k: 'hatch', clip, lines: segs, rgb, layer, width: Math.min(s.width, 0.25 * PT_PER_MM) });
 }
