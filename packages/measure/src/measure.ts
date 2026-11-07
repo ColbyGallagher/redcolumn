@@ -41,6 +41,8 @@ export interface MeasureProps {
   bulges?: readonly number[];
   /** Cutouts' curved segments: per cutout, its bulges as for `bulges` (ignored unless one per edge). */
   holeBulges?: readonly (readonly number[] | null | undefined)[];
+  /** Internal: the points are already a stretched, sampled arc (not a three-point arc). */
+  flattened?: boolean;
 }
 
 // --- Arc segments ---------------------------------------------------------------------------------
@@ -268,12 +270,95 @@ function netArea(points: readonly Pt[], holes: MeasureProps['holes'], bulges?: r
   return Math.max(0, polygonAreaArcs(points, bulges) - (holes ?? []).reduce((sum, h, i) => sum + (h.length > 2 ? hole(h, i) : 0), 0));
 }
 
-/** Stretch Y when the page has a separate vertical scale, so lengths and areas follow both axes. */
-function applyY(points: readonly Pt[], props: MeasureProps, x: number, y?: number): { points: readonly Pt[]; props: MeasureProps } {
+/**
+ * An arc segment stretched by `s` up the page: its samples, with the page's circle turned into the
+ * ellipse it becomes. Refined until the length stops changing (under 0.01%).
+ */
+function stretchedArc(p: Pt, q: Pt, bulge: number, s: number): [number, number][] {
+  const from: Pt = [p[0], p[1] * s];
+  const lengthOf = (pts: readonly Pt[]) => pathLength([from, ...pts]);
+  let steps = 24;
+  let samples = arcPoints(p, q, bulge, steps).map((a): [number, number] => [a[0], a[1] * s]);
+  let length = lengthOf(samples);
+  while (steps < 12288) {
+    steps *= 2;
+    const finer = arcPoints(p, q, bulge, steps).map((a): [number, number] => [a[0], a[1] * s]);
+    const finerLength = lengthOf(finer);
+    const settled = Math.abs(finerLength - length) <= 1e-4 * Math.max(finerLength, 1e-12);
+    samples = finer;
+    length = finerLength;
+    if (settled) break;
+  }
+  return samples;
+}
+
+/** The arc from `a` through `b` to `c` (as `arcLength3` reads it), stretched by `s` up the page, as points. */
+function stretchedArc3(a: Pt, b: Pt, c: Pt, s: number): Pt[] {
+  const circle = circleThrough3(a, b, c);
+  const map = (p: Pt): Pt => [p[0], p[1] * s];
+  if (!circle) return [map(a), map(c)];
+  const { cx, cy, r } = circle;
+  const TAU = Math.PI * 2;
+  const norm = (x: number) => ((x % TAU) + TAU) % TAU;
+  const a0 = Math.atan2(a[1] - cy, a[0] - cx);
+  const sweepC = norm(Math.atan2(c[1] - cy, c[0] - cx) - a0);
+  const sweepB = norm(Math.atan2(b[1] - cy, b[0] - cx) - a0);
+  const sweep = sweepB <= sweepC ? sweepC : sweepC - TAU;
+  const sample = (steps: number): Pt[] => Array.from({ length: steps + 1 }, (_, i): Pt => map([cx + r * Math.cos(a0 + (sweep * i) / steps), cy + r * Math.sin(a0 + (sweep * i) / steps)]));
+  let steps = 24;
+  let out = sample(steps);
+  let length = pathLength(out);
+  while (steps < 12288) {
+    steps *= 2;
+    const finer = sample(steps);
+    const finerLength = pathLength(finer);
+    const settled = Math.abs(finerLength - length) <= 1e-4 * Math.max(finerLength, 1e-12);
+    out = finer;
+    length = finerLength;
+    if (settled) break;
+  }
+  return out;
+}
+
+/** A shape's outline with its curved segments stretched by `s` (no bulges left), as plain points. */
+function stretchedOutline(points: readonly Pt[], bulges: readonly number[] | undefined, closed: boolean, s: number): Pt[] {
+  const out: Pt[] = points.length ? [[points[0]![0], points[0]![1] * s]] : [];
+  const n = closed && points.length > 2 ? points.length : points.length - 1;
+  for (let i = 0; i < n; i++) {
+    const p = points[i]!;
+    const q = points[(i + 1) % points.length]!;
+    const b = bulges?.[i] ?? 0;
+    if (b) out.push(...stretchedArc(p, q, b, s));
+    else out.push([q[0], q[1] * s]);
+  }
+  // A closed outline does not repeat its first point.
+  if (closed && n === points.length && out.length > 1) out.pop();
+  return out;
+}
+
+/**
+ * Stretch Y when the page has a separate vertical scale, so lengths and areas follow both axes.
+ * Curved segments become their stretched (elliptical) arcs, sampled, rather than keeping bulges
+ * that would describe a circle through the stretched ends.
+ */
+function applyY(kind: MeasureKind, points: readonly Pt[], props: MeasureProps, x: number, y?: number): { points: readonly Pt[]; props: MeasureProps } {
   if (y === undefined || !(x > 0) || Math.abs(y / x - 1) < 1e-9) return { points, props };
   const s = y / x;
   const map = (p: Pt): Pt => [p[0], p[1] * s];
-  return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
+  const curved = kind === 'arcLength' ? points.length >= 3 : props.bulges?.some(Boolean);
+  const holesCurved = props.holeBulges?.some((b) => b?.some(Boolean));
+  if (!curved && !holesCurved) return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
+  const { bulges: _b, holeBulges: _hb, ...rest } = props;
+  const holes = props.holes?.map((h, i) => {
+    const hb = props.holeBulges?.[i];
+    return hb && hb.length === h.length ? stretchedOutline(h, hb, true, s) : h.map(map);
+  });
+  const next: MeasureProps = { ...rest, ...(holes ? { holes } : {}) };
+  if (kind === 'arcLength' && points.length >= 3) {
+    // The arc from the first point through the second to the third, sampled and stretched.
+    return { points: stretchedArc3(points[0]!, points[1]!, points[2]!, s), props: { ...next, flattened: true } };
+  }
+  return { points: stretchedOutline(points, props.bulges, kind !== 'polylength', s), props: next };
 }
 
 /** The scale fields that decide how page offsets become real lengths. */
@@ -312,7 +397,7 @@ export function pageLengthFor(scale: AxisScale, meters: number, dx = 1, dy = 0):
  * areas and volumes. `yMetersPerPoint` stretches the page vertically before measuring.
  */
 export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
-  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
+  ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   const k = slopeFactor(props.slope);
   switch (kind) {
     case 'length':
@@ -321,7 +406,7 @@ export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPer
     case 'radius':
       return (kind === 'polylength' ? pathLengthArcs(points, props.bulges) : pathLength(points.slice(0, 2))) * metersPerPoint * k;
     case 'arcLength':
-      return (points.length >= 3 ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint * k;
+      return (points.length >= 3 && !props.flattened ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint * k;
     case 'perimeter':
       return pathLengthArcs(points, props.bulges, true) * metersPerPoint * k;
     case 'area':
@@ -345,7 +430,7 @@ export interface MeasureDetails {
 }
 
 export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): MeasureDetails {
-  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
+  ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   const q = QUANTITY[kind];
   if (q === 'length') {
     const length = measureValue(kind, points, metersPerPoint, props);
