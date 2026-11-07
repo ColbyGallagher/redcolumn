@@ -20,6 +20,7 @@ When it's done, the PDF opens in a new tab with the same name (for example `Site
 - **Viewports** keep their scale, so measurements inside a viewport use it. Hover over a viewport to see its scale.
 - Each **CAD layer** becomes a PDF layer you can turn on and off in the **Layers** panel.
 - Text is real text, so [Find Text](#find-text) works.
+- If the drawing doesn't say what units it's drawn in, you're asked to pick them from a list before it's converted. The suggested unit is a guess based on the drawing. Scales and measurements depend on your choice, and **Convert Again** lets you change it.
 
 > **Note:** The DWG or DXF itself is never changed. {{File > Save}} saves the PDF as a new file.
 

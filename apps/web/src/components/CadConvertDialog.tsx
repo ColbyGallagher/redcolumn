@@ -4,6 +4,7 @@ import type { KeptConversion } from '../cad/session';
 import type { CadFile } from '../cad/convert';
 import { CAD_ACCEPT } from '../cad/files';
 import type { ColorMode } from '../cad/render';
+import { UNIT_CHOICES } from '../cad/units';
 
 interface Props {
   conversion: KeptConversion;
@@ -28,6 +29,8 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
   const [colorMode, setColorMode] = useState<ColorMode>(options.colorMode ?? 'auto');
   const [lineweights, setLineweights] = useState(options.lineweights ?? true);
   const [references, setReferences] = useState<CadFile[]>(conversion.references);
+  // Only a drawing that does not state its units has them chosen here.
+  const [units, setUnits] = useState<number>(options.units ?? 4);
   const input = useRef<HTMLInputElement>(null);
   const missing = report.warnings.flatMap((w) => (w.kind === 'missing-xref' ? [w.path || w.name] : w.kind === 'missing-image' && w.path ? [w.path] : w.kind === 'plot-style-missing' ? [w.name] : []));
   const shortName = (p: string) => p.replace(/^.*[\\/]/, '');
@@ -49,7 +52,7 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
           if (!valid || busy) return;
           // All layouts chosen is the default, so a drawing with more layouts later gets them all.
           const chosen = layouts.length === all.length ? undefined : layouts;
-          onConvert({ ...options, layouts: chosen, includeModel: all.length ? model : undefined, colorMode, lineweights }, references);
+          onConvert({ ...options, layouts: chosen, includeModel: all.length ? model : undefined, colorMode, lineweights, units: report.unitsStated ? options.units : units }, references);
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -72,6 +75,22 @@ export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Prop
             Model space {all.length ? '(fitted to one page)' : '(the drawing has no layouts)'}
           </label>
         </fieldset>
+
+        {!report.unitsStated && (
+          <fieldset>
+            <legend>Units</legend>
+            <label>
+              The drawing does not say its units. It is drawn in{' '}
+              <select aria-label="Drawing units" value={units} onChange={(e) => setUnits(Number(e.target.value))}>
+                {UNIT_CHOICES.map((u) => (
+                  <option key={u.code} value={u.code}>
+                    {u.label.split(':')[0]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
+        )}
 
         <fieldset>
           <legend>Lines</legend>
