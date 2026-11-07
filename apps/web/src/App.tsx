@@ -5010,7 +5010,8 @@ export function App() {
       const measuring = tools.getState().measuring;
       if (e.key === 'Enter' && measuring) tools.finish();
       else if (e.key === ' ' && measuring && tools.finishKey(e.key, e.target)) {
-        // Space finished it, like Enter.
+        // Space finished it, like Enter; the page must not scroll too.
+        e.preventDefault();
       }
       else if ((e.key === 'Backspace' || e.key === 'Delete') && measuring) tools.removeLastPoint();
       else if (e.key === 'Escape') tools.cancel();
