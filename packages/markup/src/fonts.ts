@@ -79,7 +79,10 @@ export function daFontName(family: FontFamily | undefined | null): string {
  */
 export function familyFromPdfName(raw: string): FontFamily {
   const name = raw.replace(/^[A-Z]{6}\+/, '').trim();
-  const base = name.replace(/(?:[-,\s]*(?:bold|italic|oblique|regular))+$/i, '').replace(/(?:PSMT|MT|PS)$/, '');
+  // PostScript names (no spaces) end in -Bold, MT, PS and the like; a family with spaces ("Gill Sans MT") is kept whole.
+  const style = (s: string) => s.replace(/(?:[-,\s]*(?:bold|italic|oblique|regular))+$/i, '');
+  const postScript = !/\s/.test(style(name));
+  const base = postScript ? style(style(name).replace(/(?:PSMT|MT|PS)$/, '')).replace(/(?:PSMT|MT|PS)$/, '') : style(name);
   const squashed = base.toLowerCase().replace(/[\s_-]+/g, '');
   if (['helv', 'helvetica', 'arial'].includes(squashed)) return 'sans';
   if (['tiro', 'times', 'timesroman', 'timesnewroman'].includes(squashed)) return 'serif';
