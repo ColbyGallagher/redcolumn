@@ -5009,6 +5009,9 @@ export function App() {
       // Keys that mean something while clicking out a measurement or drawing.
       const measuring = tools.getState().measuring;
       if (e.key === 'Enter' && measuring) tools.finish();
+      else if (e.key === ' ' && measuring && tools.finishKey(e.key, e.target)) {
+        // Space finished it, like Enter.
+      }
       else if ((e.key === 'Backspace' || e.key === 'Delete') && measuring) tools.removeLastPoint();
       else if (e.key === 'Escape') tools.cancel();
       // Typing on a selected table cell, or Enter or F2, edits it; the typed character starts its new text.
@@ -5074,7 +5077,7 @@ export function App() {
         e.preventDefault();
         const moved = rightDown && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) > 4;
         rightDown = null;
-        if (!moved) canvasMenuRef.current(e, pane);
+        if (!moved && !tools.rightClickFinish()) canvasMenuRef.current(e, pane);
       };
       canvas.addEventListener('dblclick', onDblClick);
       canvas.addEventListener('pointerdown', onDown);
