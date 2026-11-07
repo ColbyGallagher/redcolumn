@@ -4110,10 +4110,6 @@ export function App() {
   );
 
   /**
-   * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
-   * false on Cancel or when the save does not happen; true when the document can go.
-   */
-  /**
    * Puts a document's markups back to what its file holds: undoes what was done since it matched
    * the file, or, when that is not known (changes kept from an earlier session), reads them from the file again.
    */
@@ -4131,6 +4127,10 @@ export function App() {
     setSavedTick((n) => n + 1);
   }, []);
 
+  /**
+   * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
+   * false on Cancel or when the save does not happen; true when the document can go.
+   */
   const settleUnsaved = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
       const find = () => (pane === 'b' ? tabsBRef.current : tabsARef.current).find((x) => x.file.id === fileId);
