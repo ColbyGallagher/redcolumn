@@ -5904,3 +5904,12 @@ select[size] {
   font-size: 12px;
   text-align: center;
 }
+
+/* Format tab with a selection whose markups differ in a field: that field reads as mixed. */
+.color-bar.mixed {
+  background: repeating-linear-gradient(135deg, #9ca3af 0 3px, #e5e7eb 3px 6px);
+}
+
+.seg-btn.mixed {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}

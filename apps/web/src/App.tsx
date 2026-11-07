@@ -9373,6 +9373,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           selectedStyle,
           cloudBubble,
           geometry: selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null,
+          // Two or more selected: the Markup Format tab edits what they share, together.
+          selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 1 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
