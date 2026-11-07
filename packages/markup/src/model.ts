@@ -5,7 +5,7 @@ import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
-import { lineEnds, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
@@ -164,6 +164,8 @@ export interface MarkupStyle {
   endCap?: LineEnding;
   /** Line ending size as a multiple of the default size. */
   capScale?: number;
+  /** How the markup blends with what is under it; unset is Normal (Multiply for highlighters). */
+  blendMode?: BlendMode;
   /** Hatch pattern drawn inside closed shapes. */
   hatch?: StoredHatch;
   /** Hatch color. The line color when unset. */

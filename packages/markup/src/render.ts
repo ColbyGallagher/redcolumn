@@ -8,7 +8,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
-import { cssFont, dashPattern, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { BLEND_MODES, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
 
@@ -322,14 +322,14 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.translate(-cx, -cy);
   }
   ctx.globalAlpha = style.opacity;
+  // Highlighters multiply by default so drawing detail stays visible underneath.
+  ctx.globalCompositeOperation = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
   const lineWidth = Math.max(style.width, 1 / zoom);
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = style.stroke;
   ctx.lineJoin = 'round';
   ctx.lineCap = m.type === 'highlighter' ? 'butt' : 'round';
   const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
-  // Highlighter multiplies so drawing detail stays visible underneath.
-  if (TYPE_INFO[m.type].multiply) ctx.globalCompositeOperation = 'multiply';
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
       paintArt(ctx, part.art);
