@@ -301,6 +301,21 @@ test('a huge MINSERT array is refused up front', () => {
   assert.ok(Date.now() - t < 2000);
 });
 
+test('a tiny file that repeats a dense hatch stops on output, before memory runs out', () => {
+  const edges = ['91', '1', '92', '1', '93', '4', ...[[0, 0, 100, 0], [100, 0, 100, 100], [100, 100, 0, 100], [0, 100, 0, 0]].flatMap(([a, b, x, y]) => ['72', '1', '10', `${a}`, '20', `${b}`, '11', `${x}`, '21', `${y}`]), '97', '0'];
+  const pattern = ['75', '0', '76', '1', '52', '0', '41', '1', '77', '0', '78', '1', '53', '0', '43', '0', '44', '0', '45', '0', '46', '1', '79', '2', '49', '0.05', '49', '-0.05', '98', '0'];
+  const hatch = ['0', 'HATCH', '10', '0', '20', '0', '30', '0', '2', 'TEST', '70', '0', '71', '0', ...edges, ...pattern];
+  // About 200 000 segments, 100 times over: a few hundred bytes of DXF.
+  const src = dxfOf([block('H', hatch)], insertOf('H', ['70', '10', '71', '10', '44', '100', '45', '100']));
+  assert.ok(src.length < 1000);
+  const t = Date.now();
+  assert.throws(() => planSheets(readDxf(src), { colorMode: 'color', lineweights: true }), /too complex/);
+  assert.ok(Date.now() - t < 20_000, `${Date.now() - t} ms`);
+  // A block of 100 lines arrayed 1000 x 99: within the entity and block caps, far past the output one.
+  const lines = Array.from({ length: 100 }, (_, k) => ['0', 'LINE', '10', `${k}`, '20', '0', '11', `${k}`, '21', '1']).flat();
+  assert.throws(() => planSheets(readDxf(dxfOf([block('L', lines)], insertOf('L', ['70', '1000', '71', '99', '44', '1', '45', '1']))), { colorMode: 'color', lineweights: true }), /too complex/);
+});
+
 test('a hatch pattern of only gaps draws nothing and finishes', () => {
   const edges = ['91', '1', '92', '1', '93', '4', ...[[0, 0, 100, 0], [100, 0, 100, 100], [100, 100, 0, 100], [0, 100, 0, 0]].flatMap(([a, b, x, y]) => ['72', '1', '10', `${a}`, '20', `${b}`, '11', `${x}`, '21', `${y}`]), '97', '0'];
   const pattern = (dashes: string[]) => ['75', '0', '76', '1', '52', '0', '41', '1', '77', '0', '78', '1', '53', '0', '43', '0', '44', '0', '45', '0', '46', '1', '79', `${dashes.length}`, ...dashes.flatMap((x) => ['49', x]), '98', '0'];
