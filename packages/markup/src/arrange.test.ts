@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout } from './arrange.ts';
+import { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, touchesPolygon, touchesRect } from './arrange.ts';
 import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
 
 function box(id: string, x: number, y: number, w: number, h: number, type: MarkupType = 'rect', createdAt = 0): Markup {
@@ -124,4 +124,61 @@ test('scaledAbout grows a markup about a point, keeping that point still', () =>
   assert.equal(out.style, undefined, 'line width left alone');
   const text = scaledAbout({ ...m, type: 'text', style: { ...m.style, fontSize: 10 } }, [0, 0], 0.5);
   assert.equal(text.style?.fontSize, 5);
+});
+
+function shapeOf(id: string, type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
+  return { ...box(id, 0, 0, 1, 1, type), points, ...extra, style: { ...DEFAULT_STYLES[type], ...(extra.style ?? {}) } };
+}
+
+test('touchesRect: a segment crossing the rectangle with both ends outside counts', () => {
+  const line = shapeOf('l', 'polyline', [[0, 50], [100, 50]]);
+  assert.equal(touchesRect(line, { x: 40, y: 40, w: 20, h: 20 }), true);
+  assert.equal(touchesRect(line, { x: 40, y: 60, w: 20, h: 20 }), false);
+});
+
+test('touchesRect: a vertex inside the rectangle counts', () => {
+  const line = shapeOf('l', 'polyline', [[0, 0], [10, 10], [200, 200]]);
+  assert.equal(touchesRect(line, { x: 5, y: 5, w: 10, h: 10 }), true);
+});
+
+test('touchesRect: a rectangle wholly inside a filled area counts, but inside an open outline does not', () => {
+  const ring: Point[] = [[0, 0], [100, 0], [100, 100], [0, 100]];
+  const area = shapeOf('a', 'area', ring);
+  const outline = shapeOf('p', 'polygon', ring, { style: { ...DEFAULT_STYLES.polygon, fill: null } });
+  const inner = { x: 40, y: 40, w: 10, h: 10 };
+  assert.equal(touchesRect(area, inner), true);
+  assert.equal(touchesRect(outline, inner), false);
+  // One edge of the area reaching into the rectangle is enough, from outside.
+  assert.equal(touchesRect(area, { x: 90, y: -20, w: 30, h: 40 }), true);
+});
+
+test('touchesRect: near by bounding box only is not a touch', () => {
+  // An L-shaped polyline: its bounding box covers the rectangle, its lines do not.
+  const l = shapeOf('l', 'polyline', [[0, 0], [0, 100], [100, 100]]);
+  assert.equal(touchesRect(l, { x: 40, y: 40, w: 20, h: 20 }), false);
+  const diagonal = shapeOf('d', 'line', [[0, 0], [100, 100]]);
+  assert.equal(touchesRect(diagonal, { x: 70, y: 10, w: 20, h: 20 }), false);
+});
+
+test('touchesRect: counts, text boxes, arcs and rotated boxes use their real shape', () => {
+  const count = shapeOf('c', 'count', [[10, 10], [200, 200]]);
+  assert.equal(touchesRect(count, { x: 195, y: 195, w: 10, h: 10 }), true);
+  assert.equal(touchesRect(count, { x: 100, y: 100, w: 10, h: 10 }), false);
+  const text = shapeOf('t', 'text', [[0, 0], [100, 50]]);
+  assert.equal(touchesRect(text, { x: 40, y: 20, w: 5, h: 5 }), true);
+  const arc = shapeOf('arc', 'arc', [[0, 0], [50, -50], [100, 0]]);
+  assert.equal(touchesRect(arc, { x: 45, y: -60, w: 10, h: 20 }), true);
+  assert.equal(touchesRect(arc, { x: 45, y: -20, w: 10, h: 10 }), false);
+  // A wide bar turned upright: it now reaches into a rectangle above its middle.
+  const bar = shapeOf('r', 'rect', [[0, 0], [100, 10]], { rotation: 90 });
+  assert.equal(touchesRect(bar, { x: 40, y: -40, w: 20, h: 4 }), true);
+  assert.equal(touchesRect(bar, { x: 90, y: -2, w: 8, h: 8 }), false);
+});
+
+test('touchesPolygon: a lasso crossing any part of a polyline touches it', () => {
+  const line = shapeOf('l', 'polyline', [[0, 0], [100, 0], [100, 100], [200, 100]]);
+  const lasso: Point[] = [[90, 40], [120, 40], [120, 60], [90, 60]];
+  assert.equal(touchesPolygon(line, lasso), true);
+  assert.equal(touchesPolygon(line, [[10, 40], [40, 40], [40, 60], [10, 60]]), false);
+  assert.equal(touchesPolygon(line, [[0, 0], [1, 1]]), false);
 });

@@ -32,6 +32,8 @@ import {
   markupSegments,
   insidePolygon,
   insideRect,
+  touchesPolygon,
+  touchesRect,
   isMeasureKind,
   isTextType,
   lineRects,
@@ -2128,8 +2130,8 @@ export class MarkupTools implements ViewerOverlay {
     this.drawPickTargets(ctx, pageIndex, zoom);
     this.drawConnectionPoints(ctx, pageIndex, zoom);
     this.drawCad(ctx, pageIndex, zoom);
-    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
-    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
+    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom, isCrossing(g));
+    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom, true);
     const template = this.state.preset?.template;
     if (template && this.ghost?.pageIndex === pageIndex) {
       const b = boundsOf(template.flatMap((m) => m.points));
@@ -3108,7 +3110,9 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'box' || g.kind === 'lasso') {
       const page = g.kind === 'lasso' ? g.pageIndex : this.page;
       const inside = this.pageMarkups(page).filter((m) =>
-        g.kind === 'box' ? insideRect(m, boundsOf([g.start, g.end])) : g.path.length > 2 && insidePolygon(m, g.path),
+        g.kind === 'box'
+          ? (isCrossing(g) ? touchesRect(m, boundsOf([g.start, g.end])) : insideRect(m, boundsOf([g.start, g.end])))
+          : g.path.length > 2 && (insidePolygon(m, g.path) || touchesPolygon(m, g.path)),
       );
       const ids = inside.map((m) => m.id);
       this.select(g.add ? [...this.state.selected, ...ids] : ids);
@@ -4635,13 +4639,19 @@ function drawPickMark(ctx: CanvasRenderingContext2D, [x, y]: Point, zoom: number
   ctx.restore();
 }
 
-function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {
+/** A box dragged right to left selects everything it touches (crossing); left to right, only what it encloses (window). */
+function isCrossing(g: { start: Point; end: Point }): boolean {
+  return g.end[0] < g.start[0];
+}
+
+/** A window selection draws a solid blue outline; a crossing one (or a lasso) a dashed green one. */
+function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number, crossing: boolean) {
   if (path.length < 2) return;
   ctx.save();
   ctx.lineWidth = 1 / zoom;
-  ctx.strokeStyle = '#3b82f6';
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-  ctx.setLineDash([4 / zoom, 3 / zoom]);
+  ctx.strokeStyle = crossing ? '#16a34a' : '#3b82f6';
+  ctx.fillStyle = crossing ? 'rgba(22, 163, 74, 0.10)' : 'rgba(59, 130, 246, 0.08)';
+  ctx.setLineDash(crossing ? [4 / zoom, 3 / zoom] : []);
   ctx.beginPath();
   path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.closePath();
