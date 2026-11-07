@@ -157,7 +157,7 @@ import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleRequiredDialog } from './components/ScaleRequiredDialog';
 import { ScaleControl } from './components/ScaleControl';
-import { PagesPanel } from './components/PagesPanel';
+import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
@@ -1444,6 +1444,7 @@ export function App() {
       onRestarted: ({ lost }) => {
         viewer.engineRestarted();
         viewerBRef.current?.engineRestarted();
+        resetThumbnails();
         setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
       },
       onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),

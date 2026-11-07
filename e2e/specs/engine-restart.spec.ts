@@ -17,11 +17,19 @@ const drawTile = (page: import('@playwright/test').Page) =>
 
 test('a crashed renderer is replaced and the open document draws again', async ({ app }) => {
   await app.open('plan.pdf');
+  await app.panel('Thumbnails');
+  const drawn = () => app.page.locator('.thumbs canvas').evaluateAll((cs) => cs.filter((c) => (c as HTMLCanvasElement).width !== 300).length);
+  await expect.poll(drawn).toBeGreaterThan(0);
   expect(await drawTile(app.page)).toBe(64);
 
+  // Blank the thumbnails so only a fresh draw can bring them back.
+  await app.page.locator('.thumbs canvas').evaluateAll((cs) => cs.forEach((c) => ((c as HTMLCanvasElement).width = 300)));
+  expect(await drawn()).toBe(0);
   await crashEngine(app.page, 'test crash');
   await expect(app.page.getByText('The PDF renderer restarted.')).toBeVisible();
   expect(await drawTile(app.page)).toBe(64);
+  // Thumbnails asked for while the document was reopening are asked for again.
+  await expect.poll(drawn).toBeGreaterThan(0);
   const [doc] = await app.documents();
   expect(doc).toMatchObject({ active: true });
 
