@@ -110,7 +110,9 @@ if (!isMainThread) {
 }
 
 /** Text for a Markdown table cell: backslashes first, then pipes, escaped; line breaks as spaces. */
-const cell = (s) => String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+function cell(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+}
 
 function summary(records) {
   const tried = records.filter((r) => !r.skipped);
