@@ -1,3 +1,4 @@
+import { CAD_ACCEPT } from '../cad/files';
 import { useRef, useState } from 'react';
 
 /** Where the chosen files land in the current document. */
@@ -80,7 +81,7 @@ export function BulkInsertDialog({ initial, currentPage, onInsert, onCancel }: P
           type="file"
           multiple
           hidden
-          accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+          accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = '';
