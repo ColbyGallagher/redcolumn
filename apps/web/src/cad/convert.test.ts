@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { deflateSync } from 'node:zlib';
 import { test } from 'node:test';
 import { importViewports } from '../../../../packages/markup/src/bluebeam';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
-import { CadReadError, convertCad, readDrawing } from './convert';
+import { CadReadError, CadUnitsNeeded, convertCad, readDrawing } from './convert';
+import { parseCtb } from './ctb';
 import { readDxf } from './dxf';
 import { BitReader } from './dwg/bits';
 import { readObject } from './dwg/objects';
-import { apply, bulgeCmds, ocs } from './geom';
+import { apply, bulgeCmds, ocs, pathBox } from './geom';
 import type { Prim } from './render';
 import { planSheets, snapRatio } from './sheets';
 import { decodeSpecial, mtextParagraphs } from './text';
@@ -25,6 +27,8 @@ const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtures), 'ut
       pages: { name: string; widthPt: number; heightPt: number; viewports: { ratio: string; twistDeg?: number; frozen?: string[] }[] }[];
       nonPlotLayers?: string[];
       dimensions?: { measurement: number }[];
+      leaders?: number;
+      sizeTolerancePt?: number;
       warnings?: Record<string, string>[];
       text?: string[];
     }
@@ -51,7 +55,8 @@ for (const file of cases) {
     );
     exp.pages.forEach((ep, i) => {
       const p = report.pages[i]!;
-      assert.ok(Math.abs(p.widthPt - ep.widthPt) < 1.5 && Math.abs(p.heightPt - ep.heightPt) < 1.5, `${ep.name}: ${p.widthPt} x ${p.heightPt}, expected ${ep.widthPt} x ${ep.heightPt}`);
+      const tol = exp.sizeTolerancePt ?? 1.5;
+      assert.ok(Math.abs(p.widthPt - ep.widthPt) < tol && Math.abs(p.heightPt - ep.heightPt) < tol, `${ep.name}: ${p.widthPt} x ${p.heightPt}, expected ${ep.widthPt} x ${ep.heightPt}`);
       assert.equal(p.viewports.length, ep.viewports.length, `${ep.name}: viewports`);
       ep.viewports.forEach((ev, j) => {
         const v = p.viewports[j]!;
@@ -97,6 +102,12 @@ for (const file of cases) {
         return f ? f.values().map((v) => doc.context.lookup(v, PDFDict)) : [];
       });
       assert.ok(fontsOf.length && fontsOf.every((f) => f.has(PDFName.of('ToUnicode'))), 'fonts map glyphs back to text');
+    }
+
+    // Each leader ends in a closed arrowhead (a filled triangle).
+    if (exp.leaders) {
+      const arrows = planned.sheets.flatMap((s) => s.prims).filter((p) => p.k === 'fill' && p.d.length === 4 && p.d[3]![0] === 'Z');
+      assert.equal(arrows.length, exp.leaders, file);
     }
 
     // Dimensions seen through their viewport's scale measure the lengths they were drawn at.
@@ -197,6 +208,35 @@ test('a truncated or corrupted DWG fails cleanly, never hangs', () => {
   }
 });
 
+test('a drawing without units asks for them, with a guess, and converts with the chosen ones', async () => {
+  const line = (x: number, y: number) => ['0', 'LINE', '8', '0', '10', `${x}`, '20', `${y}`, '11', `${x + 5}`, '21', `${y + 5}`];
+  const dxf = (lines: string[][], header: string[] = []) =>
+    [...(header.length ? ['0', 'SECTION', '2', 'HEADER', ...header, '0', 'ENDSEC'] : []), '0', 'SECTION', '2', 'ENTITIES', ...lines.flat(), '0', 'ENDSEC', '0', 'EOF', ''].join('\n');
+  const near = dxf(Array.from({ length: 12 }, (_, k) => line(k * 10, 0)));
+  const grid = dxf(Array.from({ length: 12 }, (_, k) => line(500000 + k * 10, 6000000)));
+  const gridFeet = dxf(Array.from({ length: 12 }, (_, k) => line(1500000 + k * 10, 600000)), ['9', '$MEASUREMENT', '70', '0']);
+  const guess = async (s: string) => {
+    try {
+      await convertCad('x.dxf', new TextEncoder().encode(s), { fonts, askUnits: true });
+    } catch (err) {
+      if (err instanceof CadUnitsNeeded) return err.guess;
+      throw err;
+    }
+    return null;
+  };
+  assert.equal(await guess(near), 4);
+  assert.equal(await guess(grid), 6);
+  assert.equal(await guess(gridFeet), 2);
+  // A drawing that states its units is never asked about.
+  assert.equal(await guess(new TextDecoder().decode(bytes('blocks'))), null);
+
+  const chosen = await convertCad('x.dxf', new TextEncoder().encode(near), { fonts, askUnits: true, units: 2 });
+  assert.equal(chosen.report.unitsStated, false);
+  assert.ok(!chosen.report.warnings.some((w) => w.kind === 'units-assumed'));
+  const assumed = await convertCad('x.dxf', new TextEncoder().encode(near), { fonts });
+  assert.ok(assumed.report.warnings.some((w) => w.kind === 'units-assumed' && w.unit === 'millimetres'), JSON.stringify(assumed.report.warnings));
+});
+
 test('bulges are arcs through both ends', () => {
   const d = bulgeCmds([0, 0], [10, 0], 1); // a half circle
   const last = d[d.length - 1]!;
@@ -247,6 +287,100 @@ test('the report lists every layout, converted or not', async () => {
   assert.deepEqual(
     report.pages.map((p) => p.name),
     ['C-501 DETAIL'],
+  );
+});
+
+test('wipeouts hide what is under them, in every format', () => {
+  const exp = manifest.fixtures.masks as unknown as { pages: { extents: number[] }[]; wipeouts: { box: number[] }[] };
+  const [x0, y0] = exp.pages[0]!.extents;
+  const ptPerMm = 72 / 25.4;
+  for (const file of ['masks.dxf', ...DWG_VERSIONS.map((v) => `dwg/masks.${v}.dwg`)]) {
+    const { drawing } = readDrawing(file, fileBytes(file));
+    const { sheets } = planSheets(drawing, { colorMode: 'mono', lineweights: true });
+    const prims = sheets[0]!.prims;
+    const fills = prims.filter((p) => p.k === 'fill' && p.rgb.every((c) => c === 1));
+    assert.equal(fills.length, exp.wipeouts.length, file);
+    exp.wipeouts.forEach((w, i) => {
+      const f = fills[i]!;
+      const b = pathBox(f.k === 'fill' ? f.d : []);
+      const mm = [b.x0 / ptPerMm + x0!, b.y0 / ptPerMm + y0!, b.x1 / ptPerMm + x0!, b.y1 / ptPerMm + y0!];
+      mm.forEach((v, k) => assert.ok(Math.abs(v - w.box[k]!) < 0.01, `${file} wipeout ${i}: ${mm} vs ${w.box}`));
+    });
+    // Drawn after the lines, so they cover them.
+    assert.ok(prims.indexOf(fills[0]!) > prims.findIndex((p) => p.k === 'stroke'), file);
+  }
+});
+
+test('polyface meshes draw their visible edges, in every format', () => {
+  const exp = manifest.fixtures.masks as unknown as { pages: { extents: number[] }[]; meshEdges: { layer: string; count: number; box: number[] } };
+  const [x0, y0] = exp.pages[0]!.extents;
+  const ptPerMm = 72 / 25.4;
+  for (const file of ['masks.dxf', ...DWG_VERSIONS.map((v) => `dwg/masks.${v}.dwg`)]) {
+    const { drawing } = readDrawing(file, fileBytes(file));
+    const prims = planSheets(drawing, { colorMode: 'color', lineweights: true }).sheets[0]!.prims;
+    const mesh = prims.filter((p) => p.k === 'stroke' && p.layer === exp.meshEdges.layer);
+    const segments = mesh.flatMap((p) => (p.k === 'stroke' ? p.d.filter((c) => c[0] === 'M') : []));
+    assert.equal(segments.length, exp.meshEdges.count, file);
+    const b = pathBox(mesh.flatMap((p) => (p.k === 'stroke' ? p.d : [])));
+    const mm = [b.x0 / ptPerMm + x0!, b.y0 / ptPerMm + y0!, b.x1 / ptPerMm + x0!, b.y1 / ptPerMm + y0!];
+    mm.forEach((v, k) => assert.ok(Math.abs(v - exp.meshEdges.box[k]!) < 0.01, `${file}: ${mm}`));
+  }
+});
+
+test('a supplied picture is embedded where its image is', async () => {
+  const png = new Uint8Array(readFileSync(new URL('../../../../e2e/fixtures/picture.png', import.meta.url)));
+  const { pdf, report } = await convertCad('missing-refs.dxf', bytes('missing-refs'), { fonts, references: [{ name: 'aerial-2026.png', bytes: png }] });
+  assert.ok(!report.warnings.some((w) => w.kind === 'missing-image'), JSON.stringify(report.warnings));
+  assert.ok(report.references.includes('aerial-2026.png'));
+  const doc = await PDFDocument.load(pdf);
+  const xobjects = doc.getPages()[0]!.node.Resources()?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+  assert.equal(xobjects?.keys().length, 1);
+});
+
+/** A tiny colour-dependent plot style table: ACI 1 plots black at 0.7 mm. */
+function testCtb(): Uint8Array {
+  const text = ['description="test', 'plot_style{', ' 0{', '  name="Color_1', '  color=-1023410176', '  color_policy=5', '  screen=100', '  lineweight=3', ' }', '}', 'custom_lineweight_table{', ' 3=0.7', '}', ''].join('\n');
+  const head = Buffer.alloc(60);
+  head.write('PIAFILEVERSION_2.0,CTBVER1,compress\r\npmzlibcodec', 'latin1');
+  return new Uint8Array(Buffer.concat([head, deflateSync(Buffer.from(text, 'latin1'))]));
+}
+
+test('a plot style table that inflates past its cap is stopped, not held in memory', async () => {
+  const head = Buffer.alloc(60);
+  head.write('PIAFILEVERSION_2.0,CTBVER1,compress\r\npmzlibcodec', 'latin1');
+  // 64 MiB of zeros compresses to about 64 KiB.
+  const bomb = new Uint8Array(Buffer.concat([head, deflateSync(Buffer.alloc(64 << 20))]));
+  assert.ok(bomb.length < 1 << 20);
+  await assert.rejects(parseCtb('bomb.ctb', bomb), /too large/);
+});
+
+test('a supplied plot style table sets the colour and lineweight of each ACI colour', async () => {
+  const table = await parseCtb('test.ctb', testCtb());
+  assert.deepEqual(table.byAci.get(1), { rgb: [0, 0, 0], grey: false, screen: 100, lineweightMm: 0.7 });
+  const { drawing } = readDrawing('kestrel-plan.dxf', bytes('kestrel-plan'));
+  drawing.layouts.find((l) => l.name === 'C-101 PLAN')!.styleSheet = 'Test.ctb';
+  // The other page names another table (a page that names none would take the only one supplied).
+  drawing.layouts.find((l) => l.name === 'C-501 DETAIL')!.styleSheet = 'other.ctb';
+  const { sheets } = planSheets(drawing, { colorMode: 'auto', lineweights: true, plotStyles: new Map([['test.ctb', table]]) });
+  const inViewports = (prims: readonly Prim[]): Prim[] => prims.flatMap((p) => (p.k === 'clip' ? inViewports(p.prims) : [p]));
+  // C-ROAD-CL is red (ACI 1): black at 0.7 mm through the table, on that page only.
+  const cl = (s: number) => inViewports(sheets[s]!.prims).find((p) => p.k === 'stroke' && p.layer === 'C-ROAD-CL');
+  const styled = cl(0);
+  assert.ok(styled && styled.k === 'stroke');
+  assert.deepEqual(styled.rgb, [0, 0, 0]);
+  assert.ok(Math.abs(styled.width - (0.7 * 72) / 25.4) < 1e-9);
+  const plain = cl(1);
+  assert.ok(plain && plain.k === 'stroke' && plain.rgb[0] === 1);
+});
+
+test('a plot style table the drawing names but is not supplied is reported', () => {
+  const { drawing } = readDrawing('kestrel-plan.dxf', bytes('kestrel-plan'));
+  drawing.layouts.find((l) => l.name === 'C-101 PLAN')!.styleSheet = 'Company A1.ctb';
+  drawing.layouts.find((l) => l.name === 'C-501 DETAIL')!.styleSheet = 'monochrome.ctb';
+  const { notes } = planSheets(drawing, { colorMode: 'auto', lineweights: true });
+  assert.deepEqual(
+    notes.filter((n) => n.kind === 'plot-style-missing'),
+    [{ kind: 'plot-style-missing', name: 'Company A1.ctb' }],
   );
 });
 

@@ -21,16 +21,19 @@ export interface CadConversion {
 /** The options a drawing is converted with when nothing else is chosen: the remembered ones. */
 export function defaultCadOptions(): CadOptions {
   const s = settings.get();
-  const colorMode = s.cadColorMode === 'grey' || s.cadColorMode === 'mono' ? s.cadColorMode : 'color';
+  const colorMode = s.cadColorMode === 'color' || s.cadColorMode === 'grey' || s.cadColorMode === 'mono' ? s.cadColorMode : 'auto';
   return { colorMode, lineweights: s.cadLineweights !== false };
 }
 
 export class CadConvertError extends Error {
   /** The file could not be read as a drawing (as opposed to the converter failing). */
   readonly unreadable: boolean;
-  constructor(message: string, unreadable: boolean) {
+  /** Set when the drawing does not say its units and the options asked: the suggested INSUNITS code. */
+  readonly unitsGuess?: number;
+  constructor(message: string, unreadable: boolean, unitsGuess?: number) {
     super(message);
     this.unreadable = unreadable;
+    this.unitsGuess = unitsGuess;
   }
 }
 
@@ -50,7 +53,7 @@ export function convertDrawing(source: CadFile, options: CadOptions = defaultCad
     worker.onmessage = (e: MessageEvent<CadConvertResponse>) => {
       done();
       const r = e.data;
-      if (!r.ok) return reject(new CadConvertError(r.error, r.readError));
+      if (!r.ok) return reject(new CadConvertError(r.error, r.readError, r.unitsGuess));
       const pdf = r.pdf.buffer.slice(r.pdf.byteOffset, r.pdf.byteOffset + r.pdf.byteLength) as ArrayBuffer;
       resolve({ source, options, references, pdf, report: r.report });
     };

@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { CadReadError, convertCad, type CadFile, type ConversionReport, type ConvertOptions } from './convert';
+import { CadReadError, CadUnitsNeeded, convertCad, type CadFile, type ConversionReport, type ConvertOptions } from './convert';
 import type { CadFonts } from './pdf';
 
 /** Converts one drawing off the main thread. Fonts are fetched once per worker. */
@@ -11,7 +11,7 @@ export interface CadConvertRequest {
   references: CadFile[];
 }
 
-export type CadConvertResponse = { ok: true; pdf: Uint8Array; report: ConversionReport } | { ok: false; error: string; readError: boolean };
+export type CadConvertResponse = { ok: true; pdf: Uint8Array; report: ConversionReport } | { ok: false; error: string; readError: boolean; unitsGuess?: number };
 
 const FONT_FILES: Record<keyof CadFonts, string> = { sans: 'LiberationSans-Regular.ttf', serif: 'LiberationSerif-Regular.ttf', mono: 'LiberationMono-Regular.ttf' };
 
@@ -37,7 +37,7 @@ self.onmessage = async (e: MessageEvent<CadConvertRequest>) => {
     const { pdf, report } = await convertCad(name, bytes, { ...options, references, fonts: await fonts() });
     reply = { ok: true, pdf, report };
   } catch (err) {
-    reply = { ok: false, error: err instanceof Error ? err.message : String(err), readError: err instanceof CadReadError };
+    reply = { ok: false, error: err instanceof Error ? err.message : String(err), readError: err instanceof CadReadError, unitsGuess: err instanceof CadUnitsNeeded ? err.guess : undefined };
   }
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(reply, reply.ok ? [reply.pdf.buffer] : []);
 };

@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import { exportStandard, newStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, type DrawingStandard } from './standards.ts';
 
 function wsp(): DrawingStandard {
-  const s = newStandard('WSP / HLD1BDD');
+  const s = newStandard('Acme / KST1RDS');
   s.sheets = {
     boxes: [
       { field: 'number', x: 0.79, y: 0.95, w: 0.1, h: 0.03 },
       { field: 'ignore', x: 0.9, y: 0.95, w: 0.06, h: 0.03 },
     ],
-    template: 'HLD1BDD-WSPAU-####-@@-DRG-######',
+    template: 'KST1RDS-ACMEA-####-@@-DRG-######',
     disciplinePart: 3,
     disciplines: { BR: 'Bridges' },
   };
@@ -19,7 +19,7 @@ function wsp(): DrawingStandard {
 test('a standard round-trips through its file', () => {
   const s = wsp();
   assert.deepEqual(parseStandardFile(exportStandard(s)), s);
-  assert.equal(standardFileName({ ...s, name: 'WSP / HLD1BDD: roads?' }), 'WSP _ HLD1BDD_ roads_.rcstandard');
+  assert.equal(standardFileName({ ...s, name: 'Acme / KST1RDS: roads?' }), 'Acme _ KST1RDS_ roads_.rcstandard');
 });
 
 test('the hash follows what the standard does to detection, not its name', () => {
@@ -94,8 +94,8 @@ test("a standard's chainage settings travel in the file and are checked", () => 
 });
 
 test("identifying words travel in the file; a Project's standard is read like any shared file", () => {
-  const s = { ...wsp(), identify: ['WSP', 'HLD1BDD'] };
-  assert.deepEqual(parseStandardFile(exportStandard(s)).identify, ['WSP', 'HLD1BDD']);
+  const s = { ...wsp(), identify: ['WSP', 'KST1RDS'] };
+  assert.deepEqual(parseStandardFile(exportStandard(s)).identify, ['WSP', 'KST1RDS']);
   // Not part of the hash: they only decide when to offer the standard, not how it reads.
   assert.equal(standardHash({ ...s, identify: [] }), standardHash(s));
   assert.equal(standardOfProject(JSON.parse(exportStandard(s)))?.name, s.name);

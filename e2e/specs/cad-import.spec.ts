@@ -86,6 +86,28 @@ test('Convert Again with one layout makes a one-page PDF', async ({ app }) => {
   expect(app.errors).toEqual([]);
 });
 
+test('a drawing that does not say its units asks for them, and Convert Again keeps the choice', async ({ app }) => {
+  // No header at all: $INSUNITS is unset. Lines at survey grid coordinates suggest metres.
+  const lines = Array.from({ length: 12 }, (_, k) => ['0', 'LINE', '8', '0', '10', `${500000 + k * 10}`, '20', '6000000', '11', `${500005 + k * 10}`, '21', '6000010']).flat();
+  const dxf = ['0', 'SECTION', '2', 'ENTITIES', ...lines, '0', 'ENDSEC', '0', 'EOF', ''].join('\n');
+  await app.page.locator('input[type=file][accept*=".dwg"][multiple]').first().setInputFiles({ name: 'site.dxf', mimeType: 'image/vnd.dxf', buffer: Buffer.from(dxf) });
+  const ask = app.page.getByRole('dialog', { name: 'Drawing Units' });
+  await expect(ask).toContainText('site.dxf does not say what units it is drawn in', { timeout: 30_000 });
+  await expect(ask.getByRole('radio', { name: /^Metres/ })).toBeChecked();
+  await ask.getByRole('radio', { name: /^Feet/ }).check();
+  await ask.getByRole('button', { name: 'Convert' }).click();
+  await expect.poll(async () => (await app.documents().catch(() => [])).find((d) => d.active && d.name === 'site.pdf')?.pageCount ?? 0, { timeout: 60_000 }).toBe(1);
+  // Units chosen: nothing left to warn about, so the report has no details to show.
+  await expect(app.page.locator('.cad-report')).toContainText('Converted from site.dxf');
+  await expect(app.page.locator('.cad-report').getByRole('button', { name: 'Details' })).toHaveCount(0);
+
+  await app.cmd('document.convertDrawingAgain');
+  const dialog = app.page.locator('.cad-convert-dialog');
+  await expect(dialog.getByLabel('Drawing units')).toHaveValue('2');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  expect(app.errors).toEqual([]);
+});
+
 test('a file that is not a drawing fails with a clear message', async ({ app }) => {
   await app.page.locator('input[type=file][accept*=".dwg"][multiple]').first().setInputFiles({ name: 'broken.dwg', mimeType: 'image/vnd.dwg', buffer: Buffer.from('AC1032 this is not really a drawing') });
   await expect(app.page.locator('.error')).toContainText('damaged', { timeout: 30_000 });

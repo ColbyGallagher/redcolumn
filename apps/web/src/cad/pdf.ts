@@ -100,6 +100,20 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
     return f;
   };
 
+  // Pictures, embedded once per file and drawn wherever they are used.
+  const images = new Map<string, { ref: PDFRef; name: string } | null>();
+  const imageFor = async (p: Extract<Prim, { k: 'image' }>) => {
+    if (!images.has(p.name)) {
+      try {
+        const img = p.format === 'png' ? await doc.embedPng(p.bytes) : await doc.embedJpg(p.bytes);
+        images.set(p.name, { ref: img.ref, name: `Im${images.size}` });
+      } catch {
+        images.set(p.name, null);
+      }
+    }
+    return images.get(p.name) ?? null;
+  };
+
   const labels: PDFObject[] = [];
   for (let i = 0; i < sheets.length; i++) {
     const sheet = sheets[i]!;
@@ -107,6 +121,7 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
     const ops: string[] = [];
     const used = new Set<string>();
     const usedFonts = new Set<FontInfo>();
+    const usedImages = new Map<string, PDFRef>();
     let open: string | null = null;
     const setLayer = (layer: string | null) => {
       if (layer === open) return;
@@ -140,6 +155,12 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
           ops.push(rgbOp(p.rgb, 'rg'));
           pathOps(p.d, ops);
           ops.push('f*');
+        } else if (p.k === 'image') {
+          const img = await imageFor(p);
+          if (!img) continue;
+          usedImages.set(img.name, img.ref);
+          // The unit square of the image onto its parallelogram on the page.
+          ops.push('q', `${fmt6(p.u[0])} ${fmt6(p.u[1])} ${fmt6(p.v[0])} ${fmt6(p.v[1])} ${fmt(p.origin[0])} ${fmt(p.origin[1])} cm`, `/${img.name} Do`, 'Q');
         } else if (p.k === 'hatch') {
           ops.push('q');
           pathOps(p.clip, ops);
@@ -165,6 +186,7 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
       for (const l of used) props[ocgTag.get(l)!] = ocgs.get(l)!;
       resources.set(PDFName.of('Properties'), doc.context.obj(props));
     }
+    if (usedImages.size) resources.set(PDFName.of('XObject'), doc.context.obj(Object.fromEntries(usedImages)));
     if (usedFonts.size) {
       const fontDict: Record<string, PDFRef> = {};
       for (const f of usedFonts) fontDict[f.name] = f.font.ref;

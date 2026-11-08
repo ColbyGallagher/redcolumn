@@ -1935,7 +1935,7 @@ export function App() {
       setCadBusy(true);
       try {
         const conversion = await convertAsJob(entry.conversion.source, options, references);
-        settings.set({ cadColorMode: options.colorMode ?? 'color', cadLineweights: options.lineweights ?? true });
+        settings.set({ cadColorMode: options.colorMode ?? 'auto', cadLineweights: options.lineweights ?? true });
         const stored = await saveFile(pdfNameFor(entry.conversion.source.name), conversion.pdf.slice(0));
         await openStored(stored, conversion.pdf, split && activePaneRef.current === 'b' ? 'b' : 'a');
         cadSession.set(stored.id, conversion);
