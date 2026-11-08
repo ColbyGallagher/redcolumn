@@ -66,4 +66,8 @@ How drawing [Sets](#sets) list their sheets.
 - **Storage** — how much space your documents use, and **Keep on This Device**, which asks the browser not to clear your documents when space runs low (the desktop app is already kept).
 - **OCR languages** — download them now so [OCR](#ocr) works offline.
 
+## MCP
+
+In the desktop app, **MCP** has the **Enable MCP server** switch and the setup text for each AI client. See [AI assistant (MCP tools)](#mcp) for what the client can do and which AI models suit which jobs.
+
 > **Tip:** Settings for *what the screen shows* (toolbar, panels, tool library, list columns) are kept in [Profiles](#profiles) instead, so you can switch them all at once.
