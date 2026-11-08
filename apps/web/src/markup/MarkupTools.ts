@@ -266,7 +266,8 @@ type Gesture =
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
+  /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). */
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[] }
   | { kind: 'move'; start: Point; dx: number; dy: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
@@ -2075,7 +2076,7 @@ export class MarkupTools implements ViewerOverlay {
     if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
-      const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      const live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
@@ -2950,7 +2951,9 @@ export class MarkupTools implements ViewerOverlay {
       const last = g.path[g.path.length - 1]!;
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) * this.viewer.zoomFor(this.page) >= 3) g.path = [...g.path, p];
     } else if (g.kind === 'multi') {
-      g.hover = this.resolve(pt, e, g.markup.points.at(-1)!);
+      const rect = e.buttons & 1 ? this.dragRectCorners(g, pt, e) : null;
+      g.dragRect = rect ?? undefined;
+      g.hover = rect ? rect[2]! : this.resolve(pt, e, g.markup.points.at(-1)!);
     } else if (g.kind === 'draw') {
       const m = g.markup;
       if (TYPE_INFO[m.type].draw === 'freehand') {
@@ -3098,6 +3101,15 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.kind === 'multi') {
+      // Area, Volume, Perimeter and Cutout: press, drag and release makes a rectangle in one motion.
+      const rect = this.dragRectCorners(g, pt, e);
+      if (rect) {
+        g.markup.points = rect;
+        g.dragRect = undefined;
+        this.clearTracking();
+        this.finish();
+        return;
+      }
       // Pressing, dragging and releasing places the second point, so a length can be dragged out.
       const p = this.resolve(pt, e, g.markup.points.at(-1)!);
       if (g.markup.points.length === 1 && Math.hypot(p[0] - g.down[0], p[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx) {
@@ -3497,6 +3509,36 @@ export class MarkupTools implements ViewerOverlay {
       ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
       ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
+  }
+
+  /**
+   * The corners of the rectangle a press-and-drag has made from the gesture's first point, or null
+   * when the tool draws no rectangles or the pointer has not moved past the drag threshold (a click
+   * goes on point by point). Both corners snap; Shift makes it square in real-world units.
+   */
+  private dragRectCorners(g: Extract<Gesture, { kind: 'multi' }>, pt: PagePoint, e: Modifiers): Point[] | null {
+    const tool = this.state.tool;
+    if (g.calibrate || g.markup.points.length !== 1 || !(tool === 'area' || tool === 'volume' || tool === 'perimeter' || tool === 'cutout')) return null;
+    const a = g.markup.points[0]!;
+    // Shift squares the rectangle here rather than constraining the angle.
+    let b = this.resolve(pt, { shiftKey: false, altKey: e.altKey, ctrlKey: e.ctrlKey }, a);
+    const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    if (Math.hypot(dx, dy) * zoom <= this.dragPx) return null;
+    if (e.shiftKey && this.store) {
+      // Equal real-world sides, which differ on the page when the page has a separate vertical scale.
+      const scale = this.store.scaleAt(g.markup.pageIndex, a);
+      const mx = scale.metersPerPoint;
+      const my = scale.yMetersPerPoint ?? mx;
+      const side = Math.max(Math.abs(dx) * mx, Math.abs(dy) * my);
+      dx = (dx < 0 ? -1 : 1) * (side / mx);
+      dy = (dy < 0 ? -1 : 1) * (side / my);
+      b = [a[0] + dx, a[1] + dy];
+    }
+    // A sliver has no area; leave that to point-by-point drawing.
+    if (Math.min(Math.abs(dx), Math.abs(dy)) * zoom < 1) return null;
+    return [a, [b[0], a[1]], b, [a[0], b[1]]];
   }
 
   private completeIfFixed() {
