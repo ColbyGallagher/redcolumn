@@ -1,6 +1,7 @@
 import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
+import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
 import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
@@ -1179,6 +1180,7 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'report_document_changes') return reportDocumentChanges(params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
+  if ((SYMBOL_METHODS as readonly string[]).includes(method)) return symbolCall(docs, method as SymbolMethod, params);
   if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
   throw new Error('Unknown tool.');
 }
