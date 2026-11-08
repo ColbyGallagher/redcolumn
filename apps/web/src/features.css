@@ -2772,6 +2772,19 @@
   font-weight: 400;
 }
 
+/* A group's row, with its members indented beneath it. */
+.markups tr.cluster-row td {
+  cursor: pointer;
+}
+
+.markups tr.cluster-row .group-name {
+  font-weight: 600;
+}
+
+.markups tr.nested-row .subject-cell {
+  padding-left: 20px;
+}
+
 /* A reply is a normal row, indented under the comment it answers. */
 .markups .thread-lead {
   display: inline-flex;

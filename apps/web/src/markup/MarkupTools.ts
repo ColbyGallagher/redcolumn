@@ -76,6 +76,9 @@ import {
   scaledAbout,
   rotatePoint,
   rotationCentre,
+  transformMarkup,
+  type Affine as MarkupAffine,
+  type Rect,
   type Attachment,
   newTable,
   CELL_STYLE_KEYS,
@@ -113,6 +116,7 @@ import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, p
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
+import { drawGroupBox, groupAffine, groupFrame, groupHandleAt, onGroupOutline, type GroupFrame, type GroupHandle } from './groupBox';
 import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
@@ -265,7 +269,10 @@ type Gesture =
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
   | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
-  | { kind: 'move'; start: Point; dx: number; dy: number }
+  /** `drill`: a press on a member of the selected group, which selects just that member if it turns out to be a click. */
+  | { kind: 'move'; start: Point; dx: number; dy: number; drill?: string }
+  /** Dragging a handle of the selected group's box: `t` is the stretch or turn so far, `f` the box when the drag began and `angle` the box's turn so far. */
+  | { kind: 'groupXform'; ids: string[]; groupId: string; handle: GroupHandle; f: GroupFrame; t: MarkupAffine; angle: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   | { kind: 'handle'; id: string; index: number; point: Point }
@@ -1047,21 +1054,54 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /**
-   * The markups whose handles show and drag: the one selected markup, or the members of one selected
-   * group (a Cloud+'s cloud and callout). A callout comes first so its arrow tip wins where it sits on
-   * a corner of the cloud.
+   * The markups whose handles show and drag: the one selected markup. A whole selected group has the
+   * handles of its box instead (see `groupSelection`); click one of its members to edit that alone.
    */
+  private groupAngles = new Map<string, { angle: number; sig: string }>();
+
   private handleTargets(): Markup[] {
     const store = this.store;
     if (!store || this.state.selected.size === 0) return [];
     const ms = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
     if (ms.length !== this.state.selected.size) return [];
     if (ms.length === 1) return ms;
+    // A Cloud+ (a cloud and its callout) keeps the handles of both; a callout comes first so its arrow
+    // tip wins where it sits on a corner of the cloud.
+    return isCloudPlus(ms) ? ms.sort((a, b) => Number(b.type === 'callout') - Number(a.type === 'callout')) : [];
+  }
+
+  /**
+   * The group selected as a whole (every member, and nothing else, on one page): its members and the
+   * box around them. `editable` is false when someone may not change a member, so no handles show.
+   */
+  private groupSelection(): { ids: string[]; groupId: string; markups: Markup[]; frame: GroupFrame; editable: boolean } | null {
+    const store = this.store;
+    if (!store || this.state.selected.size < 2) return null;
+    const ms = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
+    if (ms.length !== this.state.selected.size) return null;
     const groupId = ms[0]!.groupId;
-    if (!groupId || ms.some((m) => m.groupId !== groupId || m.pageIndex !== ms[0]!.pageIndex)) return [];
+    if (!groupId || ms.some((m) => m.groupId !== groupId || m.pageIndex !== ms[0]!.pageIndex)) return null;
     // Only the whole group counts; a group selected along with other markups moves as one.
-    if (store.all().some((m) => m.groupId === groupId && !this.state.selected.has(m.id))) return [];
-    return ms.sort((a, b) => Number(b.type === 'callout') - Number(a.type === 'callout'));
+    if (store.all().some((m) => m.groupId === groupId && !this.state.selected.has(m.id))) return null;
+    if (isCloudPlus(ms)) return null;
+    return { ids: ms.map((m) => m.id), groupId, markups: ms, frame: groupFrame(ms, this.groupAngle(groupId, ms)), editable: !store.readOnly && ms.every((m) => !this.frozen(m)) };
+  }
+
+  /** How far a group's box is turned: kept while its members stay as that turn left them (an undo or edit resets it). */
+  private groupAngle(groupId: string, ms: readonly Markup[]): number {
+    const kept = this.groupAngles.get(groupId);
+    return kept && kept.sig === groupSig(ms) ? kept.angle : 0;
+  }
+
+  /** The group a single selected member belongs to (two or more members), for getting back to editing it whole. */
+  private parentGroup(): { ids: string[]; frame: GroupFrame } | null {
+    const store = this.store;
+    if (!store || this.state.selected.size !== 1) return null;
+    const m = store.get([...this.state.selected][0]!);
+    if (!m?.groupId) return null;
+    const mates = store.all().filter((x) => x.groupId === m.groupId && x.pageIndex === m.pageIndex);
+    if (mates.length < 2 || isCloudPlus(mates)) return null;
+    return { ids: mates.map((x) => x.id), frame: groupFrame(mates.map((x) => this.previewOf(x)), this.groupAngle(m.groupId, mates)) };
   }
 
   /** Midpoint knobs between the vertices of a selected outline or path: drag one to add a vertex. */
@@ -1306,6 +1346,11 @@ export class MarkupTools implements ViewerOverlay {
   /** Selects markups, together with the rest of any group they belong to. */
   select(ids: Iterable<string>) {
     this.setState({ selected: this.withGroups(ids) });
+  }
+
+  /** Selects exactly these markups, even part of a group (to edit one member of it alone). */
+  selectOnly(ids: Iterable<string>) {
+    this.setState({ selected: new Set(ids) });
   }
 
   /** Whether these tools are editing this drawing (the one on screen in their pane). */
@@ -2003,6 +2048,7 @@ export class MarkupTools implements ViewerOverlay {
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     this.drawViewports(ctx, pageIndex, zoom);
     const editable = new Set(this.handleTargets().map((t) => t.id));
+    const group = this.groupSelection();
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
@@ -2014,11 +2060,31 @@ export class MarkupTools implements ViewerOverlay {
       drawMarkup(ctx, shown, zoom, store.scaleOf(shown), legends);
       if (faint) ctx.restore();
       if (m.replies?.length && settings.get().replyIndicators) drawReplyIndicator(ctx, shown, zoom);
-      if (this.state.selected.has(m.id)) {
+      // A group selected whole shows one box around it (below) instead of a box on each member.
+      if (this.state.selected.has(m.id) && !group) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
         if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
         if (editable.has(m.id) && this.reroutable(m)) this.drawSegmentHandles(ctx, shown, zoom);
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
+      }
+    }
+    if (group && group.markups[0]!.pageIndex === pageIndex) {
+      // The box follows the members as they turn or stretch.
+      const live = group.markups.map((m) => this.previewOf(m));
+      drawGroupBox(ctx, live, this.gesture?.kind === 'groupXform' ? groupFrame(live, this.gesture.angle) : group.frame, zoom, this.pointerKind === 'touch' ? 14 : 6, group.editable);
+    } else {
+      // A member picked out of its group: the group's box stays faintly, and its outline selects the group again.
+      const parent = this.parentGroup();
+      if (parent && store.get([...this.state.selected][0]!)?.pageIndex === pageIndex) {
+        const f = parent.frame;
+        ctx.save();
+        ctx.lineWidth = 1 / zoom;
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)';
+        ctx.setLineDash([6 / zoom, 4 / zoom]);
+        ctx.translate(f.c[0], f.c[1]);
+        ctx.rotate((f.angle * Math.PI) / 180);
+        ctx.strokeRect(-f.w / 2, -f.h / 2, f.w, f.h);
+        ctx.restore();
       }
     }
     const popup = this.popup?.shown ? store.get(this.popup.id) : undefined;
@@ -2725,6 +2791,15 @@ export class MarkupTools implements ViewerOverlay {
     const p = toPoint(pt);
     const zoom = this.viewer.zoomFor(this.page);
     const tol = this.hitPx / zoom;
+    // The box around a selected group: its handles stretch, scale and turn every member together.
+    const group = this.groupSelection();
+    if (group?.editable && group.markups[0]!.pageIndex === pageIndex) {
+      const handle = groupHandleAt(group.frame, zoom, p, tol);
+      if (handle) {
+        this.setGesture({ kind: 'groupXform', ids: group.ids, groupId: group.groupId, handle, f: group.frame, t: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }, angle: group.frame.angle });
+        return true;
+      }
+    }
     for (const m of this.handleTargets()) {
       const text = m && !this.frozen(m) && !this.store.readOnly ? labelHandles(m, zoom) : null;
       if (m && text && Math.hypot(text.rotate.at[0] - p[0], text.rotate.at[1] - p[1]) <= tol * 1.5) {
@@ -2792,6 +2867,14 @@ export class MarkupTools implements ViewerOverlay {
       }
     }
 
+    // Pressing the dashed box of a picked-out member selects its whole group again.
+    const parent = e.shiftKey ? null : this.parentGroup();
+    if (parent && onGroupOutline(parent.frame, p, tol)) {
+      this.select(parent.ids);
+      this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0 });
+      return true;
+    }
+
     const hit = this.hitAt(p);
     if (!hit) {
       const widget = e.shiftKey ? undefined : this.formAt(p);
@@ -2846,6 +2929,8 @@ export class MarkupTools implements ViewerOverlay {
         return true;
       }
     }
+    // A press on a member of the group already selected whole edits that member alone, if it is a click.
+    const drill = !e.shiftKey && members.size > 1 && this.state.selected.has(hit.id) && this.groupSelection() ? hit.id : undefined;
     if (e.shiftKey) {
       const next = new Set(this.state.selected);
       const on = !next.has(hit.id);
@@ -2857,7 +2942,7 @@ export class MarkupTools implements ViewerOverlay {
     } else if (!this.state.selected.has(hit.id)) {
       this.select(members);
     }
-    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0 });
+    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0, ...(drill ? { drill } : {}) });
     return true;
   }
 
@@ -2987,6 +3072,12 @@ export class MarkupTools implements ViewerOverlay {
       let angle = (Math.atan2(pt[1] - g.centre[1], pt[0] - g.centre[0]) * 180) / Math.PI + 90 - g.base;
       angle = ((((angle + 180) % 360) + 360) % 360) - 180;
       g.angle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.abs(angle) < 2 ? 0 : Math.round(angle * 10) / 10;
+    } else if (g.kind === 'groupXform') {
+      const next = groupAffine(g.handle, g.f, toPoint(pt), e.shiftKey);
+      if (next) {
+        g.t = next.t;
+        g.angle = next.angle;
+      }
     } else if (g.kind === 'rotate') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -3121,6 +3212,20 @@ export class MarkupTools implements ViewerOverlay {
         const at = g.markup.points[0]!;
         this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });
       } else this.commitDraft(g.markup);
+    } else if (g.kind === 'groupXform') {
+      const store = this.store;
+      const t = g.t;
+      if (t.a !== 1 || t.b !== 0 || t.c !== 0 || t.d !== 1 || t.e !== 0 || t.f !== 0) {
+        store.batch(() => {
+          for (const id of g.ids) {
+            const m = store.get(id);
+            if (m && !this.frozen(m)) store.update(id, transformMarkup(m, t));
+          }
+        });
+        // The box keeps the turn the drag gave it, until the members change some other way.
+        const after = g.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m);
+        this.groupAngles.set(g.groupId, { angle: g.angle, sig: groupSig(after) });
+      }
     } else if (g.kind === 'move') {
       if (g.dx || g.dy) {
         const store = this.store;
@@ -3130,7 +3235,7 @@ export class MarkupTools implements ViewerOverlay {
             if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
           }
         });
-      }
+      } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
       if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy) });
@@ -4241,7 +4346,7 @@ export class MarkupTools implements ViewerOverlay {
   private previewOf(m: Markup): Markup {
     const own = this.ownPreview(m);
     const g = this.gesture;
-    if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
+    if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'groupXform', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
     const get = (id: string) => {
       const s = this.store?.get(id);
       return s && this.ownPreview(s);
@@ -4259,6 +4364,7 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
+    if (g?.kind === 'groupXform' && g.ids.includes(m.id)) return { ...m, ...transformMarkup(m, g.t) };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
       const factor = scaleFactor(g);
       if (factor) return { ...m, ...scaledAbout(m, g.ref[0]!, factor) };
@@ -4267,6 +4373,16 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'tableLine' && g.id === m.id) return { ...m, table: moveTableLine(m, g.line, g.to) ?? m.table };
     return m;
   }
+}
+
+/** What a group's members look like, to tell when they have changed since its box was turned. */
+function groupSig(ms: readonly Markup[]): string {
+  return ms.map((m) => `${m.id}:${m.modifiedAt}`).sort().join('|');
+}
+
+/** A Cloud+: a cloud grouped with the callout holding its comment. It keeps the handles of both rather than a group box. */
+function isCloudPlus(ms: readonly Markup[]): boolean {
+  return ms.length === 2 && ms.some((m) => m.type === 'callout') && ms.some((m) => m.type === 'cloud' || m.type === 'polygonCloud');
 }
 
 /**

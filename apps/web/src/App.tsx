@@ -5122,7 +5122,7 @@ export function App() {
   );
 
   /** The Markups list's selection: Ctrl toggles, Shift extends a range, a plain click focuses one. */
-  const selectRowsFromList = useCallback((ids: readonly string[], focus: Markup, zoom: boolean) => {
+  const selectRowsFromList = useCallback((ids: readonly string[], focus: Markup, zoom: boolean, exact = false) => {
     const useB = activePaneRef.current === 'b' && ctlB;
     const viewer = useB ? ctlB.viewer : ctl?.viewer;
     const tools = useB ? ctlB.tools : ctl?.tools;
@@ -5130,7 +5130,8 @@ export function App() {
     if (ids.includes(focus.id) && viewer.currentPageIndex !== focus.pageIndex) viewer.goToPage(focus.pageIndex);
     if (zoom && settings.get().zoomFitSelected) zoomToMarkup(viewer, focus);
     tools.setTool('select');
-    tools.select(ids);
+    if (exact) tools.selectOnly(ids);
+    else tools.select(ids);
   }, [ctl, ctlB]);
 
   // --- Comments table: every comment and reply across a Project's or Live Session's files -------
