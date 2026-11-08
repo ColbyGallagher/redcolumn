@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('redcolumn', {
   },
   pkiFetch: (url: string, body?: Uint8Array, type?: string) => call<Uint8Array>('pki:fetch', url, body, type),
   pkiRoots: () => call<string[]>('pki:roots'),
+  fonts: {
+    list: () => call('fonts:list'),
+    read: async (id: string) => new Uint8Array(await call<Uint8Array>('fonts:read', id)),
+  },
   tokens: {
     modules: () => call('token:modules'),
     addModule: () => call('token:add-module'),

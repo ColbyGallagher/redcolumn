@@ -123,6 +123,11 @@ export interface RedcolumnDesktop {
   pkiFetch?(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array>;
   /** The root CA certificates the desktop app knows (PEM, Mozilla's list as Node ships it). */
   pkiRoots?(): Promise<string[]>;
+  /** Installed fonts (apps/desktop/src/fonts.ts): families with opaque ids per style, and a style's font file by id. */
+  fonts?: {
+    list(): Promise<{ family: string; styles: { id: string; style: string; bold: boolean; italic: boolean }[] }[]>;
+    read(id: string): Promise<Uint8Array>;
+  };
   /** Smart cards and USB tokens through their PKCS#11 drivers (apps/desktop/src/token.ts). */
   tokens?: DesktopTokens;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;
