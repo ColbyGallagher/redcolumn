@@ -390,6 +390,9 @@ export interface Settings {
   importImageResolution: 'original' | '300' | '150' | '72';
   imageDrop: 'attachPhoto' | 'image' | 'newPage';
   importColourspace: 'auto' | 'colour' | 'grey' | 'mono';
+  // DWG/DXF drawings converted to PDF (remembered from the Convert dialog).
+  cadColorMode: 'auto' | 'color' | 'grey' | 'mono';
+  cadLineweights: boolean;
   importResolution: 'auto' | '72' | '150' | '300' | '600';
   scannedJpeg: boolean;
   exportColourspace: 'auto' | 'colour' | 'grey' | 'mono';
@@ -553,6 +556,8 @@ export const DEFAULT_SETTINGS: Settings = {
   importImageResolution: 'original',
   imageDrop: 'attachPhoto',
   importColourspace: 'auto',
+  cadColorMode: 'auto',
+  cadLineweights: true,
   importResolution: 'auto',
   scannedJpeg: true,
   exportColourspace: 'auto',

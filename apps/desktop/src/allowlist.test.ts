@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import test from 'node:test';
-import { isOpenable, PathAllowlist } from './allowlist.ts';
+import { isOpenable, isWritable, PathAllowlist } from './allowlist.ts';
 
 test('the same path keeps its token', () => {
   const list = new PathAllowlist();
@@ -43,4 +43,12 @@ test('only files the app opens can be registered from a drop', () => {
   assert.equal(isOpenable('/tmp/photo.jpeg'), true);
   assert.equal(isOpenable('C:\\Windows\\System32\\cmd.exe'), false);
   assert.equal(isOpenable('C:\\Users\\me\\.ssh\\id_rsa'), false);
+});
+
+test('drawings open but are never written', () => {
+  assert.equal(isOpenable('C:\\drawings\\site.DWG'), true);
+  assert.equal(isOpenable('/tmp/survey.dxf'), true);
+  assert.equal(isWritable('C:\\drawings\\site.DWG'), false);
+  assert.equal(isWritable('/tmp/survey.dxf'), false);
+  assert.equal(isWritable('C:\\drawings\\site.pdf'), true);
 });

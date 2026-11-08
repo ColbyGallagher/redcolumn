@@ -17,6 +17,7 @@
     "e2e:fixtures": "pnpm --filter @nb/e2e fixtures",
     "e2e:report": "pnpm --filter @nb/e2e exec playwright show-report",
     "verify": "pnpm check:client-data && pnpm typecheck && pnpm test && pnpm build && node e2e/support/check-release.mjs && pnpm e2e",
+    "cad:corpus": "node --experimental-transform-types --no-warnings --import ./apps/web/test/resolve-ts.mjs scripts/cad-corpus.mjs",
     "bench:render": "node --experimental-transform-types --no-warnings --import ./apps/web/test/resolve-ts.mjs scripts/render-bench.mjs"
   },
   "devDependencies": {
