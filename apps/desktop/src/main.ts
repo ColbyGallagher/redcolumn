@@ -17,6 +17,7 @@ import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
+import { SystemFonts, systemFontDirs } from './fonts';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -158,6 +159,10 @@ async function start() {
   handle('pki:fetch', (url, body, type) => pkiRequest(url, body, type));
   // The root CAs Node ships (Mozilla's list), so a card's chain can be checked up to a known root.
   handle('pki:roots', () => [...tls.rootCertificates]);
+  // Installed fonts, for text set in the person's own choice of font: ids only, never paths (fonts.ts).
+  const systemFonts = new SystemFonts(systemFontDirs());
+  handle('fonts:list', () => systemFonts.list());
+  handle('fonts:read', (id) => systemFonts.read(id));
   // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
   // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenClient(() => {

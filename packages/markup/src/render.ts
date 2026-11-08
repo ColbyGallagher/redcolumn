@@ -10,6 +10,7 @@ import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { BLEND_MODES, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { fontKeyword } from './fonts';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
 
@@ -279,7 +280,8 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const valign = m.style.verticalAlign ?? 'top';
   // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
-  const fm = TEXT_INK_METRICS[m.style.fontFamily ?? 'sans'];
+  // An installed font uses the metrics of the standard family it falls back to.
+  const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
   const inkTopOffset = (fm.ascent - fm.cap) * size + lead;
   const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + fm.descent) * size;
   const top =

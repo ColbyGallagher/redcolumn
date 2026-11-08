@@ -65,14 +65,10 @@ export function dashPattern(dash: LineDash | undefined, width: number): number[]
 export { customHatchId, HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
 export type { CustomHatchId, HatchDraw, HatchElement, HatchPattern, HatchSpec, LegacyHatch, StoredHatch } from './hatches';
 
-/** Families map to the PDF standard fonts so exported markups look the same in every viewer. */
-export type FontFamily = 'sans' | 'serif' | 'mono';
-
-export const FONT_FAMILIES: { value: FontFamily; label: string; css: string }[] = [
-  { value: 'sans', label: 'Helvetica / Arial', css: 'Helvetica, Arial, sans-serif' },
-  { value: 'serif', label: 'Times New Roman', css: '"Times New Roman", Times, serif' },
-  { value: 'mono', label: 'Courier New', css: '"Courier New", Courier, monospace' },
-];
+// Keyword families map to the PDF standard fonts; a named family is an installed font (see fonts.ts).
+export { canEmbedFont, cleanFontName, cssFontFamily, daFontName, familyFromPdfName, FONT_FAMILIES, FONT_KEYWORDS, fontKeyword, fontPermissions, isFontKeyword, isNamedFont, isTrueTypeOutline } from './fonts';
+export type { FontEmbedding, FontFamily, FontKeyword, FontPermissions } from './fonts';
+import { cssFontFamily } from './fonts';
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
@@ -145,9 +141,8 @@ export function lineEnds(m: Pick<Markup, 'type' | 'style'>): [LineEnding, LineEn
 
 /** CSS font shorthand for a style at `size` points. Measurement labels default to bold. */
 export function cssFont(style: MarkupStyle, size: number, measure = false): string {
-  const family = FONT_FAMILIES.find((f) => f.value === style.fontFamily) ?? FONT_FAMILIES[0]!;
   const bold = style.bold ?? measure;
-  return `${style.italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${family.css}`;
+  return `${style.italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${cssFontFamily(style.fontFamily)}`;
 }
 
 /** Color used for text and labels. */
