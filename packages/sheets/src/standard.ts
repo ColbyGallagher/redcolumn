@@ -47,7 +47,7 @@ export interface SheetHints {
   /**
    * How the client numbers drawings: `#` a digit, `@` a letter, `?` either, `*` a run of letters
    * and digits, `\` before one of those for the character itself; anything else as written.
-   * `HLD1BDD-WSPAU-####-@@-DRG-######`. Null when any number shape will do.
+   * `KST1RDS-ACMEA-####-@@-DRG-######`. Null when any number shape will do.
    */
   template: string | null;
   /** Which part of the number (split at `-`, `.`, `_`, `/` and spaces) names the discipline; null: the US CAD standard prefix. */
@@ -80,7 +80,7 @@ export function regionOfBox(b: TitleBox, page: { width: number; height: number }
 
 const SEPARATORS = /([-._/\s]+)/;
 
-/** The parts of a drawing number, without separators: `HLD1BDD-WSPAU-0508-BR` → HLD1BDD, WSPAU, 0508, BR. */
+/** The parts of a drawing number, without separators: `KST1RDS-ACMEA-0508-BR` → KST1RDS, ACMEA, 0508, BR. */
 export function numberParts(number: string): string[] {
   return number
     .trim()
