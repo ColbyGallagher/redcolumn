@@ -6,6 +6,7 @@ window.HELP_TOC = [
       { id: 'welcome', title: 'Welcome to redcolumn' },
       { id: 'workspace', title: 'A tour of the screen' },
       { id: 'open', title: 'Open a PDF' },
+      { id: 'open-drawings', title: 'Open a DWG or DXF drawing' },
       { id: 'save', title: 'Save your work' },
       { id: 'tabs', title: 'Work with several documents' },
       { id: 'file-access', title: 'File Access (your files on this device)' },
@@ -274,6 +275,50 @@ window.HELP_TOC = [
       { id: 'profiles', title: 'Profiles' },
       { id: 'shortcuts', title: 'Keyboard shortcuts' },
       { id: 'panels', title: 'Arrange the panels' },
+    ],
+  },
+  {
+    title: 'AI Assistant (MCP)',
+    children: [
+      {
+        title: 'Get started',
+        children: [
+          { id: 'mcp', title: 'Connect an AI client' },
+          { id: 'mcp-models', title: 'Which AI model for which job' },
+        ],
+      },
+      {
+        title: 'Look at the drawing',
+        children: [
+          { id: 'mcp-documents', title: 'Open drawings and pages' },
+          { id: 'mcp-list-markups', title: 'List markups' },
+          { id: 'mcp-page-view', title: 'See and read a page' },
+        ],
+      },
+      {
+        title: 'Change markups',
+        children: [
+          { id: 'mcp-draw', title: 'Draw markups' },
+          { id: 'mcp-edit', title: 'Edit and delete markups' },
+          { id: 'mcp-commands', title: 'Run commands' },
+          { id: 'mcp-command-list', title: 'Every command' },
+        ],
+      },
+      {
+        title: 'Takeoff and scale',
+        children: [
+          { id: 'mcp-takeoff', title: 'Takeoff proposals' },
+          { id: 'mcp-scale', title: 'Sheet scales' },
+        ],
+      },
+      {
+        title: 'Compare, stitch and viewports',
+        children: [
+          { id: 'mcp-compare', title: 'Compare documents' },
+          { id: 'mcp-stitch', title: 'Stitch sheets' },
+          { id: 'mcp-viewports', title: 'Viewports' },
+        ],
+      },
     ],
   },
   {

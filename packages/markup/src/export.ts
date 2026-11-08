@@ -16,7 +16,7 @@ import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
+import { dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type FontFamily, type LineEnding } from './style';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
 import { scaleOfMarkup, type Viewport } from './viewports';
@@ -283,11 +283,14 @@ async function embedDataUrl(doc: PDFDocument, url: string): Promise<PDFImage | n
 function measureDict(scale: Scale): LiteralObject {
   const format = (unit: string, factor: number) => ({ Type: 'NumberFormat', U: PDFString.of(unit), C: factor, D: 100 });
   const unitsPerPoint = scale.metersPerPoint / METERS_PER_UNIT[scale.unit];
+  const separateY = scale.yMetersPerPoint !== undefined && scale.yMetersPerPoint > 0 && Math.abs(scale.yMetersPerPoint / scale.metersPerPoint - 1) > 1e-9;
   return {
     Type: 'Measure',
     Subtype: 'RL',
     R: PDFString.of(scale.label),
     X: [format(scale.unit, unitsPerPoint)],
+    // A separate vertical scale: /Y gives the units per point up the page when it is not /X's.
+    ...(separateY ? { Y: [format(scale.unit, scale.yMetersPerPoint! / METERS_PER_UNIT[scale.unit])] } : {}),
     D: [format(scale.unit, 1)],
     A: [format(areaLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[areaUnitOf(scale)]) ** 2)],
     V: [format(volumeLabelOf(scale), (METERS_PER_UNIT[scale.unit] / METERS_PER_UNIT[volumeUnitOf(scale)]) ** 3)],
@@ -396,11 +399,14 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
   ops.push('[] 0 d');
 
+  const blendName = pdfBlendName(m);
+  const bm = blendName ? { BM: blendName } : {};
+  const bmExplicit = m.style.blendMode ? bm : {};
   const resources: LiteralObject = {
     ExtGState: {
-      GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...(TYPE_INFO[m.type].multiply ? { BM: 'Multiply' } : {}) },
-      GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
-      GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity },
+      GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
+      GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
+      GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
       GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
     },
@@ -809,6 +815,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
     F: (m.hidden ? 2 : 4) | (m.locked ? 128 : 0), // Print (Hidden when hidden), and Locked when locked
     C: color,
     CA: m.style.opacity,
+    ...(pdfBlendName(m) ? { BM: pdfBlendName(m) } : {}),
     BS: dash.length ? { Type: 'Border', W: borderWidth, S: 'D', D: dash } : { Type: 'Border', W: borderWidth, S: 'S' },
     T: pdfText(m.author),
     NM: pdfText(m.id),
@@ -925,7 +932,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
     }
     case 'pen':
     case 'highlighter':
-      specific = { Subtype: 'Ink', InkList: [flat(user)], ...(m.type === 'highlighter' ? { BM: 'Multiply' } : {}) };
+      specific = { Subtype: 'Ink', InkList: [flat(user)] };
       break;
     case 'textHighlight':
     case 'underline':

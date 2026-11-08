@@ -6,6 +6,11 @@ import { expect, test, type App } from '../support/app.ts';
 
 const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
 const ribbon = (app: App) => app.page.locator('.ribbon');
+// Selecting markups switches the ribbon to the Markup Format tab; these specs want Modify, so pick it back.
+async function selectOnModify(app: App, ids: string[]) {
+  await select(app, ids);
+  await ribbon(app).getByRole('tab', { name: 'Modify' }).click();
+}
 const button = (app: App, id: string) => ribbon(app).locator(`[data-ribbon-command="${id}"]`);
 
 async function display(app: App, option: RegExp) {
@@ -82,7 +87,7 @@ test.describe('ribbon', () => {
     await expect(button(app, 'edit.explode')).toBeDisabled();
 
     // A rectangle explodes into lines, but is not a line to trim, join or fillet.
-    await select(app, [rect!.id]);
+    await selectOnModify(app, [rect!.id]);
     await expect(button(app, 'edit.explode')).toBeEnabled();
     await expect(button(app, 'edit.trim')).toBeDisabled();
     await expect(button(app, 'edit.fillet')).toBeDisabled();
@@ -92,13 +97,13 @@ test.describe('ribbon', () => {
     await app.page.screenshot({ path: test.info().outputPath('ribbon-modify-rect.png') });
 
     // A line trims and fillets but has nothing to explode.
-    await select(app, [line!.id]);
+    await selectOnModify(app, [line!.id]);
     await expect(button(app, 'edit.explode')).toBeDisabled();
     await expect(button(app, 'edit.trim')).toBeEnabled();
     await expect(button(app, 'edit.fillet')).toBeEnabled();
 
     // Explode from the ribbon splits the rectangle into four lines.
-    await select(app, [rect!.id]);
+    await selectOnModify(app, [rect!.id]);
     await button(app, 'edit.explode').click();
     await expect.poll(async () => (await app.markups()).filter((m) => m.type === 'line').length).toBe(5);
   });

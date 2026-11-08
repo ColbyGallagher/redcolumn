@@ -7396,3 +7396,49 @@ tr.hidden-markup td {
   font-style: italic;
   font-size: 11px;
 }
+
+/* DWG/DXF conversion: report over the converted PDF, and Convert Again */
+.cad-report {
+  top: auto;
+  bottom: 12px;
+}
+
+.cad-report-list {
+  max-height: 180px;
+  margin: 8px 0 0;
+  padding-left: 18px;
+  overflow: auto;
+  line-height: 1.45;
+}
+
+.cad-convert-dialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.cad-convert-dialog fieldset {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.cad-convert-dialog legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cad-convert-dialog p {
+  margin: 0 0 6px;
+}
+
+.cad-convert-dialog .row.end {
+  justify-content: flex-end;
+}
+
+.cad-ref-list {
+  margin: 0;
+  padding-left: 18px;
+}

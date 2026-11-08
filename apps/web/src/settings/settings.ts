@@ -159,6 +159,8 @@ export interface Settings {
   snapToGrid: boolean;
   /** Drawing tools snap to the corners and vertices of other markups. */
   snapToMarkup: boolean;
+  /** Right-clicking while clicking out a measurement or shape finishes it instead of opening the menu. */
+  rightClickFinishes: boolean;
   /** Grid spacing on the page (paper): millimetres with metric units, inches with imperial. */
   gridSize: number;
   /** Rulers along the top and left of the view (View → Rulers). */
@@ -229,6 +231,8 @@ export interface Settings {
   recentDays: number;
   /** Reopen the documents that were open when the app was last closed. */
   restoreTabs: boolean;
+  /** Opening a document turns the side panel to Thumbnails; off leaves the panel as the user had it. */
+  showThumbnailsOnOpen: boolean;
   /** The start screen (no document open) shows a step-by-step tip from the help. */
   startTips: boolean;
   /** Ribbon groups the user switched off, as "tab/Group name" (Customize Ribbon). */
@@ -390,6 +394,9 @@ export interface Settings {
   importImageResolution: 'original' | '300' | '150' | '72';
   imageDrop: 'attachPhoto' | 'image' | 'newPage';
   importColourspace: 'auto' | 'colour' | 'grey' | 'mono';
+  // DWG/DXF drawings converted to PDF (remembered from the Convert dialog).
+  cadColorMode: 'auto' | 'color' | 'grey' | 'mono';
+  cadLineweights: boolean;
   importResolution: 'auto' | '72' | '150' | '300' | '600';
   scannedJpeg: boolean;
   exportColourspace: 'auto' | 'colour' | 'grey' | 'mono';
@@ -423,6 +430,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showGrid: false,
   snapToGrid: false,
   snapToMarkup: true,
+  rightClickFinishes: false,
   gridSize: 5,
   showRulers: false,
   crosshair: false,
@@ -460,6 +468,7 @@ export const DEFAULT_SETTINGS: Settings = {
   recentCount: 10,
   recentDays: 0,
   restoreTabs: false,
+  showThumbnailsOnOpen: false,
   startTips: true,
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
@@ -553,6 +562,8 @@ export const DEFAULT_SETTINGS: Settings = {
   importImageResolution: 'original',
   imageDrop: 'attachPhoto',
   importColourspace: 'auto',
+  cadColorMode: 'auto',
+  cadLineweights: true,
   importResolution: 'auto',
   scannedJpeg: true,
   exportColourspace: 'auto',
