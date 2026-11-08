@@ -1,4 +1,4 @@
-import { METERS_PER_UNIT, type LengthUnit } from '@nb/measure';
+import type { LengthUnit } from '@nb/measure';
 import { headerNum, INSUNITS_M, num, pt, type Drawing, type Entity, type Layout } from './drawing';
 import { apply, boxEmpty, emptyBox, grow, pathBox, polyPath, rotate, scale, then, translate, type Box, type Cmd, type M, type P } from './geom';
 import { frameOf, newStats, renderEntities, type Ctx, type Prim, type RenderOptions, type RenderStats } from './render';
@@ -9,6 +9,9 @@ import { frameOf, newStats, renderEntities, type Ctx, type Prim, type RenderOpti
  */
 
 export const PT_PER_MM = 72 / 25.4;
+
+/** Metres per unit (as @nb/measure has them; copied so the converter's worker does not load that package). */
+const METERS_PER_UNIT: Record<LengthUnit, number> = { in: 0.0254, ft: 0.3048, yd: 0.9144, mi: 1609.344, mm: 0.001, cm: 0.01, m: 1, km: 1000 };
 
 export interface MeasureScale {
   /** "1:500" or an architectural label. */

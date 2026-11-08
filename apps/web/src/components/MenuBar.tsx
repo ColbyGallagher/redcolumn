@@ -476,6 +476,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.stitching" />
             <Cmd id="document.geospatial" />
             <Cmd id="document.stitchToPage" />
+            <Cmd id="document.convertDrawingAgain" />
             <Cmd id="document.ocr" />
             <Cmd id="document.colour" />
             <Sep />

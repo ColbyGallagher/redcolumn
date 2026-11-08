@@ -1,5 +1,6 @@
 import { CadReadError } from '../dxf';
 import { codePageDecoder, R2007 } from './bits';
+import { backCopy } from './lz77';
 import { memoryBudget, sectionLimit, type DwgFile } from './container';
 
 /**
@@ -29,24 +30,11 @@ function rsDecode(encoded: Uint8Array, out: Uint8Array, factor: number, blockSiz
 // ---- LZ77, R2007 variant --------------------------------------------------------------------
 
 type CopyFn = (s: Uint8Array, si: number, d: Uint8Array, di: number) => void;
-const c1: CopyFn = (s, si, d, di) => {
-  d[di] = s[si]!;
-};
-const c2: CopyFn = (s, si, d, di) => {
-  d[di] = s[si + 1]!;
-  d[di + 1] = s[si]!;
-};
-const c3: CopyFn = (s, si, d, di) => {
-  d[di] = s[si + 2]!;
-  d[di + 1] = s[si + 1]!;
-  d[di + 2] = s[si]!;
-};
-const c4: CopyFn = (s, si, d, di) => {
-  d[di] = s[si]!;
-  d[di + 1] = s[si + 1]!;
-  d[di + 2] = s[si + 2]!;
-  d[di + 3] = s[si + 3]!;
-};
+// Byte runs, some stored reversed. Written through typed-array methods.
+const c1: CopyFn = (s, si, d, di) => d.set(s.subarray(si, si + 1), di);
+const c2: CopyFn = (s, si, d, di) => d.set(s.slice(si, si + 2).reverse(), di);
+const c3: CopyFn = (s, si, d, di) => d.set(s.slice(si, si + 3).reverse(), di);
+const c4: CopyFn = (s, si, d, di) => d.set(s.subarray(si, si + 4), di);
 const c8: CopyFn = (s, si, d, di) => {
   c4(s, si, d, di);
   c4(s, si + 4, d, di + 4);
@@ -56,40 +44,165 @@ const c16: CopyFn = (s, si, d, di) => {
   c8(s, si, d, di + 8);
 };
 /** Literal runs of 1–31 bytes are stored in a shuffled order; each length has its own. */
-const COPIES: (CopyFn | null)[] = [
-  null,
-  c1,
-  c2,
-  c3,
-  c4,
-  (s, si, d, di) => (c1(s, si + 4, d, di), c4(s, si, d, di + 1)),
-  (s, si, d, di) => (c1(s, si + 5, d, di), c4(s, si + 1, d, di + 1), c1(s, si, d, di + 5)),
-  (s, si, d, di) => (c2(s, si + 5, d, di), c4(s, si + 1, d, di + 2), c1(s, si, d, di + 6)),
-  c8,
-  (s, si, d, di) => (c1(s, si + 8, d, di), c8(s, si, d, di + 1)),
-  (s, si, d, di) => (c1(s, si + 9, d, di), c8(s, si + 1, d, di + 1), c1(s, si, d, di + 9)),
-  (s, si, d, di) => (c2(s, si + 9, d, di), c8(s, si + 1, d, di + 2), c1(s, si, d, di + 10)),
-  (s, si, d, di) => (c4(s, si + 8, d, di), c8(s, si, d, di + 4)),
-  (s, si, d, di) => (c1(s, si + 12, d, di), c4(s, si + 8, d, di + 1), c8(s, si, d, di + 5)),
-  (s, si, d, di) => (c1(s, si + 13, d, di), c4(s, si + 9, d, di + 1), c8(s, si + 1, d, di + 5), c1(s, si, d, di + 13)),
-  (s, si, d, di) => (c2(s, si + 13, d, di), c4(s, si + 9, d, di + 2), c8(s, si + 1, d, di + 6), c1(s, si, d, di + 14)),
-  c16,
-  (s, si, d, di) => (c8(s, si + 9, d, di), c1(s, si + 8, d, di + 8), c8(s, si, d, di + 9)),
-  (s, si, d, di) => (c1(s, si + 17, d, di), c16(s, si + 1, d, di + 1), c1(s, si, d, di + 17)),
-  (s, si, d, di) => (c3(s, si + 16, d, di), c16(s, si, d, di + 3)),
-  (s, si, d, di) => (c4(s, si + 16, d, di), c8(s, si + 8, d, di + 4), c8(s, si, d, di + 12)),
-  (s, si, d, di) => (c1(s, si + 20, d, di), c4(s, si + 16, d, di + 1), c8(s, si + 8, d, di + 5), c8(s, si, d, di + 13)),
-  (s, si, d, di) => (c2(s, si + 20, d, di), c4(s, si + 16, d, di + 2), c8(s, si + 8, d, di + 6), c8(s, si, d, di + 14)),
-  (s, si, d, di) => (c3(s, si + 20, d, di), c4(s, si + 16, d, di + 3), c8(s, si + 8, d, di + 7), c8(s, si, d, di + 15)),
-  (s, si, d, di) => (c8(s, si + 16, d, di), c16(s, si, d, di + 8)),
-  (s, si, d, di) => (c8(s, si + 17, d, di), c1(s, si + 16, d, di + 8), c16(s, si, d, di + 9)),
-  (s, si, d, di) => (c1(s, si + 25, d, di), c8(s, si + 17, d, di + 1), c1(s, si + 16, d, di + 9), c16(s, si, d, di + 10)),
-  (s, si, d, di) => (c2(s, si + 25, d, di), c8(s, si + 17, d, di + 2), c1(s, si + 16, d, di + 10), c16(s, si, d, di + 11)),
-  (s, si, d, di) => (c4(s, si + 24, d, di), c8(s, si + 16, d, di + 4), c8(s, si + 8, d, di + 12), c8(s, si, d, di + 20)),
-  (s, si, d, di) => (c1(s, si + 28, d, di), c4(s, si + 24, d, di + 1), c8(s, si + 16, d, di + 5), c8(s, si + 8, d, di + 13), c8(s, si, d, di + 21)),
-  (s, si, d, di) => (c2(s, si + 28, d, di), c4(s, si + 24, d, di + 2), c8(s, si + 16, d, di + 6), c8(s, si + 8, d, di + 14), c8(s, si, d, di + 22)),
-  (s, si, d, di) => (c1(s, si + 30, d, di), c4(s, si + 26, d, di + 1), c8(s, si + 18, d, di + 5), c8(s, si + 10, d, di + 13), c8(s, si + 2, d, di + 21), c2(s, si, d, di + 29)),
-];
+function copyRun(n: number, s: Uint8Array, si: number, d: Uint8Array, di: number) {
+  switch (n) {
+    case 1:
+      c1(s, si, d, di);
+      return;
+    case 2:
+      c2(s, si, d, di);
+      return;
+    case 3:
+      c3(s, si, d, di);
+      return;
+    case 4:
+      c4(s, si, d, di);
+      return;
+    case 5:
+      c1(s, si + 4, d, di);
+      c4(s, si, d, di + 1);
+      return;
+    case 6:
+      c1(s, si + 5, d, di);
+      c4(s, si + 1, d, di + 1);
+      c1(s, si, d, di + 5);
+      return;
+    case 7:
+      c2(s, si + 5, d, di);
+      c4(s, si + 1, d, di + 2);
+      c1(s, si, d, di + 6);
+      return;
+    case 8:
+      c8(s, si, d, di);
+      return;
+    case 9:
+      c1(s, si + 8, d, di);
+      c8(s, si, d, di + 1);
+      return;
+    case 10:
+      c1(s, si + 9, d, di);
+      c8(s, si + 1, d, di + 1);
+      c1(s, si, d, di + 9);
+      return;
+    case 11:
+      c2(s, si + 9, d, di);
+      c8(s, si + 1, d, di + 2);
+      c1(s, si, d, di + 10);
+      return;
+    case 12:
+      c4(s, si + 8, d, di);
+      c8(s, si, d, di + 4);
+      return;
+    case 13:
+      c1(s, si + 12, d, di);
+      c4(s, si + 8, d, di + 1);
+      c8(s, si, d, di + 5);
+      return;
+    case 14:
+      c1(s, si + 13, d, di);
+      c4(s, si + 9, d, di + 1);
+      c8(s, si + 1, d, di + 5);
+      c1(s, si, d, di + 13);
+      return;
+    case 15:
+      c2(s, si + 13, d, di);
+      c4(s, si + 9, d, di + 2);
+      c8(s, si + 1, d, di + 6);
+      c1(s, si, d, di + 14);
+      return;
+    case 16:
+      c16(s, si, d, di);
+      return;
+    case 17:
+      c8(s, si + 9, d, di);
+      c1(s, si + 8, d, di + 8);
+      c8(s, si, d, di + 9);
+      return;
+    case 18:
+      c1(s, si + 17, d, di);
+      c16(s, si + 1, d, di + 1);
+      c1(s, si, d, di + 17);
+      return;
+    case 19:
+      c3(s, si + 16, d, di);
+      c16(s, si, d, di + 3);
+      return;
+    case 20:
+      c4(s, si + 16, d, di);
+      c8(s, si + 8, d, di + 4);
+      c8(s, si, d, di + 12);
+      return;
+    case 21:
+      c1(s, si + 20, d, di);
+      c4(s, si + 16, d, di + 1);
+      c8(s, si + 8, d, di + 5);
+      c8(s, si, d, di + 13);
+      return;
+    case 22:
+      c2(s, si + 20, d, di);
+      c4(s, si + 16, d, di + 2);
+      c8(s, si + 8, d, di + 6);
+      c8(s, si, d, di + 14);
+      return;
+    case 23:
+      c3(s, si + 20, d, di);
+      c4(s, si + 16, d, di + 3);
+      c8(s, si + 8, d, di + 7);
+      c8(s, si, d, di + 15);
+      return;
+    case 24:
+      c8(s, si + 16, d, di);
+      c16(s, si, d, di + 8);
+      return;
+    case 25:
+      c8(s, si + 17, d, di);
+      c1(s, si + 16, d, di + 8);
+      c16(s, si, d, di + 9);
+      return;
+    case 26:
+      c1(s, si + 25, d, di);
+      c8(s, si + 17, d, di + 1);
+      c1(s, si + 16, d, di + 9);
+      c16(s, si, d, di + 10);
+      return;
+    case 27:
+      c2(s, si + 25, d, di);
+      c8(s, si + 17, d, di + 2);
+      c1(s, si + 16, d, di + 10);
+      c16(s, si, d, di + 11);
+      return;
+    case 28:
+      c4(s, si + 24, d, di);
+      c8(s, si + 16, d, di + 4);
+      c8(s, si + 8, d, di + 12);
+      c8(s, si, d, di + 20);
+      return;
+    case 29:
+      c1(s, si + 28, d, di);
+      c4(s, si + 24, d, di + 1);
+      c8(s, si + 16, d, di + 5);
+      c8(s, si + 8, d, di + 13);
+      c8(s, si, d, di + 21);
+      return;
+    case 30:
+      c2(s, si + 28, d, di);
+      c4(s, si + 24, d, di + 2);
+      c8(s, si + 16, d, di + 6);
+      c8(s, si + 8, d, di + 14);
+      c8(s, si, d, di + 22);
+      return;
+    case 31:
+      c1(s, si + 30, d, di);
+      c4(s, si + 26, d, di + 1);
+      c8(s, si + 18, d, di + 5);
+      c8(s, si + 10, d, di + 13);
+      c8(s, si + 2, d, di + 21);
+      c2(s, si, d, di + 29);
+      return;
+    default:
+      throw new CadReadError('This DWG file is damaged (bad compressed page).');
+  }
+}
 
 export function lz77ac21(src: Uint8Array, start: number, length: number, dst: Uint8Array) {
   let si = start;
@@ -136,7 +249,9 @@ export function lz77ac21(src: Uint8Array, start: number, length: number, dst: Ui
       c4(src, s, dst, d + 24);
       c4(src, s + 4, dst, d + 28);
     }
-    if (n > 0) COPIES[n]!(src, s, dst, d);
+    if (n > 0) {
+      copyRun(n, src, s, dst, d);
+    }
     si += len;
     di += len;
   };
@@ -182,7 +297,8 @@ export function lz77ac21(src: Uint8Array, start: number, length: number, dst: Ui
     instructions();
     for (;;) {
       if (off > di || di + len > dst.length) throw bad();
-      for (let k = 0; k < len; k++, di++) dst[di] = dst[di - off]!;
+      backCopy(dst, di, off, len);
+      di += len;
       len = op & 7;
       if (len !== 0 || si >= end) break;
       op = byte();

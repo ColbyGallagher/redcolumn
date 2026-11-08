@@ -252,6 +252,49 @@ Not yet:
 - The test files all come from ODA File Converter. Real AutoCAD drawings, especially large
   ones, still need checking for speed and fidelity (phase 4).
 
+## Phase 3 status (2026-11-06)
+
+DWG and DXF open in the app, on web and desktop, labelled Experimental.
+
+**Where drawings open:** File › Open (system picker and file input), drag and drop, Combine,
+Bulk Insert and Insert Pages all take `.dwg`/`.dxf`.
+- Conversion runs in a worker (`cad/convert.worker.ts`, via `cad/client.ts`), as a job in the
+  jobs bar that can be cancelled.
+- The worker chunk loads only when a drawing is opened.
+- Fonts are fetched from `public/fonts`.
+
+**What the user sees:**
+- **The PDF:** it opens as `<name>.pdf`, with every paper-space layout as a page (model space
+  when there are none). It uses the colour and lineweight options last chosen
+  (`cadColorMode`, `cadLineweights` in settings).
+- **Report bar** (`CadReportBar`), over a PDF converted in this visit: a one-line summary,
+  Details (each warning in plain words), Convert Again… and Close.
+  Document › Convert Drawing Again… (Experimental) brings it back after Close.
+- **Convert Again** (`CadConvertDialog`): which layouts become pages, model space, colour /
+  greyscale / black, lineweights, and **reference drawings**. Reference drawings are DWG/DXF
+  files matched to the drawing's xrefs by file name and drawn in place, with their own tables.
+  The result opens as a new PDF.
+
+**The original is never written:**
+- On the web, a converted PDF's file handle is never remembered, so Save goes to a new PDF.
+- On desktop the main process refuses to write any `.dwg` or `.dxf` path (`isWritable` in
+  `allowlist.ts`), even through Save As onto one.
+- Desktop also gains `.dwg`/`.dxf` in the Open dialog, drops, launch arguments and file
+  associations (Viewer role, never the default handler).
+
+Verified:
+- Unit tests: converter 46 (references, layout list), desktop 94 (drawings openable, never
+  writable, launch arguments).
+- `e2e/specs/cad-import.spec.ts`: 4 tests, passing in web and desktop. They cover open with
+  scales, Save writes a new PDF and leaves the DWG byte-identical, a missing reference then
+  supplied through Convert Again, one-layout Convert Again, and a damaged file.
+- Checked by hand in the browser preview.
+
+Not yet: raster images in drawings are not embedded (a frame stands in). The conversion and
+its report are kept for the visit only. The worker chunk is 1.2 MB (531 KB gzip); most of it
+is pdf-lib and fontkit, which the app already loads but a worker cannot share. That is over the
+400 KB budget set in phase 0.
+
 ## Decisions (2026-11-05)
 
 1. Engine: port the DWG reader from ACadSharp (MIT). No LibreDWG, no ODA SDK.
