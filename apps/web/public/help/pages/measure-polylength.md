@@ -14,4 +14,4 @@ The total of all sections is shown.
 
 > **Tip:** Clicked in the wrong place? Press [[Backspace]] to remove the last point.
 
-To curve a section, select the measurement, hold [[Alt]] and drag the knob in the middle of the section.
+To curve a section, hold [[Ctrl]] as you place its end corner, press and drag away from it: the section bends through the pointer, and releasing sets it. To curve a section afterwards, select the measurement, hold [[Alt]] and drag the knob in the middle of the section.
