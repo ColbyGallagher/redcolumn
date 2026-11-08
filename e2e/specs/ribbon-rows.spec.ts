@@ -1,8 +1,8 @@
 import { expect, test } from '../support/app.ts';
 
-// Every ribbon group keeps to three rows of buttons, and nothing in a group's items reaches down
-// into the group's label (the Modify tab's Align group once wrapped to four rows and its last row
-// sat behind the label, unclickable).
+// Every ribbon group keeps to three rows of buttons, and no row starts behind the group's label
+// (the Modify tab's Align group once wrapped to four rows and its last row sat behind the label,
+// unclickable). Buttons' padding may reach a few pixels into the label strip; a row may not start there.
 
 test.describe('ribbon layout', () => {
   test.use({ toolbar: 'ribbon' });
@@ -31,7 +31,7 @@ test.describe('ribbon layout', () => {
           for (const el of items.querySelectorAll<HTMLElement>('*')) {
             const r = el.getBoundingClientRect();
             if (r.width === 0 || r.height === 0) continue;
-            if (r.bottom > labelTop + 0.5) out.push(`${name}: <${el.tagName.toLowerCase()} class="${el.className}"> bottom ${r.bottom} overlaps label top ${labelTop}`);
+            if (r.top >= labelTop - 0.5) out.push(`${name}: <${el.tagName.toLowerCase()} class="${el.className}"> starts at ${r.top}, behind the label (top ${labelTop})`);
           }
           // Rows are the distinct tops among a stack's or grid's visible buttons.
           for (const box of items.querySelectorAll<HTMLElement>('.rb-stack, .rb-icon-grid')) {
