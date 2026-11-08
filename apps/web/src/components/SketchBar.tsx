@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MARKUP_LABELS } from '@nb/markup';
-import { METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
+import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 import type { SketchState } from '../markup/MarkupTools';
 import { settings, useSettings } from '../settings/settings';
 
@@ -26,9 +26,10 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
   const [a, setA] = useState('');
   const [b, setB] = useState('');
   const first = useRef<HTMLInputElement>(null);
-  const toPoints = (text: string) => {
+  // Lengths and widths count across the page; a box's height counts up it (a separate Y scale).
+  const toPoints = (text: string, axis: 'x' | 'y' = 'x') => {
     const v = parseLength(text, scale.unit);
-    return v === null ? null : (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+    return v === null ? null : pageLengthFor(scale, v * METERS_PER_UNIT[scale.unit], axis === 'x' ? 1 : 0, axis === 'x' ? 0 : 1);
   };
   const box = sketch.mode === 'box';
   const ellipseAs = useSettings().sketchEllipse;
@@ -53,7 +54,7 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
   const firstLabel = circle ? (ellipseAs === 'diameter' ? 'Diameter' : 'Radius') : box ? 'Width' : 'Length';
   const aPoints = toPoints(a);
   const angle = b.trim() === '' ? null : Number(b);
-  const bPoints = box ? toPoints(b) : null;
+  const bPoints = box ? toPoints(b, 'y') : null;
   const ready = circle ? aPoints !== null : box ? aPoints !== null && bPoints !== null : aPoints !== null && (angle === null || Number.isFinite(angle));
 
   return (

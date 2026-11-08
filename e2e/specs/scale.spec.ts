@@ -28,6 +28,26 @@ test.describe('page scale', () => {
     expect((await app.markups()).map((m) => m.measurement)).toEqual([`20'-0"`]);
   });
 
+  test('calibrating X with a horizontal line leaves a separate Y scale alone', async ({ app }) => {
+    // X 1:100 and Y 1:50: a paper point is 0.03528 m across the page and 0.01764 m up it.
+    await app.page.evaluate(() => {
+      const x = 0.0003527778 * 100;
+      (window.__nb.tools.store as unknown as { setScale(pages: number[], s: object): void }).setScale([0], { metersPerPoint: x, yMetersPerPoint: x / 2, unit: 'm', feetInches: false, precision: 2, label: '1:100' });
+    });
+    await app.tool('calibrate');
+    await app.clicks([PLAN.calibration.from, PLAN.calibration.to]);
+    const dialog = app.page.locator('.modal').filter({ hasText: 'Calibrate scale' });
+    await expect(dialog.getByLabel('Horizontal (X)')).toBeChecked();
+    await dialog.locator('select').first().selectOption('ft');
+    await dialog.locator('input[type=text], input:not([type])').first().fill(String(PLAN.calibration.feet));
+    await dialog.locator('button[type=submit]').click();
+    await expect(dialog).toBeHidden();
+    const scale = await app.page.evaluate(() => (window.__nb.tools.store as unknown as { scaleFor(p: number): { metersPerPoint: number; yMetersPerPoint?: number } }).scaleFor(0));
+    // 100 pt is 10 ft across; Y is exactly what it was.
+    expect(scale.metersPerPoint).toBeCloseTo((PLAN.calibration.feet * 0.3048) / 100, 4);
+    expect(scale.yMetersPerPoint).toBeCloseTo(0.0003527778 * 50, 8);
+  });
+
   test('a preset from the page bar', async ({ app }) => {
     await app.scaleSelect().selectOption({ label: `1/4" = 1'-0"` });
     expect((await app.pageInfo(1)).scale).toBe(`1/4" = 1'`);

@@ -106,8 +106,14 @@ export interface CadContext {
   frozen: (m: Markup) => boolean;
   /** The ids of a markup and its group. */
   group: (m: Markup) => string[];
-  /** A length typed in the units of `m`'s scale (the page's when null), in points; null if not a length. */
-  length: (text: string, m: Markup | null) => number | null;
+  /**
+   * A length typed in the units of `m`'s scale (the page's when null), in points; null if not a
+   * length. With a separate Y scale `dir` (a page-space direction) says which way it is measured;
+   * without it the length is taken across the page.
+   */
+  length: (text: string, m: Markup | null, dir?: Point) => number | null;
+  /** How much taller than wide the page is stretched by a separate Y scale for `m` (1 when none). */
+  yStretch?: (m: Markup | null) => number;
   /** A new markup of a type, styled like `like` when given. */
   create: (type: MarkupType, points: Point[], like?: Markup) => Markup;
   /** A copy of a markup (new id, no group, lock or status) with changes. */
@@ -167,6 +173,13 @@ function splitInto(ctx: CadContext, m: Markup, pieces: Point[][], out: CadChange
     ids.push(c.id);
   });
   return ids;
+}
+
+/** Maps into and out of the page as a separate Y scale stretches it (both identity without one). */
+export function stretching(ctx: Pick<CadContext, 'yStretch'>, m: Markup | null): [to: (p: Point) => Point, back: (p: Point) => Point] {
+  const k = ctx.yStretch?.(m) ?? 1;
+  if (!(k > 0) || Math.abs(k - 1) < 1e-9) return [(p) => p, (p) => p];
+  return [(p) => [p[0], p[1] * k], (p) => [p[0], p[1] / k]];
 }
 
 /** A typed length that may be negative (Lengthen's "change by"). */
@@ -305,7 +318,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       const typed = s.moveDistance.trim();
       if (typed) {
         // A typed distance goes the way the pointer points (AutoCAD's direct distance entry).
-        const distance = ctx.length(typed, ctx.selected[0] ?? null);
+        const distance = ctx.length(typed, ctx.selected[0] ?? null, [dx, dy]);
         if (distance === null) return { error: 'The distance is not a length' };
         const len = Math.hypot(dx, dy);
         if (len < 1e-6) return { error: 'Point the way to go first' };
@@ -366,9 +379,11 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: 'Click near the end of a line or polyline' };
       const value = s.lengthenMode === 'percent' ? Number(s.lengthenValue) : s.lengthenMode === 'delta' ? signedLength(ctx, s.lengthenValue, hit) : ctx.length(s.lengthenValue, hit);
       if (value === null || !Number.isFinite(value) || s.lengthenValue.trim() === '') return { error: 'Type the length first' };
-      const pts = lengthenPath(hit.points, p, s.lengthenMode, value);
+      // Worked out with the page stretched by a separate Y scale, so the typed length is a real one.
+      const [to, back] = stretching(ctx, hit);
+      const pts = lengthenPath(hit.points.map(to), to(p), s.lengthenMode, value);
       if (!pts) return { error: 'That would leave nothing' };
-      return { done: { update: [[hit.id, { points: pts }]], add: [], remove: [] }, select: [hit.id], again: true };
+      return { done: { update: [[hit.id, { points: pts.map(back) }]], add: [], remove: [] }, select: [hit.id], again: true };
     }
     case 'fillet':
     case 'chamfer':
@@ -428,9 +443,10 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
         if (spacing === null) return { error: 'Type the spacing first' };
         by = { spacing };
       } else by = { count: s.divideCount };
-      const marks = divisionPoints(path.points, path.closed, by);
+      const [to, back] = stretching(ctx, hit);
+      const marks = divisionPoints(path.points.map(to), path.closed, by);
       if (!marks.length) return { error: 'No marks fit along it' };
-      const count = ctx.create('count', marks.map((x) => x.point));
+      const count = ctx.create('count', marks.map((x) => back(x.point)));
       return { done: { update: [], add: [count], remove: [] }, select: [count.id], again: true };
     }
     case 'stretch': {
