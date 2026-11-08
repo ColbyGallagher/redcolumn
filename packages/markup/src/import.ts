@@ -124,7 +124,7 @@ export function importAnnotations(
   pageIndex: number,
   annotations: readonly ImportableAnnotation[],
   /**
-   * Resolves a link to another file (e.g. `HLD1BDD-...-DRG-100051.pdf`) to a page of this
+   * Resolves a link to another file (e.g. `KST1RDS-...-DRG-100051.pdf`) to a page of this
    * document, for sets published sheet-per-file and then combined.
    */
   resolveFile: (fileName: string) => number | null = () => null,
