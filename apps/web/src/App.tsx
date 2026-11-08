@@ -214,6 +214,7 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
+import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
 
 interface Controllers {
   engine: PdfEngine;
@@ -779,8 +780,12 @@ async function annotatedBytes(
   const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
   const stored = await readFile(cur.file.hash);
   const appending = options.keepSigned && hasSignature(new Uint8Array(stored));
-  return exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
+  const fonts = await fontExport(options.markups ?? cur.store.all());
+  const out = await exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
+    // Installed fonts named by markups are embedded; any that cannot be are reported in one notice.
+    ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}),
+    onFontFallback: fonts.onFontFallback,
     ...(appending ? { open: async (b: ArrayBuffer) => (await import('./documents/incremental')).openAppending(b) } : {}),
     // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it, and an installed font shows CJK.
     fallbackFont: async (doc, name, text) => (await import('./documents/archiveFonts')).embedFontForText(doc, name, text),
@@ -800,6 +805,8 @@ async function annotatedBytes(
     // Until the file's own outline has been read in, leave it as it is.
     ...(cur.store.outlineImported() ? { bookmarks: cur.store.bookmarks() } : {}),
   });
+  fonts.done();
+  return out;
 }
 
 /**
@@ -933,6 +940,49 @@ export function App() {
     const t = setTimeout(() => setNotice(null), 5000);
     return () => clearTimeout(t);
   }, [notice]);
+  // Exports report the installed fonts they could not embed through the same notice line.
+  useEffect(() => setFontNoticeSink(setNotice), []);
+  // Installed fonts the open documents' markups use are loaded before they are drawn; a font this
+  // computer lacks is shown in a similar one, and said so once per document.
+  const fontWarned = useRef(new Set<string>());
+  useEffect(() => {
+    const docs = [open, openB].filter((d): d is OpenFile => !!d);
+    if (!docs.length) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const run = async () => {
+      for (const d of docs) {
+        const markups = d.store.all();
+        if (!markupsUseNamedFonts(markups)) continue;
+        const fonts = await import('./fonts/documentFonts');
+        if (cancelled) return;
+        unsubscribe ??= fonts.onSystemFontsChanged(() => {
+          ctl?.viewer.invalidate();
+          ctlB?.viewer.invalidate();
+        });
+        const missing = await fonts.usedMissingFonts(markups);
+        if (cancelled) return;
+        const text = missingFontsNotice(missing);
+        if (text && !fontWarned.current.has(d.file.id)) {
+          fontWarned.current.add(d.file.id);
+          setNotice(text);
+        }
+      }
+    };
+    void run();
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(), 500);
+    };
+    const offs = docs.map((d) => d.store.subscribe(arm));
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      offs.forEach((off) => off());
+      unsubscribe?.();
+    };
+  }, [open, openB, ctl, ctlB]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
   /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
@@ -3257,7 +3307,9 @@ export function App() {
                   if (prefs.setFlattenAfter) {
                     const fresh = copies.map(({ replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' as const }));
                     const { exportWithAnnotations } = await import('@nb/markup/export');
-                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+                    const fonts = await fontExport(fresh);
+                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}), onFontFallback: fonts.onFontFallback });
+                    fonts.done();
                     const { flattenSelection } = await import('./documents/process');
                     const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
                     await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
@@ -4588,14 +4640,14 @@ export function App() {
    * A session document's markups: from its tab when open, else synced into a store opened just for
    * this (closed again afterwards).
    */
-  const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<T> => {
+  const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<Awaited<T>> => {
     const fileId = studioFileId(session.id, docId);
     const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
-    if (tab) return use(tab.store);
+    if (tab) return await use(tab.store);
     const store = await MarkupStore.open(fileId);
     try {
       await session.attach(docId, store);
-      return use(store);
+      return await use(store);
     } finally {
       await store.destroy();
     }
@@ -4691,11 +4743,15 @@ export function App() {
         for (const d of meta.documents) {
           step(`Preparing ${d.name}`);
           const bytes = await session.fetchDocument(d.id);
-          const out = await withSessionMarkups(session, d.id, (store) =>
-            exportWithAnnotations(
+          const out = await withSessionMarkups(session, d.id, async (store) => {
+            const chosen = store.all().filter((m) => choice.authors.includes(m.author));
+            const fonts = await fontExport(chosen);
+            const exported = await exportWithAnnotations(
               bytes.slice(0),
-              store.all().filter((m) => choice.authors.includes(m.author)),
+              chosen,
               {
+                ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}),
+                onFontFallback: fonts.onFontFallback,
                 scaleFor: (i) => store.scaleFor(i),
                 viewports: store.allViewports(),
                 links: store.allLinks(),
@@ -4708,8 +4764,10 @@ export function App() {
                 assemblies: store.assemblies(),
                 places: store.places(),
               },
-            ),
-          );
+            );
+            fonts.done();
+            return exported;
+          });
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
         }
       }
@@ -6614,7 +6672,9 @@ export function App() {
       // Each target is written once as a new annotation (no replies or states, which have nothing to draw).
       const fresh: Markup[] = targets.map(({ pdfAnnot: _link, replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' }));
       const { exportWithAnnotations } = await import('@nb/markup/export');
-      const exported = await exportWithAnnotations(await readFile(o.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+      const fonts = await fontExport(fresh);
+      const exported = await exportWithAnnotations(await readFile(o.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}), onFontFallback: fonts.onFontFallback });
+      fonts.done();
       const { flattenSelection } = await import('./documents/process');
       const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
       c?.tools.select([]);

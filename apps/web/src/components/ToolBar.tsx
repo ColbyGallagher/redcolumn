@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
+import { FontPicker } from './FontPicker';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
 import { StampMenu } from './StampsDialog';
@@ -471,21 +472,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </label>
       )}
       {textStyle && textType && textCaps!.font && (
-        <label className="field" title="Font">
+        <div className="field" title="Font">
           <FieldTag icon={STYLE_ICONS.font} label="Font" />
-          <select className="font-family" value={mixedOf('fontFamily', (v) => v ?? 'sans') ? '' : (textStyle.fontFamily ?? 'sans')} onChange={(e) => apply(textType, { fontFamily: e.target.value as FontFamily })}>
-            {mixedOf('fontFamily', (v) => v ?? 'sans') && (
-              <option value="" disabled hidden>
-                Mixed
-              </option>
-            )}
-            {FONT_FAMILIES.map((f) => (
-              <option key={f.value} value={f.value} style={{ fontFamily: f.css }}>
-                {f.label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <FontPicker className="font-family" value={textStyle.fontFamily} mixed={!!mixedOf('fontFamily', (v) => v ?? 'sans')} onChange={(family) => apply(textType, { fontFamily: family as FontFamily })} />
+        </div>
       )}
       {textStyle && textType && textCaps!.font && (
         <label className="field" title="Font size (pt)">
