@@ -28,7 +28,7 @@ import {
 import { markupDigest } from './digest';
 import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
-import type { LineDash } from './style';
+import { blendModeOfPdf, effectiveBlendMode, type LineDash } from './style';
 import type { Viewport } from './viewports';
 
 /** What import needs from an existing PDF annotation (matches pdf-core's PdfAnnotation). */
@@ -46,6 +46,8 @@ export interface ImportableAnnotation {
   cloudy: boolean;
   /** Blend mode Multiply (a highlighter). */
   multiply?: boolean;
+  /** The /BM blend mode name, when the annotation has one. */
+  blend?: string;
   /** Object number of the annotation dictionary (0 or absent when direct), to find its raw values. */
   objectNumber?: number;
   da: string;
@@ -122,7 +124,7 @@ export function importAnnotations(
   pageIndex: number,
   annotations: readonly ImportableAnnotation[],
   /**
-   * Resolves a link to another file (e.g. `HLD1BDD-...-DRG-100051.pdf`) to a page of this
+   * Resolves a link to another file (e.g. `KST1RDS-...-DRG-100051.pdf`) to a page of this
    * document, for sets published sheet-per-file and then combined.
    */
   resolveFile: (fileName: string) => number | null = () => null,
@@ -362,6 +364,9 @@ export function importAnnotations(
         opacity: a.opacity,
         ...f.style,
       };
+      // Any other blend than the type's own default is the markup's choice.
+      const blend = blendModeOfPdf((r && nameOf(r.BM)) || a.blend);
+      if (blend && blend !== effectiveBlendMode({ type: f.type, style })) style.blendMode = blend;
       if (!r) {
         if (f.type === 'note') {
           // A Text annotation's /C is its icon colour: the note's paper.

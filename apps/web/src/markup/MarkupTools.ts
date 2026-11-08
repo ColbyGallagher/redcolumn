@@ -32,6 +32,8 @@ import {
   markupSegments,
   insidePolygon,
   insideRect,
+  touchesPolygon,
+  touchesRect,
   isMeasureKind,
   isTextType,
   lineRects,
@@ -109,7 +111,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -273,7 +275,8 @@ type Gesture =
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; resume?: ResumeState }
+  /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). `resume`: adding to an existing markup. */
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState }
   | { kind: 'move'; start: Point; dx: number; dy: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
@@ -439,7 +442,7 @@ export interface MarkupToolsOptions {
   /** A text markup needs its text entered or edited. */
   onEditText: (id: string) => void;
   /** The user drew a calibration line `lengthPoints` long on `pageIndex`, starting at `at`. */
-  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point) => void;
+  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point, delta: Point) => void;
   /**
    * Scale to Length: the reference points are picked; ask what length they should be, then call
    * `scaleSelectionBy`, `pickScaleTarget` (pick two points on the page instead) or `cancel`.
@@ -712,9 +715,10 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** What typed angles are measured from: east, or with Relative rotation input the last segment's direction. */
-  private sketchBaseAngle(points: readonly Point[]): number {
+  private sketchBaseAngle(points: readonly Point[], k = 1): number {
     if (settings.get().rotationInput !== 'relative' || points.length < 2) return 0;
-    return segmentPolar(points.at(-2)!, points.at(-1)!).angle;
+    const [a, b] = [points.at(-2)!, points.at(-1)!];
+    return segmentPolar([a[0], a[1] * k], [b[0], b[1] * k]).angle;
   }
 
   private refreshSketch() {
@@ -733,8 +737,13 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind !== 'multi' || !g.markup.points.length || !(length > 0)) return;
     const from = g.markup.points.at(-1)!;
     const h = g.hover;
-    const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
-    const p = polarPoint(from, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points));
+    // The length is across-the-page points and the angle a real one: worked out with the page
+    // stretched by a separate Y scale, then mapped back.
+    const k = yStretchOf(this.store?.scaleAt(g.markup.pageIndex, from));
+    const fromS: Point = [from[0], from[1] * k];
+    const toward = h && Math.hypot(h[0] - from[0], h[1] * k - from[1] * k) > 1e-6 ? segmentPolar(fromS, [h[0], h[1] * k]).angle : 0;
+    const stretched = polarPoint(fromS, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points, k));
+    const p: Point = [stretched[0], stretched[1] / k];
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -1978,7 +1987,7 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.calibrate) {
-      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!);
+      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!, [points[1]![0] - points[0]![0], points[1]![1] - points[0]![1]]);
       return;
     }
     if (this.state.tool === 'cutout') {
@@ -2060,6 +2069,28 @@ export class MarkupTools implements ViewerOverlay {
     this.select([id]);
   }
 
+  /**
+   * Space finishes a click-by-click measurement like Enter does. Space does nothing special when a
+   * text field, dropdown or editable region has focus (the page then gets no say). There is no
+   * hold-Space-to-pan, so a tap is all there is to tell apart. Returns whether the key was used.
+   */
+  finishKey(key: string, target?: unknown): boolean {
+    if (key !== ' ' && key !== 'Spacebar') return false;
+    if (this.gesture?.kind !== 'multi') return false;
+    const t = target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+    const tag = t?.tagName?.toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return false;
+    this.finish();
+    return true;
+  }
+
+  /** A right-click that stayed put finishes a measurement when "Right-click finishes markup" is on; true if it did. */
+  rightClickFinish(): boolean {
+    if (!settings.get().rightClickFinishes || this.gesture?.kind !== 'multi') return false;
+    this.finish();
+    return true;
+  }
+
   /** Backspace during a measurement removes the last placed point. */
   removeLastPoint() {
     const g = this.gesture;
@@ -2128,16 +2159,18 @@ export class MarkupTools implements ViewerOverlay {
     if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
-      const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      const live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
-        const { length, angle: absolute } = segmentPolar(from, hover);
-        // The readout shows angles as they are typed: relative to the last segment when set so.
-        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
-        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+        // Angles are real ones: measured with the page stretched by a separate Y scale.
+        const k = yStretchOf(scale);
+        const { length, angle: absolute } = segmentPolar([from[0], from[1] * k], [hover[0], hover[1] * k]);
+        // The readout shows angles as they are typed: relative to the last segment when set so.
+        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points, k)) % 360) + 540) % 360) - 180 : absolute;
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(realLengthAlong(scale, hover[0] - from[0], hover[1] - from[1]), scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }
     }
     // Draw to Scale: the box from its first corner to the pointer, with its width and height.
@@ -2146,7 +2179,10 @@ export class MarkupTools implements ViewerOverlay {
       const [a, b] = [anchor.at, anchor.hover];
       drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
       const scale = store.scaleAt(pageIndex, a);
-      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      // Widths count across the page, heights up it, a radius along the pointer's own direction.
+      const wide = (d: number) => formatLength(realLengthAlong(scale, d, 0), scale);
+      const high = (d: number) => formatLength(realLengthAlong(scale, 0, d), scale);
+      const radius = realLengthAlong(scale, b[0] - a[0], b[1] - a[1]);
       const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (r * zoom >= 2) {
         if (sketchesCircle(anchor.type)) {
@@ -2160,13 +2196,13 @@ export class MarkupTools implements ViewerOverlay {
           ctx.lineTo(b[0], b[1]);
           ctx.stroke();
           ctx.restore();
-          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
-        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${formatLength(2 * radius, scale)}` : `R ${formatLength(radius, scale)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${wide(Math.abs(b[0] - a[0]))} × ${high(Math.abs(b[1] - a[1]))}`, b, zoom);
       }
     }
     if (g?.kind === 'scaleRef' && g.pageIndex === pageIndex) {
       const scale = store.scaleAt(pageIndex, g.ref[0]!);
-      const size = (a: Point, b: Point) => formatLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * scale.metersPerPoint, scale);
+      const size = (a: Point, b: Point) => formatLength(realLengthAlong(scale, b[0] - a[0], b[1] - a[1]), scale);
       const ref = g.ref.length === 2 ? g.ref : g.stage === 'ref' && g.hover ? [g.ref[0]!, g.hover] : g.ref;
       drawScaleLine(ctx, ref, '#2563eb', zoom);
       if (ref.length === 2 && g.stage === 'ref') drawSketchReadout(ctx, `Reference ${size(ref[0]!, ref[1]!)}`, ref[1]!, zoom);
@@ -2183,7 +2219,7 @@ export class MarkupTools implements ViewerOverlay {
       drawTracked(ctx, tracked, zoom);
       const scale = store.scaleAt(pageIndex, tracked.point);
       const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
-      const distance = one ? `: ${formatLength(Math.hypot(tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]) * scale.metersPerPoint, scale)}` : '';
+      const distance = one ? `: ${formatLength(realLengthAlong(scale, tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]), scale)}` : '';
       const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
       drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
     }
@@ -2211,8 +2247,8 @@ export class MarkupTools implements ViewerOverlay {
     this.drawPickTargets(ctx, pageIndex, zoom);
     this.drawConnectionPoints(ctx, pageIndex, zoom);
     this.drawCad(ctx, pageIndex, zoom);
-    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
-    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
+    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom, isCrossing(g));
+    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom, true);
     const template = this.state.preset?.template;
     if (template && this.ghost?.pageIndex === pageIndex) {
       const b = boundsOf(template.flatMap((m) => m.points));
@@ -2999,7 +3035,9 @@ export class MarkupTools implements ViewerOverlay {
       const last = g.path[g.path.length - 1]!;
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) * this.viewer.zoomFor(this.page) >= 3) g.path = [...g.path, p];
     } else if (g.kind === 'multi') {
-      g.hover = this.resolve(pt, e, g.markup.points.at(-1)!);
+      const rect = e.buttons & 1 ? this.dragRectCorners(g, pt, e) : null;
+      g.dragRect = rect ?? undefined;
+      g.hover = rect ? rect[2]! : this.resolve(pt, e, g.markup.points.at(-1)!);
     } else if (g.kind === 'draw') {
       const m = g.markup;
       if (TYPE_INFO[m.type].draw === 'freehand') {
@@ -3147,6 +3185,15 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.kind === 'multi') {
+      // Area, Volume, Perimeter and Cutout: press, drag and release makes a rectangle in one motion.
+      const rect = this.dragRectCorners(g, pt, e);
+      if (rect) {
+        g.markup.points = rect;
+        g.dragRect = undefined;
+        this.clearTracking();
+        this.finish();
+        return;
+      }
       // Pressing, dragging and releasing places the second point, so a length can be dragged out.
       const p = this.resolve(pt, e, g.markup.points.at(-1)!);
       if (g.markup.points.length === 1 && Math.hypot(p[0] - g.down[0], p[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx) {
@@ -3192,7 +3239,9 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'box' || g.kind === 'lasso') {
       const page = g.kind === 'lasso' ? g.pageIndex : this.page;
       const inside = this.pageMarkups(page).filter((m) =>
-        g.kind === 'box' ? insideRect(m, boundsOf([g.start, g.end])) : g.path.length > 2 && insidePolygon(m, g.path),
+        g.kind === 'box'
+          ? (isCrossing(g) ? touchesRect(m, boundsOf([g.start, g.end])) : insideRect(m, boundsOf([g.start, g.end])))
+          : g.path.length > 2 && (insidePolygon(m, g.path) || touchesPolygon(m, g.path)),
       );
       const ids = inside.map((m) => m.id);
       this.select(g.add ? [...this.state.selected, ...ids] : ids);
@@ -3248,6 +3297,13 @@ export class MarkupTools implements ViewerOverlay {
   doubleClick(pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
     if (this.gesture?.kind === 'multi') {
+      // The first click of the double-click already placed this point; the second must not leave a twin.
+      const g = this.gesture;
+      const pts = g.markup.points;
+      const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+      const last = pts.at(-1);
+      const prev = pts.at(-2);
+      if (last && prev && Math.hypot(last[0] - prev[0], last[1] - prev[1]) * zoom <= 4) g.markup.points = pts.slice(0, -1);
       this.finish();
       return;
     }
@@ -3537,6 +3593,36 @@ export class MarkupTools implements ViewerOverlay {
       ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
       ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
+  }
+
+  /**
+   * The corners of the rectangle a press-and-drag has made from the gesture's first point, or null
+   * when the tool draws no rectangles or the pointer has not moved past the drag threshold (a click
+   * goes on point by point). Both corners snap; Shift makes it square in real-world units.
+   */
+  private dragRectCorners(g: Extract<Gesture, { kind: 'multi' }>, pt: PagePoint, e: Modifiers): Point[] | null {
+    const tool = this.state.tool;
+    if (g.calibrate || g.markup.points.length !== 1 || !(tool === 'area' || tool === 'volume' || tool === 'perimeter' || tool === 'cutout')) return null;
+    const a = g.markup.points[0]!;
+    // Shift squares the rectangle here rather than constraining the angle.
+    let b = this.resolve(pt, { shiftKey: false, altKey: e.altKey, ctrlKey: e.ctrlKey }, a);
+    const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    if (Math.hypot(dx, dy) * zoom <= this.dragPx) return null;
+    if (e.shiftKey && this.store) {
+      // Equal real-world sides, which differ on the page when the page has a separate vertical scale.
+      const scale = this.store.scaleAt(g.markup.pageIndex, a);
+      const mx = scale.metersPerPoint;
+      const my = scale.yMetersPerPoint ?? mx;
+      const side = Math.max(Math.abs(dx) * mx, Math.abs(dy) * my);
+      dx = (dx < 0 ? -1 : 1) * (side / mx);
+      dy = (dy < 0 ? -1 : 1) * (side / my);
+      b = [a[0] + dx, a[1] + dy];
+    }
+    // A sliver has no area; leave that to point-by-point drawing.
+    if (Math.min(Math.abs(dx), Math.abs(dy)) * zoom < 1) return null;
+    return [a, [b[0], a[1]], b, [a[0], b[1]]];
   }
 
   private completeIfFixed() {
@@ -4053,11 +4139,12 @@ export class MarkupTools implements ViewerOverlay {
       hit: (p) => this.pageMarkups(pageIndex).reverse().find((m) => hitTest(m, p, this.hitPx / this.viewer.zoomFor(pageIndex))),
       frozen: (m) => this.frozen(m),
       group: (m) => (m.groupId ? page.filter((x) => x.groupId === m.groupId).map((x) => x.id) : [m.id]),
-      length: (text, m) => {
+      length: (text, m, dir) => {
         const scale = m ? store.scaleOf(m) : store.scaleFor(pageIndex);
         const v = text.trim() ? parseLength(text, scale.unit) : null;
-        return v === null ? null : (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+        return v === null ? null : pageLengthFor(scale, v * METERS_PER_UNIT[scale.unit], dir?.[0] ?? 1, dir?.[1] ?? 0);
       },
+      yStretch: (m) => yStretchOf(m ? store.scaleOf(m) : store.scaleFor(pageIndex)),
       create: (type, points, like) => {
         const m = this.newMarkup(type, pageIndex, points);
         if (like) {
@@ -4305,13 +4392,21 @@ export class MarkupTools implements ViewerOverlay {
    * the one typed (in the markup's scale) or, with none, through the pointer.
    */
   private offsetCopiesAt(source: Markup, p: Point): Point[][] {
-    const through = offsetDistance(source, p);
     const { offsetDistance: typed, offsetCount } = settings.get();
     const scale = this.store?.scaleOf(source);
+    // With a separate Y scale the page is stretched up it, so the offset is made (and typed
+    // distances measured) in the stretched space, then mapped back.
+    const k = yStretchOf(scale);
+    const stretched = Math.abs(k - 1) > 1e-9;
+    const to = (q: Point): Point => [q[0], q[1] * k];
+    const back = (q: Point): Point => [q[0], q[1] / k];
+    const flat = stretched ? { ...source, points: source.points.map(to) } : source;
+    const through = offsetDistance(flat, stretched ? to(p) : p);
     const value = typed.trim() && scale ? parseLength(typed, scale.unit) : null;
     const d = value !== null && value > 0 ? ((value * METERS_PER_UNIT[scale!.unit]) / scale!.metersPerPoint) * (through < 0 ? -1 : 1) : through;
     if (!d) return [];
-    return offsetCopies(source, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    const copies = offsetCopies(flat, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    return stretched ? copies.map((c) => c.map(back)) : copies;
   }
 
   private hitAt(p: Point): Markup | undefined {
@@ -4561,6 +4656,12 @@ function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Poin
   return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
 }
 
+/** How much a separate Y scale stretches the page up it, relative to across it (1 without one). */
+function yStretchOf(scale: { metersPerPoint: number; yMetersPerPoint?: number } | undefined): number {
+  const y = scale?.yMetersPerPoint;
+  return scale && y !== undefined && y > 0 && scale.metersPerPoint > 0 ? y / scale.metersPerPoint : 1;
+}
+
 /** A Length or Dimension's style with its text dragged or turned (zero offsets and turns left unset). */
 function labelStyled(m: Markup, g: Extract<Gesture, { kind: 'label' | 'labelRotate' }>): MarkupStyle {
   const { leader: _l, labelOffset: _o, labelRotation: _r, ...rest } = m.style;
@@ -4719,13 +4820,19 @@ function drawPickMark(ctx: CanvasRenderingContext2D, [x, y]: Point, zoom: number
   ctx.restore();
 }
 
-function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {
+/** A box dragged right to left selects everything it touches (crossing); left to right, only what it encloses (window). */
+function isCrossing(g: { start: Point; end: Point }): boolean {
+  return g.end[0] < g.start[0];
+}
+
+/** A window selection draws a solid blue outline; a crossing one (or a lasso) a dashed green one. */
+function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number, crossing: boolean) {
   if (path.length < 2) return;
   ctx.save();
   ctx.lineWidth = 1 / zoom;
-  ctx.strokeStyle = '#3b82f6';
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-  ctx.setLineDash([4 / zoom, 3 / zoom]);
+  ctx.strokeStyle = crossing ? '#16a34a' : '#3b82f6';
+  ctx.fillStyle = crossing ? 'rgba(22, 163, 74, 0.10)' : 'rgba(59, 130, 246, 0.08)';
+  ctx.setLineDash(crossing ? [4 / zoom, 3 / zoom] : []);
   ctx.beginPath();
   path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.closePath();

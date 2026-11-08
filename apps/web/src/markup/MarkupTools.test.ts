@@ -1064,6 +1064,60 @@ function put(h: Harness, type: MarkupType, points: Point[], extra: Partial<Marku
   return h.store.get(m.id)!;
 }
 
+test('box selection: left to right takes only what it encloses, right to left everything it touches', async () => {
+  const h = await setup();
+  const area = put(h, 'area', [[100, 100], [300, 100], [300, 300], [100, 300]]);
+  const small = put(h, 'rect', [[400, 100], [420, 120]]);
+  const far = put(h, 'rect', [[500, 500], [540, 540]]);
+  h.tools.setTool('select');
+  // Over the right half of the area, crossing its right edge.
+  drag(h.tools, [250, 80], [330, 320]);
+  assert.deepEqual([...h.tools.getState().selected], [], 'window: the area is only partly inside');
+  h.tools.select([]);
+  drag(h.tools, [330, 80], [250, 320]);
+  assert.deepEqual([...h.tools.getState().selected], [area.id], 'crossing: one edge of the area is enough');
+  h.tools.select([]);
+  // Wholly inside the dragged box, in either direction.
+  drag(h.tools, [380, 80], [440, 140]);
+  assert.deepEqual([...h.tools.getState().selected], [small.id], 'window: a markup inside the box');
+  h.tools.select([]);
+  drag(h.tools, [450, 450], [600, 600]);
+  assert.deepEqual([...h.tools.getState().selected], [far.id]);
+  await h.store.destroy();
+});
+
+test('lasso: takes markups it encloses or crosses, not ones only near its bounding box', async () => {
+  const h = await setup();
+  const line = put(h, 'polyline', [[100, 100], [400, 100], [400, 400]]);
+  const corner = put(h, 'polyline', [[100, 500], [100, 700], [300, 700]]);
+  h.tools.setTool('lasso');
+  // A small loop around a stretch of the first line's middle, touching neither end.
+  const loop: Point[] = [[240, 60], [290, 60], [290, 140], [240, 140], [240, 60]];
+  press(h.tools, loop[0]!);
+  for (const p of loop.slice(1)) move(h.tools, p);
+  release(h.tools, loop.at(-1)!);
+  assert.deepEqual([...h.tools.getState().selected], [line.id]);
+  h.tools.select([]);
+  // Inside the corner's bounding box, clear of its lines.
+  const inner: Point[] = [[180, 560], [260, 560], [260, 640], [180, 640], [180, 560]];
+  press(h.tools, inner[0]!);
+  for (const p of inner.slice(1)) move(h.tools, p);
+  release(h.tools, inner.at(-1)!);
+  assert.deepEqual([...h.tools.getState().selected], [], `${corner.id} is only near`);
+  await h.store.destroy();
+});
+
+test('Shift on a box selection adds to what is selected', async () => {
+  const h = await setup();
+  const a = put(h, 'rect', [[100, 100], [140, 140]]);
+  const b = put(h, 'rect', [[300, 100], [340, 140]]);
+  h.tools.setTool('select');
+  drag(h.tools, [80, 80], [160, 160]);
+  drag(h.tools, [360, 160], [280, 80], { shiftKey: true });
+  assert.deepEqual([...h.tools.getState().selected].sort(), [a.id, b.id].sort());
+  await h.store.destroy();
+});
+
 test('Trim and Extend: cut a line at the lines crossing it, or carry it on to the next', async () => {
   const h = await setup();
   const line = put(h, 'line', [[0, 300], [400, 300]]);
@@ -1406,6 +1460,46 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
 });
+
+test('Area, Volume and Perimeter: dragging makes a four-point rectangle in one motion and keeps the tool', async () => {
+  for (const type of ['area', 'volume', 'perimeter'] as const) {
+    const h = await setup();
+    h.tools.setTool(type);
+    drag(h.tools, [100, 100], [300, 250]);
+    const [m] = h.store.all();
+    assert.equal(m?.type, type);
+    assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 250], [100, 250]]);
+    assert.equal(h.tools.getState().tool, type, 'still armed');
+    assert.equal(h.tools.inProgress, false);
+    // Dragging up and to the left gives the same kind of rectangle.
+    drag(h.tools, [500, 500], [400, 450]);
+    assert.equal(h.store.all()[1]?.points.length, 4);
+    await h.store.destroy();
+  }
+});
+
+test('Area: a small movement still starts a polygon point by point', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [102, 101]);
+  assert.equal(h.store.all().length, 0, 'not finished');
+  assert.equal(h.tools.inProgress, true);
+  click(h.tools, [200, 100]);
+  click(h.tools, [200, 200]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]?.points.length, 3);
+  await h.store.destroy();
+});
+
+test('Area: Shift drags a square in real-world units, even with a separate vertical scale', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.01, yMetersPerPoint: 0.02, unit: 'm', label: 'x' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [300, 160], { shiftKey: true });
+  const [m] = h.store.all();
+  // 200 pt wide at 0.01 is 2 m, so the height is 2 m: 100 pt at 0.02.
+  assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 200], [100, 200]]);
+  await h.store.destroy();
 
 test('Resume: a count carries on in the same markup, with its subject, label and total', async () => {
   const h = await setup();
