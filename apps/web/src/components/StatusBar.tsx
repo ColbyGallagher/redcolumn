@@ -100,7 +100,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
   const scale = cursor ? scaleFor(cursor.pageIndex) : null;
   const size = cursor && viewer ? viewer.pageSize(cursor.pageIndex) : null;
   const onPage = cursor && size && cursor.point[0] >= 0 && cursor.point[1] >= 0 && cursor.point[0] <= size.width && cursor.point[1] <= size.height;
-  const coord = (pt: number) => (scale ? formatLength(pt * scale.metersPerPoint, scale) : `${pt.toFixed(1)} pt`);
+  const coord = (pt: number, axis: 'x' | 'y') => (scale ? formatLength(pt * (axis === 'y' ? (scale.yMetersPerPoint ?? scale.metersPerPoint) : scale.metersPerPoint), scale) : `${pt.toFixed(1)} pt`);
   const geo = onPage ? geoAt(geoRegions(), cursor.pageIndex, cursor.point) : null;
 
   return (
@@ -155,7 +155,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
           </span>
         ) : (
           <span className="status-coords" title="Pointer position from the page's top-left corner, at the page scale">
-            {onPage ? `X ${coord(cursor.point[0])}   Y ${coord(cursor.point[1])}` : ''}
+            {onPage ? `X ${coord(cursor.point[0], 'x')}   Y ${coord(cursor.point[1], 'y')}` : ''}
           </span>
         )}
       </div>

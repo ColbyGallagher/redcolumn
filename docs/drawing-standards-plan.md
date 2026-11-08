@@ -15,9 +15,9 @@ One `DrawingStandard`, saved in the profile next to `taughtMarks` (`apps/web/src
 
 | Group | Fields | Fixes |
 |---|---|---|
-| **Identity** | name, notes, fingerprint (text found on most sheets: client name, a fixed drawing-number prefix like `HLD1BDD-WSPAU-`, title-block position) | lets the app suggest the standard |
+| **Identity** | name, notes, fingerprint (text found on most sheets: client name, a fixed drawing-number prefix like `KST1RDS-ACMEA-`, title-block position) | lets the app suggest the standard |
 | **Title block** | boxes for sheet number, sheet title, revision and scale, plus **ignore** boxes (file no., contract no., CAD ref). Stored as fractions of the page, measured from a chosen corner, so A1 and A3 prints both work. Reuses `Region` and `textInRegion` from `apps/web/src/sheets/regions.ts`. | #166's file-number vs sheet-number problem, with no score-based guess |
-| **Drawing number** | pattern worked out from one example (`HLD1BDD-WSPAU-0508-BR-DRG-300082` → fixed prefix + `{disc:2}` + `DRG` + `{n:6}`), which part is the discipline plus a map of codes to names, and the short form callouts use (last segment) | sheet numbers in any scheme, not only NCS. Disciplines for non-NCS sets. |
+| **Drawing number** | pattern worked out from one example (`KST1RDS-ACMEA-0508-BR-DRG-300082` → fixed prefix + `{disc:2}` + `DRG` + `{n:6}`), which part is the discipline plus a map of codes to names, and the short form callouts use (last segment) | sheet numbers in any scheme, not only NCS. Disciplines for non-NCS sets. |
 | **Marks** | taught section marks, section titles, detail callouts and detail titles, now owned by the standard. Marks taught outside a standard stay global ("Any set"). | taught marks only searched for in that client's sets, so fewer false matches |
 | **Identifiers** | which section and detail ids the client uses: `A`, `AA`, `A-A`, `1`, `S1`… One shared pattern, used by both `links.ts` and `marks.ts`. | the `AA` / `A-A` mismatch found in #167 |
 | **Title wording → link kind** | `SECTION`, `CROSS SECTION`, `ELEVATION`, `ENLARGED`, `LONG SECTION`, plus the client's own words. Defaults come from #167. | link kinds in the client's own language |
@@ -57,7 +57,7 @@ The core logic is pure, testable code in `packages/sheets`. A new type, `SetHint
    5. Wording. Title words → kinds, and match-line words. Starts from the defaults.
    6. Linear (skippable). Chainage format; alignment names suggested from the text ("MC01 appears on 40 sheets: is it an alignment?"); coverage and cross-section sheets picked by title words, with a preview of the ranges found.
 3. **Manage**: rename, duplicate, delete, edit steps, export and import as a `.rcstandard` file (JSON with a version field), and move existing global taught marks into a standard.
-4. **Suggestion**: when a set opens with no standard, score the fingerprints; above a set level, show a dismissable banner ("Looks like a WSP / HLD1BDD set. Use that standard?"). The app never applies a standard on its own.
+4. **Suggestion**: when a set opens with no standard, score the fingerprints; above a set level, show a dismissable banner ("Looks like a Acme / KST1RDS set. Use that standard?"). The app never applies a standard on its own.
 5. Help page `apps/web/public/help/pages/drawing-standards.md`, with screenshots from the `scripts/help` pipeline, crediting Miche-pup's PRs.
 
 ## Phases (one PR each, stacked)
@@ -75,7 +75,7 @@ The core logic is pure, testable code in `packages/sheets`. A new type, `SetHint
 
 - Unit tests in `packages/sheets` with made-up pages for each hint, including the five #168 cases (road cross sections at even chainages, mainline and ramp with overlapping chainages, chainage tables, `STA30+00` written as one word, metric).
 - Profile upgrade test: profiles saved with older fields gain `drawingStandards: []`, and global taught marks stay where they were.
-- Real sets: two or more sets from the same client (for example two HLD1BDD packages), plus Miche-pup's SFPUC set if they'll share it. For each, measure sheet numbers read, links found, and wrong links, with no standard and with one. Keep the numbers in the PR bodies.
+- Real sets: two or more sets from the same client (for example two KST1RDS packages), plus Miche-pup's SFPUC set if they'll share it. For each, measure sheet numbers read, links found, and wrong links, with no standard and with one. Keep the numbers in the PR bodies.
 
 ## Decisions (2026-10-31)
 

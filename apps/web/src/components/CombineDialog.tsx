@@ -1,3 +1,4 @@
+import { CAD_ACCEPT } from '../cad/files';
 import { useRef, useState } from 'react';
 
 /** A document to combine: an open tab (by file id) or a file chosen from disk. */
@@ -79,7 +80,7 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
           type="file"
           multiple
           hidden
-          accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+          accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
           onChange={(e) => {
             const files = [...(e.target.files ?? [])];
             e.target.value = '';
