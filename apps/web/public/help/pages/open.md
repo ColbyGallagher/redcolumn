@@ -33,6 +33,8 @@ Drag a PDF from your file manager (File Explorer or Finder) and drop it on the d
 
 > **Note:** A PDF you open is kept on this device so it opens instantly next time, even offline. Your markups are kept with it automatically.
 
+> **Tip:** You can open DWG and DXF drawings the same ways. They open as PDFs. See [Open a DWG or DXF drawing](#open-drawings).
+
 ## Password-protected PDFs
 
 If the PDF has a password, redcolumn asks for it. Type the password and press [[Enter]].
