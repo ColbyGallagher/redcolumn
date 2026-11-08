@@ -437,7 +437,7 @@ export interface PdfAnnotLink {
  * when. A markup's history is every change, oldest first; its `status` is the latest.
  */
 export interface StatusChange {
-  /** The state's name as set ("Accepted", "1.2 TfNSW - Closed - Do Not Action"). */
+  /** The state's name as set ("Accepted", "1.2 Client - Closed - Do Not Action"). */
   state: string;
   /** The state model: `Review`, or a custom status set's id (see `MarkupStatusDef.model`). */
   model: string;

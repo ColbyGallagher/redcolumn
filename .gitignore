@@ -13,3 +13,14 @@ e2e/test-results/
 e2e/playwright-report/
 apps/web/dist-e2e/
 media/tool-gifs/
+
+# Client drawings never go in git: only the generated CAD fixtures (scripts/check-client-data.mjs
+# checks this in a pre-commit hook and in CI). Local identifier list: .client-data.local.
+*.dwg
+*.dxf
+*.dwl
+*.dwl2
+*.ctb
+*.stb
+!apps/web/test/fixtures/cad/**
+.client-data.local

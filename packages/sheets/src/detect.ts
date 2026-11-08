@@ -127,7 +127,7 @@ interface Candidate {
 
 /**
  * Whether a number is shaped like a drawing number on its own: a discipline-prefixed sheet number
- * (C-101, A2.01) or a document number with letters and separators (HLD1BDD-WSPAU-...-300082,
+ * (C-101, A2.01) or a document number with letters and separators (KST1RDS-ACMEA-...-300082,
  * 12345-C-001). Bare numbers and short codes (680, 2000, 1B) are not: in reports and letters they
  * are addresses, stages and quantities, and only a label next to them makes them a sheet number.
  */
@@ -139,7 +139,7 @@ export function isDrawingNumberShape(number: string): boolean {
 
 /**
  * Drawing identifiers in any numbering scheme: US sheet numbers (C-101, A2.01) and document
- * numbers (HLD1BDD-WSPAU-0508-MS-DRG-100011, 12345-C-001). Must contain a digit.
+ * numbers (KST1RDS-ACMEA-0508-MS-DRG-100011, 12345-C-001). Must contain a digit.
  */
 const IDENTIFIER = /^(?=[^\d]*\d)[A-Z0-9][A-Z0-9._/-]{1,59}$/;
 /** Tokens shaped like identifiers that are not: dates, scales, stations, measurements, times. */
