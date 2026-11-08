@@ -423,7 +423,8 @@ body,
 
 .rb-icon-grid {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
   gap: 1px;
 }
 
@@ -1304,7 +1305,7 @@ select[size] {
   color: var(--text);
 }
 
-/* Drawing numbers can be long (e.g. HLD1BDD-WSPAU-0508-MS-DRG-100011): number above title. */
+/* Drawing numbers can be long (e.g. KST1RDS-ACMEA-0508-MS-DRG-100011): number above title. */
 .sheets .sheet {
   grid-template-columns: 1fr auto;
   row-gap: 1px;
@@ -5903,6 +5904,30 @@ select[size] {
   margin-top: 2px;
   font-size: 12px;
   text-align: center;
+}
+
+.recovered-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+}
+
+.recovered-text {
+  padding: 0 4px;
+  font-size: 12px;
 }
 
 .search-count-bar {

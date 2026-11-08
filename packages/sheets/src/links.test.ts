@@ -136,7 +136,7 @@ test('a stray label inside the title bubble does not hide the sheet number below
 });
 
 test('section titles abbreviated to the last segment of long document numbers link to the cut', () => {
-  const nums = ['HLD1BDD-WSPAU-0508-BR-DRG-300082', 'HLD1BDD-WSPAU-0508-BR-DRG-300086'];
+  const nums = ['KST1RDS-ACMEA-0508-BR-DRG-300082', 'KST1RDS-ACMEA-0508-BR-DRG-300086'];
   const pages = [
     // 300082 carries the cut marker for section 1, pointing at 300086.
     page([...bubble('1', '300086', 1500, 700), ...titleBlock(nums[0]!)]),

@@ -56,10 +56,19 @@ export class PathAllowlist {
   }
 }
 
+/** Drawings the app opens by converting them to PDF. It reads them and never writes them. */
+export const DRAWING_EXTENSIONS = ['dwg', 'dxf'];
+
 /** The kinds of file the app opens. A path from a drop must be one of these. */
-export const OPENABLE_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'];
+export const OPENABLE_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', ...DRAWING_EXTENSIONS];
+
+const extOf = (filePath: string) => path.extname(filePath).slice(1).toLowerCase();
 
 export function isOpenable(filePath: string): boolean {
-  const ext = path.extname(filePath).slice(1).toLowerCase();
-  return OPENABLE_EXTENSIONS.includes(ext);
+  return OPENABLE_EXTENSIONS.includes(extOf(filePath));
+}
+
+/** False for source drawings: a DWG or DXF is never overwritten, whatever the renderer asks. */
+export function isWritable(filePath: string): boolean {
+  return !DRAWING_EXTENSIONS.includes(extOf(filePath));
 }

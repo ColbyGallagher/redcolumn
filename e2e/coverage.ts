@@ -75,6 +75,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.slipSheet': 'todo',
   'document.splitDocument': { spec: 'document' },
   'document.stitchToPage': { spec: 'manual-stitch' },
+  'document.convertDrawingAgain': { spec: 'cad-import' },
   'document.stitching': { spec: 'manual-stitch' },
   'document.teachMark': { spec: 'view' },
   'document.thumbnails': { spec: 'document' },
