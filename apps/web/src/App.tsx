@@ -936,7 +936,7 @@ export function App() {
   const [customScalePage, setCustomScalePage] = useState<number | null>(null);
   /** Scale to Length or a measuring tool was used on a page with no scale. */
   const [scaleNeeded, setScaleNeeded] = useState<{ pane: Pane; pageIndex: number; tool: Tool } | null>(null);
-  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
+  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number]; delta: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
   /** Subject, label and assembly the Measurements panel gives the next measurement. */
@@ -1409,7 +1409,7 @@ export function App() {
     return new MarkupTools(viewer, {
       author: () => authorRef.current,
       onEditText: setEditingText,
-      onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
+      onCalibrate: (pageIndex, lengthPoints, at, delta) => setCalibration({ pageIndex, lengthPoints, at, delta }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
       onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
       measureDefaults: () => {
@@ -10837,7 +10837,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {calibration && activeOpen && (
         <CalibrateDialog
-          lengthPoints={calibration.lengthPoints}
+          delta={calibration.delta}
+          current={calibrationViewport?.scale ?? scales[calibration.pageIndex] ?? null}
           pageCount={pageCount}
           defaultAllPages={Object.keys(scales).length === 0}
           viewportName={calibrationViewport?.name}

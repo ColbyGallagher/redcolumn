@@ -109,7 +109,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -430,7 +430,7 @@ export interface MarkupToolsOptions {
   /** A text markup needs its text entered or edited. */
   onEditText: (id: string) => void;
   /** The user drew a calibration line `lengthPoints` long on `pageIndex`, starting at `at`. */
-  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point) => void;
+  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point, delta: Point) => void;
   /**
    * Scale to Length: the reference points are picked; ask what length they should be, then call
    * `scaleSelectionBy`, `pickScaleTarget` (pick two points on the page instead) or `cancel`.
@@ -703,9 +703,10 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** What typed angles are measured from: east, or with Relative rotation input the last segment's direction. */
-  private sketchBaseAngle(points: readonly Point[]): number {
+  private sketchBaseAngle(points: readonly Point[], k = 1): number {
     if (settings.get().rotationInput !== 'relative' || points.length < 2) return 0;
-    return segmentPolar(points.at(-2)!, points.at(-1)!).angle;
+    const [a, b] = [points.at(-2)!, points.at(-1)!];
+    return segmentPolar([a[0], a[1] * k], [b[0], b[1] * k]).angle;
   }
 
   private refreshSketch() {
@@ -724,8 +725,13 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind !== 'multi' || !g.markup.points.length || !(length > 0)) return;
     const from = g.markup.points.at(-1)!;
     const h = g.hover;
-    const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
-    const p = polarPoint(from, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points));
+    // The length is across-the-page points and the angle a real one: worked out with the page
+    // stretched by a separate Y scale, then mapped back.
+    const k = yStretchOf(this.store?.scaleAt(g.markup.pageIndex, from));
+    const fromS: Point = [from[0], from[1] * k];
+    const toward = h && Math.hypot(h[0] - from[0], h[1] * k - from[1] * k) > 1e-6 ? segmentPolar(fromS, [h[0], h[1] * k]).angle : 0;
+    const stretched = polarPoint(fromS, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points, k));
+    const p: Point = [stretched[0], stretched[1] / k];
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
@@ -1900,7 +1906,7 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.calibrate) {
-      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!);
+      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!, [points[1]![0] - points[0]![0], points[1]![1] - points[0]![1]]);
       return;
     }
     if (this.state.tool === 'cutout') {
@@ -2072,11 +2078,13 @@ export class MarkupTools implements ViewerOverlay {
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
-        const { length, angle: absolute } = segmentPolar(from, hover);
-        // The readout shows angles as they are typed: relative to the last segment when set so.
-        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
-        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+        // Angles are real ones: measured with the page stretched by a separate Y scale.
+        const k = yStretchOf(scale);
+        const { length, angle: absolute } = segmentPolar([from[0], from[1] * k], [hover[0], hover[1] * k]);
+        // The readout shows angles as they are typed: relative to the last segment when set so.
+        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points, k)) % 360) + 540) % 360) - 180 : absolute;
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(realLengthAlong(scale, hover[0] - from[0], hover[1] - from[1]), scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }
     }
     // Draw to Scale: the box from its first corner to the pointer, with its width and height.
@@ -2085,7 +2093,10 @@ export class MarkupTools implements ViewerOverlay {
       const [a, b] = [anchor.at, anchor.hover];
       drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
       const scale = store.scaleAt(pageIndex, a);
-      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      // Widths count across the page, heights up it, a radius along the pointer's own direction.
+      const wide = (d: number) => formatLength(realLengthAlong(scale, d, 0), scale);
+      const high = (d: number) => formatLength(realLengthAlong(scale, 0, d), scale);
+      const radius = realLengthAlong(scale, b[0] - a[0], b[1] - a[1]);
       const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (r * zoom >= 2) {
         if (sketchesCircle(anchor.type)) {
@@ -2099,13 +2110,13 @@ export class MarkupTools implements ViewerOverlay {
           ctx.lineTo(b[0], b[1]);
           ctx.stroke();
           ctx.restore();
-          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
-        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${formatLength(2 * radius, scale)}` : `R ${formatLength(radius, scale)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${wide(Math.abs(b[0] - a[0]))} × ${high(Math.abs(b[1] - a[1]))}`, b, zoom);
       }
     }
     if (g?.kind === 'scaleRef' && g.pageIndex === pageIndex) {
       const scale = store.scaleAt(pageIndex, g.ref[0]!);
-      const size = (a: Point, b: Point) => formatLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * scale.metersPerPoint, scale);
+      const size = (a: Point, b: Point) => formatLength(realLengthAlong(scale, b[0] - a[0], b[1] - a[1]), scale);
       const ref = g.ref.length === 2 ? g.ref : g.stage === 'ref' && g.hover ? [g.ref[0]!, g.hover] : g.ref;
       drawScaleLine(ctx, ref, '#2563eb', zoom);
       if (ref.length === 2 && g.stage === 'ref') drawSketchReadout(ctx, `Reference ${size(ref[0]!, ref[1]!)}`, ref[1]!, zoom);
@@ -2122,7 +2133,7 @@ export class MarkupTools implements ViewerOverlay {
       drawTracked(ctx, tracked, zoom);
       const scale = store.scaleAt(pageIndex, tracked.point);
       const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
-      const distance = one ? `: ${formatLength(Math.hypot(tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]) * scale.metersPerPoint, scale)}` : '';
+      const distance = one ? `: ${formatLength(realLengthAlong(scale, tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]), scale)}` : '';
       const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
       drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
     }
@@ -3998,11 +4009,12 @@ export class MarkupTools implements ViewerOverlay {
       hit: (p) => this.pageMarkups(pageIndex).reverse().find((m) => hitTest(m, p, this.hitPx / this.viewer.zoomFor(pageIndex))),
       frozen: (m) => this.frozen(m),
       group: (m) => (m.groupId ? page.filter((x) => x.groupId === m.groupId).map((x) => x.id) : [m.id]),
-      length: (text, m) => {
+      length: (text, m, dir) => {
         const scale = m ? store.scaleOf(m) : store.scaleFor(pageIndex);
         const v = text.trim() ? parseLength(text, scale.unit) : null;
-        return v === null ? null : (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+        return v === null ? null : pageLengthFor(scale, v * METERS_PER_UNIT[scale.unit], dir?.[0] ?? 1, dir?.[1] ?? 0);
       },
+      yStretch: (m) => yStretchOf(m ? store.scaleOf(m) : store.scaleFor(pageIndex)),
       create: (type, points, like) => {
         const m = this.newMarkup(type, pageIndex, points);
         if (like) {
@@ -4250,13 +4262,21 @@ export class MarkupTools implements ViewerOverlay {
    * the one typed (in the markup's scale) or, with none, through the pointer.
    */
   private offsetCopiesAt(source: Markup, p: Point): Point[][] {
-    const through = offsetDistance(source, p);
     const { offsetDistance: typed, offsetCount } = settings.get();
     const scale = this.store?.scaleOf(source);
+    // With a separate Y scale the page is stretched up it, so the offset is made (and typed
+    // distances measured) in the stretched space, then mapped back.
+    const k = yStretchOf(scale);
+    const stretched = Math.abs(k - 1) > 1e-9;
+    const to = (q: Point): Point => [q[0], q[1] * k];
+    const back = (q: Point): Point => [q[0], q[1] / k];
+    const flat = stretched ? { ...source, points: source.points.map(to) } : source;
+    const through = offsetDistance(flat, stretched ? to(p) : p);
     const value = typed.trim() && scale ? parseLength(typed, scale.unit) : null;
     const d = value !== null && value > 0 ? ((value * METERS_PER_UNIT[scale!.unit]) / scale!.metersPerPoint) * (through < 0 ? -1 : 1) : through;
     if (!d) return [];
-    return offsetCopies(source, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    const copies = offsetCopies(flat, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    return stretched ? copies.map((c) => c.map(back)) : copies;
   }
 
   private hitAt(p: Point): Markup | undefined {
@@ -4504,6 +4524,12 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
 function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Point[] {
   return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+}
+
+/** How much a separate Y scale stretches the page up it, relative to across it (1 without one). */
+function yStretchOf(scale: { metersPerPoint: number; yMetersPerPoint?: number } | undefined): number {
+  const y = scale?.yMetersPerPoint;
+  return scale && y !== undefined && y > 0 && scale.metersPerPoint > 0 ? y / scale.metersPerPoint : 1;
 }
 
 /** A Length or Dimension's style with its text dragged or turned (zero offsets and turns left unset). */

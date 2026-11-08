@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { unitsFor, useSettings } from '../settings/settings';
-import { calibratedScale, parseLength, type LengthUnit, type Scale } from '@nb/measure';
+import { parseLength, type LengthUnit, type Scale } from '@nb/measure';
+import { calibrateFromLine, calibrationLength, hasSeparateY } from '../measure/axisScale';
 
 const UNITS: LengthUnit[] = ['ft', 'in', 'yd', 'mi', 'm', 'cm', 'mm', 'km'];
 
 interface Props {
-  /** Length of the line the user drew, in PDF points. */
-  lengthPoints: number;
+  /** The line the user drew, as its page-point offset (dx, dy). */
+  delta: readonly [number, number];
+  /** The scale being calibrated (the page's, or its viewport's), if any. */
+  current: Scale | null;
   pageCount: number;
   /** Default for "apply to all pages": true when the document has no scales yet. */
   defaultAllPages: boolean;
@@ -17,16 +20,21 @@ interface Props {
 }
 
 /** Asks for the real length of a calibration line and turns it into a page scale. */
-export function CalibrateDialog({ lengthPoints, pageCount, defaultAllPages, viewportName, onApply, onCancel }: Props) {
+export function CalibrateDialog({ delta, current, pageCount, defaultAllPages, viewportName, onApply, onCancel }: Props) {
   const [text, setText] = useState('');
   const { unitSystem: system, lengthUnit } = useSettings();
   const [unit, setUnit] = useState<LengthUnit>(lengthUnit);
   const [allPages, setAllPages] = useState(defaultAllPages);
   const value = parseLength(text, unit);
+  // With a separate Y scale the line calibrates one axis (the one it runs along, to start with).
+  const separate = hasSeparateY(current);
+  const [axis, setAxis] = useState<'x' | 'y'>(Math.abs(delta[1]) > Math.abs(delta[0]) ? 'y' : 'x');
+  const outcome = value === null ? null : calibrateFromLine(current, separate ? axis : 'both', delta, value, unit);
+  const lineError = separate && 'error' in calibrationLength(delta, axis) ? (calibrationLength(delta, axis) as { error: string }).error : null;
 
   const submit = () => {
-    if (value === null) return;
-    onApply(calibratedScale(lengthPoints, value, unit), allPages);
+    if (!outcome || 'error' in outcome) return;
+    onApply(outcome.scale, allPages);
   };
 
   return (
@@ -44,7 +52,24 @@ export function CalibrateDialog({ lengthPoints, pageCount, defaultAllPages, view
         }}
       >
         <h3>{viewportName ? `Calibrate viewport “${viewportName}”` : 'Calibrate scale'}</h3>
-        <p>How long is the line you drew in reality?</p>
+        {separate && (
+          <fieldset className="row" aria-label="Axis to calibrate">
+            <label className="check">
+              <input type="radio" name="calibrate-axis" checked={axis === 'x'} onChange={() => setAxis('x')} />
+              Horizontal (X)
+            </label>
+            <label className="check">
+              <input type="radio" name="calibrate-axis" checked={axis === 'y'} onChange={() => setAxis('y')} />
+              Vertical (Y)
+            </label>
+          </fieldset>
+        )}
+        <p>{separate ? `How long is the ${axis === 'x' ? 'horizontal' : 'vertical'} extent of the line you drew in reality?` : 'How long is the line you drew in reality?'}</p>
+        {lineError && (
+          <p role="alert" className="error">
+            {lineError}
+          </p>
+        )}
         <div className="row">
           <input
             autoFocus
@@ -71,7 +96,7 @@ export function CalibrateDialog({ lengthPoints, pageCount, defaultAllPages, view
           <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="btn primary" disabled={value === null}>
+          <button type="submit" className="btn primary" disabled={!outcome || 'error' in outcome}>
             Set scale
           </button>
         </div>
