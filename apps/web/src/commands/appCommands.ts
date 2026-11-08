@@ -122,6 +122,8 @@ export interface CommandActions {
   geospatial: () => void;
   /** Writes the current sheet's stitched group as one new page. */
   stitchToPage: () => void;
+  /** Converts the drawing the current PDF was made from again (DWG/DXF opened in this visit). */
+  convertDrawingAgain: () => void;
   split: () => void;
   unsplit: () => void;
   switchPanes: () => void;
@@ -269,6 +271,7 @@ export interface CommandState {
   stitched: boolean;
   canStitch: boolean;
   canStitchToPage: boolean;
+  canConvertDrawingAgain: boolean;
   showLinks: boolean;
   snap: boolean;
   showToolbar: boolean;
@@ -498,6 +501,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
     cmd('document.geospatial', 'Document', 'Geospatial…', a.geospatial, doc, sidePanelOpen('geospatial')),
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
+    cmd('document.convertDrawingAgain', 'Document', 'Convert Drawing Again… (Experimental)', a.convertDrawingAgain, s.canConvertDrawingAgain),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.scaleReview', 'Document', 'Review Sheet Scales…', a.scaleReview, doc),

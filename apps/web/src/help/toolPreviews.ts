@@ -14,7 +14,7 @@ const TOOLS: Record<string, ToolPreview> = {
   line: { gif: 'tool-line', hint: 'Drag from where the line starts to where it ends.' },
   arrow: { gif: 'tool-arrow', hint: 'Drag from the tail to the thing you are pointing at.' },
   dimension: { gif: 'tool-dimension', hint: 'Drag across what you are dimensioning, then type its text.' },
-  polyline: { gif: 'tool-polyline', hint: 'Click each corner, then press Enter to finish.' },
+  polyline: { gif: 'tool-polyline', hint: 'Click each corner, then press Enter or Space, or double-click, to finish.' },
   arc: { gif: 'tool-arc', hint: 'Click the start, a point on the curve, then the end.' },
   ellipticalArc: { gif: 'tool-elliptical-arc', hint: 'Drag the box the oval fits in; set its angles in Properties.' },
   rect: { gif: 'tool-rect', hint: 'Drag from one corner to the opposite corner.' },
