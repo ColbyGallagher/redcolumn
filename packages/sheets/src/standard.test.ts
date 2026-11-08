@@ -28,7 +28,7 @@ function sheet(number: string, title: string, rev: string, scale = 1): PageText 
     width: W * scale,
     height: H * scale,
     words: [
-      ...phrase('SEE DRAWING HLD1BDD-WSPAU-0508-BR-DRG-300090', s(300), s(400), s(8)),
+      ...phrase('SEE DRAWING KST1RDS-ACMEA-0508-BR-DRG-300090', s(300), s(400), s(8)),
       ...phrase('DRAWING TITLE', s(1900), s(1540), s(6)),
       ...phrase(title, s(1900), s(1565), s(12)),
       ...phrase('DRAWING NO.', s(1900), s(1610), s(6)),
@@ -49,14 +49,14 @@ const hints: SheetHints = {
     boxFromRegion({ x: 2140, y: 1600, w: 140, h: 50 }, page, 'ignore'),
     boxFromRegion({ x: 2290, y: 1600, w: 90, h: 50 }, page, 'revision'),
   ],
-  template: 'HLD1BDD-WSPAU-0508-@@-DRG-######',
+  template: 'KST1RDS-ACMEA-0508-@@-DRG-######',
   disciplinePart: 3,
   disciplines: { BR: 'Bridges', RD: 'Roads' },
 };
 
 test('templates: # digits, @ letters, ? either, * a run, \\ for the character itself', () => {
-  assert.ok(templateRegex('HLD1BDD-WSPAU-####-@@-DRG-######').test('HLD1BDD-WSPAU-0508-BR-DRG-300082'));
-  assert.ok(!templateRegex('HLD1BDD-WSPAU-####-@@-DRG-######').test('HLD1BDD-WSPAU-0508-BR-DRG-30008'));
+  assert.ok(templateRegex('KST1RDS-ACMEA-####-@@-DRG-######').test('KST1RDS-ACMEA-0508-BR-DRG-300082'));
+  assert.ok(!templateRegex('KST1RDS-ACMEA-####-@@-DRG-######').test('KST1RDS-ACMEA-0508-BR-DRG-30008'));
   assert.ok(templateRegex('@-*').test('C-1001') && templateRegex('@-*').test('C-1'));
   assert.ok(templateRegex('A?.##').test('A1.01') && !templateRegex('A?.##').test('A1-01'));
   assert.ok(templateRegex('\\#-###').test('#-101'));
@@ -64,7 +64,7 @@ test('templates: # digits, @ letters, ? either, * a run, \\ for the character it
 });
 
 test('a template is worked out from the numbers a set uses', () => {
-  assert.equal(deriveTemplate(['HLD1BDD-WSPAU-0508-BR-DRG-300082', 'HLD1BDD-WSPAU-0508-RD-DRG-100011', 'HLD1BDD-WSPAU-0508-BR-DRG-300090']), 'HLD1BDD-WSPAU-0508-@@-DRG-######');
+  assert.equal(deriveTemplate(['KST1RDS-ACMEA-0508-BR-DRG-300082', 'KST1RDS-ACMEA-0508-RD-DRG-100011', 'KST1RDS-ACMEA-0508-BR-DRG-300090']), 'KST1RDS-ACMEA-0508-@@-DRG-######');
   assert.equal(deriveTemplate(['C-101', 'C-1001', 'S-201']), '@-*');
   assert.equal(deriveTemplate(['A1.01', 'A2.01']), 'A#.01');
   // Built differently (another separator, another part count): no single template.
@@ -75,21 +75,21 @@ test('a template is worked out from the numbers a set uses', () => {
   const odd = deriveTemplate(['#1-A', '#2-A'])!;
   assert.equal(odd, '\\##-A');
   assert.ok(templateRegex(odd).test('#7-A') && !templateRegex(odd).test('17-A'));
-  assert.deepEqual(numberParts('HLD1BDD-WSPAU-0508-BR-DRG-300082'), ['HLD1BDD', 'WSPAU', '0508', 'BR', 'DRG', '300082']);
+  assert.deepEqual(numberParts('KST1RDS-ACMEA-0508-BR-DRG-300082'), ['KST1RDS', 'ACMEA', '0508', 'BR', 'DRG', '300082']);
 });
 
 test('disciplines come from the part the standard names, with names for its codes', () => {
-  assert.equal(disciplineOf('HLD1BDD-WSPAU-0508-BR-DRG-300082', hints), 'Bridges');
-  assert.equal(disciplineOf('HLD1BDD-WSPAU-0508-GE-DRG-300082', hints), 'GE');
+  assert.equal(disciplineOf('KST1RDS-ACMEA-0508-BR-DRG-300082', hints), 'Bridges');
+  assert.equal(disciplineOf('KST1RDS-ACMEA-0508-GE-DRG-300082', hints), 'GE');
   // Another consultant's sheet in the set: not the client's scheme, so the CAD standard prefix.
   assert.equal(disciplineOf('S-201', hints), 'Structural');
   assert.equal(disciplineOf('C-101', { ...hints, disciplinePart: null }), 'Civil');
 });
 
 test('a sheet is read from its boxes: number by template, title and the current revision without their labels', () => {
-  const info = readSheet(sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4 General Arrangement', 'C'), hints);
+  const info = readSheet(sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'Bridge 4 General Arrangement', 'C'), hints);
   assert.deepEqual(info, {
-    number: 'HLD1BDD-WSPAU-0508-BR-DRG-300082',
+    number: 'KST1RDS-ACMEA-0508-BR-DRG-300082',
     title: 'Bridge 4 General Arrangement',
     discipline: 'Bridges',
     scaleText: null,
@@ -99,7 +99,7 @@ test('a sheet is read from its boxes: number by template, title and the current 
     confidence: 0.95,
   });
   // Printed at half size (A1 as A3), the boxes are in the same place on the page.
-  assert.equal(readSheet(sheet('HLD1BDD-WSPAU-0508-RD-DRG-100011', 'Road plan', 'A', 0.5), hints)?.number, 'HLD1BDD-WSPAU-0508-RD-DRG-100011');
+  assert.equal(readSheet(sheet('KST1RDS-ACMEA-0508-RD-DRG-100011', 'Road plan', 'A', 0.5), hints)?.number, 'KST1RDS-ACMEA-0508-RD-DRG-100011');
   const r = regionOfBox(hints.boxes[1]!, page);
   assert.deepEqual([r.x, r.y, r.w, r.h].map(Math.round), [1890, 1600, 240, 50]);
 });
@@ -112,19 +112,19 @@ test('a number split by spaces in the box is read run together', () => {
 });
 
 test('pages the standard does not fit are left to the heuristics, which skip ignore boxes and prefer the template', () => {
-  const fits = sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4', 'C');
+  const fits = sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'Bridge 4', 'C');
   // Another consultant's sheet: its number is somewhere else and does not fit the template.
   const other: PageText = { width: W, height: H, words: [...phrase('SHEET NO.', 2200, 1500, 7), word('S-201', 2200, 1530, 20)] };
   // Nothing in the number box fits; the template-shaped number sits elsewhere in the title block.
   // Its contract number, unlabelled and larger, sits in the ignore box.
-  const moved: PageText = { width: W, height: H, words: [word('HLD1BDD-WSPAU-0508-RD-DRG-100020', 2000, 1500, 14), word('C-2041', 2150, 1640, 18)] };
+  const moved: PageText = { width: W, height: H, words: [word('KST1RDS-ACMEA-0508-RD-DRG-100020', 2000, 1500, 14), word('C-2041', 2150, 1640, 18)] };
   const found = detectSheets([fits, other, moved], hints);
   assert.deepEqual(
     found.map((s) => [s.number, s.source, s.discipline]),
     [
-      ['HLD1BDD-WSPAU-0508-BR-DRG-300082', 'standard', 'Bridges'],
+      ['KST1RDS-ACMEA-0508-BR-DRG-300082', 'standard', 'Bridges'],
       ['S-201', 'text', 'Structural'],
-      ['HLD1BDD-WSPAU-0508-RD-DRG-100020', 'text', 'Roads'],
+      ['KST1RDS-ACMEA-0508-RD-DRG-100020', 'text', 'Roads'],
     ],
   );
   assert.deepEqual(standardCoverage([fits, other, moved], hints), { read: [0], missed: [1, 2] });
@@ -140,7 +140,7 @@ test('a number box word with long runs of brackets reads quickly and without the
 });
 
 test("a standard fits a set by its number scheme or by the client's words", () => {
-  const wsp = [sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge', 'A'), sheet('HLD1BDD-WSPAU-0508-RD-DRG-100011', 'Road', 'B')];
+  const wsp = [sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'Bridge', 'A'), sheet('KST1RDS-ACMEA-0508-RD-DRG-100011', 'Road', 'B')];
   const other: PageText = { width: W, height: H, words: [...phrase('DRAWING NO.', 1900, 1610, 6), word('A-101', 1900, 1640, 14)] };
   assert.equal(standardFit(wsp, hints), 1);
   assert.equal(standardFit([...wsp, other, other], hints), 0.5);
@@ -153,7 +153,7 @@ test("a standard fits a set by its number scheme or by the client's words", () =
 });
 
 test('custom fields: each box named by the person reads its text, without the name printed in front', () => {
-  const p = sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4 General Arrangement', 'C');
+  const p = sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'Bridge 4 General Arrangement', 'C');
   p.words.push(...phrase('STATUS: FOR CONSTRUCTION', 1900, 1480, 10), ...phrase('PACKAGE 4', 2150, 1480, 10));
   const custom: SheetHints = {
     ...hints,
@@ -168,7 +168,7 @@ test('custom fields: each box named by the person reads its text, without the na
 });
 
 test('a sheet size box is read without its label', () => {
-  const p = sheet('HLD1BDD-WSPAU-0508-BR-DRG-300082', 'Bridge 4', 'C');
+  const p = sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'Bridge 4', 'C');
   p.words.push(...phrase('SHEET SIZE A1', 1500, 1640, 10));
   const withSize: SheetHints = { ...hints, boxes: [...hints.boxes, { field: 'sheetSize', x: 1490 / W, y: 1620 / H, w: 150 / W, h: 30 / H }] };
   assert.equal(readSheet(p, withSize)?.paperText, 'A1');

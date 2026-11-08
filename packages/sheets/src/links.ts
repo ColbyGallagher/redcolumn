@@ -96,7 +96,7 @@ const cleanWord = (t: string) => {
 /**
  * Looks up sheet numbers the way people write them. Exact text first; then ignoring separators
  * (C-501 vs C501), but only where that is unambiguous within the set. With `short`, also the
- * last segment of a long document number (`300082` for HLD1BDD-WSPAU-0508-BR-DRG-300082), as
+ * last segment of a long document number (`300082` for KST1RDS-ACMEA-0508-BR-DRG-300082), as
  * section and detail bubbles abbreviate it; callers only allow that where the context says callout.
  */
 export class SheetLookup {
@@ -198,7 +198,7 @@ export interface LinkHints {
   titles: { section: string[]; elevation: string[]; enlargedPlan: string[] };
   /** Words that mark a sheet reference as a match line. */
   matchLine: string[];
-  /** Which part of a drawing number callouts cite (`300082` of HLD1BDD-...-300082); null: the last part. */
+  /** Which part of a drawing number callouts cite (`300082` of KST1RDS-...-300082); null: the last part. */
   calloutPart: number | null;
 }
 

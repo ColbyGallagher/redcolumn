@@ -23,7 +23,7 @@ Standards are kept with your [profile](#profiles) and can be shared as files.
    | `*` | any run of digits and letters |
    | anything else | itself |
 
-   For example `HLD1BDD-WSPAU-####-@@-DRG-######`. With a template, only numbers built that way are taken as sheet numbers.
+   For example `KST1RDS-ACMEA-####-@@-DRG-######`. With a template, only numbers built that way are taken as sheet numbers.
 5. Choose which part of the number names the **Discipline**, and type a name for each code (`BR` is *Bridges*). Leave it on **Letters at the start** for US-style numbers such as *C-101*.
 6. Check the preview: *Sheet number read on 194 of 197 pages*, and which pages were not read.
 7. Click **Save and use**.
@@ -40,7 +40,7 @@ Open **Sheet links and marks** to tell redcolumn how this client's drawings poin
 
 | Setting | Use it when |
 |---|---|
-| **Callouts cite** | Callout bubbles show only part of the drawing number, such as *300082* for *HLD1BDD-WSPAU-0508-BR-DRG-300082*. Pick that part. |
+| **Callouts cite** | Callout bubbles show only part of the drawing number, such as *300082* for *KST1RDS-ACMEA-0508-BR-DRG-300082*. Pick that part. |
 | **Identifiers** | The client labels details and sections in an unusual way, such as *DT3*. Type the forms with `#` for a digit and `@` for a letter: `@@#`. Separate several with commas. |
 | **Section, Elevation and Enlarged plan titles** | The client's titles use other words, such as *SECT* or *CROSS SECTION*. The [Links tab](#links) shows each link's kind. |
 | **Match lines** | Match lines are written another way, such as *CONTINUED ON*. |
