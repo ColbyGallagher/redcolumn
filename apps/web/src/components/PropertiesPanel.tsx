@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from 'react';
 import {
   CELL_STYLE_KEYS,
   DEFAULT_STYLES,
-  FONT_FAMILIES,
   tableCellFormat,
   tableCellStyle,
   HATCH_PATTERNS,
@@ -37,6 +36,7 @@ import { ColorMenu } from './ColorMenu';
 import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
+import { FontPicker } from './FontPicker';
 
 interface Props {
   markups: Markup[];
@@ -599,13 +599,7 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
       {caps.font && (
         <Section title={measure || caps.label ? 'Label text' : 'Font'}>
           <Row label="Font">
-            <select value={style.fontFamily ?? 'sans'} onChange={(e) => set('fontFamily', e.target.value === 'sans' ? undefined : (e.target.value as FontFamily))}>
-              {FONT_FAMILIES.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
+            <FontPicker value={style.fontFamily} onChange={(family) => set('fontFamily', family === 'sans' ? undefined : (family as FontFamily))} />
           </Row>
           <Row label="Size">
             <NumberField value={style.fontSize} placeholder="Auto" min={1} max={288} step={0.5} unit="pt" onChange={(v) => set('fontSize', v)} />
