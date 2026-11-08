@@ -1,5 +1,7 @@
 import { arcPoints } from './arc';
-import { boundsOf, isTextType, mapGeometry, rotatePoint, type Geometry, type Markup, type Point, type Rect } from './model';
+import { flatten, markupShape } from './geometry';
+import { TYPE_INFO } from './types';
+import { boundsOf, contentBox, isTextType, mapGeometry, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
 
 export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 export type Axis = 'horizontal' | 'vertical';
@@ -184,6 +186,76 @@ export function insidePolygon(m: Markup, polygon: readonly Point[]): boolean {
 export function insideRect(m: Markup, r: Rect): boolean {
   const b = shapeBounds(m);
   return b.x >= r.x && b.y >= r.y && b.x + b.w <= r.x + r.w && b.y + b.h <= r.y + r.h;
+}
+
+/** The rectangle as a polygon, corner by corner. */
+const rectPolygon = (r: Rect): Point[] => [[r.x, r.y], [r.x + r.w, r.y], [r.x + r.w, r.y + r.h], [r.x, r.y + r.h]];
+
+/** True if segments a-b and c-d share a point (touching ends and collinear overlaps count). */
+function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
+  const orient = (p: Point, q: Point, r: Point) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+  const onSeg = (p: Point, q: Point, r: Point) => Math.min(p[0], q[0]) <= r[0] && r[0] <= Math.max(p[0], q[0]) && Math.min(p[1], q[1]) <= r[1] && r[1] <= Math.max(p[1], q[1]);
+  const o1 = orient(a, b, c);
+  const o2 = orient(a, b, d);
+  const o3 = orient(c, d, a);
+  const o4 = orient(c, d, b);
+  if (((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0))) return true;
+  return (o1 === 0 && onSeg(a, b, c)) || (o2 === 0 && onSeg(a, b, d)) || (o3 === 0 && onSeg(c, d, a)) || (o4 === 0 && onSeg(c, d, b));
+}
+
+/**
+ * The lines a markup draws and the rings it fills, in page space (turned by its rotation). Text
+ * boxes, pictures and stamps count as filled boxes, and area measurements as filled even when
+ * their tint is off, so a selection reaches them anywhere inside.
+ */
+function drawnGeometry(m: Markup): { lines: Point[][]; filled: Point[][] } {
+  const lines: Point[][] = [];
+  const filled: Point[][] = [];
+  const solidArea = m.type === 'area' || m.type === 'volume' || m.type === 'space';
+  for (const part of markupShape(m)) {
+    if (part.clip) continue;
+    for (const ring of flatten(part.path)) {
+      if (part.stroke || part.decoration) lines.push(ring);
+      if ((part.fill || (solidArea && !part.decoration)) && ring.length > 2) filled.push(ring);
+    }
+  }
+  const info = TYPE_INFO[m.type];
+  if (info.solid || info.content === 'text' || info.content === 'image') filled.push(rectPolygon(contentBox(m)));
+  if (!lines.length && !filled.length) lines.push(m.type === 'arc' ? arcPoints(m.points) : [...m.points]);
+  if (!m.rotation) return { lines, filled };
+  const c = rotationCentre(m);
+  const turn = (ring: Point[]) => ring.map((p) => rotatePoint(p, c, m.rotation!));
+  return { lines: lines.map(turn), filled: filled.map(turn) };
+}
+
+/**
+ * True if the markup's drawn geometry touches the polygon (crossing selection): a line of it
+ * crosses the polygon's edge or lies inside it, or the polygon sits inside something it fills.
+ * Real outlines are tested, not bounding boxes.
+ */
+export function touchesPolygon(m: Markup, polygon: readonly Point[]): boolean {
+  if (polygon.length < 3) return false;
+  const { lines, filled } = drawnGeometry(m);
+  const edges: [Point, Point][] = polygon.map((p, i) => [p, polygon[(i + 1) % polygon.length]!]);
+  for (const ring of lines) {
+    if (ring.some((p) => pointIn(p, polygon))) return true;
+    for (let i = 1; i < ring.length; i++) if (edges.some(([c, d]) => segmentsCross(ring[i - 1]!, ring[i]!, c, d))) return true;
+  }
+  for (const ring of filled) {
+    // The polygon may sit wholly inside what is filled, or the fill's closing edge may cross it.
+    if (ring.some((p) => pointIn(p, polygon)) || pointIn(polygon[0]!, ring)) return true;
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i]!;
+      const b = ring[(i + 1) % ring.length]!;
+      if (edges.some(([c, d]) => segmentsCross(a, b, c, d))) return true;
+    }
+  }
+  return false;
+}
+
+/** True if the markup's drawn geometry touches the rectangle (crossing selection by box). */
+export function touchesRect(m: Markup, r: Rect): boolean {
+  return touchesPolygon(m, rectPolygon(r));
 }
 
 function pointIn([px, py]: readonly [number, number], poly: readonly Point[]): boolean {
