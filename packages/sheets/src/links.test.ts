@@ -73,7 +73,8 @@ test('slash references and plain sheet references', () => {
   );
   // Detail 3 does not exist on C-501 here, so the link falls back to the sheet with lower confidence.
   assert.equal(links[0]!.targetRect, null);
-  assert.equal(links[0]!.confidence, 0.65);
+  assert.equal(links[0]!.confidence, 0.63);
+  assert.deepEqual(links[0]!.evidence, ['slash', 'noTarget']);
 });
 
 test("a sheet's own title-block number is not a link; unknown sheets are ignored", () => {

@@ -17,7 +17,10 @@
 // `sheet` count only where they sit on a key reference. Optional key entries (a chainage in a note)
 // are scored when something links them, and not missed when nothing does.
 // Calibration compares the confidence detection gave each link with how often links at that
-// confidence were right; that is what the setup wizard's confidence meter will lean on.
+// confidence were right (by band, plus the expected calibration error and Brier score: lower is
+// better), and how right the links applied without review (confidence 0.75 and up) are.
+// Steps: the setup wizard's meter for each step as the person would see it, after checking a
+// spot-check sample (answered here from the key).
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -39,7 +42,7 @@ if (!existsSync(file) || !existsSync(truthFile)) {
 }
 
 const sheetsLib = await import(pathToFileURL(join(root, 'packages/sheets/src/index.ts')).href);
-const { detectSheets, detectLinks, detectChainageLinks, DEFAULT_LINK_HINTS, DEFAULT_CHAINAGE_HINTS } = sheetsLib;
+const { detectSheets, detectLinks, detectChainageLinks, DEFAULT_LINK_HINTS, DEFAULT_CHAINAGE_HINTS, spotCheckSample, stepMeter } = sheetsLib;
 
 let standard = null;
 if (standardArg) {
@@ -150,6 +153,51 @@ for (let i = 0; i < BANDS.length - 1; i++) {
   calibration.push({ from: BANDS[i], to: Math.min(1, BANDS[i + 1]), links: inBand.length, right });
   console.log(`${pad(`${BANDS[i].toFixed(2)}-${Math.min(1, BANDS[i + 1]).toFixed(2)}`, 13)}${lpad(inBand.length, 5)}${lpad(pct(right, inBand.length), 8)}`);
 }
+// Expected calibration error over ten equal-width bins, and Brier score.
+const bins = Array.from({ length: 10 }, () => ({ n: 0, conf: 0, right: 0 }));
+for (const x of scored) {
+  const b = bins[Math.min(9, Math.floor(x.link.confidence * 10))];
+  b.n++;
+  b.conf += x.link.confidence;
+  b.right += x.ok ? 1 : 0;
+}
+const ece = scored.length ? bins.reduce((s, b) => s + (b.n ? Math.abs(b.conf - b.right) : 0), 0) / scored.length : 0;
+const brier = scored.length ? scored.reduce((s, x) => s + (x.link.confidence - (x.ok ? 1 : 0)) ** 2, 0) / scored.length : 0;
+const AUTO = 0.75;
+const applied = scored.filter((x) => x.link.confidence >= AUTO);
+console.log(`calibration error ${ece.toFixed(3)}, Brier ${brier.toFixed(3)}`);
+console.log(`applied without review: ${applied.length} of ${scored.length}, ${pct(applied.filter((x) => x.ok).length, applied.length)} right`);
+
+// ---- each piece of evidence: how many links carry it and how often they are right (for tuning EVIDENCE weights)
+const byEvidence = new Map();
+for (const x of scored) for (const k of x.link.evidence ?? []) {
+  const e = byEvidence.get(k) ?? { links: 0, right: 0 };
+  e.links++;
+  e.right += x.ok ? 1 : 0;
+  byEvidence.set(k, e);
+}
+console.log(`
+${pad('evidence', 19)}${lpad('links', 6)}${lpad('right', 7)}`);
+for (const [k, e] of [...byEvidence].sort((a, b) => b[1].links - a[1].links)) console.log(`${pad(k, 19)}${lpad(e.links, 6)}${lpad(pct(e.right, e.links), 7)}`);
+
+// ---- the wizard's meter per step, after a spot check answered from the key
+const STEPS = { sections: ['section'], elevations: ['elevation'], details: ['detail'], 'match lines': ['matchline'], chainage: ['chainage'] };
+console.log(`
+${pad('step', 13)}${lpad('links', 6)}${lpad('checked', 9)}${lpad('wrong', 7)}${lpad('accuracy', 10)}${lpad('at least', 10)}  band`);
+const steps = {};
+for (const [name, kinds] of Object.entries(STEPS)) {
+  const inStep = scored.filter((x) => kinds.includes(x.kind));
+  const required = keyLinks.filter((t) => kinds.includes(t.kind) && !t.optional);
+  const references = required.length;
+  const linked = required.filter((t) => scored.some((x) => x.key === t)).length;
+  const sample = spotCheckSample(inStep.map((x) => ({ id: x.link.id, confidence: x.link.confidence, x })));
+  const checks = new Map(sample.map((l) => [l.id, l.x.ok]));
+  const meter = stepMeter({ links: inStep.map((x) => x.link), references, linked, checks });
+  steps[name] = meter;
+  console.log(
+    `${pad(name, 13)}${lpad(inStep.length, 6)}${lpad(meter.checked, 9)}${lpad(meter.wrong, 7)}${lpad(pct(meter.accuracy * 100, 100), 10)}${lpad(meter.atLeast === null ? '-' : pct(meter.atLeast * 100, 100), 10)}  ${meter.band}${meter.warnings.length ? `  (${meter.warnings.join('; ')})` : ''}`,
+  );
+}
 
 // ---- what went wrong, briefly
 const missed = keyLinks.filter((t) => !t.optional && !scored.some((x) => x.key === t && x.ok));
@@ -168,7 +216,7 @@ if (wrong.length) {
 if (jsonOut) {
   writeFileSync(
     jsonOut,
-    JSON.stringify({ file, standard: standard?.name ?? null, pages: pages.length, sheetNumbers: { right: sheetRight, of: truth.sheets.length }, kinds: stats, calibration, missed: missed.length, wrong: wrong.length }, null, 1) + '\n',
+    JSON.stringify({ file, standard: standard?.name ?? null, pages: pages.length, sheetNumbers: { right: sheetRight, of: truth.sheets.length }, kinds: stats, calibration, ece, brier, evidence: Object.fromEntries(byEvidence), applied: { links: applied.length, right: applied.filter((x) => x.ok).length }, steps, missed: missed.length, wrong: wrong.length }, null, 1) + '\n',
   );
 }
 process.exit(0);

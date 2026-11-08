@@ -1,3 +1,4 @@
+import { scoreEvidence, type EvidenceKey } from './confidence.ts';
 import type { DetectedLink, Rect } from './links.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
@@ -301,14 +302,27 @@ function rectOf(words: readonly Word[]): Rect {
 
 /** Values closer than this are the same chainage (1+250 and CH 1250.000). */
 const SAME = 0.05;
-const STANDARD = 0.85;
-/** Without a drawing standard, or with the alignment not told: worth checking, not applying. */
-const UNSURE = 0.6;
+
+/** `CH 0-150`, `CH 0 TO CH 280`, `STA 10+00 - 15+00` in a sheet title. */
+const TITLE_RANGE = /\b(?:CH|STA|CHAINAGE)\.?\s*(\d+(?:\+\d{2,3})?(?:\.\d+)?)\s*(?:-|–|TO)\s*(?:(?:CH|STA|CHAINAGE)\.?\s*)?(\d+(?:\+\d{2,3})?(?:\.\d+)?)/;
+
+/** The stretch a sheet title names: `CROSS SECTIONS MC00 CH 0-150` → 0 to 150, `STA 10+00 TO 15+00` → 1000 to 1500. */
+export function titleRange(title: string | null | undefined): { from: number; to: number } | null {
+  const m = title ? TITLE_RANGE.exec(upper(title)) : null;
+  if (!m) return null;
+  const value = (t: string) => (t.includes('+') ? parsePlus(t) : Number(t));
+  const a = value(m[1]!);
+  const b = value(m[2]!);
+  if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
+  return { from: a, to: b };
+}
 
 /**
  * Chainage links across a set. With `fromStandard`, a person said how the client writes chainages
  * and which sheets cover the alignment, so links whose alignment is known are kept; otherwise
- * (the default title words, or an alignment that cannot be told) they wait for review.
+ * (the default title words, or an alignment that cannot be told) they wait for review. A chainage
+ * whose alignment cannot be told on a sheet showing several alignments, or one outside the range
+ * its target sheet's title names, scores lower still.
  */
 export function detectChainageLinks(pages: readonly PageText[], sheets: readonly (SheetInfo | null | undefined)[], hints: ChainageHints = DEFAULT_CHAINAGE_HINTS, fromStandard = false): DetectedLink[] {
   const isPlan = pages.map((p, i) => sheetTitled(p, sheets[i], hints.planTitles));
@@ -332,6 +346,8 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
     }
   });
   const sections = read.flatMap(({ list }, page) => (isSection[page] ? list.map((c) => ({ page, c })) : []));
+  const several = pages.map((p) => new Set(alignmentNames(p, hints.alignments).map((f) => f.name)).size > 1);
+  const ranges = sheets.map((s) => titleRange(s?.title));
 
   const links: DetectedLink[] = [];
   read.forEach(({ list }, pageIndex) => {
@@ -339,12 +355,23 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
     for (const c of list) {
       const known = c.alignment !== null;
       const sameLine = (a: string) => !known || a === c.alignment;
-      const conf = fromStandard && known ? STANDARD : UNSURE;
-      const push = (targetPage: number, targetRect: Rect, key: string, confidence = conf) => {
+      const push = (targetPage: number, targetRect: Rect, key: string, targetKnown = true) => {
         if (seen.has(key)) return;
         seen.add(key);
         const label = c.words.map((w) => trimWord(w.text)).join(' ');
-        links.push({ id: `${pageIndex}:ch:${key}`, pageIndex, rect: rectOf(c.words), label, kind: 'chainage', detail: null, targetPage, targetRect, confidence });
+        const reasons: EvidenceKey[] = ['chainage'];
+        if (fromStandard && known && targetKnown) reasons.push('alignmentAgrees');
+        if (!known) {
+          reasons.push('alignmentUnknown');
+          if (several[pageIndex]) reasons.push('severalAlignments');
+        }
+        const range = isSection[targetPage] ? ranges[targetPage] : null;
+        // Inside the range says little when the alignment is unknown: another alignment's sheet can
+        // cover the same chainages. Outside it always counts against.
+        const inside = range && c.value >= range.from - SAME && c.value <= range.to + SAME;
+        if (range && !inside) reasons.push('outsideSheetRange');
+        else if (inside && known) reasons.push('inSheetRange');
+        links.push({ id: `${pageIndex}:ch:${key}`, pageIndex, rect: rectOf(c.words), label, kind: 'chainage', detail: null, targetPage, targetRect, confidence: scoreEvidence(reasons), evidence: reasons });
       };
       // 1. The cross section drawn at this chainage; a cross section's own chainage goes to the plan
       // (another cross section at the same value is most likely on another road).
@@ -352,7 +379,7 @@ export function detectChainageLinks(pages: readonly PageText[], sheets: readonly
       const at = isSection[pageIndex] ? [] : sections.filter((s) => s.page !== pageIndex && Math.abs(s.c.value - c.value) < SAME);
       const section = at.find((s) => s.c.alignment !== null && sameLine(s.c.alignment)) ?? at.find((s) => s.c.alignment === null);
       if (section) {
-        push(section.page, frame(section.c.words[0]!, 20), `${c.alignment ?? '?'}:${c.value}>${section.page}`, section.c.alignment === null ? UNSURE : conf);
+        push(section.page, frame(section.c.words[0]!, 20), `${c.alignment ?? '?'}:${c.value}>${section.page}`, section.c.alignment !== null);
         continue;
       }
       // 2. Else the plan that covers it, unless this is that plan.
