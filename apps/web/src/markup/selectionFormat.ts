@@ -9,7 +9,7 @@ import { styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type
 /** The style capabilities every one of `types` has: a field shows only if it means something for all. */
 export function commonCapabilities(types: Iterable<MarkupType>): StyleCapabilities {
   const all = [...new Set(types)].map(styleCapabilities);
-  if (!all.length) return { fill: false, hatch: false, dash: false, lineEnds: false, font: false, textLayout: false, label: false, leader: false, arcRadius: null };
+  if (!all.length) return { fill: false, hatch: false, dash: false, lineEnds: false, font: false, textLayout: false, label: false, leader: false, blend: false, arcRadius: null };
   const every = (k: Exclude<keyof StyleCapabilities, 'arcRadius'>) => all.every((c) => c[k]);
   const radius = all[0]!.arcRadius;
   return {
@@ -21,6 +21,7 @@ export function commonCapabilities(types: Iterable<MarkupType>): StyleCapabiliti
     textLayout: every('textLayout'),
     label: every('label'),
     leader: every('leader'),
+    blend: every('blend'),
     arcRadius: all.every((c) => c.arcRadius === radius) ? radius : null,
   };
 }
