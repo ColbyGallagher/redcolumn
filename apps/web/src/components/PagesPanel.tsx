@@ -42,6 +42,23 @@ class ThumbnailQueue {
   private cache = new Map<string, ImageBitmap>();
   private wanted = new Map<string, { doc: PdfDocument; page: number; width: number; done: (b: ImageBitmap) => void }>();
   private busy = false;
+  private resetListeners = new Set<() => void>();
+
+  /**
+   * The renderer restarted: documents have new handles, so cached images and queued requests
+   * (keyed by the old ones) are dropped and every thumbnail asks again.
+   */
+  reset() {
+    for (const b of this.cache.values()) b.close();
+    this.cache.clear();
+    this.wanted.clear();
+    for (const l of [...this.resetListeners]) l();
+  }
+
+  onReset(listener: () => void) {
+    this.resetListeners.add(listener);
+    return () => void this.resetListeners.delete(listener);
+  }
 
   private key(doc: PdfDocument, page: number, width: number) {
     return `${doc.id}:${page}:${width}`;
@@ -105,6 +122,11 @@ class ThumbnailQueue {
 }
 
 const queue = new ThumbnailQueue();
+
+/** Draws every page thumbnail again (after the PDF renderer restarted). */
+export function resetThumbnails() {
+  queue.reset();
+}
 
 /** Which markups the drawing shows (MarkupTools): hidden layers, the list's hide filter, Show Spaces. */
 export interface MarkupView {
@@ -195,6 +217,14 @@ function Thumbnail({ doc, store, markups, page, thumbW, renderW, label, sheet, s
   const [imageTick, setImageTick] = useState(0);
   /** Bumped to render the page again after the queue evicted (and closed) its bitmap. */
   const [renderTick, setRenderTick] = useState(0);
+  useEffect(
+    () =>
+      queue.onReset(() => {
+        setBase(null);
+        setRenderTick((n) => n + 1);
+      }),
+    [],
+  );
   const size = doc.pages[page]!;
   const height = Math.round((thumbW * size.height) / size.width);
 
