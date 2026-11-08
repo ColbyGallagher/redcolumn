@@ -159,6 +159,8 @@ export interface Settings {
   snapToGrid: boolean;
   /** Drawing tools snap to the corners and vertices of other markups. */
   snapToMarkup: boolean;
+  /** Right-clicking while clicking out a measurement or shape finishes it instead of opening the menu. */
+  rightClickFinishes: boolean;
   /** Grid spacing on the page (paper): millimetres with metric units, inches with imperial. */
   gridSize: number;
   /** Rulers along the top and left of the view (View → Rulers). */
@@ -428,6 +430,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showGrid: false,
   snapToGrid: false,
   snapToMarkup: true,
+  rightClickFinishes: false,
   gridSize: 5,
   showRulers: false,
   crosshair: false,
