@@ -1,0 +1,254 @@
+{
+  "generator": "scripts/make_cad_fixtures.py",
+  "ezdxf": "1.4.5",
+  "fixtures": {
+    "basic-entities": {
+      "units": "mm",
+      "pages": [
+        {
+          "name": "Model",
+          "widthPt": 1020.47,
+          "heightPt": 538.58,
+          "viewports": [],
+          "note": "no layouts: one page around the model extents, 1:1; size filled in by main()",
+          "extents": [
+            0.0,
+            0.0,
+            360.0,
+            190.0
+          ]
+        }
+      ],
+      "layers": [
+        "0",
+        "GEOM",
+        "DASHED",
+        "WEIGHTS",
+        "TEXT",
+        "HATCH",
+        "NOPLOT"
+      ],
+      "nonPlotLayers": [
+        "NOPLOT"
+      ],
+      "entityTypes": [
+        "LINE",
+        "LWPOLYLINE",
+        "POLYLINE",
+        "CIRCLE",
+        "ARC",
+        "ELLIPSE",
+        "SPLINE",
+        "POINT",
+        "SOLID",
+        "TEXT",
+        "MTEXT",
+        "HATCH"
+      ],
+      "text": [
+        "LEFT",
+        "CENTRE",
+        "ROTATED 30",
+        "Ø25 ±0.5 50°",
+        "MTEXT line one",
+        "line two",
+        "bold"
+      ]
+    },
+    "blocks": {
+      "units": "mm",
+      "pages": [
+        {
+          "name": "Model",
+          "widthPt": 745.51,
+          "heightPt": 289.13,
+          "viewports": [],
+          "note": "no layouts: one page around the model extents, 1:1; size filled in by main()",
+          "extents": [
+            -3.0,
+            0.0,
+            260.0,
+            102.0
+          ]
+        }
+      ],
+      "blocks": {
+        "PLATE": 4,
+        "BOLT": 28
+      },
+      "text": [
+        "P1",
+        "P2",
+        "P3",
+        "P4"
+      ]
+    },
+    "kestrel-plan": {
+      "units": "m",
+      "pages": [
+        {
+          "name": "C-101 PLAN",
+          "widthPt": 2383.94,
+          "heightPt": 1683.78,
+          "viewports": [
+            {
+              "ratio": "1:500",
+              "centerMm": [
+                330,
+                312
+              ],
+              "sizeMm": [
+                620,
+                564
+              ]
+            },
+            {
+              "ratio": "1:2000",
+              "centerMm": [
+                740,
+                400
+              ],
+              "sizeMm": [
+                160,
+                120
+              ],
+              "twistDeg": 30,
+              "frozen": [
+                "C-VEG-TREE",
+                "C-ANNO"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "C-501 DETAIL",
+          "widthPt": 1190.55,
+          "heightPt": 841.89,
+          "viewports": [
+            {
+              "ratio": "1:100",
+              "centerMm": [
+                180,
+                160
+              ],
+              "sizeMm": [
+                320,
+                260
+              ]
+            }
+          ]
+        }
+      ],
+      "modelSpacePage": "opt-in only (layouts exist)",
+      "nonPlotLayers": [
+        "G-VPORT"
+      ],
+      "dimensions": [
+        {
+          "p1": [
+            60.0,
+            445.0
+          ],
+          "p2": [
+            160.0,
+            445.0
+          ],
+          "measurement": 100.0,
+          "unit": "m"
+        },
+        {
+          "p1": [
+            60.0,
+            445.0
+          ],
+          "p2": [
+            60.0,
+            395.0
+          ],
+          "measurement": 50.0,
+          "unit": "m"
+        }
+      ],
+      "text": [
+        "KESTREL ROAD UPGRADE",
+        "C-101",
+        "C-501",
+        "CH 100"
+      ]
+    },
+    "missing-refs": {
+      "units": "mm",
+      "pages": [
+        {
+          "name": "Model",
+          "widthPt": 283.46,
+          "heightPt": 283.46,
+          "viewports": [],
+          "note": "no layouts: one page around the model extents, 1:1; size filled in by main()",
+          "extents": [
+            0.0,
+            0.0,
+            100.0,
+            100.0
+          ]
+        }
+      ],
+      "warnings": [
+        {
+          "kind": "missing-xref",
+          "name": "SURVEY-BASE",
+          "path": "survey-base.dwg"
+        },
+        {
+          "kind": "missing-image",
+          "path": "aerial-2026.png"
+        },
+        {
+          "kind": "font-substituted",
+          "font": "romans.shx"
+        }
+      ],
+      "text": [
+        "SHX TEXT"
+      ]
+    },
+    "imperial": {
+      "units": "in",
+      "pages": [
+        {
+          "name": "A-101",
+          "widthPt": 2448.0,
+          "heightPt": 1584.0,
+          "viewports": [
+            {
+              "ratio": "1:96",
+              "label": "1/8\" = 1'-0\"",
+              "centerIn": [
+                15,
+                11
+              ],
+              "sizeIn": [
+                28,
+                20
+              ]
+            }
+          ]
+        }
+      ],
+      "dimensions": [
+        {
+          "p1": [
+            0,
+            0
+          ],
+          "p2": [
+            2400,
+            0
+          ],
+          "measurement": 2400.0,
+          "unit": "in"
+        }
+      ]
+    }
+  }
+}
