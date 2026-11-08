@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { FONT_FAMILIES, HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
-import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
+import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
@@ -14,7 +14,8 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
-import { commonCapabilities, styleMixed } from '../markup/selectionFormat';
+import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
+import { saveToolBack } from '../toolchest/saveBack';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -231,6 +232,10 @@ export interface ToolBarProps {
   /** The selected markups (select mode, two or more), whose shared style the Format tab edits together. */
   selection?: { markups: readonly Markup[]; store: MarkupStore } | null;
   enabled: boolean;
+  /** The document's markup layers, offered by the Layer field. */
+  layerNames?: readonly string[];
+  /** Asks for a new layer's name (the Layer field's "New layer…"). */
+  askLayer?: () => Promise<string | null>;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
   /** Name filled into a stamp preview's {User} field. */
@@ -522,6 +527,116 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
           </label>
         </>
+      )}
+    </>
+  );
+}
+
+const NEW_LAYER = '\u0000new-layer';
+const MIXED = '\u0000mixed';
+
+export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer'>;
+
+/**
+ * Subject, Label and Layer in the Markup Format tab. With markups selected they edit those markups
+ * (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they edit what
+ * the tool gives the markups it places next, and the command carries on. A Tool Chest tool can be saved back.
+ */
+export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer }: MarkupFieldsProps) {
+  const sel = selection && selection.markups.length > 0 ? selection : null;
+  const drawing = !sel && (isMarkupTool(state.tool) || state.tool === 'cloudPlus');
+  const preset = state.preset;
+  const ws = useWorkspace();
+  const item = preset?.id ? ws.toolChests.flatMap((t) => t.items).find((i) => i.id === preset.id) : undefined;
+  if (!sel && !drawing) return null;
+  const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer };
+  const edits = state.toolFields ?? {};
+  const shown = (f: IdentityField): { value: string; mixed: boolean } => (sel ? sharedIdentity(sel.markups, f) : { value: toolIdentity(base, edits, f), mixed: false });
+  const commit = (f: IdentityField, value: string) => {
+    if (!enabled) return;
+    if (!sel) {
+      if (value !== toolIdentity(base, edits, f)) tools.setToolFields({ [f]: value });
+      return;
+    }
+    const targets = sel.markups.map((m) => sel.store.get(m.id) ?? m).filter((m) => !m.locked && sel.store.mayEdit(m));
+    // A field commits on Enter and again on blur: the repeat changes nothing and must not make a second undo step.
+    const next = f === 'layer' ? value : value.trim();
+    if (!targets.length || targets.every((m) => identityOf(m, f) === next)) return;
+    sel.store.checkpoint();
+    sel.store.batch(() => {
+      for (const m of targets) sel.store.update(m.id, identityPatch(m, f, value));
+    });
+  };
+  const idKey = sel ? sel.markups.map((m) => m.id).join(',') : `tool:${state.tool}`;
+  const subject = shown('subject');
+  const label = shown('label');
+  const layer = shown('layer');
+  const layers = [...new Set([...layerNames, ...(layer.value ? [layer.value] : [])])].sort((a, b) => a.localeCompare(b));
+  const text = (f: IdentityField, title: string, name: string, current: { value: string; mixed: boolean }, list?: string) => (
+    <label className="field" title={title}>
+      {name}
+      <input
+        key={`${idKey}:${f}:${current.mixed ? 'mixed' : current.value}`}
+        className="ident"
+        type="text"
+        list={list}
+        aria-label={name}
+        defaultValue={current.value}
+        placeholder={current.mixed ? 'Mixed' : undefined}
+        disabled={!enabled}
+        onBlur={(e) => commit(f, e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+      />
+    </label>
+  );
+  return (
+    <>
+      {text('subject', sel ? 'Subject of the selected markups' : 'Subject the next markups from this tool get', 'Subject', subject, 'ident-subjects')}
+      <datalist id="ident-subjects">
+        {distinctIdentities(markups, 'subject').map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      {text('label', sel ? 'Label (category) of the selected markups' : 'Label (category) the next markups from this tool get', 'Label', label)}
+      <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
+        Layer
+        <select
+          className="ident"
+          aria-label="Layer"
+          value={layer.mixed ? MIXED : layer.value}
+          disabled={!enabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === NEW_LAYER) void askLayer?.().then((name) => name && commit('layer', name.trim()));
+            else commit('layer', v);
+          }}
+        >
+          {layer.mixed && (
+            <option value={MIXED} disabled hidden>
+              Mixed
+            </option>
+          )}
+          <option value="">No layer</option>
+          {layers.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+          {askLayer && <option value={NEW_LAYER}>New layer…</option>}
+        </select>
+      </label>
+      {drawing && item && (
+        <button
+          type="button"
+          className="btn"
+          title="Save this subject, label, layer and style back to the Tool Chest tool"
+          disabled={!enabled}
+          onClick={() => saveToolBack(item.id, { fields: edits, ...(preset?.style ? { style: preset.style } : {}) })}
+        >
+          Save to Tool Chest
+        </button>
       )}
     </>
   );

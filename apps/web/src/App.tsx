@@ -6063,7 +6063,7 @@ export function App() {
       const store = activeOpen?.store;
       const k = set?.scaleToPage && item.metersPerPoint && store?.hasScale(pageIndex) ? item.metersPerPoint / store.scaleFor(pageIndex).metersPerPoint : 1;
       const template = k === 1 ? item.markups : item.markups.map((m) => ({ ...m, points: m.points.map(([x, y]) => [x * k, y * k] as [number, number]) }));
-      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), ...(item.sequence ? { sequence: item.sequence } : {}), once: !settings.get().toolChestSticky });
+      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), ...(item.markupLabel ? { label: item.markupLabel } : {}), ...(item.layer ? { layer: item.layer } : {}), ...(item.sequence ? { sequence: item.sequence } : {}), once: !settings.get().toolChestSticky });
       return;
     }
     if (item.type === 'signature') {
@@ -6088,6 +6088,8 @@ export function App() {
       id: item.id,
       style: item.style,
       ...(item.subject ? { subject: item.subject } : {}),
+      ...(item.markupLabel ? { label: item.markupLabel } : {}),
+      ...(item.layer ? { layer: item.layer } : {}),
       ...(carried?.image ? { image: carried.image, ...(aspect ? { aspect } : {}) } : {}),
       ...(stamp ? { stamp } : {}),
       ...(carried?.attachment ? { attachment: carried.attachment } : {}),
@@ -9527,8 +9529,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           selectedStyle,
           cloudBubble,
           geometry: selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null,
-          // Two or more selected: the Markup Format tab edits what they share, together.
-          selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 1 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
+          // Whatever is selected: the Markup Format tab edits what they share, together (style needs two or more).
+          selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 0 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
+          layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.hash) : [])])],
+          askLayer: () => askText('New Markup Layer', '', { label: 'Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => name?.trim() || null),
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
