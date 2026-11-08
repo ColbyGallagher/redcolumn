@@ -169,6 +169,7 @@ import { ScaleControl } from './components/ScaleControl';
 import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
+import { countsFromHits, type CountTool } from './search/countFromHits';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -8768,6 +8769,30 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   }
                 : undefined
             }
+            readOnly={activeReadOnly}
+            countTools={ws.toolChests
+              .filter((t) => t.id !== RECENT_TOOLS_ID)
+              .flatMap((t) => t.items)
+              .filter((i) => i.type === 'count')
+              .map((i): CountTool => ({ id: i.id, name: i.label || i.subject || 'Count', style: i.style, ...(i.subject ? { subject: i.subject } : {}), ...(i.label ? { label: i.label } : {}), ...(i.markups ? { markups: i.markups } : {}) }))}
+            onApplyCount={
+              activeOpen
+                ? (found, tool) => {
+                    const store = activeOpen.store;
+                    if (store.readOnly || !found.length) return;
+                    const now = Date.now();
+                    const made = countsFromHits(found, {
+                      base: { status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now, fields: defaultFieldsFor(store) },
+                      style: { ...(activeTools?.getState().styles.count ?? DEFAULT_STYLES.count) },
+                      subject: 'Text Search',
+                      tool,
+                    });
+                    store.checkpoint();
+                    store.batch(() => made.forEach((m) => store.add(m)));
+                    setNotice(`Counted ${found.length} match${found.length === 1 ? '' : 'es'}${tool ? ` with ${tool.name}` : ''}.`);
+                  }
+                : undefined
+            }
             onResults={(hits) => {
               searchHits.current = hits;
               activeTools?.setHighlights(hits);
@@ -10596,9 +10621,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   return;
                 }
                 if (action === 'count') {
-                  const byPage = new Map<number, [number, number][]>();
-                  for (const h of hits) byPage.set(h.pageIndex, [...(byPage.get(h.pageIndex) ?? []), h.match.center]);
-                  for (const [pageIndex, points] of byPage) made.push({ ...base, id: crypto.randomUUID(), type: 'count', pageIndex, points, style: { ...styles.count }, subject: 'Symbol Search' });
+                  made.push(...countsFromHits(hits.map((h) => ({ pageIndex: h.pageIndex, point: h.match.center })), { base, style: styles.count, subject: 'Symbol Search' }));
                 } else {
                   for (const h of hits) {
                     const r = h.match.rect;
