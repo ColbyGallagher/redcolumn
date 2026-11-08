@@ -4,7 +4,7 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { METERS_PER_UNIT, measureValue } from '@nb/measure';
+import { METERS_PER_UNIT, measureValue, pathLengthArcs } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -1661,4 +1661,80 @@ test('an area curves a segment with Ctrl+drag and leaves the closing segment str
   assert.equal(m.points.length, 3);
   assert.ok(m.bulges![0] !== 0);
   assert.equal(m.bulges!.slice(1).every((b) => b === 0), true);
+});
+
+test('selected measurements: Ctrl-click smooths then corners a vertex; the ends of a path are left alone', async () => {
+  const h = await setup();
+  const line = put(h, 'polylength', [[0, 0], [100, 40], [200, 0]]);
+  h.tools.select([line.id]);
+  const length = () => pathLengthArcs(h.store.get(line.id)!.points, h.store.get(line.id)!.bulges);
+  press(h.tools, [100, 40], { ctrlKey: true });
+  release(h.tools, [100, 40]);
+  const smooth = h.store.get(line.id)!;
+  assert.ok(smooth.bulges?.[0] && smooth.bulges[1]);
+  // One circle through the three points: chord 200, sagitta 40.
+  const r = (100 * 100 + 40 * 40) / (2 * 40);
+  assert.ok(Math.abs(length() - r * 2 * Math.asin(100 / r)) < 1e-9);
+  // Tangent continuity: the directions arriving at and leaving the vertex agree.
+  const chord = (a: Point, b: Point) => Math.atan2(b[1] - a[1], b[0] - a[0]);
+  const arriving = chord(smooth.points[0]!, smooth.points[1]!) + 2 * Math.atan(smooth.bulges![0]!);
+  const leaving = chord(smooth.points[1]!, smooth.points[2]!) - 2 * Math.atan(smooth.bulges![1]!);
+  assert.ok(Math.abs(arriving - leaving) < 1e-9);
+  press(h.tools, [100, 40], { ctrlKey: true });
+  release(h.tools, [100, 40]);
+  assert.equal(h.store.get(line.id)!.bulges, undefined);
+  press(h.tools, [0, 0], { ctrlKey: true });
+  release(h.tools, [0, 0]);
+  assert.equal(h.store.get(line.id)!.bulges, undefined);
+  assert.equal(h.store.get(line.id)!.points.length, 3);
+});
+
+test('Shift-click on a curved segment splits the arc, keeping its length; Shift- and Alt-click on a vertex remove it', async () => {
+  const h = await setup();
+  const line = put(h, 'polylength', [[0, 0], [200, 0], [200, 100]], { bulges: [0.5, 0] });
+  h.tools.select([line.id]);
+  const total = pathLengthArcs(line.points, line.bulges);
+  // The arc's middle is 50 off the chord, on whichever side the page's axes put it.
+  const at: Point = h.tools.segmentAt(line.id, [100, 50]) ? [100, 50] : [100, -50];
+  assert.deepEqual(h.tools.segmentAt(line.id, at), { segment: 0, curved: true });
+  press(h.tools, at, { shiftKey: true });
+  release(h.tools, at);
+  const split = h.store.get(line.id)!;
+  assert.equal(split.points.length, 4);
+  assert.ok(Math.abs(pathLengthArcs(split.points, split.bulges) - total) < 1e-9);
+  assert.ok(Math.abs(split.bulges![0]! - Math.tan(Math.atan(0.5) / 2)) < 1e-9);
+  // One undo step.
+  h.store.undo();
+  assert.equal(h.store.get(line.id)!.points.length, 3);
+  h.store.redo();
+  press(h.tools, split.points[1]!, { shiftKey: true });
+  release(h.tools, split.points[1]!);
+  assert.equal(h.store.get(line.id)!.points.length, 3);
+  assert.equal(h.store.get(line.id)!.bulges, undefined);
+  press(h.tools, [200, 0], { altKey: true });
+  release(h.tools, [200, 0]);
+  assert.equal(h.store.get(line.id)!.points.length, 2);
+  // Never below two points.
+  press(h.tools, [200, 100], { altKey: true });
+  release(h.tools, [200, 100]);
+  assert.equal(h.store.get(line.id)!.points.length, 2);
+});
+
+test('Ctrl-click on a vertex of a shape that cannot curve does nothing; Convert to Arc and Line toggle a segment', async () => {
+  const h = await setup();
+  const poly = put(h, 'polyline', [[0, 0], [100, 40], [200, 0]]);
+  h.tools.select([poly.id]);
+  press(h.tools, [100, 40], { ctrlKey: true });
+  release(h.tools, [100, 40]);
+  assert.equal(h.store.get(poly.id)!.points.length, 3);
+  assert.equal(h.store.get(poly.id)!.bulges, undefined);
+  const area = put(h, 'area', [[0, 300], [100, 300], [100, 400], [0, 400]]);
+  assert.deepEqual(h.tools.segmentAt(area.id, [50, 301]), { segment: 0, curved: false });
+  h.tools.setSegmentCurve(area.id, 0, true);
+  const b = h.store.get(area.id)!.bulges![0]!;
+  assert.ok(Math.abs(Math.abs(b) - 0.4) < 1e-12);
+  // Outward: the outline gets longer than the straight side it replaces.
+  assert.ok(pathLengthArcs(area.points, h.store.get(area.id)!.bulges, true) > 400);
+  h.tools.setSegmentCurve(area.id, 0, false);
+  assert.equal(h.store.get(area.id)!.bulges, undefined);
 });

@@ -15,3 +15,15 @@ The total of all sections is shown.
 > **Tip:** Clicked in the wrong place? Press [[Backspace]] to remove the last point.
 
 To curve a section, hold [[Ctrl]] as you place its end corner, press and drag away from it: the section bends through the pointer, and releasing sets it. To curve a section afterwards, select the measurement, hold [[Alt]] and drag the knob in the middle of the section.
+
+## Edit the corners and curves
+
+Select the measurement, then:
+
+| To | Do this |
+|---|---|
+| Move a corner | Drag its handle. |
+| Add a corner | Hold [[Shift]] and click on a section. A curved section splits into two, still on the same curve. |
+| Remove a corner | Hold [[Shift]] (or [[Alt]]) and click its handle. |
+| Make a corner smooth, or sharp again | Hold [[Ctrl]] and click its handle. A smooth corner curves through the corner from its neighbours; the two ends of a path have only one section, so they stay as they are. |
+| Curve a section | Right-click it › **Convert to Arc** (**Convert to Line** straightens it), or hold [[Alt]] and drag the knob in the middle of the section. |

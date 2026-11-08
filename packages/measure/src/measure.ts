@@ -99,6 +99,48 @@ export function arcPoints(p: Pt, q: Pt, bulge: number, steps = 24): [number, num
   return out;
 }
 
+/** Where a point `t` (0 to 1, by angle) of the way along an arc segment is, and the two parts' bulges when it is split there. */
+export function arcSplit(p: Pt, q: Pt, bulge: number, t: number): { at: [number, number]; first: number; second: number } {
+  if (!bulge) return { at: [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t], first: 0, second: 0 };
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  const c = Math.hypot(dx, dy);
+  const theta = 4 * Math.atan(bulge);
+  const r = c / (2 * Math.sin(Math.abs(theta) / 2));
+  const d = Math.sqrt(Math.max(0, r * r - (c / 2) * (c / 2))) * (Math.abs(theta) > Math.PI ? -1 : 1);
+  const s = Math.sign(bulge);
+  // The centre, as arcPoints finds it; the split point turns about it from p by t of the arc's angle.
+  const cx = (p[0] + q[0]) / 2 - (dy / c) * d * s;
+  const cy = (p[1] + q[1]) / 2 + (dx / c) * d * s;
+  const a = Math.atan2(p[1] - cy, p[0] - cx) + theta * t;
+  // Each part is an arc of the same circle: its bulge is tan(angle / 4), the angle being a share of the whole.
+  return { at: [cx + r * Math.cos(a), cy + r * Math.sin(a)], first: Math.tan((theta * t) / 4), second: Math.tan((theta * (1 - t)) / 4) };
+}
+
+/**
+ * The bulges of the two segments meeting at vertex `i` that make the curve pass smoothly through it:
+ * arcs of the circle through the vertex and its two neighbours. Null at the end of an open path,
+ * which has only one segment there; collinear neighbours give straight segments.
+ */
+export function smoothBulgesAt(points: readonly Pt[], i: number, closed: boolean): { before: number; after: number } | null {
+  const n = points.length;
+  if (n < 3 || (!closed && (i <= 0 || i >= n - 1))) return null;
+  const a = points[(i - 1 + n) % n]!;
+  const b = points[i]!;
+  const c = points[(i + 1) % n]!;
+  // The arc p to q bulges away from the third point, on the circle through all three: its included angle is twice the angle there.
+  const turn = (p: Pt, q: Pt, away: Pt): number => {
+    const cross = (q[0] - p[0]) * (away[1] - p[1]) - (q[1] - p[1]) * (away[0] - p[0]);
+    const u = [p[0] - away[0], p[1] - away[1]] as const;
+    const v = [q[0] - away[0], q[1] - away[1]] as const;
+    const angle = Math.atan2(Math.abs(u[0] * v[1] - u[1] * v[0]), u[0] * v[0] + u[1] * v[1]);
+    // Neighbours in a straight line give no curve.
+    if (Math.abs(cross) < 1e-9 * (Math.hypot(q[0] - p[0], q[1] - p[1]) * Math.hypot(away[0] - p[0], away[1] - p[1]) || 1)) return 0;
+    return Math.sign(cross) * Math.tan(angle / 2);
+  };
+  return { before: turn(a, b, c), after: turn(b, c, a) };
+}
+
 /** A path with its arc segments turned into points (for drawing, hit tests and export); a closed one without repeating its start. */
 export function expandArcs(points: readonly Pt[], bulges: readonly number[] | undefined, closed = false): [number, number][] {
   if (!points.length) return [];
