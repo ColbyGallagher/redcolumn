@@ -1,4 +1,5 @@
 import { CadReadError, readDxf } from './dxf';
+import { readDwg } from './dwg';
 import type { Drawing } from './drawing';
 import { writePdf, type CadFonts } from './pdf';
 import type { FontKey } from './render';
@@ -45,16 +46,19 @@ export function isCadFile(file: { name: string }): boolean {
   return /\.(dwg|dxf)$/i.test(file.name);
 }
 
-/** Reads a drawing (DXF now; DWG in a later phase). */
-export function readDrawing(name: string, bytes: Uint8Array): { drawing: Drawing; format: 'dxf' | 'dwg' } {
+/** Reads a drawing: DWG (R2000–R2018) or ASCII DXF, told apart by content. */
+export function readDrawing(name: string, bytes: Uint8Array): { drawing: Drawing; format: 'dxf' | 'dwg'; unreadable: number } {
   const head = new TextDecoder('latin1').decode(bytes.subarray(0, 6));
-  if (/^AC\d{4}$/.test(head)) throw new CadReadError('DWG files cannot be converted yet. Save the drawing as DXF to open it now.');
+  if (/^AC\d{4}$/.test(head)) {
+    const { drawing, failed } = readDwg(bytes);
+    return { drawing, format: 'dwg', unreadable: [...failed.values()].reduce((a, b) => a + b, 0) };
+  }
   if (!/\.dxf$/i.test(name) && !/^\s*0\s*\r?\n\s*SECTION/.test(new TextDecoder('latin1').decode(bytes.subarray(0, 64)))) throw new CadReadError('This is not a DXF or DWG file.');
-  return { drawing: readDxf(bytes), format: 'dxf' };
+  return { drawing: readDxf(bytes), format: 'dxf', unreadable: 0 };
 }
 
 export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertOptions): Promise<{ pdf: Uint8Array; report: ConversionReport }> {
-  const { drawing, format } = readDrawing(name, bytes);
+  const { drawing, format, unreadable } = readDrawing(name, bytes);
   const { sheets, stats, notes } = planSheets(drawing, { colorMode: opts.colorMode ?? 'color', lineweights: opts.lineweights ?? true, layouts: opts.layouts, includeModel: opts.includeModel });
   if (!sheets.length) throw new CadReadError('This drawing has no layouts to convert.');
   const title = name.replace(/\.[^.]+$/, '');
@@ -66,6 +70,7 @@ export async function convertCad(name: string, bytes: Uint8Array, opts: ConvertO
   for (const [font, sub] of stats.fonts) warnings.push({ kind: 'font-substituted', font, with: sub });
   for (const [type, count] of stats.skipped) warnings.push({ kind: 'unsupported', type, count });
   for (const n of notes) warnings.push(n);
+  if (unreadable) warnings.push({ kind: 'unsupported', type: 'objects that could not be read', count: unreadable });
   for (const s of sheets) {
     for (const v of s.viewports) {
       if (!v.scale.standard) warnings.push({ kind: 'nonstandard-scale', sheet: s.name, viewport: v.name, label: v.scale.label });

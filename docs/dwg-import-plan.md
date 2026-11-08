@@ -220,6 +220,38 @@ Notes:
   clips other than LWPOLYLINE, and plot style tables. Each skipped entity type is counted in
   the report.
 
+## Phase 2 status (2026-11-05)
+
+DWG R2000 to R2018 (AC1015–AC1032) reads into the same `Drawing` as DXF, in
+`apps/web/src/cad/dwg/`, ported from ACadSharp (MIT; notice in `THIRD_PARTY_NOTICES.md`).
+`convertCad` takes `.dwg` as well as `.dxf`, and tells them apart by content.
+
+| File | Role |
+|---|---|
+| `bits.ts` | Bit reader: B/BB/BS/BL/BLL/BD/DD/RD, MC/MS, handles, TV (code page before R2007, UTF-16 after), CMC/ENC colours, object type, the R2007+ string stream |
+| `container.ts` | R2000 section locators; R2004/R2010/R2013/R2018 encrypted header, page map and section map, encrypted data pages |
+| `lz77.ts` | R2004+ page decompression |
+| `r2007.ts` | R2007: Reed-Solomon de-interleaving, its LZ77 variant, page and section maps |
+| `header.ts` | Header variables walked in order to INSUNITS (LTSCALE, TEXTSIZE, PSLTSCALE, INSUNITS) |
+| `objects.ts` | Common object and entity data, then every entity the renderer draws, plus LAYER, LTYPE, STYLE, BLOCK_HEADER, LAYOUT (with plot settings) and IMAGEDEF, written out as DXF group codes |
+| `index.ts` | Classes, handle map, objects, then the `Drawing`: tables, blocks in drawing order (owned lists from R2004, the entity chain in R2000), layouts, viewport ids |
+
+Verified:
+- All 30 DWG copies (5 fixtures × R2000, 2004, 2007, 2010, 2013, 2018) read with the same
+  entities per layout, layers and layouts as their DXF.
+- They pass the same manifest tests, and their PDFs render pixel-identical to the DXF ones.
+- Fuzzing (truncation, and 900 random corruptions across versions) either reads, counting
+  objects it could not read, or refuses with a `CadReadError`. Nothing hangs: the worst case
+  took 22 ms. Decompressed sizes are capped relative to the file size.
+
+Not yet:
+- R14 and older are refused with a message to resave.
+- Objects read by type only (and counted when drawn): MLEADER, WIPEOUT, ACAD_TABLE (as an
+  entity), proxies, OLE and 3D solids.
+- Multi-line attributes are read as single-line text.
+- The test files all come from ODA File Converter. Real AutoCAD drawings, especially large
+  ones, still need checking for speed and fidelity (phase 4).
+
 ## Decisions (2026-11-05)
 
 1. Engine: port the DWG reader from ACadSharp (MIT). No LibreDWG, no ODA SDK.

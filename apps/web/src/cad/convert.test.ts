@@ -4,8 +4,10 @@ import { test } from 'node:test';
 import { importViewports } from '../../../../packages/markup/src/bluebeam';
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { readPdfExtras } from '@nb/markup/pdfExtras';
-import { convertCad, readDrawing } from './convert';
+import { CadReadError, convertCad, readDrawing } from './convert';
 import { readDxf } from './dxf';
+import { BitReader } from './dwg/bits';
+import { readObject } from './dwg/objects';
 import { apply, bulgeCmds, ocs } from './geom';
 import type { Prim } from './render';
 import { planSheets, snapRatio } from './sheets';
@@ -29,12 +31,20 @@ const manifest = JSON.parse(readFileSync(new URL('manifest.json', fixtures), 'ut
   >;
 };
 const bytes = (name: string) => new Uint8Array(readFileSync(new URL(`${name}.dxf`, fixtures)));
+const fileBytes = (file: string) => new Uint8Array(readFileSync(new URL(file, fixtures)));
+/** DWG copies of every fixture (written by ODA File Converter; see the fixtures README). */
+const DWG_VERSIONS = ['R2000', 'R2004', 'R2007', 'R2010', 'R2013', 'R2018'];
 
 const texts = (prims: readonly Prim[]): string[] => prims.flatMap((p) => (p.k === 'clip' ? texts(p.prims) : p.k === 'text' ? p.lines : []));
 
-for (const [name, exp] of Object.entries(manifest.fixtures)) {
-  test(`${name}: pages, scales, layers, warnings and text match the manifest`, async () => {
-    const { pdf, report } = await convertCad(`${name}.dxf`, bytes(name), { fonts });
+const cases = Object.keys(manifest.fixtures).flatMap((name) => [`${name}.dxf`, ...DWG_VERSIONS.map((v) => `dwg/${name}.${v}.dwg`)]);
+for (const file of cases) {
+  const name = file.replace(/^dwg\//, '').replace(/\..*$/, '');
+  const exp = manifest.fixtures[name]!;
+  test(`${file}: pages, scales, layers, warnings and text match the manifest`, async () => {
+    const input = fileBytes(file);
+    const { pdf, report } = await convertCad(file, input, { fonts });
+    assert.ok(!report.warnings.some((w) => w.kind === 'unsupported' && w.type.includes('could not be read')), JSON.stringify(report.warnings));
     assert.deepEqual(
       report.pages.map((p) => p.name),
       exp.pages.map((p) => p.name),
@@ -46,7 +56,7 @@ for (const [name, exp] of Object.entries(manifest.fixtures)) {
       ep.viewports.forEach((ev, j) => {
         const v = p.viewports[j]!;
         assert.equal(v.ratio, Number(ev.ratio.split(':')[1]), `${ep.name} viewport ${j + 1} ratio`);
-        assert.equal(v.twistDeg, ev.twistDeg ?? 0);
+        assert.ok(Math.abs(v.twistDeg - (ev.twistDeg ?? 0)) < 1e-9, `twist ${v.twistDeg}`);
         assert.deepEqual([...v.frozen].sort(), [...(ev.frozen ?? [])].sort());
       });
     });
@@ -76,7 +86,7 @@ for (const [name, exp] of Object.entries(manifest.fixtures)) {
     });
 
     // Text reaches the page (as real text: subset fonts carry a ToUnicode map).
-    const { drawing } = readDrawing(`${name}.dxf`, bytes(name));
+    const { drawing } = readDrawing(file, input);
     const planned = planSheets(drawing, { colorMode: 'color', lineweights: true });
     const all = planned.sheets.flatMap((s) => texts(s.prims)).join('\n');
     for (const t of exp.text ?? []) assert.ok(all.includes(t), `text "${t}"`);
@@ -118,8 +128,73 @@ test('undeclared layers get defaults instead of failing', () => {
   assert.equal(planSheets(d, { colorMode: 'color', lineweights: true }).sheets[0]!.prims.length, 1);
 });
 
-test('DWG is refused with a clear message until the reader lands', () => {
-  assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1032\0\0\0')), /DWG files cannot be converted yet/);
+test('old and unknown DWG versions are refused with a clear message', () => {
+  assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1014\0\0\0')), /older than AutoCAD 2000/);
+  assert.throws(() => readDrawing('a.dwg', new TextEncoder().encode('AC1040\0\0\0')), /newer than the converter knows/);
+});
+
+test('bit reads refuse negative lengths and stop at their end', () => {
+  const r = new BitReader(new Uint8Array(64), 1015, undefined, 16 * 8);
+  assert.throws(() => r.skipBytes(-1), CadReadError);
+  assert.throws(() => r.bytes(-8), CadReadError);
+  r.skipBytes(16);
+  assert.throws(() => r.RC(), CadReadError);
+  // Clones keep the end and the budget.
+  const budget = { bits: 24 };
+  const b = new BitReader(new Uint8Array(64), 1015, undefined, undefined, budget);
+  b.RC();
+  b.clone().RC();
+  b.RC();
+  assert.throws(() => b.RC(), /damaged/);
+});
+
+test('an object cannot read past its own size, and every read is charged to the file', () => {
+  // MS size 2, then nothing but set bits: an unbounded reader would run on through them.
+  const buf = new Uint8Array(1 << 16).fill(0xff);
+  buf[0] = 2;
+  const budget = { bits: 1_000_000 };
+  const ctx = { version: 1015, classes: new Map<number, string>(), decoder: new TextDecoder(), budget };
+  assert.throws(() => readObject(buf, 0, ctx), CadReadError);
+  assert.ok(1_000_000 - budget.bits <= 128, `read ${1_000_000 - budget.bits} bits`);
+  // Many handles into the same bytes spend the budget, and then reading stops.
+  budget.bits = 200;
+  assert.throws(() => {
+    for (let k = 0; k < 100; k++) {
+      try {
+        readObject(buf, 0, ctx);
+      } catch (err) {
+        if (budget.bits < 0) throw err;
+      }
+    }
+  }, /damaged\.$/);
+});
+
+test('a truncated or corrupted DWG fails cleanly, never hangs', () => {
+  for (const file of ['dwg/kestrel-plan.R2018.dwg', 'dwg/kestrel-plan.R2007.dwg', 'dwg/kestrel-plan.R2004.dwg', 'dwg/kestrel-plan.R2000.dwg']) {
+    const src = fileBytes(file);
+    for (const cut of [0x20, 0x100, 0x400, src.length >> 2, src.length >> 1]) {
+      try {
+        readDrawing('cut.dwg', src.slice(0, cut));
+      } catch (err) {
+        assert.ok(err instanceof CadReadError, `${file} cut at ${cut}: ${String(err)}`);
+      }
+    }
+    // Flipped bytes past the file header: it either reads (counting objects it cannot) or refuses.
+    let seed = 7;
+    for (let k = 0; k < 8; k++) {
+      const bad = src.slice();
+      for (let i = 0; i < 64; i++) {
+        seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+        const at = 0x200 + (seed % (bad.length - 0x200));
+        bad[at] = bad[at]! ^ 0xff;
+      }
+      try {
+        readDrawing('bad.dwg', bad);
+      } catch (err) {
+        assert.ok(err instanceof CadReadError, `${file} corrupted: ${String(err)}`);
+      }
+    }
+  }
 });
 
 test('bulges are arcs through both ends', () => {
