@@ -1,5 +1,5 @@
-import { useEffect, useRef, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { autoFormatList, autoSizedPoints, backspaceList, contentBox, continueList, cssFont, shiftList, textBlockShift, textLineHeight, textPadding, textColor, toggleList, type ListKind, type Markup, type MarkupStore, type Point, type TextEdit } from '@nb/markup';
 import { settings, useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
@@ -86,6 +86,8 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
   /** Set while our own edit is being typed in, so it does not trigger auto-format again. */
   const applying = useRef(false);
   const { spellCheck } = useSettings();
+  // The text as typed, so middle and bottom alignment can follow it as lines wrap and are added.
+  const [typed, setTyped] = useState(markup.text ?? '');
 
   /** Runs a list operation on the text and selection; false (and nothing changed) when it does not apply. */
   const edit = (op: (text: string, start: number, end: number) => TextEdit | null): boolean => {
@@ -116,6 +118,15 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
   // Typewriter text grows as it is typed, so give the editor room to the right.
   const width = Math.max(box.w * scale, typewriter ? 320 : 0);
   const height = Math.max(box.h * scale, typewriter ? fontSize * scale * 3 : 0);
+
+  // Middle and bottom text sits lower than the top: pad the first line down to where it renders.
+  const valigned = !typewriter && (markup.style.verticalAlign ?? 'top') !== 'top';
+  let padTop = textPadding(markup.style) * scale;
+  if (valigned) {
+    const mctx = document.createElement('canvas').getContext('2d')!;
+    mctx.font = cssFont(markup.style, fontSize);
+    padTop = Math.max(0, padTop + textBlockShift({ ...markup, text: typed }, (s) => mctx.measureText(s).width) * scale);
+  }
 
   const finish = () => {
     const text = ref.current?.value ?? '';
@@ -153,6 +164,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
 
   // Typing a space after `-`, `*` or `[]` at the start of a line starts a list.
   const onInput = (e: FormEvent<HTMLTextAreaElement>) => {
+    setTyped(e.currentTarget.value);
     const typed = e.nativeEvent as InputEvent;
     if (applying.current || typed.isComposing || typed.inputType !== 'insertText' || typed.data !== ' ') return;
     const el = e.currentTarget;
@@ -194,6 +206,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           textAlign: markup.style.textAlign ?? 'left',
           textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
           padding: textPadding(markup.style) * scale,
+          ...(valigned ? { paddingTop: padTop, paddingBottom: 0 } : {}),
           color: textColor(markup.style),
           background: editorBackground(markup),
         }}

@@ -1988,6 +1988,28 @@ export class MarkupTools implements ViewerOverlay {
     this.select([id]);
   }
 
+  /**
+   * Space finishes a click-by-click measurement like Enter does. Space does nothing special when a
+   * text field, dropdown or editable region has focus (the page then gets no say). There is no
+   * hold-Space-to-pan, so a tap is all there is to tell apart. Returns whether the key was used.
+   */
+  finishKey(key: string, target?: unknown): boolean {
+    if (key !== ' ' && key !== 'Spacebar') return false;
+    if (this.gesture?.kind !== 'multi') return false;
+    const t = target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+    const tag = t?.tagName?.toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return false;
+    this.finish();
+    return true;
+  }
+
+  /** A right-click that stayed put finishes a measurement when "Right-click finishes markup" is on; true if it did. */
+  rightClickFinish(): boolean {
+    if (!settings.get().rightClickFinishes || this.gesture?.kind !== 'multi') return false;
+    this.finish();
+    return true;
+  }
+
   /** Backspace during a measurement removes the last placed point. */
   removeLastPoint() {
     const g = this.gesture;
@@ -3175,6 +3197,13 @@ export class MarkupTools implements ViewerOverlay {
   doubleClick(pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
     if (this.gesture?.kind === 'multi') {
+      // The first click of the double-click already placed this point; the second must not leave a twin.
+      const g = this.gesture;
+      const pts = g.markup.points;
+      const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+      const last = pts.at(-1);
+      const prev = pts.at(-2);
+      if (last && prev && Math.hypot(last[0] - prev[0], last[1] - prev[1]) * zoom <= 4) g.markup.points = pts.slice(0, -1);
       this.finish();
       return;
     }

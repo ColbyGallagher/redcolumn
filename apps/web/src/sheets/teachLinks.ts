@@ -132,7 +132,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
   const other = target && target.pageIndex !== mark.pageIndex;
   const targetNumber = target ? (sheetNumbers[target.pageIndex] ?? null) : null;
 
-  // Which part of the drawing number the mark cites (000022 of SBUCD-WSPAU-0002-RW-DRG-000022).
+  // Which part of the drawing number the mark cites (000022 of KSTRD-ACMEA-0002-RW-DRG-000022).
   if (other && targetNumber) {
     const cites = (part: number | null) => mark.contents.words.some((w) => new SheetLookup(sheetNumbers, part).find(w.text, true) === target.pageIndex);
     if (!cites(h.calloutPart)) {
