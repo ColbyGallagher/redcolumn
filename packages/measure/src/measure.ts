@@ -2,9 +2,9 @@ import { areaLabelOf, areaUnitOf, formatArea, formatLength, formatVolume, METERS
 
 export type Pt = readonly [number, number];
 
-export type MeasureKind = 'length' | 'polylength' | 'area' | 'perimeter' | 'count' | 'angle' | 'diameter' | 'radius' | 'arcLength' | 'volume';
+export type MeasureKind = 'length' | 'polylength' | 'area' | 'perimeter' | 'count' | 'angle' | 'diameter' | 'radius' | 'arcLength' | 'volume' | 'manual';
 
-export const MEASURE_KINDS: readonly MeasureKind[] = ['length', 'polylength', 'area', 'perimeter', 'count', 'angle', 'diameter', 'radius', 'arcLength', 'volume'];
+export const MEASURE_KINDS: readonly MeasureKind[] = ['length', 'polylength', 'area', 'perimeter', 'count', 'angle', 'diameter', 'radius', 'arcLength', 'volume', 'manual'];
 
 /** What a kind measures: a length, an area, a volume, a number of items, or an angle. */
 export type Quantity = 'length' | 'area' | 'volume' | 'count' | 'angle';
@@ -20,7 +20,26 @@ export const QUANTITY: Record<MeasureKind, Quantity> = {
   volume: 'volume',
   count: 'count',
   angle: 'angle',
+  // A manual quantity's real kind is in its props: see `quantityOf` and `effectiveKind`.
+  manual: 'length',
 };
+
+/** The kinds a typed (manual) quantity can be. */
+export type ManualKind = 'length' | 'area' | 'volume' | 'count';
+
+export const MANUAL_KINDS: readonly ManualKind[] = ['length', 'area', 'volume', 'count'];
+
+/**
+ * A quantity typed in rather than drawn: `value` is in SI base units (meters, square meters, cubic
+ * meters, or a count); `unit` is the unit it was typed in, kept for editing.
+ */
+export interface ManualQuantity {
+  kind: ManualKind;
+  value: number;
+  unit?: string;
+  note?: string;
+}
+
 
 /**
  * A single plane's steepness: rise per 12 of run (pitch), degrees, percent grade, or a free
@@ -56,6 +75,18 @@ export interface MeasureProps {
   holeBulges?: readonly (readonly number[] | null | undefined)[];
   /** Internal: the points are already a stretched, sampled arc (not a three-point arc). */
   flattened?: boolean;
+  /** Manual measurements: the typed quantity. */
+  manual?: ManualQuantity;
+}
+
+/** What a measurement of this kind measures; a manual quantity is whatever kind was typed. */
+export function quantityOf(kind: MeasureKind, props?: Pick<MeasureProps, 'manual'>): Quantity {
+  return kind === 'manual' ? (props?.manual?.kind ?? 'length') : QUANTITY[kind];
+}
+
+/** The kind a measurement counts as in totals and formulas: a manual quantity is the kind it was typed as. */
+export function effectiveKind(kind: MeasureKind, props?: Pick<MeasureProps, 'manual'>): MeasureKind {
+  return kind === 'manual' ? (props?.manual?.kind ?? 'length') : kind;
 }
 
 // --- Arc segments ---------------------------------------------------------------------------------
@@ -253,7 +284,8 @@ const HIP_KINDS: ReadonlySet<MeasureKind> = new Set(['length', 'polylength']);
 
 /** Whether a slope changes this kind of measurement (lengths and areas; hips and valleys runs only). */
 export function slopeApplies(kind: MeasureKind, slope: Slope | undefined): boolean {
-  if (!slope) return false;
+  // A typed (manual) quantity is already the true value.
+  if (!slope || kind === 'manual') return false;
   const q = QUANTITY[kind];
   if (q !== 'length' && q !== 'area') return false;
   if (slope.kind === 'hip' || slope.kind === 'valley') return HIP_KINDS.has(kind);
@@ -383,10 +415,11 @@ export const MIN_POINTS: Record<MeasureKind, number> = {
   radius: 2,
   arcLength: 3,
   volume: 3,
+  manual: 1,
 };
 
 /** Kinds that finish automatically once they have this many points. */
-export const FIXED_POINTS: Partial<Record<MeasureKind, number>> = { length: 2, angle: 3, diameter: 2, radius: 2, arcLength: 3 };
+export const FIXED_POINTS: Partial<Record<MeasureKind, number>> = { manual: 1, length: 2, angle: 3, diameter: 2, radius: 2, arcLength: 3 };
 
 export function pathLength(points: readonly Pt[], closed = false): number {
   let sum = 0;
@@ -575,11 +608,15 @@ export function pageLengthFor(scale: AxisScale, meters: number, dx = 1, dy = 0):
  * areas and volumes. `yMetersPerPoint` stretches the page vertically before measuring.
  */
 export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
+  // A typed quantity is already in real units: no scale, slope or cutouts.
+  if (kind === 'manual') return props.manual?.value ?? 0;
   return slopedValue(kind, planValue(kind, points, metersPerPoint, props, yMetersPerPoint), props.slope);
 }
 
 /** A measurement's value before its slope: the plan length or plan area (other kinds as `measureValue`). */
 export function planValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
+  // A typed quantity is its own plan value: the slope never applies to it.
+  if (kind === 'manual') return props.manual?.value ?? 0;
   ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   switch (kind) {
     case 'length':
@@ -612,6 +649,11 @@ export interface MeasureDetails {
 }
 
 export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): MeasureDetails {
+  if (kind === 'manual') {
+    const m = props.manual;
+    if (!m) return {};
+    return m.kind === 'length' ? { length: m.value } : m.kind === 'area' ? { area: m.value } : m.kind === 'volume' ? { volume: m.value } : {};
+  }
   ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   const q = QUANTITY[kind];
   if (q === 'length') {
@@ -631,8 +673,8 @@ export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersP
   return {};
 }
 
-export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): string {
-  switch (QUANTITY[kind]) {
+export function formatMeasure(kind: MeasureKind, value: number, scale: Scale, props?: Pick<MeasureProps, 'manual'>): string {
+  switch (quantityOf(kind, props)) {
     case 'length':
       return formatLength(value, scale);
     case 'area':
@@ -650,11 +692,11 @@ export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): s
  * A measured value in the scale's display units, for spreadsheets: lengths in `scale.unit`
  * (decimal, even when shown as feet-inches), areas in its square, counts in items, angles in degrees.
  */
-export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale): { value: number; unit: string } {
+export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale, props?: Pick<MeasureProps, 'manual'>): { value: number; unit: string } {
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
   const perVolume = METERS_PER_UNIT[volumeUnitOf(scale)];
-  switch (QUANTITY[kind]) {
+  switch (quantityOf(kind, props)) {
     case 'length':
       return { value: value / per, unit: scale.unit };
     case 'area':
@@ -669,7 +711,7 @@ export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale
 }
 
 export function measureLabel(kind: MeasureKind, points: readonly Pt[], scale: Scale, props: MeasureProps = {}): string {
-  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props, scale.yMetersPerPoint), scale);
+  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props, scale.yMetersPerPoint), scale, props);
 }
 
 /** Where a measurement's label sits, in page space. */
@@ -679,7 +721,7 @@ export function labelAnchor(kind: MeasureKind, points: readonly Pt[]): [number, 
   if (kind === 'diameter' || kind === 'radius') return points.length >= 2 ? [(points[0]![0] + points[1]![0]) / 2, (points[0]![1] + points[1]![1]) / 2] : [points[0]![0], points[0]![1]];
   if (kind === 'arcLength' && points.length >= 2) return [points[1]![0], points[1]![1]];
   if (kind === 'angle' && points.length >= 2) return [points[1]![0], points[1]![1]];
-  if (kind === 'count') return [points[0]![0], points[0]![1]];
+  if (kind === 'count' || kind === 'manual') return [points[0]![0], points[0]![1]];
   // Midpoint of the segment containing the path's halfway point.
   const half = pathLength(points) / 2;
   let run = 0;

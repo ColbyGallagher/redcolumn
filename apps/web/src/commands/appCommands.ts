@@ -211,6 +211,8 @@ export interface CommandActions {
   toggleArc: () => void;
   /** Takeoff › Hip / Valley: arms Polylength to measure a hip or valley at the Slope group's pitch. */
   hipValley: (kind: 'hip' | 'valley') => void;
+  /** Takeoff › Manual Quantity: asks for a typed quantity, then arms placing it. */
+  manualQuantity: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -558,6 +560,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: 'Select an area first' },
+    cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),

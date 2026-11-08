@@ -38,9 +38,9 @@ test.describe('takeoff tab', () => {
     const tabs = await ribbon(app).getByRole('tab').allTextContents();
     expect(tabs.indexOf('Takeoff')).toBe(tabs.indexOf('Measure') + 1);
     await openTab(app);
-    for (const group of ['Setup', 'Measure', 'Slope', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
+    for (const group of ['Setup', 'Measure', 'Manual', 'Slope', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
     for (const id of ['calibrate', 'length', 'polylength', 'area', 'count', 'visualSearch']) await expect(tool(app, id)).toBeVisible();
-    for (const id of ['document.scaleRegions', 'document.scaleReview', 'document.labelRegions', 'batch.pageLabels', 'tool.cutout', 'tools.nextMeasure', 'takeoff.hip', 'takeoff.valley', 'tools.assemblies', 'tools.quantities', 'tools.takeoffReview', 'takeoff.syncExcel', 'tools.columns'])
+    for (const id of ['document.scaleRegions', 'document.scaleReview', 'document.labelRegions', 'batch.pageLabels', 'tool.cutout', 'tools.nextMeasure', 'takeoff.manual', 'takeoff.hip', 'takeoff.valley', 'tools.assemblies', 'tools.quantities', 'tools.takeoffReview', 'takeoff.syncExcel', 'tools.columns'])
       await expect(button(app, id)).toBeVisible();
 
     // Nothing in the group scrolls: it spreads out instead.

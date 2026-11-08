@@ -18,7 +18,7 @@ export const MEASURED_NAMES: { name: string; hint: string }[] = [
   { name: 'Volume', hint: 'Volume (an area with a depth)' },
   { name: 'Wall Area', hint: 'Length × depth (a run with a height)' },
   { name: 'Depth', hint: 'The measurement’s depth or height' },
-  { name: 'Count', hint: 'Items in a count; 1 for any other measurement' },
+  { name: 'Count', hint: 'Items in a count (or a typed count); 1 for any other measurement' },
   { name: 'Plan Length', hint: 'Length on plan, before the slope' },
   { name: 'Plan Area', hint: 'Area on plan, before the slope' },
   { name: 'Slope Factor', hint: 'True over plan: 1 when flat' },
@@ -34,7 +34,7 @@ function lookupFor(m: Markup, cells: Readonly<Record<string, Cell>>, columns: re
   for (const c of columns) byName.set(c.name.trim().toLowerCase(), customKey(c.id));
   const special: Record<string, number | null> = {
     quantity: cells.measurement?.num ?? null,
-    count: m.type === 'count' ? m.points.length : 1,
+    count: m.type === 'count' ? m.points.length : m.manual?.kind === 'count' ? m.manual.value : 1,
     perimeter: cells.length?.num ?? null,
   };
   return (name: string): Value | undefined => {

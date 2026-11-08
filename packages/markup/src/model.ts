@@ -1,4 +1,4 @@
-import { expandArcs, isMeasureKind, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
+import { effectiveKind, expandArcs, isMeasureKind, type ManualQuantity, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
 import { arcPoints } from './arc';
 import { TYPE_INFO } from './types';
 import type { StampContent } from './stamp';
@@ -55,6 +55,8 @@ export { isMeasureKind };
 
 /** A markup's Label (Bluebeam's category field): a measurement keeps it in its `text`, any other markup in `label`. */
 export const markupLabel = (m: Pick<Markup, 'type' | 'text' | 'label'>): string => ((isMeasureKind(m.type) ? m.text : m.label) ?? '').trim();
+/** The measurement kind a markup counts as in totals and formulas: a manual quantity is the kind it was typed as. */
+export const measureKindOf = (m: Pick<Markup, 'type' | 'manual'>): MeasureKind => (isMeasureKind(m.type) ? effectiveKind(m.type, m) : 'length');
 /** The change that sets a markup's Label. */
 export const labelPatch = (m: Pick<Markup, 'type'>, value: string): Partial<Markup> => {
   const v = value.trim() || undefined;
@@ -340,6 +342,8 @@ export interface Markup {
   takeoffApproval?: TakeoffApproval;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
+  /** Manual quantities: the typed quantity (SI base units), the unit it was typed in, and a note. */
+  manual?: ManualQuantity;
   /** Polylength, area, perimeter and volume: curved segments (per segment, its bulge; see @nb/measure's arcSegment). */
   bulges?: number[];
   /** Hyperlinks: where clicking the markup goes. */
@@ -565,8 +569,8 @@ export function mapGeometry(m: Geometry, f: (p: Point) => Point): Geometry {
 }
 
 /** What a markup's measurement depends on besides its points. */
-export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges'>): MeasureProps {
-  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
+export function measureProps(m: Pick<Markup, 'holes' | 'depth' | 'slope' | 'bulges' | 'holeBulges' | 'manual'>): MeasureProps {
+  return { holes: m.holes, depth: m.depth, slope: m.slope, ...(m.manual ? { manual: m.manual } : {}), ...(m.bulges?.some(Boolean) ? { bulges: m.bulges } : {}), ...(m.holeBulges ? { holeBulges: m.holeBulges } : {}) };
 }
 
 /** Bounds including stroke width and decorations (arrowheads, cloud bulges). */
@@ -609,7 +613,25 @@ export function outlinePoints(m: Pick<Markup, 'type' | 'points' | 'bulges'>): Po
   return expandArcs(m.points, m.bulges, m.type !== 'polylength');
 }
 
+/**
+ * About where a manual quantity's tag sits: centred on its point, sized for its text (the real size
+ * depends on the page's display units, so this is an estimate for bounds and hit testing).
+ */
+export function manualBox(m: Pick<Markup, 'points' | 'style' | 'subject' | 'text'>): Rect {
+  const size = m.style.fontSize ?? 10;
+  const [x, y] = m.points[0] ?? [0, 0];
+  const chars = (m.subject?.trim() || 'Manual').length + 14;
+  const w = chars * size * 0.55 + size * 0.6;
+  const h = ((m.text ?? '').trim() ? 2 : 1) * size * 1.2 + size * 0.2;
+  return { x: x - w / 2, y: y - h / 2, w, h };
+}
+
 function unrotatedBounds(m: Markup): Rect {
+  if (m.type === 'manual' && m.points.length) {
+    const b = manualBox(m);
+    const pad = m.style.width / 2;
+    return { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 };
+  }
   const circle = circleOf(m);
   // An arc bulges past its three defining points; a circle past its diameter.
   const b = circle ? { x: circle.cx - circle.r, y: circle.cy - circle.r, w: circle.r * 2, h: circle.r * 2 } : boundsOf(m.type === 'arc' || m.type === 'arcLength' ? arcPoints(m.points) : outlinePoints(m));

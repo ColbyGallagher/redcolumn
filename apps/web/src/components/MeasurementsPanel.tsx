@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MARKUP_LABELS,
   isMeasureKind,
+  measureKindOf,
   measureProps,
   type Assembly,
   type Markup,
@@ -952,10 +953,11 @@ export function MeasurementsPanel({
     if (!isMeasureKind(m.type) || m.type === 'angle') continue;
     const rowScale = scaleOf(m);
     const value = measureValue(m.type, m.points, rowScale.metersPerPoint, measureProps(m), rowScale.yMetersPerPoint);
-    const t = totals.get(m.type) ?? { value: 0, scale: rowScale, n: 0 };
+    const kind = measureKindOf(m);
+    const t = totals.get(kind) ?? { value: 0, scale: rowScale, n: 0 };
     t.value += value;
     t.n++;
-    totals.set(m.type, t);
+    totals.set(kind, t);
   }
 
   const section = (key: keyof typeof open, title: string, body: ReactNode, className?: string) => (
@@ -996,7 +998,7 @@ export function MeasurementsPanel({
                       <span className="num">{m.subject || MARKUP_LABELS[m.type]}</span>
                       <span className="name">
                         p. {m.pageIndex + 1}
-                        {value !== null && isMeasureKind(m.type) ? ` · ${formatMeasure(m.type, value, rowScale)}` : ''}
+                        {value !== null && isMeasureKind(m.type) ? ` · ${formatMeasure(m.type, value, rowScale, measureProps(m))}` : ''}
                       </span>
                     </button>
                   </li>

@@ -199,6 +199,8 @@ export interface MeasureLabel {
   lines: string[];
   at: [number, number];
   angle: number;
+  /** Drawn as a tag: filled, with a dashed border (a typed quantity, not a drawn one). */
+  boxed?: boolean;
 }
 
 export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel | null {
@@ -206,6 +208,11 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   const line = dimensionLine(m);
   const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
+  if (m.type === 'manual') {
+    const label = markupLabel(m);
+    const text = `${m.subject?.trim() || 'Manual'} · ${value}`;
+    return { text, lines: label ? [label, text] : [text], at: [m.points[0]![0], m.points[0]![1]], angle: 0, boxed: true };
+  }
   const label = m.type === 'count' ? '' : markupLabel(m);
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
@@ -405,7 +412,15 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.rotate(label.angle);
       x = y = 0;
     }
-    if (background) {
+    if (label.boxed) {
+      ctx.globalAlpha = style.opacity;
+      ctx.fillStyle = style.fill ?? '#ffffff';
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.strokeStyle = style.stroke;
+      ctx.setLineDash(dash.length ? dash : [style.width * 3, style.width * 2]);
+      ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      ctx.setLineDash([]);
+    } else if (background) {
       ctx.globalAlpha = 0.85 * style.opacity;
       ctx.fillStyle = background;
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
