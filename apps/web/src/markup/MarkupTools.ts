@@ -256,6 +256,15 @@ const CALIBRATE_STYLE: MarkupStyle = { stroke: '#2563eb', fill: null, width: 1, 
 const MATCH_LINE_STYLE: MarkupStyle = { stroke: '#dc2626', fill: null, width: 2, opacity: 1, dash: 'dashed' };
 const REGION_STYLE: MarkupStyle = { stroke: '#2563eb', fill: '#2563eb', width: 1, opacity: 1, fillOpacity: 0.08, dash: 'dashed' };
 
+/** A finished count or open line being continued: new points go into the stored markup, one undo step each. */
+type ResumeState = { id: string; base: number; origin: Point };
+
+/** Counts and open click-by-click paths (a polylength, a polyline) can be resumed; closed shapes and fixed-point ones cannot. */
+export function canResume(m: Markup): boolean {
+  const info = TYPE_INFO[m.type];
+  return info.draw === 'click' && !info.closed && info.handles === 'vertices' && !info.click?.fixed && m.points.length > 0 && !['angle', 'arc', 'arcLength'].includes(m.type);
+}
+
 type Gesture =
   /** Dragging one end (`end` 0 or 1) of a hand-placed match line. */
   | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
@@ -266,8 +275,8 @@ type Gesture =
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
-  /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[] }
+  /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). `resume`: adding to an existing markup. */
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState }
   | { kind: 'move'; start: Point; dx: number; dy: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
@@ -738,6 +747,7 @@ export class MarkupTools implements ViewerOverlay {
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
+    this.commitResumed(g);
     this.completeIfFixed();
     this.refreshSketch();
   }
@@ -797,6 +807,7 @@ export class MarkupTools implements ViewerOverlay {
     this.unsubscribe =
       store?.subscribe(() => {
         // Drop selections of markups that were deleted (locally, by undo, or by a collaborator).
+        this.syncResumed(store);
         const alive = [...this.state.selected].filter((id) => store.get(id));
         if (alive.length !== this.state.selected.size) this.setState({ selected: new Set(alive) });
         else this.viewer.invalidate();
@@ -1835,6 +1846,67 @@ export class MarkupTools implements ViewerOverlay {
     this.setState({ selected: new Set([...this.state.selected].filter((id) => !doomed.includes(id))) });
   }
 
+  /** Whether Resume works on this markup: a count or an open path, one the user may edit. */
+  canResumeMarkup(id: string): boolean {
+    const m = this.store?.get(id);
+    return !!m && !!this.store && !this.store.readOnly && canResume(m) && !this.frozen(m);
+  }
+
+  /**
+   * Resume: carries on a finished count or open line. New points go into the same markup (its
+   * subject, label, layer, style and total stay), one undo step each. A line grows from the end
+   * nearest `near` (default: its last point); when that is the first point the point order, and
+   * the curves between points, are turned around first. Escape, Enter, a double-click or another
+   * tool ends it.
+   */
+  resume(id: string, near?: Point): boolean {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || !m || !this.canResumeMarkup(id)) return false;
+    let points = m.points.map((p): Point => [p[0], p[1]]);
+    let bulges = m.bulges ? [...m.bulges] : undefined;
+    if (m.type !== 'count' && near && points.length > 1) {
+      const first = points[0]!;
+      const last = points.at(-1)!;
+      if (Math.hypot(near[0] - first[0], near[1] - first[1]) < Math.hypot(near[0] - last[0], near[1] - last[1])) {
+        const turned = reversedMarkup(m);
+        points = turned.points!.map((p): Point => [p[0], p[1]]);
+        bulges = turned.bulges;
+        store.checkpoint();
+        store.update(id, { points, ...(bulges ? { bulges } : {}), modifiedAt: Date.now() });
+      }
+    }
+    this.setTool(m.type);
+    if (this.state.tool !== m.type) return false;
+    this.select([id]);
+    const at = points.at(-1)!;
+    this.setGesture({ kind: 'multi', markup: { ...structuredClone(m), points, ...(bulges ? { bulges } : {}) }, hover: at, down: at, calibrate: false, resume: { id, base: points.length, origin: points[0]! } });
+    return true;
+  }
+
+  /** A point added to a resumed markup goes straight into the store, as its own undo step. */
+  private commitResumed(g: Extract<Gesture, { kind: 'multi' }>) {
+    if (!g.resume || !this.store) return;
+    this.store.checkpoint();
+    this.store.update(g.resume.id, { points: g.markup.points.map((p): Point => [p[0], p[1]]), modifiedAt: Date.now() });
+  }
+
+  /** Keeps a resumed markup's gesture in step with the store (undo takes points off; deleting it ends the resume). */
+  private syncResumed(store: MarkupStore) {
+    const g = this.gesture;
+    if (g?.kind !== 'multi' || !g.resume) return;
+    const m = store.get(g.resume.id);
+    // Undone back past where it was resumed (or deleted): nothing left to continue.
+    if (!m || m.points.length < g.resume.base || (m.points.length === g.resume.base && (m.points[0]![0] !== g.resume.origin[0] || m.points[0]![1] !== g.resume.origin[1]))) {
+      this.setGesture(null);
+      return;
+    }
+    if (m.points.length !== g.markup.points.length) {
+      g.markup = { ...structuredClone(m) };
+      g.down = m.points.at(-1)!;
+    }
+  }
+
   /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
     if (this.pickedText) {
@@ -1866,6 +1938,10 @@ export class MarkupTools implements ViewerOverlay {
   pointerCancel() {
     const g = this.gesture;
     if (!g) return;
+    if (g.kind === 'multi' && g.resume) {
+      if (g.markup.points.length > g.resume.base) this.store?.undo();
+      return;
+    }
     if (g.kind === 'multi' && g.markup.points.length > 1) {
       g.markup.points = g.markup.points.slice(0, -1);
       g.down = g.markup.points.at(-1)!;
@@ -1881,6 +1957,8 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind !== 'multi' || !this.store) return;
     this.setGesture(null);
+    // A resumed markup already holds its points in the store: finishing just ends the gesture.
+    if (g.resume) return;
     const zoom = this.viewer.zoomFor(g.markup.pageIndex);
     // A double-click lands two clicks on the same spot; collapse consecutive near-duplicates.
     const points = g.markup.points.filter((p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1]![0], p[1] - all[i - 1]![1]) * zoom > 2);
@@ -2017,6 +2095,11 @@ export class MarkupTools implements ViewerOverlay {
   removeLastPoint() {
     const g = this.gesture;
     if (g?.kind !== 'multi') return;
+    if (g.resume) {
+      // Only the points added since resuming go: each is one undo step.
+      if (g.markup.points.length > g.resume.base) this.store?.undo();
+      return;
+    }
     g.markup.points = g.markup.points.slice(0, -1);
     if (!g.markup.points.length) this.setGesture(null);
     else this.refreshSketch();
@@ -2707,6 +2790,7 @@ export class MarkupTools implements ViewerOverlay {
         }
         markup.points = [...markup.points, p];
         g.down = p;
+        this.commitResumed(g);
         this.clearTracking();
         this.completeIfFixed();
         this.refreshSketch();
@@ -3543,7 +3627,7 @@ export class MarkupTools implements ViewerOverlay {
 
   private completeIfFixed() {
     const g = this.gesture;
-    if (g?.kind !== 'multi') return;
+    if (g?.kind !== 'multi' || g.resume) return;
     const needed = g.calibrate ? 2 : clickSpec(g.markup.type)?.fixed;
     if (needed && g.markup.points.length >= needed) this.finish();
   }
