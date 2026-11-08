@@ -270,7 +270,7 @@ async function bluebeamStatusSet() {
       { M: text('BSI_SET'), S: text('1.2 Closed'), C: [0, 0, 1] },
     ]),
   );
-  const cloud = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Square', NM: text('SQ'), C: [1, 0, 0], Rect: [10, 10, 100, 100], BSIColumnData: [text('pkg'), text('old'), text('Medium'), text('TFNSW')] }));
+  const cloud = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Square', NM: text('SQ'), C: [1, 0, 0], Rect: [10, 10, 100, 100], BSIColumnData: [text('pkg'), text('old'), text('Medium'), text('KESTREL')] }));
   const state = (nm: string, model: string, s: string, date: string) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Text', IRT: cloud, StateModel: text(model), State: text(s), NM: text(nm), M: text(date), F: 30, Rect: [0, 0, 0, 0] }));
   const refs = [cloud, state('S1', 'BSI_SET', '1.0 Open', 'D:20251223142229'), state('S2', 'Review', 'Completed', 'D:20260128141815'), state('S3', 'BSI_SET', '1.2 Closed', 'D:20260219100000')];
   page.node.set(PDFName.of('Annots'), ctx.obj(refs));
@@ -285,7 +285,7 @@ test("Bluebeam's deleted columns are not the file's columns, and custom status s
   const { result, columns, statuses } = await bluebeamStatusSet();
   assert.deepEqual(columns.map((c) => [c.name, c.options]), [['Organisation', undefined], ['Priority', ['High', 'Medium']]]);
   const m = result.markups[0]!;
-  assert.deepEqual(m.fields, { 'bluebeam:Priority': 'Medium', 'bluebeam:Organisation': 'TFNSW' });
+  assert.deepEqual(m.fields, { 'bluebeam:Priority': 'Medium', 'bluebeam:Organisation': 'KESTREL' });
   // The latest state of any model, here the custom set's, is the status.
   assert.equal(m.status, '1.2 closed');
   assert.deepEqual(statuses, [
@@ -314,7 +314,7 @@ test('saving keeps deleted Bluebeam columns and their values, and writes custom 
   const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
   const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
   // Deleted columns keep their values in their own places.
-  assert.deepEqual(dicts[0]!.lookup(PDFName.of('BSIColumnData'), PDFArray).asArray().map((v) => (v as PDFHexString | PDFString).decodeText()), ['pkg', 'old', 'High', 'TFNSW']);
+  assert.deepEqual(dicts[0]!.lookup(PDFName.of('BSIColumnData'), PDFArray).asArray().map((v) => (v as PDFHexString | PDFString).decodeText()), ['pkg', 'old', 'High', 'KESTREL']);
   const added = dicts.find((d) => str(d, 'StateModel') && !['S1', 'S2', 'S3'].includes(str(d, 'NM')!))!;
   assert.deepEqual([str(added, 'StateModel'), str(added, 'State')], ['BSI_SET', '1.0 Open']);
 });

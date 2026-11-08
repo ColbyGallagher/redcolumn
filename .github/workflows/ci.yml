@@ -20,6 +20,28 @@ permissions:
 # Actions are pinned to full commit SHAs (the tag in the comment), so a moved or hijacked tag cannot
 # change what runs. Dependabot (.github/dependabot.yml) proposes updates. See docs/SECURITY-HARDENING.md, 2.5.
 jobs:
+  # Client drawings and identifiers never reach this public repository: every tracked file, and
+  # on a pull request every commit message, added line and added file (scripts/check-client-data.mjs).
+  client-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - run: node scripts/check-client-data.mjs
+
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-client-data.mjs --range "origin/$BASE_REF..HEAD"
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
