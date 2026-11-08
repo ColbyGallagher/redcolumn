@@ -214,6 +214,7 @@ export function readObject(buf: Uint8Array, offset: number, ctx: ReadContext): R
     case 'BLOCK_HEADER':
     case 'LAYOUT':
     case 'IMAGEDEF':
+    case 'VPORT':
       return readTableObject(o, norm);
     default:
       return { kind: 'object', type: norm, handle: 0, owner: 0, data: {} };
@@ -238,13 +239,9 @@ function reactorsAndXdic(o: Obj) {
   if (o.version >= R2013) o.d.B();
 }
 
-function readEntity(o: Obj, type: string): EntRec {
+/** An entity's own properties after its handle and extended data (the spec's "entity mode" onwards). */
+function entityMode(o: Obj) {
   const d = o.d;
-  common(o);
-  if (d.B()) {
-    const n = o.version >= R2010 ? d.BLL() : d.RL();
-    d.skipBytes(n);
-  }
   const mode = d.BB();
   const owner = mode === 0 ? o.Hr() : 0;
   reactorsAndXdic(o);
@@ -273,6 +270,17 @@ function readEntity(o: Obj, type: string): EntRec {
   }
   const invisible = (d.BS() & 1) === 1;
   const lineweight = lineweightOf(d.RC());
+  return { mode, owner, next, color, ltscale, layer, ltFlags, ltype, invisible, lineweight };
+}
+
+function readEntity(o: Obj, type: string): EntRec {
+  const d = o.d;
+  common(o);
+  if (d.B()) {
+    const n = o.version >= R2010 ? d.BLL() : d.RL();
+    d.skipBytes(n);
+  }
+  const { mode, owner, next, color, ltscale, layer, ltFlags, ltype, invisible, lineweight } = entityMode(o);
   const e: EntRec = {
     kind: 'entity',
     type,
@@ -429,6 +437,16 @@ function entityData(o: Obj, e: EntRec) {
       return;
     }
     case 'POLYLINE_PFACE':
+      // Vertex and face counts, then its vertices and face records.
+      d.BS();
+      d.BS();
+      children(o, e);
+      return;
+    case 'VERTEX_PFACE_FACE':
+      // Face record: up to four 1-based vertex indexes; negative hides the edge from that vertex.
+      push(g, 70, 128);
+      for (let k = 0; k < 4; k++) push(g, 71 + k, d.BS());
+      return;
     case 'POLYLINE_MESH':
       return;
     case 'VERTEX_2D': {
@@ -448,7 +466,8 @@ function entityData(o: Obj, e: EntRec) {
     case 'VERTEX_MESH':
     case 'VERTEX_PFACE': {
       const flags = d.RC();
-      push(g, 70, flags);
+      // A polyface's vertices are positions (64 | 128 in DXF terms), whatever the byte says.
+      push(g, 70, e.type === 'VERTEX_PFACE' ? 192 : flags);
       pt2(g, 10, d.BD3());
       return;
     }
@@ -500,7 +519,10 @@ function entityData(o: Obj, e: EntRec) {
     case 'MTEXT':
       return mtext(o, e);
     case 'INSERT':
-    case 'MINSERT': {
+    case 'MINSERT':
+    case 'ACAD_TABLE': {
+      // A table starts as an insert of the anonymous block that draws it; the cell data after
+      // that is not needed to plot it.
       const p = d.BD3();
       let sx = 1;
       let sy = 1;
@@ -541,7 +563,7 @@ function entityData(o: Obj, e: EntRec) {
         } else e.refs.owned = Array.from({ length: owned }, () => o.H());
         o.H(); // SEQEND
       }
-      e.type = 'INSERT';
+      if (e.type !== 'ACAD_TABLE') e.type = 'INSERT';
       pt2(g, 10, p);
       push(g, 41, sx);
       push(g, 42, sy);
@@ -577,7 +599,11 @@ function entityData(o: Obj, e: EntRec) {
     }
     case 'VIEWPORT':
       return viewport(o, e);
-    case 'IMAGE': {
+    case 'MULTILEADER':
+      return multileader(o, e);
+    case 'IMAGE':
+    case 'WIPEOUT': {
+      // Wipeouts are stored as images (of size 1 x 1) with a clip boundary.
       d.BL();
       const p = d.BD3();
       const u = d.BD3();
@@ -590,19 +616,21 @@ function entityData(o: Obj, e: EntRec) {
       d.RC();
       if (v >= R2010) d.B();
       const clip = d.BS();
+      const boundary: number[][] = [];
       if (clip === 1) {
-        d.RD2();
-        d.RD2();
+        boundary.push(d.RD2(), d.RD2());
       } else if (clip === 2) {
         const n = d.BL();
         guard(n);
-        for (let k = 0; k < n; k++) d.RD2();
+        for (let k = 0; k < n; k++) boundary.push(d.RD2());
       }
       e.refs.imageDef = o.H();
       pt2(g, 10, p);
       pt2(g, 11, u);
       pt2(g, 12, w);
       pt2(g, 13, size);
+      push(g, 91, boundary.length);
+      for (const b of boundary) pt2(g, 14, b);
       return;
     }
     case 'BLOCK':
@@ -666,8 +694,8 @@ function text(o: Obj, e: EntRec) {
   if (attType === 2 || attType === 4) {
     // Multi-line attributes carry an MTEXT; drawn as their single-line text here.
     const sub: EntRec = { ...e, g: [], refs: {} };
-    d.BB();
-    reactorsAndXdic(o);
+    // The MTEXT carries a full set of entity properties of its own.
+    entityMode(o);
     mtextBody(o, sub);
     const n = d.BS();
     if (n > 0) {
@@ -948,6 +976,128 @@ function hatch(o: Obj, e: EntRec) {
   if (gradient) push(g, 450, 1);
 }
 
+/**
+ * A multileader, written out in DXF's own layout (CONTEXT_DATA{, LEADER{, LEADER_LINE{) so the
+ * renderer reads both formats the same way. Only what draws it is kept: leader lines and landing,
+ * arrowhead size, and the text or block content.
+ */
+function multileader(o: Obj, e: EntRec) {
+  const d = o.d;
+  const g = e.g;
+  const v = o.version;
+  if (v >= R2010) d.BS();
+  push(g, 300, 'CONTEXT_DATA{');
+  const roots = d.BL();
+  guard(roots);
+  const rootGroups: G[] = [];
+  for (let r = 0; r < roots; r++) {
+    const rg: G = [];
+    d.B();
+    d.B();
+    const conn = d.BD3();
+    const dir = d.BD3();
+    const nBreaks = d.BL();
+    guard(nBreaks);
+    for (let k = 0; k < nBreaks; k++) {
+      d.BD3();
+      d.BD3();
+    }
+    const index = d.BL();
+    const landing = d.BD();
+    push(rg, 302, 'LEADER{');
+    pt2(rg, 10, conn);
+    pt2(rg, 11, dir);
+    push(rg, 90, index);
+    push(rg, 40, landing);
+    const nLines = d.BL();
+    guard(nLines);
+    for (let l = 0; l < nLines; l++) {
+      push(rg, 304, 'LEADER_LINE{');
+      const n = d.BL();
+      guard(n);
+      for (let k = 0; k < n; k++) pt2(rg, 10, d.BD3());
+      const nInfo = d.BL();
+      guard(nInfo);
+      for (let k = 0; k < nInfo; k++) {
+        d.BL();
+        const m = d.BL();
+        guard(m);
+        for (let q = 0; q < m; q++) {
+          d.BD3();
+          d.BD3();
+        }
+      }
+      push(rg, 91, d.BL());
+      if (v >= R2010) {
+        d.BS();
+        d.CMC(o.t);
+        o.H();
+        d.BL();
+        d.BD();
+        o.H();
+        d.BL();
+      }
+      push(rg, 305, '}');
+    }
+    if (v >= R2010) d.BS();
+    push(rg, 303, '}');
+    rootGroups.push(rg);
+  }
+  push(g, 40, d.BD()); // scale
+  pt2(g, 10, d.BD3()); // content base point
+  push(g, 41, d.BD()); // text height
+  push(g, 140, d.BD()); // arrowhead size
+  push(g, 145, d.BD()); // landing gap
+  d.BS();
+  d.BS();
+  d.BS();
+  d.BS();
+  if (d.B()) {
+    push(g, 290, 1);
+    push(g, 304, o.TV());
+    d.BD3(); // normal
+    o.H(); // style
+    pt2(g, 12, d.BD3());
+    pt2(g, 13, d.BD3());
+    push(g, 42, d.BD());
+    push(g, 43, d.BD());
+    d.BD(); // boundary height
+    push(g, 45, d.BD());
+    d.BS();
+    d.CMC(o.t);
+    push(g, 171, d.BS());
+    d.BS();
+    d.CMC(o.t);
+    d.BD();
+    d.BL();
+    d.B();
+    d.B();
+    d.BS();
+    d.B();
+    d.BD();
+    d.BD();
+    d.B();
+    const nCols = d.BL();
+    guard(nCols);
+    for (let k = 0; k < nCols; k++) d.BD();
+    d.B();
+    d.B();
+  } else if (d.B()) {
+    push(g, 296, 1);
+    push(g, 341, o.H().toString(16).toUpperCase());
+    d.BD3();
+    pt2(g, 15, d.BD3());
+    const sc = d.BD3();
+    push(g, 16, sc[0]);
+    push(g, 26, sc[1]);
+    push(g, 46, d.BD());
+    d.CMC(o.t);
+    for (let k = 0; k < 16; k++) d.BD();
+  }
+  for (const rg of rootGroups) g.push(...rg);
+  push(g, 301, '}');
+}
+
 function viewport(o: Obj, e: EntRec) {
   const d = o.d;
   const g = e.g;
@@ -1133,7 +1283,7 @@ function readTableObject(o: Obj, type: string): ObjRec {
       if (v === 1015) o.TV();
       data.numerator = d.BD();
       data.denominator = d.BD();
-      o.TV(); // style sheet
+      data.styleSheet = o.TV();
       d.BS();
       d.BD();
       d.BD2();
@@ -1165,6 +1315,17 @@ function readTableObject(o: Obj, type: string): ObjRec {
       d.BL();
       d.RD2();
       data.path = o.TV();
+      break;
+    }
+    case 'VPORT': {
+      data.name = o.TV();
+      xrefBit(o);
+      d.BD(); // view height
+      d.BD(); // aspect
+      d.RD2(); // centre
+      data.target = d.BD3();
+      d.BD3(); // direction
+      data.twist = d.BD();
       break;
     }
   }

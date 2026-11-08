@@ -249,6 +249,75 @@
           "unit": "in"
         }
       ]
+    },
+    "masks": {
+      "units": "mm",
+      "pages": [
+        {
+          "name": "Model",
+          "widthPt": 453.54,
+          "heightPt": 283.46,
+          "viewports": [],
+          "note": "no layouts: one page around the model extents, 1:1; size filled in by main()",
+          "extents": [
+            0.0,
+            0.0,
+            160.0,
+            100.0
+          ]
+        }
+      ],
+      "wipeouts": [
+        {
+          "box": [
+            20,
+            20,
+            50,
+            50
+          ]
+        },
+        {
+          "box": [
+            60,
+            60,
+            90,
+            90
+          ]
+        }
+      ],
+      "meshEdges": {
+        "layer": "MESH",
+        "count": 8,
+        "box": [
+          120,
+          0,
+          160,
+          20
+        ]
+      }
+    },
+    "leaders": {
+      "units": "mm",
+      "pages": [
+        {
+          "name": "Model",
+          "widthPt": 113.18,
+          "heightPt": 150.24,
+          "viewports": [],
+          "note": "no layouts: one page around the model extents, 1:1; size filled in by main()",
+          "extents": [
+            0.0,
+            0.0,
+            39.926,
+            53.0
+          ]
+        }
+      ],
+      "text": [
+        "NOTE ONE"
+      ],
+      "leaders": 2,
+      "sizeTolerancePt": 20
     }
   }
 }

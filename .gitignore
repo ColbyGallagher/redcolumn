@@ -6,6 +6,8 @@ release/
 .DS_Store
 samples/
 reference-data/
+# CAD corpus reports and PDFs (pnpm cad:corpus); the drawings are client files.
+reference_data/cad-corpus/
 scripts/help/failed-*.png
 e2e/test-results/
 e2e/playwright-report/
