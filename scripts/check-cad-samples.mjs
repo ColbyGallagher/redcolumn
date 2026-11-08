@@ -1,7 +1,7 @@
 // Optional external regression: no third-party drawing bytes are committed.
 // node --experimental-transform-types --import ./apps/web/test/resolve-ts.mjs scripts/check-cad-samples.mjs --download
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { resolve, dirname, basename } from 'node:path';
+import { resolve, dirname, basename, sep } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { convertCad, readDrawing } from '../apps/web/src/cad/convert.ts';
@@ -20,11 +20,19 @@ const font = async family => new Uint8Array(await readFile(resolve(root, `apps/w
 const fonts = { sans: await font('Sans'), serif: await font('Serif'), mono: await font('Mono') };
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 await mkdir(output, { recursive: true });
+// The manifest decides what is downloaded and where it is written, so pin its shape: a full
+// commit hash, plain relative file names and SHA-256 digests. Nothing else reaches the URL or disk.
+assert(/^[0-9a-f]{40}$/.test(manifest.revision), 'Manifest revision must be a full commit hash');
+for (const file of manifest.files) {
+  assert(/^[a-z_]+\/[A-Za-z0-9_.-]+$/.test(file.path) && !file.path.includes('..'), `Unsafe manifest path: ${file.path}`);
+  assert(/^[0-9a-f]{64}$/.test(file.sha256), `Bad digest for ${file.path}`);
+}
 for (const file of manifest.files) {
   const local = resolve(fixtures, file.path);
+  assert(local.startsWith(fixtures + sep), `Path escapes the fixtures folder: ${file.path}`);
   let bytes = await readFile(local).catch(error => { if (error.code === 'ENOENT') return null; throw error; });
   if (!bytes && args.includes('--download')) {
-    const url = `https://raw.githubusercontent.com/haiha-ux/cad-sample-tests/${manifest.revision}/${file.path}`;
+    const url = `https://raw.githubusercontent.com/haiha-ux/cad-sample-tests/${manifest.revision}/${encodeURI(file.path)}`;
     const response = await fetch(url);
     assert(response.ok, `Download failed: ${response.status} ${file.path}`);
     bytes = Buffer.from(await response.arrayBuffer());
