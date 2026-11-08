@@ -5,7 +5,7 @@ import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
-import { lineEnds, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
@@ -164,6 +164,8 @@ export interface MarkupStyle {
   endCap?: LineEnding;
   /** Line ending size as a multiple of the default size. */
   capScale?: number;
+  /** How the markup blends with what is under it; unset is Normal (Multiply for highlighters). */
+  blendMode?: BlendMode;
   /** Hatch pattern drawn inside closed shapes. */
   hatch?: StoredHatch;
   /** Hatch color. The line color when unset. */
@@ -437,7 +439,7 @@ export interface PdfAnnotLink {
  * when. A markup's history is every change, oldest first; its `status` is the latest.
  */
 export interface StatusChange {
-  /** The state's name as set ("Accepted", "1.2 TfNSW - Closed - Do Not Action"). */
+  /** The state's name as set ("Accepted", "1.2 Client - Closed - Do Not Action"). */
   state: string;
   /** The state model: `Review`, or a custom status set's id (see `MarkupStatusDef.model`). */
   model: string;

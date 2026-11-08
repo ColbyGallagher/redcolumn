@@ -1064,6 +1064,60 @@ function put(h: Harness, type: MarkupType, points: Point[], extra: Partial<Marku
   return h.store.get(m.id)!;
 }
 
+test('box selection: left to right takes only what it encloses, right to left everything it touches', async () => {
+  const h = await setup();
+  const area = put(h, 'area', [[100, 100], [300, 100], [300, 300], [100, 300]]);
+  const small = put(h, 'rect', [[400, 100], [420, 120]]);
+  const far = put(h, 'rect', [[500, 500], [540, 540]]);
+  h.tools.setTool('select');
+  // Over the right half of the area, crossing its right edge.
+  drag(h.tools, [250, 80], [330, 320]);
+  assert.deepEqual([...h.tools.getState().selected], [], 'window: the area is only partly inside');
+  h.tools.select([]);
+  drag(h.tools, [330, 80], [250, 320]);
+  assert.deepEqual([...h.tools.getState().selected], [area.id], 'crossing: one edge of the area is enough');
+  h.tools.select([]);
+  // Wholly inside the dragged box, in either direction.
+  drag(h.tools, [380, 80], [440, 140]);
+  assert.deepEqual([...h.tools.getState().selected], [small.id], 'window: a markup inside the box');
+  h.tools.select([]);
+  drag(h.tools, [450, 450], [600, 600]);
+  assert.deepEqual([...h.tools.getState().selected], [far.id]);
+  await h.store.destroy();
+});
+
+test('lasso: takes markups it encloses or crosses, not ones only near its bounding box', async () => {
+  const h = await setup();
+  const line = put(h, 'polyline', [[100, 100], [400, 100], [400, 400]]);
+  const corner = put(h, 'polyline', [[100, 500], [100, 700], [300, 700]]);
+  h.tools.setTool('lasso');
+  // A small loop around a stretch of the first line's middle, touching neither end.
+  const loop: Point[] = [[240, 60], [290, 60], [290, 140], [240, 140], [240, 60]];
+  press(h.tools, loop[0]!);
+  for (const p of loop.slice(1)) move(h.tools, p);
+  release(h.tools, loop.at(-1)!);
+  assert.deepEqual([...h.tools.getState().selected], [line.id]);
+  h.tools.select([]);
+  // Inside the corner's bounding box, clear of its lines.
+  const inner: Point[] = [[180, 560], [260, 560], [260, 640], [180, 640], [180, 560]];
+  press(h.tools, inner[0]!);
+  for (const p of inner.slice(1)) move(h.tools, p);
+  release(h.tools, inner.at(-1)!);
+  assert.deepEqual([...h.tools.getState().selected], [], `${corner.id} is only near`);
+  await h.store.destroy();
+});
+
+test('Shift on a box selection adds to what is selected', async () => {
+  const h = await setup();
+  const a = put(h, 'rect', [[100, 100], [140, 140]]);
+  const b = put(h, 'rect', [[300, 100], [340, 140]]);
+  h.tools.setTool('select');
+  drag(h.tools, [80, 80], [160, 160]);
+  drag(h.tools, [360, 160], [280, 80], { shiftKey: true });
+  assert.deepEqual([...h.tools.getState().selected].sort(), [a.id, b.id].sort());
+  await h.store.destroy();
+});
+
 test('Trim and Extend: cut a line at the lines crossing it, or carry it on to the next', async () => {
   const h = await setup();
   const line = put(h, 'line', [[0, 300], [400, 300]]);
@@ -1405,6 +1459,127 @@ test('a connector end dragged onto another shape drops the route set by hand', a
   const k = h.store.get('k')!;
   assert.equal(k.connect?.to?.id, 'c');
   assert.equal(k.connect?.bends, undefined);
+});
+
+test('Area, Volume and Perimeter: dragging makes a four-point rectangle in one motion and keeps the tool', async () => {
+  for (const type of ['area', 'volume', 'perimeter'] as const) {
+    const h = await setup();
+    h.tools.setTool(type);
+    drag(h.tools, [100, 100], [300, 250]);
+    const [m] = h.store.all();
+    assert.equal(m?.type, type);
+    assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 250], [100, 250]]);
+    assert.equal(h.tools.getState().tool, type, 'still armed');
+    assert.equal(h.tools.inProgress, false);
+    // Dragging up and to the left gives the same kind of rectangle.
+    drag(h.tools, [500, 500], [400, 450]);
+    assert.equal(h.store.all()[1]?.points.length, 4);
+    await h.store.destroy();
+  }
+});
+
+test('Area: a small movement still starts a polygon point by point', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [102, 101]);
+  assert.equal(h.store.all().length, 0, 'not finished');
+  assert.equal(h.tools.inProgress, true);
+  click(h.tools, [200, 100]);
+  click(h.tools, [200, 200]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]?.points.length, 3);
+  await h.store.destroy();
+});
+
+test('Area: Shift drags a square in real-world units, even with a separate vertical scale', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.01, yMetersPerPoint: 0.02, unit: 'm', label: 'x' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('area');
+  drag(h.tools, [100, 100], [300, 160], { shiftKey: true });
+  const [m] = h.store.all();
+  // 200 pt wide at 0.01 is 2 m, so the height is 2 m: 100 pt at 0.02.
+  assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 200], [100, 200]]);
+  await h.store.destroy();
+});
+
+test('Resume: a count carries on in the same markup, with its subject, label and total', async () => {
+  const h = await setup();
+  const counted = put(h, 'count', [[10, 10], [20, 10], [30, 10], [40, 10]], { subject: 'Poles', layer: 'L1', text: 'P' });
+  assert.equal(h.tools.resume(counted.id, [500, 500]), true);
+  click(h.tools, [50, 10]);
+  click(h.tools, [60, 10]);
+  assert.equal(h.store.all().length, 1, 'still one markup');
+  const m = h.store.get(counted.id)!;
+  assert.equal(m.points.length, 6);
+  assert.deepEqual([m.subject, m.layer, m.text], ['Poles', 'L1', 'P']);
+  // Escape ends the resume and keeps every point.
+  h.tools.cancel();
+  assert.equal(h.store.get(counted.id)!.points.length, 6);
+  assert.equal(h.tools.getState().measuring, false);
+  click(h.tools, [70, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 6, 'a click after Escape starts a new count, not another resumed point');
+});
+
+test('Resume: undo takes resumed points off one at a time and keeps the original', async () => {
+  const h = await setup();
+  const counted = put(h, 'count', [[10, 10], [20, 10]]);
+  h.store.checkpoint();
+  h.tools.resume(counted.id);
+  click(h.tools, [30, 10]);
+  click(h.tools, [40, 10]);
+  click(h.tools, [50, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 5);
+  h.store.undo();
+  assert.equal(h.store.get(counted.id)!.points.length, 4);
+  h.store.undo();
+  assert.equal(h.store.get(counted.id)!.points.length, 3);
+  // Still resumed: the next click adds to the same markup.
+  click(h.tools, [60, 10]);
+  assert.equal(h.store.get(counted.id)!.points.length, 4);
+  h.store.undo();
+  h.store.undo();
+  assert.deepEqual(h.store.get(counted.id)!.points, [[10, 10], [20, 10]]);
+  // Backspace also removes only resumed points.
+  click(h.tools, [70, 10]);
+  h.tools.removeLastPoint();
+  h.tools.removeLastPoint();
+  assert.equal(h.store.get(counted.id)!.points.length, 2, 'the original points stay');
+});
+
+test('Resume: a polylength grows from its end, or from its start with the order and curves turned around', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.01, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  const line = put(h, 'polylength', [[0, 0], [100, 0], [100, 100]], { bulges: [0.5, 0], subject: 'Pipe' });
+  assert.equal(h.tools.resume(line.id, [100, 90]), true);
+  click(h.tools, [200, 100]);
+  h.tools.finish();
+  let m = h.store.get(line.id)!;
+  assert.deepEqual(m.points, [[0, 0], [100, 0], [100, 100], [200, 100]]);
+  assert.deepEqual(m.bulges, [0.5, 0]);
+  assert.equal(m.subject, 'Pipe');
+  assert.equal(h.store.all().length, 1);
+
+  // Nearest the first point: the order is turned around (and each curve with it) before the new point.
+  assert.equal(h.tools.resume(line.id, [2, 2]), true);
+  click(h.tools, [-50, 0]);
+  h.tools.finish();
+  m = h.store.get(line.id)!;
+  assert.deepEqual(m.points, [[200, 100], [100, 100], [100, 0], [0, 0], [-50, 0]]);
+  assert.deepEqual(m.bulges, [0, -0.5]);
+  assert.equal(h.store.all().length, 1);
+});
+
+test('Resume: only counts and open lines can be resumed', async () => {
+  const h = await setup();
+  const area = put(h, 'area', [[0, 0], [100, 0], [100, 100]]);
+  const perimeter = put(h, 'perimeter', [[0, 0], [100, 0], [100, 100]]);
+  const rect = put(h, 'rect', [[0, 0], [10, 10]]);
+  const poly = put(h, 'polyline', [[0, 0], [10, 10]]);
+  assert.equal(h.tools.canResumeMarkup(area.id), false);
+  assert.equal(h.tools.canResumeMarkup(perimeter.id), false);
+  assert.equal(h.tools.canResumeMarkup(rect.id), false);
+  assert.equal(h.tools.resume(area.id), false);
+  assert.equal(h.tools.canResumeMarkup(poly.id), true);
 });
 
 // Ctrl+drag while placing points bends the segment arriving at the new point.
