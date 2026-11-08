@@ -19,6 +19,12 @@ export const MEASURED_NAMES: { name: string; hint: string }[] = [
   { name: 'Wall Area', hint: 'Length × depth (a run with a height)' },
   { name: 'Depth', hint: 'The measurement’s depth or height' },
   { name: 'Count', hint: 'Items in a count; 1 for any other measurement' },
+  { name: 'Plan Length', hint: 'Length on plan, before the slope' },
+  { name: 'Plan Area', hint: 'Area on plan, before the slope' },
+  { name: 'Slope Factor', hint: 'True over plan: 1 when flat' },
+  { name: 'Pitch', hint: 'The slope as rise per 12 of run' },
+  { name: 'Slope Angle', hint: 'The slope in degrees' },
+  { name: 'Slope %', hint: 'The slope as a percent grade' },
 ];
 
 /** Every name a formula may refer to: measured values, list columns, then the assembly's variables. */

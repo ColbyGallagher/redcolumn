@@ -18,6 +18,13 @@ The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place
 
 While drawing a polylength or area, press **Arc (3-point)**, click a point on the curve, then click the arc's end: the section follows the circle through the three points, and drawing goes back to straight sections. For a bend by eye, hold [[Ctrl]] instead and drag away from the corner you are placing. See [Polylength](#measure-polylength) and [Area](#measure-area) for both.
 
+## Slope
+
+Measurements are taken on plan. The **Slope** group turns them into their true, sloped size for roofs, ramps and grading ([Slopes, pitches, hips and valleys](#measure-slope)).
+
+- Pick a kind (**Pitch**, **Degrees**, **Grade %** or **Rise:Run**) and type its value. The slope goes on the selected measurements, and on the next ones the running measure tool draws. **No slope** takes it off.
+- **Hip** and **Valley** start Polylength to trace a hip or valley line, at the pitch entered in the group. The lines get the subject *Hip* or *Valley*, and their length allows for both roof planes that meet there.
+
 ## Estimating
 
 - **Assemblies** sets up the materials and labour a measurement stands for ([Assemblies](#assemblies)).

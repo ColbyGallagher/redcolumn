@@ -51,6 +51,35 @@ test('a length works out each item, with waste and rounding up', () => {
   assert.equal(board!.cost, 84);
 });
 
+test('formulas read the slope columns: plan values, factor, pitch, angle and grade', () => {
+  const roof: Assembly = {
+    id: 'roof',
+    name: 'Roof',
+    variables: [],
+    items: [
+      { id: 'f', name: 'Factor', unit: '', formula: '[Slope Factor]' },
+      { id: 'p', name: 'Plan', unit: 'sf', formula: '[Plan Area]' },
+      { id: 't', name: 'True', unit: 'sf', formula: '[Plan Area] * [Slope Factor]' },
+      { id: 'pitch', name: 'Pitch', unit: '', formula: '[Pitch]' },
+      { id: 'deg', name: 'Angle', unit: '', formula: '[Slope Angle]' },
+      { id: 'pct', name: 'Grade', unit: '', formula: '[Slope %]' },
+    ],
+  };
+  const m = markup('area', [[0, 0], [10, 0], [10, 10], [0, 10]], { assemblyId: 'roof', slope: { kind: 'pitch', value: 6 } });
+  const [f, p, t, pitch, deg, pct] = markupQuantities(m, [roof], ctx([roof]))!.items;
+  near(f!.base, Math.sqrt(1.25));
+  near(p!.base, 100);
+  near(t!.base, 100 * Math.sqrt(1.25));
+  near(pitch!.base, 6);
+  near(deg!.base, (Math.atan(0.5) * 180) / Math.PI);
+  near(pct!.base, 50);
+  // A flat measurement reads factor 1, and a hip line its own factor along the hip.
+  const flat = markup('length', [[0, 0], [10, 0]], { assemblyId: 'roof' });
+  near(markupQuantities(flat, [roof], ctx([roof]))!.items[0]!.base, 1);
+  const hip = markup('polylength', [[0, 0], [10, 0]], { assemblyId: 'roof', slope: { kind: 'hip', a: { kind: 'pitch', value: 6 } } });
+  near(markupQuantities(hip, [roof], ctx([roof]))!.items[0]!.base, Math.sqrt(1.125));
+});
+
 test('the measurement’s own depth is used when it has one', () => {
   const m = markup('length', [[0, 0], [32, 0]], { assemblyId: 'wall', depth: 8 * 0.3048 });
   near(markupQuantities(m, [wall], ctx([wall]))!.items[1]!.base, 8);

@@ -1,4 +1,5 @@
-import { labelPatch, markupLabel, styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type StyleCapabilities } from '@nb/markup';
+import { isMeasureKind, labelPatch, markupLabel, styleCapabilities, type Markup, type MarkupStyle, type MarkupType, type StyleCapabilities } from '@nb/markup';
+import { slopeApplies, type Slope } from '@nb/measure';
 
 /**
  * Pure parts of the Markup Format tab's follow-the-selection behaviour: which style fields a
@@ -85,8 +86,11 @@ export function followFormat(s: FormatFollow, e: FormatFollowEvent): FormatFollo
 export type IdentityField = 'subject' | 'label' | 'layer';
 export const IDENTITY_FIELDS: readonly IdentityField[] = ['subject', 'label', 'layer'];
 
-/** What the active tool stamps on the markups it places; a field left out keeps the tool's own. */
-export type ToolFields = Partial<Record<IdentityField, string>>;
+/**
+ * What the active tool stamps on the markups it places; a field left out keeps the tool's own.
+ * `slope` (from the Takeoff tab's Slope group) goes on the measurements it applies to; null clears it.
+ */
+export type ToolFields = Partial<Record<IdentityField, string>> & { slope?: Slope | null };
 
 type Identified = Pick<Markup, 'type' | 'text' | 'label' | 'subject' | 'layer'>;
 
@@ -124,5 +128,13 @@ export function toolIdentity(base: Partial<Record<IdentityField, string>> | unde
 export function toolFieldsPatch(m: Pick<Markup, 'type'>, edits: ToolFields | undefined): Partial<Markup> {
   let patch: Partial<Markup> = {};
   for (const f of IDENTITY_FIELDS) if (edits && f in edits) patch = { ...patch, ...identityPatch(m, f, edits[f] ?? '') };
+  if (edits && 'slope' in edits) patch = { ...patch, ...slopePatch(m, edits.slope ?? null) };
   return patch;
+}
+
+/** The change that gives a measurement a slope (nothing for markups it does not apply to; null clears it). */
+export function slopePatch(m: Pick<Markup, 'type'>, slope: Slope | null): Partial<Markup> {
+  if (!isMeasureKind(m.type)) return {};
+  if (!slope) return { slope: undefined };
+  return slopeApplies(m.type, slope) ? { slope } : {};
 }

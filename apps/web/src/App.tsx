@@ -11,6 +11,7 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { cutoutTargetOf } from './markup/cutoutTarget';
+import { hipValleySlope } from './markup/slopePicker';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
@@ -8291,6 +8292,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
     toggleArc: () => activeTools?.toggleArc(),
+    hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8713,6 +8715,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups),
     canArc: !activeReadOnly && !!activeTools?.canArc(),
     arcArmed: toolsState.arc !== 'off',
+    hipValley: toolsState.tool === 'polylength' && (toolsState.preset?.slope?.kind === 'hip' || toolsState.preset?.slope?.kind === 'valley') ? toolsState.preset.slope.kind : null,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;

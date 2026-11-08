@@ -114,7 +114,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -368,6 +368,8 @@ export interface ToolPreset {
   /** The Label and Layer a Tool Chest tool carries for the markups it places. */
   label?: string;
   layer?: string;
+  /** Measurements: the slope the markups it places get (Takeoff › Hip and Valley). */
+  slope?: Slope;
   /** Signature image (data URL) and its width / height. */
   image?: string;
   aspect?: number;
@@ -3944,9 +3946,9 @@ export class MarkupTools implements ViewerOverlay {
     return Object.assign(markup, this.toolFieldsFor(markup, preset));
   }
 
-  /** The Subject, Label and Layer the active tool gives a markup it places: the armed Tool Chest tool's, then the Format tab's edits. */
-  private toolFieldsFor(m: Pick<Markup, 'type'>, preset: Pick<ToolPreset, 'label' | 'layer'> | null | undefined): Partial<Markup> {
-    return toolFieldsPatch(m, { ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(this.state.toolFields ?? {}) });
+  /** The Subject, Label, Layer and slope the active tool gives a markup it places: the armed preset's, then the ribbon's edits. */
+  private toolFieldsFor(m: Pick<Markup, 'type'>, preset: Pick<ToolPreset, 'label' | 'layer' | 'slope'> | null | undefined): Partial<Markup> {
+    return toolFieldsPatch(m, { ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(preset?.slope ? { slope: preset.slope } : {}), ...(this.state.toolFields ?? {}) });
   }
 
   /**

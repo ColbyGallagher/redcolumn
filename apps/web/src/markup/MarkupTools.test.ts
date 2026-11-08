@@ -1939,6 +1939,25 @@ test('Ctrl-click on a vertex of a shape that cannot curve does nothing; Convert 
   assert.equal(h.store.get(area.id)!.bulges, undefined);
 });
 
+test('a slope on the running measure tool or its preset goes on the next measurements (Hip, Valley, Takeoff › Slope)', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.05, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('polylength', { subject: 'Hip', slope: { kind: 'hip', a: { kind: 'pitch', value: 6 } } });
+  click(h.tools, [50, 300]);
+  click(h.tools, [150, 300]);
+  h.tools.finish();
+  const hip = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(hip.subject, 'Hip');
+  assert.deepEqual(hip.slope, { kind: 'hip', a: { kind: 'pitch', value: 6 } });
+
+  h.tools.setTool('length');
+  h.tools.setToolFields({ slope: { kind: 'pitch', value: 6 } });
+  click(h.tools, [50, 400]);
+  click(h.tools, [150, 400]);
+  assert.deepEqual(h.store.all().find((s) => s.type === 'length')!.slope, { kind: 'pitch', value: 6 });
+  assert.equal(h.tools.getState().tool, 'length', 'the command carries on');
+});
+
 test('Subject, Label and Layer edited on the running tool go on the next markups without leaving the tool', async () => {
   const h = await setup();
   h.tools.setTool('rect', { id: 'chest-1', style: h.tools.getState().styles.rect, subject: 'Original', layer: 'Base' });

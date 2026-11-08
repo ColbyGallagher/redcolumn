@@ -209,6 +209,8 @@ export interface CommandActions {
   syncExcel: () => void;
   /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
   toggleArc: () => void;
+  /** Takeoff › Hip / Valley: arms Polylength to measure a hip or valley at the Slope group's pitch. */
+  hipValley: (kind: 'hip' | 'valley') => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -311,6 +313,8 @@ export interface CommandState {
   canArc: boolean;
   /** A 3-point arc is armed and waiting for its clicks. */
   arcArmed: boolean;
+  /** Polylength is armed as a hip or valley (Takeoff › Hip / Valley). */
+  hipValley: 'hip' | 'valley' | null;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -556,6 +560,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: 'Select an area first' },
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
+    cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
+    cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),

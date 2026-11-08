@@ -247,6 +247,8 @@ export const COVERAGE: Record<string, Coverage> = {
   'tool.zoomBox': 'todo',
   'tools.applyRedactions': { spec: 'forms-sign-stamps' },
   'takeoff.syncExcel': { spec: 'takeoff-tab' },
+  'takeoff.hip': { spec: 'takeoff-tab' },
+  'takeoff.valley': { spec: 'takeoff-tab' },
   'tools.assemblies': { spec: 'measure' },
   'tools.autoFields': { spec: 'forms-sign-stamps' },
   'tools.bulkRedact': { spec: 'document' },

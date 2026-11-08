@@ -4,7 +4,8 @@ import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
 import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
-import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
+import { pickedSlopePatch, pickedSpec, setSlopePick, useSlopePick, type SlopePick } from '../markup/slopePicker';
+import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { StampMenu } from './StampsDialog';
@@ -132,6 +133,9 @@ const ICONS: Record<string, ReactNode> = {
   'draw.arc': ic('M2 13.5C3 6 9 3 14 3.5', <><circle cx="2" cy="13.5" r="1.3" /><circle cx="6" cy="6.3" r="1.3" /><circle cx="14" cy="3.5" r="1.3" /></>),
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
+  // Hip: two roof planes meeting along a ridge-to-corner line; Valley: the inside corner.
+  'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
+  'takeoff.valley': ic('M1.5 4L8 13.5 14.5 4M8 13.5V4', <path d="M1.5 4h13" strokeDasharray="1.4 1.2" />),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
@@ -443,6 +447,88 @@ function Stack({ children }: { children: ReactNode }) {
   return <div className="rb-stack">{children}</div>;
 }
 
+const PICK_KINDS: { value: SlopePick['kind']; label: string; unit: string }[] = [
+  { value: 'none', label: 'No slope', unit: '' },
+  { value: 'pitch', label: 'Pitch', unit: ':12' },
+  { value: 'degrees', label: 'Degrees', unit: '°' },
+  { value: 'percent', label: 'Grade %', unit: '%' },
+  { value: 'ratio', label: 'Rise:Run', unit: '' },
+];
+
+/**
+ * Takeoff › Slope: a slope that goes on the selected measurements and on the next ones the running
+ * measure tool places (as the Markup Format tab's Subject, Label and Layer do), and the pitch Hip
+ * and Valley arm Polylength with.
+ */
+function SlopePicker() {
+  const { toolbar } = useContext(Ctx);
+  const { tools, state, selection, enabled } = toolbar;
+  const p = useSlopePick();
+  const apply = (next: SlopePick) => {
+    setSlopePick(next);
+    if (!enabled) return;
+    const spec = pickedSpec(next);
+    if (selection?.markups.length) {
+      const { store } = selection;
+      const targets = selection.markups.map((m) => store.get(m.id) ?? m).filter((m) => !m.locked && store.mayEdit(m));
+      const patches = targets.map((m) => [m.id, pickedSlopePatch(m, spec)] as const).filter(([, patch]) => Object.keys(patch).length);
+      if (patches.length) {
+        store.checkpoint();
+        store.batch(() => {
+          for (const [id, patch] of patches) store.update(id, patch);
+        });
+      }
+    }
+    // The running measure tool: a Hip or Valley stays one, with the new pitch.
+    if (isMeasureKind(state.tool)) {
+      const armed = state.toolFields?.slope ?? state.preset?.slope;
+      tools.setToolFields({ slope: spec && (armed?.kind === 'hip' || armed?.kind === 'valley') ? { ...armed, a: spec } : spec });
+    }
+  };
+  const num = (key: 'value' | 'rise' | 'run', label: string, width = 46) => (
+    <input
+      key={`${key}:${p[key]}`}
+      type="number"
+      step="any"
+      min={0}
+      aria-label={label}
+      title={label}
+      defaultValue={p[key]}
+      disabled={!enabled}
+      style={{ width }}
+      onBlur={(e) => {
+        const v = Number(e.currentTarget.value);
+        if (Number.isFinite(v) && v >= 0 && v !== p[key]) apply({ ...p, [key]: v });
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+  const unit = PICK_KINDS.find((k) => k.value === p.kind)?.unit;
+  return (
+    <div className="rb-stack rb-slope">
+      <select aria-label="Takeoff slope kind" title="Slope for the selected measurements and the next ones drawn" value={p.kind} disabled={!enabled} onChange={(e) => apply({ ...p, kind: e.target.value as SlopePick['kind'] })}>
+        {PICK_KINDS.map((k) => (
+          <option key={k.value} value={k.value}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {p.kind !== 'none' && (
+        <span className="field">
+          {p.kind === 'ratio' ? (
+            <>
+              {num('rise', 'Rise', 38)}:{num('run', 'Run', 38)}
+            </>
+          ) : (
+            num('value', 'Takeoff slope')
+          )}
+          {unit && <span className="unit">{unit}</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
 
 /**
  * The top toolbar as a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
@@ -662,6 +748,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="tool.cutout" />
                 <Cmd id="tools.nextMeasure" />
                 <Cmd id="draw.arc" />
+              </Stack>
+            </Group>
+            <Group label="Slope">
+              <SlopePicker />
+              <Stack>
+                <Cmd id="takeoff.hip" label="Hip" />
+                <Cmd id="takeoff.valley" label="Valley" />
               </Stack>
             </Group>
             <Group label="Estimating">
