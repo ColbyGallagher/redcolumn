@@ -1500,6 +1500,7 @@ test('Area: Shift drags a square in real-world units, even with a separate verti
   // 200 pt wide at 0.01 is 2 m, so the height is 2 m: 100 pt at 0.02.
   assert.deepEqual(m?.points, [[100, 100], [300, 100], [300, 200], [100, 200]]);
   await h.store.destroy();
+});
 
 test('Resume: a count carries on in the same markup, with its subject, label and total', async () => {
   const h = await setup();
