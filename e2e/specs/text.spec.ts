@@ -124,7 +124,8 @@ test.describe('text markups', () => {
     };
     const normal = await height();
     await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
-    await app.page.getByLabel('Line spacing', { exact: true }).selectOption('2');
+    // The ribbon has a Line spacing field too; use the Properties panel's.
+    await app.page.locator('.props-panel').getByLabel('Line spacing', { exact: true }).selectOption('2');
     expect(((await app.raw())[0]!.style as { lineHeight?: number }).lineHeight).toBe(2);
     // Three 12 pt lines: 3 x 12 x 2 + padding, against 3 x 12 x 1.2 + padding.
     expect(await height()).toBeGreaterThan(normal + 25);
