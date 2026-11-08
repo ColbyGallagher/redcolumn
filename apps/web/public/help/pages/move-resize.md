@@ -27,8 +27,10 @@ Drag a **square handle** at a corner or side.
 |---|---|
 | Move a corner (vertex) | Drag its square handle. |
 | Add a corner | Drag the small knob in the middle of a side. |
-| Remove a corner | Hold [[Ctrl]] (or [[Alt]]) and click its handle. |
-| Curve a side (measurements) | Hold [[Alt]] and drag the middle knob. |
+| Remove a corner | Hold [[Alt]] and click its handle (measurements: [[Shift]] or [[Alt]]). |
+| Curve a side (measurements) | Hold [[Alt]] and drag the middle knob, or right-click the side › **Convert to Arc**. |
+| Smooth or sharpen a corner (measurements) | Hold [[Ctrl]] and click its handle. |
+| Add a corner (measurements) | Hold [[Shift]] and click on a side. |
 | Round all the corners | Right-click › **Round All Corners**. |
 
 ## Move a callout's text

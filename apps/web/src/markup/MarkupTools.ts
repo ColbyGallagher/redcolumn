@@ -109,7 +109,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -1293,6 +1293,57 @@ export class MarkupTools implements ViewerOverlay {
 
   usePreset(preset: { id: string; type: MarkupType; style: MarkupStyle; subject?: string }) {
     this.setTool(preset.type, preset);
+  }
+
+  /**
+   * Ctrl-click on a vertex: smooth (curves through it as arcs of the circle through it and its
+   * neighbours) or corner (both segments straight). It counts as smooth when both segments meeting
+   * there are curved; anything else is made smooth. The ends of an open path have one segment and
+   * are left alone.
+   */
+  private toggleSmooth(m: Markup, index: number) {
+    const store = this.store;
+    if (!store) return;
+    const n = m.points.length;
+    const closed = TYPE_INFO[m.type].closed && n > 2;
+    if (!closed && (index <= 0 || index >= n - 1)) return;
+    const before = (index - 1 + n) % n;
+    const smooth = !!m.bulges?.[before] && !!m.bulges?.[index];
+    const next = smooth ? { before: 0, after: 0 } : smoothBulgesAt(m.points, index, closed);
+    if (!next) return;
+    const edges = closed ? n : n - 1;
+    const out = Array.from({ length: edges }, (_, i) => (i === before ? next.before : i === index ? next.after : (m.bulges?.[i] ?? 0)));
+    store.checkpoint();
+    store.update(m.id, { bulges: out.some(Boolean) ? out : undefined });
+    store.checkpoint();
+  }
+
+  /** Which segment of a measurement is under a page point (within the usual reach), for the right-click menu. */
+  segmentAt(id: string, pt: Point): { segment: number; curved: boolean } | null {
+    const m = this.store?.get(id);
+    if (!m || !ARC_TYPES.has(m.type) || !canEditVertices(m)) return null;
+    const hit = segmentHit(m, pt, (this.hitPx * 1.5) / this.viewer.zoomFor(m.pageIndex));
+    return hit ? { segment: hit.segment, curved: !!m.bulges?.[hit.segment] } : null;
+  }
+
+  /** Right-click › Convert to Arc / Line: curves a measurement's segment (outward on a closed shape), or straightens it. */
+  setSegmentCurve(id: string, segment: number, curved: boolean) {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || store.readOnly || !m || this.frozen(m) || !ARC_TYPES.has(m.type) || !canEditVertices(m)) return;
+    let sign = 1;
+    if (TYPE_INFO[m.type].closed && m.points.length > 2) {
+      let twice = 0;
+      m.points.forEach((a, i) => {
+        const b = m.points[(i + 1) % m.points.length]!;
+        twice += a[0] * b[1] - b[0] * a[1];
+      });
+      // A positive bulge adds area on a positive outline, so that is outward.
+      sign = twice < 0 ? -1 : 1;
+    }
+    store.checkpoint();
+    store.update(id, { bulges: withBulge(m, segment, curved ? sign * DEFAULT_BULGE : 0) });
+    store.checkpoint();
   }
 
   /** The markup under a screen position (for context menus), or undefined. */
@@ -2744,16 +2795,34 @@ export class MarkupTools implements ViewerOverlay {
       }
       const index = m && !this.frozen(m) ? handlePositions(m).findIndex(([x, y]) => Math.abs(x - p[0]) <= tol && Math.abs(y - p[1]) <= tol) : -1;
       if (m && index >= 0) {
-        // Ctrl- or Alt-click on a vertex removes it (keeping the least the shape needs).
-        if ((e.ctrlKey || e.metaKey || e.altKey) && canEditVertices(m) && m.points.length > (CLICK_SHAPES[m.type]?.min ?? 2)) {
-          // The two segments meeting there become one straight one.
-          const bulges = m.bulges ? [...m.bulges] : undefined;
-          bulges?.splice(Math.max(0, index - 1), index === 0 || index === m.points.length - 1 ? 1 : 2, ...(index === 0 || index === m.points.length - 1 ? [] : [0]));
-          this.store.update(m.id, { points: m.points.filter((_, i) => i !== index), ...(bulges ? { bulges } : {}) });
+        // Alt-click on a vertex removes it (keeping the least the shape needs); so does Shift-click on a measurement's.
+        const arcs = ARC_TYPES.has(m.type) && canEditVertices(m);
+        const removes = e.altKey || (e.shiftKey && !(e.ctrlKey || e.metaKey) && arcs);
+        if (removes && canEditVertices(m) && !this.store.readOnly) {
+          if (m.points.length > (CLICK_SHAPES[m.type]?.min ?? 2)) {
+            this.store.checkpoint();
+            this.store.update(m.id, removeVertex(m, index));
+            this.store.checkpoint();
+          }
+          return true;
+        }
+        // Ctrl-click on a measurement's vertex switches it between smooth and corner; elsewhere it does nothing.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && canEditVertices(m)) {
+          if (arcs && !this.store.readOnly) this.toggleSmooth(m, index);
           return true;
         }
         this.setGesture({ kind: 'handle', id: m.id, index, point: p });
         return true;
+      }
+      // Shift-click on a measurement's segment adds a vertex there (a curved segment splits into two arcs of the same curve).
+      if (m && e.shiftKey && !(e.ctrlKey || e.metaKey || e.altKey) && !this.store.readOnly && !this.frozen(m) && ARC_TYPES.has(m.type) && canEditVertices(m)) {
+        const hit = segmentHit(m, p, tol);
+        if (hit) {
+          this.store.checkpoint();
+          this.store.update(m.id, insertVertex(m, hit));
+          this.store.checkpoint();
+          return true;
+        }
       }
       const seg = m && this.reroutable(m) ? routeHandles(m.points, m.connect?.bends).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol * 1.5) : undefined;
       if (m && seg) {
@@ -4374,6 +4443,64 @@ function canEditVertices(m: Markup): boolean {
 
 /** Measurements whose segments can curve. */
 const ARC_TYPES: ReadonlySet<MarkupType> = new Set<MarkupType>(['polylength', 'area', 'perimeter', 'volume']);
+
+/** The bulge Convert to Arc gives a segment. */
+const DEFAULT_BULGE = 0.4;
+
+/** The number of segments of a markup (the closing one included for outlines). */
+function edgeCount(m: Markup): number {
+  return TYPE_INFO[m.type].closed && m.points.length > 2 ? m.points.length : m.points.length - 1;
+}
+
+/** The segment nearest a point within `tol`, where along it (0 to 1, by angle on an arc), and the point of the curve there. */
+function segmentHit(m: Markup, p: Point, tol: number): { segment: number; t: number; at: Point } | null {
+  let best: { segment: number; t: number; d: number } | null = null;
+  const n = m.points.length;
+  for (let i = 0; i < edgeCount(m); i++) {
+    const a = m.points[i]!;
+    const b = m.points[(i + 1) % n]!;
+    const path: Point[] = [a, ...arcPoints(a, b, m.bulges?.[i] ?? 0, 48)];
+    for (let k = 0; k + 1 < path.length; k++) {
+      const [x0, y0] = path[k]!;
+      const [x1, y1] = path[k + 1]!;
+      const len2 = (x1 - x0) ** 2 + (y1 - y0) ** 2;
+      const s = len2 ? Math.max(0, Math.min(1, ((p[0] - x0) * (x1 - x0) + (p[1] - y0) * (y1 - y0)) / len2)) : 0;
+      const d = Math.hypot(p[0] - (x0 + (x1 - x0) * s), p[1] - (y0 + (y1 - y0) * s));
+      if (d <= tol && (!best || d < best.d)) best = { segment: i, t: (k + s) / (path.length - 1), d };
+    }
+  }
+  if (!best) return null;
+  const t = Math.max(0.05, Math.min(0.95, best.t));
+  const a = m.points[best.segment]!;
+  const b = m.points[(best.segment + 1) % n]!;
+  return { segment: best.segment, t, at: arcSplit(a, b, m.bulges?.[best.segment] ?? 0, t).at };
+}
+
+/** A markup's edits when a vertex is added at a segment hit: the segment becomes two (halves of the same arc if curved). */
+function insertVertex(m: Markup, hit: { segment: number; t: number; at: Point }): Partial<Markup> {
+  const n = m.points.length;
+  const e = hit.segment;
+  const { first, second } = arcSplit(m.points[e]!, m.points[(e + 1) % n]!, m.bulges?.[e] ?? 0, hit.t);
+  const points = [...m.points];
+  points.splice(e + 1, 0, hit.at);
+  const bulges = Array.from({ length: edgeCount(m) }, (_, i) => m.bulges?.[i] ?? 0);
+  bulges.splice(e, 1, first, second);
+  return { points, bulges: bulges.some(Boolean) ? bulges : undefined };
+}
+
+/** A markup's edits when a vertex is removed: the two segments meeting there become one straight one. */
+function removeVertex(m: Markup, index: number): Partial<Markup> {
+  const n = m.points.length;
+  const closed = TYPE_INFO[m.type].closed && n > 2;
+  const bulges = Array.from({ length: edgeCount(m) }, (_, i) => m.bulges?.[i] ?? 0);
+  if (!closed && index === 0) bulges.splice(0, 1);
+  else if (!closed && index === n - 1) bulges.splice(n - 2, 1);
+  else {
+    bulges[(index - 1 + n) % n] = 0;
+    bulges.splice(index, 1);
+  }
+  return { points: m.points.filter((_, i) => i !== index), bulges: bulges.some(Boolean) ? bulges : undefined };
+}
 
 /** A markup's bulges with one segment's changed (all straight is none at all). */
 function withBulge(m: Markup, segment: number, bulge: number): number[] | undefined {

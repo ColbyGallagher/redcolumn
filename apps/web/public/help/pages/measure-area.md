@@ -24,3 +24,17 @@ Select the area and open the [Properties panel](#properties):
 - **Add cutout** subtracts a hole, such as a stair or lift. See [Cut a hole out of an area](#cutouts).
 
 > **Tip:** To outline a room in one click, use [Smart Fill](#smart-fill).
+
+## Edit the corners and curves
+
+Select the area, then:
+
+| To | Do this |
+|---|---|
+| Move a corner | Drag its handle. |
+| Add a corner | Hold [[Shift]] and click on a side. A curved side splits into two, still on the same curve. |
+| Remove a corner | Hold [[Shift]] (or [[Alt]]) and click its handle. |
+| Make a corner smooth, or sharp again | Hold [[Ctrl]] and click its handle. |
+| Curve a side | Right-click it › **Convert to Arc** (**Convert to Line** straightens it), or hold [[Alt]] and drag the knob in the middle of the side. |
+
+Cutouts keep their own corners; edit those by dragging their handles.
