@@ -28,11 +28,13 @@ export interface FontFamilyEntry {
 
 /** The folders installed fonts live in. */
 export function systemFontDirs(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, home = env.USERPROFILE ?? env.HOME ?? ''): string[] {
+  // Paths are joined the way the given system writes them, whichever system this runs on.
+  const { join } = platform === 'win32' ? path.win32 : path.posix;
   if (platform === 'win32') {
-    return [path.join(env.WINDIR ?? env.SystemRoot ?? 'C:\\Windows', 'Fonts'), ...(env.LOCALAPPDATA ? [path.join(env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts')] : [])];
+    return [join(env.WINDIR ?? env.SystemRoot ?? 'C:\\Windows', 'Fonts'), ...(env.LOCALAPPDATA ? [join(env.LOCALAPPDATA, 'Microsoft', 'Windows', 'Fonts')] : [])];
   }
-  if (platform === 'darwin') return ['/System/Library/Fonts', '/Library/Fonts', ...(home ? [path.join(home, 'Library', 'Fonts')] : [])];
-  return ['/usr/share/fonts', '/usr/local/share/fonts', ...(home ? [path.join(home, '.fonts'), path.join(home, '.local', 'share', 'fonts')] : [])];
+  if (platform === 'darwin') return ['/System/Library/Fonts', '/Library/Fonts', ...(home ? [join(home, 'Library', 'Fonts')] : [])];
+  return ['/usr/share/fonts', '/usr/local/share/fonts', ...(home ? [join(home, '.fonts'), join(home, '.local', 'share', 'fonts')] : [])];
 }
 
 const FONT_EXTENSIONS = new Set(['.ttf', '.otf', '.ttc', '.otc']);

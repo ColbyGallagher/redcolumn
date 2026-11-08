@@ -72,15 +72,75 @@ export function daFontName(family: FontFamily | undefined | null): string {
   return family.replace(/[^A-Za-z0-9_.+-]/g, '') || DA_KEYWORD_NAMES[fontKeyword(family)];
 }
 
+/** Font names, styles and sizes are read from files; anything longer than this is cut before it is parsed. */
+export const MAX_FONT_STRING = 256;
+
+const isSpace = (c: string | undefined) => c !== undefined && c.trim() === '';
+
+/** The text without quotes and whitespace at both ends. */
+export function trimQuotesAndSpace(s: string): string {
+  let a = 0;
+  let b = s.length;
+  while (a < b && (s[a] === "'" || s[a] === '"' || isSpace(s[a]))) a++;
+  while (b > a && (s[b - 1] === "'" || s[b - 1] === '"' || isSpace(s[b - 1]))) b--;
+  return s.slice(a, b);
+}
+
+/** The name without trailing style words (bold, italic, oblique, regular) and the -, comma and space runs before them. */
+function stripStyleSuffix(s: string): string {
+  const lower = s.toLowerCase();
+  let end = s.length;
+  for (;;) {
+    const word = ['bold', 'italic', 'oblique', 'regular'].find((w) => end >= w.length && lower.startsWith(w, end - w.length));
+    if (!word) return s.slice(0, end);
+    end -= word.length;
+    while (end > 0 && (s[end - 1] === '-' || s[end - 1] === ',' || isSpace(s[end - 1]))) end--;
+  }
+}
+
+/**
+ * Lengths written like "12pt" or "9.5 px" (digits and dots, optional spaces, then a unit), in order
+ * and without overlap. Scans the text once, so it is linear however it is made up.
+ */
+export function findLengths(s: string, units: readonly string[]): { start: number; end: number; value: string }[] {
+  const lower = s.toLowerCase();
+  const out: { start: number; end: number; value: string }[] = [];
+  let floor = 0;
+  for (let j = 0; j < s.length; j++) {
+    const unit = units.find((u) => lower.startsWith(u, j));
+    if (!unit) continue;
+    let k = j;
+    while (k > floor && isSpace(s[k - 1])) k--;
+    let m = k;
+    while (m > floor && /[\d.]/.test(s[m - 1]!)) m--;
+    if (m === k) continue;
+    out.push({ start: m, end: j + unit.length, value: s.slice(m, k) });
+    floor = j + unit.length;
+    j = floor - 1;
+  }
+  return out;
+}
+
+/** The value of the first `name: value` declaration in a CSS-like string whose property is one of `names` (case-insensitive). */
+export function cssDeclaration(css: string, names: readonly string[]): string | undefined {
+  for (const decl of css.split(';')) {
+    const i = decl.indexOf(':');
+    if (i < 0) continue;
+    const key = decl.slice(0, i).trim().toLowerCase();
+    if (names.some((n) => key === n || key.endsWith(`-${n}`))) return decl.slice(i + 1).trim();
+  }
+  return undefined;
+}
+
 /**
  * The family a /DA font name or rich text font-family stands for: the keyword for the standard
  * names (Helv, Arial, Times New Roman, Courier ...), else the name itself, with the style
  * suffixes PostScript names carry ("Calibri-Bold", "ComicSansMS,Italic") taken off.
  */
-export function familyFromPdfName(raw: string): FontFamily {
-  const name = raw.replace(/^[A-Z]{6}\+/, '').trim();
+export function familyFromPdfName(rawName: string): FontFamily {
+  const name = rawName.slice(0, MAX_FONT_STRING).replace(/^[A-Z]{6}\+/, '').trim();
   // PostScript names (no spaces) end in -Bold, MT, PS and the like; a family with spaces ("Gill Sans MT") is kept whole.
-  const style = (s: string) => s.replace(/(?:[-,\s]*(?:bold|italic|oblique|regular))+$/i, '');
+  const style = stripStyleSuffix;
   const postScript = !/\s/.test(style(name));
   const base = postScript ? style(style(name).replace(/(?:PSMT|MT|PS)$/, '')).replace(/(?:PSMT|MT|PS)$/, '') : style(name);
   const squashed = base.toLowerCase().replace(/[\s_-]+/g, '');

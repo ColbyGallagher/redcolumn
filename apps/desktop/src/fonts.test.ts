@@ -98,6 +98,6 @@ test('a font collection is listed per face and read out as a standalone font', a
 });
 
 test('the font folders per system', () => {
-  assert.deepEqual(systemFontDirs('win32', { WINDIR: 'C:\\Windows', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }), ['C:\\Windows\\Fonts', 'C:\\Users\\me\\AppData\\Local\\Microsoft\\Windows\\Fonts'].map((p) => path.join(p)));
-  assert.deepEqual(systemFontDirs('darwin', {}, '/Users/me'), ['/System/Library/Fonts', '/Library/Fonts', path.join('/Users/me', 'Library', 'Fonts')]);
+  assert.deepEqual(systemFontDirs('win32', { WINDIR: 'C:\\Windows', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }), ['C:\\Windows\\Fonts', 'C:\\Users\\me\\AppData\\Local\\Microsoft\\Windows\\Fonts']);
+  assert.deepEqual(systemFontDirs('darwin', {}, '/Users/me'), ['/System/Library/Fonts', '/Library/Fonts', '/Users/me/Library/Fonts']);
 });

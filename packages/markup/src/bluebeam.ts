@@ -8,7 +8,7 @@ import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
-import { familyFromPdfName, type FontFamily } from './fonts';
+import { MAX_FONT_STRING, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts';
 import type { LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
 
@@ -138,12 +138,14 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
     const value = decl.slice(i + 1).trim();
     if (key === 'font') {
       // e.g. "Helvetica 12pt", "bold italic Arial 10pt", "Times New Roman,Bold 9pt"
-      const size = /([\d.]+)\s*pt/.exec(value);
-      if (size) out.fontSize = Number(size[1]);
-      const family = fontFamilyOf(value.replace(/[\d.]+\s*pt/i, '').replace(/\b(bold|italic|oblique|normal)\b/gi, ''));
+      const shorthand = value.slice(0, MAX_FONT_STRING);
+      const size = findLengths(shorthand, ['pt'])[0];
+      if (size) out.fontSize = Number(size.value);
+      const rest = size ? shorthand.slice(0, size.start) + shorthand.slice(size.end) : shorthand;
+      const family = fontFamilyOf(rest.replace(/\b(bold|italic|oblique|normal)\b/gi, ''));
       if (family !== 'sans') out.fontFamily = family;
-      if (/\bbold\b/i.test(value)) out.bold = true;
-      if (/\b(italic|oblique)\b/i.test(value)) out.italic = true;
+      if (/\bbold\b/i.test(shorthand)) out.bold = true;
+      if (/\b(italic|oblique)\b/i.test(shorthand)) out.italic = true;
     } else if (key === 'font-family') {
       const family = fontFamilyOf(value);
       if (family !== 'sans') out.fontFamily = family;
@@ -188,10 +190,21 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
  * its first name. The three standard families (and generic names) read as keywords; any other name
  * is kept as an installed font's name.
  */
-function fontFamilyOf(s: string): FontFamily {
-  const first = s.split(/,\s*(?!bold|italic|oblique)/i)[0]!.replace(/^['"\s]+|['"\s]+$/g, '');
+function fontFamilyOf(list: string): FontFamily {
+  const first = trimQuotesAndSpace(firstFontName(list.slice(0, MAX_FONT_STRING)));
   if (/^(sans-serif|serif|monospace|system-ui)$/i.test(first)) return first.toLowerCase() === 'serif' ? 'serif' : first.toLowerCase() === 'monospace' ? 'mono' : 'sans';
   return familyFromPdfName(first);
+}
+
+/** The text up to the first comma that separates names: one followed by a space, or by something other than a style word ("Times,Bold" is one name). */
+export function firstFontName(s: string): string {
+  const lower = s.toLowerCase();
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== ',') continue;
+    const next = s[i + 1];
+    if (next === undefined || next.trim() === '' || !['bold', 'italic', 'oblique'].some((w) => lower.startsWith(w, i + 1))) return s.slice(0, i);
+  }
+  return s;
 }
 
 function cssColor(s: string): string | null {

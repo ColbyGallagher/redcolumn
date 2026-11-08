@@ -3,7 +3,7 @@ import type { Dropped } from './diagnostics';
 import { mimeOf } from './import';
 import { removePredictor, rgbaToPngDataUrl, samplesToRgba } from './pdfExtras';
 import type { StampContent } from './stamp';
-import { familyFromPdfName, type FontFamily } from './fonts';
+import { MAX_FONT_STRING, cssDeclaration, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts';
 import type { LineDash, LineEnding } from './style';
 
 /**
@@ -596,11 +596,13 @@ export function toolStyle(type: MarkupType, d: PdfDict, defaults: Defaults): Mar
   if (type === 'callout' && !stroke && textColor) style.stroke = textColor;
   // A text box with no border colour or width and no fill is just its text.
   if (type === 'text' && (!stroke || w === 0) && !fill) style.noBox = true;
-  const font = `${/\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(da)?.[1] ?? ''} ${/font(?:-family)?:\s*([^;]+)/i.exec(ds)?.[1] ?? ''}`.toLowerCase();
+  const font = `${/\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(da)?.[1] ?? ''} ${cssDeclaration(ds, ['font', 'font-family'])?.slice(0, MAX_FONT_STRING) ?? ''}`.toLowerCase();
   let family: FontFamily | null = /times|tiro|serif(?!-)/.test(font) && !/sans/.test(font) ? 'serif' : /cour|mono/.test(font) ? 'mono' : null;
   if (!family) {
     // Any other font in the style's text is an installed font, kept by name: the style's font, else the /DA resource name.
-    const dsFont = /font(?:-family)?:\s*([^;]+)/i.exec(ds)?.[1]?.replace(/[\d.]+\s*(?:pt|px)/gi, '').replace(/\b(?:bold|italic|oblique|normal)\b/gi, '').split(',')[0]?.replace(/^['"\s]+|['"\s]+$/g, '');
+    const dsDecl = cssDeclaration(ds, ['font', 'font-family'])?.slice(0, MAX_FONT_STRING);
+    const dsText = dsDecl === undefined ? undefined : findLengths(dsDecl, ['pt', 'px']).reduceRight((t, l) => t.slice(0, l.start) + t.slice(l.end), dsDecl);
+    const dsFont = dsText === undefined ? undefined : trimQuotesAndSpace(dsText.replace(/\b(?:bold|italic|oblique|normal)\b/gi, '').split(',')[0] ?? '');
     const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(da)?.[1];
     const named = familyFromPdfName(dsFont || daFont || '');
     if (named !== 'sans' && !/^(zadb|symb)/i.test(named)) family = named;
