@@ -88,10 +88,48 @@ export interface StyleCapabilities {
   textLayout: boolean;
   /** Measurement value label options. */
   label: boolean;
+  /** Blend mode against the page and the markups underneath. */
+  blend: boolean;
   /** Dimension offset with extension lines (length). */
   leader: boolean;
   /** What `arcRadius` controls, if it is user-facing for this type. */
   arcRadius: 'Arc size' | 'Marker size' | null;
+}
+
+/** Blend modes of the PDF specification, with the canvas and /BM names of each. */
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'colorDodge' | 'colorBurn' | 'hardLight' | 'softLight' | 'difference' | 'exclusion';
+
+export const BLEND_MODES: { value: BlendMode; label: string; canvas: GlobalCompositeOperation; pdf: string }[] = [
+  { value: 'normal', label: 'Normal', canvas: 'source-over', pdf: 'Normal' },
+  { value: 'multiply', label: 'Multiply', canvas: 'multiply', pdf: 'Multiply' },
+  { value: 'screen', label: 'Screen', canvas: 'screen', pdf: 'Screen' },
+  { value: 'overlay', label: 'Overlay', canvas: 'overlay', pdf: 'Overlay' },
+  { value: 'darken', label: 'Darken', canvas: 'darken', pdf: 'Darken' },
+  { value: 'lighten', label: 'Lighten', canvas: 'lighten', pdf: 'Lighten' },
+  { value: 'colorDodge', label: 'Color dodge', canvas: 'color-dodge', pdf: 'ColorDodge' },
+  { value: 'colorBurn', label: 'Color burn', canvas: 'color-burn', pdf: 'ColorBurn' },
+  { value: 'hardLight', label: 'Hard light', canvas: 'hard-light', pdf: 'HardLight' },
+  { value: 'softLight', label: 'Soft light', canvas: 'soft-light', pdf: 'SoftLight' },
+  { value: 'difference', label: 'Difference', canvas: 'difference', pdf: 'Difference' },
+  { value: 'exclusion', label: 'Exclusion', canvas: 'exclusion', pdf: 'Exclusion' },
+];
+
+/** The blend mode for a PDF /BM name (Compatible counts as Normal); null for an unknown name. */
+export function blendModeOfPdf(name: string | null | undefined): BlendMode | null {
+  if (!name) return null;
+  if (name === 'Compatible') return 'normal';
+  return BLEND_MODES.find((b) => b.pdf === name)?.value ?? null;
+}
+
+/** How a markup blends: its own choice, else Multiply for highlighters, else Normal. */
+export function effectiveBlendMode(m: Pick<Markup, 'type' | 'style'>): BlendMode {
+  return m.style.blendMode ?? (TYPE_INFO[m.type].multiply ? 'multiply' : 'normal');
+}
+
+/** The /BM name to write for a markup, or null when it blends normally. */
+export function pdfBlendName(m: Pick<Markup, 'type' | 'style'>): string | null {
+  const mode = effectiveBlendMode(m);
+  return mode === 'normal' ? null : BLEND_MODES.find((b) => b.value === mode)!.pdf;
 }
 
 export function styleCapabilities(type: MarkupType): StyleCapabilities {

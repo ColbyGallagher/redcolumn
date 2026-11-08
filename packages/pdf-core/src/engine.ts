@@ -1,18 +1,37 @@
+import { StallTracker, STALL_CHECK_MS, stallLimit } from './stall';
 import { RENDER_CANCELLED, type AnnotImage, type CopyCheck, type DocumentInfo, type OutlineItem, type RedactReport, type RedactRequest, type RenderResult, type TextObjectInfo, type PageOp, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 type Success = Extract<WorkerResponse, { ok: true }>;
 type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void; onProgress?: (done: number, total: number) => void };
 type WithoutId<T> = T extends unknown ? Omit<T, 'id'> : never;
 
+/** Handle of a document that has no place in the current worker (it is being reopened, or could not be). */
+const STALE_DOC = -1;
+const STALE_MESSAGE = 'The document is being reopened after the PDF renderer restarted';
+
 /** Promise-based client for the PDFium render worker. */
 export class PdfEngine {
-  private worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+  private worker!: Worker;
   private pending = new Map<number, Pending>();
   private nextId = 1;
   private failure: Error | null = null;
+  private shutDown = false;
+  private stall = new StallTracker();
+  private stallTimer: ReturnType<typeof setInterval> | null = null;
+  private docs = new Set<PdfDocument>();
+  private failureListeners = new Set<(err: Error) => void>();
 
   constructor() {
-    this.worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+    this.spawn();
+  }
+
+  private spawn() {
+    const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' });
+    this.worker = worker;
+    // Events from a worker that has since been replaced are ignored.
+    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      if (worker !== this.worker) return;
+      this.stall.activity(performance.now());
       const msg = e.data;
       const p = this.pending.get(msg.id);
       if (!p) return;
@@ -21,15 +40,18 @@ export class PdfEngine {
         return;
       }
       this.pending.delete(msg.id);
+      this.stall.end(msg.id);
       if (msg.ok) p.resolve(msg);
       else p.reject(new Error(msg.error));
     };
     // A worker that crashed (or ran out of memory) never answers: every waiting call fails instead.
-    this.worker.onerror = (e) => {
+    worker.onerror = (e) => {
       e.preventDefault();
-      this.fail(new Error(`The PDF engine stopped: ${e.message || 'worker error'}`));
+      if (worker === this.worker) this.fail(new Error(`The PDF engine stopped: ${e.message || 'worker error'}`));
     };
-    this.worker.onmessageerror = () => this.fail(new Error('The PDF engine sent a message that could not be read'));
+    worker.onmessageerror = () => {
+      if (worker === this.worker) this.fail(new Error('The PDF engine sent a message that could not be read'));
+    };
   }
 
   /** False once the worker has failed or been terminated; a dead engine rejects every call. */
@@ -37,19 +59,82 @@ export class PdfEngine {
     return !this.failure;
   }
 
-  private fail(err: Error) {
+  /** Documents opened in this engine and not yet closed. */
+  get openDocuments(): PdfDocument[] {
+    return [...this.docs];
+  }
+
+  /** Hears of the engine failing (a crash, or a worker silent for too long), but not of terminate(). Returns a function that stops listening. */
+  onFailure(listener: (err: Error) => void): () => void {
+    this.failureListeners.add(listener);
+    return () => this.failureListeners.delete(listener);
+  }
+
+  private fail(err: Error, notify = true) {
     if (this.failure) return;
     this.failure = err;
     this.worker.terminate();
-    for (const p of this.pending.values()) p.reject(err);
+    if (this.stallTimer) clearInterval(this.stallTimer);
+    this.stallTimer = null;
+    this.stall.clear();
+    const waiting = [...this.pending.values()];
     this.pending.clear();
+    for (const p of waiting) p.reject(err);
+    if (notify) for (const l of [...this.failureListeners]) l(err);
+  }
+
+  /**
+   * Replaces the worker with a new one (stopping the old one first if it is still running).
+   * Every open document is left without a handle, as the new worker has none of them: reopen
+   * each with `reopen` or give it up with `abandon`. False after terminate().
+   */
+  restart(): boolean {
+    if (this.shutDown) return false;
+    this.fail(new Error('The PDF engine was restarted'), false);
+    this.failure = null;
+    for (const doc of this.docs) doc.rebind(STALE_DOC);
+    this.spawn();
+    return true;
+  }
+
+  /** Opens `bytes` again in the current worker and points `doc` at the result. `bytes` is transferred. */
+  async reopen(doc: PdfDocument, bytes: ArrayBuffer): Promise<void> {
+    const res = await this.call({ type: 'open', bytes }, [bytes]);
+    if (res.type !== 'open') throw new Error('Unexpected response');
+    if (res.pages.length !== doc.pages.length) {
+      await this.closeDoc(res.docId).catch(() => {});
+      throw new Error('The file no longer has the same pages');
+    }
+    doc.rebind(res.docId);
+    for (const [pageIndex, indices] of doc.hiddenAnnotations) await this.hideAnnotations(res.docId, pageIndex, indices);
+  }
+
+  /** Gives up a document that could not be reopened: it stops being tracked and every call on it fails. */
+  abandon(doc: PdfDocument) {
+    this.docs.delete(doc);
+    doc.rebind(STALE_DOC);
+  }
+
+  private watch(id: number, type: string) {
+    this.stall.begin(id, stallLimit(type), performance.now());
+    if (this.stallTimer) return;
+    this.stallTimer = setInterval(() => {
+      const silent = this.stall.stalledFor(performance.now());
+      if (silent !== null) this.fail(new Error(`The PDF engine stopped responding for ${Math.round(silent / 1000)} s`));
+      else if (!this.stall.waiting && this.stallTimer) {
+        clearInterval(this.stallTimer);
+        this.stallTimer = null;
+      }
+    }, STALL_CHECK_MS);
   }
 
   private call(req: WithoutId<WorkerRequest>, transfer: Transferable[] = []): Promise<Success> {
     if (this.failure) return Promise.reject(this.failure);
+    if ('docId' in req && req.docId === STALE_DOC) return Promise.reject(new Error(STALE_MESSAGE));
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
+      this.watch(id, req.type);
       this.worker.postMessage({ ...req, id }, transfer);
     });
   }
@@ -58,7 +143,9 @@ export class PdfEngine {
   async open(bytes: ArrayBuffer, password?: string): Promise<PdfDocument> {
     const res = await this.call({ type: 'open', bytes, password }, [bytes]);
     if (res.type !== 'open') throw new Error('Unexpected response');
-    return new PdfDocument(this, res.docId, res.pages);
+    const doc = new PdfDocument(this, res.docId, res.pages);
+    this.docs.add(doc);
+    return doc;
   }
 
   /**
@@ -97,6 +184,7 @@ export class PdfEngine {
     const id = this.nextId++;
     const done = new Promise<Success>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress });
+      this.watch(id, 'redact');
       this.worker.postMessage({ type: 'redact', bytes, ...request, id }, [bytes]);
     });
     const onAbort = () => this.worker.postMessage({ type: 'cancel', id: 0, ids: [id] });
@@ -168,8 +256,10 @@ export class PdfEngine {
   private start(req: WithoutId<WorkerRequest>): { id: number; done: Promise<Success> } {
     const id = this.nextId++;
     if (this.failure) return { id, done: Promise.reject(this.failure) };
+    if ('docId' in req && req.docId === STALE_DOC) return { id, done: Promise.reject(new Error(STALE_MESSAGE)) };
     const done = new Promise<Success>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
+      this.watch(id, req.type);
       this.worker.postMessage({ ...req, id });
     });
     return { id, done };
@@ -254,20 +344,35 @@ export class PdfEngine {
 
   /** @internal */
   async closeDoc(docId: number): Promise<void> {
+    for (const d of this.docs) if (d.id === docId) this.docs.delete(d);
     await this.call({ type: 'close', docId });
   }
 
   terminate() {
-    this.fail(new Error('The PDF engine was shut down'));
+    this.shutDown = true;
+    this.fail(new Error('The PDF engine was shut down'), false);
   }
 }
 
 export class PdfDocument {
+  /** Annotations hidden from drawing, by page, to hide again when the document is reopened. */
+  readonly hiddenAnnotations = new Map<number, number[]>();
+
   constructor(
     private engine: PdfEngine,
-    readonly id: number,
+    private docId: number,
     readonly pages: readonly PageSize[],
   ) {}
+
+  /** The document's handle in the worker; it changes if the engine restarts. */
+  get id(): number {
+    return this.docId;
+  }
+
+  /** @internal */
+  rebind(docId: number) {
+    this.docId = docId;
+  }
 
   /**
    * Renders a device-pixel region of a page at `scale` device pixels per PDF point. Aborting
@@ -323,6 +428,7 @@ export class PdfDocument {
    * imported as editable markups, which draw themselves. Applies to tiles rendered afterwards.
    */
   hideAnnotations(pageIndex: number, indices: number[]) {
+    this.hiddenAnnotations.set(pageIndex, [...new Set([...(this.hiddenAnnotations.get(pageIndex) ?? []), ...indices])]);
     return this.engine.hideAnnotations(this.id, pageIndex, indices);
   }
 

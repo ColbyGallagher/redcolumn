@@ -6,6 +6,7 @@ import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset,
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
@@ -85,6 +86,8 @@ import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
 import { TextSelectionBar } from './components/TextSelectionBar';
+import { RecoveredMarkupsBar } from './components/RecoveredMarkupsBar';
+import { planDiscard } from './documents/discardUnsaved';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -138,6 +141,13 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
+import { pdfNameFor, type CadOptions } from './cad/client';
+import type { CadFile } from './cad/convert';
+import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { convertAsJob, convertFile } from './cad/open';
+import { cadSession, useCadConversion } from './cad/session';
+import { CadConvertDialog } from './components/CadConvertDialog';
+import { CadReportBar } from './components/CadReportBar';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
@@ -156,9 +166,10 @@ import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleRequiredDialog } from './components/ScaleRequiredDialog';
 import { ScaleControl } from './components/ScaleControl';
-import { PagesPanel } from './components/PagesPanel';
+import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
+import { countsFromHits, type CountTool } from './search/countFromHits';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -217,7 +228,7 @@ interface OpenFile {
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
-const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+const savedState = new WeakMap<MarkupStore, { edits: number; hash: string; undo?: number }>();
 /** File contents an open document's undo history can bring back, kept stored until it closes. */
 const heldContents = new WeakMap<MarkupStore, string[]>();
 function holdFor(store: MarkupStore, hashes: string[]) {
@@ -256,8 +267,13 @@ function stepLabel(revisionNote: string | undefined): string | undefined {
 /** Autosave waits this long after the last change, so a burst of edits is written once. */
 const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
-  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
+  // Later edits are their own undo steps, so Don't Save can undo just those.
+  t.store.checkpoint();
+  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash, undo: t.store.undoHistory().length });
 }
+/** Documents that opened with unsaved markups kept from an earlier session, and those whose bar was answered with Keep. */
+const recoveredOnOpen = new Set<string>();
+const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
@@ -266,8 +282,10 @@ function hasUnsavedChanges(t: OpenFile) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
     else
     // Document Recovery: changes kept from an earlier session that never reached the file.
-    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
-    else markSaved(t);
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) {
+      savedState.set(t.store, { edits: -1, hash: t.file.hash });
+      recoveredOnOpen.add(t.file.id);
+    } else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
@@ -877,6 +895,9 @@ export function App() {
   const canvasBRef = useRef<HTMLCanvasElement>(null);
   const [ctl, setCtl] = useState<Controllers | null>(null);
   const [ctlB, setCtlB] = useState<{ viewer: TileViewer; tools: MarkupTools } | null>(null);
+  /** The second pane's viewer and the problem pill's Retry, for the renderer supervisor. */
+  const viewerBRef = useRef<TileViewer | null>(null);
+  const retryRef = useRef<(() => void | Promise<void>) | undefined>(undefined);
   const prefs = useSettings();
   // Preference changes apply to the open panes straight away (new panes read them on creation).
   const ctlsRef = useRef<(MarkupTools | undefined)[]>([]);
@@ -904,6 +925,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   /** A passing confirmation (e.g. how many pages were labelled); clears itself. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** Convert Again for the PDF converted from a drawing with this id; and whether it is running. */
+  const [cadAgain, setCadAgain] = useState<string | null>(null);
+  const [cadBusy, setCadBusy] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 5000);
@@ -917,19 +941,39 @@ export function App() {
   const [customScalePage, setCustomScalePage] = useState<number | null>(null);
   /** Scale to Length or a measuring tool was used on a page with no scale. */
   const [scaleNeeded, setScaleNeeded] = useState<{ pane: Pane; pageIndex: number; tool: Tool } | null>(null);
-  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
+  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number]; delta: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
   /** Subject, label and assembly the Measurements panel gives the next measurement. */
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
-  const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
+  // The side panels' open state and tab are remembered between sessions.
+  const readSavedPanel = (side: DockSide) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
+      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
+    } catch {
+      return { tab: null, open: null };
+    }
+  };
+  const [saved] = useState(() => ({ left: readSavedPanel('left'), right: readSavedPanel('right') }));
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
+  // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
+  const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
   const [leftWidth, setLeftWidth] = useState(440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
-  const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
+  const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
+  const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
+  useEffect(() => {
+    try {
+      localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
+      localStorage.setItem('nb.panel.right', JSON.stringify({ tab: rightTab, open: rightOpen }));
+    } catch {
+      /* storage off limits: the layout lasts for this session */
+    }
+  }, [leftTab, leftOpen, rightTab, rightOpen]);
   const [rightWidth, setRightWidth] = useState(360);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -1370,7 +1414,7 @@ export function App() {
     return new MarkupTools(viewer, {
       author: () => authorRef.current,
       onEditText: setEditingText,
-      onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
+      onCalibrate: (pageIndex, lengthPoints, at, delta) => setCalibration({ pageIndex, lengthPoints, at, delta }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
       onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
       measureDefaults: () => {
@@ -1428,6 +1472,27 @@ export function App() {
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
+    // A renderer that crashes or stops answering is replaced, and the open documents reopened in it
+    // from the copies kept on this device (markups live outside the renderer and are untouched).
+    const tabOf = (doc: PdfDocument) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.doc === doc);
+    const supervisor = new EngineSupervisor<PdfDocument>(engine, {
+      bytesFor: async (doc) => {
+        const tab = tabOf(doc);
+        return tab ? readFile(tab.file.hash) : null;
+      },
+      sizeOf: (doc) => tabOf(doc)?.file.size,
+      onRestarted: ({ lost }) => {
+        viewer.engineRestarted();
+        viewerBRef.current?.engineRestarted();
+        resetThumbnails();
+        setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
+      },
+      onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),
+      log: (message, detail) => console.error(message, detail),
+    });
+    const retry = () => (supervisor.needsRetry ? supervisor.retry().then(() => undefined) : undefined);
+    viewer.setRetryHandler(retry);
+    retryRef.current = retry;
     // Debugging handle for the browser console and the end-to-end tests. `commands` are the live
     // commands by id; `assistant` answers the MCP tools (list_markups, get_page...) without asking.
     if (TEST_HOOK)
@@ -1444,6 +1509,7 @@ export function App() {
         },
       });
     return () => {
+      supervisor.dispose();
       tools.dispose();
       viewer.destroy();
       engine.terminate();
@@ -1458,7 +1524,10 @@ export function App() {
     const tools = createTools('b', viewer);
     viewer.setOverlay(tools);
     setCtlB({ viewer, tools });
+    viewer.setRetryHandler(retryRef.current ?? null);
+    viewerBRef.current = viewer;
     return () => {
+      viewerBRef.current = null;
       tools.dispose();
       viewer.destroy();
       setCtlB(null);
@@ -1587,9 +1656,10 @@ export function App() {
       const at = front ? tabs.indexOf(front) + 1 : tabs.length;
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
       activateTab(pane, packed);
-      if (pane === 'a') {
-        // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
-        // On narrow screens the panel covers the drawing, so it opens only when asked.
+      if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
+        // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
+        // when opening from them (or joining from an invite link). On narrow screens the panel covers the
+        // drawing, so it opens only when asked.
         revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search', !narrowScreen());
       }
     },
@@ -1876,32 +1946,59 @@ export function App() {
     async (f: File | File[], target: Pane = 'a') => {
       for (const file of Array.isArray(f) ? f : [f]) {
         try {
-          // Pictures open as one-page PDFs at their real size.
-          const image = isImageFile(file);
-          const raw = image ? null : await file.arrayBuffer();
-          const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
-          const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+          // Pictures open as one-page PDFs at their real size; DWG/DXF drawings as vector PDFs.
+          const cad = isCadFile(file);
+          const image = !cad && isImageFile(file);
+          const conversion = cad ? await convertFile(file) : null;
+          const raw = image || cad ? null : await file.arrayBuffer();
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // A document moved from another window with no file of its own has nowhere to save back to.
           const moved = movedFiles.get(file);
           const source = moved && !moved.hasFile ? undefined : handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const hostId = hostDocumentId(tokenOf(source));
+          const hostId = cad ? null : hostDocumentId(tokenOf(source));
           let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
           // An embedding application's document, opened again with other contents (saved over
           // since, say): they come in as a change to it, so its markups and open tab follow.
           if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
-          // Save writes back over the file it came from, except pictures and protected PDFs
-          // (which are kept unprotected here and must not replace the original).
+          // Save writes back over the file it came from, except pictures, drawings and protected
+          // PDFs (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           if (moved?.dirty) movedDirty.add(stored.id);
           await openStored(stored, bytes, target);
+          if (conversion) cadSession.set(stored.id, conversion);
         } catch (err) {
+          if (isAbort(err)) continue;
           setError(err instanceof Error ? err.message : String(err));
         }
       }
       void refreshLibrary();
     },
     [openStored, refreshLibrary, unlockBytes],
+  );
+
+  /** Converts the drawing behind a converted PDF again (other pages, line options or reference files), opening the result as a new PDF. */
+  const convertAgain = useCallback(
+    async (fileId: string, options: CadOptions, references: CadFile[]) => {
+      const entry = cadSession.get(fileId);
+      if (!entry) return;
+      setCadBusy(true);
+      try {
+        const conversion = await convertAsJob(entry.conversion.source, options, references);
+        settings.set({ cadColorMode: options.colorMode ?? 'auto', cadLineweights: options.lineweights ?? true });
+        const stored = await saveFile(pdfNameFor(entry.conversion.source.name), conversion.pdf.slice(0));
+        await openStored(stored, conversion.pdf, split && activePaneRef.current === 'b' ? 'b' : 'a');
+        cadSession.set(stored.id, conversion);
+        setCadAgain(null);
+        void refreshLibrary();
+      } catch (err) {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCadBusy(false);
+      }
+    },
+    [openStored, refreshLibrary, split],
   );
 
   /** The system Open dialog where the browser has one (so Save can write back to the file), else the file input. */
@@ -1950,7 +2047,7 @@ export function App() {
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
-            parts.push(isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
+            parts.push(isCadFile(src.file) ? (await convertFile(src.file)).pdf : isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
           }
         }
         const [first, ...rest] = parts;
@@ -4101,6 +4198,24 @@ export function App() {
   );
 
   /**
+   * Puts a document's markups back to what its file holds: undoes what was done since it matched
+   * the file, or, when that is not known (changes kept from an earlier session), reads them from the file again.
+   */
+  const discardUnsavedChanges = useCallback(async (t: OpenFile) => {
+    const plan = planDiscard(savedState.get(t.store), t.store.undoHistory().length);
+    if (plan.kind === 'undo') t.store.undoSteps(plan.steps);
+    else if (!linkOf(t.file.id)) {
+      const found = await readPdfAnnotations(await readFile(t.file.hash), t.store);
+      t.store.resetMarkups([]);
+      t.store.importAnnotations(found.markups, found.links, found.imported, found.extras);
+    }
+    markSaved(t);
+    recoveredOnOpen.delete(t.file.id);
+    rememberUnsaved(new Map([[t.file.id, false]]));
+    setSavedTick((n) => n + 1);
+  }, []);
+
+  /**
    * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
    * false on Cancel or when the save does not happen; true when the document can go.
    */
@@ -4112,18 +4227,14 @@ export function App() {
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
       if (choice === 'discard') {
-        // Without Document Recovery, changes that are not saved are not kept either.
-        if (!settings.get().documentRecovery) {
-          t.store.undoSteps(t.store.undoHistory().length);
-          markSaved(t);
-          rememberUnsaved(new Map([[fileId, false]]));
-        }
+        // Don't Save always means it: Document Recovery is for crashes, not for changes the person turned down.
+        await discardUnsavedChanges(t);
         return true;
       }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
-    [saveDocument],
+    [saveDocument, discardUnsavedChanges],
   );
 
   /**
@@ -5009,6 +5120,10 @@ export function App() {
       // Keys that mean something while clicking out a measurement or drawing.
       const measuring = tools.getState().measuring;
       if (e.key === 'Enter' && measuring) tools.finish();
+      else if (e.key === ' ' && measuring && tools.finishKey(e.key, e.target)) {
+        // Space finished it, like Enter; the page must not scroll too.
+        e.preventDefault();
+      }
       else if ((e.key === 'Backspace' || e.key === 'Delete') && measuring) tools.removeLastPoint();
       else if (e.key === 'Escape') tools.cancel();
       // Typing on a selected table cell, or Enter or F2, edits it; the typed character starts its new text.
@@ -5074,7 +5189,7 @@ export function App() {
         e.preventDefault();
         const moved = rightDown && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) > 4;
         rightDown = null;
-        if (!moved) canvasMenuRef.current(e, pane);
+        if (!moved && !tools.rightClickFinish()) canvasMenuRef.current(e, pane);
       };
       canvas.addEventListener('dblclick', onDblClick);
       canvas.addEventListener('pointerdown', onDown);
@@ -5537,6 +5652,8 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** The drawing the active PDF was converted from in this visit, if any. */
+  const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
   const scaleRows = useMemo(
@@ -5580,7 +5697,7 @@ export function App() {
     if (!open || !files.length) return;
     try {
       const sources: ArrayBuffer[] = [];
-      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      for (const file of files) sources.push(isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
       const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
       // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
@@ -6606,8 +6723,17 @@ export function App() {
       { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
+      // Right-click on a measurement's segment: curve it, or straighten it.
+      ...(() => {
+        const seg = one && at ? c.tools.segmentAt(first.id, at) : null;
+        return seg
+          ? [{ label: seg.curved ? 'Convert to Line' : 'Convert to Arc', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
+          : [];
+      })(),
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
       ...(one && first.type === 'table' ? tableItems(first) : []),
+      // A count or an open line carries on from where it stopped (a line from the end nearest the click).
+      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: 'Resume', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
       ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
       ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
@@ -7946,6 +8072,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    convertDrawingAgain: () => {
+      if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
+    },
     split: () => {
       setSplitHorizontal(false);
       startSplit();
@@ -8486,6 +8615,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
@@ -8647,6 +8777,30 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       for (const r of h.rects)
                         store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
                     setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
+                  }
+                : undefined
+            }
+            readOnly={activeReadOnly}
+            countTools={ws.toolChests
+              .filter((t) => t.id !== RECENT_TOOLS_ID)
+              .flatMap((t) => t.items)
+              .filter((i) => i.type === 'count')
+              .map((i): CountTool => ({ id: i.id, name: i.label || i.subject || 'Count', style: i.style, ...(i.subject ? { subject: i.subject } : {}), ...(i.label ? { label: i.label } : {}), ...(i.markups ? { markups: i.markups } : {}) }))}
+            onApplyCount={
+              activeOpen
+                ? (found, tool) => {
+                    const store = activeOpen.store;
+                    if (store.readOnly || !found.length) return;
+                    const now = Date.now();
+                    const made = countsFromHits(found, {
+                      base: { status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now, fields: defaultFieldsFor(store) },
+                      style: { ...(activeTools?.getState().styles.count ?? DEFAULT_STYLES.count) },
+                      subject: 'Text Search',
+                      tool,
+                    });
+                    store.checkpoint();
+                    store.batch(() => made.forEach((m) => store.add(m)));
+                    setNotice(`Counted ${found.length} match${found.length === 1 ? '' : 'es'}${tool ? ` with ${tool.name}` : ''}.`);
                   }
                 : undefined
             }
@@ -9284,7 +9438,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={openFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9296,20 +9450,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={insertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file || !open) return;
           const at = (v?.currentPageIndex ?? pageIndex) + 1;
-          void applyPageOps([{ type: 'insert', source: 0, at }], [isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
+          void applyPageOps([{ type: 'insert', source: 0, at }], [isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
         }}
       />
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9474,6 +9628,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
+                  <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />
+                )}
                 {ctl && open && toolsStateA.textSelection && (
                   <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
                 )}
@@ -9489,6 +9646,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && <CadReportBar fileId={open.file.id} onConvertAgain={() => setCadAgain(open.file.id)} />}
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
@@ -9564,6 +9722,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
+                      <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
+                    )}
+                    {openB && <CadReportBar fileId={openB.file.id} onConvertAgain={() => setCadAgain(openB.file.id)} />}
                     {ctlB && openB && toolsStateB.textSelection && (
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
@@ -9899,6 +10061,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {cadAgain && cadSession.get(cadAgain) && (
+        <CadConvertDialog
+          conversion={cadSession.get(cadAgain)!.conversion}
+          busy={cadBusy}
+          onCancel={() => setCadAgain(null)}
+          onConvert={(options, references) => void convertAgain(cadAgain, options, references)}
         />
       )}
       {bulkInsertFiles && (
@@ -10466,9 +10636,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   return;
                 }
                 if (action === 'count') {
-                  const byPage = new Map<number, [number, number][]>();
-                  for (const h of hits) byPage.set(h.pageIndex, [...(byPage.get(h.pageIndex) ?? []), h.match.center]);
-                  for (const [pageIndex, points] of byPage) made.push({ ...base, id: crypto.randomUUID(), type: 'count', pageIndex, points, style: { ...styles.count }, subject: 'Symbol Search' });
+                  made.push(...countsFromHits(hits.map((h) => ({ pageIndex: h.pageIndex, point: h.match.center })), { base, style: styles.count, subject: 'Symbol Search' }));
                 } else {
                   for (const h of hits) {
                     const r = h.match.rect;
@@ -10736,7 +10904,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {calibration && activeOpen && (
         <CalibrateDialog
-          lengthPoints={calibration.lengthPoints}
+          delta={calibration.delta}
+          current={calibrationViewport?.scale ?? scales[calibration.pageIndex] ?? null}
           pageCount={pageCount}
           defaultAllPages={Object.keys(scales).length === 0}
           viewportName={calibrationViewport?.name}

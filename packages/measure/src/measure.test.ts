@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
-import { angleAt, arcPoints, arcSegment, bulgeThrough, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
+import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
@@ -244,4 +244,33 @@ test('yScaleLabel names the vertical scale only when it differs', () => {
   assert.equal(yScaleLabel({ ...x, yMetersPerPoint: quarter.metersPerPoint }), '1/4" = 1\'-0"');
   const custom = scaleFromParts(1, 'in', 15, 'ft')!;
   assert.equal(yScaleLabel({ ...x, yMetersPerPoint: custom.metersPerPoint }), '1" = 15\'');
+});
+
+test('splitting an arc keeps the curve and its length', () => {
+  for (const bulge of [0.4, -0.7, 1, 1.8]) {
+    const p: [number, number] = [1, 2];
+    const q: [number, number] = [5, -1];
+    const whole = arcSegment(p, q, bulge).length;
+    for (const t of [0.5, 0.2, 0.9]) {
+      const { at, first, second } = arcSplit(p, q, bulge, t);
+      const sum = arcSegment(p, at, first).length + arcSegment(at, q, second).length;
+      assert.ok(Math.abs(sum - whole) < 1e-9, `${bulge} ${t}`);
+      const near = arcPoints(p, q, bulge, 4000).reduce((d, [x, y]) => Math.min(d, Math.hypot(x - at[0], y - at[1])), Infinity);
+      assert.ok(near < 1e-2, `on arc ${bulge} ${t} ${near}`);
+    }
+    assert.ok(Math.abs(arcSplit(p, q, bulge, 0.5).first - Math.tan(Math.atan(bulge) / 2)) < 1e-12);
+  }
+  assert.deepEqual(arcSplit([0, 0], [4, 0], 0, 0.25), { at: [1, 0], first: 0, second: 0 });
+});
+
+test('smooth bulges are arcs of the circle through the vertex and its neighbours', () => {
+  const pts: [number, number][] = [[0, 0], [2, 1], [4, 0]];
+  const s = smoothBulgesAt(pts, 1, false)!;
+  const r = 2.5;
+  const total = arcSegment(pts[0]!, pts[1]!, s.before).length + arcSegment(pts[1]!, pts[2]!, s.after).length;
+  assert.ok(Math.abs(total - r * 2 * Math.asin(2 / r)) < 1e-9);
+  for (const [x, y] of [...arcPoints(pts[0]!, pts[1]!, s.before), ...arcPoints(pts[1]!, pts[2]!, s.after)]) assert.ok(Math.abs(Math.hypot(x - 2, y + 1.5) - r) < 1e-9);
+  assert.equal(smoothBulgesAt(pts, 0, false), null);
+  assert.deepEqual(smoothBulgesAt([[0, 0], [1, 0], [3, 0]], 1, false), { before: 0, after: 0 });
+  assert.ok(smoothBulgesAt([[0, 0], [4, 0], [4, 4], [0, 4]], 0, true));
 });

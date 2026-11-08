@@ -12,6 +12,13 @@ const roomAt = (dy: number): Pt[] => {
 };
 
 const ribbon = (app: App) => app.page.locator('.ribbon');
+/** A 10'-0" per 100 pt scale on page 1, set directly: the calibrate clicks can land outside the canvas in the
+ * smaller desktop window under the full ribbon, and these tests only need a scale, not the calibrate flow. */
+const setScale = (app: App) =>
+  app.page.evaluate(() =>
+    (window.__nb.tools.store as unknown as { setScale(pages: number[], s: object): void }).setScale([0], { metersPerPoint: 3.048 / 100, unit: 'ft', feetInches: true, precision: 2, label: 'Calibrated' }),
+  );
+
 type Row = { id: string; type: string; subject?: string; label?: string; text?: string; layer?: string };
 const rows = (app: App) =>
   app.page.evaluate(() => (window.__nb.tools.store as unknown as { all(): Row[] }).all().map((m) => ({ id: m.id, type: m.type, subject: m.subject, label: m.label, text: m.text, layer: m.layer })));
@@ -39,7 +46,7 @@ test.describe('subject, label and layer in the Markup Format tab', () => {
 
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
-    await app.calibrate();
+    await setScale(app);
   });
 
   test('a selection changes subject and layer together, one undo step each, with mixed values shown', async ({ app }) => {

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { searchText, type SearchHit, type SheetInfo } from '@nb/sheets';
+import { CountToolDialog } from './CountToolDialog';
+import { centreOf, type CountHit, type CountTool } from '../search/countFromHits';
 import { fileSource, type Labelled, type SearchSource } from '../search/sources';
 
 /** Where to look, as in Bluebeam's Search panel. */
@@ -108,10 +110,16 @@ interface Props {
   onOpen: (hit: DocHit, sameDoc: DocHit[], file?: File) => void;
   /** Marks matches in the front document's text for redaction; unset when it cannot be edited. */
   onRedactAll?: (hits: SearchHit[]) => void;
+  /** The Tool Chest's count tools, offered by Apply Count to Checked. */
+  countTools?: CountTool[];
+  /** Turns checked matches (each with the point to count) into counts with a tool, or the default count when null. Unset hides the action. */
+  onApplyCount?: (hits: CountHit[], tool: CountTool | null) => void;
+  /** The front document cannot be edited. */
+  readOnly?: boolean;
 }
 
 /** Find text in the document, the open documents, recent files or a folder, as in Bluebeam's Search panel. */
-export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources, memory, focusToken, onResults, onOpen, onRedactAll }: Props) {
+export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources, memory, focusToken, onResults, onOpen, onRedactAll, countTools = [], onApplyCount, readOnly }: Props) {
   const saved = memory.current;
   const [query, setQuery] = useState(saved?.query ?? '');
   const [scope, setScope] = useState<SearchScope>(saved?.scope ?? 'document');
@@ -125,6 +133,10 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   const [collapsed, setCollapsed] = useState<string[]>(saved?.collapsed ?? []);
   const [resultsKey, setResultsKey] = useState(stale ? activeKey : (saved?.activeKey ?? activeKey));
   const [progress, setProgress] = useState<string | null>(null);
+  // Checked results (by index in `hits`) to turn into a count, and the page the list is narrowed to (-1: all).
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+  const [pageFilter, setPageFilter] = useState(-1);
+  const [pickCount, setPickCount] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const folderRef = useRef<HTMLInputElement>(null);
   const run = useRef(0);
@@ -146,6 +158,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     if (scope === 'document' || scope === 'page') {
       ++run.current;
       setHits(null);
+      setChecked(new Set());
+      setPageFilter(-1);
       setSelected(-1);
       setProgress(null);
       setResultsKey(activeKey);
@@ -160,6 +174,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
 
   const reset = () => {
     ++run.current;
+    setChecked(new Set());
+    setPageFilter(-1);
     setHits(null);
     setSelected(-1);
     setProgress(null);
@@ -283,8 +299,37 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     return h.kind === 'text' ? page : `${page} · ${KIND_LABELS[h.kind]}`;
   };
 
-  const row = ({ hit: h, index: i }: { hit: DocHit; index: number }) => (
-    <li key={i}>
+  // Matches in the front document's page text can be counted.
+  const countable = (h: DocHit) => !!onApplyCount && h.docId === activeId && h.kind === 'text' && h.rects.length > 0;
+  const countablePages = [...new Set((hits ?? []).filter(countable).map((h) => h.pageIndex))].sort((a, b) => a - b);
+  const shown = (h: DocHit) => pageFilter < 0 || !countable(h) || h.pageIndex === pageFilter;
+  const shownCountable = (hits ?? []).flatMap((h, i) => (countable(h) && shown(h) ? [i] : []));
+  const checkedCount = [...checked].filter((i) => hits?.[i] && countable(hits[i]!)).length;
+  const toggle = (i: number, on: boolean) =>
+    setChecked((c) => {
+      const next = new Set(c);
+      if (on) next.add(i);
+      else next.delete(i);
+      return next;
+    });
+  /** The point to count on a match: the centre of its bounding box. */
+  const countHits = (): CountHit[] =>
+    [...checked].sort((a, b) => a - b).flatMap((i) => {
+      const h = hits?.[i];
+      if (!h || !countable(h)) return [];
+      const x0 = Math.min(...h.rects.map((r) => r.x));
+      const y0 = Math.min(...h.rects.map((r) => r.y));
+      const x1 = Math.max(...h.rects.map((r) => r.x + r.w));
+      const y1 = Math.max(...h.rects.map((r) => r.y + r.h));
+      return [{ pageIndex: h.pageIndex, point: centreOf({ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }) }];
+    });
+
+  const row = ({ hit: h, index: i }: { hit: DocHit; index: number }) =>
+    !shown(h) ? null : (
+    <li key={i} className={countable(h) ? 'search-hit-row' : undefined}>
+      {countable(h) && (
+        <input type="checkbox" className="search-check" aria-label={`Check ${where(h)}: ${h.snippet.slice(h.matchStart, h.matchEnd)}`} checked={checked.has(i)} onChange={(e) => toggle(i, e.target.checked)} />
+      )}
       <button className={`search-hit${i === selected ? ' active' : ''}`} onClick={() => open(i)}>
         <span className="num">{where(h)}</span>
         <span className="snippet">
@@ -294,7 +339,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
         </span>
       </button>
     </li>
-  );
+    );
 
   return (
     <div className="search" ref={listRef} onKeyDownCapture={onArrow}>
@@ -415,6 +460,35 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
               )}
             </p>
           )}
+          {hits && !progress && countablePages.length > 0 && (
+            <div className="search-count-bar">
+              <button className="btn small" type="button" onClick={() => setChecked(new Set([...checked, ...shownCountable]))}>
+                Select All
+              </button>
+              <button className="btn small" type="button" onClick={() => setChecked(new Set([...checked].filter((i) => !shownCountable.includes(i))))}>
+                Select None
+              </button>
+              {countablePages.length > 1 && (
+                <select aria-label="Show results on page" value={pageFilter} onChange={(e) => setPageFilter(Number(e.target.value))}>
+                  <option value={-1}>All pages</option>
+                  {countablePages.map((p) => (
+                    <option key={p} value={p}>
+                      {sheets[p]?.number ?? `Page ${p + 1}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                className="btn small"
+                type="button"
+                disabled={checkedCount === 0 || readOnly}
+                title={readOnly ? 'This document is read-only' : 'Turn the checked results into a count'}
+                onClick={() => setPickCount(true)}
+              >
+                Apply Count to Checked…
+              </button>
+            </div>
+          )}
           {grouped ? (
             [...groups].map(([docId, g]) => {
               const shut = collapsed.includes(docId);
@@ -433,6 +507,18 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             <ul>{[...groups.values()].flatMap((g) => g.items).map(row)}</ul>
           )}
         </>
+      )}
+      {pickCount && (
+        <CountToolDialog
+          total={checkedCount}
+          tools={countTools}
+          onCancel={() => setPickCount(false)}
+          onApply={(tool) => {
+            setPickCount(false);
+            onApplyCount?.(countHits(), tool);
+            setChecked(new Set());
+          }}
+        />
       )}
     </div>
   );

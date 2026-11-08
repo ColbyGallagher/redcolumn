@@ -11,6 +11,13 @@ const roomAt = (dy: number): Pt[] => {
 };
 
 const ribbon = (app: App) => app.page.locator('.ribbon');
+/** A 10'-0" per 100 pt scale on page 1, set directly: the calibrate clicks can land outside the canvas in the
+ * smaller desktop window under the full ribbon, and these tests only need a scale, not the calibrate flow. */
+const setScale = (app: App) =>
+  app.page.evaluate(() =>
+    (window.__nb.tools.store as unknown as { setScale(pages: number[], s: object): void }).setScale([0], { metersPerPoint: 3.048 / 100, unit: 'ft', feetInches: true, precision: 2, label: 'Calibrated' }),
+  );
+
 const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
 const clear = (app: App) => select(app, []);
 const fillOpacities = (app: App, ids: string[]) =>
@@ -31,7 +38,7 @@ test.describe('markup format tab follows the selection', () => {
 
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
-    await app.calibrate();
+    await setScale(app);
   });
 
   test('selecting a markup shows the tab, clearing returns to the tab before, a manual pick is respected', async ({ app }) => {
