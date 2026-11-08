@@ -8,6 +8,7 @@ import { METERS_PER_UNIT, measureValue, pathLengthArcs } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
+import { frameRect, groupFrame, groupHandles } from './groupBox';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
@@ -514,6 +515,53 @@ test('copy and paste makes a new markup; group moves together; lock stops edits'
   assert.equal(h.store.get(pasted.id)?.locked, true);
   h.tools.deleteSelected();
   assert.ok(h.store.get(pasted.id), 'a locked markup is not deleted');
+  await h.store.destroy();
+});
+
+test('a group selects whole with one box that scales and turns it; a second click picks one member', async () => {
+  const h = await setup();
+  h.tools.setTool('rect');
+  drag(h.tools, [100, 100], [200, 150]);
+  drag(h.tools, [300, 200], [400, 300]);
+  const [a, b] = h.store.all();
+  h.tools.select([a!.id, b!.id]);
+  h.tools.group();
+  h.tools.select([]);
+  h.tools.setTool('select');
+  const members = () => [h.store.get(a!.id)!, h.store.get(b!.id)!];
+
+  // A click on one member selects the whole group; a second click picks just that member.
+  click(h.tools, [100, 125]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id, b!.id]), 'the group');
+  click(h.tools, [100, 125]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id]), 'the member');
+  // The group's dashed box selects it whole again.
+  const box = frameRect(groupFrame(members(), 0));
+  click(h.tools, [box.x + box.w / 2, box.y]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id, b!.id]), 'the group again');
+
+  // The corner handle scales every member evenly about the opposite corner.
+  const [ax, ay] = h.store.get(a!.id)!.points[0]!;
+  drag(h.tools, [box.x + box.w, box.y + box.h], [box.x + box.w * 2, box.y + box.h * 2]);
+  const [sx, sy] = h.store.get(a!.id)!.points[0]!;
+  assert.ok(Math.abs(sx - (box.x + (ax - box.x) * 2)) < 1e-6 && Math.abs(sy - (box.y + (ay - box.y) * 2)) < 1e-6, 'scaled about the far corner');
+  const [b0, b1] = h.store.get(b!.id)!.points;
+  assert.ok(Math.abs(b1![0] - b0![0] - 200) < 1e-6, 'the other member grew with it');
+  h.store.undo();
+  assert.deepEqual(h.store.get(a!.id)!.points[0], [ax, ay], 'one undo step');
+
+  // The knob above the box turns every member about its middle.
+  const now = frameRect(groupFrame(members(), 0));
+  drag(h.tools, [now.x + now.w / 2, now.y - 22], [now.x + now.w * 3, now.y + now.h / 2]);
+  for (const m of members()) assert.ok(Math.abs((m.rotation ?? 0) - 90) < 0.2, `turned a quarter, got ${m.rotation}`);
+  // The box turned with the group, so its knob now sits to the right of the middle and follows the pointer.
+  const f = groupFrame(members(), 90);
+  assert.equal(f.angle, 90);
+  const knob = groupHandles(f, 1).find((x) => x.id === 'rotate')!.at;
+  assert.ok(knob[0] > f.c[0] + f.h / 2 && Math.abs(knob[1] - f.c[1]) < 1e-6, 'knob out to the right');
+  // Dragging it to the lower right turns the group on to 135°, snapping to a 15° step with Shift.
+  drag(h.tools, knob, [f.c[0] + 100, f.c[1] + 90], { shiftKey: true });
+  for (const m of members()) assert.ok(Math.abs((m.rotation ?? 0) - 135) < 0.2, `snapped to 135, got ${m.rotation}`);
   await h.store.destroy();
 });
 

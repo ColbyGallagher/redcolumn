@@ -31,7 +31,7 @@ import {
   scalingAbout,
 } from './cad.ts';
 import { bulgeThrough } from '@nb/measure';
-import { DEFAULT_STYLES, type Markup, type MarkupType, type Point } from './model.ts';
+import { DEFAULT_STYLES, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 
 function markup(type: MarkupType, points: Point[], extra: Partial<Markup> = {}): Markup {
   return { id: type, type, pageIndex: 0, points, style: { ...DEFAULT_STYLES[type] }, status: 'none', author: '', createdAt: 0, modifiedAt: 0, ...extra };
@@ -231,6 +231,28 @@ test('edges and paths come from what is drawn', () => {
   assert.equal(p.points.length, 4);
   assert.equal(pathOf(markup('line', [[0, 0], [10, 0]]))!.closed, false);
   assert.ok(canCut(markup('polyline', [[0, 0], [1, 1]])) && !canCut(markup('polylength', [[0, 0], [1, 1]], { bulges: [0.2] })));
+});
+
+test('a stretch along the axes stretches an upright box by width and height separately', () => {
+  const stretch = { a: 2, b: 0, c: 0, d: 0.5, e: 0, f: 0 };
+  const box = transformMarkup(markup('rect', [[10, 20], [30, 60]]), stretch);
+  assert.deepEqual(box.points, [[20, 10], [60, 30]], 'twice as wide, half as tall');
+  const line = transformMarkup(markup('line', [[10, 20], [30, 60]]), stretch);
+  assert.deepEqual(line.points, [[20, 10], [60, 30]]);
+});
+
+test('a turned callout keeps its arrow tip where the transform sends it, and its text box turns', () => {
+  const callout = markup('callout', [[0, 0], [10, 0], [20, -10], [40, 10]]);
+  const turn = rotationAbout([0, 0], 90);
+  const patch = transformMarkup(callout, turn);
+  assert.equal(patch.rotation, 90);
+  const turned = { ...callout, ...patch } as Markup;
+  // Seen on the page (the whole callout turned about its box's middle), the tip is where a quarter turn puts it.
+  const c = rotationCentre(turned);
+  const seen = rotatePoint(turned.points[0]!, c, 90);
+  assert.ok(near(seen, [0, 0]), `tip at ${seen}`);
+  const back = transformMarkup(turned, rotationAbout([0, 0], -90));
+  assert.ok(near(back.points![0]!, [0, 0]) && !back.rotation);
 });
 
 test('scale grows about a base point; reverse turns a path round with its endings', () => {
