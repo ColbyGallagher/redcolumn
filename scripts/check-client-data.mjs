@@ -14,7 +14,7 @@
 // `.client-data.local` file (one per line, never committed) are also matched, anywhere in a word.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -121,9 +121,15 @@ function main(argv) {
   } else {
     for (const p of git(['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean)) {
       checkPath(p, problems);
-      const file = join(root, p);
-      if (!existsSync(file) || statSync(file).size > MAX_BYTES || MEDIA.test(p)) continue;
-      checkText(p, readFileSync(file).toString('latin1'), problems);
+      if (MEDIA.test(p)) continue;
+      // Read once, then judge what was read: a file deleted since `ls-files` is skipped.
+      let bytes;
+      try {
+        bytes = readFileSync(join(root, p));
+      } catch {
+        continue;
+      }
+      if (bytes.length <= MAX_BYTES) checkText(p, bytes.toString('latin1'), problems);
     }
   }
   if (!problems.length) return 0;
