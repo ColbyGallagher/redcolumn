@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses to commit client drawings or identifiers (scripts/check-client-data.mjs).
+exec node scripts/check-client-data.mjs --staged

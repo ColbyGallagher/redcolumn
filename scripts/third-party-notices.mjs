@@ -57,7 +57,7 @@ const BUNDLED = [
     version: '2.1.5',
     licence: 'OFL-1.1',
     homepage: 'https://github.com/liberationfonts/liberation-fonts',
-    note: 'Liberation Sans, Serif and Mono (public/fonts), embedded in PDF/A exports in place of Helvetica, Times and Courier.',
+    note: 'Liberation Sans, Serif and Mono (public/fonts), embedded in PDF/A exports in place of Helvetica, Times and Courier, and in PDFs converted from CAD drawings in place of their fonts.',
     file: 'liberation-fonts.txt',
   },
   {
@@ -67,6 +67,14 @@ const BUNDLED = [
     homepage: 'https://nodejs.org',
     note: 'The packaged local assistant runs on this Node.js binary (resources/assistant/node.exe on Windows, node on macOS and Linux). The Electron RunAsNode fuse is off, so the app executable cannot run the assistant. The binary also includes other software; the complete licence from that Node.js distribution is shipped beside it as LICENSE-node.txt. The MIT licence for Node.js itself follows.',
     file: 'node.txt',
+  },
+  {
+    name: 'ACadSharp',
+    version: '3.8.35 (d9f3de8)',
+    licence: 'MIT',
+    homepage: 'https://github.com/DomCR/ACadSharp',
+    note: 'The DWG reader in apps/web/src/cad/dwg is ported from ACadSharp: its file container, bit-stream, LZ77 and object reading follow ACadSharp’s, rewritten in TypeScript.',
+    file: 'acadsharp.txt',
   },
 ];
 

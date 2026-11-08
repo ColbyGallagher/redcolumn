@@ -85,6 +85,8 @@ import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
 import { TextSelectionBar } from './components/TextSelectionBar';
+import { RecoveredMarkupsBar } from './components/RecoveredMarkupsBar';
+import { planDiscard } from './documents/discardUnsaved';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -138,6 +140,13 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
+import { pdfNameFor, type CadOptions } from './cad/client';
+import type { CadFile } from './cad/convert';
+import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { convertAsJob, convertFile } from './cad/open';
+import { cadSession, useCadConversion } from './cad/session';
+import { CadConvertDialog } from './components/CadConvertDialog';
+import { CadReportBar } from './components/CadReportBar';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
@@ -217,7 +226,7 @@ interface OpenFile {
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
-const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+const savedState = new WeakMap<MarkupStore, { edits: number; hash: string; undo?: number }>();
 /** File contents an open document's undo history can bring back, kept stored until it closes. */
 const heldContents = new WeakMap<MarkupStore, string[]>();
 function holdFor(store: MarkupStore, hashes: string[]) {
@@ -256,8 +265,13 @@ function stepLabel(revisionNote: string | undefined): string | undefined {
 /** Autosave waits this long after the last change, so a burst of edits is written once. */
 const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
-  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
+  // Later edits are their own undo steps, so Don't Save can undo just those.
+  t.store.checkpoint();
+  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash, undo: t.store.undoHistory().length });
 }
+/** Documents that opened with unsaved markups kept from an earlier session, and those whose bar was answered with Keep. */
+const recoveredOnOpen = new Set<string>();
+const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
@@ -266,8 +280,10 @@ function hasUnsavedChanges(t: OpenFile) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
     else
     // Document Recovery: changes kept from an earlier session that never reached the file.
-    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
-    else markSaved(t);
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) {
+      savedState.set(t.store, { edits: -1, hash: t.file.hash });
+      recoveredOnOpen.add(t.file.id);
+    } else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
@@ -904,6 +920,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   /** A passing confirmation (e.g. how many pages were labelled); clears itself. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** Convert Again for the PDF converted from a drawing with this id; and whether it is running. */
+  const [cadAgain, setCadAgain] = useState<string | null>(null);
+  const [cadBusy, setCadBusy] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 5000);
@@ -1876,32 +1895,59 @@ export function App() {
     async (f: File | File[], target: Pane = 'a') => {
       for (const file of Array.isArray(f) ? f : [f]) {
         try {
-          // Pictures open as one-page PDFs at their real size.
-          const image = isImageFile(file);
-          const raw = image ? null : await file.arrayBuffer();
-          const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
-          const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+          // Pictures open as one-page PDFs at their real size; DWG/DXF drawings as vector PDFs.
+          const cad = isCadFile(file);
+          const image = !cad && isImageFile(file);
+          const conversion = cad ? await convertFile(file) : null;
+          const raw = image || cad ? null : await file.arrayBuffer();
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // A document moved from another window with no file of its own has nowhere to save back to.
           const moved = movedFiles.get(file);
           const source = moved && !moved.hasFile ? undefined : handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const hostId = hostDocumentId(tokenOf(source));
+          const hostId = cad ? null : hostDocumentId(tokenOf(source));
           let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
           // An embedding application's document, opened again with other contents (saved over
           // since, say): they come in as a change to it, so its markups and open tab follow.
           if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
-          // Save writes back over the file it came from, except pictures and protected PDFs
-          // (which are kept unprotected here and must not replace the original).
+          // Save writes back over the file it came from, except pictures, drawings and protected
+          // PDFs (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           if (moved?.dirty) movedDirty.add(stored.id);
           await openStored(stored, bytes, target);
+          if (conversion) cadSession.set(stored.id, conversion);
         } catch (err) {
+          if (isAbort(err)) continue;
           setError(err instanceof Error ? err.message : String(err));
         }
       }
       void refreshLibrary();
     },
     [openStored, refreshLibrary, unlockBytes],
+  );
+
+  /** Converts the drawing behind a converted PDF again (other pages, line options or reference files), opening the result as a new PDF. */
+  const convertAgain = useCallback(
+    async (fileId: string, options: CadOptions, references: CadFile[]) => {
+      const entry = cadSession.get(fileId);
+      if (!entry) return;
+      setCadBusy(true);
+      try {
+        const conversion = await convertAsJob(entry.conversion.source, options, references);
+        settings.set({ cadColorMode: options.colorMode ?? 'auto', cadLineweights: options.lineweights ?? true });
+        const stored = await saveFile(pdfNameFor(entry.conversion.source.name), conversion.pdf.slice(0));
+        await openStored(stored, conversion.pdf, split && activePaneRef.current === 'b' ? 'b' : 'a');
+        cadSession.set(stored.id, conversion);
+        setCadAgain(null);
+        void refreshLibrary();
+      } catch (err) {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCadBusy(false);
+      }
+    },
+    [openStored, refreshLibrary, split],
   );
 
   /** The system Open dialog where the browser has one (so Save can write back to the file), else the file input. */
@@ -1950,7 +1996,7 @@ export function App() {
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
-            parts.push(isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
+            parts.push(isCadFile(src.file) ? (await convertFile(src.file)).pdf : isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
           }
         }
         const [first, ...rest] = parts;
@@ -4101,6 +4147,24 @@ export function App() {
   );
 
   /**
+   * Puts a document's markups back to what its file holds: undoes what was done since it matched
+   * the file, or, when that is not known (changes kept from an earlier session), reads them from the file again.
+   */
+  const discardUnsavedChanges = useCallback(async (t: OpenFile) => {
+    const plan = planDiscard(savedState.get(t.store), t.store.undoHistory().length);
+    if (plan.kind === 'undo') t.store.undoSteps(plan.steps);
+    else if (!linkOf(t.file.id)) {
+      const found = await readPdfAnnotations(await readFile(t.file.hash), t.store);
+      t.store.resetMarkups([]);
+      t.store.importAnnotations(found.markups, found.links, found.imported, found.extras);
+    }
+    markSaved(t);
+    recoveredOnOpen.delete(t.file.id);
+    rememberUnsaved(new Map([[t.file.id, false]]));
+    setSavedTick((n) => n + 1);
+  }, []);
+
+  /**
    * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
    * false on Cancel or when the save does not happen; true when the document can go.
    */
@@ -4112,18 +4176,14 @@ export function App() {
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
       if (choice === 'discard') {
-        // Without Document Recovery, changes that are not saved are not kept either.
-        if (!settings.get().documentRecovery) {
-          t.store.undoSteps(t.store.undoHistory().length);
-          markSaved(t);
-          rememberUnsaved(new Map([[fileId, false]]));
-        }
+        // Don't Save always means it: Document Recovery is for crashes, not for changes the person turned down.
+        await discardUnsavedChanges(t);
         return true;
       }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
-    [saveDocument],
+    [saveDocument, discardUnsavedChanges],
   );
 
   /**
@@ -5537,6 +5597,8 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** The drawing the active PDF was converted from in this visit, if any. */
+  const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
   const scaleRows = useMemo(
@@ -5580,7 +5642,7 @@ export function App() {
     if (!open || !files.length) return;
     try {
       const sources: ArrayBuffer[] = [];
-      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      for (const file of files) sources.push(isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
       const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
       // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
@@ -7944,6 +8006,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    convertDrawingAgain: () => {
+      if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
+    },
     split: () => {
       setSplitHorizontal(false);
       startSplit();
@@ -8484,6 +8549,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
@@ -9282,7 +9348,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={openFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9294,20 +9360,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={insertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file || !open) return;
           const at = (v?.currentPageIndex ?? pageIndex) + 1;
-          void applyPageOps([{ type: 'insert', source: 0, at }], [isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
+          void applyPageOps([{ type: 'insert', source: 0, at }], [isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
         }}
       />
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9468,6 +9534,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
+                  <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />
+                )}
                 {ctl && open && toolsStateA.textSelection && (
                   <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
                 )}
@@ -9483,6 +9552,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && <CadReportBar fileId={open.file.id} onConvertAgain={() => setCadAgain(open.file.id)} />}
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
@@ -9558,6 +9628,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
+                      <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
+                    )}
+                    {openB && <CadReportBar fileId={openB.file.id} onConvertAgain={() => setCadAgain(openB.file.id)} />}
                     {ctlB && openB && toolsStateB.textSelection && (
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
@@ -9893,6 +9967,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {cadAgain && cadSession.get(cadAgain) && (
+        <CadConvertDialog
+          conversion={cadSession.get(cadAgain)!.conversion}
+          busy={cadBusy}
+          onCancel={() => setCadAgain(null)}
+          onConvert={(options, references) => void convertAgain(cadAgain, options, references)}
         />
       )}
       {bulkInsertFiles && (
