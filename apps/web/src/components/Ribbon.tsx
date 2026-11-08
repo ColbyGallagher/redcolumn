@@ -129,6 +129,7 @@ const ICONS: Record<string, ReactNode> = {
   'tools.forms': ic('M3 1.5h10v13H3zM5 5h6M5 8h6M5 11h3'),
   'document.scaleRegions': MENU_ICONS.scale,
   'document.scaleReview': MENU_ICONS.scale,
+  'draw.arc': ic('M2 13.5C3 6 9 3 14 3.5', <><circle cx="2" cy="13.5" r="1.3" /><circle cx="6" cy="6.3" r="1.3" /><circle cx="14" cy="3.5" r="1.3" /></>),
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
@@ -660,6 +661,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="tool.cutout" />
                 <Cmd id="tools.nextMeasure" />
+                <Cmd id="draw.arc" />
               </Stack>
             </Group>
             <Group label="Estimating">

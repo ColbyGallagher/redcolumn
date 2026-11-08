@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
-import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
+import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
 import { SnapIndex } from './snap.ts';
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
@@ -205,6 +205,24 @@ test('arc segments: lengths and areas are exact, both ways round', () => {
   // Measurements use the arcs.
   assert.ok(Math.abs(measureValue('area', ccw, 1, { bulges: out }) - (4 + Math.PI / 2)) < 1e-9);
   assert.ok(Math.abs(measureValue('polylength', [[0, 0], [2, 0]], 1, { bulges: [1] }) - Math.PI) < 1e-9);
+});
+
+test('a 3-point arc bulge goes through its point exactly, wherever it is on the arc', () => {
+  // The middle of the arc agrees with the sagitta estimate.
+  assert.ok(Math.abs(bulgeThroughPoint([0, 0], [2, 0], [1, -1]) - bulgeThrough([0, 0], [2, 0], [1, -1])) < 1e-12);
+  // 120° of a circle of radius 5 about the origin, through a point a quarter of the way along.
+  const at = (deg: number): [number, number] => [5 * Math.cos((deg * Math.PI) / 180), 5 * Math.sin((deg * Math.PI) / 180)];
+  for (const via of [10, 30, 60, 100]) {
+    const b = bulgeThroughPoint(at(0), at(120), at(via));
+    assert.ok(Math.abs(Math.abs(b) - Math.tan(Math.PI / 6)) < 1e-12, `${via}: ${b}`);
+    assert.ok(Math.abs(pathLengthArcs([at(0), at(120)], [b]) - (5 * 2 * Math.PI) / 3) < 1e-9);
+    for (const [x, y] of arcPoints(at(0), at(120), b, 24)) assert.ok(Math.abs(Math.hypot(x, y) - 5) < 1e-9);
+  }
+  // The long way round: 240° through a point on the far side.
+  assert.ok(Math.abs(Math.abs(bulgeThroughPoint(at(0), at(120), at(200))) - Math.tan(Math.PI / 3)) < 1e-12);
+  // In a line: straight.
+  assert.equal(bulgeThroughPoint([0, 0], [2, 0], [1, 0]), 0);
+  assert.equal(bulgeThroughPoint([0, 0], [2, 0], [0, 0]), 0);
 });
 
 test('a bulge from a point on the arc; the arc drawn through it', () => {

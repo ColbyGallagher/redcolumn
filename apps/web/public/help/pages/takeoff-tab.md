@@ -12,7 +12,11 @@ The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place
 
 ## Measure
 
-**Length**, **Polylength**, **Area** and **Count** are the tools used most. **Cutout** cuts a hole in the selected area ([Cut a hole out of an area](#cutouts)); it is greyed out until one area or volume is selected. **Next Measure** steps to the next measure tool in toolbar order.
+**Length**, **Polylength**, **Area** and **Count** are the tools used most. **Cutout** cuts a hole in the selected area ([Cut a hole out of an area](#cutouts)); it is greyed out until one area or volume is selected. **Next Measure** steps to the next measure tool in toolbar order. **Arc (3-point)** ([[Shift+B]]) makes the next section of a polylength, area, perimeter or volume an arc; it is greyed out until one of those tools is active.
+
+### Tracing curves
+
+While drawing a polylength or area, press **Arc (3-point)**, click a point on the curve, then click the arc's end: the section follows the circle through the three points, and drawing goes back to straight sections. For a bend by eye, hold [[Ctrl]] instead and drag away from the corner you are placing. See [Polylength](#measure-polylength) and [Area](#measure-area) for both.
 
 ## Estimating
 

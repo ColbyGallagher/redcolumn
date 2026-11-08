@@ -7032,7 +7032,11 @@ export function App() {
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
     const geo = geoAt(o.store.allGeoRegions(), page, pt);
+    // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
+    const arcOn = c.tools.getState().arc !== 'off';
+    const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: 'Arc (3-point)', shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
     return [
+      ...arcEntry,
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
       { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
       { label: 'Measure', disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
@@ -8286,6 +8290,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    toggleArc: () => activeTools?.toggleArc(),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8706,6 +8711,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
     canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
     cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups),
+    canArc: !activeReadOnly && !!activeTools?.canArc(),
+    arcArmed: toolsState.arc !== 'off',
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
@@ -10010,6 +10017,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
         tool={toolsState.tool}
+        arc={toolsState.arc}
         onSelectTool={() => activeTools?.setTool('select')}
         onOpenSettings={(category, tab) => {
           setPrefsCategory({ category, tab });

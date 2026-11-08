@@ -4,7 +4,7 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { METERS_PER_UNIT, measureValue, pathLengthArcs } from '@nb/measure';
+import { METERS_PER_UNIT, measureValue, pathLengthArcs, polygonAreaArcs } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
@@ -1709,6 +1709,158 @@ test('an area curves a segment with Ctrl+drag and leaves the closing segment str
   assert.equal(m.points.length, 3);
   assert.ok(m.bulges![0] !== 0);
   assert.equal(m.bulges!.slice(1).every((b) => b === 0), true);
+});
+
+// Arc (3-point): armed, the next click is a point on the curve and the one after it the arc's end.
+const onCircle = (c: Point, r: number, degrees: number): Point => [c[0] + r * Math.cos((degrees * Math.PI) / 180), c[1] + r * Math.sin((degrees * Math.PI) / 180)];
+
+test('a 3-point arc through three points on a circle measures θ·r, and drawing goes straight again', async () => {
+  const h = await polylengthHarness();
+  const c: Point = [300, 400];
+  const r = 100;
+  click(h.tools, onCircle(c, r, 0));
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  // Any point along the arc will do, not only its middle.
+  click(h.tools, onCircle(c, r, 40));
+  assert.equal(h.tools.getState().arc, 'awaitEnd');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 1, 'the point on the curve is not a vertex');
+  click(h.tools, onCircle(c, r, 120));
+  assert.equal(h.tools.getState().arc, 'off', 'one arc per toggle');
+  const end = onCircle(c, r, 120);
+  click(h.tools, [end[0] - 100, end[1]]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 3);
+  assert.equal(m.bulges!.length, 2);
+  assert.equal(m.bulges![1], 0, 'the click after the arc is straight');
+  const arc = pathLengthArcs(m.points.slice(0, 2), m.bulges!.slice(0, 1));
+  const expected = ((2 * Math.PI) / 3) * r;
+  assert.ok(Math.abs(arc - expected) / expected < 1e-6, `${arc} vs ${expected}`);
+  assert.ok(Math.abs(pathLengthArcs(m.points, m.bulges) - (expected + 100)) / (expected + 100) < 1e-6);
+});
+
+test('a 3-point arc armed before the first vertex bends the segment after it', async () => {
+  const h = await polylengthHarness();
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  click(h.tools, [100, 300]);
+  assert.equal(h.tools.getState().arc, 'awaitMid', 'the first click is the arc start');
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 2);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, 'a half circle');
+});
+
+test('an area with one 3-point arc edge has the polygon area plus the circular segment', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  click(h.tools, [100, 100]);
+  click(h.tools, [300, 100]);
+  h.tools.toggleArc();
+  // The right side bulges out in a half circle of radius 100 about (300, 200).
+  click(h.tools, [400, 200]);
+  click(h.tools, [300, 300]);
+  click(h.tools, [100, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.filter(Boolean).length, 1);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  const area = polygonAreaArcs(m.points, m.bulges);
+  assert.ok(Math.abs(area - expected) / expected < 1e-6, `${area} vs ${expected}`);
+});
+
+test('a 3-point arc ended on the first vertex closes the area along the arc', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  for (const p of [[100, 100], [300, 100], [300, 300], [100, 300]] as Point[]) click(h.tools, p);
+  h.tools.toggleArc();
+  // The left side bulges out in a half circle about (100, 200), and the end click closes the shape.
+  click(h.tools, [0, 200]);
+  click(h.tools, [100, 100]);
+  assert.equal(h.tools.getState().measuring, false, 'the closing click finished it');
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.length, 4, 'the closing segment has a bulge');
+  assert.ok(Math.abs(Math.abs(m.bulges![3]!) - 1) < 1e-9);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  assert.ok(Math.abs(polygonAreaArcs(m.points, m.bulges) - expected) / expected < 1e-6);
+});
+
+test('Escape drops a pending 3-point arc and drawing carries on', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().measuring, true, 'still drawing');
+  click(h.tools, [200, 300]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().measuring, false, 'a second Escape drops the drawing as before');
+  assert.equal(h.store.all().length, 0);
+  // Escape with the arc armed before any vertex disarms it, keeping the tool.
+  h.tools.toggleArc();
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().tool, 'polylength');
+});
+
+test('Backspace drops a pending 3-point arc first, then removes points and their bulges', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [250, 350]);
+  h.tools.removeLastPoint();
+  assert.equal(h.tools.getState().arc, 'off');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 2, 'only the pending arc went');
+  h.tools.removeLastPoint();
+  assert.equal(g.markup.points.length, 1);
+  assert.equal(g.markup.bulges, undefined, 'the arc went with its point');
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+});
+
+test('a 3-point arc through nearly collinear points is straight, and only curving measurements arm one', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 300.2]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+  h.tools.setTool('line');
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.canArc(), false);
+});
+
+test('Ctrl+drag still curves a segment alongside a 3-point arc', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [100, 250]);
+  click(h.tools, [150, 300]);
+  drag(h.tools, [250, 300], [200, 350], { ctrlKey: true });
+  click(h.tools, [350, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 4);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, '3-point arc');
+  assert.ok(Math.abs(Math.abs(m.bulges![1]!) - 1) < 1e-9, 'Ctrl+drag');
+  assert.equal(m.bulges![2], 0);
+  // Half circles of radius 2.5 m each, then 5 m.
+  const metres = measureValue('polylength', m.points, 0.05, { bulges: m.bulges });
+  assert.ok(Math.abs(metres - (2 * Math.PI * 2.5 + 5)) < 1e-6, `${metres}`);
 });
 
 test('selected measurements: Ctrl-click smooths then corners a vertex; the ends of a path are left alone', async () => {
