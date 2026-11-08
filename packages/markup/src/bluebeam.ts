@@ -309,8 +309,15 @@ export function scaleFromMeasure(measure: PdfDictValue | null): Scale | null {
   const areaUnit = powerUnitOf(areaName);
   const volumeUnit = powerUnitOf(volumeName);
   const angleD = num(dict(arr(measure.T)[0])?.D);
+  // /Y is the scale up the page when it is not /X's (absent: Y follows X).
+  const fy = dict(arr(measure.Y)[0]);
+  const yUnit = unitOf(str(fy?.U));
+  const yc = num(fy?.C);
+  const xMetersPerPoint = c * METERS_PER_UNIT[unit];
+  const yMetersPerPoint = fy && yUnit && yc && yc > 0 ? yc * METERS_PER_UNIT[yUnit] : null;
   return {
-    metersPerPoint: c * METERS_PER_UNIT[unit],
+    metersPerPoint: xMetersPerPoint,
+    ...(yMetersPerPoint && Math.abs(yMetersPerPoint / xMetersPerPoint - 1) > 1e-9 ? { yMetersPerPoint } : {}),
     unit,
     ...(areaUnit && areaUnit !== unit ? { areaUnit } : {}),
     ...(volumeUnit && volumeUnit !== (areaUnit ?? unit) ? { volumeUnit } : {}),

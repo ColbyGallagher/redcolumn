@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
-import { FILL_TYPES, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
+import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
 import { FontPicker } from './FontPicker';
@@ -15,6 +15,8 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
+import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
+import { saveToolBack } from '../toolchest/saveBack';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -228,7 +230,13 @@ export interface ToolBarProps {
   cloudBubble: { value: number | undefined } | null;
   /** Draw to Scale: the selected shape whose sizes the toolbar edits. */
   geometry: { markup: Markup; scale: Scale; store: MarkupStore; readOnly: boolean } | null;
+  /** The selected markups (select mode, two or more), whose shared style the Format tab edits together. */
+  selection?: { markups: readonly Markup[]; store: MarkupStore } | null;
   enabled: boolean;
+  /** The document's markup layers, offered by the Layer field. */
+  layerNames?: readonly string[];
+  /** Asks for a new layer's name (the Layer field's "New layer…"). */
+  askLayer?: () => Promise<string | null>;
   /** Tools the active profile shows (null: all). */
   visibleTools: readonly Tool[] | null;
   /** Name filled into a stamp preview's {User} field. */
@@ -249,7 +257,7 @@ export function toolTitle(tool: Tool) {
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
 
-export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo, toolbarMenu }: ToolBarProps) {
+export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, selection, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo, toolbarMenu }: ToolBarProps) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const toolsPick = (tool: Tool) => tools.setTool(tool);
   return (
@@ -286,7 +294,7 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
             ))}
         </Fragment>
       ))}
-      <StyleControls tools={tools} state={state} styleType={styleType} textType={textType} textMarkupStyle={textMarkupStyle} markups={markups} selectedStyle={selectedStyle} cloudBubble={cloudBubble} geometry={geometry} enabled={enabled} />
+      <StyleControls tools={tools} state={state} styleType={styleType} textType={textType} textMarkupStyle={textMarkupStyle} markups={markups} selectedStyle={selectedStyle} cloudBubble={cloudBubble} geometry={geometry} selection={selection} enabled={enabled} />
       <span className="sep" />
       <button className="btn" disabled={!enabled} onClick={onUndo} title="Undo (Ctrl+Z)">
         ↶
@@ -307,16 +315,36 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
   );
 }
 
-export type StyleControlsProps = Pick<ToolBarProps, 'tools' | 'state' | 'styleType' | 'textType' | 'textMarkupStyle' | 'markups' | 'selectedStyle' | 'cloudBubble' | 'geometry' | 'enabled'>;
+export type StyleControlsProps = Pick<ToolBarProps, 'tools' | 'state' | 'styleType' | 'textType' | 'textMarkupStyle' | 'markups' | 'selectedStyle' | 'cloudBubble' | 'geometry' | 'selection' | 'enabled'>;
 
 /**
  * The style of what is being drawn or what is selected (colour, fill, width, line, opacity, hatch,
  * arrows, bubbles, font): shown after the tools on the simplified toolbar, and in the ribbon's
  * contextual Markup Format tab.
  */
-export function StyleControls({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, enabled }: StyleControlsProps) {
-  const style = styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
-  const textStyle = textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
+export function StyleControls({ tools, state, styleType: toolStyleType, textType: toolTextType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, selection, enabled }: StyleControlsProps) {
+  // Two or more markups selected: the controls show what they share and edit them together. Of mixed
+  // types, only the fields every type has; where their values differ a field reads "Mixed".
+  const sel = selection && selection.markups.length > 1 ? selection : null;
+  const selTypes = sel ? new Set(sel.markups.map((m) => m.type)) : null;
+  const mixedTypes = !!sel && selTypes!.size > 1;
+  const styleType = toolStyleType ?? (mixedTypes ? sel!.markups[0]!.type : null);
+  const caps = mixedTypes ? commonCapabilities(selTypes!) : styleType ? styleCapabilities(styleType) : null;
+  const style = mixedTypes ? sel!.markups[0]!.style : styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
+  const textType = mixedTypes ? (caps!.font ? styleType : null) : toolTextType;
+  const textStyle = mixedTypes ? style : textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
+  const textCaps = textType ? (mixedTypes ? caps : styleCapabilities(textType)) : null;
+  const mixedOf = <K extends keyof MarkupStyle>(key: K, resolve?: (v: MarkupStyle[K]) => unknown) => !!sel && styleMixed(sel.markups, key, resolve);
+  const mixedDash = mixedOf('dash', (v) => v ?? 'solid') || mixedOf('dashArray') || mixedOf('lineStyle');
+  // One edit to the whole selection is one undo step.
+  const apply = (type: MarkupType, patch: Partial<MarkupStyle>) => {
+    // A field commits on Enter and again on blur: the repeat changes nothing and must not make a second undo step.
+    if (sel && sel.markups.every((m) => { const cur = sel.store.get(m.id)?.style ?? m.style; return (Object.keys(patch) as (keyof MarkupStyle)[]).every((k) => JSON.stringify(cur[k] ?? null) === JSON.stringify(patch[k] ?? null)); })) return;
+    if (mixedTypes) {
+      sel!.store.checkpoint();
+      tools.applyStyle(sel!.markups.map((m) => m.id), patch);
+    } else tools.setStyle(type, patch);
+  };
   return (
     <>
       {state.tool === 'dynamicFill' && (
@@ -346,7 +374,8 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             title="Line color: the outline of the shape, or the line itself"
             icon={STYLE_ICONS.line}
             value={style.stroke}
-            onChange={(c) => c && tools.setStyle(styleType, { stroke: c })}
+            mixed={mixedOf('stroke')}
+            onChange={(c) => c && apply(styleType, { stroke: c })}
           />
           <ColorMenu
             label="Fill color"
@@ -354,45 +383,62 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             title="Fill color: the inside of the shape"
             icon={STYLE_ICONS.fill}
             value={style.fill ?? null}
+            mixed={mixedOf('fill', (v) => v ?? null)}
             noneLabel="No fill"
-            disabled={!styleCapabilities(styleType).fill}
-            onChange={(c) => tools.setStyle(styleType, { fill: c })}
+            disabled={!caps!.fill}
+            onChange={(c) => apply(styleType, { fill: c })}
           />
           {/* A text box drawn without its border has no outline to give a width to. */}
-          {!(styleType === 'text' && (style.noBox || style.borderless)) && (
+          {!(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
             <label className="field" title="Line width">
               <FieldTag icon={STYLE_ICONS.width} label="Width" />
               <ComboField
                 title="Line width"
-                value={style.width}
+                value={mixedOf('width') ? undefined : style.width}
+                placeholder={mixedOf('width') ? 'Mixed' : undefined}
                 options={styleType === 'highlighter' ? HIGHLIGHT_WIDTHS : WIDTHS}
                 min={0}
                 max={200}
                 unit="pt"
-                onChange={(w) => tools.setStyle(styleType, { width: w })}
+                onChange={(w) => apply(styleType, { width: w })}
               />
             </label>
           )}
-          {styleCapabilities(styleType).dash && (
+          {caps!.dash && (
             <label className="field" title="Line style">
               <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
-              <LineStyleSelect style={style} markups={markups} onChange={(patch) => tools.setStyle(styleType, patch)} />
+              <LineStyleSelect style={style} mixed={mixedDash} markups={markups} onChange={(patch) => apply(styleType, patch)} />
             </label>
           )}
           <label className="field" title="Opacity">
             <FieldTag icon={STYLE_ICONS.opacity} label="Opacity" />
-            <ComboField title="Opacity" value={Math.round(style.opacity * 100)} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => tools.setStyle(styleType, { opacity: o / 100 })} />
+            <ComboField title="Opacity" value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? 'Mixed' : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
           </label>
-          {styleCapabilities(styleType).hatch && <HatchMenu style={style} disabled={!enabled} onChange={(patch) => tools.setStyle(styleType, patch)} />}
+          {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
+            <label className="field" title="Opacity of the fill alone">
+              <FieldTag icon={STYLE_ICONS.fill} label="Fill opacity" />
+              <ComboField
+                title="Fill opacity"
+                value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
+                placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? 'Mixed' : undefined}
+                options={[100, 80, 60, 40, 20]}
+                min={1}
+                max={100}
+                unit="%"
+                onChange={(o) => apply(styleType, { fillOpacity: o / 100 })}
+              />
+            </label>
+          )}
+          {caps!.hatch && <HatchMenu mixed={mixedOf('hatch')} style={style} disabled={!enabled} onChange={(patch) => apply(styleType, patch)} />}
         </>
       )}
-      {style && styleType && (styleType === 'length' || styleType === 'polylength') && (
+      {style && styleType && !mixedTypes && (styleType === 'length' || styleType === 'polylength') && (
         <>
           <label className="field" title="Arrowheads on the ends of the line">
             Arrows
             <select
               value={lineEnds({ type: styleType, style })[1]}
-              onChange={(e) => tools.setStyle(styleType, { startCap: e.target.value as LineEnding, endCap: e.target.value as LineEnding })}
+              onChange={(e) => apply(styleType, { startCap: e.target.value as LineEnding, endCap: e.target.value as LineEnding })}
             >
               {ARROW_CHOICES.map((c) => (
                 <option key={c.value} value={c.value}>
@@ -404,7 +450,7 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           </label>
           {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
             <label className="field">
-              <ComboField title="Arrow size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => tools.setStyle(styleType, { capScale: v / 100 })} />
+              <ComboField title="Arrow size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => apply(styleType, { capScale: v / 100 })} />
             </label>
           )}
         </>
@@ -415,23 +461,23 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
           <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
         </label>
       )}
-      {textStyle && (textType === 'text' || textType === 'callout') && (
+      {textStyle && !mixedTypes && (textType === 'text' || textType === 'callout') && (
         <label className="field" title="Draw an outline around the text box (its fill draws either way)">
           <input
             type="checkbox"
             checked={!textStyle.noBox && !textStyle.borderless}
-            onChange={(e) => tools.setStyle(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+            onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
           />
           Border
         </label>
       )}
-      {textStyle && textType && styleCapabilities(textType).font && (
+      {textStyle && textType && textCaps!.font && (
         <div className="field" title="Font">
           <FieldTag icon={STYLE_ICONS.font} label="Font" />
-          <FontPicker className="font-family" value={textStyle.fontFamily} onChange={(family) => tools.setStyle(textType, { fontFamily: family as FontFamily })} />
+          <FontPicker className="font-family" value={textStyle.fontFamily} mixed={!!mixedOf('fontFamily', (v) => v ?? 'sans')} onChange={(family) => apply(textType, { fontFamily: family as FontFamily })} />
         </div>
       )}
-      {textStyle && textType && styleCapabilities(textType).font && (
+      {textStyle && textType && textCaps!.font && (
         <label className="field" title="Font size (pt)">
           <FieldTag icon={STYLE_ICONS.fontSize} label="Size" />
           <input
@@ -439,36 +485,36 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
             type="number"
             min={4}
             max={144}
-            value={textStyle.fontSize ?? ''}
-            placeholder="Auto"
-            onChange={(e) => Number(e.target.value) > 0 && tools.setStyle(textType, { fontSize: Number(e.target.value) })}
+            value={mixedOf('fontSize') ? '' : (textStyle.fontSize ?? '')}
+            placeholder={mixedOf('fontSize') ? 'Mixed' : 'Auto'}
+            onChange={(e) => Number(e.target.value) > 0 && apply(textType, { fontSize: Number(e.target.value) })}
           />
           pt
         </label>
       )}
-      {textStyle && textType && styleCapabilities(textType).font && (
+      {textStyle && textType && textCaps!.font && (
         <span className="seg" role="group" aria-label="Text style">
-          <FormatToggle on={!!textStyle.bold} label="B" title="Bold" className="b" onChange={(v) => tools.setStyle(textType, { bold: v })} />
-          <FormatToggle on={!!textStyle.italic} label="I" title="Italic" className="i" onChange={(v) => tools.setStyle(textType, { italic: v || undefined })} />
-          <FormatToggle on={!!textStyle.underline} label="U" title="Underline" className="u" onChange={(v) => tools.setStyle(textType, { underline: v || undefined })} />
-          <FormatToggle on={!!textStyle.strikethrough} label="S" title="Strikethrough" className="s" onChange={(v) => tools.setStyle(textType, { strikethrough: v || undefined })} />
+          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} label="B" title="Bold" className="b" onChange={(v) => apply(textType, { bold: v })} />
+          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} label="I" title="Italic" className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
+          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} label="U" title="Underline" className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
+          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} label="S" title="Strikethrough" className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
         </span>
       )}
-      {textStyle && textType && styleCapabilities(textType).font && styleCapabilities(textType).textLayout && (
+      {textStyle && textType && textCaps!.font && textCaps!.textLayout && (
         <>
           <span className="seg" role="group" aria-label="Text alignment">
             {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} className="" onChange={() => tools.setStyle(textType, { textAlign: a === 'left' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
             ))}
           </span>
           <span className="seg" role="group" aria-label="Vertical alignment">
             {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={`Align ${a}`} className="" onChange={() => tools.setStyle(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={`Align ${a}`} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
             ))}
           </span>
           <label className="field" title="Line spacing">
             Spacing
-            <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => tools.setStyle(textType, { lineHeight: v })} />
+            <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
           </label>
         </>
       )}
@@ -476,9 +522,120 @@ export function StyleControls({ tools, state, styleType, textType, textMarkupSty
   );
 }
 
-function FormatToggle({ on, label, title, className, onChange }: { on: boolean; label: string; title: string; className: string; onChange: (on: boolean) => void }) {
+const NEW_LAYER = '\u0000new-layer';
+const MIXED = '\u0000mixed';
+
+export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer'>;
+
+/**
+ * Subject, Label and Layer in the Markup Format tab. With markups selected they edit those markups
+ * (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they edit what
+ * the tool gives the markups it places next, and the command carries on. A Tool Chest tool can be saved back.
+ */
+export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer }: MarkupFieldsProps) {
+  const sel = selection && selection.markups.length > 0 ? selection : null;
+  const drawing = !sel && (isMarkupTool(state.tool) || state.tool === 'cloudPlus');
+  const preset = state.preset;
+  const ws = useWorkspace();
+  const item = preset?.id ? ws.toolChests.flatMap((t) => t.items).find((i) => i.id === preset.id) : undefined;
+  if (!sel && !drawing) return null;
+  const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer };
+  const edits = state.toolFields ?? {};
+  const shown = (f: IdentityField): { value: string; mixed: boolean } => (sel ? sharedIdentity(sel.markups, f) : { value: toolIdentity(base, edits, f), mixed: false });
+  const commit = (f: IdentityField, value: string) => {
+    if (!enabled) return;
+    if (!sel) {
+      if (value !== toolIdentity(base, edits, f)) tools.setToolFields({ [f]: value });
+      return;
+    }
+    const targets = sel.markups.map((m) => sel.store.get(m.id) ?? m).filter((m) => !m.locked && sel.store.mayEdit(m));
+    // A field commits on Enter and again on blur: the repeat changes nothing and must not make a second undo step.
+    const next = f === 'layer' ? value : value.trim();
+    if (!targets.length || targets.every((m) => identityOf(m, f) === next)) return;
+    sel.store.checkpoint();
+    sel.store.batch(() => {
+      for (const m of targets) sel.store.update(m.id, identityPatch(m, f, value));
+    });
+  };
+  const idKey = sel ? sel.markups.map((m) => m.id).join(',') : `tool:${state.tool}`;
+  const subject = shown('subject');
+  const label = shown('label');
+  const layer = shown('layer');
+  const layers = [...new Set([...layerNames, ...(layer.value ? [layer.value] : [])])].sort((a, b) => a.localeCompare(b));
+  const text = (f: IdentityField, title: string, name: string, current: { value: string; mixed: boolean }, list?: string) => (
+    <label className="field" title={title}>
+      {name}
+      <input
+        key={`${idKey}:${f}:${current.mixed ? 'mixed' : current.value}`}
+        className="ident"
+        type="text"
+        list={list}
+        aria-label={name}
+        defaultValue={current.value}
+        placeholder={current.mixed ? 'Mixed' : undefined}
+        disabled={!enabled}
+        onBlur={(e) => commit(f, e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+      />
+    </label>
+  );
   return (
-    <button type="button" className={`seg-btn ${className}${on ? ' active' : ''}`} title={title} aria-label={title} aria-pressed={on} onClick={() => onChange(!on)}>
+    <>
+      {text('subject', sel ? 'Subject of the selected markups' : 'Subject the next markups from this tool get', 'Subject', subject, 'ident-subjects')}
+      <datalist id="ident-subjects">
+        {distinctIdentities(markups, 'subject').map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      {text('label', sel ? 'Label (category) of the selected markups' : 'Label (category) the next markups from this tool get', 'Label', label)}
+      <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
+        Layer
+        <select
+          className="ident"
+          aria-label="Layer"
+          value={layer.mixed ? MIXED : layer.value}
+          disabled={!enabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === NEW_LAYER) void askLayer?.().then((name) => name && commit('layer', name.trim()));
+            else commit('layer', v);
+          }}
+        >
+          {layer.mixed && (
+            <option value={MIXED} disabled hidden>
+              Mixed
+            </option>
+          )}
+          <option value="">No layer</option>
+          {layers.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+          {askLayer && <option value={NEW_LAYER}>New layer…</option>}
+        </select>
+      </label>
+      {drawing && item && (
+        <button
+          type="button"
+          className="btn"
+          title="Save this subject, label, layer and style back to the Tool Chest tool"
+          disabled={!enabled}
+          onClick={() => saveToolBack(item.id, { fields: edits, ...(preset?.style ? { style: preset.style } : {}) })}
+        >
+          Save to Tool Chest
+        </button>
+      )}
+    </>
+  );
+}
+
+/** A toggle button; `mixed` (a selection that is half on) shows it indeterminate, and a click turns it on for all. */
+function FormatToggle({ on, mixed, label, title, className, onChange }: { on: boolean; mixed?: boolean; label: string; title: string; className: string; onChange: (on: boolean) => void }) {
+  return (
+    <button type="button" className={`seg-btn ${className}${mixed ? ' mixed' : on ? ' active' : ''}`} title={title} aria-label={title} aria-pressed={mixed ? 'mixed' : on} onClick={() => onChange(mixed ? true : !on)}>
       {label}
     </button>
   );
@@ -501,7 +658,7 @@ function FieldTag({ icon, label }: { icon: ReactNode; label?: string }) {
 }
 
 /** Hatch pattern, color and scale, behind one toolbar button. */
-function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+function HatchMenu({ style, mixed, disabled, onChange }: { style: MarkupStyle; mixed?: boolean; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -529,7 +686,7 @@ function HatchMenu({ style, disabled, onChange }: { style: MarkupStyle; disabled
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? 'Hatch');
+  const name = mixed ? 'Mixed' : !current ? 'Hatch' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? 'Hatch');
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
     if (value === 'none') onChange({ hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined });
     else onChange({ hatch: value, hatchSpec: spec });

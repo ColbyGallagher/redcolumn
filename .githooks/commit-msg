@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses commit messages that name client identifiers (scripts/check-client-data.mjs).
+exec node scripts/check-client-data.mjs --message "$1"

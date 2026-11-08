@@ -1,13 +1,14 @@
-import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
-import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
+import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
 import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
 import { StampMenu } from './StampsDialog';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -446,8 +447,11 @@ function Stack({ children }: { children: ReactNode }) {
  */
 export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu }: RibbonProps) {
   const [baseTab, setBaseTab] = useState<TabId>(savedTab);
-  // Whether the contextual tab is the one picked; it is never remembered, and gives way when it goes.
-  const [onFormat, setOnFormat] = useState(false);
+  // Whether the contextual tab is the one showing (picked, or switched to by a selection); it is never remembered, and gives way when it goes.
+  const [follow, dispatch] = useReducer(followFormat, FOLLOW_START);
+  const onFormat = follow.onFormat;
+  // A press is under way (a click, a drag, a box being drawn): the selection it makes switches tabs once it ends.
+  const [pressed, setPressed] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
   const [customizing, setCustomizing] = useState(false);
@@ -455,12 +459,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const root = useRef<HTMLDivElement>(null);
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
-  const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry);
+  const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
   const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
   const tab: TabId = onFormat && contextual ? 'format' : baseTab;
 
   const pick = (id: TabId) => {
-    setOnFormat(id === 'format');
+    dispatch({ type: 'pick', format: id === 'format' });
     if (id === 'format') return;
     setBaseTab(id);
     try {
@@ -471,8 +475,31 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   };
 
   useEffect(() => {
-    if (!contextual) setOnFormat(false);
+    if (!contextual) dispatch({ type: 'gone' });
   }, [contextual]);
+
+  // Selecting markups switches to the Markup Format tab, and clearing the selection goes back to the tab before.
+  // Nothing switches while a drawing tool is mid-way or a press is held; it follows when that ends.
+  const { selected, tool, measuring, sketch, cad } = toolbar.state;
+  const selectionKey = [...selected].sort().join(',');
+  const busy = pressed || tool !== 'select' || measuring || !!sketch || !!cad;
+  useEffect(() => {
+    dispatch({ type: 'selection', key: selectionKey, contextual, busy });
+  }, [selectionKey, contextual, busy]);
+  useEffect(() => {
+    const down = () => setPressed(true);
+    const up = () => setPressed(false);
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    window.addEventListener('blur', up);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      window.removeEventListener('blur', up);
+    };
+  }, []);
 
   useEffect(() => {
     if (!collapsed) setDropped(false);
@@ -582,7 +609,18 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'markup':
         return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}</>;
       case 'format':
-        return properties;
+        return (
+          <>
+            {(toolbar.selection?.markups.length || isMarkupTool(toolbar.state.tool) || toolbar.state.tool === 'cloudPlus') && (
+              <Group label="Markup" wide>
+                <div className="rb-props">
+                  <MarkupFields {...toolbar} />
+                </div>
+              </Group>
+            )}
+            {properties}
+          </>
+        );
       case 'measure':
         return (
           <>

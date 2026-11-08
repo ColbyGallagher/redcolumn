@@ -423,7 +423,8 @@ body,
 
 .rb-icon-grid {
   display: grid;
-  grid-template-columns: repeat(3, auto);
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
   gap: 1px;
 }
 
@@ -1304,7 +1305,7 @@ select[size] {
   color: var(--text);
 }
 
-/* Drawing numbers can be long (e.g. HLD1BDD-WSPAU-0508-MS-DRG-100011): number above title. */
+/* Drawing numbers can be long (e.g. KST1RDS-ACMEA-0508-MS-DRG-100011): number above title. */
 .sheets .sheet {
   grid-template-columns: 1fr auto;
   row-gap: 1px;
@@ -5903,6 +5904,70 @@ select[size] {
   margin-top: 2px;
   font-size: 12px;
   text-align: center;
+}
+
+.recovered-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+}
+
+.recovered-text {
+  padding: 0 4px;
+  font-size: 12px;
+}
+
+.search-count-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.search-hit-row {
+  display: flex;
+  align-items: flex-start;
+}
+
+.search-hit-row .search-check {
+  margin: 8px 0 0 10px;
+  flex: none;
+}
+
+.search-hit-row .search-hit {
+  padding-left: 6px;
+}
+
+.count-tool-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--border, currentColor);
+  margin: 0 6px;
+}
+
+/* Format tab with a selection whose markups differ in a field: that field reads as mixed. */
+.color-bar.mixed {
+  background: repeating-linear-gradient(135deg, #9ca3af 0 3px, #e5e7eb 3px 6px);
+}
+
+.seg-btn.mixed {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 /* Font picker: a button that opens a filterable list of fonts, each in its own face. */

@@ -119,7 +119,7 @@ test('a small label just above a line does not capture its words', () => {
 });
 
 test('document-numbered title blocks: labelled field that changes per sheet, repeated text ignored', () => {
-  // Modelled on a TfNSW sheet: title strip along the bottom, project lines and set/status fields
+  // Modelled on a state road agency sheet: title strip along the bottom, project lines and set/status fields
   // repeated on every sheet, a long drawing number under a "DRG No." label, border zone numbers.
   const sheetPage = (n: number, title: string): PageText => ({
     width: 2384,
@@ -132,19 +132,19 @@ test('document-numbered title blocks: labelled field that changes per sheet, rep
       ...phrase(`SHEET: ${n} OF 22 A1`, 2170, 1565, 14),
       ...phrase('STATUS: M381 BRIDGE No: C', 1851, 1583, 14),
       ...phrase('DRG No. REV VER EDMS No. AMD No.', 1852, 1600, 10),
-      word(`HLD1BDD-WSPAU-0508-MS-DRG-1000${String(n).padStart(2, '0')}`, 1852, 1620, 14),
+      word(`KST1RDS-ACMEA-0508-MS-DRG-1000${String(n).padStart(2, '0')}`, 1852, 1620, 14),
       word('D', 2300, 1620, 14),
       ...['7', '8', '9', '10', '11', '12'].map((z, i) => word(z, 1282 + i * 190, 1670, 18)),
-      ...phrase('SEE HLD1BDD-WSPAU-0508-MS-DRG-100081 FOR DETAILS', 300, 700, 8),
+      ...phrase('SEE KST1RDS-ACMEA-0508-MS-DRG-100081 FOR DETAILS', 300, 700, 8),
     ],
   });
   const result = detectSheets([sheetPage(1, 'COVER SHEET'), sheetPage(6, 'OVERVIEW PLAN - SHEET A'), sheetPage(22, 'NOISE WALL DETAILS - SHEET D')]);
   assert.deepEqual(
     result.map((r) => [r.number, r.title]),
     [
-      ['HLD1BDD-WSPAU-0508-MS-DRG-100001', 'COVER SHEET'],
-      ['HLD1BDD-WSPAU-0508-MS-DRG-100006', 'OVERVIEW PLAN - SHEET A'],
-      ['HLD1BDD-WSPAU-0508-MS-DRG-100022', 'NOISE WALL DETAILS - SHEET D'],
+      ['KST1RDS-ACMEA-0508-MS-DRG-100001', 'COVER SHEET'],
+      ['KST1RDS-ACMEA-0508-MS-DRG-100006', 'OVERVIEW PLAN - SHEET A'],
+      ['KST1RDS-ACMEA-0508-MS-DRG-100022', 'NOISE WALL DETAILS - SHEET D'],
     ],
   );
 });
