@@ -34,6 +34,10 @@ Measurements are taken on plan. The **Slope** group turns them into their true, 
 - **Assemblies** sets up the materials and labour a measurement stands for ([Assemblies](#assemblies)).
 - **Quantities** totals those materials across the document.
 - **Takeoff Review** reviews takeoff proposals that an AI client has suggested, before any of them become markups.
+- **Items** is the catalog of materials, labour, equipment and subcontract costs assemblies price from ([Items](#estimating-items)).
+- **Product Lists** holds price lists items take their cost from, typed in or imported from CSV ([Product Lists](#product-lists)).
+- **Templates ▾** arms a measuring tool set up with a subject, layer, style, slope, depth and assembly; **Manage Templates…** at its foot renames, deletes, imports and exports them ([Takeoff templates](#takeoff-templates)).
+- **Save as Template** saves the selected measurement as a template (also on its right-click menu).
 
 ## Auto Count
 
