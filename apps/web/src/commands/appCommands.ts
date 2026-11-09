@@ -213,6 +213,14 @@ export interface CommandActions {
   hipValley: (kind: 'hip' | 'valley') => void;
   /** Takeoff › Manual Quantity: asks for a typed quantity, then arms placing it. */
   manualQuantity: () => void;
+  /** Takeoff › Items: the catalog of cost lines assemblies price from. */
+  manageItems: () => void;
+  /** Takeoff › Product Lists: price lists catalog items link to. */
+  manageProductLists: () => void;
+  /** Takeoff › Templates › Manage Templates: rename, delete, import and export takeoff templates. */
+  manageTemplates: () => void;
+  /** Takeoff › Save as Template: the selected measurement's tool, look and assembly as a takeoff template. */
+  saveTemplate: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -317,6 +325,8 @@ export interface CommandState {
   arcArmed: boolean;
   /** Polylength is armed as a hip or valley (Takeoff › Hip / Valley). */
   hipValley: 'hip' | 'valley' | null;
+  /** One measurement is selected that can be saved as a takeoff template. */
+  canSaveTemplate: boolean;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -566,6 +576,10 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
+    cmd('takeoff.items', 'Tools', 'Items…', a.manageItems, doc),
+    cmd('takeoff.productLists', 'Tools', 'Product Lists…', a.manageProductLists, doc),
+    cmd('takeoff.templates', 'Tools', 'Takeoff Templates…', a.manageTemplates, doc),
+    cmd('takeoff.saveTemplate', 'Tools', 'Save as Template…', a.saveTemplate, doc && s.canSaveTemplate),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
     cmd('tool.connector', 'Tools', 'Connector', () => a.setTool('connector'), doc && s.editable, s.tool === 'connector'),

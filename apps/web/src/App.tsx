@@ -13,7 +13,7 @@ import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { cutoutTargetOf } from './markup/cutoutTarget';
 import { hipValleySlope } from './markup/slopePicker';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
-import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
@@ -40,6 +40,11 @@ import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
+import { ItemsDialog } from './components/ItemsDialog';
+import { ProductListsDialog } from './components/ProductListsDialog';
+import { TemplatesDialog } from './components/TemplatesDialog';
+import { addToLibrary, copyIntoDocument, documentFile, libraryFile } from './assemblies/estimatingLibrary';
+import { estimatingFromJson, estimatingToJson, mergeAssemblies, mergeEstimating, referencedRecords, resolveAssemblies, type TakeoffTemplate } from '@nb/markup';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
@@ -802,6 +807,7 @@ async function annotatedBytes(
     columns: cur.store.columnSet().columns,
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
+    estimating: cur.store.estimating(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -1067,6 +1073,9 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [productListsOpen, setProductListsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
   const [commentsTable, setCommentsTable] = useState<{
     key: string;
@@ -1449,6 +1458,9 @@ export function App() {
   const columnSet = paneB ? columnsB : columnsA;
   const viewports = useViewports(activeStore);
   const assemblies = useAssemblies(activeStore);
+  /** The assemblies with their catalog items filled in: what quantities are worked out from. */
+  const takeoffAssemblies = useResolvedAssemblies(activeStore);
+  const estimating = useEstimating(activeStore);
   /** The scale a markup in the active pane is measured at: its viewport's, else its page's. */
   const scaleOf = useCallback((m: Markup) => scaleOfMarkup(m, scales[m.pageIndex] ?? DEFAULT_SCALE, viewports), [scales, viewports]);
 
@@ -4776,6 +4788,7 @@ export function App() {
                 columns: store.columnSet().columns,
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
+                estimating: store.estimating(),
                 places: store.places(),
               },
             );
@@ -6099,13 +6112,61 @@ export function App() {
     };
   }, [activeOpen, markups]);
 
+  /** A measurement can be saved as a takeoff template: a drawn one (a typed quantity has no tool to arm). */
+  const templateable = (m: Markup) => isMeasureKind(m.type) && m.type !== 'manual';
+  /** Right-click › Save as Template: the measurement's tool, subject, layer, style, slope, depth, assembly and inputs, kept in the document and the library. */
+  const saveAsTemplate = async (m: Markup) => {
+    const store = activeOpen?.store;
+    if (!store || store.readOnly) return;
+    const assembly = m.assemblyId ? store.assemblies().find((a) => a.id === m.assemblyId) : undefined;
+    const name = (await askText('Save as Template', m.subject || assembly?.name || MARKUP_LABELS[m.type], { label: 'Pick it from Takeoff › Templates to measure more like this one: the same tool, subject, layer, style, slope, depth, assembly and inputs.', confirm: 'Save' }))?.trim();
+    if (!name) return;
+    const t: TakeoffTemplate = {
+      id: crypto.randomUUID(),
+      name,
+      tool: m.type,
+      preset: { ...(m.subject ? { subject: m.subject } : {}), ...(m.layer ? { layer: m.layer } : {}), style: structuredClone(m.style), ...(m.slope ? { slope: structuredClone(m.slope) } : {}), ...(m.depth ? { depth: m.depth } : {}) },
+      ...(assembly ? { assemblyId: assembly.id } : {}),
+      ...(assembly && m.assemblyInputs ? { inputs: { ...m.assemblyInputs } } : {}),
+    };
+    store.checkpoint();
+    store.setEstimating({ templates: [...store.estimating().templates, t] });
+    // The library gets it too, with its assembly and what that prices from, for other documents.
+    const kept = addToLibrary({ ...referencedRecords(documentFile(store), assembly ? [assembly.id] : []), templates: [t] });
+    setNotice(`Saved the template “${name}”${kept ? '' : ' in this document (this browser would not keep the library)'}. Pick it from Takeoff › Templates to measure more like it.`);
+  };
+  /** Arms a takeoff template's tool; one from the library is copied into the document first, with its assembly. */
+  const armTemplate = (t: TakeoffTemplate) => {
+    const store = activeOpen?.store;
+    const tools = activeTools;
+    if (!store || !tools) return;
+    if (!store.readOnly && !store.estimating().templates.some((x) => x.id === t.id)) {
+      store.checkpoint();
+      store.batch(() => {
+        copyIntoDocument(store, libraryFile(), t.assemblyId ? [t.assemblyId] : []);
+        store.setEstimating({ templates: [...store.estimating().templates, t] });
+      });
+    }
+    const assemblyId = t.assemblyId && store.assemblies().some((a) => a.id === t.assemblyId) ? t.assemblyId : undefined;
+    tools.setTool(t.tool as Tool, {
+      ...(t.preset.subject ? { subject: t.preset.subject } : {}),
+      ...(t.preset.layer ? { layer: t.preset.layer } : {}),
+      ...(t.preset.style ? { style: structuredClone(t.preset.style) } : {}),
+      ...(t.preset.slope ? { slope: t.preset.slope } : {}),
+      ...(t.preset.depth ? { depth: t.preset.depth } : {}),
+      ...(assemblyId ? { assemblyId, ...(t.inputs ? { assemblyInputs: t.inputs } : {}) } : {}),
+      takeoffTemplateId: t.id,
+    });
+    setNotice(`Template “${t.name}” armed: each ${MARKUP_LABELS[t.tool as Markup['type']]?.toLowerCase() ?? 'measurement'} you draw gets its ${assemblyId ? 'assembly and ' : ''}settings.`);
+  };
+
   const cellContext: CellContext = {
     scaleOf,
     sheets,
     spaces: markups.filter((m) => m.type === 'space'),
     statuses: columnSet.statuses,
     columns: columnSet.columns,
-    assemblies,
+    assemblies: takeoffAssemblies,
   };
   /** The measurement the Assemblies window shows quantities for while editing: the first one selected. */
   const takeoffSample = markups.find((m) => toolsState.selected.has(m.id) && isMeasureKind(m.type) && m.type !== 'angle') ?? null;
@@ -7019,6 +7080,7 @@ export function App() {
           },
         ],
       },
+      ...(one && templateable(first) ? [{ label: 'Save as Template…', disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
       SEP,
       { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
       {
@@ -8307,6 +8369,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     toggleArc: () => activeTools?.toggleArc(),
     hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
     manualQuantity: () => setManualOpen(true),
+    manageItems: () => setItemsOpen(true),
+    manageProductLists: () => setProductListsOpen(true),
+    manageTemplates: () => setTemplatesOpen(true),
+    saveTemplate: () => {
+      const m = selectedMarkups.length === 1 ? selectedMarkups[0] : undefined;
+      if (m && templateable(m)) void saveAsTemplate(m);
+    },
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8343,6 +8412,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());
       if (from.assemblies().length) to.setAssemblies(from.assemblies());
+      to.setEstimating(from.estimating());
       await Promise.all([from.destroy(), to.destroy()]);
       await openStored(file, bytes, activePaneRef.current);
       void refreshLibrary();
@@ -8730,6 +8800,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canArc: !activeReadOnly && !!activeTools?.canArc(),
     arcArmed: toolsState.arc !== 'off',
     hipValley: toolsState.tool === 'polylength' && (toolsState.preset?.slope?.kind === 'hip' || toolsState.preset?.slope?.kind === 'valley') ? toolsState.preset.slope.kind : null,
+    canSaveTemplate: !activeReadOnly && selectedMarkups.length === 1 && templateable(selectedMarkups[0]!),
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
@@ -9118,7 +9189,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
-            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, assemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
+            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, takeoffAssemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
           />
         ) : tab === 'spaces' ? (
           <SpacesPanel
@@ -9644,6 +9715,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           },
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
+          takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
@@ -11022,13 +11094,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           usage={Object.fromEntries(Object.entries(Object.groupBy(markups.filter((m) => m.assemblyId), (m) => m.assemblyId!)).map(([id, list]) => [id, list?.length ?? 0]))}
           // Examples in the units this page measures in, else the preferred ones.
           unitSystem={scales[pageIndex] ? systemOf(scales[pageIndex]!.unit) : prefs.unitSystem}
-          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, a, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, resolveAssemblies([a], estimating.items, estimating.productLists)[0]!, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          estimating={estimating}
+          onImportEstimating={(incoming) => activeOpen.store.setEstimating(mergeEstimating(activeOpen.store.estimating(), incoming))}
           previewLabel={takeoffSample ? `${takeoffSample.subject || MARKUP_LABELS[takeoffSample.type]} on page ${takeoffSample.pageIndex + 1}` : ''}
           onSave={(list) => {
             activeOpen.store.setAssemblies(list);
             setAssembliesOpen(false);
           }}
-          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
+          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} estimating.json`, new Blob([json], { type: 'application/json' }))}
           onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
         />
@@ -11094,7 +11168,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {quantitiesOpen && activeOpen && (
         <QuantitiesDialog
           markups={markups}
-          assemblies={assemblies}
+          assemblies={takeoffAssemblies}
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onManage={() => {
@@ -11104,6 +11178,66 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {itemsOpen && activeOpen && (
+        <ItemsDialog
+          initial={estimating.items}
+          productLists={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(assemblies.flatMap((a) => a.items.flatMap((i) => (i.itemId ? [i.itemId] : []))), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(items, lists) => {
+            activeOpen.store.setEstimating({ items, ...(lists.length ? { productLists: [...estimating.productLists, ...lists] } : {}) });
+            setItemsOpen(false);
+          }}
+          onManageLists={() => {
+            setItemsOpen(false);
+            setProductListsOpen(true);
+          }}
+          onClose={() => setItemsOpen(false)}
+        />
+      )}
+      {productListsOpen && activeOpen && (
+        <ProductListsDialog
+          initial={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(estimating.items.flatMap((i) => (i.listRef ? [i.listRef.listId] : [])), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(productLists) => {
+            activeOpen.store.setEstimating({ productLists });
+            setProductListsOpen(false);
+          }}
+          onClose={() => setProductListsOpen(false)}
+        />
+      )}
+      {templatesOpen && activeOpen && (
+        <TemplatesDialog
+          initial={estimating.templates}
+          assemblies={assemblies}
+          readOnly={activeReadOnly}
+          onSave={(templates) => {
+            activeOpen.store.setEstimating({ templates });
+            setTemplatesOpen(false);
+          }}
+          onUse={(t) => {
+            setTemplatesOpen(false);
+            armTemplate(t);
+          }}
+          onImport={async (f) => {
+            const file = estimatingFromJson(await f.text());
+            const store = activeOpen.store;
+            store.checkpoint();
+            store.batch(() => {
+              if (file.assemblies.length) store.setAssemblies(mergeAssemblies(store.assemblies(), file.assemblies));
+              store.setEstimating(mergeEstimating(store.estimating(), file));
+            });
+            return `Imported ${file.templates.length} template${file.templates.length === 1 ? '' : 's'}, ${file.assemblies.length} assembl${file.assemblies.length === 1 ? 'y' : 'ies'}, ${file.items.length} item${file.items.length === 1 ? '' : 's'} and ${file.productLists.length} product list${file.productLists.length === 1 ? '' : 's'} from ${f.name}.`;
+          }}
+          onExport={() => {
+            const doc = documentFile(activeOpen.store);
+            const used = referencedRecords(doc, estimating.templates.flatMap((t) => (t.assemblyId ? [t.assemblyId] : [])));
+            download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} takeoff templates.json`, new Blob([estimatingToJson({ ...used, templates: estimating.templates })], { type: 'application/json' }));
+          }}
+          onClose={() => setTemplatesOpen(false)}
         />
       )}
       {commentsTable && !commentsTable.hidden && (
