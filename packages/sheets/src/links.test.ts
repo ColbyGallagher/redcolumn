@@ -309,3 +309,28 @@ test("a drawing standard's link hints: its identifiers, title and match-line wor
   assert.equal(new SheetLookup(nums, 1).find('501', true), 2);
   assert.equal(new SheetLookup(nums).find('501', true), null);
 });
+
+test('a title bubble naming the sheet it is called up on links back with the kind its title gives', () => {
+  const pages = [
+    page([...bubble('3', 'C-501', 900, 800), ...bubble('E1', 'C-501', 900, 1000), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    // On C-501: titles whose bubbles name C-101, their words beside the bubble a little lower than its letter.
+    page([...bubble('3', 'C-101', 600, 900, 14), word('DETAIL', 640, 912, 12), word('KERB', 700, 912, 12), ...bubble('E1', 'C-101', 600, 1100, 14), word('ELEVATION', 640, 1112, 12), word('HEADWALL', 730, 1112, 12), ...titleBlock('C-501')]),
+  ];
+  const kinds = detectLinks(pages, numbers).map((l) => [pages.indexOf(pages[l.pageIndex]!), l.label, l.kind]);
+  assert.deepEqual(
+    kinds.filter(([p]) => p === 2),
+    [
+      [2, '3/C-101', 'detail'],
+      [2, 'E1/C-101', 'elevation'],
+    ],
+  );
+  // The callouts to them say the same.
+  assert.deepEqual(
+    kinds.filter(([p]) => p === 0),
+    [
+      [0, '3/C-501', 'detail'],
+      [0, 'E1/C-501', 'elevation'],
+    ],
+  );
+});

@@ -283,6 +283,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
   const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
   const isId = idTest(hints);
   const titleKind = titleKinds(hints);
+  const titleWords = (['section', 'elevation', 'enlargedPlan'] as const).map((k) => [k, wordsPattern(hints.titles[k])] as const);
   const onMatchLine = matchLines(hints);
   const links: DetectedLink[] = [];
   const weak = sheetNumbers.map((n) => !!n && !isDrawingNumberShape(n));
@@ -298,7 +299,24 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       return titleCache.get(key)!;
     };
 
-    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, form: EvidenceKey) => {
+    /**
+     * What the title beside a bubble says it titles (`SECTION A-A`, `DETAIL 3`), or null when it
+     * says nothing. The title is read in a band as high as the bubble's letter and a little more:
+     * a bubble's letter sits above its divider, the title beside it is centred on the bubble.
+     */
+    const rowKind = (on: PageText, w: Word): LinkKind | null => {
+      const k = titleKind(on, w);
+      if (k !== 'detail') return k;
+      const cy = (w.y0 + w.y1) / 2;
+      const beside = on.words
+        .filter((o) => o !== w && Math.abs((o.y0 + o.y1) / 2 - cy) < w.size * 1.1 && o.x0 >= w.x1 && o.x0 - w.x1 < w.size * 6)
+        .sort((a, b) => a.x0 - b.x0)
+        .map((o) => cleanWord(o.text))
+        .join(' ');
+      const text = `${rowText(on, w, 12)} ${beside}`;
+      return titleWords.find(([, p]) => p?.test(text))?.[0] ?? (/\bDETAIL\b/.test(text) ? 'detail' : null);
+    };
+    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, form: EvidenceKey, source?: Word) => {
       const title = detail ? resolveDetail(detail, targetPage) : null;
       const cut = detail && !title && targetPage !== pageIndex ? findCutMarker(pages[targetPage]!, detail, lookup, pageIndex) : null;
       const targetRect = title ? detailFrame(title) : cut ? cutFrame(cut) : null;
@@ -308,8 +326,11 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       else if (cut) reasons.push('cutMarker');
       else if (detail) reasons.push('noTarget');
       // What the bubble points at: the title on the target sheet says section, elevation or
-      // enlarged plan; a cut marker pointing back says section.
-      const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : cut ? 'section' : 'detail';
+      // enlarged plan. A bubble on the target sheet pointing back is a cut mark or a title naming
+      // where it is called up: whichever of the two has a title row says what it is (DETAIL 3 is a
+      // detail), else it is a section.
+      const backKind = cut ? (rowKind(pages[targetPage]!, cut) ?? (source ? rowKind(page, source) : null) ?? 'section') : null;
+      const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : (backKind ?? 'detail');
       links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: scoreEvidence(reasons), evidence: reasons });
     };
 
@@ -336,7 +357,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === pageIndex && resolveDetail(detailId(top.text), pageIndex) === top) continue;
       const detail = detailId(top.text);
       const pad = bottom.size * 0.5;
-      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 'bubble');
+      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 'bubble', top);
     }
 
     for (const w of page.words) {

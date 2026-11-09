@@ -7837,3 +7837,129 @@ tr.hidden-markup td {
   padding-right: 12px;
   white-space: nowrap;
 }
+.sw-gif {
+  display: block;
+  max-width: 100%;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.sw-notes {
+  margin: 6px 0;
+  padding-left: 18px;
+  color: var(--text-soft);
+}
+.sw-notes li {
+  margin: 2px 0;
+}
+.sw-meter {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+.sw-meter p {
+  margin: 6px 0 0;
+}
+.sw-meter-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+.sw-meter-bar span {
+  display: block;
+  height: 100%;
+  background: var(--ok-text);
+}
+.sw-meter.review .sw-meter-bar span {
+  background: var(--warn-text);
+}
+.sw-meter.ai .sw-meter-bar span {
+  background: var(--danger-text);
+}
+.sw-meter.good strong {
+  color: var(--ok-text);
+}
+.sw-meter.review strong {
+  color: var(--warn-text);
+}
+.sw-meter.ai strong {
+  color: var(--danger-text);
+}
+.sw-ai {
+  margin: 10px 0;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  line-height: 1.45;
+}
+.sw-checks {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0;
+}
+.sw-check {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+}
+.sw-check.right .sw-check-label {
+  color: var(--ok-text);
+}
+.sw-check.wrong .sw-check-label {
+  color: var(--danger-text);
+}
+.sw-check-pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sw-check-arrow {
+  color: var(--muted);
+}
+.sw-crop-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  padding: 2px;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.sw-crop-btn:hover {
+  border-color: var(--accent);
+}
+.sw-crop {
+  position: relative;
+  overflow: hidden;
+  background: #fff;
+}
+.sw-crop-canvas {
+  position: absolute;
+}
+.sw-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.sw-check-label {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sw-check-pair .sw-crop-btn span {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sw-check-pair {
+  flex-wrap: nowrap;
+}

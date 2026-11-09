@@ -17,9 +17,9 @@ export interface WizardStep {
 
 export const WIZARD_STEPS: WizardStep[] = [
   { id: 'titleBlock', label: 'Title block', ready: true },
-  { id: 'sections', label: 'Sections', ready: false },
-  { id: 'elevations', label: 'Elevations', ready: false },
-  { id: 'details', label: 'Details', ready: false },
+  { id: 'sections', label: 'Sections', ready: true },
+  { id: 'elevations', label: 'Elevations', ready: true },
+  { id: 'details', label: 'Details', ready: true },
   { id: 'matchLines', label: 'Match lines', ready: false },
   { id: 'chainage', label: 'Chainages', ready: false },
   { id: 'review', label: 'Review', ready: true },
