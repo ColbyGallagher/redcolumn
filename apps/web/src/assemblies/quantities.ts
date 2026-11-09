@@ -27,11 +27,15 @@ export const MEASURED_NAMES: { name: string; hint: string }[] = [
   { name: 'Slope %', hint: 'The slope as a percent grade' },
 ];
 
-/** Every name a formula may refer to: measured values, list columns, then the assembly's variables. */
+/**
+ * Every name a formula may refer to: measured values, list columns, then the assembly's variables
+ * (the measurement's own `assemblyInputs` in place of their defaults; a Yes/No switch is 1 or 0).
+ */
 function lookupFor(m: Markup, cells: Readonly<Record<string, Cell>>, columns: readonly CustomColumn[], assembly: Assembly) {
   const byName = new Map<string, string>();
   for (const b of BUILT_IN_COLUMNS) byName.set(b.label.toLowerCase(), b.key);
   for (const c of columns) byName.set(c.name.trim().toLowerCase(), customKey(c.id));
+  const inputs = new Map(Object.entries(m.assemblyInputs ?? {}).flatMap(([k, v]) => (typeof v === 'number' && Number.isFinite(v) ? [[k.trim().toLowerCase(), v] as const] : [])));
   const special: Record<string, number | null> = {
     quantity: cells.measurement?.num ?? null,
     count: m.type === 'count' ? m.points.length : m.manual?.kind === 'count' ? m.manual.value : 1,
@@ -47,7 +51,11 @@ function lookupFor(m: Markup, cells: Readonly<Record<string, Cell>>, columns: re
       return c?.num ?? c?.text ?? 0;
     }
     const v = assembly.variables.find((x) => x.name.trim().toLowerCase() === key);
-    return v?.value;
+    if (!v) return undefined;
+    // This measurement's own input, else the variable's default.
+    const own = inputs.get(key);
+    const value = own ?? v.value;
+    return v.type === 'boolean' ? (value ? 1 : 0) : value;
   };
 }
 
@@ -206,7 +214,7 @@ export function assemblyProblems(a: Assembly, others: readonly Assembly[], colum
   });
   for (const item of a.items) {
     const key = `item:${item.id}`;
-    if (!item.name.trim()) {
+    if (!item.name.trim() && !item.itemId) {
       out.set(key, 'Name the item');
       continue;
     }
@@ -217,6 +225,12 @@ export function assemblyProblems(a: Assembly, others: readonly Assembly[], colum
     try {
       const unknown = formulaRefs(item.formula).filter((r) => !measured.has(r.trim().toLowerCase()) && !seen.has(r.trim().toLowerCase()));
       if (unknown.length) out.set(key, `No measured value, column or variable named ${unknown.map((u) => `[${u}]`).join(', ')}`);
+      else {
+        // Tried with every measured value and column at 1 and the variables at their defaults: a quantity must be a number.
+        const vars = new Map(a.variables.map((v) => [v.name.trim().toLowerCase(), v.value]));
+        const res = evalFormula(item.formula, (name) => vars.get(name.trim().toLowerCase()) ?? 1);
+        if ('value' in res && typeof res.value === 'string' && (res.value.trim() === '' || !Number.isFinite(Number(res.value.replace(/[,$\s]/g, ''))))) out.set(key, 'This formula gives text, not a number: a quantity must be a number');
+      }
     } catch (err) {
       out.set(key, err instanceof Error ? err.message : String(err));
     }

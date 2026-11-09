@@ -338,6 +338,8 @@ export interface Markup {
   assemblyId?: string;
   /** Measurements: per assembly item id, a quantity (before waste) set by hand instead of the item's formula. */
   assemblyOverrides?: Record<string, number>;
+  /** Measurements: the assembly's inputs for this one (variable name to value), in place of the variables' defaults. */
+  assemblyInputs?: Record<string, number>;
   /** Measurements: who approved its takeoff from an AI proposal, and when (Takeoff Review). */
   takeoffApproval?: TakeoffApproval;
   /** Measurements: slope of the measured surface or run. */

@@ -4,6 +4,7 @@ import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
 import { SOURCE_RANK, type DetectedLink, type SheetInfo } from '@nb/sheets';
 import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusDef } from './columns';
 import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
+import { EMPTY_ESTIMATING, mergeEstimating, resolveAssemblies, sanitizeItems, sanitizeProductLists, sanitizeTemplates, type Estimating } from './estimating';
 import { mapGeometry, type Markup, type Point } from './model';
 import { openPatch, type EditRule } from './ownership';
 import { rotatePagePoint, type PagePlan } from './pages';
@@ -73,6 +74,8 @@ export interface ImportedExtras {
   columns?: CustomColumn[];
   /** Assemblies the file was saved with, added to the document's own (matched by id, then name). */
   assemblies?: Assembly[];
+  /** Catalog items, product lists and takeoff templates the file was saved with, merged likewise. */
+  estimating?: Partial<Estimating>;
   /** Statuses its review states use, added where the document lacks them. */
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
@@ -185,6 +188,10 @@ export class MarkupStore {
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private assemblyRaw: unknown = undefined;
   private assemblySnapshot: Assembly[] = NO_ASSEMBLIES;
+  private estimatingRaw: unknown[] = [];
+  private estimatingSnapshot: Estimating = EMPTY_ESTIMATING;
+  private resolvedSnapshot: Assembly[] = NO_ASSEMBLIES;
+  private resolvedFor: unknown = undefined;
   private locked = false;
   private editRule: EditRule | null = null;
   /** Some markup is a connector, so moving markups may need connectors re-routed. */
@@ -319,6 +326,16 @@ export class MarkupStore {
         this.assemblyRaw = assemblies;
         // Checked here as well as on import: Live Session peers write this map too.
         this.assemblySnapshot = assemblies ? sanitizeAssemblies(assemblies) : NO_ASSEMBLIES;
+      }
+      const est = [this.meta.get('items'), this.meta.get('productLists'), this.meta.get('templates')];
+      const estChanged = est.some((v, i) => v !== this.estimatingRaw[i]);
+      if (estChanged) {
+        this.estimatingRaw = est;
+        this.estimatingSnapshot = est.every((v) => v === undefined) ? EMPTY_ESTIMATING : { items: sanitizeItems(est[0]), productLists: sanitizeProductLists(est[1]), templates: sanitizeTemplates(est[2]) };
+      }
+      if (estChanged || assemblies !== this.resolvedFor) {
+        this.resolvedFor = assemblies;
+        this.resolvedSnapshot = resolveAssemblies(this.assemblySnapshot, this.estimatingSnapshot.items, this.estimatingSnapshot.productLists);
       }
     }
     if (has(this.outline)) {
@@ -770,6 +787,7 @@ export class MarkupStore {
         if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) this.meta.set('columns', { columns, statuses });
       }
       if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
+      if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -1084,6 +1102,30 @@ export class MarkupStore {
     this.doc.transact(() => this.meta.set('assemblies', structuredClone(list)), LOCAL);
   }
 
+  /** The assemblies with their items' catalog links filled in, for working out quantities (stable until either changes). */
+  resolvedAssemblies(): Assembly[] {
+    return this.resolvedSnapshot;
+  }
+
+  /** The document's catalog items, product lists and takeoff templates (stable until they change). */
+  estimating(): Estimating {
+    return this.estimatingSnapshot;
+  }
+
+  /** Replaces some or all of the catalog items, product lists and templates, as one undo step. */
+  setEstimating(patch: Partial<Estimating>) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => this.writeEstimating(patch), LOCAL);
+  }
+
+  private writeEstimating(patch: Partial<Estimating>) {
+    for (const key of ['items', 'productLists', 'templates'] as const) {
+      const v = patch[key];
+      if (v) this.meta.set(key, structuredClone(v));
+    }
+  }
+
   /** Sets one custom column's value on several markups as one undo step (empty clears it). */
   setField(ids: Iterable<string>, columnId: string, value: string) {
     if (this.locked) return;
@@ -1166,6 +1208,8 @@ export class MarkupStore {
     }
     // Another assembly: quantities set by hand and an AI approval were for the old one.
     if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
+    // Another assembly's inputs are not this one's.
+    if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyInputs' in patch)) patch = { ...patch, assemblyInputs: undefined };
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     this.doc.transact(() => {
@@ -1312,7 +1356,7 @@ function describeChange(
   if (changed.has(outline as never)) return 'Edit bookmarks';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
-    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : 'Edit columns';
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : 'Edit columns';
   }
   return 'Edit';
 }
