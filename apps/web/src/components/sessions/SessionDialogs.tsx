@@ -712,6 +712,7 @@ export function EndSessionDialog({
             The session folder goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
             session straight away and it leaves your Sessions list. Save what you need below first.
           </p>
+          <p>Ask every reviewer to finish syncing before ending. This device cannot confirm changes still waiting on another reviewer’s computer or in a folder sync service.</p>
         </div>
 
         {sendBack.length > 0 && (
