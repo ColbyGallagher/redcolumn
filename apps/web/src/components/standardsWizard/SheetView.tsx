@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 
 export interface PageRect {
@@ -15,7 +15,18 @@ export interface ShownBox extends PageRect {
   tone: 'done' | 'active' | 'ignore';
 }
 
+/** Zoom controls for the strip under the sheet (the app's own PageNav). */
+export interface SheetViewApi {
+  zoomBy: (factor: number) => void;
+  zoomTo: (zoom: number) => void;
+  fit: () => void;
+  fitWidth: () => void;
+}
+
 interface Props {
+  ref?: Ref<SheetViewApi>;
+  /** The zoom shown (CSS px per point), for the strip under the sheet. */
+  onZoom?: (zoom: number) => void;
   pageIndex: number;
   /** The page's size in points. */
   page: { width: number; height: number };
@@ -36,11 +47,11 @@ const clamp = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 /**
  * One sheet of the open document, for the setup wizard: fitted to the pane, zoomed with the wheel
- * or the buttons, panned by dragging (or with the middle button while drawing), boxes drawn by
+ * or the strip under it (through `ref`), panned by dragging (or with the middle button while drawing), boxes drawn by
  * dragging when `drawing`. Everything it listens to is on its own element, so it works the same in
  * the wizard's own window.
  */
-export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focus, focusKey }: Props) {
+export function SheetView({ ref, onZoom, pageIndex, page, render, boxes, drawing, onBox, focus, focusKey }: Props) {
   const body = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -52,6 +63,8 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
   const drag = useRef<{ kind: 'pan' | 'box'; x: number; y: number; from: PreviewView; at: { x: number; y: number } } | null>(null);
   const latest = useRef<PreviewView | null>(null);
   latest.current = view;
+  /** The person zoomed or panned: a resize keeps their view rather than fitting again. */
+  const moved = useRef(false);
 
   // The pane's size, watched with its own window's ResizeObserver.
   useLayoutEffect(() => {
@@ -81,9 +94,12 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
   const fitted = useRef('');
   useEffect(() => {
     const key = `${pageIndex}:${focusKey ?? ''}`;
-    if (!size.w || fitted.current === key) return;
+    if (!size.w) return;
+    if (fitted.current === key && moved.current) return;
+    if (fitted.current !== key) moved.current = false;
     fitted.current = key;
     setView(fit(focus));
+    // `fit` changes with the pane's size: until the person moves the view, it fits again.
   }, [pageIndex, focusKey, focus, fit, size.w]);
 
   // Draw (shortly) after the view or size changes.
@@ -117,6 +133,7 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
   const zoomAt = (factor: number, px: number, py: number) => {
     const v = latest.current;
     if (!v) return;
+    moved.current = true;
     const z = clamp(v.zoom * factor);
     const dx = px - size.w / 2;
     const dy = py - size.h / 2;
@@ -126,6 +143,30 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
   };
   const zoomAtRef = useRef(zoomAt);
   zoomAtRef.current = zoomAt;
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomBy: (f) => zoomAtRef.current(f, size.w / 2, size.h / 2),
+      zoomTo: (z) => {
+        const v = latest.current;
+        moved.current = true;
+        if (v) setView({ ...v, zoom: clamp(z) });
+      },
+      fit: () => {
+        moved.current = false;
+        setView(fit(null));
+      },
+      fitWidth: () => {
+        const v = latest.current;
+        moved.current = true;
+        if (v && size.w) setView({ cx: page.width / 2, cy: v.cy, zoom: clamp(size.w / page.width) });
+      },
+    }),
+    [size.w, size.h, fit, page.width],
+  );
+  useEffect(() => {
+    if (view) onZoom?.(view.zoom);
+  }, [view, onZoom]);
   useEffect(() => {
     const el = body.current;
     if (!el) return;
@@ -155,6 +196,7 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
     const d = drag.current;
     if (!d) return;
     if (d.kind === 'pan') {
+      moved.current = true;
       const next = { ...d.from, cx: d.from.cx - (e.clientX - d.x) / d.from.zoom, cy: d.from.cy - (e.clientY - d.y) / d.from.zoom };
       latest.current = next;
       setView(next);
@@ -206,17 +248,6 @@ export function SheetView({ pageIndex, page, render, boxes, drawing, onBox, focu
         {v && sketch && <div className="sheet-view-box active sketch" style={toScreen(sketch, v)} />}
         {state === 'loading' && <div className="sheet-view-note">Drawing the sheet…</div>}
         {state === 'failed' && <div className="sheet-view-note">This sheet could not be drawn.</div>}
-      </div>
-      <div className="sheet-view-zoom">
-        <button type="button" className="btn small" title="Zoom in" aria-label="Zoom in" onClick={() => zoomAt(1.4, size.w / 2, size.h / 2)}>
-          +
-        </button>
-        <button type="button" className="btn small" title="Zoom out" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.4, size.w / 2, size.h / 2)}>
-          −
-        </button>
-        <button type="button" className="btn small" title="Whole sheet" aria-label="Whole sheet" onClick={() => setView(fit(null))}>
-          Fit
-        </button>
       </div>
     </div>
   );

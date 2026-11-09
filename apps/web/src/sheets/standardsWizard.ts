@@ -95,6 +95,8 @@ export interface BoxCheck {
   of: number;
   /** Values read on more than one page (drawing numbers should be unique). */
   repeated: string[];
+  /** Pages it reads nothing on. */
+  empty: number[];
 }
 
 export function checkBox(texts: readonly PageText[], box: TitleBox, here: number, template: string | null = null): BoxCheck {
@@ -107,6 +109,7 @@ export function checkBox(texts: readonly PageText[], box: TitleBox, here: number
     read: values.filter(Boolean).length,
     of: texts.length,
     repeated: box.field === 'number' ? [...counts].filter(([, n]) => n > 1).map(([v]) => v) : [],
+    empty: values.flatMap((v, i) => (v ? [] : [i])),
   };
 }
 
@@ -153,6 +156,21 @@ export function disciplineCandidates(numbers: readonly string[]): { part: number
   }
   // A part that is the same on every sheet can still be the discipline (a set of one discipline): keep it last.
   return out.sort((a, b) => b.codes.length - a.codes.length);
+}
+
+/**
+ * Why a name cannot be used for a new field of the person's own, or null when it can: one of the
+ * questions already asks for it, or a field of that name is already boxed (a second box would
+ * replace the first).
+ */
+export function customNameProblem(name: string, boxes: readonly TitleBox[]): string | null {
+  const n = name.trim().toUpperCase();
+  if (!n) return null;
+  const asked = TITLE_QUESTIONS.find((q) => q.field === 'custom' && q.name?.toUpperCase() === n);
+  if (asked) return `${asked.label} has its own question above; box it there.`;
+  const taken = boxes.find((b) => b.field === 'custom' && b.name?.trim().toUpperCase() === n);
+  if (taken) return `There is already a field called ${taken.name}. Use another name, or remove that one first.`;
+  return null;
 }
 
 /** Where the wizard was, kept per standard so closing the window resumes there. */

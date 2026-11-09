@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { boxFromRegion, regionOfBox, templateRegex, type PageText, type SheetInfo, type TitleBox } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
+import { PageNav } from '../PageNav';
 import { newStandard, withDefaults, type DrawingStandard } from '../../sheets/standards';
 import {
   TITLE_EXTRAS,
@@ -9,6 +10,7 @@ import {
   boxFor,
   checkBox,
   checkVerdict,
+  customNameProblem,
   disciplineCandidates,
   loadPlace,
   loadSplit,
@@ -20,7 +22,8 @@ import {
   withAnswer,
   type WizardStepId,
 } from '../../sheets/standardsWizard';
-import { SheetView, type PageRect, type ShownBox } from './SheetView';
+import { SheetView, type PageRect, type SheetViewApi, type ShownBox } from './SheetView';
+import { ThumbStrip } from './ThumbStrip';
 
 interface Props {
   fileName: string;
@@ -64,6 +67,8 @@ export function StandardsWizard(props: Props) {
   const [split, setSplit] = useState(loadSplit);
   const [customName, setCustomName] = useState('');
   const [drawingCustom, setDrawingCustom] = useState(false);
+  const sheetView = useRef<SheetViewApi>(null);
+  const [zoom, setZoom] = useState(1);
 
   // Carry on where this standard was left.
   const started = useRef<string | null>(null);
@@ -103,13 +108,16 @@ export function StandardsWizard(props: Props) {
   const numberBox = boxes.find((b) => b.field === 'number');
 
   const check = useMemo(() => (texts && answer ? checkBox(texts, answer, page, answer.field === 'number' ? (standard?.sheets.template ?? null) : null) : null), [texts, answer, page, standard?.sheets.template]);
+  // Sheets the box being answered reads nothing on, marked in the thumbnails.
+  const flagged = useMemo(() => new Set(check?.empty ?? []), [check]);
+  const nameProblem = customNameProblem(customName, boxes);
   const numbers = useMemo(() => (texts && numberBox ? numbersRead(texts, numberBox) : []), [texts, numberBox]);
 
   const drawing = !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
   const onBox = (rect: PageRect) => {
     if (q) change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, boxFromRegion(rect, size, q.field, q.name)) } }));
     else if (extra === 'ignore') change((s) => ({ ...s, sheets: { ...s.sheets, boxes: [...s.sheets.boxes, boxFromRegion(rect, size, 'ignore')] } }));
-    else if (extra === 'ownFields' && customName.trim()) {
+    else if (extra === 'ownFields' && customName.trim() && !customNameProblem(customName, latest.current?.sheets.boxes ?? [])) {
       const name = customName.trim();
       change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, { field: 'custom', name }, boxFromRegion(rect, size, 'custom', name)) } }));
       setCustomName('');
@@ -203,15 +211,7 @@ export function StandardsWizard(props: Props) {
                 <p>{q.prompt}</p>
                 {readOnly && <p className="sw-warn">This document is read-only, so boxes cannot be drawn on it.</p>}
                 {!answer && !readOnly && <p className="sw-hint">Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.</p>}
-                {answer && (
-                  <BoxResult
-                    check={check}
-                    verdict={check ? checkVerdict(check, q.field) : null}
-                    sheets={sheets}
-                    onGoTo={setPage}
-                    onClear={() => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, null) } }))}
-                  />
-                )}
+                {answer && <BoxResult check={check} verdict={check ? checkVerdict(check, q.field) : null} sheets={sheets} onGoTo={setPage} />}
               </section>
             )}
             {extra === 'ownFields' && (
@@ -219,11 +219,21 @@ export function StandardsWizard(props: Props) {
                 <h2>Your own fields</h2>
                 <p>Anything else in the title block you want read from every sheet (Package, Drawn by, Contract). Name it, then draw its box.</p>
                 <div className="sw-row">
-                  <input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="Field name" aria-label="Field name" maxLength={60} />
-                  <button type="button" className="btn small" disabled={!customName.trim() || readOnly} onClick={() => setDrawingCustom(true)}>
+                  <input
+                    value={customName}
+                    onChange={(e) => {
+                      setCustomName(e.target.value);
+                      setDrawingCustom(false);
+                    }}
+                    placeholder="Field name"
+                    aria-label="Field name"
+                    maxLength={60}
+                  />
+                  <button type="button" className="btn small" disabled={!customName.trim() || !!nameProblem || readOnly} onClick={() => setDrawingCustom(true)}>
                     {drawingCustom ? 'Drag on the sheet…' : 'Draw its box'}
                   </button>
                 </div>
+                {nameProblem && <p className="sw-warn">{nameProblem}</p>}
                 <BoxList
                   boxes={boxes.filter((b) => b.field === 'custom' && !TITLE_QUESTIONS.some((x) => x.name === b.name))}
                   texts={texts}
@@ -244,6 +254,11 @@ export function StandardsWizard(props: Props) {
               <button type="button" className="btn" onClick={back} disabled={question === 0}>
                 Back
               </button>
+              {q && answer && !readOnly && (
+                <button type="button" className="btn" onClick={() => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, null) } }))}>
+                  Re-draw box
+                </button>
+              )}
               {q?.optional && !answer && (
                 <button type="button" className="btn flat" onClick={next}>
                   Skip
@@ -309,24 +324,31 @@ export function StandardsWizard(props: Props) {
       <div className="sw-split" role="separator" aria-orientation="vertical" aria-label="Resize the instructions" onPointerDown={splitDown} onPointerMove={splitMove} onPointerUp={splitUp} onPointerCancel={splitUp} />
 
       <main className="sw-sheet">
-        <div className="sw-pages">
-          <button type="button" className="btn small" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="Previous sheet">
-            ‹
-          </button>
-          <select value={page} onChange={(e) => setPage(Number(e.target.value))} aria-label="Sheet">
-            {pages.map((_, i) => (
-              <option key={i} value={i}>
-                {i + 1}
-                {sheets[i]?.number ? `  ${sheets[i]!.number}` : ''}
-                {sheets[i]?.title ? `  ${sheets[i]!.title}` : ''}
-              </option>
-            ))}
-          </select>
-          <button type="button" className="btn small" disabled={page >= pages.length - 1} onClick={() => setPage(page + 1)} aria-label="Next sheet">
-            ›
-          </button>
+        <div className="sw-sheet-body">
+          <ThumbStrip pages={pages} sheets={sheets} current={page} render={props.render} onGoTo={setPage} flagged={flagged} />
+          <SheetView ref={sheetView} onZoom={setZoom} pageIndex={page} page={size} render={props.render} boxes={shown} drawing={drawing} onBox={onBox} focus={focus} focusKey={focus ? `tb:${step}` : step} />
         </div>
-        <SheetView pageIndex={page} page={size} render={props.render} boxes={shown} drawing={drawing} onBox={onBox} focus={focus} focusKey={focus ? `tb:${step}` : step} />
+        <PageNav
+          pageIndex={page}
+          pageCount={pages.length}
+          disabled={false}
+          onFirst={() => setPage(0)}
+          onPrev={() => setPage((p) => Math.max(0, p - 1))}
+          onNext={() => setPage((p) => Math.min(pages.length - 1, p + 1))}
+          onLast={() => setPage(pages.length - 1)}
+          onGoTo={setPage}
+          zoom={zoom}
+          continuous={false}
+          onZoomIn={() => sheetView.current?.zoomBy(1.25)}
+          onZoomOut={() => sheetView.current?.zoomBy(1 / 1.25)}
+          onZoomTo={(z) => sheetView.current?.zoomTo(z)}
+          onFit={() => sheetView.current?.fit()}
+          onFitWidth={() => sheetView.current?.fitWidth()}
+          sheetLabel={sheets[page]?.number ?? undefined}
+          sheetTitle={sheets[page]?.title ?? undefined}
+          pageWidthPt={size.width}
+          pageHeightPt={size.height}
+        />
       </main>
     </div>
   );
@@ -379,7 +401,7 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave }: Props & 
   );
 }
 
-function BoxResult({ check, verdict, sheets, onGoTo, onClear }: { check: ReturnType<typeof checkBox> | null; verdict: 'good' | 'some' | 'poor' | null; sheets: Props['sheets']; onGoTo: (page: number) => void; onClear: () => void }) {
+function BoxResult({ check, verdict, sheets, onGoTo }: { check: ReturnType<typeof checkBox> | null; verdict: 'good' | 'some' | 'poor' | null; sheets: Props['sheets']; onGoTo: (page: number) => void }) {
   if (!check) return <p className="sw-hint">Reading the set's text…</p>;
   return (
     <div className="sw-result">
@@ -388,6 +410,7 @@ function BoxResult({ check, verdict, sheets, onGoTo, onClear }: { check: ReturnT
       </p>
       <p className={`sw-verdict ${verdict}`}>
         Read on {check.read} of {check.of} sheets
+        {check.empty.length > 0 && check.empty.length < check.of && ' (the others are marked in the thumbnails)'}
         {verdict === 'good' && ' — looks right.'}
         {verdict === 'some' && ' — some sheets have nothing there (covers and indexes often don’t).'}
         {verdict === 'poor' && (check.here ? ' — too few; try a box that takes in the whole field.' : ' — nothing read on this sheet; draw the box around the text itself.')}
@@ -408,9 +431,6 @@ function BoxResult({ check, verdict, sheets, onGoTo, onClear }: { check: ReturnT
           ))}
         </tbody>
       </table>
-      <button type="button" className="btn small flat" onClick={onClear}>
-        Remove this box
-      </button>
     </div>
   );
 }

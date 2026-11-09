@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { boxFromRegion, type PageText, type SheetInfo, type Word } from '@nb/sheets';
-import { TITLE_QUESTIONS, boxFor, checkBox, checkVerdict, disciplineCandidates, samplePages, startPage, templateFor, withAnswer } from './standardsWizard.ts';
+import { TITLE_QUESTIONS, boxFor, checkBox, checkVerdict, customNameProblem, disciplineCandidates, samplePages, startPage, templateFor, withAnswer } from './standardsWizard.ts';
 
 const W = 2384;
 const H = 1684;
@@ -57,6 +57,7 @@ test('a box is checked across the set', () => {
     [null, 'KRU2-MCC-0412-RW-DRG-000022', 'KRU2-MCC-0412-RW-DRG-000031'],
   );
   assert.equal(checkVerdict(c, 'number'), 'some');
+  assert.deepEqual(c.empty, [0]);
   // The same number on every sheet: the box is on something else (a contract number).
   const same = checkBox([sheet('C-2041'), sheet('C-2041'), sheet('C-2041')], numberBox, 0);
   assert.deepEqual(same.repeated, ['C-2041']);
@@ -78,4 +79,12 @@ test('discipline candidates: letter codes that change between sheets', () => {
     found.map((f) => f.part),
     [3, 1, 4],
   );
+});
+
+test("a field of the person's own cannot take a name already in use", () => {
+  const pkg = boxFromRegion({ x: 0, y: 0, w: 10, h: 10 }, size, 'custom', 'Package');
+  assert.match(customNameProblem('status', []) ?? '', /Status has its own question/);
+  assert.match(customNameProblem(' PACKAGE ', [pkg]) ?? '', /already a field called Package/);
+  assert.equal(customNameProblem('Drawn by', [pkg]), null);
+  assert.equal(customNameProblem('', [pkg]), null);
 });
