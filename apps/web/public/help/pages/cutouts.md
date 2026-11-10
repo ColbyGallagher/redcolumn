@@ -15,4 +15,4 @@ The area shown is now the outer area minus the hole. Add as many cutouts as you 
 
 ## From the ribbon
 
-Select the area (or volume), then click **Cutout** on the **Takeoff** tab ([The Takeoff tab](#takeoff-tab)). It is greyed out until exactly one unlocked area or volume is selected, and its tooltip then says **Select an area first**. The Measurements panel's **Polygon Cutout** works the same way.
+Select the area (or volume), then click **Cutout** on the **Takeoff** tab ([The Takeoff tab](#takeoff-tab)). It is greyed out until exactly one unlocked area or volume you may edit is selected, and its tooltip says what is missing. The Measurements panel's **Polygon Cutout** also needs the area selected first; without one it tells you to select it.
