@@ -10,7 +10,6 @@ import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
-import { cutoutTargetOf } from './markup/cutoutTarget';
 import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
