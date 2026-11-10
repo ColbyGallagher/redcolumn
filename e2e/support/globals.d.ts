@@ -21,6 +21,7 @@ interface Window {
       currentPageIndex: number;
       pageToClient(p: [number, number], pageIndex: number): [number, number];
       fit(): void;
+      zoomToRect(r: { x: number; y: number; w: number; h: number }, margin?: number): void;
       goToPage(i: number): void;
       setPageMode(mode: 'single' | 'continuous'): void;
       zoomFor(pageIndex: number): number;
