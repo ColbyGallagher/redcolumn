@@ -68,7 +68,7 @@ test.describe('takeoff tab', () => {
     await app.page.evaluate(() => window.__nb.tools.select([]));
     await openTab(app);
     await expect(button(app, 'tool.cutout')).toBeDisabled();
-    await expect(button(app, 'tool.cutout')).toHaveAttribute('title', 'Select an area first');
+    await expect(button(app, 'tool.cutout')).toHaveAttribute('title', 'Select one unlocked area or volume first');
 
     // With the area selected the button works, and the cutout is drawn inside it.
     await app.page.evaluate((id) => window.__nb.tools.select([id]), area!.id);
