@@ -851,42 +851,6 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
         />
       </Row>
       {m.type !== 'volume' && <SlopeRows m={m} readOnly={readOnly} update={update} />}
-      {(q === 'area' || q === 'volume') && (
-      {m.type !== 'volume' && (
-        <Row label="Slope" title="Measured on plan; the slope gives the true length or area">
-          <select
-            value={m.slope?.kind ?? ''}
-            disabled={readOnly}
-            aria-label="Slope kind"
-            onChange={(e) => update({ slope: e.target.value ? { kind: e.target.value as Slope['kind'], value: m.slope?.value ?? 0 } : undefined })}
-          >
-            <option value="">None</option>
-            {SLOPE_KINDS.map((k) => (
-              <option key={k.value} value={k.value}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          {m.slope && (
-            <input
-              key={`${m.id}:${m.slope.kind}:${m.slope.value}`}
-              type="number"
-              step="any"
-              min={0}
-              aria-label="Slope"
-              defaultValue={m.slope.value || ''}
-              disabled={readOnly}
-              style={{ width: 64 }}
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 0 && v !== m.slope!.value) update({ slope: { kind: m.slope!.kind, value: v } });
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            />
-          )}
-          {m.slope && <span className="unit">{SLOPE_KINDS.find((k) => k.value === m.slope!.kind)!.unit}</span>}
-        </Row>
-      )}
       {canHaveCutout(m) && (
         <div className="props-actions">
           <button className="btn" disabled={readOnly || !tools || m.locked} onClick={() => tools?.startCutout(m.id)} title="Draw a polygon inside the area to subtract it">
