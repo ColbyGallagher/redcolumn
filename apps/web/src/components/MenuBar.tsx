@@ -552,6 +552,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="takeoff.saveTemplate" />
               <Cmd id="tool.cutout" />
               <Cmd id="takeoff.manual" />
+              <Cmd id="takeoff.reports" />
               <Cmd id="takeoff.syncExcel" />
               <Cmd id="takeoff.hip" />
               <Cmd id="takeoff.valley" />

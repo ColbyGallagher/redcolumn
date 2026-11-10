@@ -207,6 +207,8 @@ export interface CommandActions {
   cutout: () => void;
   /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
   syncExcel: () => void;
+  /** Takeoff › Reports: the quantity, detail and count reports as PDF, Excel or CSV. */
+  takeoffReports: () => void;
   /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
   toggleArc: () => void;
   /** Takeoff › Hip / Valley: arms Polylength to measure a hip or valley at the Slope group's pitch. */
@@ -572,6 +574,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: 'Select an area first' },
     cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
+    cmd('takeoff.reports', 'Tools', 'Takeoff Reports…', a.takeoffReports, doc),
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),

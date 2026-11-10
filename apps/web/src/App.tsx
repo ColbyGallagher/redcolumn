@@ -27,8 +27,10 @@ import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from '
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
+import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
 import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
+import type { SheetSpec } from './sheetsync/xlsx';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
@@ -1094,6 +1096,9 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportsBusy, setReportsBusy] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   /** The typed quantity the next click on a page places (Takeoff › Manual Quantity). */
   const manualPendingRef = useRef<ManualRequest | null>(null);
@@ -6271,6 +6276,7 @@ export function App() {
             spaces: all.filter((m) => m.type === 'space'),
             statuses: set.statuses,
             columns: set.columns,
+            assemblies: cur.store.resolvedAssemblies(),
           },
         });
       }
@@ -6329,10 +6335,81 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
+  const quantitiesSheet = async () => {
+    const { buildReport, reportPageLabel } = await import('./takeoff/reports');
+    const { reportSheet } = await import('./takeoff/reportFiles');
+    const table = buildReport('byItem', { markups, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel: reportPageLabel(sheets) });
+    return { ...reportSheet(table), name: 'Quantities' };
+  };
+  const [syncExtras, setSyncExtras] = useState<SheetSpec[]>([]);
+  const wantQuantities = !!sheetSync.link?.quantities;
+  useEffect(() => {
+    if (!wantQuantities) {
+      setSyncExtras((x) => (x.length ? [] : x));
+      return;
+    }
+    let live = true;
+    void quantitiesSheet().then((sheet) => live && setSyncExtras([sheet]));
+    return () => {
+      live = false;
+    };
+    // The context is rebuilt every render; these are what the quantities depend on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable);
-  }, [syncTable, sheetSync.link, pushSyncTable]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : []);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities]);
+
+  /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
+  const runReports = async (req: ReportRequest) => {
+    const cur = activeOpen;
+    if (!cur) return;
+    setReportsBusy(true);
+    setReportsError(null);
+    try {
+      const { buildReports, scopeMarkups, scopeLabel, scaleNote, reportPageLabel } = await import('./takeoff/reports');
+      const { reportsXlsx, reportCsv, reportFileName } = await import('./takeoff/reportFiles');
+      const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+      const scoped = scopeMarkups(markups, req.scope, { pageIndex, selected: toolsState.selected, listIds });
+      const pageLabel = reportPageLabel(cur.store.allSheets());
+      const tables = buildReports(req.reports, { markups: scoped, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel });
+      const base = cur.file.name.replace(/\.pdf$/i, '');
+      const scope = scopeLabel(req.scope, { pageLabel: pageLabel(pageIndex), count: scoped.length });
+      const date = new Date().toISOString().slice(0, 10);
+      const note = scaleNote(scoped, cellContext, pageLabel);
+      if (req.format === 'pdf') {
+        const { reportPdf } = await import('@nb/markup/report');
+        const bytes = await reportPdf({ project: base, date, scope, ...(note ? { scaleNote: note } : {}), paper: req.paper, reports: tables });
+        download(`${base} - Takeoff Reports.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+      } else if (req.format === 'xlsx') {
+        const info = [[`Project: ${base}`], [`Cover: ${scope}`], [`Date: ${date}`], ...(note ? [[note]] : [])];
+        download(`${base} - Takeoff Reports.xlsx`, new Blob([reportsXlsx(tables, info) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      } else {
+        // Byte-order mark so Excel reads the CSV as UTF-8.
+        const files = tables.map((t) => ({ name: reportFileName(base, t.title, 'csv'), data: new TextEncoder().encode(`\uFEFF${reportCsv(t)}`) }));
+        if (files.length === 1) download(files[0]!.name, new Blob([files[0]!.data as BlobPart], { type: 'text/csv' }));
+        else {
+          const { zipFiles } = await import('./documents/zip');
+          download(`${base} - Takeoff Reports.zip`, new Blob([zipFiles(files) as BlobPart], { type: 'application/zip' }));
+        }
+      }
+      setReportsOpen(false);
+    } catch (err) {
+      setReportsError(err instanceof Error ? err.message : 'The reports could not be made.');
+    } finally {
+      setReportsBusy(false);
+    }
+  };
+  /** What each report scope covers, for the dialog (measurements only: the reports ignore other markups). */
+  const reportCounts = useMemo(() => {
+    if (!reportsOpen) return { all: 0, page: 0, selection: 0, list: 0 };
+    const measured = markups.filter((m) => isMeasureKind(m.type));
+    const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+    return { all: measured.length, page: measured.filter((m) => m.pageIndex === pageIndex).length, selection: measured.filter((m) => toolsState.selected.has(m.id)).length, list: measured.filter((m) => listIds.has(m.id)).length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportsOpen, markups, pageIndex, toolsState.selected, scaleOf, sheets, columnSet, ws.list]);
 
   // Tell the others in the session which document and page this attendee is on.
   useEffect(() => {
@@ -8366,6 +8443,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    takeoffReports: () => {
+      setReportsError(null);
+      setReportsOpen(true);
+    },
     toggleArc: () => activeTools?.toggleArc(),
     hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
     manualQuantity: () => setManualOpen(true),
@@ -11308,13 +11389,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           rowCount={Math.max(0, syncTable.length - 1)}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities))()}
+          onSetQuantities={sheetSync.setQuantities}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}
         />
+      )}
+      {reportsOpen && activeOpen && (
+        <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
