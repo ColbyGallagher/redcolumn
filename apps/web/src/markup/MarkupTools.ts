@@ -128,7 +128,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'teachMark' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -158,7 +158,6 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   stitchRegion: 'Stitch Region',
   stitchPolygon: 'Stitch Region (Polygon)',
   stitchMove: 'Move Sheet',
-  teachMark: 'Teach Links',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
@@ -168,7 +167,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
 /** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
-const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion', 'teachMark']);
+const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
 export interface StitchGuides {
@@ -489,8 +488,6 @@ export interface MarkupToolsOptions {
   onFormField?: (widget: FormWidgetHit) => void;
   /** The user drew the area to crop pages to (the `cropArea` tool). */
   onCropArea?: (pageIndex: number, rect: PageRect) => void;
-  /** The user boxed an example of a section mark, title or detail callout (the `teachMark` tool). */
-  onTeachMark?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a box around a symbol to find (the `visualSearch` tool). */
   onVisualSearch?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a viewport (the `viewport` tool). */
@@ -4138,9 +4135,6 @@ export class MarkupTools implements ViewerOverlay {
         this.setState({ tool: 'select' });
       } else if (this.state.tool === 'visualSearch') {
         this.options.onVisualSearch?.(m.pageIndex, b);
-        this.setState({ tool: 'select' });
-      } else if (this.state.tool === 'teachMark') {
-        this.options.onTeachMark?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
       } else if (this.state.tool === 'viewport') {
         this.options.onViewport?.(m.pageIndex, b);

@@ -1,5 +1,6 @@
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
+import { boxInSetup, openSetup, setupStep, startStandard } from '../support/setup.ts';
 import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFString } from 'pdf-lib';
 import { pdfInfo, pdfPages, unzip } from '../support/files.ts';
 
@@ -470,54 +471,55 @@ test.describe('page labels and scales from regions', () => {
     await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
   });
 
-  test('document.drawingStandards reads every sheet number from a standard\'s box, and None goes back to the text', async ({ app }) => {
-    await app.cmd('document.drawingStandards');
-    const panel = app.page.locator('.drawing-standard');
-    await expect(panel).toBeVisible();
-    // Dragged wider by its left edge, for long drawing numbers and titles; the right edge stays put.
-    const before = (await panel.boundingBox())!;
-    const edge = (await panel.locator('.rp-w').boundingBox())!;
-    await app.page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2);
-    await app.page.mouse.down();
-    await app.page.mouse.move(edge.x + edge.width / 2 - 120, edge.y + edge.height / 2, { steps: 5 });
-    await app.page.mouse.up();
-    const after = (await panel.boundingBox())!;
-    expect(Math.round(after.width - before.width)).toBe(120);
-    expect(Math.round(after.x + after.width)).toBe(Math.round(before.x + before.width));
-    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
-    await drawBox(app, S.labelBox);
-    await expect(panel.locator('.lr-text').first()).toHaveText(S.labels[0]!);
-    await expect(panel.getByLabel('Box 1 holds')).toHaveValue('number');
+  test("document.drawingStandards opens the setup's review: the boxes read every sheet, its own fields too, and None goes back to the text", async ({ app }) => {
+    const { win, wizard } = await openSetup(app);
+    await startStandard(wizard, 'Rooms client');
+    const page = { width: W, height: H };
+    const b = S.labelBox;
+    await boxInSetup(win, wizard, page, { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 });
     // "ROOM 101" is no drawing-number shape until the template says this client numbers sheets so.
-    await expect(panel.locator('.lr-preview')).toContainText('read on 0 of 3 pages');
-    await panel.getByLabel('Template').fill('ROOM###');
-    await expect(panel.locator('.lr-preview')).toContainText('read on 3 of 3 pages');
-    // A field of the client's own: the box is named, and read on every sheet without the name printed in front (SCALE:).
-    await drawBox(app, S.scaleBox);
-    await panel.getByLabel('Box 2 holds').selectOption('custom');
-    await panel.getByLabel('Box 2 field name').fill('Scale');
-    await expect(panel.locator('.lr-preview')).toContainText(`Scale: ${S.scales[0]}`);
-    await panel.getByRole('button', { name: 'Save and use' }).click();
+    await expect(wizard.locator('.sw-verdict')).toContainText('Read on 0 of 3 sheets');
+    await wizard.locator('.sw-checklist').getByRole('button', { name: 'Drawing numbers' }).click();
+    await wizard.getByLabel('Drawing number template').fill('ROOM###');
+    await wizard.locator('.sw-checklist').getByRole('button', { name: 'Drawing number', exact: false }).first().click();
+    await expect(wizard.locator('.sw-read')).toHaveText(`Reads: ${S.labels[0]!.replace(' ', '')}`);
+    await expect(wizard.locator('.sw-verdict')).toContainText('Read on 3 of 3 sheets');
+    // A field of the client's own: named, then boxed; read on every sheet without the name printed in front (SCALE:).
+    await wizard.locator('.sw-checklist').getByRole('button', { name: 'Your own fields' }).click();
+    await wizard.getByLabel('Field name').fill('Scale');
+    await wizard.getByRole('button', { name: 'Draw its box' }).click();
+    const s = S.scaleBox;
+    await boxInSetup(win, wizard, page, { x: s.x - 4, y: s.y - 4, w: s.w + 8, h: s.h + 8 });
+    await setupStep(wizard, 'Review');
+    await wizard.getByRole('button', { name: 'Read this document with it' }).click();
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
     const fields = await app.page.evaluate(() => Object.values((window.__nb.tools as unknown as { store: { allSheets(): Record<number, { fields?: Record<string, string> }> } }).store.allSheets()).map((s) => s.fields));
     expect(fields).toEqual(S.scales.map((scale) => ({ Scale: scale })));
     await expect(app.notice()).toHaveText(/with Rooms client: 3 of 3 sheet numbers/);
-    await expect(panel.getByLabel('Drawing standard for this document')).toHaveValue(/.+/);
-    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
+
+    // Document › Drawing Standards opens the setup at its review, on the standard the document is read with.
+    const again = await openSetup(app, 'document.drawingStandards');
+    await expect(again.wizard.locator('.sw-question h2').first()).toHaveText('Review');
+    const choice = again.wizard.getByLabel('Drawing standard for this document');
+    await expect(choice).toHaveValue(/.+/);
+    await choice.selectOption('');
     await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
     // The standard stays in the profile for the next set.
-    await expect(panel.getByLabel('Standard to edit')).toContainText('Edit: Rooms client');
+    await expect(choice.locator('option')).toContainText(['None (read from the text)', 'Rooms client']);
+    await Promise.all([again.win.waitForEvent('close'), again.wizard.getByRole('button', { name: 'Close the setup' }).click()]);
   });
 
   test('a saved drawing standard is offered when a set it fits comes to the front', async ({ app }) => {
-    await app.cmd('document.drawingStandards');
-    const panel = app.page.locator('.drawing-standard');
-    await panel.getByLabel('Name', { exact: true }).fill('Rooms client');
-    await drawBox(app, S.labelBox);
-    await panel.getByLabel('Template').fill('ROOM###');
-    // Saved only: this document is not read with it yet.
-    await panel.getByRole('button', { name: 'Save', exact: true }).click();
-    await panel.getByRole('button', { name: 'Close' }).click();
+    const { win, wizard } = await openSetup(app);
+    await startStandard(wizard, 'Rooms client');
+    const b = S.labelBox;
+    await boxInSetup(win, wizard, { width: W, height: H }, { x: b.x - 4, y: b.y - 4, w: b.w + 8, h: b.h + 8 });
+    await expect(wizard.locator('.sw-verdict')).toContainText('Read on 0 of 3 sheets');
+    await wizard.locator('.sw-checklist').getByRole('button', { name: 'Drawing numbers' }).click();
+    await wizard.getByLabel('Drawing number template').fill('ROOM###');
+    // Saved as it goes, and closed: this document is not read with it yet.
+    await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
     await app.open('plan.pdf');
     await app.open('sheets.pdf');
     const offer = app.page.locator('.standard-suggestion');
@@ -526,11 +528,11 @@ test.describe('page labels and scales from regions', () => {
     await expect(offer).toHaveCount(0);
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l) => l.replace(' ', '')));
     // Back to the text alone: the standard is not offered for this set again.
-    await app.cmd('document.drawingStandards');
-    await panel.getByLabel('Drawing standard for this document').selectOption('');
+    const again = await openSetup(app, 'document.drawingStandards');
+    await again.wizard.getByLabel('Drawing standard for this document').selectOption('');
     await expect.poll(() => sheetNumbers(app, 3)).toEqual([null, null, null]);
     await expect.poll(() => app.page.evaluate(() => (window.__nb.tools.store as unknown as { declinedStandards(): string[] }).declinedStandards().length)).toBe(1);
-    await panel.getByRole('button', { name: 'Close' }).click();
+    await Promise.all([again.win.waitForEvent('close'), again.wizard.getByRole('button', { name: 'Close the setup' }).click()]);
     await app.open('plan.pdf');
     await app.open('sheets.pdf');
     await expect(offer).toHaveCount(0);
