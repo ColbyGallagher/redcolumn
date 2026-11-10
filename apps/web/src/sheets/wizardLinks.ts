@@ -1,6 +1,6 @@
-import { SheetLookup, detectLinks, detailId, idTest, matchLineLabels, textInRegion, type DetectedLink, type LinkHints, type PageText, type Rect } from '@nb/sheets';
+import { SheetLookup, alignmentTemplateOf, alignmentsIn, chainageReport, detectLinks, detailId, idTest, matchLineLabels, textInRegion, type AlignmentSource, type ChainageAmbiguity, type ChainageHints, type DetectedLink, type LinkHints, type PageText, type Rect, type SheetInfo } from '@nb/sheets';
 import { backgroundLines, boxContents, familyOf, findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type MarkPage, type TaughtMark } from './marks';
-import type { TaughtBox } from './teachLinks';
+import { chainageIn, learnSheetTitles, type TaughtBox } from './teachLinks';
 
 /**
  * The setup wizard's link steps (sections, elevations, details): what a boxed example says, and
@@ -167,4 +167,110 @@ export function runMatchLineStep(texts: readonly PageText[], sheetNumbers: reado
   // A link whose label the words did not find (worded another way) is still one label, linked.
   const others = links.filter((l) => !claimed.has(l)).length;
   return { links, places: places + others, linked: linked + others, unreadable: 0 };
+}
+
+/** The four boxes of the chainage step, in the order they are drawn. */
+export interface ChainBoxes {
+  /** A chainage on a plan (a tick or `CH 150`). */
+  planChainage: TaughtBox;
+  /** The name of the alignment that chainage is on, on the same plan. */
+  planAlignment: TaughtBox;
+  /** On a cross-section sheet of that alignment, where it names the alignment. */
+  sectionAlignment: TaughtBox;
+  /** On that sheet, one section's chainage. */
+  sectionChainage: TaughtBox;
+}
+
+/** What the four boxes taught. */
+export interface ChainLesson {
+  /** The standard's chainage settings with what the boxes taught; null when they taught nothing new. */
+  chainage: ChainageHints | null;
+  notes: string[];
+  /** Why the boxes cannot be kept as they are; null when they can. */
+  problem: string | null;
+}
+
+/** An alignment name as boxed: its words in reading order, upper case, without the punctuation around it. */
+export function alignmentSays(box: TaughtBox): string {
+  return textInRegion(box.contents.words, box.box)
+    .toUpperCase()
+    .split(/\s+/)
+    .map((w) => w.replace(/^[(]+|[,;:.)]+$/g, ''))
+    .filter(Boolean)
+    .join(' ');
+}
+
+const centre = (r: Rect) => [r.x + r.w / 2, r.y + r.h / 2] as const;
+
+/**
+ * Learns from the four boxes: how the plan and the cross sections write chainages, the alignment's
+ * name and the form names take (`MC##`), which sheets are plans and which cross sections, and
+ * where a cross-section sheet says its alignment (its title, once on the sheet, or beside each
+ * section). Then checks the chain links on these two sheets.
+ */
+export function learnAlignmentChain(b: ChainBoxes, sheets: readonly (SheetInfo | null | undefined)[], hints: ChainageHints, titleBox: Rect | null = null): ChainLesson {
+  const notes: string[] = [];
+  const fail = (problem: string): ChainLesson => ({ chainage: null, notes, problem });
+  const name = (i: number) => sheets[i]?.number ?? `sheet ${i + 1}`;
+  const along = chainageIn(b.planChainage.contents.words);
+  if (!along) return fail('There is no chainage in the first box. Box a chainage on the plan: a tick label or CH 150.');
+  const planName = alignmentSays(b.planAlignment);
+  if (!planName) return fail('There is no text in the alignment box on the plan. Box the name of the alignment (MC00).');
+  if (planName.split(' ').length > 3) return fail(`The alignment box reads "${planName}". Box just the name of the alignment (MC00, LINE A).`);
+  if (b.planAlignment.pageIndex !== b.planChainage.pageIndex) return fail('Box the name of the alignment on the same plan as the chainage.');
+  if (b.sectionAlignment.pageIndex === b.planChainage.pageIndex) return fail('The cross-section boxes are on the plan. Go to a cross-section sheet of the alignment and box them there.');
+  if (b.sectionChainage.pageIndex !== b.sectionAlignment.pageIndex) return fail(`Box the section's chainage on ${name(b.sectionAlignment.pageIndex)}, the sheet where you boxed the alignment.`);
+  const sectionName = alignmentSays(b.sectionAlignment);
+  if (!sectionName) return fail('There is no text in the alignment box on the cross-section sheet.');
+  if (!` ${sectionName} `.includes(` ${planName} `)) return fail(`The plan's alignment is ${planName} but ${name(b.sectionAlignment.pageIndex)} names ${sectionName}. Box a cross-section sheet of ${planName}.`);
+  const cut = chainageIn(b.sectionChainage.contents.words);
+  if (!cut) return fail("There is no chainage in the last box. Box one section's chainage on the cross-section sheet.");
+  if (!cut.prefix && !cut.plus) return fail("Box the section's chainage with the word in front of it (CH, CHAINAGE): a number alone could be anything.");
+
+  const h: ChainageHints = structuredClone(hints);
+  for (const c of [cut, along]) {
+    if (c.prefix && !h.prefixes.some((p) => p.toUpperCase() === c.prefix)) {
+      h.prefixes = [...h.prefixes, c.prefix];
+      notes.push(`Chainages are written after ${c.prefix}.`);
+    }
+  }
+  if (!along.prefix && !along.plus) notes.push('Plans mark chainages with bare numbers along the alignment.');
+  if (!h.alignments.some((a) => a.toUpperCase() === planName)) h.alignments = [...h.alignments, planName];
+  const template = alignmentTemplateOf(planName);
+  if (template && !h.alignmentTemplate) {
+    h.alignmentTemplate = template;
+    notes.push(`Alignment names look like ${planName} (${template}, # a digit), so the set's other alignments are found too.`);
+  } else if (template && h.alignmentTemplate !== template) notes.push(`${planName} does not fit the alignment names already taught (${h.alignmentTemplate}), so it is listed by name.`);
+
+  // Where the cross-section sheet says its alignment: boxed in the title (or naming it there, boxed
+  // away from the sections); beside each section (boxed next to the section, or printed over and
+  // over on the sheet); else once on the sheet.
+  const [ax, ay] = centre(b.sectionAlignment.box);
+  const [cx, cy] = centre(b.sectionChainage.box);
+  const reach = Math.max(b.sectionChainage.box.w, b.sectionChainage.box.h) * 3;
+  const inTitleBox = !!titleBox && overlap(b.sectionAlignment.box, titleBox) > 0.5;
+  const title = sheets[b.sectionAlignment.pageIndex]?.title;
+  const titled = alignmentsIn(title, { alignments: [planName], alignmentTemplate: null }).length > 0;
+  const first = planName.split(' ')[0]!;
+  const body = b.sectionAlignment.page.words.filter((w) => w.text.toUpperCase().replace(/[.,;:]+$/, '') === first && !(titleBox && overlap({ x: w.x0, y: w.y0, w: w.x1 - w.x0, h: w.y1 - w.y0 }, titleBox) > 0.5));
+  const source: AlignmentSource = inTitleBox ? 'title' : Math.hypot(ax - cx, ay - cy) < reach || body.length >= 2 ? 'section' : titled ? 'title' : 'sheet';
+  h.alignmentSource = source;
+  notes.push({ section: 'Cross sections name their alignment beside each section.', title: 'Cross-section sheets name their alignment in the title.', sheet: 'Cross-section sheets name their alignment once on the sheet.' }[source]);
+
+  const titles = learnSheetTitles(h, b.sectionChainage, b.planChainage, sheets, notes);
+  if (titles) return fail(titles);
+
+  // The chain on these two sheets: the section's chainage back to the plan.
+  const plan = b.planChainage;
+  const section = b.sectionChainage;
+  const two = chainageReport([plan.page, section.page], [sheets[plan.pageIndex], sheets[section.pageIndex]], h, true);
+  const back = two.links.some((l) => l.pageIndex === 1 && l.targetPage === 0);
+  notes.push(back ? `Chainage ${cut.value} on ${name(section.pageIndex)} links to ${name(plan.pageIndex)}.` : `Chainage ${cut.value} on ${name(section.pageIndex)} is not shown on ${name(plan.pageIndex)}, so that pair does not link; the rest of the set is checked next.`);
+  return { chainage: JSON.stringify(h) === JSON.stringify(hints) ? null : h, notes, problem: null };
+}
+
+/** The chainage step over the set: its links, how many chainages should link and did, and those whose alignment is unclear. */
+export function runChainageStep(texts: readonly PageText[], sheets: readonly (SheetInfo | null | undefined)[], hints: ChainageHints): StepRun & { ambiguous: ChainageAmbiguity[] } {
+  const r = chainageReport(texts, sheets, hints, true);
+  return { links: r.links, places: r.references, linked: r.linked, unreadable: 0, ambiguous: r.ambiguous };
 }

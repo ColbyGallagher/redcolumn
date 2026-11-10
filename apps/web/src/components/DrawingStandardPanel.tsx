@@ -52,11 +52,12 @@ const listOf = (text: string) =>
     .filter(Boolean);
 
 /** The chainage settings as typed: comma-separated lists. */
-type ChainLists = Record<keyof ChainageHints, string>;
+type ChainList = 'prefixes' | 'alignments' | 'planTitles' | 'sectionTitles';
+type ChainLists = Record<ChainList, string>;
 
 const chainListsOf = (c: ChainageHints): ChainLists => ({ prefixes: c.prefixes.join(', '), alignments: c.alignments.join(', '), planTitles: c.planTitles.join(', '), sectionTitles: c.sectionTitles.join(', ') });
 
-const CHAIN_LABELS: [keyof ChainageHints, string, string][] = [
+const CHAIN_LABELS: [ChainList, string, string][] = [
   ['alignments', 'Alignment names', 'MC01, RAMP A (empty: one alignment)'],
   ['prefixes', 'Written before a chainage', 'STA, CH'],
   ['planTitles', 'Plan sheet titles', 'PLAN AND LONGITUDINAL SECTION'],
@@ -145,7 +146,7 @@ export function DrawingStandardPanel({ standards: stored, current, regions, draw
     else if (key === 'matchLine') setLinks({ matchLine: list });
     else setLinks({ titles: { ...draft.links.titles, [key]: list } });
   };
-  const setChainList = (key: keyof ChainageHints, text: string) => {
+  const setChainList = (key: ChainList, text: string) => {
     setChainLists((l) => ({ ...l, [key]: text }));
     setDraft((d) => ({ ...d, chainage: { ...d.chainage, [key]: listOf(text) } }));
   };

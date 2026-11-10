@@ -26,6 +26,7 @@ import { SheetView, type PageRect, type SheetViewApi, type ShownBox } from './Sh
 import { ThumbStrip } from './ThumbStrip';
 import { CalloutStep, type StepSheet } from './CalloutStep';
 import { MatchLineStep } from './MatchLineStep';
+import { ChainageStep } from './ChainageStep';
 import type { MarkPage } from '../../sheets/marks';
 import type { CalloutKind } from '../../sheets/wizardLinks';
 
@@ -127,7 +128,7 @@ export function StandardsWizard(props: Props) {
   const numbers = useMemo(() => (texts && numberBox ? numbersRead(texts, numberBox) : []), [texts, numberBox]);
 
   const callout: CalloutKind | null = step === 'sections' ? 'section' : step === 'elevations' ? 'elevation' : step === 'details' ? 'detail' : null;
-  const stepOwnsSheet = !!callout || step === 'matchLines';
+  const stepOwnsSheet = !!callout || step === 'matchLines' || step === 'chainage';
   const drawing = stepOwnsSheet ? !!stepSheet.onBox : !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
   const onBox = (rect: PageRect) => {
     if (stepOwnsSheet) return stepSheet.onBox?.(rect);
@@ -367,6 +368,28 @@ export function StandardsWizard(props: Props) {
             setSheet={setStepSheet}
             onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onStitch={props.onStitch}
+            onBack={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}
+            onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
+          />
+        )}
+        {step === 'chainage' && (
+          <ChainageStep
+            standard={standard}
+            change={change}
+            texts={texts}
+            sheets={sheets}
+            pages={pages}
+            page={page}
+            setPage={goTo}
+            look={(i, rect) => {
+              setPage(i);
+              setLook((l) => ({ rect, n: (l?.n ?? 0) + 1 }));
+            }}
+            readPage={props.readPage}
+            render={props.render}
+            readOnly={readOnly}
+            setSheet={setStepSheet}
+            onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onBack={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}
             onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
           />
