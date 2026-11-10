@@ -1,6 +1,7 @@
 import { SheetLookup, alignmentTemplateOf, alignmentsIn, chainageReport, detectLinks, detailId, idTest, matchLineLabels, textInRegion, type AlignmentSource, type ChainageAmbiguity, type ChainageHints, type DetectedLink, type LinkHints, type PageText, type Rect, type SheetInfo } from '@nb/sheets';
 import { backgroundLines, boxContents, familyOf, findMarksOnPage, marksToLinks, mayHoldMarks, type MarkHit, type MarkPage, type TaughtMark } from './marks';
 import { chainageIn, learnSheetTitles, type TaughtBox } from './teachLinks';
+import { exampleOf, type SetupExample, type SetupStep } from './standards';
 
 /**
  * The setup wizard's link steps (sections, elevations, details): what a boxed example says, and
@@ -282,4 +283,9 @@ export function learnAlignmentChain(b: ChainBoxes, sheets: readonly (SheetInfo |
 export function runChainageStep(texts: readonly PageText[], sheets: readonly (SheetInfo | null | undefined)[], hints: ChainageHints): StepRun & { ambiguous: ChainageAmbiguity[] } {
   const r = chainageReport(texts, sheets, hints, true);
   return { links: r.links, places: r.references, linked: r.linked, unreadable: 0, ambiguous: r.ambiguous };
+}
+
+/** A box drawn in a link step, kept in the standard as an example for an AI assistant. */
+export function boxExample(step: SetupStep, role: string, box: TaughtBox, sheets: readonly (SheetInfo | null | undefined)[]): SetupExample {
+  return exampleOf(step, role, box.pageIndex, box.box, box.page, sheets[box.pageIndex]?.number ?? null, textInRegion(box.contents.words, box.box));
 }

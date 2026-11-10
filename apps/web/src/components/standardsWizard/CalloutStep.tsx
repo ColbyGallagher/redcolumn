@@ -4,9 +4,11 @@ import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 import type { DrawingStandard } from '../../sheets/standards';
 import type { MarkPage } from '../../sheets/marks';
 import { learnLink, type TaughtBox } from '../../sheets/teachLinks';
-import { boxSays, runCalloutStep, taughtBox, type CalloutKind, type StepRun } from '../../sheets/wizardLinks';
+import { boxExample, boxSays, runCalloutStep, taughtBox, type CalloutKind, type StepRun } from '../../sheets/wizardLinks';
+import { withExamples, type SetupStep } from '../../sheets/standards';
+import { aiPrompt } from '../../sheets/standardsWizard';
 import type { PageRect, ShownBox } from './SheetView';
-import { CheckCard, Gif, Meter } from './stepParts';
+import { AskAi, CheckCard, Gif, Meter, useStepResult } from './stepParts';
 
 /** The wizard's hold on the sheet while this step draws on it. */
 export interface StepSheet {
@@ -34,6 +36,8 @@ interface Props {
   onChecks: (checks: ReadonlyMap<string, boolean>) => void;
   onBack: () => void;
   onNext: () => void;
+  /** The drawing's file name, for the prompt an AI assistant is given. */
+  fileName: string;
 }
 
 const WORDS: Record<CalloutKind, { many: string; one: string; mark: string; title: string; markHow: string; titleHow: string }> = {
@@ -64,6 +68,8 @@ const WORDS: Record<CalloutKind, { many: string; one: string; mark: string; titl
 };
 
 type Phase = 'mark' | 'title' | 'results';
+
+const STEP: Record<CalloutKind, SetupStep> = { section: 'sections', elevation: 'elevations', detail: 'details' };
 
 /**
  * A link step of the setup wizard (sections, elevations, details): box one callout, then the title
@@ -132,7 +138,7 @@ export function CalloutStep(p: Props) {
       setProblem(lesson.problem);
       return;
     }
-    p.change((s) => ({ ...s, links: lesson.links ?? s.links, marks: [...s.marks, ...lesson.marks] }));
+    p.change((s) => withExamples({ ...s, links: lesson.links ?? s.links, marks: [...s.marks, ...lesson.marks] }, STEP[p.kind], [boxExample(STEP[p.kind], 'mark', mark, p.sheets), boxExample(STEP[p.kind], 'title', title, p.sheets)]));
     setNotes(lesson.notes);
     setChecks(new Map());
     setPhase('results');
@@ -141,6 +147,7 @@ export function CalloutStep(p: Props) {
   const sample = useMemo(() => (run ? spotCheckSample(run.links) : []), [run]);
   const noText = useMemo(() => p.texts?.filter((t) => t.words.length === 0).length ?? 0, [p.texts]);
   const meter = run ? stepMeter({ links: run.links, references: run.places, linked: run.linked, checks, unreadable: run.unreadable, pagesWithoutText: noText, pages: p.texts?.length ?? 0 }) : null;
+  useStepResult(STEP[p.kind], run, meter, p.change, p.readOnly);
   const gif = (part: 'mark' | 'title') => `${window.location.origin}/help/gif/standards-${p.kind}-${part}.gif`;
 
   if (phase === 'mark' || phase === 'title') {
@@ -265,8 +272,10 @@ export function CalloutStep(p: Props) {
           {meter.band === 'ai' && (
             <div className="sw-ai">
               <strong>Recommended: finish this step with AI.</strong> Text and shape search find too few of this set’s {w.many.toLowerCase()}, or too many are wrong. An AI assistant connected to redcolumn over MCP can read the sheets and use the examples you gave to find the rest. You can still keep what was found here.
+              <AskAi prompt={aiPrompt(p.standard, p.fileName, [STEP[p.kind]])} />
             </div>
           )}
+          {meter.band !== 'ai' && run.unreadable > 0 && <AskAi prompt={aiPrompt(p.standard, p.fileName, [STEP[p.kind]])} label="Ask AI to read these" />}
         </>
       )}
       <div className="sw-nav">

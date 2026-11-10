@@ -30,6 +30,7 @@ export type EvidenceKey =
   | 'alignmentUnknown'
   | 'severalAlignments'
   | 'sectionsOnSeveral'
+  | 'aiProposed'
   | 'inSheetRange'
   | 'outsideSheetRange';
 
@@ -51,6 +52,7 @@ export const EVIDENCE: Record<EvidenceKey, { weight: number; says: string }> = {
   alignmentAgrees: { weight: 1.33, says: 'the drawing standard names the alignment, and both ends are on it' },
   alignmentUnknown: { weight: 0, says: 'which alignment this chainage is on could not be told' },
   severalAlignments: { weight: -0.4, says: 'the sheet shows several alignments, and this chainage could be on another' },
+  aiProposed: { weight: 0, says: 'proposed by an AI assistant over MCP, waiting for a person to keep it' },
   sectionsOnSeveral: { weight: -0.6, says: 'cross sections at this chainage are drawn for more than one alignment' },
   inSheetRange: { weight: 0.4, says: "the chainage is inside the range in the target sheet's title" },
   outsideSheetRange: { weight: -1.0, says: "the chainage is outside the range in the target sheet's title" },

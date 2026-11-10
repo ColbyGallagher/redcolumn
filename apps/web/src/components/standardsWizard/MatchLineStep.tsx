@@ -3,10 +3,12 @@ import { DEFAULT_LINK_HINTS, spotCheckSample, stepMeter, type PageText, type She
 import type { DrawingStandard } from '../../sheets/standards';
 import type { MarkPage } from '../../sheets/marks';
 import type { TaughtBox } from '../../sheets/teachLinks';
-import { boxSays, learnMatchLine, runMatchLineStep, taughtBox, type StepRun } from '../../sheets/wizardLinks';
+import { boxExample, boxSays, learnMatchLine, runMatchLineStep, taughtBox, type StepRun } from '../../sheets/wizardLinks';
+import { withExamples } from '../../sheets/standards';
+import { aiPrompt } from '../../sheets/standardsWizard';
 import type { StepSheet } from './CalloutStep';
 import type { PageRect, ShownBox } from './SheetView';
-import { CheckCard, Gif, Meter, type Render } from './stepParts';
+import { AskAi, CheckCard, Gif, Meter, useStepResult, type Render } from './stepParts';
 
 interface Props {
   standard: DrawingStandard;
@@ -26,6 +28,8 @@ interface Props {
   onStitch?: () => void;
   onBack: () => void;
   onNext: () => void;
+  /** The drawing's file name, for the prompt an AI assistant is given. */
+  fileName: string;
 }
 
 type Phase = 'first' | 'second' | 'results';
@@ -87,10 +91,8 @@ export function MatchLineStep(p: Props) {
       setProblem(lesson.problem);
       return;
     }
-    if (lesson.links) {
-      const links = lesson.links;
-      p.change((s) => ({ ...s, links: { ...s.links, matchLine: links.matchLine } }));
-    }
+    const links = lesson.links;
+    p.change((s) => withExamples(links ? { ...s, links: { ...s.links, matchLine: links.matchLine } } : s, 'matchLines', [boxExample('matchLines', 'label', first, p.sheets), boxExample('matchLines', 'matchingLabel', second, p.sheets)]));
     setNotes(lesson.notes);
     setChecks(new Map());
     setPhase('results');
@@ -98,6 +100,7 @@ export function MatchLineStep(p: Props) {
 
   const sample = useMemo(() => (run ? spotCheckSample(run.links) : []), [run]);
   const meter = run ? stepMeter({ links: run.links, references: run.places, linked: run.linked, checks }) : null;
+  useStepResult('matchLines', run, meter, p.change, p.readOnly);
   const gif = (part: 'first' | 'second') => `${window.location.origin}/help/gif/standards-matchline-${part}.gif`;
 
   if (phase === 'first' || phase === 'second') {
@@ -204,6 +207,7 @@ export function MatchLineStep(p: Props) {
           {meter.band === 'ai' && (
             <div className="sw-ai">
               <strong>Recommended: finish this step with AI.</strong> Text search finds too few of this set’s match lines, or too many are wrong. An AI assistant connected to redcolumn over MCP can read the sheets and use the labels you boxed to find the rest.
+              <AskAi prompt={aiPrompt(p.standard, p.fileName, ['matchLines'])} />
             </div>
           )}
           {p.onStitch && run.links.length > 0 && (

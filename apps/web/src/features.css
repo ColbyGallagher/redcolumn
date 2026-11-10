@@ -7887,6 +7887,53 @@ tr.hidden-markup td {
 .sw-meter.ai strong {
   color: var(--danger-text);
 }
+.sw-review {
+  width: 100%;
+  margin: 8px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.sw-review th,
+.sw-review td {
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.sw-review .band.good {
+  color: var(--ok-text);
+}
+.sw-review .band.review {
+  color: var(--warn-text);
+}
+.sw-review .band.ai {
+  color: var(--danger-text);
+}
+.sw-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.sw-proposals {
+  list-style: none;
+  padding: 0;
+}
+.sw-proposals > li {
+  margin: 8px 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.sw-ask-ai {
+  margin-top: 8px;
+}
+.sw-ask-ai textarea {
+  width: 100%;
+  margin-top: 6px;
+  font: 11px var(--font-mono, monospace);
+}
 .sw-ambiguous {
   margin: 6px 0;
   padding-left: 18px;

@@ -385,3 +385,34 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
   simulated), both are reported unreadable and nothing is mislinked.
 - Not done: rotated copies (`rotations`), raster template matching for scanned sets (only if a
   real set needs it), and the section C title-block mislabel (still open from PR 4).
+
+### MCP tools and Ask AI (PR 8)
+
+- The standard keeps what an AI assistant needs:
+  - `examples`: the boxes drawn in the link steps (step, role, page, sheet number, the box as
+    page fractions, the text read), the latest 8 per step. Exported in `.rcstandard` files (text
+    and place only, no pictures; section 10's question on sharing them stays open).
+  - `results`: each link step's last meter (band, score, references and linked, checks, unreadable
+    marks, unclear chainages). Profile only.
+  - `proposals`: words an AI assistant proposed, waiting for a person. Profile only. The setup
+    reads them from the profile copy when it saves, so a proposal made while it is open is kept.
+- Four MCP tools (`desktop/assistantStandards.ts`, listed in `apps/desktop` `message.ts`):
+  - `get_drawing_standard`: the standard the document is read with (or one named), its title
+    block, words, taught marks, examples and step results, and pending proposals.
+  - `list_sheet_links`: the set's links with place, target, confidence, why (`explain`), status and
+    source (text, taught mark, pdf, ai); filter by kind, status, page; paged.
+  - `propose_sheet_links`: links as `ai-` ids, always `review`, with the reasoning as the link's
+    `note` and `aiProposed` evidence. Kept across detection runs; a person's decision on one sticks
+    when it is proposed again; all items are checked before any is added.
+  - `propose_standard_hints`: words to add (title, match-line, chainage prefixes, alignments and
+    their form, plan and cross-section titles), stored as a proposal on the standard.
+- In the setup: each link step saves its result; where the meter recommends AI (or a step found
+  marks it could not read) an **Ask AI to finish** button copies a prompt naming the standard,
+  the drawing, the steps and why, and the tools to use; when the clipboard is refused the prompt
+  is shown to copy. The Review step lists every step's result, offers one prompt for all steps
+  left, and shows AI proposals with **Add these words** / **Dismiss**. AI links show in the Links
+  panel's Needs review list, their tooltip giving the AI's reasoning; they are not exported to
+  the PDF until kept.
+- Tried in the browser pane through the app's own assistant hook: `get_drawing_standard` read the
+  Kestrel standard, a proposal sent while the setup was open survived the setup's own saves,
+  showed in Review, and Add these words added JOIN LINE and MC00/MC01 to the standard.

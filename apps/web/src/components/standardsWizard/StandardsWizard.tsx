@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import { boxFromRegion, regionOfBox, templateRegex, type PageText, type SheetInfo, type TitleBox } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 import { PageNav } from '../PageNav';
-import { newStandard, withDefaults, type DrawingStandard } from '../../sheets/standards';
+import { acceptProposal, describeChanges, dismissProposal, newStandard, SETUP_STEPS, withDefaults, type DrawingStandard, type SetupStep } from '../../sheets/standards';
+import { AskAi } from './stepParts';
 import {
   TITLE_EXTRAS,
   TITLE_QUESTIONS,
@@ -27,6 +28,7 @@ import { ThumbStrip } from './ThumbStrip';
 import { CalloutStep, type StepSheet } from './CalloutStep';
 import { MatchLineStep } from './MatchLineStep';
 import { ChainageStep } from './ChainageStep';
+import { aiPrompt, stepsForAi } from '../../sheets/standardsWizard';
 import type { MarkPage } from '../../sheets/marks';
 import type { CalloutKind } from '../../sheets/wizardLinks';
 
@@ -102,11 +104,16 @@ export function StandardsWizard(props: Props) {
   /** Changes the standard and saves it to the profile straight away. */
   const latest = useRef(standard);
   latest.current = standard;
+  // An AI assistant adds its proposals to the profile's copy while the setup is open: those are
+  // read from there, so saving here never drops them.
+  const profile = useRef(standards);
+  profile.current = standards;
   const change = useCallback(
     (f: (s: DrawingStandard) => DrawingStandard) => {
       const s = latest.current;
       if (!s) return;
-      const next = { ...f(s), updatedAt: Date.now() };
+      const saved = profile.current.find((x) => x.id === s.id);
+      const next = { ...f({ ...s, proposals: saved?.proposals ?? s.proposals }), updatedAt: Date.now() };
       latest.current = next;
       setStandard(next);
       onSave(next);
@@ -341,6 +348,7 @@ export function StandardsWizard(props: Props) {
             render={props.render}
             readOnly={readOnly}
             setSheet={setStepSheet}
+            fileName={props.fileName}
             onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onBack={() => {
               if (stepIndex === 1) setQuestion(LAST_TITLE);
@@ -366,6 +374,7 @@ export function StandardsWizard(props: Props) {
             render={props.render}
             readOnly={readOnly}
             setSheet={setStepSheet}
+            fileName={props.fileName}
             onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onStitch={props.onStitch}
             onBack={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}
@@ -389,6 +398,7 @@ export function StandardsWizard(props: Props) {
             render={props.render}
             readOnly={readOnly}
             setSheet={setStepSheet}
+            fileName={props.fileName}
             onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onBack={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}
             onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
@@ -406,6 +416,7 @@ export function StandardsWizard(props: Props) {
                 The drawing number box reads a number on {numbers.length} of {texts.length} sheets in {props.fileName}.
               </p>
             )}
+            <ReviewSteps standard={standard} live={props.standards.find((x) => x.id === standard.id) ?? standard} fileName={props.fileName} readOnly={readOnly} change={change} onStep={stepTo} />
             <div className="sw-nav">
               <button type="button" className="btn" onClick={() => stepTo('chainage')}>
                 Back
@@ -636,5 +647,80 @@ function NumbersStep({ standard, numbers, change }: { standard: DrawingStandard;
         </>
       )}
     </section>
+  );
+}
+
+const STEP_LABEL: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
+const BAND_LABEL = { good: 'Good', review: 'Review', ai: 'Recommend AI' } as const;
+
+/**
+ * The review's summary of the link steps (how each last did), the words an AI assistant proposed
+ * for the standard (kept from the profile, so they show up while the setup is open), and one
+ * prompt for the steps left to finish.
+ */
+function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { standard: DrawingStandard; live: DrawingStandard; fileName: string; readOnly: boolean; change: (f: (s: DrawingStandard) => DrawingStandard) => void; onStep: (id: SetupStep) => void }) {
+  const results = standard.results ?? {};
+  const proposals = live.proposals ?? [];
+  const forAi = stepsForAi(results);
+  return (
+    <>
+      <table className="sw-review">
+        <thead>
+          <tr>
+            <th>Step</th>
+            <th>Linked</th>
+            <th>Verdict</th>
+          </tr>
+        </thead>
+        <tbody>
+          {SETUP_STEPS.map((step) => {
+            const r = results[step];
+            return (
+              <tr key={step}>
+                <td>
+                  <button type="button" className="sw-link" onClick={() => onStep(step)}>
+                    {STEP_LABEL[step]}
+                  </button>
+                </td>
+                <td>{r ? `${r.linked} of ${r.references}` : '—'}</td>
+                <td className={r ? `band ${r.band}` : ''}>{r ? BAND_LABEL[r.band] : 'Not run'}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {forAi.length > 0 && (
+        <div className="sw-ai">
+          <strong>{forAi.length === 1 ? 'One step' : `${forAi.length} steps`} could use AI:</strong> {forAi.map((s) => STEP_LABEL[s]).join(', ')}. An AI assistant connected to redcolumn over MCP reads the sheets with your examples and proposes links and words; nothing is used until you keep it.
+          <AskAi prompt={aiPrompt(standard, fileName, forAi)} />
+        </div>
+      )}
+      {proposals.length > 0 && (
+        <>
+          <h3>Proposed by AI</h3>
+          <ul className="sw-proposals">
+            {proposals.map((p) => (
+              <li key={p.id}>
+                <ul className="sw-notes">
+                  {describeChanges(p.changes).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                <p className="sw-hint">{p.reasoning}</p>
+                <div className="sw-row">
+                  <button type="button" className="btn small primary" disabled={readOnly} onClick={() => change((s) => acceptProposal(s, p.id))}>
+                    Add these words
+                  </button>
+                  <button type="button" className="btn small" disabled={readOnly} onClick={() => change((s) => dismissProposal(s, p.id))}>
+                    Dismiss
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="sw-hint">Links an AI assistant proposes wait in the Links panel, under Needs review.</p>
+        </>
+      )}
+    </>
   );
 }

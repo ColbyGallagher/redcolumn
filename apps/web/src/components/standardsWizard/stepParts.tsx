@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { DetectedLink, SheetInfo, stepMeter } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 import type { PageRect } from './SheetView';
+import type { DrawingStandard, SetupStep, StepResult } from '../../sheets/standards';
 
 /** The parts the wizard's link steps share: the meter, the sample-link cards, page crops and clip slots. */
 
@@ -120,4 +121,62 @@ export function Gif({ src, alt }: { src: string; alt: string }) {
   const [ok, setOk] = useState(true);
   if (!ok) return null;
   return <img className="sw-gif" src={src} alt={alt} onError={() => setOk(false)} />;
+}
+
+/**
+ * Keeps a step's meter in the standard (results), so the review and an AI assistant see how it
+ * did. Saved only when it changes.
+ */
+export function useStepResult(step: SetupStep, run: { places: number; linked: number; unreadable: number; ambiguous?: readonly unknown[] } | null, meter: ReturnType<typeof stepMeter> | null, change: (f: (s: DrawingStandard) => DrawingStandard) => void, readOnly: boolean) {
+  const last = useRef('');
+  useEffect(() => {
+    if (!run || !meter || readOnly) return;
+    const result: Omit<StepResult, 'at'> = {
+      band: meter.band,
+      score: Math.round(meter.score * 100) / 100,
+      references: run.places,
+      linked: run.linked,
+      checked: meter.checked,
+      wrong: meter.wrong,
+      unreadable: run.unreadable,
+      ambiguous: run.ambiguous?.length ?? 0,
+    };
+    const key = JSON.stringify(result);
+    if (key === last.current) return;
+    last.current = key;
+    change((s) => ({ ...s, results: { ...s.results, [step]: { ...result, at: Date.now() } } }));
+  }, [step, run, meter, change, readOnly]);
+}
+
+/**
+ * Copies a ready prompt for an AI assistant connected over MCP, naming the steps to finish; the
+ * wizard never calls AI itself.
+ */
+export function AskAi({ prompt, label = 'Ask AI to finish' }: { prompt: string; label?: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const host = useRef<HTMLDivElement>(null);
+  const copy = async () => {
+    // The clipboard of the window the setup is in (its own window, or the app's).
+    const win = host.current?.ownerDocument.defaultView ?? window;
+    try {
+      await win.navigator.clipboard.writeText(prompt);
+      setState('copied');
+    } catch {
+      setState('failed');
+    }
+  };
+  return (
+    <div ref={host} className="sw-ask-ai">
+      <button type="button" className="btn" onClick={() => void copy()}>
+        {label}
+      </button>
+      {state === 'copied' && <span className="sw-hint">Prompt copied: paste it into your AI assistant (Claude or another client connected to redcolumn over MCP).</span>}
+      {state === 'failed' && (
+        <details open>
+          <summary>Copy this prompt into your AI assistant</summary>
+          <textarea readOnly value={prompt} rows={10} onFocus={(e) => e.currentTarget.select()} />
+        </details>
+      )}
+    </div>
+  );
 }
