@@ -571,7 +571,6 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
-    { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: 'Select an area first' },
     cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),

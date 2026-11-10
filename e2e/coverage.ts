@@ -251,7 +251,6 @@ export const COVERAGE: Record<string, Coverage> = {
   'takeoff.manual': { spec: 'manual-quantity' },
   'takeoff.productLists': { spec: 'estimating' },
   'takeoff.saveTemplate': { spec: 'estimating' },
-  'takeoff.syncExcel': { spec: 'takeoff-tab' },
   'takeoff.templates': { spec: 'estimating' },
   'takeoff.hip': { spec: 'takeoff-tab' },
   'takeoff.valley': { spec: 'takeoff-tab' },
