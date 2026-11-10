@@ -25,6 +25,7 @@ export type EvidenceKey =
   | 'titleFound'
   | 'cutMarker'
   | 'noTarget'
+  | 'matchLineLabel'
   | 'alignmentAgrees'
   | 'alignmentUnknown'
   | 'severalAlignments'
@@ -45,6 +46,7 @@ export const EVIDENCE: Record<EvidenceKey, { weight: number; says: string }> = {
   titleFound: { weight: 0, says: 'the title it points to is on the target sheet' },
   cutMarker: { weight: 0.4, says: 'the target sheet has a bubble with this identifier naming this sheet' },
   noTarget: { weight: -1.2, says: 'no title with that identifier on the target sheet' },
+  matchLineLabel: { weight: 0.8, says: 'the sheet number is on a label that says match line' },
   alignmentAgrees: { weight: 1.33, says: 'the drawing standard names the alignment, and both ends are on it' },
   alignmentUnknown: { weight: 0, says: 'which alignment this chainage is on could not be told' },
   severalAlignments: { weight: -0.4, says: 'the sheet shows several alignments, and this chainage could be on another' },

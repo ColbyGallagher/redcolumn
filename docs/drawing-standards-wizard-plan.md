@@ -307,3 +307,19 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
   bench, kind right: detail 83% → 100%, elevation 50% → 100%; section still 67% because two
   callouts take the title block's big revision letter "C" for section C's title. Excluding the
   standard's title-block boxes from title search fixes that; left for a follow-up.
+
+### Match lines (PR 5)
+
+- `components/standardsWizard/MatchLineStep.tsx`: box a match-line label, Next goes to the sheet
+  it names, box the matching label, "Find the rest". `learnMatchLine` refuses a pair that does
+  not name each other's sheets, adds the client's own words for match lines when the usual
+  ones do not read the label (JOIN LINE), and notes whether labels give the chainage and the
+  adjoining drawing. Results reuse the meter and sample cards (now in `stepParts.tsx`).
+- "Use these to stitch the plans" runs the app's existing stitching from text. That finder
+  (`packages/stitch` `findMatchLines`) still only looks for words starting MATCH; teaching it
+  the standard's own words is a follow-up.
+- Detection: labels of two lines (`MATCH LINE CH 280.000` over `ADJOINS DRG …`), flat or turned
+  a quarter to run along the line, now link as match lines: `nearbyText` reads a label along its
+  own direction and one line either side. Links on a match-line label also carry the
+  `matchLineLabel` evidence (+0.8). Kestrel: match-line kind right 0% → 100%; Brier 0.097 →
+  0.091 without a standard, 0.046 → 0.044 with one.
