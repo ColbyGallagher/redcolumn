@@ -36,12 +36,14 @@ export interface StepRun {
   places: number;
   /** Of those, how many got a link. */
   linked: number;
-  /**
-   * Marks found by their shape whose identifier and sheet could not be read. The mark finder keeps
-   * only marks it can read, so this stays 0 until shape search reports the others.
-   */
+  /** Marks found by their shape with no text in them to read (outlined lettering, a scanned set). */
   unreadable: number;
+  /** Where those are, for the person (or an AI) to look at. */
+  unreadableAt?: { pageIndex: number; rect: Rect }[];
 }
+
+/** Fewer words than this and a page may have no text layer worth the name (a scan, outlined text): search its line work anyway. */
+const FEW_WORDS = 20;
 
 const overlap = (a: Rect, b: Rect) => {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -63,7 +65,8 @@ export async function runCalloutStep(
   readPage: (pageIndex: number) => Promise<MarkPage>,
   signal?: AbortSignal,
 ): Promise<StepRun> {
-  const fromText = detectLinks([...texts], sheetNumbers, hints).filter((l) => l.kind === kind);
+  const allText = detectLinks([...texts], sheetNumbers, hints);
+  const fromText = allText.filter((l) => l.kind === kind);
   const own = marks.filter((m) => familyOf(m.kind) === kind);
   const hits: MarkHit[] = [];
   if (own.length) {
@@ -71,18 +74,24 @@ export async function runCalloutStep(
     const isId = idTest(hints);
     for (let i = 0; i < texts.length; i++) {
       signal?.throwIfAborted();
-      if (!mayHoldMarks(texts[i]!, lookup, own, isId)) continue;
-      hits.push(...findMarksOnPage(await readPage(i), i, lookup, own, isId));
+      if (texts[i]!.words.length >= FEW_WORDS && !mayHoldMarks(texts[i]!, lookup, own, isId)) continue;
+      hits.push(...findMarksOnPage(await readPage(i), i, lookup, own, isId, true));
     }
   }
-  const fromMarks = marksToLinks([...texts], sheetNumbers, hits, hints.calloutPart).filter((l) => l.kind === kind && !fromText.some((t) => t.pageIndex === l.pageIndex && overlap(t.rect, l.rect) > 0.3));
+  // Shape adds what the text missed and makes callouts of plain sheet references, but never turns
+  // one kind of callout into another: bubbles of every kind can look alike.
+  const called = allText.filter((t) => t.kind !== 'sheet');
+  const readByText = (l: { pageIndex: number; rect: Rect }) => called.some((t) => t.pageIndex === l.pageIndex && overlap(t.rect, l.rect) > 0.3);
+  const fromMarks = marksToLinks([...texts], sheetNumbers, hits, hints.calloutPart).filter((l) => l.kind === kind && !readByText(l));
   const links = [...fromText, ...fromMarks];
 
-  // The places: every link's source, and every mark found, once each.
+  // The places: every link's source, and every mark found that could not be read, once each. (A
+  // mark read but not linked is a title, or a callout to its own sheet: not a reference.)
+  const unreadable = hits.filter((h) => h.unreadable && !readByText(h) && !links.some((l) => l.pageIndex === h.pageIndex && overlap(l.rect, h.rect) > 0.3));
   const places: { pageIndex: number; rect: Rect }[] = [];
-  for (const p of [...links, ...hits]) if (!places.some((q) => q.pageIndex === p.pageIndex && overlap(q.rect, p.rect) > 0.3)) places.push({ pageIndex: p.pageIndex, rect: p.rect });
+  for (const p of [...links, ...unreadable]) if (!places.some((q) => q.pageIndex === p.pageIndex && overlap(q.rect, p.rect) > 0.3)) places.push({ pageIndex: p.pageIndex, rect: p.rect });
   const linked = places.filter((p) => links.some((l) => l.pageIndex === p.pageIndex && overlap(l.rect, p.rect) > 0.3)).length;
-  return { links, places: places.length, linked, unreadable: hits.filter((h) => !h.detail && !h.sheet).length };
+  return { links, places: places.length, linked, unreadable: unreadable.length, unreadableAt: unreadable.map((h) => ({ pageIndex: h.pageIndex, rect: h.rect })) };
 }
 
 
