@@ -9,7 +9,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
-import { BLEND_MODES, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { BLEND_MODES, blendsFillOnly, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { fontKeyword } from './fonts';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
@@ -359,7 +359,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   }
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
-  ctx.globalCompositeOperation = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
+  const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
+  // A filled shape blends its fill and hatch only; its border and text draw normally.
+  const fillOnly = blendsFillOnly(m);
+  ctx.globalCompositeOperation = fillOnly ? 'source-over' : blend;
   const lineWidth = Math.max(style.width, 1 / zoom);
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = style.stroke;
@@ -372,12 +375,16 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       continue;
     }
     if (part.hatch && part.clip) {
+      ctx.save();
+      if (fillOnly) ctx.globalCompositeOperation = blend;
       paintHatch(ctx, part.clip, part.evenOdd, part.hatch, style.opacity * (style.fillOpacity ?? 1), zoom);
+      ctx.restore();
       continue;
     }
     tracePath(ctx, part.path);
     if (part.fill) {
       ctx.save();
+      if (fillOnly && !part.decoration) ctx.globalCompositeOperation = blend;
       ctx.globalAlpha = style.opacity * (part.decoration ? 1 : (style.fillOpacity ?? 1));
       ctx.fillStyle = part.fill;
       ctx.fill(part.evenOdd ? 'evenodd' : 'nonzero');
