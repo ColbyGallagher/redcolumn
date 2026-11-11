@@ -4,7 +4,7 @@
 
 > **Important:** Sync to Excel only works in the redcolumn **desktop app on Windows**, with Excel installed, and it works locally only. In the web version, **Sync to Excel…** offers the desktop app to download instead.
 
-1. Click **Sync to Excel…** on the list's toolbar.
+1. Click **Sync to Excel…** on the list's toolbar, or on the **Takeoff** tab's **Output** group ([The Takeoff tab](#takeoff-tab)).
 
    ![The Sync Markups to Excel window](img/sheet-sync.png)
 2. Type a **Name** for the spreadsheet.
