@@ -416,3 +416,30 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
 - Tried in the browser pane through the app's own assistant hook: `get_drawing_standard` read the
   Kestrel standard, a proposal sent while the setup was open survived the setup's own saves,
   showed in Review, and Add these words added JOIN LINE and MC00/MC01 to the standard.
+
+### Clips, help, cleanup (PR 9)
+
+- The old panels are gone: `DrawingStandardPanel` and `TeachLinksPanel`, their CSS, the
+  `teachMark` box tool and the `standard` kind of label-region boxes. Their commands stay and open
+  the setup: Document › Drawing Standards… at the Review step, Teach Sheet Links… (and the Links
+  tab's Teach links…) at Sections.
+- What the panel did that the setup did not now lives in it:
+  - Start screen: **Import…** (.rcstandard).
+  - Review (`StandardSettings.tsx`): name, words on this client's sheets, this document's standard
+    with **None (read from the text)**, Project standard (Use / Stop), **Advanced: words and
+    marks** (callout part, identifier and title words, match-line words, chainage lists and the
+    alignment form, the standard's marks with forget, moving marks taught for every set into it),
+    **Export…** and **Delete**. "Read this document with it" no longer needs a number box (a
+    marks-only client).
+- Teaching marks for every set without a standard is no longer offered; marks taught that way
+  before still work, are listed in the Links tab and can be moved into a standard.
+- Drawing numbers step: the template field showed "box the drawing number first" while the box
+  read no number, so a client numbering sheets like *ROOM 101* could not give its template. It
+  now shows once the number is boxed (and says when the text is still being read).
+- Clips: `scripts/help/standards-gifs.cjs` records the 12 link-step clips on the Kestrel set
+  (the setup over the app, zoomed with the sheet's new `data-view` mapping) and, with `shots`,
+  the help page's two setup screenshots. Help section 09 makes its standard in the setup.
+- Help: `drawing-standards.md` rewritten around the setup (steps, meter, AI, review, sharing);
+  the Links page's teaching section points at it.
+- e2e: the panel tests now drive the setup's own window (`e2e/support/setup.ts`); the old Teach
+  Links tests became one Details-step test; `document.setUpDrawingStandard` has its coverage entry.

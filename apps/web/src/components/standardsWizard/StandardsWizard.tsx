@@ -4,6 +4,7 @@ import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 import { PageNav } from '../PageNav';
 import { acceptProposal, describeChanges, dismissProposal, newStandard, SETUP_STEPS, withDefaults, type DrawingStandard, type SetupStep } from '../../sheets/standards';
 import { AskAi } from './stepParts';
+import { StandardSettings, type ProjectInfo } from './StandardSettings';
 import {
   TITLE_EXTRAS,
   TITLE_QUESTIONS,
@@ -50,10 +51,20 @@ interface Props {
   onUse: (id: string, checks: ReadonlyMap<string, boolean>) => void;
   /** Stitches the document's plans along their match lines. */
   onStitch?: () => void;
-  /** Opens Teach Sheet Links in the app, for the steps the wizard does not do yet. */
-  onTeachLinks: () => void;
-  /** Opens the Drawing Standards panel (every setting, import and export). */
-  onPanel: () => void;
+  /** The step to open on (Document › Drawing Standards opens the review; Teach Sheet Links, the sections). */
+  initialStep?: WizardStepId;
+  /** Reads the document from its text alone, with no standard. */
+  onUseNone: () => void;
+  /** Adds a standard someone shared (.rcstandard). */
+  onImport: (file: File) => void;
+  onExport: (standard: DrawingStandard) => void;
+  onDelete: (id: string) => void;
+  /** Marks taught for every set, before standards kept their own. */
+  everySetMarks: number;
+  onMoveMarks: (id: string) => void;
+  onForgetMark: (id: string) => void;
+  project: ProjectInfo | null;
+  onProjectStandard: (standard: DrawingStandard | null) => void;
   onClose: () => void;
 }
 
@@ -91,11 +102,12 @@ export function StandardsWizard(props: Props) {
   useEffect(() => {
     if (!standard || started.current === standard.id) return;
     started.current = standard.id;
-    const place = loadPlace(standard.id);
+    const place = props.initialStep ? { step: props.initialStep, question: 0 } : loadPlace(standard.id);
     if (place) {
       setStep(place.step);
       setQuestion(Math.min(place.question, LAST_TITLE));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [standard]);
   useEffect(() => {
     if (standard) savePlace(standard.id, { step, question });
@@ -284,7 +296,7 @@ export function StandardsWizard(props: Props) {
                 <BoxList boxes={boxes.filter((b) => b.field === 'ignore')} texts={texts} page={page} onRemove={(b) => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: s.sheets.boxes.filter((x) => x !== b) } }))} />
               </section>
             )}
-            {extra === 'numbers' && <NumbersStep standard={standard} numbers={numbers} change={change} />}
+            {extra === 'numbers' && <NumbersStep standard={standard} numbers={numbers} boxed={!!numberBox} reading={!texts} change={change} />}
             <div className="sw-nav">
               <button type="button" className="btn" onClick={back} disabled={question === 0}>
                 Back
@@ -310,24 +322,6 @@ export function StandardsWizard(props: Props) {
               )}
             </div>
           </>
-        )}
-        {WIZARD_STEPS.find((s) => s.id === step && !s.ready) && (
-          <section className="sw-question">
-            <h2>{WIZARD_STEPS[stepIndex]!.label}</h2>
-            <p>This step is coming to the setup soon. Until then, teach these links with Teach Sheet Links in the main window: box one example and its target, and redcolumn finds the rest.</p>
-            <p className="sw-hint">Once the title block and a few examples are set up, an AI assistant connected over MCP can use them to find the links that text search misses.</p>
-            <div className="sw-nav">
-              <button type="button" className="btn" onClick={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}>
-                Back
-              </button>
-              <button type="button" className="btn" onClick={props.onTeachLinks}>
-                Open Teach Sheet Links
-              </button>
-              <button type="button" className="btn primary" onClick={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}>
-                Next
-              </button>
-            </div>
-          </section>
         )}
         {callout && (
           <CalloutStep
@@ -417,14 +411,30 @@ export function StandardsWizard(props: Props) {
               </p>
             )}
             <ReviewSteps standard={standard} live={props.standards.find((x) => x.id === standard.id) ?? standard} fileName={props.fileName} readOnly={readOnly} change={change} onStep={stepTo} />
+            <StandardSettings
+              standard={standard}
+              standards={props.standards}
+              current={props.current}
+              sample={sheets.find((x) => x?.number)?.number ?? null}
+              readOnly={readOnly}
+              change={change}
+              onUse={(id) => (id ? props.onUse(id, checks) : props.onUseNone())}
+              onExport={props.onExport}
+              onDelete={(id) => {
+                props.onDelete(id);
+                setStandard(null);
+              }}
+              everySetMarks={props.everySetMarks}
+              onMoveMarks={props.onMoveMarks}
+              onForgetMark={props.onForgetMark}
+              project={props.project}
+              onProjectStandard={props.onProjectStandard}
+            />
             <div className="sw-nav">
               <button type="button" className="btn" onClick={() => stepTo('chainage')}>
                 Back
               </button>
-              <button type="button" className="btn" onClick={props.onPanel}>
-                More settings…
-              </button>
-              <button type="button" className="btn primary" disabled={!numberBox || readOnly} onClick={() => props.onUse(standard.id, checks)}>
+              <button type="button" className="btn primary" disabled={readOnly} onClick={() => props.onUse(standard.id, checks)}>
                 Read this document with it
               </button>
             </div>
@@ -465,8 +475,9 @@ export function StandardsWizard(props: Props) {
   );
 }
 
-function StartScreen({ standards, readOnly, onClose, onStart, onSave }: Props & { onStart: (s: DrawingStandard) => void }) {
+function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }: Props & { onStart: (s: DrawingStandard) => void }) {
   const [name, setName] = useState('');
+  const importRef = useRef<HTMLInputElement>(null);
   return (
     <div className="standards-wizard start">
       <section className="sw-start">
@@ -502,6 +513,23 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave }: Props & 
             </ul>
           </>
         )}
+        <p className="sw-hint">
+          Someone shared a standard with you?{' '}
+          <button type="button" className="btn small" onClick={() => importRef.current?.click()} title="Add a standard someone shared (.rcstandard)">
+            Import…
+          </button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".rcstandard,application/json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) onImport(file);
+            }}
+          />
+        </p>
         <div className="sw-nav">
           <button type="button" className="btn flat" onClick={onClose}>
             Close
@@ -566,7 +594,7 @@ function BoxList({ boxes, texts, page, onRemove }: { boxes: TitleBox[]; texts: r
   );
 }
 
-function NumbersStep({ standard, numbers, change }: { standard: DrawingStandard; numbers: string[]; change: (f: (s: DrawingStandard) => DrawingStandard) => void }) {
+function NumbersStep({ standard, numbers, boxed, reading, change }: { standard: DrawingStandard; numbers: string[]; boxed: boolean; reading: boolean; change: (f: (s: DrawingStandard) => DrawingStandard) => void }) {
   const suggested = useMemo(() => templateFor(numbers), [numbers]);
   const template = standard.sheets.template;
   const fits = useMemo(() => {
@@ -582,7 +610,8 @@ function NumbersStep({ standard, numbers, change }: { standard: DrawingStandard;
   const part = standard.sheets.disciplinePart;
   const codes = candidates.find((c) => c.part === part)?.codes ?? [];
   const setSheets = (patch: Partial<DrawingStandard['sheets']>) => change((s) => ({ ...s, sheets: { ...s.sheets, ...patch } }));
-  if (!numbers.length) return <p className="sw-warn">Box the drawing number first (step 1), so its numbers can be read.</p>;
+  if (!boxed) return <p className="sw-warn">Box the drawing number first (step 1), so its numbers can be read.</p>;
+  if (reading) return <p className="sw-hint">Reading the set's text…</p>;
   return (
     <section className="sw-question">
       <h2>Drawing numbers</h2>

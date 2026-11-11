@@ -7887,6 +7887,32 @@ tr.hidden-markup td {
 .sw-meter.ai strong {
   color: var(--danger-text);
 }
+.sw-settings {
+  margin: 12px 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.sw-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.sw-field input,
+.sw-field select {
+  width: 100%;
+}
+.sw-advanced {
+  margin: 8px 0;
+}
+.sw-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.sw-marks {
+  padding-left: 18px;
+}
 .sw-review {
   width: 100%;
   margin: 8px 0;
