@@ -245,10 +245,57 @@ function titleKinds(hints: LinkHints): (page: PageText, title: Word) => LinkKind
   };
 }
 
-/** A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH SHEET C-102`. */
+/**
+ * The words of the label around `w`, in reading order: words written the same way up (drawings
+ * turn labels to run along a match line or a road), within `reach` text heights along the line and
+ * `lines` lines either side of it. A two-line label (`MATCH LINE CH 280.000` over `ADJOINS DRG
+ * C-102`) reads as one.
+ */
+export function nearbyText(page: PageText, w: Word, reach: number, lines = 0): string {
+  const quarter = (o: Word) => ((Math.round((o.angle || 0) / (Math.PI / 2)) % 4) + 4) % 4;
+  const q = quarter(w);
+  const a = (q * Math.PI) / 2;
+  const cos = Math.round(Math.cos(a));
+  const sin = Math.round(Math.sin(a));
+  // Along the text and across it, for the word's own direction.
+  const along = (o: Word) => ((o.x0 + o.x1) / 2) * cos + ((o.y0 + o.y1) / 2) * sin;
+  const across = (o: Word) => -((o.x0 + o.x1) / 2) * sin + ((o.y0 + o.y1) / 2) * cos;
+  const half = (o: Word) => (Math.abs(cos) ? o.x1 - o.x0 : o.y1 - o.y0) / 2;
+  const u = along(w);
+  const v = across(w);
+  const lineGap = w.size * 1.5;
+  const near = page.words.filter((o) => quarter(o) === q && Math.abs(across(o) - v) <= w.size * 0.5 + lines * lineGap && Math.abs(along(o) - u) <= half(w) + half(o) + w.size * reach);
+  // Lines first (across), then along each line.
+  return near
+    .sort((x, y) => Math.round((across(x) - v) / lineGap) - Math.round((across(y) - v) / lineGap) || along(x) - along(y))
+    .map((o) => cleanWord(o.text))
+    .join(' ');
+}
+
+/**
+ * A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH
+ * SHEET C-102`, and labels of two lines with the sheet on the second, turned to any quarter.
+ */
 function matchLines(hints: LinkHints): (page: PageText, w: Word) => boolean {
   const pattern = wordsPattern(hints.matchLine);
-  return (page, w) => !!pattern?.test(rowText(page, w, 30));
+  return (page, w) => !!pattern && (pattern.test(rowText(page, w, 30)) || pattern.test(nearbyText(page, w, 30, 1)));
+}
+
+/** Where a page's match-line labels are: the first word of each phrase that says match line, once per label. */
+export function matchLineLabels(page: PageText, hints: LinkHints = DEFAULT_LINK_HINTS): Word[] {
+  const pattern = wordsPattern(hints.matchLine);
+  if (!pattern) return [];
+  const firsts = new Set(hints.matchLine.map((p) => p.trim().toUpperCase().split(/\s+/)[0]!).filter(Boolean));
+  const out: Word[] = [];
+  for (const w of page.words) {
+    const t = cleanWord(w.text);
+    if (![...firsts].some((f) => t === f || t.startsWith(f))) continue;
+    if (!pattern.test(nearbyText(page, w, 4))) continue;
+    // One per label: a second phrase word of the same label is close by.
+    if (out.some((o) => Math.hypot((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2, (o.y0 + o.y1) / 2 - (w.y0 + w.y1) / 2) < w.size * 6)) continue;
+    out.push(w);
+  }
+  return out;
 }
 
 /** Words that introduce a reference to another drawing: `SEE SHEET 12`, `DRG No. 680`. */
@@ -325,6 +372,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (title) reasons.push('titleFound');
       else if (cut) reasons.push('cutMarker');
       else if (detail) reasons.push('noTarget');
+      if (kind === 'matchline') reasons.push('matchLineLabel');
       // What the bubble points at: the title on the target sheet says section, elevation or
       // enlarged plan. A bubble on the target sheet pointing back is a cut mark or a title naming
       // where it is called up: whichever of the two has a title row says what it is (DETAIL 3 is a

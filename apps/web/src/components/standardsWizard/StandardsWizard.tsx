@@ -25,6 +25,7 @@ import {
 import { SheetView, type PageRect, type SheetViewApi, type ShownBox } from './SheetView';
 import { ThumbStrip } from './ThumbStrip';
 import { CalloutStep, type StepSheet } from './CalloutStep';
+import { MatchLineStep } from './MatchLineStep';
 import type { MarkPage } from '../../sheets/marks';
 import type { CalloutKind } from '../../sheets/wizardLinks';
 
@@ -44,6 +45,8 @@ interface Props {
   onSave: (standard: DrawingStandard) => void;
   /** Reads the document with the standard, then keeps the person's answers on the links they checked. */
   onUse: (id: string, checks: ReadonlyMap<string, boolean>) => void;
+  /** Stitches the document's plans along their match lines. */
+  onStitch?: () => void;
   /** Opens Teach Sheet Links in the app, for the steps the wizard does not do yet. */
   onTeachLinks: () => void;
   /** Opens the Drawing Standards panel (every setting, import and export). */
@@ -124,9 +127,10 @@ export function StandardsWizard(props: Props) {
   const numbers = useMemo(() => (texts && numberBox ? numbersRead(texts, numberBox) : []), [texts, numberBox]);
 
   const callout: CalloutKind | null = step === 'sections' ? 'section' : step === 'elevations' ? 'elevation' : step === 'details' ? 'detail' : null;
-  const drawing = callout ? !!stepSheet.onBox : !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
+  const stepOwnsSheet = !!callout || step === 'matchLines';
+  const drawing = stepOwnsSheet ? !!stepSheet.onBox : !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
   const onBox = (rect: PageRect) => {
-    if (callout) return stepSheet.onBox?.(rect);
+    if (stepOwnsSheet) return stepSheet.onBox?.(rect);
     if (q) change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, boxFromRegion(rect, size, q.field, q.name)) } }));
     else if (extra === 'ignore') change((s) => ({ ...s, sheets: { ...s.sheets, boxes: [...s.sheets.boxes, boxFromRegion(rect, size, 'ignore')] } }));
     else if (extra === 'ownFields' && customName.trim() && !customNameProblem(customName, latest.current?.sheets.boxes ?? [])) {
@@ -155,9 +159,9 @@ export function StandardsWizard(props: Props) {
     // Fitted when the step changes or the number box first appears, not on every box.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, !!numberBox, q?.field === 'number', size]);
-  const shown = callout ? stepSheet.boxes : titleBoxes;
-  const shownFocus = look ? look.rect : callout ? null : focus;
-  const focusKey = look ? `look:${look.n}` : focus && !callout ? `tb:${step}` : step;
+  const shown = stepOwnsSheet ? stepSheet.boxes : titleBoxes;
+  const shownFocus = look ? look.rect : stepOwnsSheet ? null : focus;
+  const focusKey = look ? `look:${look.n}` : focus && !stepOwnsSheet ? `tb:${step}` : step;
   const goTo = (i: number) => {
     setLook(null);
     setPage(i);
@@ -344,6 +348,29 @@ export function StandardsWizard(props: Props) {
             onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
           />
         )}
+        {step === 'matchLines' && (
+          <MatchLineStep
+            standard={standard}
+            change={change}
+            texts={texts}
+            sheets={sheets}
+            pages={pages}
+            page={page}
+            setPage={goTo}
+            look={(i, rect) => {
+              setPage(i);
+              setLook((l) => ({ rect, n: (l?.n ?? 0) + 1 }));
+            }}
+            readPage={props.readPage}
+            render={props.render}
+            readOnly={readOnly}
+            setSheet={setStepSheet}
+            onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
+            onStitch={props.onStitch}
+            onBack={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}
+            onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
+          />
+        )}
         {step === 'review' && (
           <section className="sw-question">
             <h2>Review</h2>
@@ -375,7 +402,7 @@ export function StandardsWizard(props: Props) {
 
       <main className="sw-sheet">
         <div className="sw-sheet-body">
-          <ThumbStrip pages={pages} sheets={sheets} current={page} render={props.render} onGoTo={goTo} flagged={callout ? undefined : flagged} />
+          <ThumbStrip pages={pages} sheets={sheets} current={page} render={props.render} onGoTo={goTo} flagged={stepOwnsSheet ? undefined : flagged} />
           <SheetView ref={sheetView} onZoom={setZoom} pageIndex={page} page={size} render={props.render} boxes={shown} drawing={drawing} onBox={onBox} focus={shownFocus} focusKey={focusKey} />
         </div>
         <PageNav

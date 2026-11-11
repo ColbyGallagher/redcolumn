@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_LINK_HINTS, type Word } from '@nb/sheets';
 import { teachMark, type MarkPage } from './marks.ts';
-import { boxSays, runCalloutStep, taughtBox } from './wizardLinks.ts';
+import { boxSays, learnMatchLine, runCalloutStep, runMatchLineStep, taughtBox } from './wizardLinks.ts';
 
 const word = (text: string, cx: number, cy: number, size = 6): Word => {
   const w = text.length * size * 0.55;
@@ -68,4 +68,60 @@ test('the step finds callouts from the text, and by their taught shape where the
   assert.equal(withMark.places, 3);
   assert.equal(withMark.linked, 3);
   assert.equal(withMark.unreadable, 0);
+});
+
+/** A match-line label of two lines: the phrase and chainage, then the adjoining drawing. */
+function label(phrase: string, ch: string, sheet: string, x: number, y: number) {
+  const words: Word[] = [];
+  let cx = x;
+  for (const t of [...phrase.split(' '), 'CH', ch]) {
+    words.push(word(t, cx, y, 8));
+    cx += t.length * 4.4 + 8;
+  }
+  cx = x;
+  for (const t of ['ADJOINS', 'DRG', sheet]) {
+    words.push(word(t, cx, y + 12, 8));
+    cx += t.length * 4.4 + 8;
+  }
+  return { segments: [], words };
+}
+const plans = ['P-1', 'P-2', 'P-3'];
+const labelBox = (x: number, y: number) => ({ x: x - 20, y: y - 8, w: 160, h: 24 });
+
+test('a pair of match-line labels: the usual words, the chainage and the adjoining drawing', () => {
+  const a = page(label('MATCH LINE', '280.000', 'P-2', 600, 400));
+  const b = page(label('MATCH LINE', '280.000', 'P-1', 200, 300));
+  const lesson = learnMatchLine(taughtBox(a, 0, labelBox(600, 400)), taughtBox(b, 1, labelBox(200, 300)), plans, DEFAULT_LINK_HINTS);
+  assert.equal(lesson.problem, null);
+  assert.equal(lesson.links, null, 'the usual words already read it');
+  assert.ok(lesson.notes.some((n) => n.includes('adjoining drawing (P-2)')));
+  assert.ok(lesson.notes.some((n) => n.includes('chainage')));
+  const run = runMatchLineStep([a, b, page()], plans, DEFAULT_LINK_HINTS);
+  assert.deepEqual(
+    run.links.map((l) => [l.pageIndex, l.targetPage, l.kind]),
+    [
+      [0, 1, 'matchline'],
+      [1, 0, 'matchline'],
+    ],
+  );
+  assert.equal(run.places, 2);
+  assert.equal(run.linked, 2);
+});
+
+test("a client's own words for match lines are learned, and a pair that disagrees is refused", () => {
+  const a = page(label('JOIN LINE', '565.000', 'P-3', 600, 400));
+  const c = page(label('JOIN LINE', '565.000', 'P-1', 200, 300));
+  const usual = runMatchLineStep([a, page(), c], plans, DEFAULT_LINK_HINTS);
+  // Without the words, the labels are plain sheet references: no match lines found.
+  assert.equal(usual.links.length, 0);
+  assert.equal(usual.places, 0);
+  const lesson = learnMatchLine(taughtBox(a, 0, labelBox(600, 400)), taughtBox(c, 2, labelBox(200, 300)), plans, DEFAULT_LINK_HINTS);
+  assert.equal(lesson.problem, null);
+  assert.deepEqual(lesson.links?.matchLine, [...DEFAULT_LINK_HINTS.matchLine, 'JOIN LINE']);
+  const learned = runMatchLineStep([a, page(), c], plans, lesson.links!);
+  assert.equal(learned.links.length, 2);
+  assert.equal(learned.places, 2);
+  // The second label boxed on a sheet the first does not name.
+  const wrong = learnMatchLine(taughtBox(a, 0, labelBox(600, 400)), taughtBox(page(label('JOIN LINE', '1', 'P-1', 200, 300)), 1, labelBox(200, 300)), plans, DEFAULT_LINK_HINTS);
+  assert.match(wrong.problem ?? '', /names P-3, not P-2/);
 });

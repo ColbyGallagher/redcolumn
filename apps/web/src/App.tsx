@@ -10038,6 +10038,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
                     });
                   }}
+                  onStitch={() => {
+                    void restitch(o).then(() => {
+                      const groups = o.store.stitchGroups();
+                      setNotice(groups.length ? `Stitched ${o.file.name}: ${groups.length} group${groups.length === 1 ? '' : 's'} of plans joined along their match lines. Open them from the Stitching panel.` : `No plans in ${o.file.name} could be stitched from their match lines.`);
+                    });
+                  }}
                   onTeachLinks={() => startTeachMark()}
                   onPanel={() => startLabelRegions(pane, 'standard')}
                   onClose={() => setSetup(null)}

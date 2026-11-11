@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_LINK_HINTS, detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
+import { DEFAULT_LINK_HINTS, detailId, detectLinks, isLinkKind, SheetLookup, matchLineLabels, nearbyText } from './links.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2592;
@@ -333,4 +333,28 @@ test('a title bubble naming the sheet it is called up on links back with the kin
       [0, 'E1/C-501', 'elevation'],
     ],
   );
+});
+
+/** A word turned a quarter anticlockwise (reading up the page), from (x, y) along -y. */
+function up(text: string, x: number, y: number, size: number): Word {
+  const len = text.length * size * 0.6;
+  return { text, x0: x, y0: y - len, x1: x + size * 0.75, y1: y, size, angle: (3 * Math.PI) / 2 };
+}
+
+test('match-line labels of two lines, turned to run along the line, link as match lines', () => {
+  // MATCH LINE CH 280.000 over ADJOINS DRG C-102, reading up the page.
+  const label = [up('MATCH', 2000, 900, 8), up('LINE', 2000, 860, 8), up('CH', 2000, 830, 8), up('280.000', 2000, 810, 8), up('ADJOINS', 2010, 940, 8), up('DRG', 2010, 890, 8), up('C-102', 2010, 860, 8)];
+  // Flat, too: the sheet number on the line below the words.
+  const flat = [word('MATCH', 400, 1200, 8), word('LINE', 440, 1200, 8), word('CH', 470, 1200, 8), word('565.000', 490, 1200, 8), word('ADJOINS', 380, 1212, 8), word('DRG', 440, 1212, 8), word('C-102.', 470, 1212, 8)];
+  const pages = [page([...label, ...flat, ...titleBlock('C-101')]), page(titleBlock('C-102')), page(titleBlock('C-501'))];
+  const links = detectLinks(pages, numbers).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.kind, l.targetPage]),
+    [
+      ['C-102', 'matchline', 1],
+      ['C-102', 'matchline', 1],
+    ],
+  );
+  assert.equal(matchLineLabels(pages[0]!).length, 2);
+  assert.match(nearbyText(pages[0]!, label[6]!, 30, 1), /^MATCH LINE CH 280\.000 ADJOINS DRG C-102$/);
 });
