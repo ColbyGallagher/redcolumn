@@ -1,0 +1,256 @@
+# Drawing Standards setup wizard: plan
+
+Status: plan, 2026-11-08. Replaces the Drawing Standards panel (`DrawingStandardPanel.tsx`, 480 lines)
+and the Teach Links panel (`TeachLinksPanel.tsx`) with one guided setup window. Builds on the
+merged drawing-standards stack (#173–#193). Every commit credits Miche-pup with a co-author trailer.
+
+## 1. Why
+
+The panel puts title-block boxes, number template, disciplines, link word lists, taught marks and
+chainage settings into one floating dialog over the drawing. People do not know where to start,
+the dialog covers the sheet they need to draw on, and nothing tells them whether what they set up
+works. The wizard fixes all three: one question at a time, the drawing beside it, and a measured
+"how well is this working" after each step.
+
+## 2. Window and layout
+
+- Opens from the Drawing Standards ribbon button (and the suggestion bar's "Set up a standard").
+- **Its own window** via the existing `PopOutWindow` portal. The wizard keeps running in the main
+  page, so it shares the already-loaded pdf.js document (no second load of a 500 MB set), the
+  store, and the detection worker. Nothing to sync.
+- Layout: left pane **1/3** (instructions, GIF, values read, results), right pane **2/3**
+  (a viewer on the open document). Splitter is draggable; width remembered per user
+  (`localStorage`, try/catch). Narrow window (< 900 px): panes stack, instructions collapse to a
+  header strip.
+- The right pane is a second viewer instance (same `PDFDocumentProxy`) with its own page, zoom and
+  a single box-draw tool. It never touches the main viewer's page or markups.
+- Wizard state (current step, boxes drawn, verdicts) saves on every change into a draft standard,
+  so closing the window resumes where it stopped.
+- **Risk (spike first, PR 3):** the viewer must render and take pointer/keyboard input inside a
+  portal window. Check `window`-level listeners, `ResizeObserver`, pointer capture and the canvas
+  pool against `ownerDocument.defaultView`. Electron must allow the `about:blank` popup (Markups
+  pop-out already does). Fallback if the spike fails: the same wizard component mounted as a
+  full-window layer in the main window, with the same 1/3–2/3 split.
+
+```
+┌───────────── Set up drawing standard: Northgate Council ────────────────┐
+│ ● Title block  ○ Sections  ○ Elevations  ○ Details  ○ Match lines  ○ … │
+├────────────────────────┬────────────────────────────────────────────────┤
+│ Step 1 of 6 · Revision │                                                │
+│                        │                                                │
+│ Drag a box around the  │            [ drawing, box-draw tool ]         │
+│ revision letter in the │                                                │
+│ title block.           │                                                │
+│ [ GIF ]                │                                                │
+│                        │                                                │
+│ Read: "C"              │                                                │
+│ Read on 19 of 20 sheets│                                                │
+│ [Skip]   [Back] [Next] │                                                │
+└────────────────────────┴────────────────────────────────────────────────┘
+```
+
+## 3. Wizard steps
+
+Every step has: a one-sentence instruction, a GIF from the Kestrel set, a live read-back of what
+the box contains, a check across other sheets with a confidence meter (section 5), and Skip
+("This set has none"). Back always works. Steps after Title block can be done in any order from
+the step bar once Title block is done (links need sheet numbers).
+
+### 3.0 Start
+Pick an existing standard to edit or name a new one. Wizard picks a good first sheet (a plan with
+a full title block) and shows it.
+
+### 3.1 Title block, one field at a time
+Sub-steps: Drawing number → Revision → Title → Scale → Sheet size → optional (Project, Status,
+Drawn by, Date, Sheet x of y) → **Add your own field** (name + box, repeatable) → **Other numbers
+to ignore** (file no., contract no.).
+
+For each: draw box → show text read (label stripped, as `fieldText` does) → table of the same box
+read on 5 other sheets, picked across the set → "Read on 48 of 50 sheets" + flags (duplicates,
+blanks, odd shapes). Drawing number also derives the template (`deriveTemplate`) and asks
+which part names the discipline, with codes found listed for naming. Maps 1:1 onto the existing
+`TitleBox` / `SheetHints`; no format change.
+
+### 3.2 Sections, 3.3 Elevations, 3.4 Details (one shared step component)
+1. **Box the callout** (mark with its letter and sheet reference). GIF shows it on Kestrel.
+2. Wizard reads the sheet reference from the callout and offers "Go to sheet 000021" (falls back to
+   "Go to the sheet it points to").
+3. **Box the title** of that section/elevation/detail. GIF.
+4. Learn (`learnLink`, `teachMark`), then **run linking** over the set.
+5. **Results:** found N callouts, M linked, K unresolved, ambiguous count; confidence meter.
+6. **Spot check:** 8 example links as cards (crop of callout ↔ crop of target, side by side;
+   click opens both in the right pane). Person marks each ✓ / ✗. Sample is stratified: lowest
+   scores, middle, random. Verdicts feed the estimate (section 5) and become manual
+   accept/reject on those links.
+7. Poor result → "Teach another example" (a second pair usually fixes id forms / title words) and
+   the AI recommendation (section 6).
+
+Note in each of these steps: "Once these basics are set, an AI assistant connected over MCP can
+take the examples you gave and find the rest." (once, small, not a nag).
+
+### 3.5 Match lines
+1. Box the match-line label on one plan (`MATCH LINE CH 280.000 / ADJOINS DRG …`). GIF.
+2. Go to the adjoining sheet; box its matching label. GIF.
+3. Learn: match-line words (`LinkHints.matchLine`), whether labels carry a chainage and/or a
+   drawing number, where the line is drawn relative to the label (taught mark geometry).
+4. Run linking + spot check. Offer "Use these to stitch the plans" (hands the pairs to the
+   existing stitching match-line placement).
+
+### 3.6 Alignments and chainages (four boxes)
+Problem: many alignments share chainage values, so CH 150 alone is ambiguous. Four boxes, in order,
+each with its own GIF:
+1. A **chainage on a plan** (tick label or `CH 150`).
+2. The **alignment name on that plan** that the chainage belongs to (`MC00`).
+3. On a **cross-section sheet** for that alignment, the **alignment name** (often in the title,
+   sometimes a label on each section).
+4. On that sheet, the **chainage of one section**.
+
+Learns: plan chainage form (bare tick vs prefixed, decimals), alignment name pattern (template
+from the name: `MC##`, `LINE @`), where cross-section sheets state their alignment (title box vs
+body label vs per-section label), cross-section chainage prefix, plan/XS title words (already
+`ChainageHints`). New hint fields (section 7) record where alignment is read from.
+
+Linking becomes the explicit chain: plan chainage → its alignment on plan (nearest alignment
+label along the same line, else sheet title) → cross-section sheets of that alignment (by title /
+label) → section with that value (also checked against the sheet title's range, `CH 0-150`).
+Results show the ambiguous cases explicitly ("CH 100 found on MC00 and MC01 sections; plan
+alignment unclear: 6 links"). Spot check as above. Expect this one to need AI most often; the four
+boxes are exactly the examples the AI gets.
+
+### 3.7 Review and save
+Table of steps with confidence and verdict counts; overall recommendation; Save / Save and export
+`.rcstandard` / "Ask AI to finish" (section 6). An "Advanced" disclosure keeps the raw word lists,
+id templates and taught marks for power users (what the old panel showed, read-only by default).
+
+## 4. Matching without AI: text + image
+
+Text (already there, to strengthen):
+- Ids through `idTest` + taught id templates; sheet refs through `calloutPart` and the number
+  template; title phrases by kind.
+- **Cross-checks that raise confidence**: target sheet has exactly one title with that id; the
+  title cites the callout's sheet back (common "SECTION A / 000031" style); kind words agree.
+- Chainage: value inside the XS sheet's title range; alignment agreement on both ends; plan sheet
+  coverage continuity (consecutive plan sheets cover consecutive ranges).
+
+Image / vector:
+- Taught mark geometry already finds marks by shape (`marks.ts`). Add the symbol-search engine
+  (`packages/measure/src/visualSearch.ts`) as a second finder: match the taught callout's line
+  segments across pages, then read the words inside each hit. Catches callouts whose text is
+  split, rotated or styled oddly.
+- **Callouts with no text layer** (outlined text, scanned sets): geometry hit with no readable id
+  is reported as "found N marks it cannot read". This is the strongest signal to send the step to
+  AI (which can read the crop via `get_page_image`).
+- Raster template match for fully scanned sets: later, only if the bench shows need.
+
+## 5. Confidence
+
+Per link: a score from features, hand-weighted, then calibrated on the bench:
+- id read cleanly / sheet ref resolves to a real sheet / target title found / single candidate /
+  back-reference agrees / geometry similarity to taught mark / kind words agree;
+- chainage: alignment known on both ends / value inside XS title range / not ambiguous.
+Existing `confidence` on `DetectedLink` (0..1) carries it; features are kept on the link for the
+results view ("why 62%").
+
+Per step, shown as a meter with a plain verdict:
+- **Coverage**: callouts found that resolved to a target (and sheets read, for title block).
+- **Estimated accuracy**: mean calibrated score, replaced by the spot-check result once checked
+  (Wilson lower bound on ✓/(✓+✗), so 8/8 reads "at least 68%", not 100%).
+- **Warnings**: pages with no text layer, unreadable geometry hits, ambiguous chainages.
+
+Verdict bands (tunable from the bench): ≥ 90 % "Good, links apply"; 70–90 % "Usable, review the
+flagged links"; < 70 % or > 10 % pages without text "Recommend AI" (section 6). Links below the
+apply threshold go to the existing Needs-review list (`LinksPanel`), as today.
+
+**Bench** (`pnpm standards:bench`): the Kestrel generator writes ground-truth links JSON next to
+the PDF; the bench runs detection with a stored standard and reports precision/recall per kind and
+calibration (score vs actual). Also runs on any local set with a hand-checked truth file (client
+sets stay out of the repo; the client-data guard applies).
+
+## 6. AI via MCP
+
+The wizard never calls AI itself (MCP-only, as in the AI takeoff roadmap). It hands over data:
+- `get_drawing_standard`: the standard, every box the person drew (page, rect, text read, step),
+  step confidences and spot-check verdicts.
+- `list_sheet_links`: links with kind, score, features, status; filter by step/status.
+- `propose_sheet_links`: AI adds or corrects links as source `ai`, pending review (ranks below
+  `standard` and `manual`, per existing ordering).
+- `propose_standard_hints`: AI suggests hint changes (alignment names, id templates, title words);
+  shown in the wizard as a diff to accept.
+- Crops come from the existing `get_page_image` (region) and words from `get_page_text`.
+"Ask AI to finish" copies a ready prompt naming the steps that scored low (and sends it when the
+assistant is connected). After AI proposes, the step re-runs its meter and spot check.
+
+## 7. Data model changes
+
+- `DrawingStandard.examples: SetupExample[]` (step, role such as `callout`/`title`/`planChainage`,
+  page index, sheet number, rect as page fractions, text read). Text and positions only, no
+  images. Exported in `.rcstandard` (it is what makes the file useful to AI on the next set);
+  the export dialog says so.
+- `DrawingStandard.checks`: per step last confidence + verdict counts (shown when reopening).
+- `ChainageHints.alignmentSource: 'title' | 'label' | 'section'` and `alignmentTemplate`.
+- `LinkHints.matchLine` gains learned label form (chainage and/or drawing number).
+- `.rcstandard` version bump with migration from today's files (`withDefaults`).
+
+## 8. Kestrel sample set: what to add first
+
+The set has plans, typical sections, long sections and MC00 cross sections, but **no section
+callouts, detail callouts or elevations**, and cross sections exist for one alignment only. To
+record the GIFs and to bench, extend `scripts/roadset` (fictional, all names invented):
+- Section marks on plan sheets (bubble: letter over drawing number) pointing to typical section
+  sheets; titles `SECTION A-A` with source sheet reference.
+- Numbered detail callouts on plans → detail titles on 000022 (trench, shared path, culvert).
+- A culvert headwall elevation with elevation marks.
+- MC01 cross sections (new sheet) at chainages that overlap MC00 values, to show the ambiguity.
+- Ground-truth links JSON emitted by the generator.
+Then GIF clips in `scripts/help/gifs/standards-*.cjs` with the existing recorder (`gif.cjs`):
+title-block field, section callout, section title, match line pair, the four chainage boxes.
+Kept small (< 600 KB each, short loops).
+
+## 9. Delivery (stacked PRs)
+
+1. **Sample set + bench**: Kestrel additions, ground truth, `standards:bench`, baseline numbers.
+2. **Confidence engine** (`packages/sheets`): link features, calibrated score, step meter, Wilson
+   estimate, verdict bands. Unit tests against bench output. No UI.
+3. **Wizard shell**: pop-out window spike + fallback, split layout, second viewer, box tool,
+   step bar, draft persistence, Title block step. Ribbon button opens it.
+4. **Callout pair step**: sections/elevations/details, linking run, results, spot check.
+5. **Match lines step** + stitching hand-off.
+6. **Chainage step**: four boxes, new hints, alignment-chain linker, ambiguity reporting.
+7. **Image search**: visualSearch finder for taught marks, unreadable-mark reporting.
+8. **MCP tools** + "Ask AI to finish".
+9. **GIFs, help pages, cleanup**: record clips, rewrite the drawing-standards help page with new
+   screenshots, remove `DrawingStandardPanel`/`TeachLinksPanel`, web + desktop e2e for the wizard
+   (desktop: build-desktop first; pop-out window path).
+
+PR 1–2 and the wizard shell (3) can run in parallel; 4–6 need 2 and 3; 9 needs the steps done.
+
+### Baseline (PR 1, 2026-11-09)
+
+`pnpm standards:bench` on the 21-sheet Kestrel set (72 key references; text detection only, no
+taught marks):
+
+| kind | key | no standard: recall / precision | Kestrel standard: recall / precision |
+|---|---|---|---|
+| section | 9 | 100% / 100% | 100% / 100% |
+| detail | 6 | 100% / 100% | 100% / 100% |
+| elevation | 2 | 100% / 100% | 100% / 100% |
+| match line | 6 | 100% / 100% (kind right 0%) | 100% / 100% (kind right 0%) |
+| chainage | 49 | 0% / 0% | 35% / 96% |
+
+What it shows:
+- Callout bubbles in this set are easy for text detection. Kind is often wrong: callouts come
+  out as `detail` when they point at a section or elevation, and match-line labels as `sheet`.
+- Chainage is the weak spot. With the standard, most plan ticks still do not link, cross-section
+  `CHAINAGE 0` labels do not link back to the plan, and MC00's ticks 40 and 140 link to MC01's
+  cross sections (the shared-chainage case).
+- Confidence is not calibrated: links scored 0.85–1.00 range from all right to half wrong
+  depending on kind. That is what PR 2 fixes.
+
+Command for comparison: `pnpm standards:bench --standard docs/demo-sets/kestrel-road.rcstandard`.
+
+## 10. Open questions
+
+- Pop-out window vs full-window layer, if the spike shows the viewer misbehaves in a portal.
+- Spot-check size (8 default; more for big sets?).
+- Whether examples in exported `.rcstandard` files are acceptable to share with other consultants
+  (they hold title text of the client's sheets), or export should strip them by default.
