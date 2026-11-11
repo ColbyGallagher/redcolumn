@@ -129,6 +129,8 @@ const ICONS: Record<string, ReactNode> = {
   'tools.forms': ic('M3 1.5h10v13H3zM5 5h6M5 8h6M5 11h3'),
   'document.scaleRegions': MENU_ICONS.scale,
   'document.scaleReview': MENU_ICONS.scale,
+  'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
+  'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
@@ -217,7 +219,7 @@ Object.assign(ICONS, {
 /** Each tool's toolbar icon. */
 const TOOL_ICON = new Map<Tool, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
 
-type TabId = 'home' | 'markup' | 'measure' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
+type TabId = 'home' | 'markup' | 'measure' | 'takeoff' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
 
 /**
  * The contextual tab, as Excel's Table Design: it appears at the end of the tabs while the tool or
@@ -229,6 +231,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'markup', label: 'Markup' },
   { id: 'measure', label: 'Measure' },
+  { id: 'takeoff', label: 'Takeoff' },
   { id: 'diagram', label: 'Diagram' },
   { id: 'modify', label: 'Modify' },
   { id: 'document', label: 'Document' },
@@ -283,7 +286,7 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
       data-ribbon-command={id}
       disabled={!c?.enabled}
       aria-pressed={c?.checked === undefined ? undefined : c.checked}
-      title={`${c?.label ?? name}${key ? ` (${key})` : ''}`}
+      title={!c?.enabled && c?.hint ? c.hint : `${c?.label ?? name}${key ? ` (${key})` : ''}`}
       onClick={() => {
         c?.run();
         done();
@@ -633,12 +636,46 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             {toolGroups(MEASURE_GROUPS.filter((g) => g.label !== 'Scale'))}
-            <Group label="Takeoff">
+          </>
+        );
+      case 'takeoff':
+        return (
+          <>
+            <Group label="Setup">
+              <ToolBtn tool="calibrate" size="large" />
+              <Stack>
+                <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
+                <Cmd id="document.scaleReview" label="Review Scales" />
+              </Stack>
+              <Stack>
+                <Cmd id="document.labelRegions" label="Page Labels" />
+                <Cmd id="batch.pageLabels" label="Bulk Page Labels" />
+              </Stack>
+            </Group>
+            <Group label="Measure">
+              <ToolBtn tool="length" size="large" />
+              <ToolBtn tool="polylength" size="large" />
+              <ToolBtn tool="area" size="large" />
+              <ToolBtn tool="count" size="large" />
+              <Stack>
+                <Cmd id="tool.cutout" />
+                <Cmd id="tools.nextMeasure" />
+              </Stack>
+            </Group>
+            <Group label="Estimating">
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
+                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+              </Stack>
+            </Group>
+            <Group label="Auto Count">
+              <ToolBtn tool="visualSearch" size="large" />
+            </Group>
+            <Group label="Output">
+              <Cmd id="takeoff.syncExcel" size="large" />
+              <Stack>
                 <Cmd id="tools.columns" label="Columns & Statuses" />
-                <Cmd id="tools.nextMeasure" />
               </Stack>
             </Group>
           </>
@@ -843,7 +880,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Standards">
-              <Cmd id="document.drawingStandards" size="large" label="Drawing Standards" />
+              <Cmd id="document.setUpDrawingStandard" size="large" label="Set Up Standard" />
+              <Stack>
+                <Cmd id="document.drawingStandards" label="Drawing Standards" />
+              </Stack>
             </Group>
             <Group label="Process">
               <Cmd id="document.ocr" size="large" label="OCR" />

@@ -10,6 +10,7 @@ import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
+import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
@@ -75,6 +76,7 @@ import { CameraDialog } from './components/CameraDialog';
 import { ApplyRedactionsDialog, contrastOn, type RedactOptions } from './components/ApplyRedactionsDialog';
 import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
+import { markupLayersOfHiddenPdf } from './documents/layerMarkups';
 import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
 import { APP_VERSION } from './version';
@@ -194,6 +196,7 @@ import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { TeachLinksPanel } from './components/TeachLinksPanel';
+import { StandardsWizard } from './components/standardsWizard/StandardsWizard';
 import { inked, type TaughtMark } from './sheets/marks';
 import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
@@ -211,6 +214,7 @@ import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import { assistantCall, beginComparison, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
+import type { AssistantStandards } from './desktop/assistantStandards';
 import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
@@ -1211,6 +1215,9 @@ export function App() {
   const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   /** The pane Teach Links is open on. */
   const [teachLinks, setTeachLinks] = useState<Pane | null>(null);
+  /** The drawing standards setup, on a pane's document: in its own window, or over the app when pop-ups are blocked. */
+  const [setup, setSetup] = useState<{ pane: Pane; inline: boolean } | null>(null);
+  const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -5885,6 +5892,11 @@ export function App() {
       return cur ? stitchToNewPage(group, withMarkups, cur, intoB!) : Promise.resolve(null);
     },
   };
+  // The profile's drawing standards, for get_drawing_standard and propose_standard_hints.
+  const assistantStandards: AssistantStandards = {
+    list: () => profiles.active().state.drawingStandards,
+    save: (standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] })),
+  };
   const assistantRuntime = useRef({
     documents: () => assistantHost.current(),
     commands: () => commandsRef.current,
@@ -5892,6 +5904,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: undefined as (() => void) | undefined,
+    standards: assistantStandards,
   });
   assistantRuntime.current = {
     documents: () => assistantHost.current(),
@@ -5900,6 +5913,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: () => showPanel('ai'),
+    standards: assistantStandards,
   };
   useEffect(() => installAssistant(() => assistantRuntime.current), []);
 
@@ -5941,13 +5955,16 @@ export function App() {
     }
   }, [open, openB, pdfLayers]);
 
-  // Markup layers switched off stay off for each pane's document.
+  // Markup layers switched off stay off for each pane's document, and so do the markups on a PDF
+  // layer that is switched off.
   useEffect(() => {
-    ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
-    ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
+    const hiddenFor = (o: typeof open) =>
+      new Set(o ? [...(hiddenMarkupLayers[o.file.id] ?? []), ...markupLayersOfHiddenPdf(pdfLayers[o.file.hash] ?? [], hiddenPdfLayers[o.file.id] ?? [])] : []);
+    ctl?.tools.setHiddenLayers(hiddenFor(open));
+    ctlB?.tools.setHiddenLayers(hiddenFor(openB));
     ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
+  }, [hiddenMarkupLayers, hiddenPdfLayers, pdfLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
@@ -7674,6 +7691,39 @@ export function App() {
   ];
 
   /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
+  /** Opens the drawing standards setup on the active document, and reads its text for the checks. */
+  const startSetup = (pane: Pane = paneB ? 'b' : 'a') => {
+    const { o } = paneParts(pane);
+    if (!o) return;
+    setActivePane(pane);
+    setSetup((cur) => (cur?.pane === pane ? cur : { pane, inline: false }));
+    setSetupTexts(null);
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+      .then((texts) => {
+        if ((pane === 'b' ? openBRef.current : openRef.current) === o) setSetupTexts(texts);
+      })
+      .catch((err) => {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      });
+  };
+  // The setup closes with its document.
+  useEffect(() => {
+    if (setup && !paneParts(setup.pane).o) setSetup(null);
+  });
+  const setupRenderRef = useRef<(pageIndex: number, width: number, height: number, view: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
+  setupRenderRef.current = async (pageIndex, width, height, view) => {
+    const o = setup ? paneParts(setup.pane).o : null;
+    if (!o) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
+    const region = await renderRegion(o, pageIndex, seen, () => Math.min(16, Math.max(0.05, view.zoom * dpr)), false);
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
+    region.canvas.style.width = `${region.w * view.zoom}px`;
+    region.canvas.style.height = `${region.h * view.zoom}px`;
+    return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };
+  };
+  const setupRender = useCallback((pageIndex: number, width: number, height: number, view: PreviewView) => setupRenderRef.current(pageIndex, width, height, view), []);
+
   const startTeachMark = () => {
     if (!activeTools) return;
     showBottomPanel('links');
@@ -7910,6 +7960,13 @@ export function App() {
   // --- commands: one table behind the menus, shortcuts and command palette ------------------
   const pane: Pane = paneB ? 'b' : 'a';
   const selectedMarkups = activeOpen ? [...toolsState.selected].map((id) => activeOpen.store.get(id)).filter((m): m is Markup => !!m) : [];
+  const mayEditMarkup = (m: Markup) => !activeOpen || activeOpen.store.mayEdit(m);
+  /** Cutout: draws a hole in the one selected area; with no area selected it says so instead of starting a cutout with nowhere to cut. */
+  const startCutoutFromSelection = () => {
+    const blocker = cutoutBlocker(selectedMarkups, mayEditMarkup);
+    if (!blocker) activeTools?.startCutout(selectedMarkups[0]!.id);
+    else setNotice(selectedMarkups.length ? `${blocker}.` : 'Select an area first, then draw the cutout inside it.');
+  };
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
   const placeStamp = (s: StampDef, filled = false) => {
     updateWorkspace((w) => ({ ...w, lastStampId: s.id }));
@@ -8283,6 +8340,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     labelRegions: () => startLabelRegions(),
     drawingStandards: () => startLabelRegions(undefined, 'standard'),
+    setUpDrawingStandard: () => startSetup(),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     scaleReview: () => setScaleReviewOpen(true),
@@ -8294,6 +8352,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
+    cutout: startCutoutFromSelection,
+    syncExcel: () => setSyncOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8713,6 +8773,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     connectorRoute: toolsState.connectorRoute,
     canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
     canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
+    cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups, mayEditMarkup),
+    cutoutHint: cutoutBlocker(selectedMarkups, mayEditMarkup) ?? undefined,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
@@ -9097,7 +9159,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
             onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
             tool={toolsState.tool}
-            onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
+            onTool={activeOpen && !activeReadOnly ? (next) => (next === 'cutout' ? startCutoutFromSelection() : activeTools?.setTool(next)) : null}
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
@@ -9967,6 +10029,66 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     if (c.tools.getState().tool === 'teachMark') c.tools.setTool('select');
                   }}
                 />
+              );
+            })()}
+          {setup &&
+            (() => {
+              const { o } = paneParts(setup.pane);
+              if (!o) return null;
+              const pane = setup.pane;
+              const sheets = pane === 'b' ? sheetsB : sheetsA;
+              const wizard = (
+                <StandardsWizard
+                  key={`setup:${o.file.id}`}
+                  fileName={o.file.name}
+                  pages={o.doc.pages}
+                  texts={setupTexts}
+                  sheets={o.doc.pages.map((_, i) => sheets[i])}
+                  render={setupRender}
+                  standards={ws.drawingStandards}
+                  current={o.store.drawingStandard()?.id ?? null}
+                  readOnly={o.store.readOnly}
+                  readPage={async (i) => {
+                    const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
+                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: inked(geometry.segments, geometry.paper) };
+                  }}
+                  onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
+                  onUse={(id, checks) => {
+                    const standard = profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null;
+                    void readWithStandard(o, standard).then(() => {
+                      // The links the person checked in the setup are kept, or turned down, as they said.
+                      const known = new Set(o.store.allLinks().map((l) => l.id));
+                      for (const [linkId, ok] of checks) if (known.has(linkId)) o.store.setLinkStatus(linkId, ok ? 'accepted' : 'rejected');
+                      const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
+                      setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                    });
+                  }}
+                  onStitch={() => {
+                    void restitch(o).then(() => {
+                      const groups = o.store.stitchGroups();
+                      setNotice(groups.length ? `Stitched ${o.file.name}: ${groups.length} group${groups.length === 1 ? '' : 's'} of plans joined along their match lines. Open them from the Stitching panel.` : `No plans in ${o.file.name} could be stitched from their match lines.`);
+                    });
+                  }}
+                  onTeachLinks={() => startTeachMark()}
+                  onPanel={() => startLabelRegions(pane, 'standard')}
+                  onClose={() => setSetup(null)}
+                />
+              );
+              if (setup.inline) return wizard;
+              return (
+                <PopOutWindow
+                  name="redcolumn-standards"
+                  title="Set up drawing standard"
+                  width={Math.min(1500, Math.round(window.screen.availWidth * 0.9))}
+                  height={Math.min(1000, Math.round(window.screen.availHeight * 0.9))}
+                  onClose={(reason) => {
+                    // Pop-ups blocked: the setup covers the app instead.
+                    if (reason === 'blocked') setSetup({ pane, inline: true });
+                    else setSetup(null);
+                  }}
+                >
+                  {wizard}
+                </PopOutWindow>
               );
             })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (

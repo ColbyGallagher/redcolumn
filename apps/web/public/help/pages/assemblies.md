@@ -4,7 +4,7 @@ An assembly turns one measurement into the materials and labour it stands for. M
 
 ## Set up assemblies
 
-1. Choose {{Tools > Takeoff > Assemblies…}}.
+1. Choose {{Tools > Takeoff > Assemblies…}}, or click **Assemblies** on the **Takeoff** tab.
 2. Click **Examples ▾** to start from a partition wall, slab, floor tile, paint or door assembly, or **+ New** to start from nothing.
 3. Fill in the assembly:
 

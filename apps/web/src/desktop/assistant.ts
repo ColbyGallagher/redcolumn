@@ -3,6 +3,7 @@ import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
 import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
 import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
+import { STANDARD_METHODS, standardCall, type AssistantStandards, type StandardMethod } from './assistantStandards';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -95,6 +96,8 @@ export interface AssistantEnv {
   stitch?: AssistantStitching;
   /** Brings the AI panel into view, so a person sees a comparison the assistant started. */
   revealComparison?: () => void;
+  /** The profile's drawing standards (get_drawing_standard, propose_standard_hints). */
+  standards?: AssistantStandards;
 }
 
 /**
@@ -1182,5 +1185,6 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
   if ((SYMBOL_METHODS as readonly string[]).includes(method)) return symbolCall(docs, method as SymbolMethod, params);
   if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
+  if ((STANDARD_METHODS as readonly string[]).includes(method)) return standardCall(docs, method as StandardMethod, params, env.standards);
   throw new Error('Unknown tool.');
 }

@@ -437,6 +437,39 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels);
   });
 
+  test('document.setUpDrawingStandard opens the setup in its own window, asks for one box at a time and checks it on every sheet', async ({ app }) => {
+    await app.cmd('document.setUpDrawingStandard');
+    // The window that stays open (in development React opens, closes and opens it again).
+    const windows = () => app.page.context().pages().filter((p) => p !== app.page && !p.isClosed());
+    await expect.poll(async () => (await Promise.all(windows().map((p) => p.locator('.standards-wizard').count()))).some(Boolean)).toBe(true);
+    const win = windows().at(-1)!;
+    const wizard = win.locator('.standards-wizard');
+    await wizard.getByLabel('Standard name').fill('Room sheets');
+    await wizard.getByRole('button', { name: 'Start', exact: true }).click();
+    // The drawing number first, and it cannot be skipped.
+    await expect(wizard.locator('.sw-question h2')).toHaveText('Drawing number');
+    await expect(wizard.getByRole('button', { name: 'Next', exact: true })).toBeDisabled();
+    await expect(wizard.getByRole('button', { name: 'Skip', exact: true })).toHaveCount(0);
+    await wizard.locator('.sw-checklist').getByRole('button', { name: 'Title' }).click();
+    await expect(wizard.locator('.sw-question h2')).toHaveText('Title');
+    // The sheet fills its pane (fitted, whole page): page points map straight onto its picture.
+    const canvas = wizard.locator('.sheet-view-canvas');
+    await expect(canvas).toBeVisible();
+    const r = (await canvas.boundingBox())!;
+    const at = (x: number, y: number) => [r.x + (x / W) * r.width, r.y + (y / H) * r.height] as const;
+    const b = S.labelBox;
+    await win.mouse.move(...at(b.x - 4, b.y - 4));
+    await win.mouse.down();
+    await win.mouse.move(...at(b.x + b.w + 4, b.y + b.h + 4), { steps: 8 });
+    await win.mouse.up();
+    await expect(wizard.locator('.sw-read')).toHaveText(`Reads: ${S.labels[0]}`);
+    await expect(wizard.locator('.sw-verdict')).toContainText('Read on 3 of 3 sheets');
+    await expect(wizard.locator('.sw-samples td').filter({ hasText: S.labels[2]! })).toHaveCount(1);
+    // Saved as it goes: the standard is in the profile with its title box.
+    await expect.poll(() => app.page.evaluate(() => JSON.stringify(localStorage).includes('Room sheets'))).toBe(true);
+    await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
+  });
+
   test('document.drawingStandards reads every sheet number from a standard\'s box, and None goes back to the text', async ({ app }) => {
     await app.cmd('document.drawingStandards');
     const panel = app.page.locator('.drawing-standard');
