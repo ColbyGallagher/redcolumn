@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.19',
+    date: '2026-11-09',
+    items: [
+      'Open DWG and DXF drawings, converted to vector PDF',
+      'Group box with rotate and scale handles; nested Markups list rows',
+      'Select by window or crossing with a right-to-left box or lasso',
+      'Ctrl-drag duplicates a markup; Shift-drag locks it to an axis',
+      'Curve segments and edit measurement vertices with Ctrl, Shift and Alt clicks',
+      'Resume a count, polylength or polyline; drag a rectangle with Area and Volume tools',
+      'Installed fonts in markups, embedded in exported PDFs',
+      'Blend modes for images, shapes and lines',
+      'Subject, Label and Layer for the selection and active tool',
+      'Markup Format tab comes forward on selection, with grouped controls',
+      'The PDF renderer restarts itself if it crashes or hangs',
+    ],
+  },
+  {
     version: '0.1.18',
     date: '2026-11-05',
     items: [
