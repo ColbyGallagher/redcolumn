@@ -1714,8 +1714,13 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const { preset } = this.state;
+    // Restyling selected markups changes only them (as in Revu): the tool's default changes when
+    // nothing of the type is selected, or with Set as Default.
+    const restyling = [...this.state.selected].some((id) => this.store?.get(id)?.type === type);
     // A Tool Library tool keeps its own style; changing it leaves the type's defaults alone.
-    if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
+    if (restyling) {
+      // The tool's default stays as it is.
+    } else if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
     else {
       const styles = { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], patch) };
       this.setState({ styles });
