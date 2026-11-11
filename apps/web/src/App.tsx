@@ -195,6 +195,7 @@ import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
 import { TeachLinksPanel } from './components/TeachLinksPanel';
+import { StandardsWizard } from './components/standardsWizard/StandardsWizard';
 import { inked, type TaughtMark } from './sheets/marks';
 import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
@@ -1212,6 +1213,9 @@ export function App() {
   const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
   /** The pane Teach Links is open on. */
   const [teachLinks, setTeachLinks] = useState<Pane | null>(null);
+  /** The drawing standards setup, on a pane's document: in its own window, or over the app when pop-ups are blocked. */
+  const [setup, setSetup] = useState<{ pane: Pane; inline: boolean } | null>(null);
+  const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -7662,6 +7666,39 @@ export function App() {
   ];
 
   /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
+  /** Opens the drawing standards setup on the active document, and reads its text for the checks. */
+  const startSetup = (pane: Pane = paneB ? 'b' : 'a') => {
+    const { o } = paneParts(pane);
+    if (!o) return;
+    setActivePane(pane);
+    setSetup((cur) => (cur?.pane === pane ? cur : { pane, inline: false }));
+    setSetupTexts(null);
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+      .then((texts) => {
+        if ((pane === 'b' ? openBRef.current : openRef.current) === o) setSetupTexts(texts);
+      })
+      .catch((err) => {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      });
+  };
+  // The setup closes with its document.
+  useEffect(() => {
+    if (setup && !paneParts(setup.pane).o) setSetup(null);
+  });
+  const setupRenderRef = useRef<(pageIndex: number, width: number, height: number, view: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
+  setupRenderRef.current = async (pageIndex, width, height, view) => {
+    const o = setup ? paneParts(setup.pane).o : null;
+    if (!o) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
+    const region = await renderRegion(o, pageIndex, seen, () => Math.min(16, Math.max(0.05, view.zoom * dpr)), false);
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
+    region.canvas.style.width = `${region.w * view.zoom}px`;
+    region.canvas.style.height = `${region.h * view.zoom}px`;
+    return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };
+  };
+  const setupRender = useCallback((pageIndex: number, width: number, height: number, view: PreviewView) => setupRenderRef.current(pageIndex, width, height, view), []);
+
   const startTeachMark = () => {
     if (!activeTools) return;
     showBottomPanel('links');
@@ -8278,6 +8315,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     labelRegions: () => startLabelRegions(),
     drawingStandards: () => startLabelRegions(undefined, 'standard'),
+    setUpDrawingStandard: () => startSetup(),
     teachMark: () => startTeachMark(),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     scaleReview: () => setScaleReviewOpen(true),
@@ -9966,6 +10004,53 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     if (c.tools.getState().tool === 'teachMark') c.tools.setTool('select');
                   }}
                 />
+              );
+            })()}
+          {setup &&
+            (() => {
+              const { o } = paneParts(setup.pane);
+              if (!o) return null;
+              const pane = setup.pane;
+              const sheets = pane === 'b' ? sheetsB : sheetsA;
+              const wizard = (
+                <StandardsWizard
+                  key={`setup:${o.file.id}`}
+                  fileName={o.file.name}
+                  pages={o.doc.pages}
+                  texts={setupTexts}
+                  sheets={o.doc.pages.map((_, i) => sheets[i])}
+                  render={setupRender}
+                  standards={ws.drawingStandards}
+                  current={o.store.drawingStandard()?.id ?? null}
+                  readOnly={o.store.readOnly}
+                  onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
+                  onUse={(id) => {
+                    const standard = profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null;
+                    void readWithStandard(o, standard).then(() => {
+                      const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
+                      setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                    });
+                  }}
+                  onTeachLinks={() => startTeachMark()}
+                  onPanel={() => startLabelRegions(pane, 'standard')}
+                  onClose={() => setSetup(null)}
+                />
+              );
+              if (setup.inline) return wizard;
+              return (
+                <PopOutWindow
+                  name="redcolumn-standards"
+                  title="Set up drawing standard"
+                  width={Math.min(1500, Math.round(window.screen.availWidth * 0.9))}
+                  height={Math.min(1000, Math.round(window.screen.availHeight * 0.9))}
+                  onClose={(reason) => {
+                    // Pop-ups blocked: the setup covers the app instead.
+                    if (reason === 'blocked') setSetup({ pane, inline: true });
+                    else setSetup(null);
+                  }}
+                >
+                  {wizard}
+                </PopOutWindow>
               );
             })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (

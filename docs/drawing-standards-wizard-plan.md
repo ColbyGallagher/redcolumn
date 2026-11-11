@@ -264,6 +264,23 @@ prints each evidence key's hit rate for tuning, and the wizard meter per step. W
 chainage reads "AI" because 32 of 49 references get no link; every other step reads "good".
 One set cannot settle the weights: tune them on a real client set (kept out of the repo).
 
+### Wizard shell (PR 3)
+
+- Window: the `PopOutWindow` portal works for the wizard, so no fallback was needed in Chromium or
+  the e2e browser. The wizard's sheet view (`components/standardsWizard/SheetView.tsx`) is its own
+  small renderer (regions drawn with `renderRegion`, zoom/pan, box drawing) rather than a second
+  `TileViewer`, and listens only on its own element, which is what makes the portal safe. When
+  pop-ups are blocked, the same wizard covers the app. On the desktop the window opens 1400 × 900.
+- Title block: drawing number (required), revision, title, scale, sheet size, Project, Status,
+  Date, then your own fields, other numbers (ignore boxes), and drawing numbers (template and
+  discipline part). Each box shows what it reads, the same box on five sheets spread through the
+  set, and "read on N of M sheets". The standard is saved on every change; where the person was
+  is kept per standard in `localStorage`, so reopening carries on.
+- Testing it on Kestrel found a loose revision box catching the next cell's caption: revisions
+  are now the last of the box's largest lettering, in `readBox` and `readSheet` alike.
+- Sections to chainages point to Teach Sheet Links until their PRs; Review reads the document
+  with the standard and opens the old panel for import, export and the rest.
+
 ## 10. Open questions
 
 - Pop-out window vs full-window layer, if the spike shows the viewer misbehaves in a portal.
