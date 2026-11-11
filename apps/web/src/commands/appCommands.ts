@@ -41,6 +41,8 @@ export interface Command {
   run: () => void;
   enabled: boolean;
   checked?: boolean;
+  /** Shown as the tooltip while the command is disabled: what to do to enable it. */
+  hint?: string;
 }
 
 /** What the app can do; App supplies these, the command table decides when each is available. */
@@ -203,6 +205,10 @@ export interface CommandActions {
   scripts: () => void;
   /** Tools › Takeoff › Review AI Proposals. */
   takeoffReview: () => void;
+  /** Takeoff › Cutout: draws a hole in the selected area. */
+  cutout: () => void;
+  /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
+  syncExcel: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -299,6 +305,10 @@ export interface CommandState {
   canAddNextShape: boolean;
   /** Two or more shapes are selected to join. */
   canConnectShapes: boolean;
+  /** One unlocked area or volume is selected, so Cutout knows where to cut. */
+  cutoutReady: boolean;
+  /** Why Cutout is disabled with the selection as it is, for its tooltip. */
+  cutoutHint?: string;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -542,6 +552,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
+    { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
+    cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
