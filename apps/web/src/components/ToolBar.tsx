@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
@@ -369,7 +369,8 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </>
       )}
       {style && styleType && (
-        <>
+        <Cluster label="Line">
+          <PropLine>
           <ColorMenu
             label="Line color"
             short="Line"
@@ -378,17 +379,6 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             value={style.stroke}
             mixed={mixedOf('stroke')}
             onChange={(c) => c && apply(styleType, { stroke: c })}
-          />
-          <ColorMenu
-            label="Fill color"
-            short="Fill"
-            title="Fill color: the inside of the shape"
-            icon={STYLE_ICONS.fill}
-            value={style.fill ?? null}
-            mixed={mixedOf('fill', (v) => v ?? null)}
-            noneLabel="No fill"
-            disabled={!caps!.fill}
-            onChange={(c) => apply(styleType, { fill: c })}
           />
           {/* A text box drawn without its border has no outline to give a width to. */}
           {!(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
@@ -406,6 +396,18 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               />
             </label>
           )}
+          {textStyle && !mixedTypes && (textType === 'text' || textType === 'callout') && (
+            <label className="field" title="Draw an outline around the text box (its fill draws either way)">
+              <input
+                type="checkbox"
+                checked={!textStyle.noBox && !textStyle.borderless}
+                onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+              />
+              Border
+            </label>
+          )}
+          </PropLine>
+          <PropLine>
           {caps!.dash && (
             <label className="field" title="Line style">
               <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
@@ -416,9 +418,26 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             <FieldTag icon={STYLE_ICONS.opacity} label="Opacity" />
             <ComboField title="Opacity" value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? 'Mixed' : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
           </label>
+          </PropLine>
+        </Cluster>
+      )}
+      {style && styleType && (
+        <Cluster label="Fill">
+          <PropLine>
+          <ColorMenu
+            label="Fill color"
+            short="Fill"
+            title="Fill color: the inside of the shape"
+            icon={STYLE_ICONS.fill}
+            value={style.fill ?? null}
+            mixed={mixedOf('fill', (v) => v ?? null)}
+            noneLabel="No fill"
+            disabled={!caps!.fill}
+            onChange={(c) => apply(styleType, { fill: c })}
+          />
           {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
             <label className="field" title="Opacity of the fill alone">
-              <FieldTag icon={STYLE_ICONS.fill} label="Fill opacity" />
+              <FieldTag icon={STYLE_ICONS.fill} label="Opacity" />
               <ComboField
                 title="Fill opacity"
                 value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
@@ -431,11 +450,25 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               />
             </label>
           )}
-          {caps!.hatch && <HatchMenu mixed={mixedOf('hatch')} style={style} disabled={!enabled} onChange={(patch) => apply(styleType, patch)} />}
-        </>
+          </PropLine>
+        </Cluster>
+      )}
+      {style && styleType && (
+        <Cluster label="Hatch" show={!!caps!.hatch}>
+          <PropLine>
+            <HatchMenu bare mixed={mixedOf('hatch')} style={style} disabled={!enabled} onChange={(patch) => apply(styleType, patch)} />
+          </PropLine>
+          <PropLine>
+            <HatchColor style={style} active={!!resolveHatch(style.hatch, style.hatchSpec)} mixed={mixedOf('hatchColor', (v) => v ?? null)} onChange={(patch) => apply(styleType, patch)} />
+            <label className="field hatch-scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
+              <HatchScale style={style} active={!!resolveHatch(style.hatch, style.hatchSpec)} mixed={mixedOf('hatchScale', (v) => v ?? 100)} onChange={(patch) => apply(styleType, patch)} />
+            </label>
+          </PropLine>
+        </Cluster>
       )}
       {style && styleType && !mixedTypes && (styleType === 'length' || styleType === 'polylength') && (
-        <>
+        <Cluster label="Arrows">
+          <PropLine>
           <label className="field" title="Arrowheads on the ends of the line">
             Arrows
             <select
@@ -450,29 +483,26 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               {!ARROW_CHOICES.some((c) => c.value === lineEnds({ type: styleType, style })[1]) && <option value={lineEnds({ type: styleType, style })[1]}>Other</option>}
             </select>
           </label>
+          </PropLine>
+          <PropLine>
           {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
             <label className="field">
               <ComboField title="Arrow size" value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => apply(styleType, { capScale: v / 100 })} />
             </label>
           )}
-        </>
+          </PropLine>
+        </Cluster>
       )}
       {cloudBubble && (
-        <label className="field" title="Size of the cloud's bubbles (pt)">
-          Bubbles
-          <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
-        </label>
+        <Cluster label="Cloud">
+          <label className="field" title="Size of the cloud's bubbles (pt)">
+            Bubbles
+            <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
+          </label>
+        </Cluster>
       )}
-      {textStyle && !mixedTypes && (textType === 'text' || textType === 'callout') && (
-        <label className="field" title="Draw an outline around the text box (its fill draws either way)">
-          <input
-            type="checkbox"
-            checked={!textStyle.noBox && !textStyle.borderless}
-            onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
-          />
-          Border
-        </label>
-      )}
+      <Cluster label="Text" show={!!textStyle && !!textType && textCaps!.font}>
+      <PropLine>
       {textStyle && textType && textCaps!.font && (
         <div className="field" title="Font">
           <FieldTag icon={STYLE_ICONS.font} label="Font" />
@@ -502,6 +532,8 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} label="S" title="Strikethrough" className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
         </span>
       )}
+      </PropLine>
+      <PropLine>
       {textStyle && textType && textCaps!.font && textCaps!.textLayout && (
         <>
           <span className="seg" role="group" aria-label="Text alignment">
@@ -520,7 +552,29 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           </label>
         </>
       )}
+      </PropLine>
+      </Cluster>
     </>
+  );
+}
+
+/** One row inside a cluster (the ribbon stacks two); an empty row draws nothing. */
+function PropLine({ children }: { children: ReactNode }) {
+  if (Children.toArray(children).length === 0) return null;
+  return <div className="prop-line">{children}</div>;
+}
+
+/**
+ * A labelled cluster of related style controls (Line, Fill, Text). In the ribbon it draws as a block with
+ * its name underneath; on the simplified toolbar it adds no box of its own.
+ */
+function Cluster({ label, show = true, children }: { label: string; show?: boolean; children: ReactNode }) {
+  if (!show) return null;
+  return (
+    <div className="prop-cluster" role="group" aria-label={label}>
+      <div className="prop-cluster-items">{children}</div>
+      <span className="prop-cluster-label">{label}</span>
+    </div>
   );
 }
 
@@ -543,7 +597,14 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
   if (!sel && !drawing) return null;
   const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer };
   const edits = state.toolFields ?? {};
-  const shown = (f: IdentityField): { value: string; mixed: boolean } => (sel ? sharedIdentity(sel.markups, f) : { value: toolIdentity(base, edits, f), mixed: false });
+  // The Markups list names a markup with no subject of its own by its type, so the field shows that name too.
+  const shownOf = (m: Markup, f: IdentityField) => identityOf(m, f) || (f === 'subject' ? MARKUP_LABELS[m.type] : '');
+  const shown = (f: IdentityField): { value: string; mixed: boolean } => {
+    if (!sel) return { value: toolIdentity(base, edits, f), mixed: false };
+    if (f !== 'subject') return sharedIdentity(sel.markups, f);
+    const names = sel.markups.map((m) => shownOf(m, f));
+    return names.every((n) => n === names[0]) ? { value: names[0] ?? '', mixed: false } : { value: '', mixed: true };
+  };
   const commit = (f: IdentityField, value: string) => {
     if (!enabled) return;
     if (!sel) {
@@ -553,7 +614,7 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
     const targets = sel.markups.map((m) => sel.store.get(m.id) ?? m).filter((m) => !m.locked && sel.store.mayEdit(m));
     // A field commits on Enter and again on blur: the repeat changes nothing and must not make a second undo step.
     const next = f === 'layer' ? value : value.trim();
-    if (!targets.length || targets.every((m) => identityOf(m, f) === next)) return;
+    if (!targets.length || targets.every((m) => shownOf(m, f) === next)) return;
     sel.store.checkpoint();
     sel.store.batch(() => {
       for (const m of targets) sel.store.update(m.id, identityPatch(m, f, value));
@@ -584,7 +645,9 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
     </label>
   );
   return (
-    <>
+    <div className="prop-cluster">
+    <div className="prop-cluster-items">
+    <PropLine>
       {text('subject', sel ? 'Subject of the selected markups' : 'Subject the next markups from this tool get', 'Subject', subject, 'ident-subjects')}
       <datalist id="ident-subjects">
         {distinctIdentities(markups, 'subject').map((s) => (
@@ -592,6 +655,8 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
         ))}
       </datalist>
       {text('label', sel ? 'Label (category) of the selected markups' : 'Label (category) the next markups from this tool get', 'Label', label)}
+    </PropLine>
+    <PropLine>
       <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
         Layer
         <select
@@ -630,7 +695,9 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
           Save to Tool Chest
         </button>
       )}
-    </>
+    </PropLine>
+    </div>
+    </div>
   );
 }
 
@@ -660,7 +727,7 @@ function FieldTag({ icon, label }: { icon: ReactNode; label?: string }) {
 }
 
 /** Hatch pattern, color and scale, behind one toolbar button. */
-function HatchMenu({ style, mixed, disabled, onChange }: { style: MarkupStyle; mixed?: boolean; disabled: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupStyle; mixed?: boolean; disabled: boolean; /** Pattern list only: the colour and scale sit beside the button instead. */ bare?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
@@ -731,40 +798,60 @@ function HatchMenu({ style, mixed, disabled, onChange }: { style: MarkupStyle; m
               {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
             </button>
           )}
-          <div className="hatch-pop-row">
-            <ColorMenu
-              wide
-              label="Hatch color"
-              short="Hatch"
-              icon={STYLE_ICONS.hatch}
-              value={style.hatchColor ?? null}
-              fallback={style.stroke}
-              noneLabel="Same as line"
-              disabled={!active}
-              onChange={(c) => onChange({ hatchColor: c ?? undefined })}
-            />
-          </div>
-          <div className="hatch-pop-row">
-            <span>Scale</span>
-            <input
-              type="number"
-              aria-label="Hatch scale"
-              disabled={!active}
-              min={50}
-              max={200}
-              step={1}
-              value={style.hatchScale ?? 100}
-              onChange={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isFinite(n)) onChange({ hatchScale: Math.min(200, Math.max(50, n)) });
-              }}
-            />
-            <span>%</span>
-          </div>
+          {!bare && (
+            <>
+              <div className="hatch-pop-row">
+                <HatchColor wide style={style} active={active} onChange={onChange} />
+              </div>
+              <div className="hatch-pop-row">
+                <HatchScale style={style} active={active} onChange={onChange} />
+              </div>
+            </>
+          )}
         </div>,
         document.body,
       )}
     </div>
+  );
+}
+
+function HatchColor({ wide, style, active, mixed, onChange }: { wide?: boolean; style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+  return (
+    <ColorMenu
+      wide={wide}
+      label="Hatch color"
+      short="Hatch"
+      icon={STYLE_ICONS.hatch}
+      value={style.hatchColor ?? null}
+      mixed={mixed}
+      fallback={style.stroke}
+      noneLabel="Same as line"
+      disabled={!active}
+      onChange={(c) => onChange({ hatchColor: c ?? undefined })}
+    />
+  );
+}
+
+function HatchScale({ style, active, mixed, onChange }: { style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+  return (
+    <>
+      <span>Scale</span>
+      <input
+        type="number"
+        aria-label="Hatch scale"
+        disabled={!active}
+        min={50}
+        max={200}
+        step={1}
+        value={mixed ? '' : (style.hatchScale ?? 100)}
+        placeholder={mixed ? 'Mixed' : undefined}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange({ hatchScale: Math.min(200, Math.max(50, n)) });
+        }}
+      />
+      <span>%</span>
+    </>
   );
 }
 
