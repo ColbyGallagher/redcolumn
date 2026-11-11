@@ -410,6 +410,50 @@ test('select, move and delete a drawn markup', async () => {
   await h.store.destroy();
 });
 
+test('Shift-dragging a markup moves it along one axis only', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  drag(h.tools, [100, 250], [160, 270], { shiftKey: true });
+  assert.deepEqual(h.store.get(m!.id)?.points, [[160, 200], [320, 300]], 'horizontal only');
+  assert.deepEqual(h.tools.getState().selected, new Set([m!.id]), 'still selected');
+  drag(h.tools, [200, 200], [210, 260], { shiftKey: true });
+  assert.deepEqual(h.store.get(m!.id)?.points, [[160, 260], [320, 360]], 'vertical only');
+  await h.store.destroy();
+});
+
+test('Shift-clicking a selected markup still deselects it', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  press(h.tools, [100, 220], { shiftKey: true });
+  release(h.tools, [100, 220], { shiftKey: true });
+  assert.equal(h.tools.getState().selected.size, 0);
+  await h.store.destroy();
+});
+
+test('Ctrl-dragging a markup leaves it and drops a copy; with Shift the copy is axis-locked', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  drag(h.tools, [100, 250], [150, 270], { ctrlKey: true });
+  assert.equal(h.store.all().length, 2, 'copy made');
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [260, 300]], 'original stays');
+  const copy = h.store.all().find((x) => x.id !== m!.id)!;
+  assert.deepEqual(copy.points, [[150, 220], [310, 320]], 'copy at the drop point');
+  assert.deepEqual(h.tools.getState().selected, new Set([copy.id]), 'copy selected');
+  drag(h.tools, [150, 240], [210, 260], { ctrlKey: true, shiftKey: true });
+  assert.equal(h.store.all().length, 3);
+  const third = h.store.all().find((x) => x.id !== m!.id && x.id !== copy.id)!;
+  assert.deepEqual(third.points, [[210, 220], [370, 320]], 'copy moved horizontally only');
+  assert.deepEqual(h.store.get(copy.id)?.points, [[150, 220], [310, 320]], 'source copy stays');
+  await h.store.destroy();
+});
+
 test('nudgeSelected moves points and holes as one undo step and skips locked markups', async () => {
   const h = await setup();
   await drawWith(h, 'rect');

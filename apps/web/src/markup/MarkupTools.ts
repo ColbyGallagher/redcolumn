@@ -297,7 +297,7 @@ type Gesture =
   /** `arcPress`: the button went down on a 3-point arc's middle click, so releasing places nothing. */
   | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState; curve?: MultiCurve; arcPress?: boolean }
   /** `drill`: a press on a member of the selected group, which selects just that member if it turns out to be a click. */
-  | { kind: 'move'; start: Point; dx: number; dy: number; drill?: string }
+  | { kind: 'move'; start: Point; dx: number; dy: number; drill?: string; copy?: boolean; toggle?: string[] }
   /** Dragging a handle of the selected group's box: `t` is the stretch or turn so far, `f` the box when the drag began and `angle` the box's turn so far. */
   | { kind: 'groupXform'; ids: string[]; groupId: string; handle: GroupHandle; f: GroupFrame; t: MarkupAffine; angle: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
@@ -2331,6 +2331,18 @@ export class MarkupTools implements ViewerOverlay {
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
       }
     }
+    const drag = this.gesture;
+    if (drag?.kind === 'move' && drag.copy && (drag.dx || drag.dy)) {
+      // Ctrl-drag: the copies travel with the pointer while the originals stay put.
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      for (const m of this.pageMarkups(pageIndex)) {
+        if (!this.state.selected.has(m.id) || this.frozen(m)) continue;
+        const shown = { ...m, ...moved(m, drag.dx, drag.dy) };
+        drawMarkup(ctx, shown, zoom, store.scaleOf(shown), legends);
+      }
+      ctx.restore();
+    }
     if (group && group.markups[0]!.pageIndex === pageIndex) {
       // The box follows the members as they turn or stretch.
       const live = group.markups.map((m) => this.previewOf(m));
@@ -3267,18 +3279,21 @@ export class MarkupTools implements ViewerOverlay {
     }
     // A press on a member of the group already selected whole edits that member alone, if it is a click.
     const drill = !e.shiftKey && members.size > 1 && this.state.selected.has(hit.id) && this.groupSelection() ? hit.id : undefined;
+    // Shift-clicking a selected markup deselects it, but only once it turns out to be a click: Shift-dragging moves it along an axis.
+    let toggle: string[] | undefined;
     if (e.shiftKey) {
       const next = new Set(this.state.selected);
       const on = !next.has(hit.id);
-      for (const id of members) {
-        if (on) next.add(id);
-        else next.delete(id);
-      }
-      this.select(next);
+      if (on) {
+        for (const id of members) next.add(id);
+        this.select(next);
+      } else toggle = [...members];
     } else if (!this.state.selected.has(hit.id)) {
       this.select(members);
     }
-    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0, ...(drill ? { drill } : {}) });
+    // Ctrl-dragging leaves the originals and drops copies.
+    const copy = e.ctrlKey || e.metaKey;
+    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0, ...(drill ? { drill } : {}), ...(copy ? { copy } : {}), ...(toggle ? { toggle } : {}) });
     return true;
   }
 
@@ -3397,6 +3412,15 @@ export class MarkupTools implements ViewerOverlay {
       const p = toPoint(pt);
       g.dx = p[0] - g.start[0];
       g.dy = p[1] - g.start[1];
+      if (e.shiftKey) {
+        // Shift keeps the drag to whichever axis it has travelled further along.
+        if (Math.abs(g.dx) >= Math.abs(g.dy)) g.dy = 0;
+        else g.dx = 0;
+      }
+      if (g.kind === 'move') {
+        g.copy = e.ctrlKey || e.metaKey;
+        if (g.toggle && Math.hypot(p[0] - g.start[0], p[1] - g.start[1]) * this.viewer.zoomFor(this.page) >= this.dragPx) g.toggle = undefined;
+      }
     } else if (g.kind === 'tableLine') {
       g.to = g.line.axis === 'col' ? pt[0] : pt[1];
     } else if (g.kind === 'tableCells') {
@@ -3605,12 +3629,25 @@ export class MarkupTools implements ViewerOverlay {
     } else if (g.kind === 'move') {
       if (g.dx || g.dy) {
         const store = this.store;
-        store.batch(() => {
-          for (const id of this.state.selected) {
-            const m = store.get(id);
-            if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
+        if (g.copy && !store.readOnly) {
+          // Ctrl-drag: the originals stay and copies land at the drop point, selected.
+          const copies = this.copySelected().filter((m) => !this.frozen(m));
+          if (copies.length) {
+            const b = boundsOf(copies.flatMap((m) => m.points));
+            this.paste(copies, copies[0]!.pageIndex, [b.x + g.dx, b.y + g.dy]);
           }
-        });
+        } else {
+          store.batch(() => {
+            for (const id of this.state.selected) {
+              const m = store.get(id);
+              if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
+            }
+          });
+        }
+      } else if (g.toggle) {
+        const next = new Set(this.state.selected);
+        for (const id of g.toggle) next.delete(id);
+        this.select(next);
       } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
@@ -4786,7 +4823,7 @@ export class MarkupTools implements ViewerOverlay {
   /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
-    if (g?.kind === 'move' && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
+    if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
