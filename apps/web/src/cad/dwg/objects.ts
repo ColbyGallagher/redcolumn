@@ -304,6 +304,10 @@ function readEntity(o: Obj, type: string): EntRec {
 }
 
 const push = (g: G, code: number, v: number | string) => g.push([code, typeof v === 'number' ? f(v) : v]);
+const pt3 = (g: G, code: number, p: readonly number[]) => {
+  pt2(g, code, p);
+  push(g, code + 20, p[2] ?? 0);
+};
 const pt2 = (g: G, code: number, p: readonly number[]) => {
   push(g, code, p[0]!);
   push(g, code + 10, p[1]!);
@@ -590,11 +594,19 @@ function entityData(o: Obj, e: EntRec) {
       return hatch(o, e);
     case 'LEADER': {
       d.B();
-      d.BS();
-      d.BS();
+      push(g, 73, d.BS());
+      push(g, 72, d.BS());
       const n = d.BL();
       guard(n);
       for (let k = 0; k < n; k++) pt2(g, 10, d.BD3());
+      d.BD3(); // Plane origin.
+      e.extrusion = d.BD3();
+      pt3(g, 211, d.BD3());
+      pt3(g, 212, d.BD3());
+      pt3(g, 213, d.BD3());
+      if (v <= R2007) { push(g, 40, d.BD()); push(g, 41, d.BD()); }
+      push(g, 74, d.B());
+      push(g, 71, d.B());
       return;
     }
     case 'VIEWPORT':
