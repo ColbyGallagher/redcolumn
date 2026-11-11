@@ -7887,6 +7887,22 @@ tr.hidden-markup td {
 .sw-meter.ai strong {
   color: var(--danger-text);
 }
+.sw-ambiguous {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.sw-ambiguous li {
+  margin: 3px 0;
+}
+.sw-ambiguous button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
 .sw-ai {
   margin: 10px 0;
   padding: 10px;

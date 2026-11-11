@@ -21,7 +21,7 @@ export const WIZARD_STEPS: WizardStep[] = [
   { id: 'elevations', label: 'Elevations', ready: true },
   { id: 'details', label: 'Details', ready: true },
   { id: 'matchLines', label: 'Match lines', ready: true },
-  { id: 'chainage', label: 'Chainages', ready: false },
+  { id: 'chainage', label: 'Chainages', ready: true },
   { id: 'review', label: 'Review', ready: true },
 ];
 

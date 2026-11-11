@@ -323,3 +323,42 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
   own direction and one line either side. Links on a match-line label also carry the
   `matchLineLabel` evidence (+0.8). Kestrel: match-line kind right 0% → 100%; Brier 0.097 →
   0.091 without a standard, 0.046 → 0.044 with one.
+
+### Chainages (PR 6)
+
+- `components/standardsWizard/ChainageStep.tsx`: four boxes in order (a chainage on a plan, the
+  name of its alignment there, where a cross-section sheet of that alignment names it, one
+  section's chainage), with a checklist to go back to any box. After the plan's two boxes, Next
+  goes to the first cross-section sheet naming the alignment (sheets printing written chainages
+  first, so typical sections come last). `learnAlignmentChain` refuses boxes that do not make a
+  chain (alignments that differ, the cross-section boxes on the plan, a section chainage with no
+  CH/CHAINAGE), then learns prefixes, the alignment name and its form (`MC01` gives `MC##`, so
+  the set's other alignments are found without listing them), plan and cross-section title words,
+  and where cross sections name their alignment (`alignmentSource`: boxed in the title box is
+  `title`; boxed beside the section, or printed over and over on the sheet, `section`; else
+  `title` when the title names it, `sheet` otherwise).
+- New `ChainageHints` fields `alignmentTemplate` and `alignmentSource`, read and written with
+  `.rcstandard` files (older files read as before).
+- Linker (`packages/sheets` `chainageReport`, behind `detectChainageLinks`):
+  - A plan's run of ticks takes one alignment: the name printed closest to the run, else the
+    alignment of a named run with the same values (the long section under the plan). Kestrel
+    prints each name once, so before this most ticks had no alignment, no plan coverage was
+    built, and cross sections could not link back.
+  - Tick labels that turn with a curving alignment are read as one run.
+  - A plan and its long section printing the same ticks no longer collapse its coverage.
+  - Ranges (`CH 280 TO CH 565`, in titles and typical-section notes) are not references.
+  - At a value where two consecutive plans overlap by a tick, the plan with the value inside its
+    run wins; one link per chainage word rather than per value on a page.
+  - A chainage whose alignment cannot be told, where cross sections at that value exist for more
+    than one alignment, is reported (`ambiguous`) and scored lower (`sectionsOnSeveral`, -0.6);
+    the step lists them as "Alignment unclear" and recommends AI for them.
+  - The report gives the step's references (each cross section's own chainage, and each chainage
+    elsewhere that a cross section is drawn at) and how many linked, for the meter.
+- Kestrel bench with the standard: chainage recall 35% → 98%, precision 96% → 100%; Brier
+  0.044 → 0.021; chainage step band ai → good. Without a standard chainage still finds nothing
+  (the default plan titles do not fit Kestrel's), which is what the step is for. Tried on screen
+  from a standard with no chainage settings: the four boxes on 000031 and 000301 learned MC##,
+  the plan title words and `section`, and linked 54 of 59 references.
+- Not done: the remaining miss is a short run of four ticks on a long section (too short to
+  count as ticks). Examples (the boxes themselves) are not stored in the standard yet; that
+  comes with the MCP tools (PR 8), which need them.

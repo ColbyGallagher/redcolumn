@@ -131,7 +131,13 @@ function parseLinks(v: unknown): LinkHints {
 function parseChainage(v: unknown): ChainageHints {
   if (v === undefined) return structuredClone(DEFAULT_CHAINAGE_HINTS);
   if (!isObject(v)) fail('the chainage settings are missing');
-  return { prefixes: words(v.prefixes, 'chainage prefixes'), alignments: words(v.alignments, 'alignment names'), planTitles: words(v.planTitles, 'plan titles'), sectionTitles: words(v.sectionTitles, 'cross-section titles') };
+  const out: ChainageHints = { prefixes: words(v.prefixes, 'chainage prefixes'), alignments: words(v.alignments, 'alignment names'), planTitles: words(v.planTitles, 'plan titles'), sectionTitles: words(v.sectionTitles, 'cross-section titles') };
+  if (v.alignmentTemplate != null) out.alignmentTemplate = text(v.alignmentTemplate, 60, 'the alignment name form');
+  if (v.alignmentSource != null) {
+    if (v.alignmentSource !== 'title' && v.alignmentSource !== 'sheet' && v.alignmentSource !== 'section') fail('where cross sections say their alignment is not one of title, sheet or section');
+    out.alignmentSource = v.alignmentSource;
+  }
+  return out;
 }
 
 function parseMark(v: unknown): TaughtMark {

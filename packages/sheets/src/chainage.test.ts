@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, readTicks, titleRange, type ChainageHints } from './chainage.ts';
+import { DEFAULT_CHAINAGE_HINTS, alignmentTemplateOf, alignmentsIn, chainageReport, detectChainageLinks, parsePlus, readChainages, readTicks, titleRange, type ChainageHints } from './chainage.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 function word(text: string, x: number, y: number, size = 8): Word {
@@ -251,6 +251,101 @@ test('a cross section outside the range its sheet title names scores lower', () 
     [
       ['CH 120', 0.89, ['chainage', 'alignmentAgrees', 'inSheetRange']],
       ['CH 140', 0.68, ['chainage', 'alignmentAgrees', 'outsideSheetRange']],
+    ],
+  );
+});
+
+/**
+ * A control plan for two alignments, each name printed once: MC00's ticks along a row, repeated
+ * in the long section under it (no name there), and MC01's ticks turning with its curve. The
+ * title gives the stretch it covers.
+ */
+function controlPlan(): PageText {
+  const words: Word[] = [word('MC00', 100, 500)];
+  for (let v = 0; v <= 300; v += 20) words.push(upright(String(v), 200 + v * 5, 500), upright(String(v), 200 + v * 5, 900));
+  words.push(word('MC01', 1250, 1450));
+  let x = 1300;
+  let y = 1100;
+  for (let i = 0; i < 6; i++) {
+    const a = 0.12 * i;
+    words.push({ ...word(String(40 + i * 20), x, y), angle: (2 * Math.PI - a) % (2 * Math.PI) });
+    x += 110 * Math.sin(a + 0.12);
+    y += 110 * Math.cos(a + 0.12);
+  }
+  words.push(...phrase('CH 0 TO CH 300', 2500, 1900));
+  return page(words);
+}
+const twoLines: ChainageHints = { ...DEFAULT_CHAINAGE_HINTS, alignments: ['MC00', 'MC01'], planTitles: ['CONTROL PLAN'], sectionTitles: ['CROSS SECTIONS'] };
+const xsSheets = [sheet('P-1', 'ALIGNMENT CONTROL PLAN CH 0 TO CH 300'), sheet('X-1', 'CROSS SECTIONS MC00 CH 0-150'), sheet('X-2', 'CROSS SECTIONS MC01 CH 40-140')];
+
+test('the chain from a plan tick to its cross section: one name per run of ticks, its long section, a curving run', () => {
+  const xsA = page([...phrase('CHAINAGE 0', 1200, 400, 12), ...phrase('CHAINAGE 100', 1200, 1000, 12)]);
+  const xsB = page(phrase('CHAINAGE 100', 1200, 1000, 12));
+  const report = chainageReport([controlPlan(), xsA, xsB], xsSheets, twoLines, true);
+  const numbers = ['P-1', 'X-1', 'X-2'];
+  const from = (p: number) => report.links.filter((l) => l.pageIndex === p).map((l) => [l.label, numbers[l.targetPage], Math.round(l.rect.y / 100) * 100]);
+  // MC00's 0 and 100 on the plan and on the long section go to MC00's cross sections, MC01's 100
+  // to MC01's; the title's range is not a reference.
+  assert.deepEqual(from(0), [
+    ['0', 'X-1', 500],
+    ['100', 'X-1', 500],
+    ['0', 'X-1', 900],
+    ['100', 'X-1', 900],
+    ['100', 'X-2', 1400],
+  ]);
+  // The cross sections' own chainages come back to the plan, each to its own alignment's ticks.
+  assert.deepEqual(
+    [...from(1), ...from(2)].map((x) => x.slice(0, 2)),
+    [
+      ['CHAINAGE 0', 'P-1'],
+      ['CHAINAGE 100', 'P-1'],
+      ['CHAINAGE 100', 'P-1'],
+    ],
+  );
+  const back = report.links.find((l) => l.pageIndex === 2)!;
+  assert.ok(back.targetRect!.y + back.targetRect!.h / 2 > 1200, "MC01's 100 frames MC01's tick, not MC00's");
+  assert.ok(report.links.every((l) => l.evidence!.includes('alignmentAgrees')));
+  assert.deepEqual([report.references, report.linked, report.ambiguous.length], [8, 8, 0]);
+});
+
+test('a chainage whose alignment cannot be told, where both alignments have a cross section, is reported', () => {
+  const note = page(phrase('REFER CH 100 FOR KERB RAMP', 300, 300));
+  const report = chainageReport([note, page(phrase('CHAINAGE 100', 1200, 1000, 12)), page(phrase('CHAINAGE 100', 1200, 1000, 12))], [sheet('N-1', 'NOTES'), ...xsSheets.slice(1)], twoLines, true);
+  assert.deepEqual(
+    report.ambiguous.map((a) => [a.pageIndex, a.value, a.alignments]),
+    [[0, 100, ['MC00', 'MC01']]],
+  );
+  const link = report.links.find((l) => l.pageIndex === 0)!;
+  assert.ok(link.evidence!.includes('sectionsOnSeveral'));
+  assert.ok(link.confidence < 0.5);
+});
+
+test('alignment names from a template, and where a cross-section sheet says its alignment', () => {
+  assert.equal(alignmentTemplateOf('MC01'), 'MC##');
+  assert.equal(alignmentTemplateOf('Line 2a'), 'LINE #A');
+  assert.equal(alignmentTemplateOf('RAMP B'), null);
+  assert.deepEqual(alignmentsIn('CROSS SECTIONS MC07 CH 0-150', { alignments: [], alignmentTemplate: 'MC##' }), ['MC07']);
+  assert.deepEqual(alignmentsIn('CROSS SECTIONS LINE B', { alignments: [], alignmentTemplate: 'LINE @' }), ['LINE B']);
+  // Listed names and the template together, each once.
+  assert.deepEqual(alignmentsIn('MC00 AND MC01', { alignments: ['MC00'], alignmentTemplate: 'MC##' }), ['MC00', 'MC01']);
+
+  // A cross section whose sheet title names MC00, with MC01 printed beside the section.
+  const xs = page([...phrase('CHAINAGE 100', 1200, 1000, 12), word('MC01', 1230, 1040, 12)]);
+  const target = (source: ChainageHints['alignmentSource']) => {
+    const links = detectChainageLinks([controlPlan(), xs], [xsSheets[0]!, sheet('X-9', 'CROSS SECTIONS MC00')], { ...twoLines, alignmentSource: source }, true).filter((l) => l.pageIndex === 1);
+    return links.map((l) => (l.targetRect!.y + l.targetRect!.h / 2 > 1200 ? 'MC01' : 'MC00'));
+  };
+  assert.deepEqual(target(null), ['MC00'], 'not known: the title first');
+  assert.deepEqual(target('title'), ['MC00']);
+  assert.deepEqual(target('section'), ['MC01']);
+  // Found by the template alone, with no names listed.
+  const plan = controlPlan();
+  const byTemplate = detectChainageLinks([plan, page(phrase('CHAINAGE 100', 1200, 1000, 12))], [xsSheets[0]!, sheet('X-2', 'CROSS SECTIONS MC01')], { ...twoLines, alignments: [], alignmentTemplate: 'MC##' }, true);
+  assert.deepEqual(
+    byTemplate.map((l) => [l.pageIndex, l.label]),
+    [
+      [0, '100'],
+      [1, 'CHAINAGE 100'],
     ],
   );
 });
