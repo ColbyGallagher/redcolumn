@@ -10,6 +10,7 @@ import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
+import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
@@ -7893,6 +7894,13 @@ export function App() {
   // --- commands: one table behind the menus, shortcuts and command palette ------------------
   const pane: Pane = paneB ? 'b' : 'a';
   const selectedMarkups = activeOpen ? [...toolsState.selected].map((id) => activeOpen.store.get(id)).filter((m): m is Markup => !!m) : [];
+  const mayEditMarkup = (m: Markup) => !activeOpen || activeOpen.store.mayEdit(m);
+  /** Cutout: draws a hole in the one selected area; with no area selected it says so instead of starting a cutout with nowhere to cut. */
+  const startCutoutFromSelection = () => {
+    const blocker = cutoutBlocker(selectedMarkups, mayEditMarkup);
+    if (!blocker) activeTools?.startCutout(selectedMarkups[0]!.id);
+    else setNotice(selectedMarkups.length ? `${blocker}.` : 'Select an area first, then draw the cutout inside it.');
+  };
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
   const placeStamp = (s: StampDef, filled = false) => {
     updateWorkspace((w) => ({ ...w, lastStampId: s.id }));
@@ -8277,6 +8285,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
+    cutout: startCutoutFromSelection,
+    syncExcel: () => setSyncOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8696,6 +8706,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     connectorRoute: toolsState.connectorRoute,
     canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
     canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
+    cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups, mayEditMarkup),
+    cutoutHint: cutoutBlocker(selectedMarkups, mayEditMarkup) ?? undefined,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
@@ -9080,7 +9092,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
             onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
             tool={toolsState.tool}
-            onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
+            onTool={activeOpen && !activeReadOnly ? (next) => (next === 'cutout' ? startCutoutFromSelection() : activeTools?.setTool(next)) : null}
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
