@@ -36,10 +36,13 @@ You might see:
 - **Font … is drawn in Liberation Sans.** CAD fonts are replaced with similar ones, so text may run a little longer or shorter.
 - **Picture … was not found.** The picture isn't inside the drawing file. A frame shows where it goes. Add it with **Convert Again** (PNG or JPEG).
 - **… not drawn.** A few kinds of object aren't drawn yet, mostly 3D ones (solids, regions, surfaces).
+- **… leader arrowheads not drawn (style unavailable).** A leader line in the drawing should have an arrowhead, but its dimension style couldn't be read, so only the line is drawn. This happens with DWG files. The same drawing saved as DXF draws the arrowheads. Custom arrowhead shapes are never guessed at, so they're left out too.
 - **Plot style table … was not supplied.** The drawing's page setup uses a plot style table (a `.ctb` file) that sets each colour's printed colour and line thickness. Without it, lines print in their drawn colours and weights. Add it with **Convert Again**.
 - **… not a standard scale** or **a dimension … measures …** The viewport's scale may not be what it looks like. [Calibrate](#calibrate) before measuring.
 
 Click **Close** to hide the bar.
+
+> **Note:** A drawing with no layouts is converted as one page of its model space. If a block of wrapped or resized text there would run off that page, the conversion stops with a message instead of cutting the text off. Fix it in the CAD program by putting the text on a layout, or by adding a border around the model so the page is large enough, then open the drawing again.
 
 ## Convert again with other options
 

@@ -383,6 +383,14 @@ function modelSheet(d: Drawing, allOpts: SheetOptions, stats: RenderStats, notes
     box.x1 = box.y1 = 1;
   }
   const mmPerUnit = metersPerUnit * 1000;
+  // A line can have zero width/height. Give such a model a real sheet and stroke clearance.
+  if (box.x1 - box.x0 < 1e-9 || box.y1 - box.y0 < 1e-9) {
+    const pad = 1 / mmPerUnit;
+    box.x0 -= pad;
+    box.y0 -= pad;
+    box.x1 += pad;
+    box.y1 += pad;
+  }
   const ext = [(box.x1 - box.x0) * mmPerUnit, (box.y1 - box.y0) * mmPerUnit];
   const fits = (n: number) => Math.max(...ext) / n <= MODEL_MAX_MM[0] && Math.min(...ext) / n <= MODEL_MAX_MM[1];
   const ratios = imperial ? IMPERIAL.map(([n]) => n).sort((a, b) => a - b) : METRIC_RATIOS;

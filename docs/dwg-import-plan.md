@@ -344,3 +344,14 @@ solids, surfaces and bodies, OLE frames, and colour set inside MTEXT. CAD fonts 
 2. Model space: not a page when layouts exist. It is an opt-in in the Convert dialog, and the
    only page when a drawing has no paper-space layouts.
 3. Fonts: v1 substitutes bundled Liberation fonts for SHX and lists each substitution.
+
+## Ported from the external compatibility contribution (#246)
+
+Zero-area models get a positive sheet with stroke clearance. MTEXT inline heights (`\H`, braces)
+are kept as runs and drawn at their own size; wrapped or inline-styled text in a model sheet that
+would leave the computed page is refused rather than cropped. DXF straight leaders draw the
+default closed-filled arrowhead from DIMSTYLE size and scale; custom or unavailable styles and
+spline paths are reported by name. The DWG reader keeps the leader flags and geometry but does
+not decode DIMSTYLE yet, so DWG leader arrowheads are reported as "style unavailable".
+Optional pinned external checks are in `apps/web/test/fixtures/cad/README.md`; no external
+drawings are committed.
