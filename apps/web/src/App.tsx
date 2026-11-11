@@ -75,6 +75,7 @@ import { CameraDialog } from './components/CameraDialog';
 import { ApplyRedactionsDialog, contrastOn, type RedactOptions } from './components/ApplyRedactionsDialog';
 import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
+import { markupLayersOfHiddenPdf } from './documents/layerMarkups';
 import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
 import { APP_VERSION } from './version';
@@ -5941,13 +5942,16 @@ export function App() {
     }
   }, [open, openB, pdfLayers]);
 
-  // Markup layers switched off stay off for each pane's document.
+  // Markup layers switched off stay off for each pane's document, and so do the markups on a PDF
+  // layer that is switched off.
   useEffect(() => {
-    ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
-    ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
+    const hiddenFor = (o: typeof open) =>
+      new Set(o ? [...(hiddenMarkupLayers[o.file.id] ?? []), ...markupLayersOfHiddenPdf(pdfLayers[o.file.hash] ?? [], hiddenPdfLayers[o.file.id] ?? [])] : []);
+    ctl?.tools.setHiddenLayers(hiddenFor(open));
+    ctlB?.tools.setHiddenLayers(hiddenFor(openB));
     ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
+  }, [hiddenMarkupLayers, hiddenPdfLayers, pdfLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
