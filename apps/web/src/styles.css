@@ -514,24 +514,89 @@ body,
   max-width: 140px;
 }
 
+/* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  /* Wide enough that a text box's controls (font, size, B/I/U/S, border, fill, width...) sit on two rows. */
-  max-width: 1100px;
-  padding-top: 4px;
-  /* A ribbon group never scrolls: controls spread across more columns instead. */
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0 6px;
   min-height: 0;
-  overflow: visible;
-  align-content: flex-start;
+  height: 100%;
 }
 
 .rb-props:not(:has(> :not(.sep)))::before {
   content: 'Pick a tool or select a markup';
+  align-self: center;
   color: var(--muted);
   font-size: 12px;
+}
+
+/* Related controls (Line, Fill, Text) sit together in a block with its name underneath; elsewhere the wrapper adds no box. */
+.prop-cluster,
+.prop-cluster-items,
+.prop-line {
+  display: contents;
+}
+
+.prop-cluster-label {
+  display: none;
+}
+
+.rb-props .prop-cluster {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 0 4px 0 0;
+  border-right: 1px solid var(--tint);
+}
+
+.rb-props .prop-cluster:last-child {
+  border-right: none;
+}
+
+.rb-props .prop-cluster-items {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+}
+
+.rb-props .prop-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* Pickers stay compact so a tool's blocks fit across the ribbon without it scrolling sideways. */
+.rb-props .prop-line > .field > select {
+  width: 112px;
+}
+
+.rb-props input.ident[type='text'] {
+  width: 100px;
+}
+
+.rb-props .hatch-scale input {
+  width: 52px;
+}
+
+/* The Text block's names are in the tooltips; the icons alone keep it narrow enough to fit. */
+.rb-props .prop-cluster[aria-label='Text'] .field-label {
+  display: none;
+}
+
+.rb-props .font-family {
+  max-width: 110px;
+}
+
+.rb-props .prop-cluster-label {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 12px;
+  text-align: center;
 }
 
 .rb-props .sep {
