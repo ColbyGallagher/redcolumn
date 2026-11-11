@@ -1,0 +1,76 @@
+{
+  "repository": "https://github.com/haiha-ux/cad-sample-tests",
+  "revision": "150f4dce05a41a85d956189de8ded2cdd0d4a4d3",
+  "author": "Ha Phan Thanh Hai (haiha-ux)",
+  "rights": "No repository license grant was found. Files are downloaded for local compatibility checks only; do not commit or redistribute originals or derived comparisons without permission.",
+  "files": [
+    {
+      "path": "bai_a/CST-A-001_mounting_plate.dwg",
+      "sha256": "a856ef3a94be41d4b5c1adfdfe87af9f51cd67da702caa9b46d3d5548bdd01f1"
+    },
+    {
+      "path": "bai_a/CST-A-001_mounting_plate.dxf",
+      "sha256": "75e60777d0ca9643df010612b346bbdc8784bbd4e2a24ddee19506c9cf8b938e"
+    },
+    {
+      "path": "bai_a/CST-A-001_mounting_plate.pdf",
+      "sha256": "803ad502e5fa982df1e07a43aa90d15b0423339d38e28da777c10a59c6f86fd0"
+    },
+    {
+      "path": "bai_b/CST-B-001_studio_plan.dwg",
+      "sha256": "cd84210368096f575583288875b35b26ce0cca03c20438d0e56db8294de64c0f"
+    },
+    {
+      "path": "bai_b/CST-B-001_studio_plan.dxf",
+      "sha256": "73152e53d3ae6e77b92176b3816307df0025fbab10a7a39f8d58d11e9a609d69"
+    },
+    {
+      "path": "bai_b/CST-B-001_studio_plan.pdf",
+      "sha256": "a9c0ac00ddbbd0b9d2810ce2b16740046d6cdf56e56c01de4024289d7370bf59"
+    },
+    {
+      "path": "bai_c/CST-C-001_step_bearing.dwg",
+      "sha256": "da60f33c0ff512c3331d2e2663cd4955dde6621da6dd174774ffe1bf00cc0f43"
+    },
+    {
+      "path": "bai_c/CST-C-001_step_bearing.dxf",
+      "sha256": "7f1fc69cf33bf52989f7da2278703e9a631ec6f64f9c649f5639a734dbe14302"
+    },
+    {
+      "path": "bai_c/CST-C-001_step_bearing.pdf",
+      "sha256": "09c463c6b56f4f1dc4274d1fbac2dd0365ef0cf742eb72c957334b49ecb3b04e"
+    }
+  ],
+  "cases": [
+    {
+      "stem": "bai_a/CST-A-001_mounting_plate",
+      "paperMm": [
+        420,
+        297
+      ],
+      "ratio": 1,
+      "intendedRatio": 1,
+      "dimensions": 15
+    },
+    {
+      "stem": "bai_b/CST-B-001_studio_plan",
+      "paperMm": [
+        1050,
+        742.5
+      ],
+      "ratio": 20,
+      "intendedRatio": 50,
+      "dimensions": 25
+    },
+    {
+      "stem": "bai_c/CST-C-001_step_bearing",
+      "paperMm": [
+        840,
+        594
+      ],
+      "ratio": 1,
+      "intendedRatio": 2,
+      "dimensions": 22
+    }
+  ]
+}
