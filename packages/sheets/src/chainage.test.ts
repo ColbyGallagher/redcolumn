@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, readTicks, type ChainageHints } from './chainage.ts';
+import { DEFAULT_CHAINAGE_HINTS, detectChainageLinks, parsePlus, readChainages, readTicks, titleRange, type ChainageHints } from './chainage.ts';
 import type { PageText, SheetInfo, Word } from './types.ts';
 
 function word(text: string, x: number, y: number, size = 8): Word {
@@ -96,9 +96,10 @@ test('two alignments with the same stations: each chainage goes to its own align
   assert.deepEqual(pairs(links, numbers), [
     ['C-501', 'STA 18+00', 'C-101', 0.85],
     ['C-501', 'STA 12+00', 'C-201', 0.85],
-    // No alignment named for this one: both plans at that chainage, for review.
-    ['C-501', 'STA 12+00', 'C-101', 0.6],
-    ['C-501', 'STA 12+00', 'C-201', 0.6],
+    // No alignment named for this one, on a sheet that names both: both plans, for review, and
+    // less sure than a chainage on a sheet showing one alignment.
+    ['C-501', 'STA 12+00', 'C-101', 0.5],
+    ['C-501', 'STA 12+00', 'C-201', 0.5],
   ]);
 });
 
@@ -224,9 +225,32 @@ test("a plan's bare ticks link to the cross sections drawn there, though the cro
     ['RW-DRG-000301', 'CHAINAGE 100880', 'RW-DRG-000102', 0.85],
     ['RW-DRG-000301', 'CHAINAGE 100900', 'RW-DRG-000102', 0.85],
   ]);
-  // It does not: the same links, waiting for review.
+  // It does not: the same links, waiting for review; the cross sections' own chainages lower
+  // still, as their sheet prints several alignments' names.
   assert.deepEqual(
     read('CROSS SECTIONS SHEET 1').map((p) => p[3]),
-    [0.6, 0.6, 0.6, 0.6],
+    [0.6, 0.6, 0.5, 0.5],
+  );
+});
+
+test('sheet titles name the stretch they cover', () => {
+  assert.deepEqual(titleRange('CROSS SECTIONS CONTROL LINE MC00 CH 0-150'), { from: 0, to: 150 });
+  assert.deepEqual(titleRange('ALIGNMENT CONTROL PLAN CH 280 TO CH 565'), { from: 280, to: 565 });
+  assert.deepEqual(titleRange('PLAN AND PROFILE STA 10+00 TO 15+00'), { from: 1000, to: 1500 });
+  assert.equal(titleRange('CROSS SECTIONS SHEET 1'), null);
+  assert.equal(titleRange('MATCH 12-14'), null);
+});
+
+test('a cross section outside the range its sheet title names scores lower', () => {
+  const numbers = ['P-1', 'X-1'];
+  const plan = page([...phrase('CH 120', 300, 300), ...phrase('CH 140', 300, 600)]);
+  const xs = page([...phrase('CHAINAGE 120', 300, 300), ...phrase('CHAINAGE 140', 300, 900)]);
+  const links = detectChainageLinks([plan, xs], [sheet('P-1', 'DETAILS'), sheet('X-1', 'CROSS SECTIONS CH 100-130')], DEFAULT_CHAINAGE_HINTS, true).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.confidence, l.evidence]),
+    [
+      ['CH 120', 0.89, ['chainage', 'alignmentAgrees', 'inSheetRange']],
+      ['CH 140', 0.68, ['chainage', 'alignmentAgrees', 'outsideSheetRange']],
+    ],
   );
 });

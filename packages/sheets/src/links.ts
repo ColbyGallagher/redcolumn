@@ -1,3 +1,4 @@
+import { scoreEvidence, type EvidenceKey } from './confidence.ts';
 import { isDrawingNumberShape } from './detect.ts';
 import { templateRegex } from './standard.ts';
 import type { PageText, Word } from './types.ts';
@@ -47,6 +48,8 @@ export interface DetectedLink {
   targetRect: Rect | null;
   /** 0..1 */
   confidence: number;
+  /** What the confidence was worked out from (see confidence.ts); absent on links saved or taught before it was kept. */
+  evidence?: EvidenceKey[];
 }
 
 /** Civil sets letter sections AA, BB, CC: the same letter twice, never two different letters (TO, OF). */
@@ -295,16 +298,19 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       return titleCache.get(key)!;
     };
 
-    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, confidence: number) => {
+    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, form: EvidenceKey) => {
       const title = detail ? resolveDetail(detail, targetPage) : null;
       const cut = detail && !title && targetPage !== pageIndex ? findCutMarker(pages[targetPage]!, detail, lookup, pageIndex) : null;
       const targetRect = title ? detailFrame(title) : cut ? cutFrame(cut) : null;
       // A detail callout whose detail cannot be found still links to the sheet, less confidently.
-      const conf = detail && !targetRect ? confidence - 0.2 : confidence;
+      const reasons: EvidenceKey[] = [form];
+      if (title) reasons.push('titleFound');
+      else if (cut) reasons.push('cutMarker');
+      else if (detail) reasons.push('noTarget');
       // What the bubble points at: the title on the target sheet says section, elevation or
       // enlarged plan; a cut marker pointing back says section.
       const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : cut ? 'section' : 'detail';
-      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: Math.round(conf * 100) / 100 });
+      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: scoreEvidence(reasons), evidence: reasons });
     };
 
     // 1. Stacked bubbles.
@@ -330,7 +336,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === pageIndex && resolveDetail(detailId(top.text), pageIndex) === top) continue;
       const detail = detailId(top.text);
       const pad = bottom.size * 0.5;
-      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
+      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 'bubble');
     }
 
     for (const w of page.words) {
@@ -342,7 +348,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
         const target = lookup.find(slash[2]!);
         if (target !== null) {
           used.add(w);
-          add(text, wordRect(w, w.size * 0.3), 'detail', slash[1]!, target, 0.85);
+          add(text, wordRect(w, w.size * 0.3), 'detail', slash[1]!, target, 'slash');
         }
         continue;
       }
@@ -352,7 +358,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === null || target === pageIndex) continue;
       if (weak[target] && !introducedAsReference(page, w)) continue;
       used.add(w);
-      add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 0.8);
+      add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 'reference');
     }
   });
   return links;

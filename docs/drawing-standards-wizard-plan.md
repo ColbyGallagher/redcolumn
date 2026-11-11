@@ -248,6 +248,22 @@ What it shows:
 
 Command for comparison: `pnpm standards:bench --standard docs/demo-sets/kestrel-road.rcstandard`.
 
+### Confidence engine (PR 2)
+
+`packages/sheets/src/confidence.ts`: links keep the keys of the evidence they were found on
+(`bubble`, `titleFound`, `cutMarker`, `noTarget`, `alignmentAgrees`, `severalAlignments`,
+`inSheetRange`, `outsideSheetRange`, …). Each key adds a hand-set log-odds weight, so the score is
+explainable (`explain`). Forms start where detection's fixed numbers were (bubble 0.9, chainage 0.6),
+so unchanged cases score as before. Also `wilsonLower`, `spotCheckSample` (least sure + middle +
+seeded random) and `stepMeter` (coverage × accuracy; checks blend with scores counted as 4 checks;
+bands good ≥ 90%, review ≥ 70%, else AI, or AI when > 10% of pages have no text).
+
+On Kestrel, scoring moves little (Brier 0.098 → 0.097 without a standard, 0.042 → 0.046 with one):
+the set has few ambiguous links, and they are right more often than their 0.5 says. The bench now
+prints each evidence key's hit rate for tuning, and the wizard meter per step. With the standard,
+chainage reads "AI" because 32 of 49 references get no link; every other step reads "good".
+One set cannot settle the weights: tune them on a real client set (kept out of the repo).
+
 ## 10. Open questions
 
 - Pop-out window vs full-window layer, if the spike shows the viewer misbehaves in a portal.
