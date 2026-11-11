@@ -3,7 +3,7 @@ import { aciRgb, trueRgb, type Rgb } from './aci';
 import { headerNum, num, nums, pt, str, type Block, type Drawing, type Entity, type Groups, type Layer } from './drawing';
 import { apply, applyV, arcCmds, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
 import { styledRgb, type PlotStyleTable } from './ctb';
-import { decodeSpecial, mtextParagraphs } from './text';
+import { decodeSpecial, mtextHeightRuns, mtextParagraphs, type HeightRun } from './text';
 
 /**
  * Entities to page primitives. Everything comes out in page points: the context's matrix maps
@@ -43,6 +43,8 @@ export interface TextPrim {
   rgb: Rgb;
   font: FontKey;
   lines: string[];
+  /** MTEXT inline cap-height runs, when any height differs from the base height. */
+  runs?: HeightRun[][];
   /** Insertion point on the page. */
   origin: P;
   /** Page vectors for one drawing unit along the baseline and up the glyphs. */
@@ -408,10 +410,23 @@ function renderEntity(c: Ctx, e: Entity) {
     case 'MLEADER':
       return multileader(c, e);
     case 'LEADER': {
+      if (num(g, 72) !== 0) { count(c, 'LEADER (spline path)'); return; }
       const xs = nums(g, 10);
       const ys = nums(g, 20);
       const p = xs.map((x, i): P => apply(c.m, [x, ys[i] ?? 0]));
       if (p.length > 1) emit(c, strokeOf(c, e, polyPath(p)));
+      if (p.length < 2 || num(g, 71, 1) === 0) return;
+      const style = c.dwg.dimstyles?.get(str(g, 3, 'STANDARD').toUpperCase());
+      if (!style || [str(style, 5), str(style, 341), str(style, 342)].some((value) => value && value !== '0') || num(style, 173)) {
+        count(c, 'LEADER arrowhead (style unavailable)');
+        return;
+      }
+      const size = num(style, 41, 2.5) * num(style, 40, 1);
+      const dx = xs[1]! - xs[0]!, dy = ys[1]! - ys[0]!, length = Math.hypot(dx, dy);
+      if (!(size > 0) || !Number.isFinite(size) || !length) { count(c, 'LEADER arrowhead (invalid geometry)'); return; }
+      const ux = dx / length, uy = dy / length, x = xs[0]!, y = ys[0]!;
+      const points: P[] = [[x, y], [x + ux * size - uy * size / 6, y + uy * size + ux * size / 6], [x + ux * size + uy * size / 6, y + uy * size - ux * size / 6]];
+      emit(c, { k: 'fill', d: polyPath(points.map((q) => apply(c.m, q)), true), rgb: inkRgb(c, e), layer: layerOf(c, e).name });
       return;
     }
     case 'TEXT':
@@ -760,12 +775,14 @@ function mtext(c: Ctx, e: Entity) {
   const flip = e.extrusion[2] < 0 && m === c.m ? -1 : 1;
   const up: P = [-dir[1] * flip, dir[0] * flip];
   const wrap = num(g, 41);
+  const runs = mtextHeightRuns(raw, h);
   emit(c, {
     k: 'text',
     layer: layerOf(c, e).name,
     rgb: inkRgb(c, e),
     font: fontFor(c, str(g, 7, 'STANDARD')),
     lines: mtextParagraphs(raw),
+    runs: runs.some((line) => line.some((run) => run.scale !== 1)) ? runs : undefined,
     origin: apply(m, pt(g, 10)),
     u: applyV(m, dir),
     v: applyV(m, up),
