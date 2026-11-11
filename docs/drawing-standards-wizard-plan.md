@@ -362,3 +362,26 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
 - Not done: the remaining miss is a short run of four ticks on a long section (too short to
   count as ticks). Examples (the boxes themselves) are not stored in the standard yet; that
   comes with the MCP tools (PR 8), which need them.
+
+### Shape search (PR 7)
+
+- Taught marks were already found by their line work (`visualSearch` in `marks.ts`); hits whose
+  label could not be read were dropped, and pages whose text could not hold a mark were never
+  searched. Now:
+  - copies drawn up to twice as large or small are found (`scales`), their label read at that size;
+  - a sheet number set in pieces (`A-50` `1`) is read by joining the touching words on its row;
+  - in the wizard, a hit with the mark's line work (90% of it) and no text inside at all is kept
+    as **unreadable** (outlined lettering, a scanned stamp); it is never made into a link, the
+    main document reading does not ask for them;
+  - pages with fewer than 20 words (no text layer worth the name) are searched by shape too;
+  - shape adds what text missed and upgrades a plain sheet reference to a callout, but never
+    turns one kind of callout into another (Kestrel's section and detail bubbles look the same);
+  - a callout found on its own sheet whose detail title is itself (a larger title bubble) is not a link.
+- Callout step results: the meter counts unreadable marks (as places not linked, plus its
+  warning) and pages with no text; a "Found, but not read" list goes to each one on the sheet
+  and points to AI.
+- Kestrel, taught from one example per step: same links as text (9 detail, 6 section), about
+  0.1 s for the set. With the lettering of sheet 4's two section marks removed (outlined text
+  simulated), both are reported unreadable and nothing is mislinked.
+- Not done: rotated copies (`rotations`), raster template matching for scanned sets (only if a
+  real set needs it), and the section C title-block mislabel (still open from PR 4).

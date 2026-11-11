@@ -139,7 +139,8 @@ export function CalloutStep(p: Props) {
   };
 
   const sample = useMemo(() => (run ? spotCheckSample(run.links) : []), [run]);
-  const meter = run ? stepMeter({ links: run.links, references: run.places, linked: run.linked, checks }) : null;
+  const noText = useMemo(() => p.texts?.filter((t) => t.words.length === 0).length ?? 0, [p.texts]);
+  const meter = run ? stepMeter({ links: run.links, references: run.places, linked: run.linked, checks, unreadable: run.unreadable, pagesWithoutText: noText, pages: p.texts?.length ?? 0 }) : null;
   const gif = (part: 'mark' | 'title') => `${window.location.origin}/help/gif/standards-${p.kind}-${part}.gif`;
 
   if (phase === 'mark' || phase === 'title') {
@@ -221,6 +222,22 @@ export function CalloutStep(p: Props) {
       {run && meter && (
         <>
           <Meter meter={meter} places={run.places} linked={run.linked} what={w.many.toLowerCase()} />
+          {run.unreadableAt && run.unreadableAt.length > 0 && (
+            <>
+              <h3>Found, but not read</h3>
+              <p className="sw-hint">These look like {w.many.toLowerCase()} by their shape, but there is no text in them to read (outlined lettering, or a scanned sheet). An AI assistant can read them from the picture; click one to see it.</p>
+              <ul className="sw-ambiguous">
+                {run.unreadableAt.slice(0, 12).map((u, i) => (
+                  <li key={`${u.pageIndex}:${Math.round(u.rect.x)}:${Math.round(u.rect.y)}`}>
+                    <button type="button" onClick={() => p.look(u.pageIndex, u.rect)}>
+                      {i + 1}. on {p.sheets[u.pageIndex]?.number ?? `sheet ${u.pageIndex + 1}`}
+                    </button>
+                  </li>
+                ))}
+                {run.unreadableAt.length > 12 && <li>and {run.unreadableAt.length - 12} more</li>}
+              </ul>
+            </>
+          )}
           {sample.length > 0 && (
             <>
               <h3>Are these right?</h3>

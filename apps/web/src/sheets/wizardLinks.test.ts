@@ -201,3 +201,32 @@ test('chainage boxes that do not make a chain are refused', () => {
   // Everything on the plan.
   assert.match(learnAlignmentChain({ ...boxes, sectionAlignment: boxes.planAlignment, sectionChainage: boxes.planChainage }, chainSheets, DEFAULT_CHAINAGE_HINTS).problem ?? '', /on the plan/);
 });
+
+test('shape search: a callout drawn larger with its sheet number in pieces, and one with no text to read', async () => {
+  const numbers3 = ['A-101', 'A-501', 'A-102'];
+  // Half as big again, the sheet number set as two words (A-50 and 1): the text alone reads no reference.
+  const big = bubble(600, 300, '6', null, 18);
+  big.words.push(word('A-50', 590, 307.2, 9), word('1', 602.5, 307.2, 9));
+  const plan = page(bubble(100, 100, '3', 'A-501'), big);
+  const details = page(bubble(300, 300, '3', 'A-501', 20), { segments: [], words: [word('CURB', 360, 290, 12)] });
+  // A sheet whose lettering is outlined: the bubble's line work, no text at all.
+  const outlined = page(bubble(400, 400, null, null));
+  const pages = [plan, details, outlined];
+  const mark = teachMark(plan, box(100, 100), 'detailCallout', 'Callout', numbers3);
+  const textOnly = await runCalloutStep('detail', pages, numbers3, DEFAULT_LINK_HINTS, [], async (i) => pages[i]!);
+  assert.deepEqual(
+    textOnly.links.map((l) => l.label),
+    ['3/A-501'],
+  );
+  const read: number[] = [];
+  const run = await runCalloutStep('detail', pages, numbers3, DEFAULT_LINK_HINTS, [mark], async (i) => (read.push(i), pages[i]!));
+  assert.ok(read.includes(2), 'a page with no text is searched by shape');
+  assert.deepEqual(run.links.map((l) => [l.pageIndex, l.label, l.targetPage]).sort(), [
+    [0, '3/A-501', 1],
+    [0, '6/A-501', 1],
+  ]);
+  assert.equal(run.unreadable, 1);
+  assert.deepEqual(run.unreadableAt?.map((u) => u.pageIndex), [2]);
+  // Found but not read: a place, not linked.
+  assert.deepEqual([run.places, run.linked], [3, 2]);
+});
