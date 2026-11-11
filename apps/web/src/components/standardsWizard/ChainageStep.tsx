@@ -3,10 +3,12 @@ import { alignmentsIn, readChainages, regionOfBox, sheetTitled, spotCheckSample,
 import type { DrawingStandard } from '../../sheets/standards';
 import type { MarkPage } from '../../sheets/marks';
 import { chainageIn } from '../../sheets/teachLinks';
-import { alignmentSays, learnAlignmentChain, runChainageStep, taughtBox, type ChainBoxes, type StepRun } from '../../sheets/wizardLinks';
+import { alignmentSays, boxExample, learnAlignmentChain, runChainageStep, taughtBox, type ChainBoxes, type StepRun } from '../../sheets/wizardLinks';
+import { withExamples } from '../../sheets/standards';
+import { aiPrompt } from '../../sheets/standardsWizard';
 import type { StepSheet } from './CalloutStep';
 import type { PageRect, ShownBox } from './SheetView';
-import { CheckCard, Gif, Meter, type Render } from './stepParts';
+import { AskAi, CheckCard, Gif, Meter, useStepResult, type Render } from './stepParts';
 
 interface Props {
   standard: DrawingStandard;
@@ -24,6 +26,8 @@ interface Props {
   onChecks: (checks: ReadonlyMap<string, boolean>) => void;
   onBack: () => void;
   onNext: () => void;
+  /** The drawing's file name, for the prompt an AI assistant is given. */
+  fileName: string;
 }
 
 type Box = keyof ChainBoxes;
@@ -129,10 +133,14 @@ export function ChainageStep(p: Props) {
       setProblem(lesson.problem);
       return;
     }
-    if (lesson.chainage) {
-      const chainage = lesson.chainage;
-      p.change((s) => ({ ...s, chainage }));
-    }
+    const chainage = lesson.chainage;
+    p.change((s) =>
+      withExamples(
+        chainage ? { ...s, chainage } : s,
+        'chainage',
+        ORDER.map((k) => boxExample('chainage', k, b[k], p.sheets)),
+      ),
+    );
     setNotes(lesson.notes);
     setChecks(new Map());
     setPhase('results');
@@ -140,6 +148,7 @@ export function ChainageStep(p: Props) {
 
   const sample = useMemo(() => (run ? spotCheckSample(run.links) : []), [run]);
   const meter = run ? stepMeter({ links: run.links, references: run.places, linked: run.linked, checks }) : null;
+  useStepResult('chainage', run, meter, p.change, p.readOnly);
 
   if (phase !== 'results') {
     const at = ORDER.indexOf(phase);
@@ -298,6 +307,7 @@ export function ChainageStep(p: Props) {
           {(meter.band === 'ai' || run.ambiguous.length > 0) && (
             <div className="sw-ai">
               <strong>{meter.band === 'ai' ? 'Recommended: finish this step with AI.' : 'AI can settle the unclear ones.'}</strong> Chainage links need the alignment on both ends, and text alone often cannot tell it. An AI assistant connected to redcolumn over MCP can read the sheets, using the four boxes you drew as its examples.
+              <AskAi prompt={aiPrompt(p.standard, p.fileName, ['chainage'])} />
             </div>
           )}
         </>

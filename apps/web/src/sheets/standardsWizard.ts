@@ -1,4 +1,5 @@
 import { deriveTemplate, numberParts, readBox, type PageText, type SheetInfo, type TitleBox, type TitleField } from '@nb/sheets';
+import { SETUP_STEPS, type DrawingStandard, type SetupStep } from './standards';
 
 /**
  * The drawing standards setup wizard: the questions it asks, in order, and the checks it runs on
@@ -218,4 +219,40 @@ export function saveSplit(v: number) {
   } catch {
     // As above.
   }
+}
+
+const STEP_NAME: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
+
+/** The steps worth handing to an AI assistant: those whose meter says AI, then those to review. */
+export function stepsForAi(results: DrawingStandard['results']): SetupStep[] {
+  const r = results ?? {};
+  const rank = (s: SetupStep) => (r[s]?.band === 'ai' ? 0 : r[s]?.band === 'review' || (r[s]?.unreadable ?? 0) > 0 || (r[s]?.ambiguous ?? 0) > 0 ? 1 : 2);
+  return SETUP_STEPS.filter((s) => r[s] && rank(s) < 2).sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * A prompt for an AI assistant connected to redcolumn over MCP, to finish the steps text and shape
+ * search could not: which standard and drawing, which steps and why, the tools to use, and that
+ * a person reviews everything it proposes.
+ */
+export function aiPrompt(standard: DrawingStandard, fileName: string, steps: readonly SetupStep[]): string {
+  const r = standard.results ?? {};
+  const lines = steps.map((s) => {
+    const x = r[s];
+    if (!x) return `- ${STEP_NAME[s]}`;
+    const why = [`${x.linked} of ${x.references} references linked`, x.wrong ? `${x.wrong} of ${x.checked} checked links wrong` : '', x.unreadable ? `${x.unreadable} marks found by shape but not read` : '', x.ambiguous ? `${x.ambiguous} chainages whose alignment is unclear` : ''].filter(Boolean);
+    return `- ${STEP_NAME[s]}: ${why.join('; ')}.`;
+  });
+  return [
+    `In redcolumn, ${fileName} is open with the drawing standard "${standard.name}". Text and shape search did not finish these setup steps:`,
+    ...lines,
+    '',
+    `1. Call get_drawing_standard (standard "${standard.name}") for the examples I boxed in each step and how each step did.`,
+    '2. Call list_sheet_links for the document, for those kinds, to see what was found and what waits for review.',
+    '3. Read the sheets with get_page_text and get_page_image (zoom into callouts, titles, match-line labels and chainages), using my examples to know what to look for.',
+    '4. Propose the missing or wrong links with propose_sheet_links, saying how you read each one.',
+    '5. If the standard is missing words that would let text search find these next time (title words, match-line words, chainage prefixes, alignment names), propose them with propose_standard_hints.',
+    '',
+    'Do not change anything else. I will review your links in the Links panel and your words in the setup’s Review step.',
+  ].join('\n');
 }

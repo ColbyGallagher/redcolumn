@@ -50,6 +50,8 @@ export interface DetectedLink {
   confidence: number;
   /** What the confidence was worked out from (see confidence.ts); absent on links saved or taught before it was kept. */
   evidence?: EvidenceKey[];
+  /** Why it was proposed, in the proposer's words (an AI assistant's reasoning); absent otherwise. */
+  note?: string;
 }
 
 /** Civil sets letter sections AA, BB, CC: the same letter twice, never two different letters (TO, OF). */

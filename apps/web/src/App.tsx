@@ -213,6 +213,7 @@ import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import { assistantCall, beginComparison, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
+import type { AssistantStandards } from './desktop/assistantStandards';
 import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
@@ -5890,6 +5891,11 @@ export function App() {
       return cur ? stitchToNewPage(group, withMarkups, cur, intoB!) : Promise.resolve(null);
     },
   };
+  // The profile's drawing standards, for get_drawing_standard and propose_standard_hints.
+  const assistantStandards: AssistantStandards = {
+    list: () => profiles.active().state.drawingStandards,
+    save: (standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] })),
+  };
   const assistantRuntime = useRef({
     documents: () => assistantHost.current(),
     commands: () => commandsRef.current,
@@ -5897,6 +5903,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: undefined as (() => void) | undefined,
+    standards: assistantStandards,
   });
   assistantRuntime.current = {
     documents: () => assistantHost.current(),
@@ -5905,6 +5912,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: () => showPanel('ai'),
+    standards: assistantStandards,
   };
   useEffect(() => installAssistant(() => assistantRuntime.current), []);
 

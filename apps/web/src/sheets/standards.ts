@@ -1,4 +1,4 @@
-import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, NO_SHEET_HINTS, TITLE_FIELDS, type ChainageHints, type LinkHints, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
+import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, NO_SHEET_HINTS, TITLE_FIELDS, type Band, type ChainageHints, type LinkHints, type SheetHints, type TitleBox, type TitleField } from '@nb/sheets';
 import { MARK_KINDS, type MarkKind, type MarkWord, type TaughtMark } from './marks';
 
 /**
@@ -21,6 +21,133 @@ export interface DrawingStandard {
   chainage: ChainageHints;
   /** Section marks, titles and detail callouts taught for this client only (marks taught for every set stay in the profile). */
   marks: TaughtMark[];
+  /**
+   * The boxes drawn in the setup's link steps (text and place only, no pictures): what an AI
+   * assistant is given as examples, on this set and the next. Exported with the standard.
+   */
+  examples?: SetupExample[];
+  /** How each link step last did (the meter), for the review and for an AI assistant. Kept in the profile only. */
+  results?: Partial<Record<SetupStep, StepResult>>;
+  /** Changes an AI assistant proposed to the standard's words, waiting for a person. Kept in the profile only. */
+  proposals?: HintProposal[];
+}
+
+/** The setup's link steps. */
+export type SetupStep = 'sections' | 'elevations' | 'details' | 'matchLines' | 'chainage';
+export const SETUP_STEPS: readonly SetupStep[] = ['sections', 'elevations', 'details', 'matchLines', 'chainage'];
+
+/** One box drawn in a link step. */
+export interface SetupExample {
+  step: SetupStep;
+  /** What was boxed: mark, title, label, matchingLabel, planChainage, planAlignment, sectionAlignment, sectionChainage. */
+  role: string;
+  /** 0-based page in the set it was drawn on. */
+  page: number;
+  /** That sheet's number, so the example still means something on another set. */
+  sheet: string | null;
+  /** The box, as fractions of the page. */
+  rect: { x: number; y: number; w: number; h: number };
+  /** The text read in it. */
+  text: string;
+}
+
+/** What a step's meter last said. */
+export interface StepResult {
+  band: Band;
+  score: number;
+  references: number;
+  linked: number;
+  checked: number;
+  wrong: number;
+  unreadable: number;
+  ambiguous: number;
+  at: number;
+}
+
+/** Words an AI assistant proposes the standard learns; each list is added to, never replaced. */
+export interface HintChanges {
+  sectionWords?: string[];
+  elevationWords?: string[];
+  matchLineWords?: string[];
+  chainagePrefixes?: string[];
+  alignments?: string[];
+  alignmentTemplate?: string;
+  planTitles?: string[];
+  sectionTitles?: string[];
+}
+
+export interface HintProposal {
+  id: string;
+  at: number;
+  changes: HintChanges;
+  reasoning: string;
+}
+
+/** Most examples kept per step: the latest ones. */
+const EXAMPLES_PER_STEP = 8;
+
+/** The standard with a step's new examples added (the oldest of that step dropped past the limit). */
+export function withExamples(s: DrawingStandard, step: SetupStep, added: readonly SetupExample[]): DrawingStandard {
+  const all = s.examples ?? [];
+  const mine = [...all.filter((e) => e.step === step), ...added].slice(-EXAMPLES_PER_STEP);
+  return { ...s, examples: [...all.filter((e) => e.step !== step), ...mine] };
+}
+
+/** An example from a box drawn on a page of `size`. */
+export function exampleOf(step: SetupStep, role: string, page: number, rect: { x: number; y: number; w: number; h: number }, size: { width: number; height: number }, sheet: string | null, text: string): SetupExample {
+  const f = (v: number, d: number) => Math.round(Math.min(1, Math.max(0, v / d)) * 10000) / 10000;
+  return { step, role, page, sheet, rect: { x: f(rect.x, size.width), y: f(rect.y, size.height), w: f(rect.w, size.width), h: f(rect.h, size.height) }, text: text.slice(0, 200) };
+}
+
+const addWords = (list: readonly string[], more: readonly string[] | undefined) => {
+  const out = [...list];
+  for (const w of more ?? []) if (w.trim() && !out.some((x) => x.toUpperCase() === w.trim().toUpperCase())) out.push(w.trim());
+  return out;
+};
+
+/** What a proposal would change, one line each, for the person deciding. */
+export function describeChanges(c: HintChanges): string[] {
+  const out: string[] = [];
+  const list = (label: string, v?: string[]) => {
+    if (v?.length) out.push(`${label}: ${v.join(', ')}`);
+  };
+  list('Section title words', c.sectionWords);
+  list('Elevation title words', c.elevationWords);
+  list('Match-line words', c.matchLineWords);
+  list('Chainage prefixes', c.chainagePrefixes);
+  list('Alignment names', c.alignments);
+  if (c.alignmentTemplate) out.push(`Alignment names look like ${c.alignmentTemplate}`);
+  list('Plan sheet titles', c.planTitles);
+  list('Cross-section sheet titles', c.sectionTitles);
+  return out;
+}
+
+/** The standard with a proposal's words added, and the proposal gone. */
+export function acceptProposal(s: DrawingStandard, id: string): DrawingStandard {
+  const p = s.proposals?.find((x) => x.id === id);
+  if (!p) return s;
+  const c = p.changes;
+  return {
+    ...s,
+    links: {
+      ...s.links,
+      titles: { ...s.links.titles, section: addWords(s.links.titles.section, c.sectionWords), elevation: addWords(s.links.titles.elevation, c.elevationWords) },
+      matchLine: addWords(s.links.matchLine, c.matchLineWords),
+    },
+    chainage: {
+      ...s.chainage,
+      prefixes: addWords(s.chainage.prefixes, c.chainagePrefixes),
+      alignments: addWords(s.chainage.alignments, c.alignments),
+      alignmentTemplate: c.alignmentTemplate ?? s.chainage.alignmentTemplate,
+      planTitles: addWords(s.chainage.planTitles, c.planTitles),
+      sectionTitles: addWords(s.chainage.sectionTitles, c.sectionTitles),
+    },
+    proposals: (s.proposals ?? []).filter((x) => x.id !== id),
+  };
+}
+
+export function dismissProposal(s: DrawingStandard, id: string): DrawingStandard {
+  return { ...s, proposals: (s.proposals ?? []).filter((x) => x.id !== id) };
 }
 
 export function newStandard(name: string): DrawingStandard {
@@ -52,7 +179,9 @@ const FORMAT = 'redcolumn.drawing-standard';
 const VERSION = 1;
 
 export function exportStandard(s: DrawingStandard): string {
-  return JSON.stringify({ format: FORMAT, version: VERSION, standard: withDefaults(s) }, null, 2);
+  // How this set's steps went, and pending AI proposals, stay with the person.
+  const { results: _results, proposals: _proposals, ...shared } = withDefaults(s);
+  return JSON.stringify({ format: FORMAT, version: VERSION, standard: shared }, null, 2);
 }
 
 /**
@@ -209,5 +338,26 @@ export function parseStandardFile(content: string): DrawingStandard {
     links: parseLinks(s.links),
     chainage: parseChainage(s.chainage),
     marks: ((s.marks as unknown[] | undefined) ?? []).map(parseMark),
+    ...(s.examples === undefined ? {} : { examples: parseExamples(s.examples) }),
   };
+}
+
+const MAX_EXAMPLES = 60;
+
+function parseExamples(v: unknown): SetupExample[] {
+  if (!Array.isArray(v) || v.length > MAX_EXAMPLES) fail('the setup examples are missing');
+  return v.map((e: unknown) => {
+    if (!isObject(e) || typeof e.step !== 'string' || !(SETUP_STEPS as readonly string[]).includes(e.step)) fail('a setup example has no step');
+    if (typeof e.page !== 'number' || !Number.isInteger(e.page) || e.page < 0 || e.page > 100000) fail('a setup example has no page');
+    const r = e.rect;
+    if (!isObject(r)) fail('a setup example has no box');
+    return {
+      step: e.step as SetupStep,
+      role: text(e.role, 40, "a setup example's role"),
+      page: e.page,
+      sheet: e.sheet === null || e.sheet === undefined ? null : text(e.sheet, 100, "a setup example's sheet"),
+      rect: { x: fraction(r.x), y: fraction(r.y), w: fraction(r.w), h: fraction(r.h) },
+      text: text(e.text ?? '', 200, "a setup example's text"),
+    };
+  });
 }
