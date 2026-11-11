@@ -10023,10 +10023,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   standards={ws.drawingStandards}
                   current={o.store.drawingStandard()?.id ?? null}
                   readOnly={o.store.readOnly}
+                  readPage={async (i) => {
+                    const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
+                    return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: inked(geometry.segments, geometry.paper) };
+                  }}
                   onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
-                  onUse={(id) => {
+                  onUse={(id, checks) => {
                     const standard = profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null;
                     void readWithStandard(o, standard).then(() => {
+                      // The links the person checked in the setup are kept, or turned down, as they said.
+                      const known = new Set(o.store.allLinks().map((l) => l.id));
+                      for (const [linkId, ok] of checks) if (known.has(linkId)) o.store.setLinkStatus(linkId, ok ? 'accepted' : 'rejected');
                       const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
                       setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
                     });

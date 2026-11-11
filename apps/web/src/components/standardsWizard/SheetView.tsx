@@ -188,7 +188,11 @@ export function SheetView({ ref, onZoom, pageIndex, page, render, boxes, drawing
     const v = latest.current;
     if (!v || (e.button !== 0 && e.button !== 1)) return;
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      // A pointer that is gone already: the drag still works while it stays over the sheet.
+    }
     const at = local(e);
     drag.current = { kind: drawing && e.button === 0 ? 'box' : 'pan', x: e.clientX, y: e.clientY, from: v, at };
   };

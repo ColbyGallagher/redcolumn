@@ -287,3 +287,23 @@ One set cannot settle the weights: tune them on a real client set (kept out of t
 - Spot-check size (8 default; more for big sets?).
 - Whether examples in exported `.rcstandard` files are acceptable to share with other consultants
   (they hold title text of the client's sheets), or export should strip them by default.
+
+### Sections, elevations, details (PR 4)
+
+- One step component for the three (`components/standardsWizard/CalloutStep.tsx`): box a mark,
+  "Next" jumps to the sheet it names, box its title, "Find the rest". `learnLink` learns from the
+  pair (callout part, id forms, title words) and keeps both as taught marks in the standard.
+- `sheets/wizardLinks.ts` runs the step over the set: text links of the kind, plus taught-mark
+  shape search on the pages whose text could hold one, merged without doubles, with the number
+  of references found and linked for the meter.
+- Results: the meter (`stepMeter`), up to 8 sample links as callout → target crops with Right /
+  Wrong (clicking a crop shows it on the sheet), "Teach another example", and an AI-over-MCP
+  recommendation when the band is AI. Answers are applied to those links when the document is
+  read with the standard from Review.
+- GIF slots load `/help/gif/standards-<kind>-<mark|title>.gif` and hide while the clips do not
+  exist (recorded in PR 9).
+- Detection: a bubble on the target sheet pointing back took every link for a section. The kind
+  now comes from the title beside whichever bubble has one (DETAIL 3, ELEVATION E1). Kestrel
+  bench, kind right: detail 83% → 100%, elevation 50% → 100%; section still 67% because two
+  callouts take the title block's big revision letter "C" for section C's title. Excluding the
+  standard's title-block boxes from title search fixes that; left for a follow-up.

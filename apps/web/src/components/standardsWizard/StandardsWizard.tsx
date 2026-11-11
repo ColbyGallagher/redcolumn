@@ -24,6 +24,9 @@ import {
 } from '../../sheets/standardsWizard';
 import { SheetView, type PageRect, type SheetViewApi, type ShownBox } from './SheetView';
 import { ThumbStrip } from './ThumbStrip';
+import { CalloutStep, type StepSheet } from './CalloutStep';
+import type { MarkPage } from '../../sheets/marks';
+import type { CalloutKind } from '../../sheets/wizardLinks';
 
 interface Props {
   fileName: string;
@@ -36,9 +39,11 @@ interface Props {
   /** The standard the document is read with, if any: the wizard opens on it. */
   current: string | null;
   readOnly: boolean;
+  /** A page's text and line work, for the link steps' examples and shape search. */
+  readPage: (pageIndex: number) => Promise<MarkPage>;
   onSave: (standard: DrawingStandard) => void;
-  /** Reads the document with the standard. */
-  onUse: (id: string) => void;
+  /** Reads the document with the standard, then keeps the person's answers on the links they checked. */
+  onUse: (id: string, checks: ReadonlyMap<string, boolean>) => void;
   /** Opens Teach Sheet Links in the app, for the steps the wizard does not do yet. */
   onTeachLinks: () => void;
   /** Opens the Drawing Standards panel (every setting, import and export). */
@@ -68,6 +73,11 @@ export function StandardsWizard(props: Props) {
   const [customName, setCustomName] = useState('');
   const [drawingCustom, setDrawingCustom] = useState(false);
   const sheetView = useRef<SheetViewApi>(null);
+  /** What a link step does with the sheet, and the person's answers on its sample links. */
+  const [stepSheet, setStepSheet] = useState<StepSheet>({ onBox: null, boxes: [] });
+  const [checks, setChecks] = useState<Map<string, boolean>>(new Map());
+  /** A part of a page to show (a sample link's callout or target). */
+  const [look, setLook] = useState<{ rect: PageRect | null; n: number } | null>(null);
   const [zoom, setZoom] = useState(1);
 
   // Carry on where this standard was left.
@@ -113,8 +123,10 @@ export function StandardsWizard(props: Props) {
   const nameProblem = customNameProblem(customName, boxes);
   const numbers = useMemo(() => (texts && numberBox ? numbersRead(texts, numberBox) : []), [texts, numberBox]);
 
-  const drawing = !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
+  const callout: CalloutKind | null = step === 'sections' ? 'section' : step === 'elevations' ? 'elevation' : step === 'details' ? 'detail' : null;
+  const drawing = callout ? !!stepSheet.onBox : !readOnly && ((!!q && step === 'titleBlock') || extra === 'ignore' || (extra === 'ownFields' && drawingCustom));
   const onBox = (rect: PageRect) => {
+    if (callout) return stepSheet.onBox?.(rect);
     if (q) change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, boxFromRegion(rect, size, q.field, q.name)) } }));
     else if (extra === 'ignore') change((s) => ({ ...s, sheets: { ...s.sheets, boxes: [...s.sheets.boxes, boxFromRegion(rect, size, 'ignore')] } }));
     else if (extra === 'ownFields' && customName.trim() && !customNameProblem(customName, latest.current?.sheets.boxes ?? [])) {
@@ -125,7 +137,7 @@ export function StandardsWizard(props: Props) {
     }
   };
 
-  const shown: ShownBox[] = boxes.map((b, i) => {
+  const titleBoxes: ShownBox[] = boxes.map((b, i) => {
     const r = regionOfBox(b, size);
     const active = !!answer && b === answer;
     return { key: `${i}:${b.field}:${b.name ?? ''}`, ...r, label: b.field === 'custom' ? (b.name ?? '') : FIELD_NAME[b.field], tone: b.field === 'ignore' ? 'ignore' : active ? 'active' : 'done' };
@@ -143,6 +155,17 @@ export function StandardsWizard(props: Props) {
     // Fitted when the step changes or the number box first appears, not on every box.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, !!numberBox, q?.field === 'number', size]);
+  const shown = callout ? stepSheet.boxes : titleBoxes;
+  const shownFocus = look ? look.rect : callout ? null : focus;
+  const focusKey = look ? `look:${look.n}` : focus && !callout ? `tb:${step}` : step;
+  const goTo = (i: number) => {
+    setLook(null);
+    setPage(i);
+  };
+  const stepTo = (id: WizardStepId) => {
+    setLook(null);
+    setStep(id);
+  };
 
   // ---- splitter between the instructions and the sheet
   const shell = useRef<HTMLDivElement>(null);
@@ -178,7 +201,7 @@ export function StandardsWizard(props: Props) {
         </div>
         <nav className="sw-steps" aria-label="Setup steps">
           {WIZARD_STEPS.map((s, i) => (
-            <button key={s.id} type="button" className={`sw-step${s.id === step ? ' current' : ''}${i < stepIndex ? ' past' : ''}`} aria-current={s.id === step ? 'step' : undefined} onClick={() => setStep(s.id)}>
+            <button key={s.id} type="button" className={`sw-step${s.id === step ? ' current' : ''}${i < stepIndex ? ' past' : ''}`} aria-current={s.id === step ? 'step' : undefined} onClick={() => stepTo(s.id)}>
               <span className="sw-step-n">{i + 1}</span>
               {s.label}
             </button>
@@ -211,7 +234,7 @@ export function StandardsWizard(props: Props) {
                 <p>{q.prompt}</p>
                 {readOnly && <p className="sw-warn">This document is read-only, so boxes cannot be drawn on it.</p>}
                 {!answer && !readOnly && <p className="sw-hint">Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.</p>}
-                {answer && <BoxResult check={check} verdict={check ? checkVerdict(check, q.field) : null} sheets={sheets} onGoTo={setPage} />}
+                {answer && <BoxResult check={check} verdict={check ? checkVerdict(check, q.field) : null} sheets={sheets} onGoTo={goTo} />}
               </section>
             )}
             {extra === 'ownFields' && (
@@ -269,7 +292,7 @@ export function StandardsWizard(props: Props) {
                   Next
                 </button>
               ) : (
-                <button type="button" className="btn primary" onClick={() => setStep('sections')}>
+                <button type="button" className="btn primary" onClick={() => stepTo('sections')}>
                   Next: sections
                 </button>
               )}
@@ -282,17 +305,44 @@ export function StandardsWizard(props: Props) {
             <p>This step is coming to the setup soon. Until then, teach these links with Teach Sheet Links in the main window: box one example and its target, and redcolumn finds the rest.</p>
             <p className="sw-hint">Once the title block and a few examples are set up, an AI assistant connected over MCP can use them to find the links that text search misses.</p>
             <div className="sw-nav">
-              <button type="button" className="btn" onClick={() => setStep(WIZARD_STEPS[stepIndex - 1]!.id)}>
+              <button type="button" className="btn" onClick={() => stepTo(WIZARD_STEPS[stepIndex - 1]!.id)}>
                 Back
               </button>
               <button type="button" className="btn" onClick={props.onTeachLinks}>
                 Open Teach Sheet Links
               </button>
-              <button type="button" className="btn primary" onClick={() => setStep(WIZARD_STEPS[stepIndex + 1]!.id)}>
+              <button type="button" className="btn primary" onClick={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}>
                 Next
               </button>
             </div>
           </section>
+        )}
+        {callout && (
+          <CalloutStep
+            key={callout}
+            kind={callout}
+            standard={standard}
+            change={change}
+            texts={texts}
+            sheets={sheets}
+            pages={pages}
+            page={page}
+            setPage={goTo}
+            look={(i, rect) => {
+              setPage(i);
+              setLook((l) => ({ rect, n: (l?.n ?? 0) + 1 }));
+            }}
+            readPage={props.readPage}
+            render={props.render}
+            readOnly={readOnly}
+            setSheet={setStepSheet}
+            onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
+            onBack={() => {
+              if (stepIndex === 1) setQuestion(LAST_TITLE);
+              stepTo(WIZARD_STEPS[stepIndex - 1]!.id);
+            }}
+            onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
+          />
         )}
         {step === 'review' && (
           <section className="sw-question">
@@ -307,13 +357,13 @@ export function StandardsWizard(props: Props) {
               </p>
             )}
             <div className="sw-nav">
-              <button type="button" className="btn" onClick={() => setStep('chainage')}>
+              <button type="button" className="btn" onClick={() => stepTo('chainage')}>
                 Back
               </button>
               <button type="button" className="btn" onClick={props.onPanel}>
                 More settings…
               </button>
-              <button type="button" className="btn primary" disabled={!numberBox || readOnly} onClick={() => props.onUse(standard.id)}>
+              <button type="button" className="btn primary" disabled={!numberBox || readOnly} onClick={() => props.onUse(standard.id, checks)}>
                 Read this document with it
               </button>
             </div>
@@ -325,18 +375,18 @@ export function StandardsWizard(props: Props) {
 
       <main className="sw-sheet">
         <div className="sw-sheet-body">
-          <ThumbStrip pages={pages} sheets={sheets} current={page} render={props.render} onGoTo={setPage} flagged={flagged} />
-          <SheetView ref={sheetView} onZoom={setZoom} pageIndex={page} page={size} render={props.render} boxes={shown} drawing={drawing} onBox={onBox} focus={focus} focusKey={focus ? `tb:${step}` : step} />
+          <ThumbStrip pages={pages} sheets={sheets} current={page} render={props.render} onGoTo={goTo} flagged={callout ? undefined : flagged} />
+          <SheetView ref={sheetView} onZoom={setZoom} pageIndex={page} page={size} render={props.render} boxes={shown} drawing={drawing} onBox={onBox} focus={shownFocus} focusKey={focusKey} />
         </div>
         <PageNav
           pageIndex={page}
           pageCount={pages.length}
           disabled={false}
-          onFirst={() => setPage(0)}
-          onPrev={() => setPage((p) => Math.max(0, p - 1))}
-          onNext={() => setPage((p) => Math.min(pages.length - 1, p + 1))}
-          onLast={() => setPage(pages.length - 1)}
-          onGoTo={setPage}
+          onFirst={() => goTo(0)}
+          onPrev={() => goTo(Math.max(0, page - 1))}
+          onNext={() => goTo(Math.min(pages.length - 1, page + 1))}
+          onLast={() => goTo(pages.length - 1)}
+          onGoTo={goTo}
           zoom={zoom}
           continuous={false}
           onZoomIn={() => sheetView.current?.zoomBy(1.25)}
