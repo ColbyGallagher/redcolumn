@@ -40,6 +40,7 @@ import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
 import { FontPicker } from './FontPicker';
+import { canHaveCutout } from '../markup/cutoutTarget';
 
 interface Props {
   markups: Markup[];
@@ -771,7 +772,7 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
           {m.slope && <span className="unit">{SLOPE_KINDS.find((k) => k.value === m.slope!.kind)!.unit}</span>}
         </Row>
       )}
-      {(q === 'area' || q === 'volume') && (
+      {canHaveCutout(m) && (
         <div className="props-actions">
           <button className="btn" disabled={readOnly || !tools || m.locked} onClick={() => tools?.startCutout(m.id)} title="Draw a polygon inside the area to subtract it">
             Add cutout

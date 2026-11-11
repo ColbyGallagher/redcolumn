@@ -1,0 +1,32 @@
+# The Takeoff tab
+
+The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place, in the order you use them: set up the sheets, measure, turn measurements into materials, count symbols, and send the results out. Every button also lives elsewhere in the app; the tab only gathers them.
+
+## Setup
+
+- **Calibrate** sets the scale from a known length ([Calibrate from a known length](#calibrate)).
+- **Bulk Page Scale** applies a scale to many pages by boxing the scale on a title block ([Apply a scale to many pages](#scale-bulk)).
+- **Review Scales** checks each sheet's scale against the size it was saved at ([Check sheet scales](#scale-review)).
+- **Page Labels** names pages from a region of the sheet, such as the sheet number in the title block.
+- **Bulk Page Labels** does the same across many files ([Bulk page labels](#batch-page-labels)).
+
+## Measure
+
+**Length**, **Polylength**, **Area** and **Count** are the tools used most. **Cutout** cuts a hole in the selected area ([Cut a hole out of an area](#cutouts)); it is greyed out until one area or volume is selected. **Next Measure** steps to the next measure tool in toolbar order.
+
+## Estimating
+
+- **Assemblies** sets up the materials and labour a measurement stands for ([Assemblies](#assemblies)).
+- **Quantities** totals those materials across the document.
+- **Takeoff Review** reviews takeoff proposals that an AI client has suggested, before any of them become markups.
+
+## Auto Count
+
+**Symbol Search** finds more of a symbol you box and counts them ([Symbol Search](#symbol-search)).
+
+## Output
+
+- **Sync to Excel** keeps the Markups list in an Excel workbook ([Keep the list in a spreadsheet](#sheet-sync)). It works only in the desktop app on Windows; elsewhere it offers the download.
+- **Columns & Statuses** adds the custom columns and statuses the list and the workbook show ([Columns and custom columns](#list-columns)).
+
+> **Tip:** Fold the ribbon to its tabs with **Ctrl+F1** when you want more room for the page.
