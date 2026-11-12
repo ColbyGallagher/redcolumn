@@ -30,7 +30,8 @@ import {
   markupLabel,
   ROTATABLE,
 } from '@nb/markup';
-import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
+import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type ManualKind, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
+import { defaultManualUnit, makeManual, manualEditValue, MANUAL_KIND_LABELS, MANUAL_UNITS } from '../measure/manualQuantity';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
@@ -129,7 +130,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           {value !== null && isMeasureKind(m.type) && (
             <>
               <dt>Measurement</dt>
-              <dd>{formatMeasure(m.type, value, scale)}</dd>
+              <dd>{formatMeasure(m.type, value, scale, measureProps(m))}</dd>
             </>
           )}
         </dl>
@@ -242,7 +243,8 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           })}
         </Section>
       )}
-      {chosen.length === 1 && isMeasureKind(m.type) && QUANTITY[m.type] !== 'count' && QUANTITY[m.type] !== 'angle' && (
+      {chosen.length === 1 && m.type === 'manual' && <ManualSection m={m} scale={scale} store={store} readOnly={readOnly} />}
+      {chosen.length === 1 && isMeasureKind(m.type) && m.type !== 'manual' && QUANTITY[m.type] !== 'count' && QUANTITY[m.type] !== 'angle' && (
         <MeasurementSection m={m} scale={scale} store={store} tools={tools} readOnly={readOnly} />
       )}
       {m.signature && (
@@ -786,6 +788,85 @@ function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; upda
         </Row>
       )}
     </>
+  );
+}
+
+/** A manual quantity's typed value, with its kind, unit and note. */
+function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale; store: MarkupStore | null; readOnly: boolean }) {
+  const q = m.manual;
+  if (!q) return null;
+  const set = (manual: NonNullable<Markup['manual']>) => {
+    store?.checkpoint();
+    store?.update(m.id, { manual });
+  };
+  const note = q.note ?? '';
+  return (
+    <Section title="Manual Quantity">
+      <Row label="Kind">
+        <select
+          value={q.kind}
+          disabled={readOnly}
+          aria-label="Kind"
+          onChange={(e) => {
+            // The number as typed carries over to the new kind's usual unit.
+            const kind = e.target.value as ManualKind;
+            const next = makeManual(kind, manualEditValue(q), defaultManualUnit(kind, scale), note);
+            if (next) set(next);
+          }}
+        >
+          {(Object.keys(MANUAL_KIND_LABELS) as ManualKind[]).map((k) => (
+            <option key={k} value={k}>
+              {MANUAL_KIND_LABELS[k]}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Value">
+        <input
+          key={`${m.id}:${q.kind}:${q.value}:${q.unit ?? ''}`}
+          type="number"
+          step="any"
+          min={0}
+          defaultValue={manualEditValue(q)}
+          disabled={readOnly}
+          aria-label="Value"
+          onBlur={(e) => {
+            const v = e.target.value.trim() === '' ? NaN : Number(e.target.value);
+            const next = makeManual(q.kind, v, q.unit, note);
+            if (next && Math.abs(next.value - q.value) > 1e-12) set(next);
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        />
+        <select
+          value={MANUAL_UNITS[q.kind].some((u) => u.id === q.unit) ? q.unit : MANUAL_UNITS[q.kind][0]!.id}
+          disabled={readOnly || q.kind === 'count'}
+          aria-label="Unit"
+          onChange={(e) => set({ ...q, unit: e.target.value })}
+        >
+          {MANUAL_UNITS[q.kind].map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.label}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Note">
+        <input
+          key={`${m.id}:${note}`}
+          defaultValue={note}
+          disabled={readOnly}
+          aria-label="Note"
+          onBlur={(e) => {
+            const text = e.target.value.trim();
+            if (text !== note) {
+              const { note: _old, ...rest } = q;
+              set(text ? { ...rest, note: text } : rest);
+            }
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        />
+      </Row>
+    </Section>
   );
 }
 

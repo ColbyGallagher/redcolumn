@@ -3,7 +3,7 @@ import { expandArcs } from '@nb/measure';
 import { calloutLanding, calloutLeaders } from './callout';
 import { markupLines } from './textSelect';
 import { wrapParagraph } from './textLists';
-import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
+import { boundsOf, flowBar, flowRim, flowSlant, type FlowShapeKind, type Rect, outlinePoints, rotatePoint, rotationCentre, capSize, circleOf, cloudRadius, cloudBumps, cloudCorners, mapGeometry, type Geometry, contentBox, manualBox, dimensionLine, flagTip, markerSize, markupBounds, unrotate, type CountShape, type Markup, type Point } from './model';
 import { TYPE_INFO } from './types';
 import { resolveHatch, type HatchSpec } from './hatches';
 import { lineEnds, type LineEnding } from './style';
@@ -65,6 +65,10 @@ function isClosed(m: Markup): boolean {
 function baseShape(m: Markup): ShapePart[] {
   const { points, style } = m;
   switch (m.type) {
+    // A manual quantity is its tag (drawn with the measurement label, over this); the dot at its
+    // anchor only shows when the tag is hidden.
+    case 'manual':
+      return points.map(([x, y]) => ({ path: ellipsePath({ x: x - 2, y: y - 2, w: 4, h: 4 }), stroke: true, fill: style.stroke }));
     case 'line':
     case 'arrow':
       return withEnds(m, points.slice(0, 2));
@@ -777,7 +781,7 @@ export function hitTest(m: Markup, p: Point, tolerance: number): boolean {
     return markupLines(m.points).some((r) => p[0] >= r.x - tolerance && p[0] <= r.x + r.w + tolerance && p[1] >= r.y - tolerance && p[1] <= r.y + r.h + tolerance);
   } else if (TYPE_INFO[m.type].solid || m.style.fill || resolveHatch(m.style.hatch, m.style.hatchSpec)) {
     // Text boxes and filled shapes are grabbable anywhere inside.
-    const inner = contentBox(m);
+    const inner = m.type === 'manual' ? manualBox(m) : contentBox(m);
     if (p[0] >= inner.x && p[0] <= inner.x + inner.w && p[1] >= inner.y && p[1] <= inner.y + inner.h) return true;
   }
   const tol = tolerance + m.style.width / 2;

@@ -63,6 +63,7 @@ async function setup(extra: Partial<MarkupToolsOptions> = {}) {
     onFollowLink() {},
     onCreated: (m) => created.push(m),
     defaultStamp: () => DEFAULT_STAMPS[0]!,
+    manualQuantity: () => ({ manual: { kind: 'area', value: 24 } }),
     stampValues: () => ({ file: 'A-101.pdf', page: '1' }),
     ...extra,
   });

@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -27,6 +27,7 @@ import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from '
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
+import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { localExcel } from './sheetsync/targets';
@@ -1086,6 +1087,9 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  /** The typed quantity the next click on a page places (Takeoff › Manual Quantity). */
+  const manualPendingRef = useRef<ManualRequest | null>(null);
   const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
@@ -1477,6 +1481,14 @@ export function App() {
         // The assembly chosen in one document is not one of another's.
         const d = measureDefaultsRef.current;
         return d.assemblyId && !front()?.store.assemblies().some((a) => a.id === d.assemblyId) ? { ...d, assemblyId: undefined } : d;
+      },
+      manualQuantity: () => {
+        const p = manualPendingRef.current;
+        // The assembly chosen in one document is not one of another's.
+        return p ? { ...p, assemblyId: p.assemblyId && front()?.store.assemblies().some((a) => a.id === p.assemblyId) ? p.assemblyId : undefined } : null;
+      },
+      onManualPlaced: () => {
+        manualPendingRef.current = null;
       },
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
@@ -6189,10 +6201,11 @@ export function App() {
     for (const m of list) {
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
-      const t = totals.get(m.type) ?? { value: 0, scale, n: 0 };
+      const kind = measureKindOf(m);
+      const t = totals.get(kind) ?? { value: 0, scale, n: 0 };
       t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
-      totals.set(m.type, t);
+      totals.set(kind, t);
     }
     return [...totals].map(([kind, t]) => `Total ${MARKUP_LABELS[kind]} (${t.n}): ${formatMeasure(kind, t.value, t.scale)}`);
   };
@@ -8326,6 +8339,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     syncExcel: () => setSyncOpen(true),
     toggleArc: () => activeTools?.toggleArc(),
     hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
+    manualQuantity: () => setManualOpen(true),
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -11168,6 +11182,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onExport={(req) => void runExport(req)}
           onDownload={download}
           onClose={() => setSummaryOpen(false)}
+        />
+      )}
+      {manualOpen && activeOpen && (
+        <ManualQuantityDialog
+          scale={activeOpen.store.scaleFor(pageIndex)}
+          assemblies={assemblies}
+          onCancel={() => setManualOpen(false)}
+          onOk={(request) => {
+            setManualOpen(false);
+            manualPendingRef.current = request;
+            activeTools?.setTool('manual');
+          }}
         />
       )}
       {syncOpen && activeOpen && syncTable && (

@@ -114,7 +114,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -439,7 +439,7 @@ const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get(
 /** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
 const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
-const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
+const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength', 'manual'].includes(type);
 
 /** Draw to Scale: a box type's first click, the markup it will become, and the pointer since. */
 interface SketchAnchor {
@@ -556,6 +556,10 @@ export interface MarkupToolsOptions {
   stampValues?: (pageIndex: number) => { file: string; page: string };
   /** Subject, label and assembly the Measurements panel applies to the next measurement. */
   measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string };
+  /** The typed quantity the Manual Quantity command armed for the next click; null when none (the click places nothing). */
+  manualQuantity?: () => { manual: ManualQuantity; subject?: string; assemblyId?: string } | null;
+  /** A manual quantity was placed (or the click was refused): the command is done. */
+  onManualPlaced?: () => void;
 }
 
 /** Drawing with this type snaps its points to drawing geometry (not freehand, text or pictures). */
@@ -577,7 +581,7 @@ const NO_LINES = new SnapIndex(new Float32Array(0));
 
 /** Tools whose result is a real-world size, so they need the page's scale (angles and counts do not). */
 function needsScale(tool: Tool): boolean {
-  return tool === 'scaleLength' || (isMeasureKind(tool) && tool !== 'angle' && tool !== 'count');
+  return tool === 'scaleLength' || (isMeasureKind(tool) && tool !== 'angle' && tool !== 'count' && tool !== 'manual');
 }
 
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
@@ -2140,6 +2144,18 @@ export class MarkupTools implements ViewerOverlay {
     }
     const spec = clickSpec(g.markup.type);
     if (!spec || points.length < spec.min) return;
+    if (g.markup.type === 'manual') {
+      // Nothing armed (the tool was chosen some other way): place nothing, leave the tool.
+      if (g.markup.manual) {
+        this.store.checkpoint();
+        const placed = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
+        this.store.add(placed);
+        this.options.onCreated?.(placed);
+        this.setState({ tool: 'select', selected: new Set([placed.id]) });
+      } else this.setState({ tool: 'select' });
+      this.options.onManualPlaced?.();
+      return;
+    }
     this.store.checkpoint();
     const done = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
     // An outline keeps its closing segment's bulge (a 3-point arc ended on the first vertex).
@@ -3084,6 +3100,8 @@ export class MarkupTools implements ViewerOverlay {
       if (tool === 'cutout' || tool === 'stitchPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
       // A match line, like a calibration line, is two points and makes no markup.
       this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' || tool === 'matchLine' });
+      // A manual quantity is one point: the click places it.
+      this.completeIfFixed();
       return true;
     }
 
@@ -3960,7 +3978,8 @@ export class MarkupTools implements ViewerOverlay {
     }
     const now = Date.now();
     const fields = this.options.defaultFields?.();
-    const drawnDefaults = isMeasureKind(type) && !preset?.template ? this.options.measureDefaults?.() : undefined;
+    const drawnDefaults = isMeasureKind(type) && type !== 'manual' && !preset?.template ? this.options.measureDefaults?.() : undefined;
+    const typed = type === 'manual' ? this.options.manualQuantity?.() : null;
     const markup: Markup = {
       id: crypto.randomUUID(),
       type,
@@ -3973,6 +3992,7 @@ export class MarkupTools implements ViewerOverlay {
       modifiedAt: now,
       ...(preset?.subject ? { subject: preset.subject } : drawnDefaults?.subject ? { subject: drawnDefaults.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
       ...(drawnDefaults?.label ? { text: drawnDefaults.label } : {}),
+      ...(typed ? { manual: typed.manual, subject: typed.subject || 'Manual', ...(typed.assemblyId ? { assemblyId: typed.assemblyId } : {}) } : {}),
       ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),

@@ -132,6 +132,7 @@ const ICONS: Record<string, ReactNode> = {
   'document.scaleReview': MENU_ICONS.scale,
   'draw.arc': ic('M2 13.5C3 6 9 3 14 3.5', <><circle cx="2" cy="13.5" r="1.3" /><circle cx="6" cy="6.3" r="1.3" /><circle cx="14" cy="3.5" r="1.3" /></>),
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
+  'takeoff.manual': ic('M2 3.5h12v9H2z', <path d="M4.5 8h7M8 4.8v6.4" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
   // Hip: two roof planes meeting along a ridge-to-corner line; Valley: the inside corner.
   'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
@@ -479,8 +480,8 @@ function SlopePicker() {
         });
       }
     }
-    // The running measure tool: a Hip or Valley stays one, with the new pitch.
-    if (isMeasureKind(state.tool)) {
+    // The running measure tool: a Hip or Valley stays one, with the new pitch. A typed (manual) quantity never takes a slope.
+    if (isMeasureKind(state.tool) && state.tool !== 'manual') {
       const armed = state.toolFields?.slope ?? state.preset?.slope;
       tools.setToolFields({ slope: spec && (armed?.kind === 'hip' || armed?.kind === 'valley') ? { ...armed, a: spec } : spec });
     }
@@ -749,6 +750,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="tools.nextMeasure" />
                 <Cmd id="draw.arc" />
               </Stack>
+            </Group>
+            <Group label="Manual">
+              <Cmd id="takeoff.manual" size="large" />
             </Group>
             <Group label="Slope">
               <SlopePicker />

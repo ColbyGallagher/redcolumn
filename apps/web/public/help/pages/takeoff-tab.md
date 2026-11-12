@@ -18,6 +18,10 @@ The **Takeoff** tab, next to **Measure**, puts an estimator's tools in one place
 
 While drawing a polylength or area, press **Arc (3-point)**, click a point on the curve, then click the arc's end: the section follows the circle through the three points, and drawing goes back to straight sections. For a bend by eye, hold [[Ctrl]] instead and drag away from the corner you are placing. See [Polylength](#measure-polylength) and [Area](#measure-area) for both.
 
+## Manual
+
+**Manual Quantity** places a quantity you type, such as a count from a schedule, instead of one you draw ([Manual Quantity](#measure-manual)).
+
 ## Slope
 
 Measurements are taken on plan. The **Slope** group turns them into their true, sloped size for roofs, ramps and grading ([Slopes, pitches, hips and valleys](#measure-slope)).

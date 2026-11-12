@@ -497,7 +497,19 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       ops.push('q', `${[cos, sin, -sin, cos, x, y].map(fmt).join(' ')} cm`);
       x = y = 0;
     }
-    if (background) {
+    if (label.boxed) {
+      // A typed quantity's tag: filled, with a dashed border.
+      const [br, bg, bb] = rgb(style.fill ?? '#ffffff');
+      const [sr, sg, sb] = rgb(style.stroke);
+      const bw = Math.max(0.5, style.width);
+      ops.push(
+        `/GS1 gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`,
+        `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG ${fmt(bw)} w ${dashOp(dash.length ? dash : [bw * 3, bw * 2])}`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re S`,
+        '[] 0 d',
+      );
+    } else if (background) {
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
     }
@@ -1106,6 +1118,19 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         MeasurementTypes: 128,
         BBMeasure: measureDict(ctx.scale),
       };
+      break;
+    }
+    case 'manual': {
+      // Other viewers see the tag as a text box; ours comes back as the quantity from NBData.
+      const [r, g, bl] = rgb(textColor(m.style));
+      specific = {
+        Subtype: 'FreeText',
+        RD: rd,
+        DA: PDFString.of(`/${daFontName(m.style.fontFamily)} ${m.style.fontSize ?? 10} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
+        Q: 1,
+        C: fill ?? [],
+      };
+      delete base.IC;
       break;
     }
     case 'signature':

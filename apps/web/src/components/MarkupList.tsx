@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -475,10 +475,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       const m = r.markup;
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
-      const t = out.get(m.type) ?? { value: 0, scale, n: 0 };
+      const kind = measureKindOf(m);
+      const t = out.get(kind) ?? { value: 0, scale, n: 0 };
       t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
-      out.set(m.type, t);
+      out.set(kind, t);
     }
     return out;
   }, [rows, scaleOf]);

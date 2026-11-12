@@ -1,5 +1,5 @@
 import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
-import { areaUnitOf, DEFAULT_SCALE, effectiveSlopeFactor, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, planValue, QUANTITY, slopeApplies, slopeIsFlat, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
+import { areaUnitOf, DEFAULT_SCALE, effectiveSlopeFactor, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, planValue, quantityOf, slopeApplies, slopeIsFlat, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
 
@@ -153,19 +153,22 @@ export function statusName(id: string, statuses: readonly MarkupStatusDef[]): st
  * The numeric slope columns: plan length or area (before the slope, in display units), the factor
  * the slope made, and that slope as pitch (rise per 12), angle (degrees) and grade (%). A hip's are
  * along the hip itself, and a run with elevations its own over its plan length. Measurements the
- * slope does not change read factor 1 and 0 slope, so formulas work on every measurement.
+ * slope does not change read factor 1 and 0 slope, so formulas work on every measurement. A manual
+ * (typed) quantity is never sloped: its plan length or area is the value typed.
  */
 function slopeCells(m: Markup, scale: Scale, props: ReturnType<typeof measureProps>): Record<string, Cell> {
   const blank = { planLength: cell(''), planArea: cell(''), slopeFactor: cell(''), pitch: cell(''), slopeAngle: cell(''), slopePercent: cell('') };
   if (!isMeasureKind(m.type)) return blank;
-  const q = QUANTITY[m.type];
-  if (q !== 'length' && q !== 'area' && q !== 'volume') return blank;
   const kind = m.type;
+  const q = quantityOf(kind, props);
+  if (q !== 'length' && q !== 'area' && q !== 'volume') return blank;
+  const manual = kind === 'manual';
   const plan = planValue(kind, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint);
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
-  const planArea = q === 'length' ? undefined : q === 'area' ? plan : planValue('area', m.points, scale.metersPerPoint, props, scale.yMetersPerPoint);
-  const factor = q === 'volume' ? 1 : effectiveSlopeFactor(kind, plan, m.slope);
+  // A typed volume has no plan area to show.
+  const planArea = q === 'length' ? undefined : q === 'area' ? plan : manual ? undefined : planValue('area', m.points, scale.metersPerPoint, props, scale.yMetersPerPoint);
+  const factor = q === 'volume' || manual ? 1 : effectiveSlopeFactor(kind, plan, m.slope);
   const sloped = factor !== 1;
   const tan = Math.sqrt(Math.max(0, factor * factor - 1));
   const show = (text: string, num: number) => cell(sloped ? text : '', num);
@@ -184,7 +187,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const scale = ctx.scaleOf(m) ?? DEFAULT_SCALE;
   const props = measureProps(m);
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : null;
-  const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale) : null;
+  const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale, props) : null;
   const details = isMeasureKind(m.type) ? measureDetails(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : {};
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
@@ -198,7 +201,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),
     sheet: cell(ctx.sheets[m.pageIndex]?.number ?? ''),
     space: cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : ''),
-    measurement: cell(value !== null && isMeasureKind(m.type) ? formatMeasure(m.type, value, scale) : '', qty ? qty.value : null),
+    measurement: cell(value !== null && isMeasureKind(m.type) ? formatMeasure(m.type, value, scale, props) : '', qty ? qty.value : null),
     length: q(details.length, formatLength, per),
     area: q(details.area, formatArea, perArea * perArea),
     volume: q(details.volume, formatVolume, perVolume * perVolume * perVolume),

@@ -335,6 +335,18 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     measure: true,
     caps: { ...MEASURE, fill: true, dash: false, arcRadius: 'Marker size' },
   },
+  // A quantity typed in, not drawn: a tag at one point (placed by the Manual Quantity command).
+  manual: {
+    label: 'Manual',
+    style: { stroke: '#0f766e', fill: '#f0fdfa', width: 1, opacity: 1, dash: 'dashed' },
+    draw: 'click',
+    click: { min: 1, fixed: 1 },
+    closed: false,
+    handles: 'none',
+    solid: true,
+    measure: true,
+    caps: caps({ dash: true, font: true, label: true }),
+  },
   angle: {
     label: 'Angle',
     style: { stroke: '#db2777', fill: null, width: 1, opacity: 1 },
