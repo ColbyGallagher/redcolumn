@@ -4102,6 +4102,14 @@
 }
 
 /* Batch dialog */
+/* Wide enough for the Sign & Seal rows, and scrolls inside the window so Run is never off-screen. */
+.batch-dialog {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
 .batch-dialog .batch-files {
   max-height: 200px;
   overflow: auto;
