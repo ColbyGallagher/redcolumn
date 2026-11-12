@@ -2026,3 +2026,22 @@ test('Subject, Label and Layer edited on the running tool go on the next markups
   drag(h.tools, [100, 300], [160, 360]);
   assert.equal(h.created.at(-1)!.subject, undefined);
 });
+
+test('restyling a selected markup leaves the tool default alone; with nothing selected it sets it', async () => {
+  const h = await setup();
+  h.tools.setTool('line');
+  const before = h.tools.getState().styles.line;
+  drag(h.tools, [100, 100], [300, 100]);
+  const line = h.store.all().find((m) => m.type === 'line')!;
+  h.tools.select([line.id]);
+  h.tools.setStyle('line', { width: 1.5, dash: 'dashed' });
+  assert.equal(h.store.get(line.id)!.style.width, 1.5);
+  assert.equal(h.store.get(line.id)!.style.dash, 'dashed');
+  assert.deepEqual(h.tools.getState().styles.line, before, 'the default is unchanged');
+  h.tools.select([]);
+  h.tools.setStyle('line', { width: 4 });
+  assert.equal(h.tools.getState().styles.line.width, 4, 'with nothing selected the toolbar sets the default');
+  h.tools.setDefaultStyle('line', { ...h.store.get(line.id)!.style });
+  assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
+  await h.store.destroy();
+});

@@ -109,6 +109,8 @@ const NO_PLACES: Place[] = [];
 const LINK_AUTO_CONFIDENCE = 0.75;
 /** Ids of links found from taught marks (see setMarkLinks). */
 const MARK_LINK = 'mark-';
+/** Links an AI assistant proposed over MCP: kept across detection runs, and always reviewed by a person. */
+export const AI_LINK = 'ai-';
 
 /** Transaction origin for edits made by this client; the undo manager only tracks these. */
 const LOCAL = Symbol('local');
@@ -564,7 +566,7 @@ export class MarkupStore {
     this.doc.transact(() => {
       const fresh = new Set(detected.map((l) => l.id));
       for (const [id, link] of this.links) {
-        if (!fresh.has(id) && !id.startsWith('pdf-') && !id.startsWith(MARK_LINK) && (link.status === 'auto' || link.status === 'review')) this.links.delete(id);
+        if (!fresh.has(id) && !id.startsWith('pdf-') && !id.startsWith(MARK_LINK) && !id.startsWith(AI_LINK) && (link.status === 'auto' || link.status === 'review')) this.links.delete(id);
       }
       for (const l of detected) {
         const current = this.links.get(l.id);
@@ -584,7 +586,7 @@ export class MarkupStore {
    */
   setMarkLinks(found: readonly DetectedLink[], markIds: readonly string[]) {
     if (this.locked) return;
-    const others = [...this.links.values()].filter((l) => !l.id.startsWith(MARK_LINK) && l.status !== 'rejected');
+    const others = [...this.links.values()].filter((l) => !l.id.startsWith(MARK_LINK) && !l.id.startsWith(AI_LINK) && l.status !== 'rejected');
     const overlaps = (a: DetectedLink, b: DetectedLink) => {
       const w = Math.min(a.rect.x + a.rect.w, b.rect.x + b.rect.w) - Math.max(a.rect.x, b.rect.x);
       const h = Math.min(a.rect.y + a.rect.h, b.rect.y + b.rect.h) - Math.max(a.rect.y, b.rect.y);
@@ -601,6 +603,24 @@ export class MarkupStore {
       }
       this.meta.set('marksSearched', [...markIds]);
     }, DETECTION);
+  }
+
+  /**
+   * Adds links an AI assistant proposed (ids get the `ai-` prefix). Each waits in review for a
+   * person; one already decided keeps its decision. One undo step. Returns the stored ids.
+   */
+  proposeLinks(links: readonly DetectedLink[]): string[] {
+    if (this.locked) return [];
+    const ids = links.map((l) => (l.id.startsWith(AI_LINK) ? l.id : AI_LINK + l.id));
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      links.forEach((l, i) => {
+        const current = this.links.get(ids[i]!);
+        const decided = current && (current.status === 'accepted' || current.status === 'rejected');
+        this.links.set(ids[i]!, { ...l, id: ids[i]!, status: decided ? current.status : 'review' });
+      });
+    }, LOCAL);
+    return ids;
   }
 
   /** Stitched sheet groups (stable until the next change). */

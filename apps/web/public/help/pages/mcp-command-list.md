@@ -219,6 +219,7 @@ Page and whole-file work. (38 commands)
 | `document.scaleRegions` | Bulk Apply Page Scale… | Allow, Dialog |
 | `document.scaleReview` | Review Sheet Scales… | Dialog |
 | `document.drawingStandards` | Drawing Standards… | Dialog |
+| `document.setUpDrawingStandard` | Set Up Drawing Standard… | Dialog |
 | `document.thumbnails` | Edit Page Labels in Thumbnails |  |
 | `document.teachMark` | Teach Sheet Links… | Dialog |
 
