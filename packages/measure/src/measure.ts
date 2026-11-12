@@ -22,11 +22,24 @@ export const QUANTITY: Record<MeasureKind, Quantity> = {
   angle: 'angle',
 };
 
-/** How steep a measured run or surface is: rise per 12 of run, degrees, or percent grade. */
-export interface Slope {
-  kind: 'pitch' | 'degrees' | 'percent';
-  value: number;
-}
+/**
+ * A single plane's steepness: rise per 12 of run (pitch), degrees, percent grade, or a free
+ * rise:run ratio in any units (1:4, 6:12).
+ */
+export type SlopeSpec = { kind: 'pitch'; value: number } | { kind: 'degrees'; value: number } | { kind: 'percent'; value: number } | { kind: 'ratio'; rise: number; run: number };
+
+/**
+ * How steep a measured run or surface is. Besides a single plane (`SlopeSpec`):
+ * - `elevation`: the two ends' levels in meters. A run's true length is sqrt(plan² + Δh²), exactly;
+ *   an area needs the horizontal `run` (meters) the rise happens over, and without one stays flat.
+ * - `hip` / `valley`: the line where two roof planes meet, traced on plan. `a` is one plane's
+ *   slope and `b` the other's (the same as `a` when left out). Runs only: areas ignore them.
+ * Markups saved before the other kinds (`{ kind, value }` pitch, degrees or percent) are
+ * `SlopeSpec`s as they are.
+ */
+export type Slope = SlopeSpec | { kind: 'elevation'; from: number; to: number; run?: number } | { kind: 'hip'; a: SlopeSpec; b?: SlopeSpec } | { kind: 'valley'; a: SlopeSpec; b?: SlopeSpec };
+
+export type SlopeKind = Slope['kind'];
 
 /**
  * Extra properties of a measurement: cutouts (holes subtracted from areas and volumes), a depth
@@ -201,23 +214,128 @@ export function polygonAreaArcs(points: readonly Pt[], bulges: readonly number[]
   return Math.abs(twice / 2 + segments);
 }
 
-/** The slope as an angle in radians. */
-export function slopeAngle(slope: Slope): number {
-  if (slope.kind === 'degrees') return (slope.value * Math.PI) / 180;
-  return Math.atan(slope.kind === 'pitch' ? slope.value / 12 : slope.value / 100);
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** One plane's slope as rise over run (the tangent of its angle). */
+function specTan(spec: SlopeSpec | undefined): number {
+  if (!spec) return 0;
+  switch (spec.kind) {
+    case 'pitch':
+      return num(spec.value) / 12;
+    case 'degrees': {
+      const d = num(spec.value);
+      return Math.abs(d) >= 90 ? 0 : Math.tan((d * Math.PI) / 180);
+    }
+    case 'percent':
+      return num(spec.value) / 100;
+    case 'ratio':
+      return num(spec.run) > 0 ? num(spec.rise) / num(spec.run) : 0;
+  }
+  return 0;
 }
 
-/** Plan-to-true multiplier for a slope (1 when flat). */
+/**
+ * The plan-to-true factor along a hip or valley traced on plan, where planes rising t1 and t2 per
+ * unit run meet: sqrt(1 + t1²·t2² / (t1² + t2²)), which is sqrt(1 + t²/2) for equal slopes.
+ *
+ * Assumes the eaves meet at a square (90°) corner on plan: the hip then runs, on plan, where both
+ * planes reach the same height. Eaves meeting at other angles are not modelled.
+ */
+function hipFactor(a: SlopeSpec | undefined, b: SlopeSpec | undefined): number {
+  const t1 = specTan(a);
+  const t2 = b ? specTan(b) : t1;
+  const sq = t1 * t1 + t2 * t2;
+  return sq > 0 ? Math.sqrt(1 + (t1 * t1 * t2 * t2) / sq) : 1;
+}
+
+/** The kinds a hip or valley slope applies to: traced runs. */
+const HIP_KINDS: ReadonlySet<MeasureKind> = new Set(['length', 'polylength']);
+
+/** Whether a slope changes this kind of measurement (lengths and areas; hips and valleys runs only). */
+export function slopeApplies(kind: MeasureKind, slope: Slope | undefined): boolean {
+  if (!slope) return false;
+  const q = QUANTITY[kind];
+  if (q !== 'length' && q !== 'area') return false;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return HIP_KINDS.has(kind);
+  return true;
+}
+
+/** The slope as an angle in radians (an elevation's over its run, 0 without one; a hip's along the hip). */
+export function slopeAngle(slope: Slope): number {
+  if (slope.kind === 'degrees') {
+    const d = num(slope.value);
+    return Math.abs(d) >= 90 ? 0 : (d * Math.PI) / 180;
+  }
+  if (slope.kind === 'elevation') return num(slope.run) > 0 ? Math.atan(Math.abs(num(slope.to) - num(slope.from)) / num(slope.run)) : 0;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return Math.acos(1 / hipFactor(slope.a, slope.b));
+  return Math.atan(specTan(slope));
+}
+
+/**
+ * Plan-to-true multiplier for a slope (1 when flat). An elevation's is its area factor (over its
+ * run); runs with elevations use the exact length through `slopedValue` instead.
+ */
 export function slopeFactor(slope: Slope | undefined): number {
-  if (!slope || !slope.value) return 1;
+  if (!slope) return 1;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return hipFactor(slope.a, slope.b);
   const a = slopeAngle(slope);
   return Math.abs(Math.cos(a)) < 1e-6 ? 1 : 1 / Math.cos(a);
 }
 
+/**
+ * A plan value (meters for runs, square meters for areas) made true for its slope. Runs with
+ * elevations are exact: sqrt(plan² + Δh²), `plan` being the whole path's plan length. Other kinds,
+ * and slopes that do not apply (a hip on an area), come back unchanged.
+ */
+export function slopedValue(kind: MeasureKind, plan: number, slope: Slope | undefined): number {
+  if (!slope || !slopeApplies(kind, slope)) return plan;
+  if (slope.kind === 'elevation' && QUANTITY[kind] === 'length') return Math.hypot(plan, num(slope.to) - num(slope.from));
+  return plan * slopeFactor(slope);
+}
+
+/** The factor a measurement's slope actually makes (true over plan): 1 when flat or not applied. */
+export function effectiveSlopeFactor(kind: MeasureKind, plan: number, slope: Slope | undefined): number {
+  if (!slope || !slopeApplies(kind, slope)) return 1;
+  if (slope.kind === 'elevation' && QUANTITY[kind] === 'length') return plan > 0 ? slopedValue(kind, plan, slope) / plan : 1;
+  return slopeFactor(slope);
+}
+
+/** Whether a slope makes no difference anywhere (none, or all zeros). */
+export function slopeIsFlat(slope: Slope | undefined): boolean {
+  if (!slope) return true;
+  if (slope.kind === 'elevation') return num(slope.to) === num(slope.from);
+  return slopeFactor(slope) === 1;
+}
+
+/** An area with an elevation slope but no run: it cannot be sloped, so it stays flat (the UI says so). */
+export function slopeNeedsRun(kind: MeasureKind, slope: Slope | undefined): boolean {
+  return !!slope && slope.kind === 'elevation' && QUANTITY[kind] === 'area' && !(num(slope.run) > 0) && num(slope.to) !== num(slope.from);
+}
+
+const fmt = (v: number, digits: number) => String(+num(v).toFixed(digits));
+
+function formatSpec(spec: SlopeSpec): string {
+  switch (spec.kind) {
+    case 'pitch':
+      return `${fmt(spec.value, 2)}:12`;
+    case 'degrees':
+      return `${fmt(spec.value, 1)}°`;
+    case 'percent':
+      return `${fmt(spec.value, 1)}%`;
+    case 'ratio':
+      return `${fmt(spec.rise, 2)}:${fmt(spec.run, 2)}`;
+  }
+  return '';
+}
+
+/** A slope as shown: `6:12`, `30°`, `8%`, `1:4`, `Δ1.20 m`, `Hip 6:12`, `Valley 6:12/8:12`. */
 export function formatSlope(slope: Slope): string {
-  if (slope.kind === 'pitch') return `${+slope.value.toFixed(2)}:12`;
-  if (slope.kind === 'degrees') return `${+slope.value.toFixed(1)}°`;
-  return `${+slope.value.toFixed(1)}%`;
+  if (slope.kind === 'elevation') return `Δ${Math.abs(num(slope.to) - num(slope.from)).toFixed(2)} m`;
+  if (slope.kind === 'hip' || slope.kind === 'valley') {
+    const name = slope.kind === 'hip' ? 'Hip' : 'Valley';
+    return `${name} ${formatSpec(slope.a)}${slope.b ? `/${formatSpec(slope.b)}` : ''}`;
+  }
+  return formatSpec(slope);
 }
 
 /**
@@ -457,20 +575,24 @@ export function pageLengthFor(scale: AxisScale, meters: number, dx = 1, dy = 0):
  * areas and volumes. `yMetersPerPoint` stretches the page vertically before measuring.
  */
 export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
+  return slopedValue(kind, planValue(kind, points, metersPerPoint, props, yMetersPerPoint), props.slope);
+}
+
+/** A measurement's value before its slope: the plan length or plan area (other kinds as `measureValue`). */
+export function planValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
   ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
-  const k = slopeFactor(props.slope);
   switch (kind) {
     case 'length':
     case 'polylength':
     case 'diameter':
     case 'radius':
-      return (kind === 'polylength' ? pathLengthArcs(points, props.bulges) : pathLength(points.slice(0, 2))) * metersPerPoint * k;
+      return (kind === 'polylength' ? pathLengthArcs(points, props.bulges) : pathLength(points.slice(0, 2))) * metersPerPoint;
     case 'arcLength':
-      return (points.length >= 3 && !props.flattened ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint * k;
+      return (points.length >= 3 && !props.flattened ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint;
     case 'perimeter':
-      return pathLengthArcs(points, props.bulges, true) * metersPerPoint * k;
+      return pathLengthArcs(points, props.bulges, true) * metersPerPoint;
     case 'area':
-      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * k;
+      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint;
     case 'volume':
       return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * (props.depth ?? 0);
     case 'count':
@@ -498,6 +620,8 @@ export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersP
   }
   if (kind === 'area' || kind === 'volume') {
     const out: MeasureDetails = {
+      // A sloped area's perimeter stays its plan perimeter on purpose: level eaves keep their plan
+      // length while rakes grow with the slope, and which edges are which is not known here.
       length: pathLengthArcs(points, props.bulges, true) * metersPerPoint,
       area: measureValue('area', points, metersPerPoint, kind === 'volume' ? { holes: props.holes, bulges: props.bulges, holeBulges: props.holeBulges } : props),
     };

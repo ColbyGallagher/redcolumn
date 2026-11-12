@@ -548,6 +548,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="tools.takeoffReview" />
               <Cmd id="tool.cutout" />
               <Cmd id="takeoff.syncExcel" />
+              <Cmd id="takeoff.hip" />
+              <Cmd id="takeoff.valley" />
             </Submenu>
             <Cmd id="tools.lineStyles" />
             <Cmd id="tools.sketchToScale" />

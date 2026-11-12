@@ -38,9 +38,9 @@ test.describe('takeoff tab', () => {
     const tabs = await ribbon(app).getByRole('tab').allTextContents();
     expect(tabs.indexOf('Takeoff')).toBe(tabs.indexOf('Measure') + 1);
     await openTab(app);
-    for (const group of ['Setup', 'Measure', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
+    for (const group of ['Setup', 'Measure', 'Slope', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
     for (const id of ['calibrate', 'length', 'polylength', 'area', 'count', 'visualSearch']) await expect(tool(app, id)).toBeVisible();
-    for (const id of ['document.scaleRegions', 'document.scaleReview', 'document.labelRegions', 'batch.pageLabels', 'tool.cutout', 'tools.nextMeasure', 'tools.assemblies', 'tools.quantities', 'tools.takeoffReview', 'takeoff.syncExcel', 'tools.columns'])
+    for (const id of ['document.scaleRegions', 'document.scaleReview', 'document.labelRegions', 'batch.pageLabels', 'tool.cutout', 'tools.nextMeasure', 'takeoff.hip', 'takeoff.valley', 'tools.assemblies', 'tools.quantities', 'tools.takeoffReview', 'takeoff.syncExcel', 'tools.columns'])
       await expect(button(app, id)).toBeVisible();
 
     // Nothing in the group scrolls: it spreads out instead.
@@ -83,6 +83,57 @@ test.describe('takeoff tab', () => {
     expect(raw).toHaveLength(1);
     expect(raw[0]!.holes).toHaveLength(1);
     expect((await app.markups())[0]!.measurement).toBe('175.00 sf');
+  });
+
+  test('takeoff.hip and takeoff.valley arm Polylength at the Slope group pitch', async ({ app }) => {
+    await openTab(app);
+    const slope = ribbon(app).getByRole('group', { name: 'Slope', exact: true });
+    await slope.getByLabel('Takeoff slope kind').selectOption('pitch');
+    await slope.getByLabel('Takeoff slope', { exact: true }).fill('6');
+    await slope.getByLabel('Takeoff slope', { exact: true }).press('Enter');
+    await button(app, 'takeoff.hip').click();
+    expect((await app.toolState()).tool).toBe('polylength');
+    expect((await app.command('takeoff.hip')).checked).toBe(true);
+    // 200 pt is 20 ft on plan; a hip between two 6:12 planes is sqrt(1 + 0.25 / 2) longer: 21.213 ft.
+    await app.clicks([[300, 450], [500, 450]], 'enter');
+    const [hip] = await app.raw();
+    expect(hip).toMatchObject({ type: 'polylength', subject: 'Hip', slope: { kind: 'hip', a: { kind: 'pitch', value: 6 } } });
+    expect((await app.markups())[0]!.measurement).toBe(`21'-2 9/16"`);
+
+    await openTab(app);
+    await button(app, 'takeoff.valley').click();
+    expect((await app.command('takeoff.valley')).checked).toBe(true);
+    await app.clicks([[300, 500], [500, 500]], 'enter');
+    expect((await app.raw()).find((m) => m.subject === 'Valley')).toMatchObject({ type: 'polylength', slope: { kind: 'valley', a: { kind: 'pitch', value: 6 } } });
+  });
+
+  test('the Slope group applies to the selected measurement and to the running tool', async ({ app }) => {
+    await app.tool('area');
+    await app.clicks(room);
+    const [area] = await app.markups();
+    await app.tool('select');
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), area!.id);
+    await openTab(app);
+    const slope = ribbon(app).getByRole('group', { name: 'Slope', exact: true });
+    await slope.getByLabel('Takeoff slope kind').selectOption('degrees');
+    await slope.getByLabel('Takeoff slope', { exact: true }).fill('45');
+    await slope.getByLabel('Takeoff slope', { exact: true }).press('Enter');
+    // 200 sf on plan at 45°: 200 x sqrt(2).
+    await expect.poll(async () => (await app.markups())[0]!.measurement).toBe('282.84 sf');
+
+    // With a measure tool running, the next measurement takes it too.
+    await app.page.evaluate(() => window.__nb.tools.select([]));
+    await app.tool('length');
+    await openTab(app);
+    await slope.getByLabel('Takeoff slope kind').selectOption('ratio');
+    await slope.getByLabel('Rise').fill('1');
+    await slope.getByLabel('Rise').press('Enter');
+    await slope.getByLabel('Run').fill('4');
+    await slope.getByLabel('Run').press('Enter');
+    expect((await app.toolState()).tool).toBe('length');
+    await app.clicks([[300, 450], [500, 450]]);
+    const line = (await app.raw()).find((m) => m.type === 'length');
+    expect(line!.slope).toEqual({ kind: 'ratio', rise: 1, run: 4 });
   });
 
   test('takeoff.syncExcel opens the Excel sync dialog', async ({ app }) => {

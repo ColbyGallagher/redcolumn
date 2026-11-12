@@ -514,6 +514,17 @@ body,
   max-width: 140px;
 }
 
+/* Takeoff › Slope: the kind above its value, two rows. */
+.rb-slope {
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.rb-slope select,
+.rb-slope input {
+  height: 24px;
+}
+
 /* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;
@@ -2594,6 +2605,13 @@ select[size] {
   align-items: center;
   gap: 8px;
   min-height: 28px;
+}
+
+/* A short warning under a property row (an area with elevations but no run). */
+.prop-note {
+  margin: 2px 0 4px 92px;
+  color: var(--warning, #d97706);
+  font-size: 12px;
 }
 
 .prop-label {

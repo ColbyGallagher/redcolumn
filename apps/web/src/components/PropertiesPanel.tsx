@@ -30,7 +30,7 @@ import {
   markupLabel,
   ROTATABLE,
 } from '@nb/markup';
-import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, type Scale, type Slope } from '@nb/measure';
+import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
@@ -673,8 +673,121 @@ export const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle:
 const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
   { value: 'pitch', label: 'Pitch', unit: ':12' },
   { value: 'degrees', label: 'Degrees', unit: '°' },
-  { value: 'percent', label: 'Grade', unit: '%' },
+  { value: 'percent', label: 'Grade %', unit: '%' },
+  { value: 'ratio', label: 'Rise:Run', unit: '' },
+  { value: 'elevation', label: 'Elevations', unit: 'm' },
+  { value: 'hip', label: 'Hip', unit: ':12' },
+  { value: 'valley', label: 'Valley', unit: ':12' },
 ];
+
+/** A plane's slope as pitch (rise per 12), whatever it was entered as. */
+const asPitch = (spec: SlopeSpec): number => (spec.kind === 'pitch' ? spec.value : +(12 * Math.tan(slopeAngle(spec))).toFixed(4));
+
+/** A new slope of `kind`, keeping what it can of the current one. */
+function slopeOfKind(kind: Slope['kind'], cur: Slope | undefined): Slope {
+  const plane: SlopeSpec | null = cur && (cur.kind === 'pitch' || cur.kind === 'degrees' || cur.kind === 'percent' || cur.kind === 'ratio') ? cur : cur && (cur.kind === 'hip' || cur.kind === 'valley') ? cur.a : null;
+  switch (kind) {
+    case 'pitch':
+    case 'degrees':
+    case 'percent':
+      return { kind, value: plane && plane.kind === kind ? plane.value : 0 };
+    case 'ratio':
+      return plane?.kind === 'ratio' ? plane : { kind, rise: 0, run: 12 };
+    case 'elevation':
+      return cur?.kind === 'elevation' ? cur : { kind, from: 0, to: 0 };
+    case 'hip':
+    case 'valley':
+      return { kind, a: { kind: 'pitch', value: plane ? asPitch(plane) : 0 }, ...(cur && (cur.kind === 'hip' || cur.kind === 'valley') && cur.b ? { b: cur.b } : {}) };
+  }
+}
+
+/**
+ * A measurement's slope: its kind (Hip and Valley for runs only) and the numbers it takes. An area
+ * with elevations needs the run they are over; without it the area stays flat, and the row says so.
+ */
+function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; update: (patch: Partial<Markup>) => void }) {
+  if (!isMeasureKind(m.type)) return null;
+  const kind = m.type;
+  const slope = m.slope;
+  const kinds = SLOPE_KINDS.filter((k) => slopeApplies(kind, slopeOfKind(k.value, undefined)));
+  const set = (next: Slope | undefined) => update({ slope: next });
+  const num = (label: string, value: number | undefined, commit: (v: number | undefined) => void, opts: { optional?: boolean; placeholder?: string; signed?: boolean } = {}) => (
+    <input
+      key={`${m.id}:${label}:${value ?? ''}`}
+      type="number"
+      step="any"
+      min={opts.signed ? undefined : 0}
+      aria-label={label}
+      title={label}
+      placeholder={opts.placeholder}
+      defaultValue={value === undefined || (!opts.signed && !value) ? '' : value}
+      disabled={readOnly}
+      style={{ width: 64 }}
+      onBlur={(e) => {
+        const text = e.target.value.trim();
+        if (!text) {
+          if (opts.optional && value !== undefined) commit(undefined);
+          else if (!opts.optional && value) commit(0);
+          return;
+        }
+        const v = Number(text);
+        if (Number.isFinite(v) && (opts.signed || v >= 0) && v !== value) commit(v);
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+  return (
+    <>
+      <Row label="Slope" title="Measured on plan; the slope gives the true length or area">
+        <select value={slope && slopeApplies(kind, slope) ? slope.kind : ''} disabled={readOnly} aria-label="Slope kind" onChange={(e) => set(e.target.value ? slopeOfKind(e.target.value as Slope['kind'], slope) : undefined)}>
+          <option value="">None</option>
+          {kinds.map((k) => (
+            <option key={k.value} value={k.value}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+        {slope && (slope.kind === 'pitch' || slope.kind === 'degrees' || slope.kind === 'percent') && (
+          <>
+            {num('Slope', slope.value, (v) => set({ kind: slope.kind, value: v ?? 0 }))}
+            <span className="unit">{SLOPE_KINDS.find((k) => k.value === slope.kind)!.unit}</span>
+          </>
+        )}
+        {slope?.kind === 'ratio' && (
+          <>
+            {num('Rise', slope.rise, (v) => set({ ...slope, rise: v ?? 0 }))}:{num('Run', slope.run, (v) => set({ ...slope, run: v ?? 0 }))}
+          </>
+        )}
+      </Row>
+      {slope?.kind === 'elevation' && (
+        <>
+          <Row label="From" title="Level at the start, in meters">
+            {num('From level', slope.from, (v) => set({ ...slope, from: v ?? 0 }), { signed: true })}
+            <span className="unit">m</span>
+          </Row>
+          <Row label="To" title="Level at the end, in meters">
+            {num('To level', slope.to, (v) => set({ ...slope, to: v ?? 0 }), { signed: true })}
+            <span className="unit">m</span>
+          </Row>
+          {QUANTITY[kind] === 'area' && (
+            <Row label="Run" title="The horizontal distance the rise happens over, in meters">
+              {num('Run', slope.run, (v) => set(v ? { ...slope, run: v } : { kind: 'elevation', from: slope.from, to: slope.to }), { optional: true })}
+              <span className="unit">m</span>
+            </Row>
+          )}
+          {slopeNeedsRun(kind, slope) && <div className="prop-note">Add the run the rise is over: until then the area stays flat.</div>}
+        </>
+      )}
+      {(slope?.kind === 'hip' || slope?.kind === 'valley') && slopeApplies(kind, slope) && (
+        <Row label="Pitches" title="The two roof planes meeting at the line, as rise per 12 (square eaves corner)">
+          {num('First pitch', asPitch(slope.a), (v) => set({ ...slope, a: { kind: 'pitch', value: v ?? 0 } }))}
+          {num('Second pitch', slope.b ? asPitch(slope.b) : undefined, (v) => set(v === undefined ? { kind: slope.kind, a: slope.a } : { ...slope, b: { kind: 'pitch', value: v } }), { optional: true, placeholder: 'same as first' })}
+          <span className="unit">:12</span>
+        </Row>
+      )}
+    </>
+  );
+}
 
 /**
  * A measurement's own properties: its other quantities (perimeter of an area, wall area of a run),
@@ -737,41 +850,7 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
           onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
         />
       </Row>
-      {m.type !== 'volume' && (
-        <Row label="Slope" title="Measured on plan; the slope gives the true length or area">
-          <select
-            value={m.slope?.kind ?? ''}
-            disabled={readOnly}
-            aria-label="Slope kind"
-            onChange={(e) => update({ slope: e.target.value ? { kind: e.target.value as Slope['kind'], value: m.slope?.value ?? 0 } : undefined })}
-          >
-            <option value="">None</option>
-            {SLOPE_KINDS.map((k) => (
-              <option key={k.value} value={k.value}>
-                {k.label}
-              </option>
-            ))}
-          </select>
-          {m.slope && (
-            <input
-              key={`${m.id}:${m.slope.kind}:${m.slope.value}`}
-              type="number"
-              step="any"
-              min={0}
-              aria-label="Slope"
-              defaultValue={m.slope.value || ''}
-              disabled={readOnly}
-              style={{ width: 64 }}
-              onBlur={(e) => {
-                const v = Number(e.target.value);
-                if (Number.isFinite(v) && v >= 0 && v !== m.slope!.value) update({ slope: { kind: m.slope!.kind, value: v } });
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-            />
-          )}
-          {m.slope && <span className="unit">{SLOPE_KINDS.find((k) => k.value === m.slope!.kind)!.unit}</span>}
-        </Row>
-      )}
+      {m.type !== 'volume' && <SlopeRows m={m} readOnly={readOnly} update={update} />}
       {canHaveCutout(m) && (
         <div className="props-actions">
           <button className="btn" disabled={readOnly || !tools || m.locked} onClick={() => tools?.startCutout(m.id)} title="Draw a polygon inside the area to subtract it">

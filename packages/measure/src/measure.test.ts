@@ -292,3 +292,52 @@ test('smooth bulges are arcs of the circle through the vertex and its neighbours
   assert.deepEqual(smoothBulgesAt([[0, 0], [1, 0], [3, 0]], 1, false), { before: 0, after: 0 });
   assert.ok(smoothBulgesAt([[0, 0], [4, 0], [4, 4], [0, 4]], 0, true));
 });
+
+test('slopes: pitch, ratio, elevations, hips and valleys give true lengths and areas', async () => {
+  const { effectiveSlopeFactor, formatSlope, measureDetails, planValue, slopeAngle, slopeApplies, slopeFactor, slopeNeedsRun } = await import('./measure.ts');
+  type Slope = import('./measure.ts').Slope;
+  const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} ≈ ${b}`);
+  // 6/12 pitch: sqrt(1 + 0.25).
+  close(slopeFactor({ kind: 'pitch', value: 6 }), 1.118034);
+  // A free ratio, in any units: 1:4 is 3:12 is 25%.
+  close(slopeFactor({ kind: 'ratio', rise: 1, run: 4 }), Math.sqrt(1 + 1 / 16));
+  close(slopeFactor({ kind: 'ratio', rise: 1, run: 4 }), slopeFactor({ kind: 'percent', value: 25 }));
+  assert.equal(formatSlope({ kind: 'ratio', rise: 1, run: 4 }), '1:4');
+  assert.equal(slopeFactor({ kind: 'ratio', rise: 1, run: 0 }), 1);
+  // Hips: equal 6/12 pitches give sqrt(1 + t²/2); 6/12 meeting 12/12 gives sqrt(1.2).
+  const hip: Slope = { kind: 'hip', a: { kind: 'pitch', value: 6 } };
+  close(slopeFactor(hip), 1.06066);
+  close(slopeFactor({ kind: 'hip', a: { kind: 'pitch', value: 6 }, b: { kind: 'pitch', value: 12 } }), 1.095445);
+  close(slopeFactor({ kind: 'valley', a: { kind: 'pitch', value: 12 }, b: { kind: 'pitch', value: 6 } }), 1.095445);
+  close(measureValue('polylength', [[0, 0], [10, 0]], 1, { slope: hip }), 10 * Math.sqrt(1.125));
+  assert.equal(formatSlope(hip), 'Hip 6:12');
+  assert.equal(formatSlope({ kind: 'hip', a: { kind: 'pitch', value: 6 }, b: { kind: 'pitch', value: 8 } }), 'Hip 6:12/8:12');
+  close(1 / Math.cos(slopeAngle(hip)), 1.06066);
+  // Hips and valleys are runs: an area ignores them.
+  const square: [number, number][] = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  assert.equal(slopeApplies('area', hip), false);
+  assert.equal(measureValue('area', square, 1, { slope: hip }), 100);
+  // Elevations: a 10 m plan run rising 1 m is exactly sqrt(101) long, over the whole path.
+  const rise: Slope = { kind: 'elevation', from: 2, to: 3 };
+  close(measureValue('length', [[0, 0], [10, 0]], 1, { slope: rise }), 10.04988, 1e-5);
+  close(measureValue('polylength', [[0, 0], [6, 0], [6, 4]], 1, { slope: rise }), Math.sqrt(101));
+  close(effectiveSlopeFactor('length', 10, rise), Math.sqrt(101) / 10);
+  assert.equal(formatSlope({ kind: 'elevation', from: 10, to: 11.2 }), 'Δ1.20 m');
+  // An area needs the run the rise is over; without it the area stays flat and is flagged.
+  assert.equal(measureValue('area', square, 1, { slope: rise }), 100);
+  assert.equal(slopeNeedsRun('area', rise), true);
+  close(measureValue('area', square, 1, { slope: { ...rise, run: 1 } }), 100 * Math.SQRT2);
+  // The perimeter stays on plan; plan values are before the slope.
+  const d = measureDetails('area', square, 1, { slope: { kind: 'pitch', value: 12 } });
+  close(d.area!, 100 * Math.SQRT2);
+  assert.equal(d.length, 40);
+  assert.equal(planValue('area', square, 1, { slope: { kind: 'pitch', value: 12 } }), 100);
+  // Volumes are not sloped.
+  assert.equal(measureValue('volume', square, 1, { depth: 2, slope: { kind: 'pitch', value: 12 } }), 200);
+  // Slopes saved before the new kinds still load.
+  const old = JSON.parse('{"kind":"pitch","value":6}') as Slope;
+  close(measureValue('length', [[0, 0], [12, 0]], 1, { slope: old }), 12 * 1.118034, 1e-5);
+  assert.equal(formatSlope(old), '6:12');
+  assert.equal(formatSlope({ kind: 'degrees', value: 30 }), '30°');
+  assert.equal(formatSlope({ kind: 'percent', value: 8 }), '8%');
+});

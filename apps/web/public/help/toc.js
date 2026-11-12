@@ -156,6 +156,7 @@ window.HELP_TOC = [
           { id: 'measure-arc-length', title: 'Arc Length' },
           { id: 'measure-volume', title: 'Volume' },
           { id: 'cutouts', title: 'Cut a hole out of an area' },
+          { id: 'measure-slope', title: 'Slopes, pitches, hips and valleys' },
         ],
       },
       { id: 'smart-fill', title: 'Smart Fill' },
