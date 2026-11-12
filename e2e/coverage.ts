@@ -81,6 +81,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.teachMark': { spec: 'view' },
   'document.thumbnails': { spec: 'document' },
   'document.unflatten': { spec: 'document' },
+  'draw.arc': { spec: 'curve-while-drawing' },
   'edit.alignBottom': { spec: 'edit' },
   'edit.alignCenter': { spec: 'edit' },
   'edit.alignLeft': { spec: 'edit' },

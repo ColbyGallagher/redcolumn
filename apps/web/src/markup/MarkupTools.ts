@@ -114,7 +114,7 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { arcPoints, arcSplit, bulgeThrough, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -293,7 +293,8 @@ type Gesture =
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
   /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). `resume`: adding to an existing markup. `curve`: Ctrl+drag bending the segment just placed. */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState; curve?: MultiCurve }
+  /** `arcPress`: the button went down on a 3-point arc's middle click, so releasing places nothing. */
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState; curve?: MultiCurve; arcPress?: boolean }
   /** `drill`: a press on a member of the selected group, which selects just that member if it turns out to be a click. */
   | { kind: 'move'; start: Point; dx: number; dy: number; drill?: string; copy?: boolean; toggle?: string[] }
   /** Dragging a handle of the selected group's box: `t` is the stretch or turn so far, `f` the box when the drag began and `angle` the box's turn so far. */
@@ -392,6 +393,8 @@ export interface ToolsState {
   snap: boolean;
   /** A click-by-click measurement is in progress. */
   measuring: boolean;
+  /** 3-point arc: armed and waiting for the point on the curve ('awaitMid') or the arc's end ('awaitEnd'). */
+  arc: ArcMode;
   /** Draw hyperlink areas (they stay clickable either way). */
   showLinks: boolean;
   /** A Tool Library tool or signature in use: new markups of its type take its style, subject and image. */
@@ -415,6 +418,9 @@ export interface ToolsState {
   /** PDF text the user selected by dragging over it: it stays highlighted until they copy it, mark it or click away. */
   textSelection: { text: string; pageIndex: number } | null;
 }
+
+/** Where a 3-point arc is: off, or armed and waiting for its middle or end click (see `MarkupTools.toggleArc`). */
+export type ArcMode = 'off' | 'awaitMid' | 'awaitEnd';
 
 export interface SketchState {
   /** `segment`: a length (and angle) from `from`; `box`: a width and height from corner `from`. */
@@ -601,7 +607,7 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, toolFields: {}, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, arc: 'off', showLinks: settings.get().showHyperlinks, preset: null, toolFields: {}, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
   /** The lines of the selected PDF text (see `ToolsState.textSelection`). */
   private pickedText: Markup | null = null;
   /** Where a Tool Library copy would land, previewed under the pointer. */
@@ -715,8 +721,12 @@ export class MarkupTools implements ViewerOverlay {
 
   private setGesture(g: Gesture | null) {
     this.gesture = g;
-    // Finishing or dropping a shape lets go of what tracking had picked up.
-    if (!g) this.clearTracking();
+    // Finishing or dropping a shape lets go of what tracking had picked up, and of an arc not yet placed.
+    if (!g) {
+      this.clearTracking();
+      this.arcMid = null;
+      if (this.state.arc !== 'off') this.state = { ...this.state, arc: 'off' };
+    }
     if (g) this.sketchAnchor = null;
     const measuring = g?.kind === 'multi';
     const sketch = this.sketchState();
@@ -2038,6 +2048,11 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const g = this.gesture;
+    // A 3-point arc not yet placed is dropped; the measurement carries on.
+    if (this.state.arc !== 'off' && (!g || g.kind === 'multi')) {
+      this.setArc('off');
+      return;
+    }
     // A dragged line end goes back, and a dragged sheet back to where the store has it.
     if (g?.kind === 'guideEnd') {
       const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
@@ -2060,9 +2075,16 @@ export class MarkupTools implements ViewerOverlay {
       if (g.markup.points.length > g.resume.base) this.store?.undo();
       return;
     }
+    // The press was a 3-point arc's middle click: take just that back.
+    if (g.kind === 'multi' && g.arcPress && this.state.arc === 'awaitEnd') {
+      g.arcPress = false;
+      this.setArc('awaitMid');
+      return;
+    }
     if (g.kind === 'multi' && g.markup.points.length > 1) {
       g.markup.points = g.markup.points.slice(0, -1);
       g.curve = undefined;
+      g.arcPress = false;
       trimBulges(g.markup);
       g.down = g.markup.points.at(-1)!;
       this.refreshSketch();
@@ -2118,7 +2140,8 @@ export class MarkupTools implements ViewerOverlay {
     if (!spec || points.length < spec.min) return;
     this.store.checkpoint();
     const done = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
-    trimBulges(done, points.length - 1);
+    // An outline keeps its closing segment's bulge (a 3-point arc ended on the first vertex).
+    trimBulges(done, points.length === g.markup.points.length ? edgeCount(done) : points.length - 1);
     this.store.add(done);
     this.options.onCreated?.(done);
     if (done.type === 'space') this.options.onSpaceDrawn?.(done.id);
@@ -2217,9 +2240,54 @@ export class MarkupTools implements ViewerOverlay {
     return true;
   }
 
-  /** Backspace during a measurement removes the last placed point. */
+  /** A 3-point arc's middle click, once placed (see `toggleArc`). */
+  private arcMid: Point | null = null;
+
+  /** Whether a 3-point arc can be armed: a curving measurement is being drawn, or its tool is active. */
+  canArc(): boolean {
+    const g = this.gesture;
+    if (g?.kind === 'multi') return !g.calibrate && ARC_TYPES.has(g.markup.type);
+    return !g && isMarkupTool(this.state.tool) && ARC_TYPES.has(this.state.tool);
+  }
+
+  /**
+   * 3-point arc: arms (or disarms) the next segment as an arc. The next click is a point on the
+   * curve and the one after that the arc's end; the segment from the last vertex to the end bends
+   * through the middle point. Drawing then goes back to straight segments. Armed before the first
+   * vertex, it applies to the segment after it.
+   */
+  toggleArc() {
+    if (this.state.arc !== 'off') {
+      this.setArc('off');
+      return;
+    }
+    if (!this.canArc()) return;
+    this.setArc('awaitMid');
+  }
+
+  private setArc(arc: ArcMode, mid: Point | null = null) {
+    this.arcMid = arc === 'awaitEnd' ? mid : null;
+    if (arc !== this.state.arc) this.setState({ arc });
+    else this.viewer.invalidate();
+  }
+
+  /** The bulge of an arc from `a` through `mid` to `b`: straight when the three points do not make one. */
+  private arcBulge(a: Point, mid: Point, b: Point): number {
+    const zoom = this.viewer.zoomFor(this.page);
+    const near = (p: Point, q: Point) => Math.hypot(p[0] - q[0], p[1] - q[1]) * zoom < 2;
+    if (near(a, mid) || near(mid, b) || near(a, b)) return 0;
+    const bulge = bulgeThroughPoint(a, b, mid);
+    // Nearly straight snaps straight; at most three-quarters of a circle (as Ctrl-dragging).
+    return !Number.isFinite(bulge) || Math.abs(bulge) < 0.02 ? 0 : Math.max(-2.4, Math.min(2.4, bulge));
+  }
+
+  /** Backspace during a measurement removes the last placed point (a pending 3-point arc is dropped first). */
   removeLastPoint() {
     const g = this.gesture;
+    if (this.state.arc !== 'off') {
+      this.setArc('off');
+      return;
+    }
     if (g?.kind !== 'multi') return;
     if (g.resume) {
       // Only the points added since resuming go: each is one undo step.
@@ -2320,8 +2388,16 @@ export class MarkupTools implements ViewerOverlay {
     if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
-      const live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      let live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      // 3-point arc: the rubber band bends from the last vertex through the middle click to the pointer.
+      const mid = this.state.arc === 'awaitEnd' ? this.arcMid : null;
+      if (mid && hover && !g.dragRect && markup.points.length) {
+        const n = markup.points.length;
+        const bulge = this.arcBulge(markup.points[n - 1]!, mid, hover);
+        if (bulge) live = { ...live, bulges: Array.from({ length: n }, (_, i) => (i === n - 1 ? bulge : (markup.bulges?.[i] ?? 0))) };
+      }
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
+      if (this.state.arc !== 'off' && hover) drawArcMarker(ctx, mid ?? hover, zoom, !!mid);
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
@@ -2944,9 +3020,43 @@ export class MarkupTools implements ViewerOverlay {
       if (g?.kind === 'multi') {
         const { markup } = g;
         const first = markup.points[0]!;
+        const arc = e.button === 0 && !g.calibrate && ARC_TYPES.has(markup.type) ? this.state.arc : 'off';
+        // 3-point arc: this click is the point on the curve; it places no vertex.
+        if (arc === 'awaitMid') {
+          g.arcPress = true;
+          g.down = p;
+          g.hover = p;
+          this.setArc('awaitEnd', p);
+          this.clearTracking();
+          return true;
+        }
         const closes = !!spec.closes && markup.points.length >= 3 && Math.hypot(p[0] - first[0], p[1] - first[1]) * this.viewer.zoomFor(this.page) <= snapPx();
         if (closes) {
+          // An arc ended on the first vertex bends the closing segment.
+          if (arc === 'awaitEnd' && this.arcMid) {
+            const n = markup.points.length;
+            const bulge = this.arcBulge(markup.points[n - 1]!, this.arcMid, first);
+            if (bulge) markup.bulges = Array.from({ length: n }, (_, i) => (i === n - 1 ? bulge : (markup.bulges?.[i] ?? 0)));
+          }
           this.finish();
+          return true;
+        }
+        if (arc === 'awaitEnd' && this.arcMid) {
+          // The arc's end: the segment arriving here bends through the middle click.
+          const bulge = this.arcBulge(markup.points.at(-1)!, this.arcMid, p);
+          markup.points = [...markup.points, p];
+          const last = markup.points.length - 2;
+          if (bulge || markup.bulges) markup.bulges = Array.from({ length: last + 1 }, (_, i) => (i === last ? bulge : (markup.bulges?.[i] ?? 0)));
+          trimBulges(markup);
+          g.curve = undefined;
+          g.down = p;
+          g.arcPress = true;
+          this.setArc('off');
+          this.commitResumed(g);
+          // A resumed markup lives in the store: the arc goes with its point (same undo step).
+          if (g.resume && this.store) this.store.update(g.resume.id, { bulges: markup.bulges ? [...markup.bulges] : undefined });
+          this.clearTracking();
+          this.refreshSketch();
           return true;
         }
         // Ctrl-press and drag away from the new point bends the segment arriving at it (see MultiCurve).
@@ -3255,7 +3365,7 @@ export class MarkupTools implements ViewerOverlay {
         g.markup.bulges = bulges;
         g.hover = null;
       } else {
-        const rect = e.buttons & 1 ? this.dragRectCorners(g, pt, e) : null;
+        const rect = e.buttons & 1 && !g.arcPress ? this.dragRectCorners(g, pt, e) : null;
         g.dragRect = rect ?? undefined;
         g.hover = rect ? rect[2]! : this.resolve(pt, e, g.markup.points.at(-1)!);
       }
@@ -3428,6 +3538,11 @@ export class MarkupTools implements ViewerOverlay {
         // A resumed markup lives in the store: keep the curve with the point it was placed with (same undo step).
         if (g.resume && this.store && g.markup.bulges) this.store.update(g.resume.id, { bulges: [...g.markup.bulges] });
         this.viewer.invalidate();
+        return;
+      }
+      // A 3-point arc's click places what it places on the press; releasing adds nothing.
+      if (g.arcPress) {
+        g.arcPress = false;
         return;
       }
       // Area, Volume, Perimeter and Cutout: press, drag and release makes a rectangle in one motion.
@@ -4835,6 +4950,19 @@ function drawPopup(ctx: CanvasRenderingContext2D, m: Markup, zoom: number) {
 function canEditVertices(m: Markup): boolean {
   const click = CLICK_SHAPES[m.type];
   return TYPE_INFO[m.type].handles === 'vertices' && !!click && !click.fixed && m.type !== 'count';
+}
+
+/** A 3-point arc's marker: a small ring at the pointer while waiting for the curve point, a dot on it once placed. */
+function drawArcMarker(ctx: CanvasRenderingContext2D, at: Point, zoom: number, placed: boolean) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(at[0], at[1], 4 / zoom, 0, Math.PI * 2);
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.strokeStyle = '#2563eb';
+  ctx.fillStyle = placed ? '#2563eb' : 'rgba(37, 99, 235, 0.15)';
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 /** Measurements whose segments can curve. */

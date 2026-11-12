@@ -209,6 +209,8 @@ export interface CommandActions {
   cutout: () => void;
   /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
   syncExcel: () => void;
+  /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
+  toggleArc: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -307,6 +309,10 @@ export interface CommandState {
   canConnectShapes: boolean;
   /** One unlocked area or volume is selected, so Cutout knows where to cut. */
   cutoutReady: boolean;
+  /** A polylength, area, perimeter or volume is being drawn (or its tool is active), so a 3-point arc can be armed. */
+  canArc: boolean;
+  /** A 3-point arc is armed and waiting for its clicks. */
+  arcArmed: boolean;
   /** Why Cutout is disabled with the selection as it is, for its tooltip. */
   cutoutHint?: string;
 }
@@ -554,6 +560,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
+    { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),

@@ -2493,6 +2493,12 @@
   cursor: default;
 }
 
+.status-hint {
+  margin-left: 6px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
 .status-sep {
   width: 1px;
   height: 12px;

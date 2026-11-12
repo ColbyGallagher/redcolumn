@@ -61,6 +61,24 @@ export function bulgeThrough(p: Pt, q: Pt, m: Pt): number {
   return (2 * h) / c;
 }
 
+/**
+ * The bulge of the circular arc from `p` to `q` that passes exactly through `m`, anywhere along it
+ * (a 3-point arc). The angle the chord makes at `m` is π − θ/2, so the bulge tan(θ/4) is the
+ * cotangent of half that angle. 0 when the three points are (nearly) in a line; it grows without
+ * limit as `m` nears either end, so callers clamp it.
+ */
+export function bulgeThroughPoint(p: Pt, q: Pt, m: Pt): number {
+  const u: Pt = [p[0] - m[0], p[1] - m[1]];
+  const v: Pt = [q[0] - m[0], q[1] - m[1]];
+  const cross = u[0] * v[1] - u[1] * v[0];
+  const lu = Math.hypot(u[0], u[1]);
+  const lv = Math.hypot(v[0], v[1]);
+  if (lu < 1e-9 || lv < 1e-9 || Math.abs(cross) < 1e-12 * lu * lv) return 0;
+  const cot = (lu * lv + u[0] * v[0] + u[1] * v[1]) / Math.abs(cross);
+  // Same side convention as bulgeThrough: positive with m to the right of travel from p to q.
+  return cross < 0 ? cot : -cot;
+}
+
 /** An arc segment's length and the signed area between its chord and the arc. */
 export function arcSegment(p: Pt, q: Pt, bulge: number): { length: number; area: number } {
   const c = Math.hypot(q[0] - p[0], q[1] - p[1]);
