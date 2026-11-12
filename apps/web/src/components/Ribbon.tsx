@@ -1048,7 +1048,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Standards">
-              <Cmd id="document.drawingStandards" size="large" label="Drawing Standards" />
+              <Cmd id="document.setUpDrawingStandard" size="large" label="Set Up Standard" />
+              <Stack>
+                <Cmd id="document.drawingStandards" label="Drawing Standards" />
+              </Stack>
             </Group>
             <Group label="Process">
               <Cmd id="document.ocr" size="large" label="OCR" />

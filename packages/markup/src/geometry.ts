@@ -40,14 +40,19 @@ const KAPPA = 0.5522847498;
 export function markupShape(m: Markup): ShapePart[] {
   const parts = baseShape(m);
   if (resolveHatch(m.style.hatch, m.style.hatchSpec) && parts[0] && isClosed(m)) {
-    parts.push({
+    const outline = parts[0];
+    const hatch: ShapePart = {
       path: [],
       stroke: false,
       fill: null,
-      clip: parts[0].path,
-      evenOdd: parts[0].evenOdd,
+      clip: outline.path,
+      evenOdd: outline.evenOdd,
       hatch: { id: m.style.hatch!, scale: m.style.hatchScale ?? 100, color: m.style.hatchColor ?? m.style.stroke, ...(m.style.hatchSpec ? { spec: m.style.hatchSpec } : {}) },
-    });
+    };
+    // As Revu draws it, the hatch goes over the fill but under the border, so it never runs into the
+    // line: the outline's fill, then the hatch, then the outline's stroke.
+    if (outline.stroke) parts.splice(0, 1, { ...outline, stroke: false }, hatch, { ...outline, fill: null });
+    else parts.splice(1, 0, hatch);
   }
   return parts;
 }
