@@ -11,7 +11,13 @@ Many sheets have details drawn at a different scale from the main plan. A **view
 3. Drag a box around the detail.
 4. Set the viewport's scale in its row in the panel, **or** click **Calibrate** and draw a line of known length inside the box.
 
+You can also start a viewport with {{Edit > Create Viewport}}, or by searching for **Create Viewport**. On the Measure tab it is next to Calibrate.
+
 Repeat for each detail. The page's own scale is used everywhere outside the boxes.
+
+## A different scale up and down
+
+Some details are drawn stretched, for example a long section with the vertical scale exaggerated. Tick **Separate Y scale** in the viewport's row, then pick the scale across (X) and the scale up and down (Y). Lengths measured at an angle use both. Untick it to go back to one scale.
 
 ## Change or remove a viewport
 

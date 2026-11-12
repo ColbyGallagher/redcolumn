@@ -20,6 +20,7 @@ import {
   scaleEquation,
   scaleFromParts,
   scaleParts,
+  yScaleLabel,
   type LengthUnit,
   type MeasureKind,
   type PaperUnit,
@@ -27,7 +28,7 @@ import {
 } from '@nb/measure';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { shortcutLabel } from '../commands/shortcuts';
-import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
+import { SCALE_GROUPS, unitsFor, useSettings, type UnitSystem } from '../settings/settings';
 import { formatNumber } from '../columns/listColumns';
 import type { RollupRow } from '../assemblies/quantities';
 import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
@@ -803,6 +804,49 @@ function AssemblyPicker({
   );
 }
 
+/** A scale picked from the saved ones and the presets, shown by its label. */
+function ScaleSelect({
+  label,
+  ariaLabel,
+  disabled,
+  saved,
+  system,
+  onPick,
+}: {
+  label: string;
+  ariaLabel: string;
+  disabled: boolean;
+  saved: readonly { label: string; scale: Scale }[];
+  system: UnitSystem;
+  onPick: (scale: Scale) => void;
+}) {
+  const known = SCALE_PRESETS.some((p) => p.label === label) || saved.some((s) => s.label === label);
+  return (
+    <select
+      value={known ? label : ''}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onChange={(e) => {
+        const preset = SCALE_PRESETS.find((p) => p.label === e.target.value) ?? saved.find((x) => x.label === e.target.value);
+        const next = preset && 'scale' in preset ? preset.scale : undefined;
+        if (next) onPick(next);
+      }}
+    >
+      {!known && <option value="">{label}</option>}
+      {saved.map((s) => (
+        <option key={s.label} value={s.label}>
+          {s.label}
+        </option>
+      ))}
+      {SCALE_PRESETS.filter((p) => SCALE_GROUPS[system].includes(p.group) || p.label === label).map((p) => (
+        <option key={p.label} value={p.label}>
+          {p.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function Viewports({
   viewports,
   allViewports,
@@ -847,28 +891,37 @@ function Viewports({
               }}
               onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
             />
-            <select
-              value={SCALE_PRESETS.some((p) => p.label === v.scale.label) || saved.some((s) => s.label === v.scale.label) ? v.scale.label : ''}
-              aria-label="Viewport scale"
+            <ScaleSelect
+              label={v.scale.label}
+              ariaLabel={v.scale.yMetersPerPoint != null ? 'Viewport X scale' : 'Viewport scale'}
               disabled={!actions}
-              onChange={(e) => {
-                const preset = SCALE_PRESETS.find((p) => p.label === e.target.value) ?? saved.find((s) => s.label === e.target.value);
-                const next = preset && 'scale' in preset ? preset.scale : undefined;
-                if (next) actions?.update({ ...v, scale: next });
-              }}
-            >
-              {!SCALE_PRESETS.some((p) => p.label === v.scale.label) && !saved.some((s) => s.label === v.scale.label) && <option value="">{v.scale.label}</option>}
-              {saved.map((s) => (
-                <option key={s.label} value={s.label}>
-                  {s.label}
-                </option>
-              ))}
-              {SCALE_PRESETS.filter((p) => SCALE_GROUPS[system].includes(p.group) || p.label === v.scale.label).map((p) => (
-                <option key={p.label} value={p.label}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+              saved={saved}
+              system={system}
+              // A separate Y scale stays when X is changed.
+              onPick={(next) => actions?.update({ ...v, scale: v.scale.yMetersPerPoint != null ? { ...next, yMetersPerPoint: v.scale.yMetersPerPoint } : next })}
+            />
+            <label className="ms-vp-sepy" title="Scale the viewport differently up and down than across">
+              <input
+                type="checkbox"
+                checked={v.scale.yMetersPerPoint != null}
+                disabled={!actions}
+                onChange={(e) => {
+                  const { yMetersPerPoint: _y, ...x } = v.scale;
+                  actions?.update({ ...v, scale: e.target.checked ? { ...x, yMetersPerPoint: x.metersPerPoint } : x });
+                }}
+              />
+              Separate Y scale
+            </label>
+            {v.scale.yMetersPerPoint != null && (
+              <ScaleSelect
+                label={yScaleLabel(v.scale) ?? v.scale.label}
+                ariaLabel="Viewport Y scale"
+                disabled={!actions}
+                saved={saved}
+                system={system}
+                onPick={(next) => actions?.update({ ...v, scale: { ...v.scale, yMetersPerPoint: next.metersPerPoint } })}
+              />
+            )}
           </div>
         ))}
       </div>

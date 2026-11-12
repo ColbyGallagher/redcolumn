@@ -347,6 +347,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="edit.alignPoints" />
               <Cmd id="edit.stretch" />
               <Cmd id="edit.scaleToLength" />
+              <Cmd id="edit.createViewport" />
               <Sep />
               <Cmd id="edit.arrayPolar" />
               <Cmd id="edit.arrayPath" />
@@ -364,6 +365,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.snapshot" />
             <Cmd id="edit.formatPainter" />
             <Cmd id="edit.scaleToLength" />
+            <Cmd id="edit.createViewport" />
             <Cmd id="edit.group" />
             <Cmd id="edit.ungroup" />
             <Cmd id="edit.lock" />
