@@ -309,6 +309,7 @@ window.HELP_TOC = [
         title: 'Takeoff and scale',
         children: [
           { id: 'mcp-takeoff', title: 'Takeoff proposals' },
+          { id: 'ai-auto-count', title: 'AI auto count' },
           { id: 'mcp-scale', title: 'Sheet scales' },
         ],
       },

@@ -26,6 +26,9 @@ export const ASSISTANT_METHODS = [
   'list_assemblies',
   'propose_takeoff',
   'list_takeoff_proposals',
+  'find_symbol_matches',
+  'propose_counts',
+  'list_count_proposals',
   'start_comparison',
   'get_comparison',
   'report_document_changes',
@@ -451,6 +454,63 @@ const TOOLS: ToolDef[] = [
     name: 'list_takeoff_proposals',
     title: 'List takeoff proposals',
     description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
+    name: 'find_symbol_matches',
+    title: 'Find repeats of a symbol',
+    description:
+      "Finds repeats of an example symbol on one or more pages, using redcolumn's own symbol search (line work, or pixels on a scanned sheet). Give the example as the id of a markup drawn around the symbol, or as a rectangle. Returns matches with a matchId, page, bbox (PDF points) and score. The example itself is among them. It changes nothing: check the matches (get_page_image), then stage the right ones with propose_counts.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: 'Page to search (1-based). Default: the page of the example.' },
+        pages: { type: 'array', items: { type: 'integer' }, description: 'Pages to search, instead of page.' },
+        example: {
+          type: 'object',
+          description: 'The symbol to look for: { markupId } of a markup drawn around it, or { rect: { page, x, y, w, h } } in PDF points.',
+          properties: {
+            markupId: { type: 'string' },
+            rect: { type: 'object', properties: { page: { type: 'integer' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+          },
+        },
+        rotations: { type: 'boolean', description: 'Also find the symbol turned (any angle on line work; quarter turns on scans).' },
+        scales: { type: 'boolean', description: 'Also find copies drawn half to twice the size (line work only).' },
+        minScore: { type: 'number', description: 'Least score, above 0 and at most 1. Default 0.9 on line work, 0.75 on scans.' },
+        limit: { type: 'integer', description: 'Most matches returned. Default 200, at most 1000.' },
+      },
+      required: ['example'],
+    },
+    annotations: READS,
+  },
+  {
+    name: 'propose_counts',
+    title: 'Propose a count',
+    description:
+      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Takeoff Review, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
+        subject: { type: 'string', description: 'What is counted, such as "Smoke detector".' },
+        reasoning: { type: 'string', description: 'Why these matches are that symbol, for the person checking them.' },
+        matches: {
+          type: 'array',
+          description: 'matchIds, or items { page (1-based), bbox: { x, y, w, h } }. Up to 2000.',
+          items: { anyOf: [{ type: 'string' }, { type: 'object', properties: { page: { type: 'integer' }, bbox: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] } }, required: ['page', 'bbox'] }] },
+        },
+      },
+      required: ['matches', 'subject', 'reasoning'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'list_count_proposals',
+    title: 'List count proposals',
+    description: 'Lists count proposals on a drawing and where each stands: pending, approved (and by whom) or rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
   },
