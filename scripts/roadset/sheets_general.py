@@ -4,9 +4,10 @@ import math
 from reportlab.lib.colors import white
 from reportlab.lib.units import mm
 
-from .catalog import SHEETS
+from . import truth
+from .catalog import BY_KEY, SHEETS
 from .draw import *  # noqa: F401,F403
-from .geom import E0, MC00, MC01, N0, V00, V01, bearing_dms
+from .geom import CULVERT_CH, CULVERT_INV, E0, MC00, MC01, N0, V00, V01, bearing_dms
 from .titleblock import F, FB, GREY, INK, NAVY, ORANGE, RED, client_mark, text
 
 CX = (FX0 + FX1) / 2
@@ -94,7 +95,7 @@ def index_sheet(c):
         text(c, cx_ + w / 2, y - hh + 3.8, name, FB, 10, white, "c")
     y -= hh
     groups = [("cover", "index", "legend"), ("ts1", "ts2"), ("plan1", "plan2", "plan3", "plan4", "setout"),
-              ("ls1", "ls2", "ls3", "ls4", "ls01"), ("xs1", "xs2", "xs3", "xs4", "xs5")]
+              ("ls1", "ls2", "ls3", "ls4", "ls01"), ("xs1", "xs2", "xs3", "xs4", "xs5", "xs01")]
     by = {s["key"]: s for s in SHEETS}
     for g in groups:
         y -= 4.0
@@ -270,7 +271,7 @@ def _xf_level(off, xl, xr):
     return (xl if off < 0 else xr) * abs(off)
 
 
-def _typical(c, yb, title, sub, xl, xr, ex_slope, scale=18.0, note=None):
+def _typical(c, yb, title, sub, xl, xr, ex_slope, scale=18.0, note=None, mark=None):
     """One 1:50 typical section; yb is the page y of the carriageway crown at the control line."""
     XC_ = 335.0
     k = scale
@@ -357,20 +358,70 @@ def _typical(c, yb, title, sub, xl, xr, ex_slope, scale=18.0, note=None):
     pl(c, [(X(-7.2), Y(lv(-7.0)) - 3.5), (X(-8.4), Y(-1.1)), (X(-11.0), Y(-1.1))], 0.15, INK)
     text(c, X(-15.8), Y(-1.1) - 1.0, "TYPE SM2 KERB AND GUTTER", F, 7, INK)
     # titles
-    text(c, 24.0, Y(0.0) - 44.0, title, FB, 15, INK)
-    text(c, 24.0, Y(0.0) - 51.0, sub, F, 11, INK)
+    tx = _titled(c, 24.0, Y(0.0) - 44.0, "section", mark, title, sub, 15, 11, 7.0) if mark else 24.0
+    if not mark:
+        text(c, tx, Y(0.0) - 44.0, title, FB, 15, INK)
+        text(c, tx, Y(0.0) - 51.0, sub, F, 11, INK)
     if note:
         for i, ln in enumerate(note):
-            text(c, 24.0, Y(0.0) - 58.0 - i * 4.4, ln, F, 8, GREY)
+            text(c, tx, Y(0.0) - 58.0 - i * 4.4, ln, F, 8, GREY)
+
+
+def _titled(c, x, y, kind, mark, title, sub, size, sub_size, r):
+    """A drawing's title with its title bubble in front: the drawing's identifier over the sheet it
+    is referenced from. y is the title's baseline. Returns the x the title text starts at."""
+    ident, back = mark
+    bx, by = x + r, y + size * 0.3528 * 0.35 - r * 0.15
+    bb = bubble(c, bx, by, ident, BY_KEY[back]["num"], r)
+    tx = x + 2 * r + 4.0
+    text(c, tx, y, title, FB, size, INK)
+    text(c, tx, y - size * 0.47, sub, F, sub_size, INK)
+    tb = truth.text_box(tx, y, title, 0, FB, size)
+    truth.target(kind, ident, truth.union(bb, tb))
+    # the title bubble's number is the sheet the drawing is cut or called up on: a link back to it
+    truth.link(kind, "%s/%s" % (ident, BY_KEY[back]["num"]), bb, [BY_KEY[back]["page"]], ident=ident)
+    return tx
+
+
+def _headwall_elevation(c, x0, y0):
+    """Elevation E1: the culvert's upstream headwall seen from the creek, 1:100."""
+    k = 10.0
+    barrel_w, wall, h = 2.4, 0.3, 1.2
+    tw = 3 * barrel_w + 4 * wall
+    wing = 2.6
+    base = y0
+    top = base + (h + 0.6) * k
+    # wingwalls splay down to the creek banks
+    pl(c, [(x0, base), (x0 + wing * k, base), (x0 + wing * k, top), (x0, base + 0.5 * k)], 0.35, INK, close=True,
+       fill=HexColor("#E3E6EA"))
+    xr = x0 + (wing + tw) * k
+    pl(c, [(xr, base), (xr + wing * k, base), (xr + wing * k, base + 0.5 * k), (xr, top)], 0.35, INK, close=True,
+       fill=HexColor("#E3E6EA"))
+    # headwall and parapet
+    rect(c, x0 + wing * k, base, tw * k, (h + 0.6) * k, 0.4, INK, HexColor("#DDE3EA"))
+    rect(c, x0 + wing * k - 1.0, top, tw * k + 2.0, 2.5, 0.3, INK, HexColor("#C9CDD2"))
+    for i in range(3):
+        bx = x0 + (wing + wall + i * (barrel_w + wall)) * k
+        rect(c, bx, base + 0.3 * k, barrel_w * k, h * k, 0.3, DRAIN, white)
+    # creek bed and road surface beyond
+    pl(c, [(x0 - 6.0, base - 0.5), (xr + wing * k + 6.0, base - 0.5)], 0.25, INK, (2.0, 1.2))
+    pl(c, [(x0 + wing * k - 4.0, top + 6.0), (xr + 4.0, top + 6.0)], 0.4, DESIGN_RED)
+    text(c, xr + wing * k + 3.0, top + 5.0, "KESTREL ROAD (MC00) BEYOND", F, 6.5, INK)
+    text(c, xr + wing * k + 3.0, base + 2.0, "INV RL %.2f" % CULVERT_INV, F, 6.5, INK)
+    dim_h(c, x0 + wing * k, xr, base - 6.0, "%.1f" % tw, 7.5)
+    _titled(c, x0, base - 18.0, "elevation", ("E1", "plan4"), "ELEVATION E1  CULVERT UPSTREAM HEADWALL",
+            "3/2400 x 1200 RCBC AT CH %.2f   SCALE 1:100" % CULVERT_CH, 11, 8.5, 5.5)
 
 
 def typical_sheet1(c):
-    _typical(c, 440.0, "TYPICAL SECTION TS01 - KESTREL ROAD (MC00)", "NORMAL CROWN  -  CH 0 TO CH 270 AND CH 840 TO CH 1040   SCALE 1:50",
+    _typical(c, 440.0, "SECTION A-A  TYPICAL SECTION TS01 - KESTREL ROAD (MC00)", "NORMAL CROWN  -  CH 0 TO CH 270 AND CH 840 TO CH 1040   SCALE 1:50",
              -0.03, -0.03, 0.01,
+             mark=("A", "plan1"),
              note=["1. PAVEMENT TYPE P1 UNLESS NOTED.  2. KERB AND GUTTER TYPE SM2 BOTH SIDES.",
                    "3. STORMWATER DRAINAGE AT 8.6 m RIGHT, SERVICES IN VERGES AS SHOWN ON PLAN."])
-    _typical(c, 190.0, "TYPICAL SECTION TS02 - KESTREL ROAD (MC00)", "SUPERELEVATED  -  CH 340 TO CH 530 (RIGHT) AND CH 600 TO CH 790 (LEFT)   SCALE 1:50",
+    _typical(c, 190.0, "SECTION B-B  TYPICAL SECTION TS02 - KESTREL ROAD (MC00)", "SUPERELEVATED  -  CH 340 TO CH 530 (RIGHT) AND CH 600 TO CH 790 (LEFT)   SCALE 1:50",
              +0.04, -0.04, 0.0,
+             mark=("B", "plan2"),
              note=["1. FULL SUPERELEVATION 4% SHOWN FOR THE RIGHT-HAND CURVE. REVERSE FOR THE LEFT-HAND CURVE.",
                    "2. TRANSITIONS PER THE CROSSFALL BAND ON THE LONGITUDINAL SECTIONS."])
 
@@ -416,8 +467,8 @@ def typical_sheet2(c):
     pl(c, [(X(10.0), ytop - 1.8), (X(10.0), ytop + 2.0)], 0.15, INK)
     dim_h(c, X(-10.0), X(10.0), ytop + 14.0, "20.0 ROAD RESERVE", 8.5)
     text(c, X(0.0), Y(lv(2.2)) + 3.2, "3.0% FALL", FB, 7, INK, "c")
-    text(c, 24.0, Y(0.0) - 36.0, "TYPICAL SECTION TS03 - HARTLEY STREET (MC01)", FB, 14, INK)
-    text(c, 24.0, Y(0.0) - 42.5, "TWO-WAY, NO KERBSIDE PARKING   SCALE 1:50", F, 11, INK)
+    _titled(c, 24.0, Y(0.0) - 36.0, "section", ("C", "plan1"), "SECTION C-C  TYPICAL SECTION TS03 - HARTLEY STREET (MC01)",
+            "TWO-WAY, NO KERBSIDE PARKING   SCALE 1:50", 14, 11, 6.5)
 
     # --- pavement table
     tx, ty = 430.0, 562.0
@@ -445,8 +496,7 @@ def typical_sheet2(c):
     text(c, tx, y - 6.0, "THICKNESSES IN mm. SUBGRADE DESIGN CBR 5%.", F, 7.5, GREY)
 
     # --- kerb detail 1:10
-    text(c, 24.0, 318.0, "KERB AND GUTTER TYPE SM2", FB, 12, INK)
-    text(c, 24.0, 312.0, "SCALE 1:10", F, 9, INK)
+    _titled(c, 24.0, 318.0, "detail", ("3", "plan4"), "DETAIL 3  KERB AND GUTTER TYPE SM2", "SCALE 1:10", 12, 9, 6.0)
     s = 100.0
     ox, oy = 60.0, 250.0
     outline = [(ox, oy), (ox + 0.60 * s, oy), (ox + 0.60 * s, oy + 0.20 * s), (ox + 0.45 * s, oy + 0.20 * s),
@@ -459,8 +509,7 @@ def typical_sheet2(c):
     text(c, ox, oy - 14.0, "GUTTER FALL 5%", F, 6.8, INK)
 
     # --- pipe trench 1:20
-    text(c, 190.0, 318.0, "STORMWATER TRENCH DETAIL", FB, 12, INK)
-    text(c, 190.0, 312.0, "SCALE 1:20", F, 9, INK)
+    _titled(c, 190.0, 318.0, "detail", ("1", "plan1"), "DETAIL 1  STORMWATER TRENCH", "SCALE 1:20", 12, 9, 6.0)
     ox, oy = 255.0, 230.0
     s20 = 50.0
     pl(c, [(ox - 1.1 * s20, oy + 1.3 * s20), (ox - 0.7 * s20, oy + 1.3 * s20), (ox - 0.7 * s20, oy), (ox + 0.7 * s20, oy),
@@ -474,8 +523,7 @@ def typical_sheet2(c):
     dim_h(c, ox - 0.7 * s20, ox + 0.7 * s20, oy - 6.0, "OD + 600", 7.5)
 
     # --- path detail
-    text(c, 440.0, 318.0, "SHARED PATH DETAIL", FB, 12, INK)
-    text(c, 440.0, 312.0, "SCALE 1:20", F, 9, INK)
+    _titled(c, 440.0, 318.0, "detail", ("2", "plan3"), "DETAIL 2  SHARED PATH", "SCALE 1:20", 12, 9, 6.0)
     ox, oy = 450.0, 270.0
     pl(c, [(ox, oy), (ox + 3.0 * s20, oy), (ox + 3.0 * s20, oy + 0.1 * s20), (ox, oy + 0.1 * s20)], 0.35, INK, close=True,
        fill=HexColor("#D5D8DC"))
@@ -527,6 +575,8 @@ def typical_sheet2(c):
             text(c, x + 2.0, y - 6.2, v, F, 7.4, INK, max_w=w - 3.5)
             x += w
         y -= 9.0
+
+    _headwall_elevation(c, 340.0, 55.0)
 
 
 # ================================================================== setout tables
