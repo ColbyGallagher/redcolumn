@@ -714,7 +714,32 @@ export class TileViewer {
     }
   }
 
-  goToPage(index: number) {
+  /**
+   * Shows a page. With `keepView`, a page the same size as the current one opens at the same zoom and
+   * on the same part of the sheet (the same stair on the next floor); any other page opens as usual.
+   */
+  goToPage(index: number, keepView = false) {
+    const keep = keepView ? this.viewToKeep(index) : null;
+    this.showTarget(index);
+    if (!keep) return;
+    const [x, y] = this.pageToWorld(this.pageIndex, keep.point);
+    this.zoom = keep.zoom;
+    this.panX = this.canvas.clientWidth / 2 - x * keep.zoom;
+    this.panY = this.canvas.clientHeight / 2 - y * keep.zoom;
+    this.invalidate();
+  }
+
+  /** The zoom and the page point at the centre of the view, when `index` is a page of the same size. */
+  private viewToKeep(index: number): { zoom: number; point: PagePoint } | null {
+    if (!this.doc || this.mode === 'stitch' || index === this.pageIndex) return null;
+    const from = this.doc.pages[this.pageIndex];
+    const to = this.doc.pages[index];
+    if (!from || !to || Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    return { zoom: this.zoom, point: this.clientToPage(rect.left + this.canvas.clientWidth / 2, rect.top + this.canvas.clientHeight / 2) };
+  }
+
+  private showTarget(index: number) {
     if (!this.doc) return;
     if (this.mode === 'continuous') {
       this.pageIndex = Math.max(0, Math.min(this.doc.pages.length - 1, index));
