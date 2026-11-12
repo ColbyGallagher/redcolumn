@@ -7449,6 +7449,115 @@ tr.hidden-markup td {
   padding-left: 18px;
 }
 
+/* Estimating: Items, Product Lists, Takeoff Templates, the Formula Builder and assembly inputs. */
+.modal.columns-dialog.estimating-dialog {
+  width: min(1400px, calc(100vw - 32px));
+  gap: 8px;
+  padding: 16px;
+}
+
+.estimating-dialog .columns-body {
+  grid-template-columns: 220px 1fr;
+}
+
+.est-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.est-toolbar .grow,
+.asm-inputs-dialog .spacer {
+  flex: 1;
+}
+
+.est-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.est-table td,
+.est-table th {
+  white-space: nowrap;
+}
+
+.est-table td.empty {
+  padding: 12px 4px;
+  color: var(--muted);
+}
+
+.formula-builder .fb-status {
+  min-height: 20px;
+  font-size: 12px;
+}
+
+.fb-ops {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.fb-ops .btn {
+  min-width: 30px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.fb-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.fb-functions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.fb-functions li {
+  padding: 2px 0;
+}
+
+.asm-inputs {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.asm-inputs th {
+  padding: 2px 8px 2px 0;
+  font-weight: normal;
+  text-align: left;
+}
+
+.asm-inputs td {
+  padding: 2px 0;
+}
+
+.asm-inputs-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  padding: 16px;
+}
+
+.asm-inputs-dialog .actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ms-asm-inputs {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+
 /* ---- Drawing standards setup wizard (components/standardsWizard): instructions left, sheet right. */
 .standards-wizard {
   position: fixed;

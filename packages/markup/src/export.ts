@@ -25,6 +25,7 @@ import { importViewports } from './bluebeam';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
+import type { Estimating } from './estimating';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
@@ -37,6 +38,8 @@ import { toPdfDict } from './pdfValue';
 const APP_DATA_KEY = 'NBData';
 /** The catalog key the document's assemblies are kept under (read back by `readPdfExtras`). */
 export const ASSEMBLIES_KEY = 'NBAssemblies';
+/** The catalog key the document's catalog items, product lists and takeoff templates are kept under, as JSON. */
+export const ESTIMATING_KEY = 'NBEstimating';
 
 /** Affine [a b c d e f] mapping page space (top-left, y down, rotated) to PDF user space. */
 export type Matrix = [number, number, number, number, number, number];
@@ -1807,6 +1810,17 @@ function writeAssemblies(doc: PDFDocument, assemblies: readonly Assembly[]) {
   if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
 }
 
+/** The document's items, product lists and templates as JSON in the catalog; none of any removes it. */
+function writeEstimating(doc: PDFDocument, est: Estimating) {
+  const key = PDFName.of(ESTIMATING_KEY);
+  if (!est.items.length && !est.productLists.length && !est.templates.length) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify({ items: est.items, productLists: est.productLists, templates: est.templates });
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
 /** A new Space in its page's /BSISpaces, the entry Bluebeam's Spaces panel lists. */
 function addSpace(doc: PDFDocument, page: PDFPage, matrix: Matrix, m: Markup) {
   const entry = doc.context.obj({
@@ -1964,6 +1978,8 @@ export interface ExportOptions {
   statuses?: readonly MarkupStatusDef[];
   /** The document's assemblies, kept in the catalog's /NBAssemblies; unset leaves the file's own as they are. */
   assemblies?: readonly Assembly[];
+  /** The document's catalog items, product lists and takeoff templates, kept in /NBEstimating; unset leaves the file's own. */
+  estimating?: Estimating;
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -2136,6 +2152,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
   const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
   if (options.assemblies) writeAssemblies(doc, options.assemblies);
+  if (options.estimating) writeEstimating(doc, options.estimating);
   if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }

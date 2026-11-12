@@ -1,6 +1,6 @@
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -248,6 +248,8 @@ export interface ToolBarProps {
   onRedo: () => void;
   /** The toolbar's display options (ribbon or simplified), at its right-hand end. */
   toolbarMenu?: ReactNode;
+  /** Takeoff › Templates: the document's takeoff templates (the library's are read when the menu opens), and arming one. */
+  takeoffTemplates?: { document: readonly TakeoffTemplate[]; onUse: (t: TakeoffTemplate) => void } | null;
 }
 
 export function toolTitle(tool: Tool) {

@@ -369,6 +369,13 @@ export interface ToolPreset {
   layer?: string;
   /** Measurements: the slope the markups it places get (Takeoff › Hip and Valley). */
   slope?: Slope;
+  /** Measurements: the depth (metres) the markups it places get (a takeoff template's). */
+  depth?: number;
+  /** Measurements: the assembly, and its inputs, the markups it places are taken off as (a takeoff template's). */
+  assemblyId?: string;
+  assemblyInputs?: Record<string, number>;
+  /** The takeoff template it was armed from, to show which one is armed. */
+  takeoffTemplateId?: string;
   /** Signature image (data URL) and its width / height. */
   image?: string;
   aspect?: number;
@@ -555,7 +562,7 @@ export interface MarkupToolsOptions {
   /** File name and page label for a stamp's {File} and {Page} fields. */
   stampValues?: (pageIndex: number) => { file: string; page: string };
   /** Subject, label and assembly the Measurements panel applies to the next measurement. */
-  measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string };
+  measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string; assemblyInputs?: Record<string, number> };
   /** The typed quantity the Manual Quantity command armed for the next click; null when none (the click places nothing). */
   manualQuantity?: () => { manual: ManualQuantity; subject?: string; assemblyId?: string } | null;
   /** A manual quantity was placed (or the click was refused): the command is done. */
@@ -3993,7 +4000,10 @@ export class MarkupTools implements ViewerOverlay {
       ...(preset?.subject ? { subject: preset.subject } : drawnDefaults?.subject ? { subject: drawnDefaults.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
       ...(drawnDefaults?.label ? { text: drawnDefaults.label } : {}),
       ...(typed ? { manual: typed.manual, subject: typed.subject || 'Manual', ...(typed.assemblyId ? { assemblyId: typed.assemblyId } : {}) } : {}),
-      ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId } : {}),
+      ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId, ...(drawnDefaults.assemblyInputs ? { assemblyInputs: { ...drawnDefaults.assemblyInputs } } : {}) } : {}),
+      // A takeoff template's assembly and depth win over the panel's defaults.
+      ...(preset?.assemblyId && isMeasureKind(type) && type !== 'angle' ? { assemblyId: preset.assemblyId, ...(preset.assemblyInputs ? { assemblyInputs: { ...preset.assemblyInputs } } : {}) } : {}),
+      ...(preset?.depth && isMeasureKind(type) && type !== 'angle' ? { depth: preset.depth } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),
       ...(preset?.signature ? { signature: preset.signature } : {}),
@@ -4002,6 +4012,7 @@ export class MarkupTools implements ViewerOverlay {
       ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
       ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
+    if (preset?.assemblyId && !preset.assemblyInputs) delete markup.assemblyInputs;
     return Object.assign(markup, this.toolFieldsFor(markup, preset));
   }
 

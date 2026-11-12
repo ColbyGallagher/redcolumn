@@ -240,3 +240,44 @@ test('a quantity set by hand stands in for the formula, with waste and rounding 
   assert.deepEqual(rows.map((r) => [r.item, r.setByHand, r.measurements]), [['Studs', 1, 2], ['Board', 0, 2]]);
   assert.match(rollupToCsv(rows, 'item').split('\r\n')[0]!, /,Set by hand$/);
 });
+
+test('a measurement’s inputs stand in for the variables, and a Yes/No switch is 1 or 0', () => {
+  const insulated: Assembly = {
+    id: 'ins',
+    name: 'Insulated wall',
+    variables: [
+      { name: 'Height', value: 8, type: 'number', unit: 'ft' },
+      { name: 'Insulated', value: 0, type: 'boolean' },
+    ],
+    items: [
+      { id: 'batts', name: 'Batts', unit: 'sf', formula: '[Length] * [Height] * [Insulated]' },
+      { id: 'board', name: 'Board', unit: 'sf', formula: 'if([Insulated] = 1, 2, 1) * [Length] * [Height]' },
+    ],
+  };
+  const plain = markup('length', [[0, 0], [10, 0]], { assemblyId: 'ins' });
+  assert.deepEqual(markupQuantities(plain, [insulated], ctx([insulated]))!.items.map((i) => i.base), [0, 80]);
+  // Inputs are matched by name, ignoring case; a Yes input of any non-zero number is 1.
+  const set = markup('length', [[0, 0], [10, 0]], { assemblyId: 'ins', assemblyInputs: { height: 10, Insulated: 5 } });
+  assert.deepEqual(markupQuantities(set, [insulated], ctx([insulated]))!.items.map((i) => i.base), [100, 200]);
+});
+
+test('linked catalog items give the quantities their name, waste, rounding and list cost', async () => {
+  const { resolveAssemblies } = await import('@nb/markup');
+  const linked: Assembly = { id: 'g', name: 'Ceiling', variables: [], items: [{ id: 'b', itemId: 'it', name: '', unit: '', formula: '[Area] / 32' }] };
+  const items = [{ id: 'it', name: 'Board', category: 'material' as const, unit: 'sheets', unitCost: 10, waste: 10, roundUp: true, listRef: { listId: 'l', recordId: 'r' } }];
+  const lists = [{ id: 'l', name: 'Supplier', columns: [{ key: 'c', label: 'Cost', type: 'number' as const }], records: [{ id: 'r', values: { c: 12.5 } }] }];
+  const [resolved] = resolveAssemblies([linked], items, lists);
+  const m = markup('area', [[0, 0], [10, 0], [10, 10], [0, 10]], { assemblyId: 'g' });
+  const [board] = markupQuantities(m, [resolved!], ctx([resolved!]))!.items;
+  // 100 sf / 32 = 3.125 sheets, +10% = 3.4375: 4 sheets at the list's 12.50.
+  assert.equal(board!.item.name, 'Board');
+  assert.equal(board!.rounded, 4);
+  assert.equal(board!.cost, 50);
+});
+
+test('a formula that gives text is a problem', () => {
+  const a: Assembly = { id: 'x', name: 'X', variables: [{ name: 'On', value: 1, type: 'boolean' }], items: [{ id: 'i', name: 'I', unit: 'ea', formula: 'IF([On], "lots", 2)' }, { id: 'j', name: 'J', unit: 'ea', formula: 'IF([On], 3, "few")' }] };
+  const p = assemblyProblems(a, [a], []);
+  assert.match(p.get('item:i') ?? '', /gives text/);
+  assert.equal(p.has('item:j'), false);
+});

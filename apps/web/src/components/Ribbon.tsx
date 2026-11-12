@@ -5,9 +5,10 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
 import { pickedSlopePatch, pickedSpec, setSlopePick, useSlopePick, type SlopePick } from '../markup/slopePicker';
-import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind } from '@nb/markup';
+import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind, type TakeoffTemplate } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
-import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
@@ -134,6 +135,10 @@ const ICONS: Record<string, ReactNode> = {
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
   'takeoff.manual': ic('M2 3.5h12v9H2z', <path d="M4.5 8h7M8 4.8v6.4" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
+  'takeoff.items': ic('M3 2.5h10v11H3zM5.5 5h5M5.5 8h5M5.5 11h3'),
+  'takeoff.productLists': ic('M2 3h12v10H2zM2 6h12M2 9.5h12M6 3v10'),
+  'takeoff.templates': ic('M2.5 2.5h7v4h-7zM2.5 9.5h7v4h-7zM12 4.5v7M10.5 10l1.5 1.5 1.5-1.5'),
+  'takeoff.saveTemplate': ic('M3 2.5h8l2 2v9H3zM5.5 2.5v3.5h4.5V2.5M5.5 13.5v-4h5v4'),
   // Hip: two roof planes meeting along a ridge-to-corner line; Valley: the inside corner.
   'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
   'takeoff.valley': ic('M1.5 4L8 13.5 14.5 4M8 13.5V4', <path d="M1.5 4h13" strokeDasharray="1.4 1.2" />),
@@ -461,6 +466,64 @@ const PICK_KINDS: { value: SlopePick['kind']; label: string; unit: string }[] = 
  * measure tool places (as the Markup Format tab's Subject, Label and Layer do), and the pitch Hip
  * and Valley arm Polylength with.
  */
+/**
+ * Takeoff › Templates: a drop-down of the document's takeoff templates and the library's; picking
+ * one arms its tool. Manage Templates… (the `takeoff.templates` command) renames, deletes,
+ * imports and exports them.
+ */
+function TemplatesMenu() {
+  const { commands, toolbar, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const c = commands.get('takeoff.templates');
+  const t = toolbar.takeoffTemplates;
+  const armed = toolbar.state.preset?.takeoffTemplateId;
+  const open = (el: HTMLElement) => {
+    if (!t) return;
+    const r = el.getBoundingClientRect();
+    const lib = loadEstimatingLibrary().templates.filter((x) => !t.document.some((d) => d.id === x.id));
+    const entry = (x: TakeoffTemplate, suffix = ''): MenuEntry => ({
+      label: `${x.name}${suffix}`,
+      checked: armed === x.id,
+      disabled: !toolbar.enabled,
+      onClick: () => {
+        t.onUse(x);
+        done();
+      },
+    });
+    const items: MenuEntry[] = [
+      ...t.document.map((x) => entry(x)),
+      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, ' (library)'))] : []),
+      ...(!t.document.length && !lib.length ? [{ label: 'No templates yet: right-click a measurement › Save as Template', disabled: true }] : []),
+      SEP,
+      {
+        label: 'Manage Templates…',
+        onClick: () => {
+          c?.run();
+          done();
+        },
+      },
+    ];
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={`btn tool rb-btn small${armed ? ' active' : ''}`}
+        data-ribbon-command="takeoff.templates"
+        disabled={!c?.enabled}
+        aria-haspopup="menu"
+        title="Takeoff templates: pick one to arm its tool with its settings and assembly"
+        onClick={(e) => open(e.currentTarget)}
+      >
+        <span className="rb-icon">{ICONS['takeoff.templates']}</span>
+        <span className="rb-label">Templates ▾</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
 function SlopePicker() {
   const { toolbar } = useContext(Ctx);
   const { tools, state, selection, enabled } = toolbar;
@@ -766,6 +829,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="tools.quantities" />
                 <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="takeoff.items" label="Items" />
+              </Stack>
+              <Stack>
+                <Cmd id="takeoff.productLists" label="Product Lists" />
+                <TemplatesMenu />
+                <Cmd id="takeoff.saveTemplate" label="Save as Template" />
               </Stack>
             </Group>
             <Group label="Auto Count">

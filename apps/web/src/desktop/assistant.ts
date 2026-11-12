@@ -955,7 +955,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
   const doc = findDocument(docs, record(params).document);
   return {
     document: doc.name,
-    assemblies: doc.store.assemblies().map((a) => ({
+    assemblies: doc.store.resolvedAssemblies().map((a) => ({
       id: a.id,
       name: a.name,
       ...(a.description ? { description: a.description } : {}),
@@ -969,7 +969,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
 function assemblyOf(doc: AssistantDocument, raw: unknown) {
   if (typeof raw !== 'string' || !raw.trim()) throw new Error('Say which assembly: its name or id from list_assemblies.');
   const wanted = raw.trim().toLowerCase();
-  const found = doc.store.assemblies().find((a) => a.id === raw || a.name.trim().toLowerCase() === wanted);
+  const found = doc.store.resolvedAssemblies().find((a) => a.id === raw || a.name.trim().toLowerCase() === wanted);
   if (!found) throw new Error(`${doc.name} has no assembly "${raw}". list_assemblies lists them.`);
   return found;
 }
@@ -1012,7 +1012,7 @@ function proposeTakeoff(docs: readonly AssistantDocument[], params: unknown) {
 
 function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknown) {
   const doc = findDocument(docs, record(params).document);
-  const assemblies = doc.store.assemblies();
+  const assemblies = doc.store.resolvedAssemblies();
   return {
     document: doc.name,
     proposals: takeoffProposals.list(doc.store.fileHash).map((p) => {

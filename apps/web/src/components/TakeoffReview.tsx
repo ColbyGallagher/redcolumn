@@ -32,7 +32,7 @@ const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, onMessage, onClose }: Props) {
   const proposals = useTakeoffProposals(store.fileHash);
   const counts = useCountProposals(store.fileHash);
-  const assemblies = store.assemblies();
+  const assemblies = store.resolvedAssemblies();
   const [show, setShow] = useState<'pending' | 'all'>('pending');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [edits, setEdits] = useState<Record<string, ApprovalEdit>>({});

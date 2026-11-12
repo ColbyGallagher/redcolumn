@@ -12,10 +12,10 @@ An assembly turns one measurement into the materials and labour it stands for. M
    |---|---|
    | **Name** | What it is called in pickers, the Markups list and the totals. |
    | **Notes** | How to measure it, what it includes. |
-   | **Variables** | Numbers its formulas use by name, such as `Stud Spacing` = `1.333` or `Wall Height` = `9`. |
+   | **Variables** | Numbers its formulas use by name, such as `Stud Spacing` = `1.333` or `Wall Height` = `9` (with an optional unit shown beside it), and **Yes/No** switches such as `Both Sides`, which count as 1 for Yes and 0 for No. These are defaults: each measurement can have its own inputs. |
    | **Items** | One row per material or task. |
 
-4. For each item, give its **quantity formula**: how much of it one measurement needs. Click the names above the table to put them into the formula.
+4. For each item, pick a **Catalog** item if it is one of your [Items](#estimating-items): the row then takes the item's name, unit, cost, waste and rounding (shown greyed; type over any of them for this assembly only). Then give its **quantity formula**: how much of it one measurement needs. Click the names above the table to put them into the formula, or click **ƒx** for the [Formula Builder](#formula-builder).
 
    | Example formula | Works out |
    |---|---|
@@ -24,8 +24,10 @@ An assembly turns one measurement into the materials and labour it stands for. M
    | `[Area] * [Thickness] / 27` | cubic yards of concrete |
    | `[Count] * 3` | three hinges a door |
    | `IF([Depth] > 0, [Depth], [Wall Height])` | the measurement's own height if it has one, else the default |
+   | `[Length] * [Wall Height] * IF([Both Sides], 2, 1) / 32` | board on one side, or both when the switch is Yes |
+   | `CONVERT([Area], "sf", "m2")` | an area in square metres on a feet scale |
 
-5. Set **Waste %**, tick **Round up** for things bought whole (sheets, boxes, lengths), and add a **Unit cost** if you want prices.
+5. Set **Waste %**, tick **Round up** for things bought whole (sheets, boxes, lengths) and, beside it, the multiple to round up to (`10` for 10 ft lengths), and add a **Unit cost** if you want prices. A formula must give a number; one that gives text is marked as a problem.
 6. Click **Save**.
 
 Formulas are written like spreadsheet formulas: see [Formulas](#formulas) for everything they can do. The window's **How to write a formula** shows the essentials.
@@ -38,6 +40,8 @@ A formula can use the measurement's **Quantity**, **Length** (an area's perimete
 
 - **Before you measure:** with nothing selected, pick an assembly under **Assembly** in the [Measurements panel](#measurements-panel). Every measurement you draw is taken off as it until you pick another.
 - **Afterwards:** select measurements and pick their assembly in the same box. Their quantities are listed under it.
+- **Inputs:** when an assembly has variables, picking it for measurements asks for their **inputs**, starting from the assembly's defaults: the wall height of these walls, whether these are lined both sides. The inputs then show under **Assembly** in the Measurements panel, where you can change them; for the next measurement, they show there as soon as you pick the assembly.
+- **With a template:** a [takeoff template](#takeoff-templates) arms a tool that gives every measurement its assembly and inputs.
 
 While a measurement's subject is empty (or still the old assembly's name) it is named after its assembly, so the list groups by it. The Markups list also has an **Assembly** column.
 
@@ -66,6 +70,6 @@ Each approval is saved on the measurement: who approved it, when, and which AI p
 
 - Assemblies are saved in the PDF, so they open with it, and everyone in a [Live Session](#sessions) shares them.
 - **Save to My Assemblies** keeps a copy in this browser. **My Assemblies ▾** brings it into any document.
-- **Export** saves them all as a file; **Import…** adds a file's assemblies to this document (one with the same name is replaced).
+- **Export** saves them all, with the document's items, product lists and takeoff templates, as one estimating file to share company-wide. **Import…** adds such a file to this document (one with the same name is replaced); it also reads assemblies files saved by earlier versions.
 
 > **Note:** Quantities depend on the scale and on your formulas. Check them against the drawings before pricing or ordering.
