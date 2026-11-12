@@ -16,7 +16,7 @@ import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
+import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
 import { daFontName, fontKeyword, fontPermissions, isNamedFont, isTrueTypeOutline, type FontKeyword } from './fonts';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
@@ -419,6 +419,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const font = ctx.fonts.get(artStandardFont({ font: family, bold, italic }));
     return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
   };
+  const fillOnly = blendsFillOnly(m);
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, measure)) {
     if (part.art) {
       ops.push(...artOps(part.art, ctx, [sr, sg, sb], artFonts));
@@ -443,6 +444,16 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       }
       continue;
     }
+    // A filled shape that blends its fill only: the fill on its own (GSF, with the blend mode), then its line.
+    if (fillOnly && part.fill && !part.decoration) {
+      const [fr, fg, fb] = rgb(part.fill);
+      ops.push('q /GSF gs', `${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`, pathOps(part.path), part.evenOdd ? 'f*' : 'f', 'Q');
+      if (!part.stroke) continue;
+      ops.push(`/GS0 gs ${dashOp(dash)}`);
+      if (style.dashArray) ops.push('0 J');
+      ops.push(pathOps(part.path), 'S');
+      continue;
+    }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
     // An exact dash pattern has flat ends, as it does in other viewers.
     if (style.dashArray) ops.push(part.decoration ? '1 J' : '0 J');
@@ -457,15 +468,18 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   ops.push('[] 0 d');
 
   const blendName = pdfBlendName(m);
-  const bm = blendName ? { BM: blendName } : {};
+  // With the fill alone blending (fillOnly), the lines and text do not: the fill and hatch carry /BM.
+  const bm = blendName && !fillOnly ? { BM: blendName } : {};
   const bmExplicit = m.style.blendMode ? bm : {};
+  const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
       GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
       GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
-      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
+      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {
@@ -1360,7 +1374,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     const target = pages[link.targetPage];
     if (!page || !target || link.status === 'rejected') continue;
     // A match of a taught mark is only a suggestion until a person keeps it.
-    if (link.status === 'review' && link.id.startsWith('mark-')) continue;
+    if (link.status === 'review' && (link.id.startsWith('mark-') || link.id.startsWith('ai-'))) continue;
     const dest = link.targetRect ? [target.ref, 'FitR', ...userRect(pageMatrix(target), link.targetRect)] : [target.ref, 'Fit'];
     const annot = doc.context.obj({
       Type: 'Annot',

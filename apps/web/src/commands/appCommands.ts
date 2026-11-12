@@ -185,6 +185,8 @@ export interface CommandActions {
   labelRegions: () => void;
   /** Document › Drawing Standards: a client's title block and drawing numbers, chosen per document. */
   drawingStandards: () => void;
+  /** Document › Set Up Drawing Standard: the step-by-step setup, in its own window. */
+  setUpDrawingStandard: () => void;
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
@@ -540,6 +542,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.scaleReview', 'Document', 'Review Sheet Scales…', a.scaleReview, doc),
     cmd('document.drawingStandards', 'Document', 'Drawing Standards…', a.drawingStandards, doc),
+    cmd('document.setUpDrawingStandard', 'Document', 'Set Up Drawing Standard…', a.setUpDrawingStandard, doc),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
     cmd('document.teachMark', 'Document', 'Teach Sheet Links…', a.teachMark, doc && s.editable),
 
