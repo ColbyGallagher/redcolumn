@@ -241,6 +241,8 @@ export function SheetView({ ref, onZoom, pageIndex, page, render, boxes, drawing
         onPointerCancel={up}
         onAuxClick={(e) => e.preventDefault()}
         data-testid="sheet-view"
+        // Where the page sits, for scripts that box a place on it: centre x, centre y, zoom (screen px per point).
+        data-view={v ? `${v.cx},${v.cy},${v.zoom}` : undefined}
       >
         <div ref={host} className="sheet-view-host" style={{ transform: interim, transformOrigin: '0 0' }} />
         {v &&

@@ -48,6 +48,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'document.cropPages': { spec: 'document' },
   'document.deletePages': { spec: 'document' },
   'document.drawingStandards': { spec: 'document' },
+  'document.setUpDrawingStandard': { spec: 'document' },
   'document.extractPages': { spec: 'document' },
   'document.flatten': { spec: 'document' },
   'document.geospatial': { spec: 'geospatial' },
