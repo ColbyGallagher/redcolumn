@@ -303,6 +303,29 @@ CULVERT_CH = 914.82
 CULVERT_INV = round(ground(*MC00.pt(CULVERT_CH)) - 0.6, 2)
 
 
+# ---- cross sections: which sheet draws which chainage on which alignment
+XS_SHEETS = {"xs%d" % n: ("MC00", [200.0 * (n - 1) + 50.0 * i for i in range(4)]) for n in range(1, 6)}
+# MC01 shares chainage values with MC00 (40 is drawn on both control lines' plans, 100 on both
+# sets of cross sections), so a chainage alone does not say which sheet it means.
+XS_SHEETS["xs01"] = ("MC01", [40.0, 60.0, 100.0, 140.0])
+
+
+def xs_page(alignment, value):
+    """The page (1-based) of the cross section at this chainage of this alignment, or None."""
+    from .catalog import BY_KEY
+    for key, (al, chs) in XS_SHEETS.items():
+        if al == alignment and any(abs(ch - value) < 1e-6 for ch in chs):
+            return BY_KEY[key]["page"]
+    return None
+
+
+def plan_pages(al, s):
+    """The plan sheets (1-based pages) whose window shows this point of an alignment."""
+    from .catalog import BY_KEY
+    x, y, _ = al.at(s)
+    return [BY_KEY["plan%d" % n]["page"] for n, (wx, wy) in WINDOWS.items()
+            if wx <= x <= wx + WIN_W and wy <= y <= wy + WIN_H]
+
 if __name__ == "__main__":
     print("MC00 length", MC00.length, "MC01 length", MC01.length)
     for e in MC00.els:
