@@ -45,6 +45,7 @@ Measurements are taken on plan. The **Slope** group turns them into their true, 
 
 ## Output
 
+- **Reports** makes quantity, detail and count reports as a PDF, an Excel workbook or CSV files ([Takeoff reports](#takeoff-reports)).
 - **Sync to Excel** keeps the Markups list in an Excel workbook ([Keep the list in a spreadsheet](#sheet-sync)). It works only in the desktop app on Windows; elsewhere it offers the download.
 - **Columns & Statuses** adds the custom columns and statuses the list and the workbook show ([Columns and custom columns](#list-columns)).
 

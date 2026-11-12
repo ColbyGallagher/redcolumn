@@ -135,6 +135,7 @@ const ICONS: Record<string, ReactNode> = {
   'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
   'takeoff.manual': ic('M2 3.5h12v9H2z', <path d="M4.5 8h7M8 4.8v6.4" />),
   'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
+  'takeoff.reports': ic('M3 1.5h8l2.5 2.5v10.5H3zM5.5 7h5M5.5 9.5h5M5.5 12h3'),
   'takeoff.items': ic('M3 2.5h10v11H3zM5.5 5h5M5.5 8h5M5.5 11h3'),
   'takeoff.productLists': ic('M2 3h12v10H2zM2 6h12M2 9.5h12M6 3v10'),
   'takeoff.templates': ic('M2.5 2.5h7v4h-7zM2.5 9.5h7v4h-7zM12 4.5v7M10.5 10l1.5 1.5 1.5-1.5'),
@@ -843,6 +844,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
             <Group label="Output">
               <Cmd id="takeoff.syncExcel" size="large" />
               <Stack>
+                <Cmd id="takeoff.reports" label="Reports" />
                 <Cmd id="tools.columns" label="Columns & Statuses" />
               </Stack>
             </Group>

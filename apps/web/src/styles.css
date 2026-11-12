@@ -5966,3 +5966,28 @@ select[size] {
   font: inherit;
   cursor: pointer;
 }
+
+.reports-dialog {
+  min-width: 420px;
+  max-width: 560px;
+}
+.reports-group {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  margin: 8px 0;
+  padding: 6px 10px;
+}
+.reports-group legend {
+  padding: 0 4px;
+  color: var(--text-muted, inherit);
+}
+.reports-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+}
+.reports-choice .muted {
+  display: block;
+  font-size: 0.85em;
+}

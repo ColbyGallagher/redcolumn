@@ -116,7 +116,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     ? {
         excel: {
           pick: (suggestedName: string) => call('excel:pick', suggestedName),
-          write: (id: string, xlsx: Uint8Array, table: (string | number)[][]) => call('excel:write', id, xlsx, table),
+          write: (id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[]) => call('excel:write', id, xlsx, table, extra),
           open: (id: string) => call('excel:open', id),
           show: (id: string) => call('excel:show', id),
         },

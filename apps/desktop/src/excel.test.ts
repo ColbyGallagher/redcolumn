@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { deflateRawSync } from 'node:zlib';
-import { asText, checkTable, ExcelLinks, LIVE_SCRIPT, sheetNames, writeWorkbook } from './excel.ts';
+import { asText, checkSheets, checkTable, ExcelLinks, LIVE_SCRIPT, sheetNames, writeWorkbook } from './excel.ts';
 
 test('checkTable keeps strings and finite numbers only', () => {
   assert.deepEqual(checkTable([['A', 1], ['b', 2.5]]), [['A', 1], ['b', 2.5]]);
@@ -138,4 +138,51 @@ test('ExcelLinks hands out IDs, never paths, and drops anything odd it is given'
   assert.match(id, /^xl-[0-9a-f]{16}$/);
   assert.equal(links.add('C:/d.xlsx'), id);
   assert.equal(links.path(id), 'C:/d.xlsx');
+});
+
+test('checkSheets accepts a few named tables and refuses the rest', () => {
+  assert.deepEqual(checkSheets(undefined), []);
+  assert.deepEqual(checkSheets([{ name: 'Quantities', table: [['A', 1]] }]), [{ name: 'Quantities', table: [['A', 1]] }]);
+  assert.throws(() => checkSheets([{ name: 'a/b', table: [['A']] }]));
+  assert.throws(() => checkSheets([{ name: 'x'.repeat(32), table: [['A']] }]));
+  assert.throws(() => checkSheets([{ name: 'Q', table: 'A' }]));
+  assert.throws(() => checkSheets('Q'));
+});
+
+test('writeWorkbook writes extra sheets live, and replaces a file holding only its own sheets', async () => {
+  const extra = [{ name: 'Quantities', table: [['Item', 'Qty'], ['=x', 2]] }];
+  let input: Record<string, unknown> | null = null;
+  const how = await writeWorkbook(
+    'C:/x/Plan.xlsx',
+    new Uint8Array([1]),
+    [['A']],
+    'Markups',
+    {
+      read: async () => workbookZip(['Markups', 'Quantities']),
+      write: locked,
+      run: async (_script, json) => {
+        input = JSON.parse(json);
+        return 'ok';
+      },
+    },
+    extra,
+  );
+  assert.equal(how, 'live');
+  assert.equal(input!.openIfClosed, false);
+  assert.deepEqual(input!.extra, [{ sheet: 'Quantities', cols: 2, rows: [['Item', 'Qty'], ["'=x", 2]] }]);
+  assert.match(LIVE_SCRIPT, /foreach \(\$t in \$targets\)/);
+  const wrote: string[] = [];
+  const file = await writeWorkbook('C:/x/Plan.xlsx', new Uint8Array([1]), [['A']], 'Markups', { read: async () => workbookZip(['Markups', 'Quantities']), write: async (p) => void wrote.push(p), run: never }, extra);
+  assert.equal(file, 'file');
+  // Without the extra sheet the workbook is no longer only ours, so it is updated through Excel.
+  let live = false;
+  await writeWorkbook('C:/x/Plan.xlsx', new Uint8Array([1]), [['A']], 'Markups', {
+    read: async () => workbookZip(['Markups', 'Quantities']),
+    write: never,
+    run: async () => {
+      live = true;
+      return 'ok';
+    },
+  });
+  assert.ok(live);
 });

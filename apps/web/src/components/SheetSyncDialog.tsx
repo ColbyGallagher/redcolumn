@@ -12,7 +12,9 @@ interface Props {
   localExcelAvailable: boolean;
   /** Running in the desktop app (on a computer without Excel sync, such as a Mac). */
   inDesktopApp: boolean;
-  onConnectLocal: (title: string) => void;
+  onConnectLocal: (title: string, quantities: boolean) => void;
+  /** Turns the Quantities sheet on or off for the connected workbook. */
+  onSetQuantities: (on: boolean) => void;
   /** Opens the workbook in Excel, or shows it in its folder. */
   onOpenLocal: () => void;
   onShowLocal: () => void;
@@ -29,8 +31,9 @@ function statusText(s: SyncStatus): string {
 }
 
 /** Keep the Markups list in an Excel workbook on this computer, updated as markups change (Windows desktop app). */
-export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onOpenLocal, onShowLocal, onSyncNow, onStop, onClose }: Props) {
+export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onSetQuantities, onOpenLocal, onShowLocal, onSyncNow, onStop, onClose }: Props) {
   const [title, setTitle] = useState(`${docName.replace(/\.pdf$/i, '')} markups`);
+  const [quantities, setQuantities] = useState(false);
   const busy = status.kind === 'syncing';
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -51,6 +54,10 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
             <p className="sheet-sync-note" role="note">
               <b>The workbook can stay open in Excel.</b> Updates go straight into it and Excel saves it. While you are typing in a cell, Excel holds the update until you finish.
             </p>
+            <label className="col-field">
+              <input type="checkbox" aria-label="Include Quantities sheet" checked={!!link.quantities} disabled={busy} onChange={(e) => onSetQuantities(e.target.checked)} /> Include a Quantities sheet
+            </label>
+            {link.quantities && <p className="hint-text">The Quantities sheet holds the Quantity Summary by Item and is replaced by each update, like the Markups sheet. Turning it off leaves the last one in the workbook.</p>}
             <p className="hint-text">Edits you make on the Markups sheet are replaced by the next update, so put your own formulas in another sheet: other sheets are kept.</p>
             <div className="actions">
               <button className="btn" onClick={onStop}>
@@ -79,12 +86,16 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
                 {status.message}
               </p>
             )}
+            <label className="col-field">
+              <input type="checkbox" aria-label="Include Quantities sheet" checked={quantities} onChange={(e) => setQuantities(e.target.checked)} /> Include a Quantities sheet
+            </label>
+            <p className="hint-text">The Quantities sheet is the Quantity Summary by Item: net, waste, order quantity and cost for every measurement with an assembly. It updates with the markups, even while the workbook is open.</p>
             <p className="hint-text">You choose the folder and file name next. The workbook updates even while it is open in Excel.</p>
             <div className="actions">
               <button className="btn" onClick={onClose}>
                 Cancel
               </button>
-              <button className="btn primary" disabled={busy || !title.trim()} onClick={() => onConnectLocal(title.trim())}>
+              <button className="btn primary" disabled={busy || !title.trim()} onClick={() => onConnectLocal(title.trim(), quantities)}>
                 Choose Workbook…
               </button>
             </div>

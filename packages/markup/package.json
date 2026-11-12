@@ -30,6 +30,7 @@
     "./xfdf": "./src/xfdf.ts",
     "./fdf": "./src/fdf.ts",
     "./bax": "./src/bax.ts",
-    "./summary": "./src/summary.ts"
+    "./summary": "./src/summary.ts",
+    "./report": "./src/report.ts"
   }
 }
