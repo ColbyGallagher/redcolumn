@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { MARKUP_LABELS, type Assembly, type Markup, type MarkupStore } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
 import { approveProposals, stateOf, takeoffProposals, useTakeoffProposals, type ApprovalEdit, type TakeoffProposal } from '../assemblies/proposals';
+import { countStateOf, useCountProposals } from '../assemblies/countProposals';
+import { CountReview } from './CountReview';
 import { cellsFor, formatNumber, type CellContext } from '../columns/listColumns';
 
 interface Props {
@@ -12,6 +14,8 @@ interface Props {
   pageLabel: (pageIndex: number) => string;
   /** Selects the measurement on the sheet and brings it into view. */
   onShow: (m: Markup) => void;
+  /** Brings a found symbol into view on its page. */
+  onShowRect: (pageIndex: number, rect: { x: number; y: number; w: number; h: number }) => void;
   onMessage: (text: string) => void;
   onClose: () => void;
 }
@@ -25,8 +29,9 @@ const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
  * approved except by a person clicking Approve; approving several at once is its own button.
  * A panel beside the sheet (not a dialog), so the measurement stays in view.
  */
-export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onMessage, onClose }: Props) {
+export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, onMessage, onClose }: Props) {
   const proposals = useTakeoffProposals(store.fileHash);
+  const counts = useCountProposals(store.fileHash);
   const assemblies = store.assemblies();
   const [show, setShow] = useState<'pending' | 'all'>('pending');
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -52,7 +57,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onMessage, on
     <aside className="takeoff-review" role="complementary" aria-label="Takeoff review">
       <header className="takeoff-review-head">
         <h3>Review AI Proposals</h3>
-        <span className="hint-text">{pending.length} waiting</span>
+        <span className="hint-text">{pending.length + counts.filter((c) => countStateOf(c, store) === 'pending').length} waiting</span>
         <span className="grow" />
         <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as 'pending' | 'all')}>
           <option value="pending">Waiting for review</option>
@@ -64,7 +69,8 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onMessage, on
       </header>
       <p className="hint-text takeoff-review-note">An AI client proposed these through the local assistant. Check each one against the drawing: nothing is added to the takeoff until you approve it.</p>
       <div className="takeoff-review-list">
-        {!shown.length && <p className="empty">{proposals.length ? 'Nothing waiting for review.' : 'No proposals yet. Ask your AI client (connected to redcolumn) to propose a takeoff.'}</p>}
+        {!shown.length && !counts.length && <p className="empty">{proposals.length || counts.length ? 'Nothing waiting for review.' : 'No proposals yet. Ask your AI client (connected to redcolumn) to propose a takeoff.'}</p>}
+        <CountReview store={store} proposals={show === 'all' ? counts : counts.filter((c) => countStateOf(c, store) === 'pending')} me={me} pageLabel={pageLabel} onShow={onShowRect} onMessage={onMessage} />
         {shown.map(({ p, m, state }) => (
           <Proposal
             key={p.id}

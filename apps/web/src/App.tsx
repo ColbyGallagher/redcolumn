@@ -49,6 +49,7 @@ import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleRev
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
+import { countProposals, countStateOf } from './assemblies/countProposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -6044,6 +6045,22 @@ export function App() {
     });
   }, [activeHash, activeOpen]);
 
+  // Count proposals an AI client staged (find_symbol_matches, then propose_counts) open the same review panel.
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => countProposals.list(activeHash).filter((p) => countStateOf(p, store) === 'pending').length;
+    let seen = waiting();
+    return countProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice('A count proposal is waiting for your review. Nothing is counted until you approve it.');
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean, cur: OpenFile | null = activeOpen, intoB: boolean = paneB): Promise<{ pageIndex: number; markups: number } | null> => {
@@ -11069,6 +11086,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onShow={(m) => selectFromList(m)}
+          onShowRect={(pageIndex, r) => {
+            const viewer = activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer;
+            if (!viewer) return;
+            viewer.goToPage(pageIndex);
+            viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, pageIndex);
+          }}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />

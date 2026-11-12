@@ -39,6 +39,7 @@ In the desktop app, an AI client on your computer (Copilot, Claude, Codex or Cur
 | `delete_markups` | Deletes markups (asks first). | [Edit and delete markups](#mcp-edit) |
 | `list_commands`, `run_command` | Finds and runs menu commands. | [Run commands](#mcp-commands), [Every command](#mcp-command-list) |
 | `list_assemblies`, `propose_takeoff`, `list_takeoff_proposals` | Suggests takeoff assemblies. | [Takeoff proposals](#mcp-takeoff) |
+| `find_symbol_matches`, `propose_counts`, `list_count_proposals` | Finds repeats of a symbol and suggests a count. | [AI auto count](#ai-auto-count) |
 | `get_sheet_info`, `propose_page_scale` | Reads and suggests sheet scales. | [Sheet scales](#mcp-scale) |
 | `get_drawing_standard`, `list_sheet_links`, `propose_sheet_links`, `propose_standard_hints` | Finishes a drawing standard's links. | [Drawing standards](#drawing-standards) |
 | `start_comparison`, `get_comparison`, `report_document_changes` | AI comparison of two revisions. | [Compare documents](#mcp-compare) |

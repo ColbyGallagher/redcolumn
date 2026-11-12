@@ -9,6 +9,7 @@ These need good vision, careful geometry, or judgement, and a wrong answer costs
 - **Reading a sheet from `get_page_image`**, such as finding match lines, working out what a symbol means, or locating a title block. Small linework is easy to misread.
 - **Stitching**: `place_match_lines`, `update_match_lines`, `set_stitch_region`. It is geometry from a picture: the ends of each line must land in the right place on both sheets, and the side that stays must be right.
 - **`propose_takeoff`.** It has to match measurements to the right assembly and give a reason you can check.
+- **`propose_counts`.** It has to judge which matches are really the symbol and give a reason you can check. `find_symbol_matches` can use a cheaper model.
 - **`propose_page_scale` and sheet scale reviews** with `get_sheet_info`. Scale is the number every measurement depends on.
 - **Placing viewports** from view titles on a busy sheet, and **placing markups at exact positions** worked out from a picture.
 - **Comparing documents** (`get_comparison`, `report_document_changes`). Matching paragraphs by meaning, not position, is subtle, and a long comparison needs a model that stays consistent across many pages of results.
