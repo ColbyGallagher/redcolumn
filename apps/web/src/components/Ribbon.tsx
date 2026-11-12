@@ -459,7 +459,25 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
   const tab: TabId = onFormat && contextual ? 'format' : baseTab;
 
+  // Picking a tool brings the Markup Format tab forward, and putting it down returns to the tab that was open
+  // before. A tab the user picks while a tool is active is theirs: it is not taken back.
+  const autoFormat = useRef(false);
+  const lastTool = useRef(toolbar.state.tool);
+  const tool = toolbar.state.tool;
+  useEffect(() => {
+    if (tool === lastTool.current) return;
+    lastTool.current = tool;
+    if (tool === 'select') {
+      if (autoFormat.current) setOnFormat(false);
+      autoFormat.current = false;
+    } else if (contextual) {
+      autoFormat.current = true;
+      setOnFormat(true);
+    }
+  }, [tool, contextual]);
+
   const pick = (id: TabId) => {
+    autoFormat.current = false;
     setOnFormat(id === 'format');
     if (id === 'format') return;
     setBaseTab(id);
