@@ -34,7 +34,12 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
     const objectNumbers: number[] = [];
     for (const entry of page.node.Annots()?.asArray() ?? []) {
       objectNumbers.push(entry instanceof PDFRef ? entry.objectNumber : 0);
-      const a = dictValue(entry);
+      let a = dictValue(entry);
+      // A turned text box (Bluebeam /Rotation): its /Rect is the turned bounds, the unturned box is its appearance's /BBox.
+      if (a && a.Rotation !== undefined && entry) {
+        const box = apBBox(ctx, entry);
+        if (box) a = { ...a, APBBox: box };
+      }
       annots.push(a);
       const image = refNum(a?.Image);
       if (image !== null && !images.has(image)) {
@@ -69,6 +74,24 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
   const estimating = readEstimating(str(value(doc.catalog.get(PDFName.of(ESTIMATING_KEY)), ESTIMATING_KEY, 0)));
   return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}) };
+}
+
+/** The /BBox of an annotation's normal appearance stream, or null. */
+function apBBox(ctx: PDFDocument['context'], entry: PDFObject): number[] | null {
+  try {
+    const annot = entry instanceof PDFRef ? ctx.lookup(entry) : entry;
+    if (!(annot instanceof PDFDict)) return null;
+    const ap = annot.lookup(PDFName.of('AP'));
+    if (!(ap instanceof PDFDict)) return null;
+    const n = ap.lookup(PDFName.of('N'));
+    const d = n instanceof PDFRawStream ? n.dict : null;
+    const bb = d?.lookup(PDFName.of('BBox'));
+    if (!(bb instanceof PDFArray)) return null;
+    const v = bb.asArray().map((x) => (ctx.lookup(x) instanceof PDFNumber ? (ctx.lookup(x) as PDFNumber).asNumber() : NaN));
+    return v.length === 4 && v.every(Number.isFinite) ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 function readEstimating(json: string | null): Estimating | null {
