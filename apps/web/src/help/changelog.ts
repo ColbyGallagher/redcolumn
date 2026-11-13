@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.20',
+    date: '2026-11-13',
+    items: [
+      'Takeoff tab: sloped measurements, 3-point arcs, manual quantities, estimating and reports (PDF, Excel, CSV)',
+      'Drawing standards setup wizard in its own window',
+      'MCP auto count: find symbol matches and propose counts',
+      'Viewports: separate Y scale and a Create Viewport command',
+      'Tool Library: Comment and Label columns, read and written for .btx',
+      'Columns: import Bluebeam custom columns XML',
+      'Thumbnails fill as many columns as the panel fits and keep zoom on same-size pages',
+      'Double-click the middle mouse button to zoom to extents',
+      'Bluebeam rotated text boxes keep their rotation on import',
+      'Fixes: layer visibility, hatch order, blend mode on fills, Linux middle-click paste',
+    ],
+  },
+  {
     version: '0.1.19',
     date: '2026-11-09',
     items: [
