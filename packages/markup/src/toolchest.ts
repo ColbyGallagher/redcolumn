@@ -1,4 +1,4 @@
-import { MARKUP_LABELS, type Attachment, type Markup, type MarkupStyle, type MarkupType } from './model';
+import { MARKUP_LABELS, isMeasureKind, type Attachment, type Markup, type MarkupStyle, type MarkupType } from './model';
 import type { Dropped } from './diagnostics';
 import { mimeOf } from './import';
 import { removePredictor, rgbaToPngDataUrl, samplesToRgba } from './pdfExtras';
@@ -20,6 +20,10 @@ export interface ToolChestItem {
   name: string;
   /** Revu's Subject (what the markup list shows); often the same as the name. */
   subject: string;
+  /** Revu's Label column (its /Label): the category the tool's markups take. */
+  markupLabel?: string;
+  /** Revu's Comment column (its /Contents) for a tool whose markups carry no text of their own. */
+  comment?: string;
   /** Our equivalent tool, or null when there is none yet (symbols, sounds, ...). */
   type: MarkupType | null;
   style: MarkupStyle;
@@ -58,6 +62,9 @@ export interface RevuToolSource {
   type: MarkupType | null;
   style: MarkupStyle;
   subject: string;
+  /** The Label and Comment it was read with. */
+  label?: string;
+  comment?: string;
 }
 
 export interface ToolSet {
@@ -276,6 +283,10 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
     const sequence = seq && /true/i.test(tag(seq, 'Enabled') ?? '') ? { start: Number(tag(seq, 'Start')) || 1, increment: Number(tag(seq, 'Increment')) || 1 } : undefined;
     const subject = str(dict.Subj) || tag(body, 'Subject') || '';
     const style = type ? toolStyle(type, dict, defaults) : { ...defaults.rect };
+    // Revu's Label and Comment columns. A measurement's /Contents is its reading, not a comment. A text
+    // tool's is its words, shown as the comment; the markups it places keep them as their text.
+    const markupLabel = type ? (str(dict.Label) ?? '').trim() : '';
+    const comment = type && !isMeasureKind(type) ? (str(dict.Contents) ?? '').trim() : '';
     // A cloud with a callout child is Revu's Cloud+ (ours draws the callout itself).
     const cloudPlus = type === 'cloud' && (nm(dict.ITEx) === 'PolyText' || parts.some((c) => c.type === 'callout'));
     const self: Part = { type, dict, x: Number(tag(body, 'X')) || 0, y: Number(tag(body, 'Y')) || 0 };
@@ -305,6 +316,8 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
       id: newId('t'),
       name,
       subject: subject || name,
+      ...(markupLabel ? { markupLabel } : {}),
+      ...(comment ? { comment } : {}),
       type,
       style,
       revuType,
@@ -326,6 +339,8 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
               type,
               style: structuredClone(style),
               subject: subject || name,
+              ...(markupLabel ? { label: markupLabel } : {}),
+              ...(comment ? { comment } : {}),
             },
           }
         : {}),

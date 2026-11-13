@@ -3,6 +3,7 @@ import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, writeBhx,
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { importRevuFiles, isRevuLibraryFile, REVU_LIBRARY_ACCEPT } from '../toolchest/revuLibraries';
 import { revuToolSetFile, toolSetFile } from '../toolchest/toolSets';
+import { toolComment, toolMarkupLabel } from '../toolchest/toolColumns';
 import { RECENT_TOOLS_ID, updateWorkspace, useWorkspace, type ToolChestItem, type ToolSet } from '../workspace/profiles';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
 import { useSettings } from '../settings/settings';
@@ -474,6 +475,13 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
             </div>
             {!set.collapsed && (
               <div className={`toolset-items ${set.view === 'detail' ? 'detail' : 'icons'}`}>
+                {set.view === 'detail' && set.items.length > 0 && (
+                  <div className="tool-head" aria-hidden="true">
+                    <span>Subject</span>
+                    <span>Comment</span>
+                    <span>Label</span>
+                  </div>
+                )}
                 {set.items.map((item) => {
                   const active = presetId === item.id;
                   return naming?.itemId === item.id ? (
@@ -510,8 +518,9 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
                       <ToolPreview item={item} size={set.view === 'detail' ? 28 : 40} />
                       {set.view === 'detail' ? (
                         <span className="tool-text">
-                          <span className="tool-label">{item.label}</span>
-                          <span className="tool-type">{item.tool ? toolLabel(item.tool) : MARKUP_LABELS[item.type]}</span>
+                          <span className="tool-label">{item.subject || item.label}</span>
+                          <span className="tool-label">{toolComment(item)}</span>
+                          <span className="tool-label">{toolMarkupLabel(item)}</span>
                         </span>
                       ) : (
                         <span className="tool-caption">{item.label}</span>

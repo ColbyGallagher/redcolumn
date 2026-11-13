@@ -434,10 +434,24 @@
   text-align: left;
 }
 
-.tool-text {
-  display: flex;
-  flex-direction: column;
+.tool-text,
+.tool-head {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 6px;
   min-width: 0;
+}
+
+.tool-text {
+  flex: 1;
+}
+
+/* Column titles of the detail view; the indent clears the tool's preview. */
+.tool-head {
+  padding: 2px 6px 3px 42px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .tool-label {
