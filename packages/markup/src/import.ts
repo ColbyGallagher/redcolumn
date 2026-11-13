@@ -772,6 +772,31 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         ];
         return [{ type: 'flagLabel', points: flag, filled: true, style }];
       }
+      // Bluebeam's turned text box: /Rotation is clockwise degrees, /Rect the turned box's bounds, and
+      // the appearance's /BBox the box before turning (about the same centre).
+      const turn = num(r.Rotation);
+      const ab = nums(r.APBBox);
+      if (turn && turn % 360 !== 0 && ab.length === 4 && rect.length === 4) {
+        const ins = rd.length === 4 ? rd : [width / 2, width / 2, width / 2, width / 2];
+        const w = Math.abs(ab[2]! - ab[0]!) - ins[0]! - ins[2]!;
+        const h = Math.abs(ab[3]! - ab[1]!) - ins[1]! - ins[3]!;
+        if (w > 0 && h > 0) {
+          const c = toPage((rect[0]! + rect[2]!) / 2, (rect[1]! + rect[3]!) / 2);
+          // A turned page turns the box with it: user x and y as page-space vectors say by how much.
+          const o = toPage(0, 0);
+          const ux = toPage(1, 0);
+          const uy = toPage(0, 1);
+          const pageTurn = (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
+          const half: Point = [(w * Math.abs(ux[0] - o[0]) + h * Math.abs(uy[0] - o[0])) / 2, (w * Math.abs(ux[1] - o[1]) + h * Math.abs(uy[1] - o[1])) / 2];
+          return [{
+            type: 'text',
+            points: [[c[0] - half[0], c[1] - half[1]], [c[0] + half[0], c[1] + half[1]]],
+            filled: !!color,
+            style,
+            extra: { rotation: (((turn + pageTurn) % 360) + 360) % 360 },
+          }];
+        }
+      }
       return [{ type: 'text', points: box, filled: !!color, style }];
     }
     case 'Ink': {

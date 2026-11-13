@@ -405,6 +405,39 @@ test('a Bluebeam callout whose leader ends on the box top keeps its corner and i
   assert.deepEqual(wrapParagraph('e5yerureu', 39, (s) => s.length * 6.5), ['e5yeru', 'reu']);
 });
 
+test("Bluebeam's turned text box (/Rotation, clockwise) imports as an upright box about the same centre, turned", async () => {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595.2756, 841.8895]);
+  const ctx = doc.context;
+  const ds = 'font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt; color:#FF0000';
+  // As Revu wrote them: /Rect is the turned box's bounds; the appearance's /BBox is the box before turning.
+  const turned = (name: string, rotation: number, rect: number[], bbox: number[]) => {
+    const ap = ctx.register(ctx.stream('q Q', { Type: 'XObject', Subtype: 'Form', BBox: bbox, Matrix: [1, 0, 0, 1, 0, 0] }));
+    return ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', NM: text(name), Contents: text('TEXTBOX'), DA: text('1 0 0 rg /Helv 12 Tf'), DS: text(ds), C: [], BS: { W: 0, S: 'S' }, Rotation: rotation, Rect: rect, AP: { N: ap } }));
+  };
+  const a = turned('R315', 315, [185.4119, 745.3135, 266.4438, 826.3455], [178.6296, 775.8295, 273.226, 795.8295]);
+  const b = turned('R90', 90, [244.8549, 691.0908, 264.8549, 785.6872], [207.5567, 728.389, 302.1531, 748.389]);
+  page.node.set(PDFName.of('Annots'), ctx.obj([a, b]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const { markups } = importAnnotations(0, [a, b].map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: 'FreeText', contents: '' })), () => null, extras);
+  const [m315, m90] = markups;
+  assert.equal(m315!.rotation, 315);
+  assert.equal(m90!.rotation, 90);
+  const size = (m: Markup) => [Math.abs(m.points[1]![0] - m.points[0]![0]), Math.abs(m.points[1]![1] - m.points[0]![1])].map((v) => Math.round(v * 10) / 10);
+  assert.deepEqual(size(m315!), [94.6, 20]);
+  assert.deepEqual(size(m90!), [94.6, 20]);
+  const centre = (m: Markup) => [(m.points[0]![0] + m.points[1]![0]) / 2, (m.points[0]![1] + m.points[1]![1]) / 2].map((v) => Math.round(v * 10) / 10);
+  assert.deepEqual(centre(m315!), [225.9, 56.1]);
+  assert.deepEqual(centre(m90!), [254.9, 103.5]);
+
+  // Saved again, it carries /Rotation for the other tool.
+  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...m315!, pdfAnnot: undefined, id: 'new' }], {}));
+  const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
+  assert.equal(saved.lookup(PDFName.of('Rotation'), PDFNumber).asNumber(), 315);
+});
+
 test("another tool's file attachment shows its own appearance (icon and file name), and keeps it when moved", async () => {
   const doc = await PDFDocument.create();
   const page = doc.addPage([400, 400]);

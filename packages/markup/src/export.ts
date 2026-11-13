@@ -1154,6 +1154,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         C: fill && m.type === 'text' ? fill : [],
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
+        // Bluebeam's own key for a turned text box: clockwise degrees (its /Rect is the turned box's bounds).
+        ...(m.type === 'text' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
       };
       if (m.type === 'flagLabel') {
         // Its box reaches the flag's point; the text sits right of it (RD's left inset).
@@ -1397,7 +1399,7 @@ const countContents = (m: Markup, total: number) => (markupLabel(m) ? `${markupL
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
 /** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
-const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
+const STALE = new Set(['AP', 'AS', 'RC', 'Rotation', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
 /** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
 const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
 /** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
