@@ -146,6 +146,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'edit.scaleToLength': { spec: 'edit' },
   'edit.selectAll': { spec: 'edit' },
   'edit.selectText': { spec: 'text' },
+  'edit.createViewport': { spec: 'assistant-viewports' },
   'edit.sendBackward': { spec: 'edit' },
   'edit.sendToBack': { spec: 'edit' },
   'edit.showHidden': { spec: 'edit' },
