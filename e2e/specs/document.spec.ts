@@ -402,6 +402,7 @@ test.describe('document pages', () => {
     await expect.poll(columns).toBe(1);
     await app.page.getByLabel('Thumbnail size').fill('64');
     await expect.poll(columns).toBeGreaterThan(1);
+  });
 
   test('picking a same-size page from the thumbnails keeps the zoom and the part of the sheet in view', async ({ app }) => {
     await app.cmd('document.thumbnails');
