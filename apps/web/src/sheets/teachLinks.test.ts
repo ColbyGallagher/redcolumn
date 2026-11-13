@@ -48,7 +48,7 @@ test('background line work: lines running out of the box and dashes along them a
 });
 
 test('a section mark and its title teach the part of the number callouts cite, and the mark is then found across the set', () => {
-  const numbers = ['SBUCD-WSPAU-0001-RW-DRG-000011', 'SBUCD-WSPAU-0002-RW-DRG-000022'];
+  const numbers = ['KSTRD-ACMEA-0001-RW-DRG-000011', 'KSTRD-ACMEA-0002-RW-DRG-000022'];
   // Callouts cite the 0002 part here, not the last: the client's own habit.
   const plan = page(cut(100, 100, 'C', '0002'), cut(300, 100, 'D', '0002'));
   const sections = page(title(500, 400, 'C'), title(500, 600, 'D'));

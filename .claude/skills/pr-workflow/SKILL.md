@@ -11,6 +11,7 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 ## Checks (run before every push)
 
+- `pnpm check:client-data`: no client drawings or identifiers. The repo is public. Use fictional names and generated drawings. Never paste client project names, drawing numbers or file paths into commits, PR text or review comments: the hook only sees commits.
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI does not run it.

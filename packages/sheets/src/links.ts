@@ -1,3 +1,4 @@
+import { scoreEvidence, type EvidenceKey } from './confidence.ts';
 import { isDrawingNumberShape } from './detect.ts';
 import { templateRegex } from './standard.ts';
 import type { PageText, Word } from './types.ts';
@@ -47,6 +48,10 @@ export interface DetectedLink {
   targetRect: Rect | null;
   /** 0..1 */
   confidence: number;
+  /** What the confidence was worked out from (see confidence.ts); absent on links saved or taught before it was kept. */
+  evidence?: EvidenceKey[];
+  /** Why it was proposed, in the proposer's words (an AI assistant's reasoning); absent otherwise. */
+  note?: string;
 }
 
 /** Civil sets letter sections AA, BB, CC: the same letter twice, never two different letters (TO, OF). */
@@ -96,7 +101,7 @@ const cleanWord = (t: string) => {
 /**
  * Looks up sheet numbers the way people write them. Exact text first; then ignoring separators
  * (C-501 vs C501), but only where that is unambiguous within the set. With `short`, also the
- * last segment of a long document number (`300082` for HLD1BDD-WSPAU-0508-BR-DRG-300082), as
+ * last segment of a long document number (`300082` for KST1RDS-ACMEA-0508-BR-DRG-300082), as
  * section and detail bubbles abbreviate it; callers only allow that where the context says callout.
  */
 export class SheetLookup {
@@ -198,7 +203,7 @@ export interface LinkHints {
   titles: { section: string[]; elevation: string[]; enlargedPlan: string[] };
   /** Words that mark a sheet reference as a match line. */
   matchLine: string[];
-  /** Which part of a drawing number callouts cite (`300082` of HLD1BDD-...-300082); null: the last part. */
+  /** Which part of a drawing number callouts cite (`300082` of KST1RDS-...-300082); null: the last part. */
   calloutPart: number | null;
 }
 
@@ -242,10 +247,57 @@ function titleKinds(hints: LinkHints): (page: PageText, title: Word) => LinkKind
   };
 }
 
-/** A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH SHEET C-102`. */
+/**
+ * The words of the label around `w`, in reading order: words written the same way up (drawings
+ * turn labels to run along a match line or a road), within `reach` text heights along the line and
+ * `lines` lines either side of it. A two-line label (`MATCH LINE CH 280.000` over `ADJOINS DRG
+ * C-102`) reads as one.
+ */
+export function nearbyText(page: PageText, w: Word, reach: number, lines = 0): string {
+  const quarter = (o: Word) => ((Math.round((o.angle || 0) / (Math.PI / 2)) % 4) + 4) % 4;
+  const q = quarter(w);
+  const a = (q * Math.PI) / 2;
+  const cos = Math.round(Math.cos(a));
+  const sin = Math.round(Math.sin(a));
+  // Along the text and across it, for the word's own direction.
+  const along = (o: Word) => ((o.x0 + o.x1) / 2) * cos + ((o.y0 + o.y1) / 2) * sin;
+  const across = (o: Word) => -((o.x0 + o.x1) / 2) * sin + ((o.y0 + o.y1) / 2) * cos;
+  const half = (o: Word) => (Math.abs(cos) ? o.x1 - o.x0 : o.y1 - o.y0) / 2;
+  const u = along(w);
+  const v = across(w);
+  const lineGap = w.size * 1.5;
+  const near = page.words.filter((o) => quarter(o) === q && Math.abs(across(o) - v) <= w.size * 0.5 + lines * lineGap && Math.abs(along(o) - u) <= half(w) + half(o) + w.size * reach);
+  // Lines first (across), then along each line.
+  return near
+    .sort((x, y) => Math.round((across(x) - v) / lineGap) - Math.round((across(y) - v) / lineGap) || along(x) - along(y))
+    .map((o) => cleanWord(o.text))
+    .join(' ');
+}
+
+/**
+ * A sheet reference on a match line: `MATCH LINE SEE SHEET C-102`, `MATCHLINE STA 12+00`, `MATCH
+ * SHEET C-102`, and labels of two lines with the sheet on the second, turned to any quarter.
+ */
 function matchLines(hints: LinkHints): (page: PageText, w: Word) => boolean {
   const pattern = wordsPattern(hints.matchLine);
-  return (page, w) => !!pattern?.test(rowText(page, w, 30));
+  return (page, w) => !!pattern && (pattern.test(rowText(page, w, 30)) || pattern.test(nearbyText(page, w, 30, 1)));
+}
+
+/** Where a page's match-line labels are: the first word of each phrase that says match line, once per label. */
+export function matchLineLabels(page: PageText, hints: LinkHints = DEFAULT_LINK_HINTS): Word[] {
+  const pattern = wordsPattern(hints.matchLine);
+  if (!pattern) return [];
+  const firsts = new Set(hints.matchLine.map((p) => p.trim().toUpperCase().split(/\s+/)[0]!).filter(Boolean));
+  const out: Word[] = [];
+  for (const w of page.words) {
+    const t = cleanWord(w.text);
+    if (![...firsts].some((f) => t === f || t.startsWith(f))) continue;
+    if (!pattern.test(nearbyText(page, w, 4))) continue;
+    // One per label: a second phrase word of the same label is close by.
+    if (out.some((o) => Math.hypot((o.x0 + o.x1) / 2 - (w.x0 + w.x1) / 2, (o.y0 + o.y1) / 2 - (w.y0 + w.y1) / 2) < w.size * 6)) continue;
+    out.push(w);
+  }
+  return out;
 }
 
 /** Words that introduce a reference to another drawing: `SEE SHEET 12`, `DRG No. 680`. */
@@ -280,6 +332,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
   const lookup = new SheetLookup(sheetNumbers, hints.calloutPart);
   const isId = idTest(hints);
   const titleKind = titleKinds(hints);
+  const titleWords = (['section', 'elevation', 'enlargedPlan'] as const).map((k) => [k, wordsPattern(hints.titles[k])] as const);
   const onMatchLine = matchLines(hints);
   const links: DetectedLink[] = [];
   const weak = sheetNumbers.map((n) => !!n && !isDrawingNumberShape(n));
@@ -295,16 +348,40 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       return titleCache.get(key)!;
     };
 
-    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, confidence: number) => {
+    /**
+     * What the title beside a bubble says it titles (`SECTION A-A`, `DETAIL 3`), or null when it
+     * says nothing. The title is read in a band as high as the bubble's letter and a little more:
+     * a bubble's letter sits above its divider, the title beside it is centred on the bubble.
+     */
+    const rowKind = (on: PageText, w: Word): LinkKind | null => {
+      const k = titleKind(on, w);
+      if (k !== 'detail') return k;
+      const cy = (w.y0 + w.y1) / 2;
+      const beside = on.words
+        .filter((o) => o !== w && Math.abs((o.y0 + o.y1) / 2 - cy) < w.size * 1.1 && o.x0 >= w.x1 && o.x0 - w.x1 < w.size * 6)
+        .sort((a, b) => a.x0 - b.x0)
+        .map((o) => cleanWord(o.text))
+        .join(' ');
+      const text = `${rowText(on, w, 12)} ${beside}`;
+      return titleWords.find(([, p]) => p?.test(text))?.[0] ?? (/\bDETAIL\b/.test(text) ? 'detail' : null);
+    };
+    const add = (label: string, rect: Rect, kind: LinkKind, detail: string | null, targetPage: number, form: EvidenceKey, source?: Word) => {
       const title = detail ? resolveDetail(detail, targetPage) : null;
       const cut = detail && !title && targetPage !== pageIndex ? findCutMarker(pages[targetPage]!, detail, lookup, pageIndex) : null;
       const targetRect = title ? detailFrame(title) : cut ? cutFrame(cut) : null;
       // A detail callout whose detail cannot be found still links to the sheet, less confidently.
-      const conf = detail && !targetRect ? confidence - 0.2 : confidence;
+      const reasons: EvidenceKey[] = [form];
+      if (title) reasons.push('titleFound');
+      else if (cut) reasons.push('cutMarker');
+      else if (detail) reasons.push('noTarget');
+      if (kind === 'matchline') reasons.push('matchLineLabel');
       // What the bubble points at: the title on the target sheet says section, elevation or
-      // enlarged plan; a cut marker pointing back says section.
-      const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : cut ? 'section' : 'detail';
-      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: Math.round(conf * 100) / 100 });
+      // enlarged plan. A bubble on the target sheet pointing back is a cut mark or a title naming
+      // where it is called up: whichever of the two has a title row says what it is (DETAIL 3 is a
+      // detail), else it is a section.
+      const backKind = cut ? (rowKind(pages[targetPage]!, cut) ?? (source ? rowKind(page, source) : null) ?? 'section') : null;
+      const found: LinkKind = kind !== 'detail' ? kind : title ? titleKind(pages[targetPage]!, title) : (backKind ?? 'detail');
+      links.push({ id: stableId(pageIndex, label, rect), pageIndex, rect, label, kind: found, detail, targetPage, targetRect, confidence: scoreEvidence(reasons), evidence: reasons });
     };
 
     // 1. Stacked bubbles.
@@ -330,7 +407,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === pageIndex && resolveDetail(detailId(top.text), pageIndex) === top) continue;
       const detail = detailId(top.text);
       const pad = bottom.size * 0.5;
-      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 0.9);
+      add(`${cleanWord(top.text)}/${cleanWord(bottom.text)}`, union(wordRect(top, pad), wordRect(bottom, pad)), 'detail', detail, target, 'bubble', top);
     }
 
     for (const w of page.words) {
@@ -342,7 +419,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
         const target = lookup.find(slash[2]!);
         if (target !== null) {
           used.add(w);
-          add(text, wordRect(w, w.size * 0.3), 'detail', slash[1]!, target, 0.85);
+          add(text, wordRect(w, w.size * 0.3), 'detail', slash[1]!, target, 'slash');
         }
         continue;
       }
@@ -352,7 +429,7 @@ export function detectLinks(pages: PageText[], sheetNumbers: readonly (string | 
       if (target === null || target === pageIndex) continue;
       if (weak[target] && !introducedAsReference(page, w)) continue;
       used.add(w);
-      add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 0.8);
+      add(text, wordRect(w, w.size * 0.3), onMatchLine(page, w) ? 'matchline' : 'sheet', null, target, 'reference');
     }
   });
   return links;

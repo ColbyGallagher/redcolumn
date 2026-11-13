@@ -1,7 +1,9 @@
 import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
+import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
 import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
+import { STANDARD_METHODS, standardCall, type AssistantStandards, type StandardMethod } from './assistantStandards';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -94,6 +96,8 @@ export interface AssistantEnv {
   stitch?: AssistantStitching;
   /** Brings the AI panel into view, so a person sees a comparison the assistant started. */
   revealComparison?: () => void;
+  /** The profile's drawing standards (get_drawing_standard, propose_standard_hints). */
+  standards?: AssistantStandards;
 }
 
 /**
@@ -951,7 +955,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
   const doc = findDocument(docs, record(params).document);
   return {
     document: doc.name,
-    assemblies: doc.store.assemblies().map((a) => ({
+    assemblies: doc.store.resolvedAssemblies().map((a) => ({
       id: a.id,
       name: a.name,
       ...(a.description ? { description: a.description } : {}),
@@ -965,7 +969,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
 function assemblyOf(doc: AssistantDocument, raw: unknown) {
   if (typeof raw !== 'string' || !raw.trim()) throw new Error('Say which assembly: its name or id from list_assemblies.');
   const wanted = raw.trim().toLowerCase();
-  const found = doc.store.assemblies().find((a) => a.id === raw || a.name.trim().toLowerCase() === wanted);
+  const found = doc.store.resolvedAssemblies().find((a) => a.id === raw || a.name.trim().toLowerCase() === wanted);
   if (!found) throw new Error(`${doc.name} has no assembly "${raw}". list_assemblies lists them.`);
   return found;
 }
@@ -1008,7 +1012,7 @@ function proposeTakeoff(docs: readonly AssistantDocument[], params: unknown) {
 
 function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknown) {
   const doc = findDocument(docs, record(params).document);
-  const assemblies = doc.store.assemblies();
+  const assemblies = doc.store.resolvedAssemblies();
   return {
     document: doc.name,
     proposals: takeoffProposals.list(doc.store.fileHash).map((p) => {
@@ -1179,6 +1183,8 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if (method === 'report_document_changes') return reportDocumentChanges(params);
   if ((STITCH_METHODS as readonly string[]).includes(method)) return stitchCall(docs, method, params, env);
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
+  if ((SYMBOL_METHODS as readonly string[]).includes(method)) return symbolCall(docs, method as SymbolMethod, params);
   if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
+  if ((STANDARD_METHODS as readonly string[]).includes(method)) return standardCall(docs, method as StandardMethod, params, env.standards);
   throw new Error('Unknown tool.');
 }

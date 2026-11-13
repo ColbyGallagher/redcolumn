@@ -37,7 +37,7 @@ extraResources:
   # not the app executable (see apps/desktop/scripts/fetch-assistant-node.mjs).
   - from: dist/assistant
     to: assistant
-# Registers redcolumn as a PDF handler. It does not become the default handler.
+# Registers redcolumn as a PDF (and DWG/DXF) handler. It does not become the default handler.
 # perMachine and any default-handler setting are left unset on purpose.
 fileAssociations:
   - ext: pdf
@@ -45,6 +45,17 @@ fileAssociations:
     description: PDF document
     role: Viewer
     mimeType: application/pdf
+  # Drawings open as PDFs converted from them (Experimental). Viewer only, never the default.
+  - ext: dwg
+    name: DWG
+    description: DWG drawing
+    role: Viewer
+    mimeType: image/vnd.dwg
+  - ext: dxf
+    name: DXF
+    description: DXF drawing
+    role: Viewer
+    mimeType: image/vnd.dxf
 # Electron fuses, flipped in the packaged binary (docs/SECURITY-HARDENING.md, E1): the app cannot be
 # run as plain Node, NODE_OPTIONS and --inspect are ignored, and only the integrity-checked
 # app.asar loads.

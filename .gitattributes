@@ -3,3 +3,5 @@
 *.png binary
 *.txt text eol=lf
 *.gif binary
+*.dxf binary
+*.dwg binary

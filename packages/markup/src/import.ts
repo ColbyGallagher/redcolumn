@@ -28,7 +28,8 @@ import {
 import { markupDigest } from './digest';
 import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
-import type { LineDash } from './style';
+import { blendModeOfPdf, effectiveBlendMode, type LineDash } from './style';
+import { familyFromPdfName } from './fonts';
 import type { Viewport } from './viewports';
 
 /** What import needs from an existing PDF annotation (matches pdf-core's PdfAnnotation). */
@@ -46,6 +47,8 @@ export interface ImportableAnnotation {
   cloudy: boolean;
   /** Blend mode Multiply (a highlighter). */
   multiply?: boolean;
+  /** The /BM blend mode name, when the annotation has one. */
+  blend?: string;
   /** Object number of the annotation dictionary (0 or absent when direct), to find its raw values. */
   objectNumber?: number;
   da: string;
@@ -82,6 +85,18 @@ export interface ImportResult {
 /** Annotation flags: Invisible, Hidden, NoView. Such annotations are never shown. */
 const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
+
+/**
+ * The text another program left in /Contents of a markup of ours, when it is no longer the text we saved;
+ * null when it is the same, missing, or not the markup's text (a shape's /Contents is a comment, a measurement's its value).
+ */
+function editedText(m: Markup, raw: string | null | undefined, plain: string): string | null {
+  if (!(isTextType(m.type) || m.type === 'dimension' || m.type === 'connector')) return null;
+  const contents = raw ?? (plain || undefined);
+  if (contents === undefined) return null;
+  const now = cleanText(contents);
+  return now === cleanText(m.text ?? '') ? null : now;
+}
 
 /** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
 function ourLink(appData: string): { kind: LinkKind; detail: string | null; label: string | null } | null {
@@ -122,7 +137,7 @@ export function importAnnotations(
   pageIndex: number,
   annotations: readonly ImportableAnnotation[],
   /**
-   * Resolves a link to another file (e.g. `HLD1BDD-...-DRG-100051.pdf`) to a page of this
+   * Resolves a link to another file (e.g. `KST1RDS-...-DRG-100051.pdf`) to a page of this
    * document, for sets published sheet-per-file and then combined.
    */
   resolveFile: (fileName: string) => number | null = () => null,
@@ -284,6 +299,7 @@ export function importAnnotations(
     return m;
   };
 
+  const redraw = new Set<Markup>();
   for (const a of annotations) {
     if (owner.has(a.index)) {
       // A popup, reply or review state: saved with the markup it belongs to.
@@ -298,7 +314,14 @@ export function importAnnotations(
           // Attachments keep their bytes in the embedded file only.
           const attachment = data.attachment && !data.attachment.data && a.file ? { ...data.attachment, data: toBase64(a.file.data) } : data.attachment;
           const { pdfAnnot: _stale, ...rest } = data;
-          markups.push(finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true));
+          const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true);
+          // Another program may have changed the text since we saved: /Contents is what it reads and writes.
+          const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
+          if (edited !== null) {
+            m.text = edited;
+            redraw.add(m);
+          }
+          markups.push(m);
           imported.push(a.index);
           continue;
         }
@@ -362,6 +385,9 @@ export function importAnnotations(
         opacity: a.opacity,
         ...f.style,
       };
+      // Any other blend than the type's own default is the markup's choice.
+      const blend = blendModeOfPdf((r && nameOf(r.BM)) || a.blend);
+      if (blend && blend !== effectiveBlendMode({ type: f.type, style })) style.blendMode = blend;
       if (!r) {
         if (f.type === 'note') {
           // A Text annotation's /C is its icon colour: the note's paper.
@@ -373,9 +399,16 @@ export function importAnnotations(
         if (f.type === 'text' || f.type === 'typewriter') {
           style.fontSize = Number(/([\d.]+)\s+Tf/.exec(a.da)?.[1]) || 12;
           // Font resource names in /DA hint at the family (Acrobat: Helv, TiRo, Cour).
-          const font = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1]?.toLowerCase() ?? '';
+          const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1] ?? '';
+          const font = daFont.toLowerCase();
           if (/^(tiro|times)/.test(font)) style.fontFamily = 'serif';
           else if (/^cour/.test(font)) style.fontFamily = 'mono';
+          else if (daFont && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
+            // Any other font name is an installed font's, kept as it is (a name written by an
+            // earlier export has its spaces taken out; the rich text, read later, has them).
+            const named = familyFromPdfName(daFont.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
+            if (named !== 'sans') style.fontFamily = named;
+          }
           if (/bold|,b/.test(font)) style.bold = true;
         }
         if (f.type === 'area') style.fillOpacity = 0.2;
@@ -442,7 +475,8 @@ export function importAnnotations(
   }
   // Bluebeam Spaces live on the page, not in /Annots.
   if (page) markups.push(...importSpaces(pageIndex, page, now));
-  for (const m of markups) if (m.pdfAnnot) m.pdfAnnot.digest = markupDigest(m);
+  // A markup whose text was changed elsewhere is saved afresh, so its appearance and our copy agree again.
+  for (const m of markups) if (m.pdfAnnot) m.pdfAnnot.digest = redraw.has(m) ? '' : markupDigest(m);
 
   const vp = page ? importViewports(pageIndex, page) : null;
   if (vp?.scale && page) {

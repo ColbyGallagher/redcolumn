@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { spaceName, spacesContaining, spaceTree, type Markup } from '@nb/markup';
-import { formatArea, polygonArea, type Scale } from '@nb/measure';
+import { formatArea, type Scale } from '@nb/measure';
+import { spaceArea } from '../measure/axisScale';
 import { InlineName } from './InlineName';
 
 interface Props {
@@ -92,7 +93,7 @@ export function SpacesPanel({ markups, selected, pageLabel, scaleOf, editable, s
                   <span className="num" title="Markups in this Space">
                     {counts.get(s.id) ?? 0}
                   </span>
-                  <span className="area">{formatArea(polygonArea(s.points) * scaleOf(s).metersPerPoint ** 2, scaleOf(s))}</span>
+                  <span className="area">{formatArea(spaceArea(s.points, scaleOf(s)), scaleOf(s))}</span>
                 </button>
               )}
             </li>,

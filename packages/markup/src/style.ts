@@ -65,14 +65,10 @@ export function dashPattern(dash: LineDash | undefined, width: number): number[]
 export { customHatchId, HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
 export type { CustomHatchId, HatchDraw, HatchElement, HatchPattern, HatchSpec, LegacyHatch, StoredHatch } from './hatches';
 
-/** Families map to the PDF standard fonts so exported markups look the same in every viewer. */
-export type FontFamily = 'sans' | 'serif' | 'mono';
-
-export const FONT_FAMILIES: { value: FontFamily; label: string; css: string }[] = [
-  { value: 'sans', label: 'Helvetica / Arial', css: 'Helvetica, Arial, sans-serif' },
-  { value: 'serif', label: 'Times New Roman', css: '"Times New Roman", Times, serif' },
-  { value: 'mono', label: 'Courier New', css: '"Courier New", Courier, monospace' },
-];
+// Keyword families map to the PDF standard fonts; a named family is an installed font (see fonts.ts).
+export { canEmbedFont, cleanFontName, cssFontFamily, daFontName, familyFromPdfName, FONT_FAMILIES, FONT_KEYWORDS, fontKeyword, fontPermissions, isFontKeyword, isNamedFont, isTrueTypeOutline } from './fonts';
+export type { FontEmbedding, FontFamily, FontKeyword, FontPermissions } from './fonts';
+import { cssFontFamily } from './fonts';
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
@@ -88,10 +84,57 @@ export interface StyleCapabilities {
   textLayout: boolean;
   /** Measurement value label options. */
   label: boolean;
+  /** Blend mode against the page and the markups underneath. */
+  blend: boolean;
   /** Dimension offset with extension lines (length). */
   leader: boolean;
   /** What `arcRadius` controls, if it is user-facing for this type. */
   arcRadius: 'Arc size' | 'Marker size' | null;
+}
+
+/** Blend modes of the PDF specification, with the canvas and /BM names of each. */
+export type BlendMode = 'normal' | 'multiply' | 'screen' | 'overlay' | 'darken' | 'lighten' | 'colorDodge' | 'colorBurn' | 'hardLight' | 'softLight' | 'difference' | 'exclusion';
+
+export const BLEND_MODES: { value: BlendMode; label: string; canvas: GlobalCompositeOperation; pdf: string }[] = [
+  { value: 'normal', label: 'Normal', canvas: 'source-over', pdf: 'Normal' },
+  { value: 'multiply', label: 'Multiply', canvas: 'multiply', pdf: 'Multiply' },
+  { value: 'screen', label: 'Screen', canvas: 'screen', pdf: 'Screen' },
+  { value: 'overlay', label: 'Overlay', canvas: 'overlay', pdf: 'Overlay' },
+  { value: 'darken', label: 'Darken', canvas: 'darken', pdf: 'Darken' },
+  { value: 'lighten', label: 'Lighten', canvas: 'lighten', pdf: 'Lighten' },
+  { value: 'colorDodge', label: 'Color dodge', canvas: 'color-dodge', pdf: 'ColorDodge' },
+  { value: 'colorBurn', label: 'Color burn', canvas: 'color-burn', pdf: 'ColorBurn' },
+  { value: 'hardLight', label: 'Hard light', canvas: 'hard-light', pdf: 'HardLight' },
+  { value: 'softLight', label: 'Soft light', canvas: 'soft-light', pdf: 'SoftLight' },
+  { value: 'difference', label: 'Difference', canvas: 'difference', pdf: 'Difference' },
+  { value: 'exclusion', label: 'Exclusion', canvas: 'exclusion', pdf: 'Exclusion' },
+];
+
+/** The blend mode for a PDF /BM name (Compatible counts as Normal); null for an unknown name. */
+export function blendModeOfPdf(name: string | null | undefined): BlendMode | null {
+  if (!name) return null;
+  if (name === 'Compatible') return 'normal';
+  return BLEND_MODES.find((b) => b.pdf === name)?.value ?? null;
+}
+
+/** How a markup blends: its own choice, else Multiply for highlighters, else Normal. */
+export function effectiveBlendMode(m: Pick<Markup, 'type' | 'style'>): BlendMode {
+  return m.style.blendMode ?? (TYPE_INFO[m.type].multiply ? 'multiply' : 'normal');
+}
+
+/**
+ * Whether a markup blends only its fill and hatch: a shape with a fill (rectangle, cloud, text box,
+ * callout...), as Revu's highlight does, keeping its border and text as they are. Lines, pen strokes
+ * and highlighters, which have no fill, blend whole.
+ */
+export function blendsFillOnly(m: Pick<Markup, 'type' | 'style'>): boolean {
+  return effectiveBlendMode(m) !== 'normal' && styleCapabilities(m.type).fill && !TYPE_INFO[m.type].multiply;
+}
+
+/** The /BM name to write for a markup, or null when it blends normally. */
+export function pdfBlendName(m: Pick<Markup, 'type' | 'style'>): string | null {
+  const mode = effectiveBlendMode(m);
+  return mode === 'normal' ? null : BLEND_MODES.find((b) => b.value === mode)!.pdf;
 }
 
 export function styleCapabilities(type: MarkupType): StyleCapabilities {
@@ -107,9 +150,8 @@ export function lineEnds(m: Pick<Markup, 'type' | 'style'>): [LineEnding, LineEn
 
 /** CSS font shorthand for a style at `size` points. Measurement labels default to bold. */
 export function cssFont(style: MarkupStyle, size: number, measure = false): string {
-  const family = FONT_FAMILIES.find((f) => f.value === style.fontFamily) ?? FONT_FAMILIES[0]!;
   const bold = style.bold ?? measure;
-  return `${style.italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${family.css}`;
+  return `${style.italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${cssFontFamily(style.fontFamily)}`;
 }
 
 /** Color used for text and labels. */
