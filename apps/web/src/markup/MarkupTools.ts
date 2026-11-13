@@ -367,6 +367,8 @@ export interface ToolPreset {
   /** The Label and Layer a Tool Chest tool carries for the markups it places. */
   label?: string;
   layer?: string;
+  /** The Comment the markups it places carry (Revu's Comment column); text markups keep their words instead. */
+  comment?: string;
   /** Measurements: the slope the markups it places get (Takeoff › Hip and Valley). */
   slope?: Slope;
   /** Measurements: the depth (metres) the markups it places get (a takeoff template's). */
@@ -4004,6 +4006,7 @@ export class MarkupTools implements ViewerOverlay {
       // A takeoff template's assembly and depth win over the panel's defaults.
       ...(preset?.assemblyId && isMeasureKind(type) && type !== 'angle' ? { assemblyId: preset.assemblyId, ...(preset.assemblyInputs ? { assemblyInputs: { ...preset.assemblyInputs } } : {}) } : {}),
       ...(preset?.depth && isMeasureKind(type) && type !== 'angle' ? { depth: preset.depth } : {}),
+      ...(preset?.comment && !isTextType(type) && !isMeasureKind(type) ? { comment: preset.comment } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),
       ...(preset?.signature ? { signature: preset.signature } : {}),

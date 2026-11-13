@@ -518,6 +518,14 @@ async function contentOf(it: Pick<ToolChestItem, 'type' | 'template' | 'subject'
   return null;
 }
 
+/** Sets (or clears) a tool's Label and Comment columns in its annotation dictionary. */
+function labelAndComment(d: PdfDict, it: Pick<ToolChestItem, 'markupLabel' | 'comment'>, hadComment = false) {
+  if (it.markupLabel) d.Label = it.markupLabel;
+  else delete d.Label;
+  if (it.comment) d.Contents = it.comment;
+  else if (hadComment) delete d.Contents;
+}
+
 /**
  * A tool set as a .btx file. A tool imported from Revu and not restyled is written back as Revu
  * stored it (its dictionary, children and embedded pictures); any other tool is built from its type
@@ -530,7 +538,7 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
   for (const [n, it] of set.items.entries()) {
     const item = `${n + 1}. ${it.name}`;
     const src: RevuToolSource | undefined = it.source;
-    const verbatim = !!src && it.type === src.type && sameStyle(it.style, src.style) && (it.subject || it.name) === src.subject;
+    const verbatim = !!src && it.type === src.type && sameStyle(it.style, src.style) && (it.subject || it.name) === src.subject && (it.markupLabel ?? '') === (src.label ?? '') && (it.comment ?? '') === (src.comment ?? '');
     let parts: Written[] | null = null;
     let resources = '';
     if (src && verbatim) {
@@ -542,6 +550,7 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const d = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !isName(parsed) ? (parsed as PdfDict) : {};
       applyStyle(d, it.type, it.style);
       d.Subj = it.subject || it.name;
+      labelAndComment(d, it, !!src.comment);
       parts = [{ type: src.revuType, raw: pdfText(d), x: src.x, y: src.y }];
       resources = src.resources ?? '';
     } else if (it.type === 'stamp' || it.type === 'image' || it.type === 'attachment') {
@@ -567,6 +576,7 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const k = KINDS[it.type]!;
       const d = baseDict(it.type, k, it.subject || it.name);
       if (it.tool === 'cloudPlus') d.ITEx = name('PolyText');
+      labelAndComment(d, it);
       applyStyle(d, it.type, it.style);
       parts = [{ type: `Bluebeam.PDF.Annotations.${k.cls}`, raw: pdfText(d), x: 5, y: 5 }];
     }

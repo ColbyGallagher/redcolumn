@@ -175,3 +175,15 @@ test('titles round trip in any script; a renamed Revu tool keeps its new name; i
   assert.deepEqual(back.items.map((i) => i.name), ['Box', 'Grid bubble', tool!.name]);
   assert.ok(out.includes('<Name>INHFCFBPUYYOUOFL</Name>'), 'the unchanged one keeps Revu’s name');
 });
+
+test('.btx: Label and Comment round trip, also when edited after import', async () => {
+  const mk = (extra: Partial<ToolChestItem>): ToolChestItem => ({ id: 't', name: 'Box', subject: 'Box', type: 'rect', revuType: '', style: { ...defaults.rect }, ...extra });
+  const back = await parseBtx(await writeBtx({ title: 'LC', items: [mk({ markupLabel: 'Tile 1', comment: 'Check' })] }), defaults);
+  assert.equal(back.items[0]!.markupLabel, 'Tile 1');
+  assert.equal(back.items[0]!.comment, 'Check');
+  // Edited after coming from Revu: written under the new Label, not as Revu stored it.
+  const edited = { ...back.items[0]!, markupLabel: 'Tile 2', comment: '' };
+  const again = await parseBtx(await writeBtx({ title: 'LC', items: [edited] }), defaults);
+  assert.equal(again.items[0]!.markupLabel, 'Tile 2');
+  assert.equal(again.items[0]!.comment, undefined);
+});

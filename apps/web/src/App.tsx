@@ -6254,6 +6254,7 @@ export function App() {
       style: item.style,
       ...(item.subject ? { subject: item.subject } : {}),
       ...(item.markupLabel ? { label: item.markupLabel } : {}),
+      ...(item.comment ? { comment: item.comment } : {}),
       ...(item.layer ? { layer: item.layer } : {}),
       ...(carried?.image ? { image: carried.image, ...(aspect ? { aspect } : {}) } : {}),
       ...(stamp ? { stamp } : {}),
