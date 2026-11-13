@@ -48,4 +48,8 @@ Click once (without dragging) to zoom in a step. Hold [[Alt]] and click to zoom 
 1. Choose {{View > Navigation Tools > Dynamic Zoom}} (or press [[Shift+Z]]).
 2. Press and hold on the drawing, then drag **up** to zoom in or **down** to zoom out.
 
+## Zoom to the whole page
+
+Double-click the middle mouse button (the wheel) on the drawing to fit the whole page, or all the pages in a stitched view, in the window. The same as {{View > Fit Page}}.
+
 > **Tip:** You can change how far each wheel notch or button press zooms in [Preferences](#preferences) › **General** › **Navigation**, and whether the plain wheel zooms or scrolls in each view. There is also a setting to reverse the wheel direction.
