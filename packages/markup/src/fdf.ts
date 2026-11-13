@@ -122,6 +122,7 @@ function importable(index: number, a: FdfAnnot, toPage: (x: number, y: number) =
     intent: nameOf(r.IT) ?? '',
     cloudy: dict(r.BE) !== null,
     multiply: nameOf(r.BM) === 'Multiply',
+    blend: nameOf(r.BM) ?? undefined,
     objectNumber: a.ref,
     da: str(r.DA) ?? '',
     appData: str(r[APP_DATA_KEY]) ?? '',

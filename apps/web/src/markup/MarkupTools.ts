@@ -32,6 +32,8 @@ import {
   markupSegments,
   insidePolygon,
   insideRect,
+  touchesPolygon,
+  touchesRect,
   isMeasureKind,
   isTextType,
   lineRects,
@@ -76,6 +78,9 @@ import {
   scaledAbout,
   rotatePoint,
   rotationCentre,
+  transformMarkup,
+  type Affine as MarkupAffine,
+  type Rect,
   type Attachment,
   newTable,
   CELL_STYLE_KEYS,
@@ -109,10 +114,12 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { bulgeThrough, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pathLength, SnapIndex, track, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
+import { drawGroupBox, groupAffine, groupFrame, groupHandleAt, onGroupOutline, type GroupFrame, type GroupHandle } from './groupBox';
+import { toolFieldsPatch, type ToolFields } from './selectionFormat';
 import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /**
@@ -121,7 +128,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'teachMark' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -151,7 +158,6 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   stitchRegion: 'Stitch Region',
   stitchPolygon: 'Stitch Region (Polygon)',
   stitchMove: 'Move Sheet',
-  teachMark: 'Teach Links',
   pan: 'Pan',
   zoomBox: 'Zoom',
   dynamicZoom: 'Dynamic Zoom',
@@ -161,7 +167,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
 /** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
-const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion', 'teachMark']);
+const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
 export interface StitchGuides {
@@ -254,6 +260,28 @@ const CALIBRATE_STYLE: MarkupStyle = { stroke: '#2563eb', fill: null, width: 1, 
 const MATCH_LINE_STYLE: MarkupStyle = { stroke: '#dc2626', fill: null, width: 2, opacity: 1, dash: 'dashed' };
 const REGION_STYLE: MarkupStyle = { stroke: '#2563eb', fill: '#2563eb', width: 1, opacity: 1, fillOpacity: 0.08, dash: 'dashed' };
 
+/** A finished count or open line being continued: new points go into the stored markup, one undo step each. */
+type ResumeState = { id: string; base: number; origin: Point };
+
+/** Counts and open click-by-click paths (a polylength, a polyline) can be resumed; closed shapes and fixed-point ones cannot. */
+export function canResume(m: Markup): boolean {
+  const info = TYPE_INFO[m.type];
+  return info.draw === 'click' && !info.closed && info.handles === 'vertices' && !info.click?.fixed && m.points.length > 0 && !['angle', 'arc', 'arcLength'].includes(m.type);
+}
+
+/**
+ * Ctrl+drag while placing points: the vertex just placed at `down` ends segment `segment`, which bends
+ * live to pass through the pointer. The pointer is the arc's middle (as when Alt-dragging a segment
+ * knob), so the segment's bulge is `bulgeThrough(from, vertex, pointer)`; releasing keeps it. A press
+ * that never moves beyond the drag threshold stays a plain (Ctrl-)click with a straight segment.
+ */
+interface MultiCurve {
+  segment: number;
+  from: Point;
+  /** The button is still down. */
+  active: boolean;
+}
+
 type Gesture =
   /** Dragging one end (`end` 0 or 1) of a hand-placed match line. */
   | { kind: 'guideEnd'; id: string; end: 0 | 1; from: Point }
@@ -264,8 +292,13 @@ type Gesture =
   /** Drag-to-draw shapes (line, rectangle, pen, ...). */
   | { kind: 'draw'; markup: Markup }
   /** Click-by-click measurements; `hover` is the rubber-band point under the cursor. */
-  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean }
-  | { kind: 'move'; start: Point; dx: number; dy: number }
+  /** `dragRect`: the corners of a rectangle being dragged out with the pointer held down (Area, Volume, Perimeter, Cutout). `resume`: adding to an existing markup. `curve`: Ctrl+drag bending the segment just placed. */
+  /** `arcPress`: the button went down on a 3-point arc's middle click, so releasing places nothing. */
+  | { kind: 'multi'; markup: Markup; hover: Point | null; down: Point; calibrate: boolean; dragRect?: Point[]; resume?: ResumeState; curve?: MultiCurve; arcPress?: boolean }
+  /** `drill`: a press on a member of the selected group, which selects just that member if it turns out to be a click. */
+  | { kind: 'move'; start: Point; dx: number; dy: number; drill?: string; copy?: boolean; toggle?: string[] }
+  /** Dragging a handle of the selected group's box: `t` is the stretch or turn so far, `f` the box when the drag began and `angle` the box's turn so far. */
+  | { kind: 'groupXform'; ids: string[]; groupId: string; handle: GroupHandle; f: GroupFrame; t: MarkupAffine; angle: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   | { kind: 'handle'; id: string; index: number; point: Point }
@@ -331,6 +364,18 @@ export interface ToolPreset {
   id?: string;
   style?: MarkupStyle;
   subject?: string;
+  /** The Label and Layer a Tool Chest tool carries for the markups it places. */
+  label?: string;
+  layer?: string;
+  /** Measurements: the slope the markups it places get (Takeoff › Hip and Valley). */
+  slope?: Slope;
+  /** Measurements: the depth (metres) the markups it places get (a takeoff template's). */
+  depth?: number;
+  /** Measurements: the assembly, and its inputs, the markups it places are taken off as (a takeoff template's). */
+  assemblyId?: string;
+  assemblyInputs?: Record<string, number>;
+  /** The takeoff template it was armed from, to show which one is armed. */
+  takeoffTemplateId?: string;
   /** Signature image (data URL) and its width / height. */
   image?: string;
   aspect?: number;
@@ -357,10 +402,14 @@ export interface ToolsState {
   snap: boolean;
   /** A click-by-click measurement is in progress. */
   measuring: boolean;
+  /** 3-point arc: armed and waiting for the point on the curve ('awaitMid') or the arc's end ('awaitEnd'). */
+  arc: ArcMode;
   /** Draw hyperlink areas (they stay clickable either way). */
   showLinks: boolean;
   /** A Tool Library tool or signature in use: new markups of its type take its style, subject and image. */
   preset: (ToolPreset & { type: MarkupType }) | null;
+  /** Subject, Label and Layer edited on the active drawing tool: the next markups placed take them, and the tool keeps running. */
+  toolFields?: ToolFields;
   /** Format Painter: the markup whose look is being copied; Offset: the markup being offset. */
   painterSource: Markup | null;
   /** What Smart Fill makes from the region it finds. */
@@ -379,6 +428,9 @@ export interface ToolsState {
   textSelection: { text: string; pageIndex: number } | null;
 }
 
+/** Where a 3-point arc is: off, or armed and waiting for its middle or end click (see `MarkupTools.toggleArc`). */
+export type ArcMode = 'off' | 'awaitMid' | 'awaitEnd';
+
 export interface SketchState {
   /** `segment`: a length (and angle) from `from`; `box`: a width and height from corner `from`. */
   mode: 'segment' | 'box';
@@ -394,7 +446,7 @@ const sketchesCircle = (type: MarkupType) => type === 'ellipse' && settings.get(
 /** Drag-drawn lines Draw to Size draws point to point, so their length and angle can be typed. */
 const SKETCH_LINE_TYPES: readonly MarkupType[] = ['line', 'arrow'];
 /** Click-drawn tools whose next point can be typed as a length and angle. */
-const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength'].includes(type);
+const sketchesSegments = (type: MarkupType) => !['count', 'angle', 'arc', 'arcLength', 'manual'].includes(type);
 
 /** Draw to Scale: a box type's first click, the markup it will become, and the pointer since. */
 interface SketchAnchor {
@@ -430,7 +482,7 @@ export interface MarkupToolsOptions {
   /** A text markup needs its text entered or edited. */
   onEditText: (id: string) => void;
   /** The user drew a calibration line `lengthPoints` long on `pageIndex`, starting at `at`. */
-  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point) => void;
+  onCalibrate: (pageIndex: number, lengthPoints: number, at: Point, delta: Point) => void;
   /**
    * Scale to Length: the reference points are picked; ask what length they should be, then call
    * `scaleSelectionBy`, `pickScaleTarget` (pick two points on the page instead) or `cancel`.
@@ -451,8 +503,6 @@ export interface MarkupToolsOptions {
   onFormField?: (widget: FormWidgetHit) => void;
   /** The user drew the area to crop pages to (the `cropArea` tool). */
   onCropArea?: (pageIndex: number, rect: PageRect) => void;
-  /** The user boxed an example of a section mark, title or detail callout (the `teachMark` tool). */
-  onTeachMark?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a box around a symbol to find (the `visualSearch` tool). */
   onVisualSearch?: (pageIndex: number, rect: PageRect) => void;
   /** The user drew a viewport (the `viewport` tool). */
@@ -512,7 +562,11 @@ export interface MarkupToolsOptions {
   /** File name and page label for a stamp's {File} and {Page} fields. */
   stampValues?: (pageIndex: number) => { file: string; page: string };
   /** Subject, label and assembly the Measurements panel applies to the next measurement. */
-  measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string };
+  measureDefaults?: () => { subject?: string; label?: string; assemblyId?: string; assemblyInputs?: Record<string, number> };
+  /** The typed quantity the Manual Quantity command armed for the next click; null when none (the click places nothing). */
+  manualQuantity?: () => { manual: ManualQuantity; subject?: string; assemblyId?: string } | null;
+  /** A manual quantity was placed (or the click was refused): the command is done. */
+  onManualPlaced?: () => void;
 }
 
 /** Drawing with this type snaps its points to drawing geometry (not freehand, text or pictures). */
@@ -534,7 +588,7 @@ const NO_LINES = new SnapIndex(new Float32Array(0));
 
 /** Tools whose result is a real-world size, so they need the page's scale (angles and counts do not). */
 function needsScale(tool: Tool): boolean {
-  return tool === 'scaleLength' || (isMeasureKind(tool) && tool !== 'angle' && tool !== 'count');
+  return tool === 'scaleLength' || (isMeasureKind(tool) && tool !== 'angle' && tool !== 'count' && tool !== 'manual');
 }
 
 /** Click-by-click point rules for a tool: measurements, calibration and click-drawn shapes. */
@@ -566,7 +620,7 @@ export class MarkupTools implements ViewerOverlay {
   private viewListeners = new Set<() => void>();
   /** Markup layers drawn faintly (the Layers Dial in Fade mode). */
   private fadedLayers: ReadonlySet<string> = new Set();
-  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, showLinks: settings.get().showHyperlinks, preset: null, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
+  private state: ToolsState = { tool: 'select', selected: new Set(), styles: loadToolStyles(), snap: settings.get().snapToGeometry, measuring: false, arc: 'off', showLinks: settings.get().showHyperlinks, preset: null, toolFields: {}, painterSource: null, fillAs: 'area', sketch: null, tableCells: null, cad: null, flowShape: 'process', connectorRoute: 'elbow', textSelection: null };
   /** The lines of the selected PDF text (see `ToolsState.textSelection`). */
   private pickedText: Markup | null = null;
   /** Where a Tool Library copy would land, previewed under the pointer. */
@@ -680,8 +734,12 @@ export class MarkupTools implements ViewerOverlay {
 
   private setGesture(g: Gesture | null) {
     this.gesture = g;
-    // Finishing or dropping a shape lets go of what tracking had picked up.
-    if (!g) this.clearTracking();
+    // Finishing or dropping a shape lets go of what tracking had picked up, and of an arc not yet placed.
+    if (!g) {
+      this.clearTracking();
+      this.arcMid = null;
+      if (this.state.arc !== 'off') this.state = { ...this.state, arc: 'off' };
+    }
     if (g) this.sketchAnchor = null;
     const measuring = g?.kind === 'multi';
     const sketch = this.sketchState();
@@ -703,9 +761,10 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** What typed angles are measured from: east, or with Relative rotation input the last segment's direction. */
-  private sketchBaseAngle(points: readonly Point[]): number {
+  private sketchBaseAngle(points: readonly Point[], k = 1): number {
     if (settings.get().rotationInput !== 'relative' || points.length < 2) return 0;
-    return segmentPolar(points.at(-2)!, points.at(-1)!).angle;
+    const [a, b] = [points.at(-2)!, points.at(-1)!];
+    return segmentPolar([a[0], a[1] * k], [b[0], b[1] * k]).angle;
   }
 
   private refreshSketch() {
@@ -724,11 +783,17 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind !== 'multi' || !g.markup.points.length || !(length > 0)) return;
     const from = g.markup.points.at(-1)!;
     const h = g.hover;
-    const toward = h && Math.hypot(h[0] - from[0], h[1] - from[1]) > 1e-6 ? segmentPolar(from, h).angle : 0;
-    const p = polarPoint(from, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points));
+    // The length is across-the-page points and the angle a real one: worked out with the page
+    // stretched by a separate Y scale, then mapped back.
+    const k = yStretchOf(this.store?.scaleAt(g.markup.pageIndex, from));
+    const fromS: Point = [from[0], from[1] * k];
+    const toward = h && Math.hypot(h[0] - from[0], h[1] * k - from[1] * k) > 1e-6 ? segmentPolar(fromS, [h[0], h[1] * k]).angle : 0;
+    const stretched = polarPoint(fromS, length, angle === null ? toward : angle + this.sketchBaseAngle(g.markup.points, k));
+    const p: Point = [stretched[0], stretched[1] / k];
     g.markup.points = [...g.markup.points, p];
     g.down = p;
     g.hover = p;
+    this.commitResumed(g);
     this.completeIfFixed();
     this.refreshSketch();
   }
@@ -788,6 +853,7 @@ export class MarkupTools implements ViewerOverlay {
     this.unsubscribe =
       store?.subscribe(() => {
         // Drop selections of markups that were deleted (locally, by undo, or by a collaborator).
+        this.syncResumed(store);
         const alive = [...this.state.selected].filter((id) => store.get(id));
         if (alive.length !== this.state.selected.size) this.setState({ selected: new Set(alive) });
         else this.viewer.invalidate();
@@ -969,7 +1035,7 @@ export class MarkupTools implements ViewerOverlay {
       // Offset copies the one selected line or shape; with nothing suitable selected, the first click picks it.
       const [id] = this.state.selected;
       const source = this.state.selected.size === 1 && id ? this.store?.get(id) : undefined;
-      this.setState({ tool, preset: null, painterSource: source && canOffset(source) ? structuredClone(source) : null, cad: null });
+      this.setState({ tool, preset: null, toolFields: {}, painterSource: source && canOffset(source) ? structuredClone(source) : null, cad: null });
       return;
     }
     if (tool === 'painter') {
@@ -977,14 +1043,14 @@ export class MarkupTools implements ViewerOverlay {
       const [id] = this.state.selected;
       const source = this.state.selected.size === 1 && id ? this.store?.get(id) : undefined;
       if (!source) return;
-      this.setState({ tool, preset: null, painterSource: structuredClone(source) });
+      this.setState({ tool, preset: null, toolFields: {}, painterSource: structuredClone(source) });
       return;
     }
     // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
     const keepSelection = tool === 'select' || tool === 'lasso' || tool === 'scaleLength' || isCadTool(tool);
-    this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
+    this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, toolFields: {}, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
     // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
     if (tool === 'highlighter') this.wordsFor(this.page);
     this.viewer.refreshPointerCursor();
@@ -1047,21 +1113,54 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /**
-   * The markups whose handles show and drag: the one selected markup, or the members of one selected
-   * group (a Cloud+'s cloud and callout). A callout comes first so its arrow tip wins where it sits on
-   * a corner of the cloud.
+   * The markups whose handles show and drag: the one selected markup. A whole selected group has the
+   * handles of its box instead (see `groupSelection`); click one of its members to edit that alone.
    */
+  private groupAngles = new Map<string, { angle: number; sig: string }>();
+
   private handleTargets(): Markup[] {
     const store = this.store;
     if (!store || this.state.selected.size === 0) return [];
     const ms = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
     if (ms.length !== this.state.selected.size) return [];
     if (ms.length === 1) return ms;
+    // A Cloud+ (a cloud and its callout) keeps the handles of both; a callout comes first so its arrow
+    // tip wins where it sits on a corner of the cloud.
+    return isCloudPlus(ms) ? ms.sort((a, b) => Number(b.type === 'callout') - Number(a.type === 'callout')) : [];
+  }
+
+  /**
+   * The group selected as a whole (every member, and nothing else, on one page): its members and the
+   * box around them. `editable` is false when someone may not change a member, so no handles show.
+   */
+  private groupSelection(): { ids: string[]; groupId: string; markups: Markup[]; frame: GroupFrame; editable: boolean } | null {
+    const store = this.store;
+    if (!store || this.state.selected.size < 2) return null;
+    const ms = [...this.state.selected].map((id) => store.get(id)).filter((m): m is Markup => !!m);
+    if (ms.length !== this.state.selected.size) return null;
     const groupId = ms[0]!.groupId;
-    if (!groupId || ms.some((m) => m.groupId !== groupId || m.pageIndex !== ms[0]!.pageIndex)) return [];
+    if (!groupId || ms.some((m) => m.groupId !== groupId || m.pageIndex !== ms[0]!.pageIndex)) return null;
     // Only the whole group counts; a group selected along with other markups moves as one.
-    if (store.all().some((m) => m.groupId === groupId && !this.state.selected.has(m.id))) return [];
-    return ms.sort((a, b) => Number(b.type === 'callout') - Number(a.type === 'callout'));
+    if (store.all().some((m) => m.groupId === groupId && !this.state.selected.has(m.id))) return null;
+    if (isCloudPlus(ms)) return null;
+    return { ids: ms.map((m) => m.id), groupId, markups: ms, frame: groupFrame(ms, this.groupAngle(groupId, ms)), editable: !store.readOnly && ms.every((m) => !this.frozen(m)) };
+  }
+
+  /** How far a group's box is turned: kept while its members stay as that turn left them (an undo or edit resets it). */
+  private groupAngle(groupId: string, ms: readonly Markup[]): number {
+    const kept = this.groupAngles.get(groupId);
+    return kept && kept.sig === groupSig(ms) ? kept.angle : 0;
+  }
+
+  /** The group a single selected member belongs to (two or more members), for getting back to editing it whole. */
+  private parentGroup(): { ids: string[]; frame: GroupFrame } | null {
+    const store = this.store;
+    if (!store || this.state.selected.size !== 1) return null;
+    const m = store.get([...this.state.selected][0]!);
+    if (!m?.groupId) return null;
+    const mates = store.all().filter((x) => x.groupId === m.groupId && x.pageIndex === m.pageIndex);
+    if (mates.length < 2 || isCloudPlus(mates)) return null;
+    return { ids: mates.map((x) => x.id), frame: groupFrame(mates.map((x) => this.previewOf(x)), this.groupAngle(m.groupId, mates)) };
   }
 
   /** Midpoint knobs between the vertices of a selected outline or path: drag one to add a vertex. */
@@ -1295,6 +1394,57 @@ export class MarkupTools implements ViewerOverlay {
     this.setTool(preset.type, preset);
   }
 
+  /**
+   * Ctrl-click on a vertex: smooth (curves through it as arcs of the circle through it and its
+   * neighbours) or corner (both segments straight). It counts as smooth when both segments meeting
+   * there are curved; anything else is made smooth. The ends of an open path have one segment and
+   * are left alone.
+   */
+  private toggleSmooth(m: Markup, index: number) {
+    const store = this.store;
+    if (!store) return;
+    const n = m.points.length;
+    const closed = TYPE_INFO[m.type].closed && n > 2;
+    if (!closed && (index <= 0 || index >= n - 1)) return;
+    const before = (index - 1 + n) % n;
+    const smooth = !!m.bulges?.[before] && !!m.bulges?.[index];
+    const next = smooth ? { before: 0, after: 0 } : smoothBulgesAt(m.points, index, closed);
+    if (!next) return;
+    const edges = closed ? n : n - 1;
+    const out = Array.from({ length: edges }, (_, i) => (i === before ? next.before : i === index ? next.after : (m.bulges?.[i] ?? 0)));
+    store.checkpoint();
+    store.update(m.id, { bulges: out.some(Boolean) ? out : undefined });
+    store.checkpoint();
+  }
+
+  /** Which segment of a measurement is under a page point (within the usual reach), for the right-click menu. */
+  segmentAt(id: string, pt: Point): { segment: number; curved: boolean } | null {
+    const m = this.store?.get(id);
+    if (!m || !ARC_TYPES.has(m.type) || !canEditVertices(m)) return null;
+    const hit = segmentHit(m, pt, (this.hitPx * 1.5) / this.viewer.zoomFor(m.pageIndex));
+    return hit ? { segment: hit.segment, curved: !!m.bulges?.[hit.segment] } : null;
+  }
+
+  /** Right-click › Convert to Arc / Line: curves a measurement's segment (outward on a closed shape), or straightens it. */
+  setSegmentCurve(id: string, segment: number, curved: boolean) {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || store.readOnly || !m || this.frozen(m) || !ARC_TYPES.has(m.type) || !canEditVertices(m)) return;
+    let sign = 1;
+    if (TYPE_INFO[m.type].closed && m.points.length > 2) {
+      let twice = 0;
+      m.points.forEach((a, i) => {
+        const b = m.points[(i + 1) % m.points.length]!;
+        twice += a[0] * b[1] - b[0] * a[1];
+      });
+      // A positive bulge adds area on a positive outline, so that is outward.
+      sign = twice < 0 ? -1 : 1;
+    }
+    store.checkpoint();
+    store.update(id, { bulges: withBulge(m, segment, curved ? sign * DEFAULT_BULGE : 0) });
+    store.checkpoint();
+  }
+
   /** The markup under a screen position (for context menus), or undefined. */
   markupAtClient(clientX: number, clientY: number): Markup | undefined {
     if (!this.store) return undefined;
@@ -1306,6 +1456,11 @@ export class MarkupTools implements ViewerOverlay {
   /** Selects markups, together with the rest of any group they belong to. */
   select(ids: Iterable<string>) {
     this.setState({ selected: this.withGroups(ids) });
+  }
+
+  /** Selects exactly these markups, even part of a group (to edit one member of it alone). */
+  selectOnly(ids: Iterable<string>) {
+    this.setState({ selected: new Set(ids) });
   }
 
   /** Whether these tools are editing this drawing (the one on screen in their pane). */
@@ -1579,8 +1734,13 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const { preset } = this.state;
+    // Restyling selected markups changes only them (as in Revu): the tool's default changes when
+    // nothing of the type is selected, or with Set as Default.
+    const restyling = [...this.state.selected].some((id) => this.store?.get(id)?.type === type);
     // A Tool Library tool keeps its own style; changing it leaves the type's defaults alone.
-    if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
+    if (restyling) {
+      // The tool's default stays as it is.
+    } else if (preset?.type === type && preset.style) this.setState({ preset: { ...preset, style: mergeStyle(preset.style, patch) } });
     else {
       const styles = { ...this.state.styles, [type]: mergeStyle(this.state.styles[type], patch) };
       this.setState({ styles });
@@ -1732,6 +1892,7 @@ export class MarkupTools implements ViewerOverlay {
         createdAt: now + i,
         modifiedAt: now + i,
         ...(m.fields || !fields || !Object.keys(fields).length ? {} : { fields }),
+        ...this.toolFieldsFor(m, this.state.preset),
       });
     });
     if (keepTool) return;
@@ -1826,6 +1987,67 @@ export class MarkupTools implements ViewerOverlay {
     this.setState({ selected: new Set([...this.state.selected].filter((id) => !doomed.includes(id))) });
   }
 
+  /** Whether Resume works on this markup: a count or an open path, one the user may edit. */
+  canResumeMarkup(id: string): boolean {
+    const m = this.store?.get(id);
+    return !!m && !!this.store && !this.store.readOnly && canResume(m) && !this.frozen(m);
+  }
+
+  /**
+   * Resume: carries on a finished count or open line. New points go into the same markup (its
+   * subject, label, layer, style and total stay), one undo step each. A line grows from the end
+   * nearest `near` (default: its last point); when that is the first point the point order, and
+   * the curves between points, are turned around first. Escape, Enter, a double-click or another
+   * tool ends it.
+   */
+  resume(id: string, near?: Point): boolean {
+    const store = this.store;
+    const m = store?.get(id);
+    if (!store || !m || !this.canResumeMarkup(id)) return false;
+    let points = m.points.map((p): Point => [p[0], p[1]]);
+    let bulges = m.bulges ? [...m.bulges] : undefined;
+    if (m.type !== 'count' && near && points.length > 1) {
+      const first = points[0]!;
+      const last = points.at(-1)!;
+      if (Math.hypot(near[0] - first[0], near[1] - first[1]) < Math.hypot(near[0] - last[0], near[1] - last[1])) {
+        const turned = reversedMarkup(m);
+        points = turned.points!.map((p): Point => [p[0], p[1]]);
+        bulges = turned.bulges;
+        store.checkpoint();
+        store.update(id, { points, ...(bulges ? { bulges } : {}), modifiedAt: Date.now() });
+      }
+    }
+    this.setTool(m.type);
+    if (this.state.tool !== m.type) return false;
+    this.select([id]);
+    const at = points.at(-1)!;
+    this.setGesture({ kind: 'multi', markup: { ...structuredClone(m), points, ...(bulges ? { bulges } : {}) }, hover: at, down: at, calibrate: false, resume: { id, base: points.length, origin: points[0]! } });
+    return true;
+  }
+
+  /** A point added to a resumed markup goes straight into the store, as its own undo step. */
+  private commitResumed(g: Extract<Gesture, { kind: 'multi' }>) {
+    if (!g.resume || !this.store) return;
+    this.store.checkpoint();
+    this.store.update(g.resume.id, { points: g.markup.points.map((p): Point => [p[0], p[1]]), modifiedAt: Date.now() });
+  }
+
+  /** Keeps a resumed markup's gesture in step with the store (undo takes points off; deleting it ends the resume). */
+  private syncResumed(store: MarkupStore) {
+    const g = this.gesture;
+    if (g?.kind !== 'multi' || !g.resume) return;
+    const m = store.get(g.resume.id);
+    // Undone back past where it was resumed (or deleted): nothing left to continue.
+    if (!m || m.points.length < g.resume.base || (m.points.length === g.resume.base && (m.points[0]![0] !== g.resume.origin[0] || m.points[0]![1] !== g.resume.origin[1]))) {
+      this.setGesture(null);
+      return;
+    }
+    if (m.points.length !== g.markup.points.length) {
+      g.markup = { ...structuredClone(m) };
+      g.down = m.points.at(-1)!;
+    }
+  }
+
   /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
     if (this.pickedText) {
@@ -1839,6 +2061,11 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     const g = this.gesture;
+    // A 3-point arc not yet placed is dropped; the measurement carries on.
+    if (this.state.arc !== 'off' && (!g || g.kind === 'multi')) {
+      this.setArc('off');
+      return;
+    }
     // A dragged line end goes back, and a dragged sheet back to where the store has it.
     if (g?.kind === 'guideEnd') {
       const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
@@ -1857,8 +2084,21 @@ export class MarkupTools implements ViewerOverlay {
   pointerCancel() {
     const g = this.gesture;
     if (!g) return;
+    if (g.kind === 'multi' && g.resume) {
+      if (g.markup.points.length > g.resume.base) this.store?.undo();
+      return;
+    }
+    // The press was a 3-point arc's middle click: take just that back.
+    if (g.kind === 'multi' && g.arcPress && this.state.arc === 'awaitEnd') {
+      g.arcPress = false;
+      this.setArc('awaitMid');
+      return;
+    }
     if (g.kind === 'multi' && g.markup.points.length > 1) {
       g.markup.points = g.markup.points.slice(0, -1);
+      g.curve = undefined;
+      g.arcPress = false;
+      trimBulges(g.markup);
       g.down = g.markup.points.at(-1)!;
       this.refreshSketch();
       this.viewer.invalidate();
@@ -1872,6 +2112,8 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind !== 'multi' || !this.store) return;
     this.setGesture(null);
+    // A resumed markup already holds its points in the store: finishing just ends the gesture.
+    if (g.resume) return;
     const zoom = this.viewer.zoomFor(g.markup.pageIndex);
     // A double-click lands two clicks on the same spot; collapse consecutive near-duplicates.
     const points = g.markup.points.filter((p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1]![0], p[1] - all[i - 1]![1]) * zoom > 2);
@@ -1900,7 +2142,7 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.calibrate) {
-      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!);
+      if (points.length >= 2) this.options.onCalibrate(g.markup.pageIndex, pathLength(points.slice(0, 2)), points[0]!, [points[1]![0] - points[0]![0], points[1]![1] - points[0]![1]]);
       return;
     }
     if (this.state.tool === 'cutout') {
@@ -1909,11 +2151,30 @@ export class MarkupTools implements ViewerOverlay {
     }
     const spec = clickSpec(g.markup.type);
     if (!spec || points.length < spec.min) return;
+    if (g.markup.type === 'manual') {
+      // Nothing armed (the tool was chosen some other way): place nothing, leave the tool.
+      if (g.markup.manual) {
+        this.store.checkpoint();
+        const placed = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
+        this.store.add(placed);
+        this.options.onCreated?.(placed);
+        this.setState({ tool: 'select', selected: new Set([placed.id]) });
+      } else this.setState({ tool: 'select' });
+      this.options.onManualPlaced?.();
+      return;
+    }
     this.store.checkpoint();
     const done = { ...g.markup, points, createdAt: Date.now(), modifiedAt: Date.now() };
+    // An outline keeps its closing segment's bulge (a 3-point arc ended on the first vertex).
+    trimBulges(done, points.length === g.markup.points.length ? edgeCount(done) : points.length - 1);
     this.store.add(done);
     this.options.onCreated?.(done);
     if (done.type === 'space') this.options.onSpaceDrawn?.(done.id);
+  }
+
+  /** Edits the Subject, Label or Layer the active tool gives its next markups (the command carries on). */
+  setToolFields(patch: ToolFields) {
+    this.setState({ toolFields: { ...(this.state.toolFields ?? {}), ...patch } });
   }
 
   setFillAs(fillAs: FillType) {
@@ -1982,11 +2243,85 @@ export class MarkupTools implements ViewerOverlay {
     this.select([id]);
   }
 
-  /** Backspace during a measurement removes the last placed point. */
+  /**
+   * Space finishes a click-by-click measurement like Enter does. Space does nothing special when a
+   * text field, dropdown or editable region has focus (the page then gets no say). There is no
+   * hold-Space-to-pan, so a tap is all there is to tell apart. Returns whether the key was used.
+   */
+  finishKey(key: string, target?: unknown): boolean {
+    if (key !== ' ' && key !== 'Spacebar') return false;
+    if (this.gesture?.kind !== 'multi') return false;
+    const t = target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+    const tag = t?.tagName?.toUpperCase();
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return false;
+    this.finish();
+    return true;
+  }
+
+  /** A right-click that stayed put finishes a measurement when "Right-click finishes markup" is on; true if it did. */
+  rightClickFinish(): boolean {
+    if (!settings.get().rightClickFinishes || this.gesture?.kind !== 'multi') return false;
+    this.finish();
+    return true;
+  }
+
+  /** A 3-point arc's middle click, once placed (see `toggleArc`). */
+  private arcMid: Point | null = null;
+
+  /** Whether a 3-point arc can be armed: a curving measurement is being drawn, or its tool is active. */
+  canArc(): boolean {
+    const g = this.gesture;
+    if (g?.kind === 'multi') return !g.calibrate && ARC_TYPES.has(g.markup.type);
+    return !g && isMarkupTool(this.state.tool) && ARC_TYPES.has(this.state.tool);
+  }
+
+  /**
+   * 3-point arc: arms (or disarms) the next segment as an arc. The next click is a point on the
+   * curve and the one after that the arc's end; the segment from the last vertex to the end bends
+   * through the middle point. Drawing then goes back to straight segments. Armed before the first
+   * vertex, it applies to the segment after it.
+   */
+  toggleArc() {
+    if (this.state.arc !== 'off') {
+      this.setArc('off');
+      return;
+    }
+    if (!this.canArc()) return;
+    this.setArc('awaitMid');
+  }
+
+  private setArc(arc: ArcMode, mid: Point | null = null) {
+    this.arcMid = arc === 'awaitEnd' ? mid : null;
+    if (arc !== this.state.arc) this.setState({ arc });
+    else this.viewer.invalidate();
+  }
+
+  /** The bulge of an arc from `a` through `mid` to `b`: straight when the three points do not make one. */
+  private arcBulge(a: Point, mid: Point, b: Point): number {
+    const zoom = this.viewer.zoomFor(this.page);
+    const near = (p: Point, q: Point) => Math.hypot(p[0] - q[0], p[1] - q[1]) * zoom < 2;
+    if (near(a, mid) || near(mid, b) || near(a, b)) return 0;
+    const bulge = bulgeThroughPoint(a, b, mid);
+    // Nearly straight snaps straight; at most three-quarters of a circle (as Ctrl-dragging).
+    return !Number.isFinite(bulge) || Math.abs(bulge) < 0.02 ? 0 : Math.max(-2.4, Math.min(2.4, bulge));
+  }
+
+  /** Backspace during a measurement removes the last placed point (a pending 3-point arc is dropped first). */
   removeLastPoint() {
     const g = this.gesture;
+    if (this.state.arc !== 'off') {
+      this.setArc('off');
+      return;
+    }
     if (g?.kind !== 'multi') return;
+    if (g.resume) {
+      // Only the points added since resuming go: each is one undo step.
+      if (g.markup.points.length > g.resume.base) this.store?.undo();
+      return;
+    }
     g.markup.points = g.markup.points.slice(0, -1);
+    g.curve = undefined;
+    trimBulges(g.markup);
     if (!g.markup.points.length) this.setGesture(null);
     else this.refreshSketch();
   }
@@ -2003,6 +2338,7 @@ export class MarkupTools implements ViewerOverlay {
     const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
     this.drawViewports(ctx, pageIndex, zoom);
     const editable = new Set(this.handleTargets().map((t) => t.id));
+    const group = this.groupSelection();
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
@@ -2014,11 +2350,43 @@ export class MarkupTools implements ViewerOverlay {
       drawMarkup(ctx, shown, zoom, store.scaleOf(shown), legends);
       if (faint) ctx.restore();
       if (m.replies?.length && settings.get().replyIndicators) drawReplyIndicator(ctx, shown, zoom);
-      if (this.state.selected.has(m.id)) {
+      // A group selected whole shows one box around it (below) instead of a box on each member.
+      if (this.state.selected.has(m.id) && !group) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
         if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
         if (editable.has(m.id) && this.reroutable(m)) this.drawSegmentHandles(ctx, shown, zoom);
         if (this.state.tableCells?.id === m.id) this.drawTableCells(ctx, shown, this.state.tableCells, zoom);
+      }
+    }
+    const drag = this.gesture;
+    if (drag?.kind === 'move' && drag.copy && (drag.dx || drag.dy)) {
+      // Ctrl-drag: the copies travel with the pointer while the originals stay put.
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      for (const m of this.pageMarkups(pageIndex)) {
+        if (!this.state.selected.has(m.id) || this.frozen(m)) continue;
+        const shown = { ...m, ...moved(m, drag.dx, drag.dy) };
+        drawMarkup(ctx, shown, zoom, store.scaleOf(shown), legends);
+      }
+      ctx.restore();
+    }
+    if (group && group.markups[0]!.pageIndex === pageIndex) {
+      // The box follows the members as they turn or stretch.
+      const live = group.markups.map((m) => this.previewOf(m));
+      drawGroupBox(ctx, live, this.gesture?.kind === 'groupXform' ? groupFrame(live, this.gesture.angle) : group.frame, zoom, this.pointerKind === 'touch' ? 14 : 6, group.editable);
+    } else {
+      // A member picked out of its group: the group's box stays faintly, and its outline selects the group again.
+      const parent = this.parentGroup();
+      if (parent && store.get([...this.state.selected][0]!)?.pageIndex === pageIndex) {
+        const f = parent.frame;
+        ctx.save();
+        ctx.lineWidth = 1 / zoom;
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.6)';
+        ctx.setLineDash([6 / zoom, 4 / zoom]);
+        ctx.translate(f.c[0], f.c[1]);
+        ctx.rotate((f.angle * Math.PI) / 180);
+        ctx.strokeRect(-f.w / 2, -f.h / 2, f.w, f.h);
+        ctx.restore();
       }
     }
     const popup = this.popup?.shown ? store.get(this.popup.id) : undefined;
@@ -2045,16 +2413,26 @@ export class MarkupTools implements ViewerOverlay {
     if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
-      const live = hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      let live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
+      // 3-point arc: the rubber band bends from the last vertex through the middle click to the pointer.
+      const mid = this.state.arc === 'awaitEnd' ? this.arcMid : null;
+      if (mid && hover && !g.dragRect && markup.points.length) {
+        const n = markup.points.length;
+        const bulge = this.arcBulge(markup.points[n - 1]!, mid, hover);
+        if (bulge) live = { ...live, bulges: Array.from({ length: n }, (_, i) => (i === n - 1 ? bulge : (markup.bulges?.[i] ?? 0))) };
+      }
       drawMarkup(ctx, live, zoom, store.scaleOf(live));
+      if (this.state.arc !== 'off' && hover) drawArcMarker(ctx, mid ?? hover, zoom, !!mid);
       // Draw to Size: the length and angle of the segment under the pointer (measurements label themselves).
       const from = markup.points.at(-1);
       if (this.state.sketch && from && hover && !isMeasureKind(markup.type)) {
-        const { length, angle: absolute } = segmentPolar(from, hover);
-        // The readout shows angles as they are typed: relative to the last segment when set so.
-        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points)) % 360) + 540) % 360) - 180 : absolute;
         const scale = store.scaleAt(pageIndex, from);
-        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(length * scale.metersPerPoint, scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
+        // Angles are real ones: measured with the page stretched by a separate Y scale.
+        const k = yStretchOf(scale);
+        const { length, angle: absolute } = segmentPolar([from[0], from[1] * k], [hover[0], hover[1] * k]);
+        // The readout shows angles as they are typed: relative to the last segment when set so.
+        const angle = settings.get().rotationInput === 'relative' && markup.points.length >= 2 ? ((((absolute - this.sketchBaseAngle(markup.points, k)) % 360) + 540) % 360) - 180 : absolute;
+        if (length * zoom >= 2) drawSketchReadout(ctx, `${formatLength(realLengthAlong(scale, hover[0] - from[0], hover[1] - from[1]), scale)}  ∠ ${angle.toFixed(1)}°`, hover, zoom);
       }
     }
     // Draw to Scale: the box from its first corner to the pointer, with its width and height.
@@ -2063,7 +2441,10 @@ export class MarkupTools implements ViewerOverlay {
       const [a, b] = [anchor.at, anchor.hover];
       drawMarkup(ctx, { ...anchor.markup, points: this.sketchBoxPoints(anchor, b) }, zoom, store.scaleOf(anchor.markup));
       const scale = store.scaleAt(pageIndex, a);
-      const size = (d: number) => formatLength(Math.abs(d) * scale.metersPerPoint, scale);
+      // Widths count across the page, heights up it, a radius along the pointer's own direction.
+      const wide = (d: number) => formatLength(realLengthAlong(scale, d, 0), scale);
+      const high = (d: number) => formatLength(realLengthAlong(scale, 0, d), scale);
+      const radius = realLengthAlong(scale, b[0] - a[0], b[1] - a[1]);
       const r = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (r * zoom >= 2) {
         if (sketchesCircle(anchor.type)) {
@@ -2077,13 +2458,13 @@ export class MarkupTools implements ViewerOverlay {
           ctx.lineTo(b[0], b[1]);
           ctx.stroke();
           ctx.restore();
-          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${size(2 * r)}` : `R ${size(r)}`, b, zoom);
-        } else drawSketchReadout(ctx, `${size(b[0] - a[0])} × ${size(b[1] - a[1])}`, b, zoom);
+          drawSketchReadout(ctx, settings.get().sketchEllipse === 'diameter' ? `Ø ${formatLength(2 * radius, scale)}` : `R ${formatLength(radius, scale)}`, b, zoom);
+        } else drawSketchReadout(ctx, `${wide(Math.abs(b[0] - a[0]))} × ${high(Math.abs(b[1] - a[1]))}`, b, zoom);
       }
     }
     if (g?.kind === 'scaleRef' && g.pageIndex === pageIndex) {
       const scale = store.scaleAt(pageIndex, g.ref[0]!);
-      const size = (a: Point, b: Point) => formatLength(Math.hypot(b[0] - a[0], b[1] - a[1]) * scale.metersPerPoint, scale);
+      const size = (a: Point, b: Point) => formatLength(realLengthAlong(scale, b[0] - a[0], b[1] - a[1]), scale);
       const ref = g.ref.length === 2 ? g.ref : g.stage === 'ref' && g.hover ? [g.ref[0]!, g.hover] : g.ref;
       drawScaleLine(ctx, ref, '#2563eb', zoom);
       if (ref.length === 2 && g.stage === 'ref') drawSketchReadout(ctx, `Reference ${size(ref[0]!, ref[1]!)}`, ref[1]!, zoom);
@@ -2100,7 +2481,7 @@ export class MarkupTools implements ViewerOverlay {
       drawTracked(ctx, tracked, zoom);
       const scale = store.scaleAt(pageIndex, tracked.point);
       const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
-      const distance = one ? `: ${formatLength(Math.hypot(tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]) * scale.metersPerPoint, scale)}` : '';
+      const distance = one ? `: ${formatLength(realLengthAlong(scale, tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]), scale)}` : '';
       const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
       drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
     }
@@ -2128,8 +2509,8 @@ export class MarkupTools implements ViewerOverlay {
     this.drawPickTargets(ctx, pageIndex, zoom);
     this.drawConnectionPoints(ctx, pageIndex, zoom);
     this.drawCad(ctx, pageIndex, zoom);
-    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom);
-    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom);
+    if (g?.kind === 'box' && pageIndex === this.page) drawSelectionOutline(ctx, [g.start, [g.end[0], g.start[1]], g.end, [g.start[0], g.end[1]]], zoom, isCrossing(g));
+    if (g?.kind === 'lasso' && g.pageIndex === pageIndex) drawSelectionOutline(ctx, g.path, zoom, true);
     const template = this.state.preset?.template;
     if (template && this.ghost?.pageIndex === pageIndex) {
       const b = boundsOf(template.flatMap((m) => m.points));
@@ -2664,13 +3045,55 @@ export class MarkupTools implements ViewerOverlay {
       if (g?.kind === 'multi') {
         const { markup } = g;
         const first = markup.points[0]!;
+        const arc = e.button === 0 && !g.calibrate && ARC_TYPES.has(markup.type) ? this.state.arc : 'off';
+        // 3-point arc: this click is the point on the curve; it places no vertex.
+        if (arc === 'awaitMid') {
+          g.arcPress = true;
+          g.down = p;
+          g.hover = p;
+          this.setArc('awaitEnd', p);
+          this.clearTracking();
+          return true;
+        }
         const closes = !!spec.closes && markup.points.length >= 3 && Math.hypot(p[0] - first[0], p[1] - first[1]) * this.viewer.zoomFor(this.page) <= snapPx();
         if (closes) {
+          // An arc ended on the first vertex bends the closing segment.
+          if (arc === 'awaitEnd' && this.arcMid) {
+            const n = markup.points.length;
+            const bulge = this.arcBulge(markup.points[n - 1]!, this.arcMid, first);
+            if (bulge) markup.bulges = Array.from({ length: n }, (_, i) => (i === n - 1 ? bulge : (markup.bulges?.[i] ?? 0)));
+          }
           this.finish();
           return true;
         }
+        if (arc === 'awaitEnd' && this.arcMid) {
+          // The arc's end: the segment arriving here bends through the middle click.
+          const bulge = this.arcBulge(markup.points.at(-1)!, this.arcMid, p);
+          markup.points = [...markup.points, p];
+          const last = markup.points.length - 2;
+          if (bulge || markup.bulges) markup.bulges = Array.from({ length: last + 1 }, (_, i) => (i === last ? bulge : (markup.bulges?.[i] ?? 0)));
+          trimBulges(markup);
+          g.curve = undefined;
+          g.down = p;
+          g.arcPress = true;
+          this.setArc('off');
+          this.commitResumed(g);
+          // A resumed markup lives in the store: the arc goes with its point (same undo step).
+          if (g.resume && this.store) this.store.update(g.resume.id, { bulges: markup.bulges ? [...markup.bulges] : undefined });
+          this.clearTracking();
+          this.refreshSketch();
+          return true;
+        }
+        // Ctrl-press and drag away from the new point bends the segment arriving at it (see MultiCurve).
+        // Ctrl alone changes nothing here: snapping is switched off with Alt, not Ctrl. The first point has no segment
+        // to bend, so a Ctrl press there still starts a drag-rectangle as it always did.
+        const curves = e.button === 0 && (e.ctrlKey || e.metaKey) && !g.calibrate && ARC_TYPES.has(markup.type) && markup.points.length >= 1;
+        const from = markup.points.at(-1)!;
         markup.points = [...markup.points, p];
+        if (curves || markup.bulges) markup.bulges = Array.from({ length: markup.points.length - 1 }, (_, i) => markup.bulges?.[i] ?? 0);
+        g.curve = curves ? { segment: markup.points.length - 2, from, active: true } : undefined;
         g.down = p;
+        this.commitResumed(g);
         this.clearTracking();
         this.completeIfFixed();
         this.refreshSketch();
@@ -2684,6 +3107,8 @@ export class MarkupTools implements ViewerOverlay {
       if (tool === 'cutout' || tool === 'stitchPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
       // A match line, like a calibration line, is two points and makes no markup.
       this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' || tool === 'matchLine' });
+      // A manual quantity is one point: the click places it.
+      this.completeIfFixed();
       return true;
     }
 
@@ -2725,6 +3150,15 @@ export class MarkupTools implements ViewerOverlay {
     const p = toPoint(pt);
     const zoom = this.viewer.zoomFor(this.page);
     const tol = this.hitPx / zoom;
+    // The box around a selected group: its handles stretch, scale and turn every member together.
+    const group = this.groupSelection();
+    if (group?.editable && group.markups[0]!.pageIndex === pageIndex) {
+      const handle = groupHandleAt(group.frame, zoom, p, tol);
+      if (handle) {
+        this.setGesture({ kind: 'groupXform', ids: group.ids, groupId: group.groupId, handle, f: group.frame, t: { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }, angle: group.frame.angle });
+        return true;
+      }
+    }
     for (const m of this.handleTargets()) {
       const text = m && !this.frozen(m) && !this.store.readOnly ? labelHandles(m, zoom) : null;
       if (m && text && Math.hypot(text.rotate.at[0] - p[0], text.rotate.at[1] - p[1]) <= tol * 1.5) {
@@ -2744,16 +3178,34 @@ export class MarkupTools implements ViewerOverlay {
       }
       const index = m && !this.frozen(m) ? handlePositions(m).findIndex(([x, y]) => Math.abs(x - p[0]) <= tol && Math.abs(y - p[1]) <= tol) : -1;
       if (m && index >= 0) {
-        // Ctrl- or Alt-click on a vertex removes it (keeping the least the shape needs).
-        if ((e.ctrlKey || e.metaKey || e.altKey) && canEditVertices(m) && m.points.length > (CLICK_SHAPES[m.type]?.min ?? 2)) {
-          // The two segments meeting there become one straight one.
-          const bulges = m.bulges ? [...m.bulges] : undefined;
-          bulges?.splice(Math.max(0, index - 1), index === 0 || index === m.points.length - 1 ? 1 : 2, ...(index === 0 || index === m.points.length - 1 ? [] : [0]));
-          this.store.update(m.id, { points: m.points.filter((_, i) => i !== index), ...(bulges ? { bulges } : {}) });
+        // Alt-click on a vertex removes it (keeping the least the shape needs); so does Shift-click on a measurement's.
+        const arcs = ARC_TYPES.has(m.type) && canEditVertices(m);
+        const removes = e.altKey || (e.shiftKey && !(e.ctrlKey || e.metaKey) && arcs);
+        if (removes && canEditVertices(m) && !this.store.readOnly) {
+          if (m.points.length > (CLICK_SHAPES[m.type]?.min ?? 2)) {
+            this.store.checkpoint();
+            this.store.update(m.id, removeVertex(m, index));
+            this.store.checkpoint();
+          }
+          return true;
+        }
+        // Ctrl-click on a measurement's vertex switches it between smooth and corner; elsewhere it does nothing.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && canEditVertices(m)) {
+          if (arcs && !this.store.readOnly) this.toggleSmooth(m, index);
           return true;
         }
         this.setGesture({ kind: 'handle', id: m.id, index, point: p });
         return true;
+      }
+      // Shift-click on a measurement's segment adds a vertex there (a curved segment splits into two arcs of the same curve).
+      if (m && e.shiftKey && !(e.ctrlKey || e.metaKey || e.altKey) && !this.store.readOnly && !this.frozen(m) && ARC_TYPES.has(m.type) && canEditVertices(m)) {
+        const hit = segmentHit(m, p, tol);
+        if (hit) {
+          this.store.checkpoint();
+          this.store.update(m.id, insertVertex(m, hit));
+          this.store.checkpoint();
+          return true;
+        }
       }
       const seg = m && this.reroutable(m) ? routeHandles(m.points, m.connect?.bends).find(({ at }) => Math.hypot(at[0] - p[0], at[1] - p[1]) <= tol * 1.5) : undefined;
       if (m && seg) {
@@ -2790,6 +3242,14 @@ export class MarkupTools implements ViewerOverlay {
         this.setGesture({ kind: 'tableLine', id: m.id, line, to: line.axis === 'col' ? p[0] : p[1] });
         return true;
       }
+    }
+
+    // Pressing the dashed box of a picked-out member selects its whole group again.
+    const parent = e.shiftKey ? null : this.parentGroup();
+    if (parent && onGroupOutline(parent.frame, p, tol)) {
+      this.select(parent.ids);
+      this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0 });
+      return true;
     }
 
     const hit = this.hitAt(p);
@@ -2846,18 +3306,23 @@ export class MarkupTools implements ViewerOverlay {
         return true;
       }
     }
+    // A press on a member of the group already selected whole edits that member alone, if it is a click.
+    const drill = !e.shiftKey && members.size > 1 && this.state.selected.has(hit.id) && this.groupSelection() ? hit.id : undefined;
+    // Shift-clicking a selected markup deselects it, but only once it turns out to be a click: Shift-dragging moves it along an axis.
+    let toggle: string[] | undefined;
     if (e.shiftKey) {
       const next = new Set(this.state.selected);
       const on = !next.has(hit.id);
-      for (const id of members) {
-        if (on) next.add(id);
-        else next.delete(id);
-      }
-      this.select(next);
+      if (on) {
+        for (const id of members) next.add(id);
+        this.select(next);
+      } else toggle = [...members];
     } else if (!this.state.selected.has(hit.id)) {
       this.select(members);
     }
-    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0 });
+    // Ctrl-dragging leaves the originals and drops copies.
+    const copy = e.ctrlKey || e.metaKey;
+    this.setGesture({ kind: 'move', start: p, dx: 0, dy: 0, ...(drill ? { drill } : {}), ...(copy ? { copy } : {}), ...(toggle ? { toggle } : {}) });
     return true;
   }
 
@@ -2915,7 +3380,22 @@ export class MarkupTools implements ViewerOverlay {
       const last = g.path[g.path.length - 1]!;
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) * this.viewer.zoomFor(this.page) >= 3) g.path = [...g.path, p];
     } else if (g.kind === 'multi') {
-      g.hover = this.resolve(pt, e, g.markup.points.at(-1)!);
+      const curve = g.curve;
+      if (curve?.active) {
+        // Bend the segment just placed through the pointer; a short drag leaves it straight (a Ctrl-click).
+        const q = toPoint(pt);
+        const far = Math.hypot(q[0] - g.down[0], q[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx;
+        const bulge = far ? bulgeThrough(curve.from, g.down, q) : 0;
+        // Nearly straight snaps straight; at most three-quarters of a circle (as Alt-dragging a knob).
+        const bulges = [...(g.markup.bulges ?? [])];
+        bulges[curve.segment] = Math.abs(bulge) < 0.02 ? 0 : Math.max(-2.4, Math.min(2.4, bulge));
+        g.markup.bulges = bulges;
+        g.hover = null;
+      } else {
+        const rect = e.buttons & 1 && !g.arcPress ? this.dragRectCorners(g, pt, e) : null;
+        g.dragRect = rect ?? undefined;
+        g.hover = rect ? rect[2]! : this.resolve(pt, e, g.markup.points.at(-1)!);
+      }
     } else if (g.kind === 'draw') {
       const m = g.markup;
       if (TYPE_INFO[m.type].draw === 'freehand') {
@@ -2961,6 +3441,15 @@ export class MarkupTools implements ViewerOverlay {
       const p = toPoint(pt);
       g.dx = p[0] - g.start[0];
       g.dy = p[1] - g.start[1];
+      if (e.shiftKey) {
+        // Shift keeps the drag to whichever axis it has travelled further along.
+        if (Math.abs(g.dx) >= Math.abs(g.dy)) g.dy = 0;
+        else g.dx = 0;
+      }
+      if (g.kind === 'move') {
+        g.copy = e.ctrlKey || e.metaKey;
+        if (g.toggle && Math.hypot(p[0] - g.start[0], p[1] - g.start[1]) * this.viewer.zoomFor(this.page) >= this.dragPx) g.toggle = undefined;
+      }
     } else if (g.kind === 'tableLine') {
       g.to = g.line.axis === 'col' ? pt[0] : pt[1];
     } else if (g.kind === 'tableCells') {
@@ -2987,6 +3476,12 @@ export class MarkupTools implements ViewerOverlay {
       let angle = (Math.atan2(pt[1] - g.centre[1], pt[0] - g.centre[0]) * 180) / Math.PI + 90 - g.base;
       angle = ((((angle + 180) % 360) + 360) % 360) - 180;
       g.angle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.abs(angle) < 2 ? 0 : Math.round(angle * 10) / 10;
+    } else if (g.kind === 'groupXform') {
+      const next = groupAffine(g.handle, g.f, toPoint(pt), e.shiftKey);
+      if (next) {
+        g.t = next.t;
+        g.angle = next.angle;
+      }
     } else if (g.kind === 'rotate') {
       const m = this.store?.get(g.id);
       if (m) {
@@ -3063,6 +3558,29 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if (g.kind === 'multi') {
+      if (g.curve?.active) {
+        // Releasing sets the curved point; the segments after it are straight again.
+        g.curve.active = false;
+        g.hover = g.down;
+        // A resumed markup lives in the store: keep the curve with the point it was placed with (same undo step).
+        if (g.resume && this.store && g.markup.bulges) this.store.update(g.resume.id, { bulges: [...g.markup.bulges] });
+        this.viewer.invalidate();
+        return;
+      }
+      // A 3-point arc's click places what it places on the press; releasing adds nothing.
+      if (g.arcPress) {
+        g.arcPress = false;
+        return;
+      }
+      // Area, Volume, Perimeter and Cutout: press, drag and release makes a rectangle in one motion.
+      const rect = this.dragRectCorners(g, pt, e);
+      if (rect) {
+        g.markup.points = rect;
+        g.dragRect = undefined;
+        this.clearTracking();
+        this.finish();
+        return;
+      }
       // Pressing, dragging and releasing places the second point, so a length can be dragged out.
       const p = this.resolve(pt, e, g.markup.points.at(-1)!);
       if (g.markup.points.length === 1 && Math.hypot(p[0] - g.down[0], p[1] - g.down[1]) * this.viewer.zoomFor(this.page) > this.dragPx) {
@@ -3108,7 +3626,9 @@ export class MarkupTools implements ViewerOverlay {
     if (g.kind === 'box' || g.kind === 'lasso') {
       const page = g.kind === 'lasso' ? g.pageIndex : this.page;
       const inside = this.pageMarkups(page).filter((m) =>
-        g.kind === 'box' ? insideRect(m, boundsOf([g.start, g.end])) : g.path.length > 2 && insidePolygon(m, g.path),
+        g.kind === 'box'
+          ? (isCrossing(g) ? touchesRect(m, boundsOf([g.start, g.end])) : insideRect(m, boundsOf([g.start, g.end])))
+          : g.path.length > 2 && (insidePolygon(m, g.path) || touchesPolygon(m, g.path)),
       );
       const ids = inside.map((m) => m.id);
       this.select(g.add ? [...this.state.selected, ...ids] : ids);
@@ -3121,16 +3641,43 @@ export class MarkupTools implements ViewerOverlay {
         const at = g.markup.points[0]!;
         this.setGesture({ kind: 'multi', markup: { ...this.newMarkup('polygon', g.markup.pageIndex, [at]), style: { ...CALIBRATE_STYLE, dash: 'dashed' } }, hover: at, down: at, calibrate: false });
       } else this.commitDraft(g.markup);
+    } else if (g.kind === 'groupXform') {
+      const store = this.store;
+      const t = g.t;
+      if (t.a !== 1 || t.b !== 0 || t.c !== 0 || t.d !== 1 || t.e !== 0 || t.f !== 0) {
+        store.batch(() => {
+          for (const id of g.ids) {
+            const m = store.get(id);
+            if (m && !this.frozen(m)) store.update(id, transformMarkup(m, t));
+          }
+        });
+        // The box keeps the turn the drag gave it, until the members change some other way.
+        const after = g.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m);
+        this.groupAngles.set(g.groupId, { angle: g.angle, sig: groupSig(after) });
+      }
     } else if (g.kind === 'move') {
       if (g.dx || g.dy) {
         const store = this.store;
-        store.batch(() => {
-          for (const id of this.state.selected) {
-            const m = store.get(id);
-            if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
+        if (g.copy && !store.readOnly) {
+          // Ctrl-drag: the originals stay and copies land at the drop point, selected.
+          const copies = this.copySelected().filter((m) => !this.frozen(m));
+          if (copies.length) {
+            const b = boundsOf(copies.flatMap((m) => m.points));
+            this.paste(copies, copies[0]!.pageIndex, [b.x + g.dx, b.y + g.dy]);
           }
-        });
-      }
+        } else {
+          store.batch(() => {
+            for (const id of this.state.selected) {
+              const m = store.get(id);
+              if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
+            }
+          });
+        }
+      } else if (g.toggle) {
+        const next = new Set(this.state.selected);
+        for (const id of g.toggle) next.delete(id);
+        this.select(next);
+      } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
       if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy) });
@@ -3164,6 +3711,13 @@ export class MarkupTools implements ViewerOverlay {
   doubleClick(pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
     if (this.gesture?.kind === 'multi') {
+      // The first click of the double-click already placed this point; the second must not leave a twin.
+      const g = this.gesture;
+      const pts = g.markup.points;
+      const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+      const last = pts.at(-1);
+      const prev = pts.at(-2);
+      if (last && prev && Math.hypot(last[0] - prev[0], last[1] - prev[1]) * zoom <= 4) g.markup.points = pts.slice(0, -1);
       this.finish();
       return;
     }
@@ -3317,7 +3871,7 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     const mods = lastModifiers;
     const anchor = this.sketchAnchor;
-    if (g?.kind === 'multi') g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!);
+    if (g?.kind === 'multi') { if (!g.curve?.active) g.hover = this.resolve(pt, mods, g.markup.points.at(-1)!); }
     else if (g?.kind === 'scaleRef') {
       if (g.stage !== 'ask' && g.pageIndex === pageIndex) g.hover = this.resolve(pt, mods, (g.stage === 'ref' ? g.ref[0] : g.target[0]) ?? null);
     } else if (tool === 'scaleLength') {
@@ -3431,8 +3985,9 @@ export class MarkupTools implements ViewerOverlay {
     }
     const now = Date.now();
     const fields = this.options.defaultFields?.();
-    const drawnDefaults = isMeasureKind(type) && !preset?.template ? this.options.measureDefaults?.() : undefined;
-    return {
+    const drawnDefaults = isMeasureKind(type) && type !== 'manual' && !preset?.template ? this.options.measureDefaults?.() : undefined;
+    const typed = type === 'manual' ? this.options.manualQuantity?.() : null;
+    const markup: Markup = {
       id: crypto.randomUUID(),
       type,
       pageIndex,
@@ -3444,7 +3999,11 @@ export class MarkupTools implements ViewerOverlay {
       modifiedAt: now,
       ...(preset?.subject ? { subject: preset.subject } : drawnDefaults?.subject ? { subject: drawnDefaults.subject } : preset?.stamp ? { subject: preset.stamp.name } : {}),
       ...(drawnDefaults?.label ? { text: drawnDefaults.label } : {}),
-      ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId } : {}),
+      ...(typed ? { manual: typed.manual, subject: typed.subject || 'Manual', ...(typed.assemblyId ? { assemblyId: typed.assemblyId } : {}) } : {}),
+      ...(drawnDefaults?.assemblyId && type !== 'angle' ? { assemblyId: drawnDefaults.assemblyId, ...(drawnDefaults.assemblyInputs ? { assemblyInputs: { ...drawnDefaults.assemblyInputs } } : {}) } : {}),
+      // A takeoff template's assembly and depth win over the panel's defaults.
+      ...(preset?.assemblyId && isMeasureKind(type) && type !== 'angle' ? { assemblyId: preset.assemblyId, ...(preset.assemblyInputs ? { assemblyInputs: { ...preset.assemblyInputs } } : {}) } : {}),
+      ...(preset?.depth && isMeasureKind(type) && type !== 'angle' ? { depth: preset.depth } : {}),
       ...(preset?.image ? { image: preset.image } : {}),
       ...(preset?.attachment ? { attachment: preset.attachment } : {}),
       ...(preset?.signature ? { signature: preset.signature } : {}),
@@ -3453,11 +4012,48 @@ export class MarkupTools implements ViewerOverlay {
       ...(type === 'flowShape' ? { flowShape: this.state.flowShape } : {}),
       ...(type === 'connector' ? { connect: { route: this.state.connectorRoute } } : {}),
     };
+    if (preset?.assemblyId && !preset.assemblyInputs) delete markup.assemblyInputs;
+    return Object.assign(markup, this.toolFieldsFor(markup, preset));
+  }
+
+  /** The Subject, Label, Layer and slope the active tool gives a markup it places: the armed preset's, then the ribbon's edits. */
+  private toolFieldsFor(m: Pick<Markup, 'type'>, preset: Pick<ToolPreset, 'label' | 'layer' | 'slope'> | null | undefined): Partial<Markup> {
+    return toolFieldsPatch(m, { ...(preset?.label ? { label: preset.label } : {}), ...(preset?.layer ? { layer: preset.layer } : {}), ...(preset?.slope ? { slope: preset.slope } : {}), ...(this.state.toolFields ?? {}) });
+  }
+
+  /**
+   * The corners of the rectangle a press-and-drag has made from the gesture's first point, or null
+   * when the tool draws no rectangles or the pointer has not moved past the drag threshold (a click
+   * goes on point by point). Both corners snap; Shift makes it square in real-world units.
+   */
+  private dragRectCorners(g: Extract<Gesture, { kind: 'multi' }>, pt: PagePoint, e: Modifiers): Point[] | null {
+    const tool = this.state.tool;
+    if (g.calibrate || g.markup.points.length !== 1 || !(tool === 'area' || tool === 'volume' || tool === 'perimeter' || tool === 'cutout')) return null;
+    const a = g.markup.points[0]!;
+    // Shift squares the rectangle here rather than constraining the angle.
+    let b = this.resolve(pt, { shiftKey: false, altKey: e.altKey, ctrlKey: e.ctrlKey }, a);
+    const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    if (Math.hypot(dx, dy) * zoom <= this.dragPx) return null;
+    if (e.shiftKey && this.store) {
+      // Equal real-world sides, which differ on the page when the page has a separate vertical scale.
+      const scale = this.store.scaleAt(g.markup.pageIndex, a);
+      const mx = scale.metersPerPoint;
+      const my = scale.yMetersPerPoint ?? mx;
+      const side = Math.max(Math.abs(dx) * mx, Math.abs(dy) * my);
+      dx = (dx < 0 ? -1 : 1) * (side / mx);
+      dy = (dy < 0 ? -1 : 1) * (side / my);
+      b = [a[0] + dx, a[1] + dy];
+    }
+    // A sliver has no area; leave that to point-by-point drawing.
+    if (Math.min(Math.abs(dx), Math.abs(dy)) * zoom < 1) return null;
+    return [a, [b[0], a[1]], b, [a[0], b[1]]];
   }
 
   private completeIfFixed() {
     const g = this.gesture;
-    if (g?.kind !== 'multi') return;
+    if (g?.kind !== 'multi' || g.resume) return;
     const needed = g.calibrate ? 2 : clickSpec(g.markup.type)?.fixed;
     if (needed && g.markup.points.length >= needed) this.finish();
   }
@@ -3730,9 +4326,6 @@ export class MarkupTools implements ViewerOverlay {
       } else if (this.state.tool === 'visualSearch') {
         this.options.onVisualSearch?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
-      } else if (this.state.tool === 'teachMark') {
-        this.options.onTeachMark?.(m.pageIndex, b);
-        this.setState({ tool: 'select' });
       } else if (this.state.tool === 'viewport') {
         this.options.onViewport?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
@@ -3821,7 +4414,7 @@ export class MarkupTools implements ViewerOverlay {
     this.store!.add(m);
     this.options.onCreated?.(m);
     if (m.type === 'signature' || this.state.preset?.once || (!settings.get().reuseTool && !this.state.preset)) {
-      this.setState({ tool: 'select', preset: null, selected: new Set([m.id]) });
+      this.setState({ tool: 'select', preset: null, toolFields: {}, selected: new Set([m.id]) });
       return;
     }
     if (isTextType(m.type)) {
@@ -3969,11 +4562,12 @@ export class MarkupTools implements ViewerOverlay {
       hit: (p) => this.pageMarkups(pageIndex).reverse().find((m) => hitTest(m, p, this.hitPx / this.viewer.zoomFor(pageIndex))),
       frozen: (m) => this.frozen(m),
       group: (m) => (m.groupId ? page.filter((x) => x.groupId === m.groupId).map((x) => x.id) : [m.id]),
-      length: (text, m) => {
+      length: (text, m, dir) => {
         const scale = m ? store.scaleOf(m) : store.scaleFor(pageIndex);
         const v = text.trim() ? parseLength(text, scale.unit) : null;
-        return v === null ? null : (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+        return v === null ? null : pageLengthFor(scale, v * METERS_PER_UNIT[scale.unit], dir?.[0] ?? 1, dir?.[1] ?? 0);
       },
+      yStretch: (m) => yStretchOf(m ? store.scaleOf(m) : store.scaleFor(pageIndex)),
       create: (type, points, like) => {
         const m = this.newMarkup(type, pageIndex, points);
         if (like) {
@@ -4221,13 +4815,21 @@ export class MarkupTools implements ViewerOverlay {
    * the one typed (in the markup's scale) or, with none, through the pointer.
    */
   private offsetCopiesAt(source: Markup, p: Point): Point[][] {
-    const through = offsetDistance(source, p);
     const { offsetDistance: typed, offsetCount } = settings.get();
     const scale = this.store?.scaleOf(source);
+    // With a separate Y scale the page is stretched up it, so the offset is made (and typed
+    // distances measured) in the stretched space, then mapped back.
+    const k = yStretchOf(scale);
+    const stretched = Math.abs(k - 1) > 1e-9;
+    const to = (q: Point): Point => [q[0], q[1] * k];
+    const back = (q: Point): Point => [q[0], q[1] / k];
+    const flat = stretched ? { ...source, points: source.points.map(to) } : source;
+    const through = offsetDistance(flat, stretched ? to(p) : p);
     const value = typed.trim() && scale ? parseLength(typed, scale.unit) : null;
     const d = value !== null && value > 0 ? ((value * METERS_PER_UNIT[scale!.unit]) / scale!.metersPerPoint) * (through < 0 ? -1 : 1) : through;
     if (!d) return [];
-    return offsetCopies(source, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    const copies = offsetCopies(flat, d, Math.min(100, Math.max(1, offsetCount || 1)));
+    return stretched ? copies.map((c) => c.map(back)) : copies;
   }
 
   private hitAt(p: Point): Markup | undefined {
@@ -4241,7 +4843,7 @@ export class MarkupTools implements ViewerOverlay {
   private previewOf(m: Markup): Markup {
     const own = this.ownPreview(m);
     const g = this.gesture;
-    if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
+    if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'groupXform', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
     const get = (id: string) => {
       const s = this.store?.get(id);
       return s && this.ownPreview(s);
@@ -4253,12 +4855,13 @@ export class MarkupTools implements ViewerOverlay {
   /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
-    if (g?.kind === 'move' && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
+    if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
     if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
+    if (g?.kind === 'groupXform' && g.ids.includes(m.id)) return { ...m, ...transformMarkup(m, g.t) };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
       const factor = scaleFactor(g);
       if (factor) return { ...m, ...scaledAbout(m, g.ref[0]!, factor) };
@@ -4267,6 +4870,16 @@ export class MarkupTools implements ViewerOverlay {
     if (g?.kind === 'tableLine' && g.id === m.id) return { ...m, table: moveTableLine(m, g.line, g.to) ?? m.table };
     return m;
   }
+}
+
+/** What a group's members look like, to tell when they have changed since its box was turned. */
+function groupSig(ms: readonly Markup[]): string {
+  return ms.map((m) => `${m.id}:${m.modifiedAt}`).sort().join('|');
+}
+
+/** A Cloud+: a cloud grouped with the callout holding its comment. It keeps the handles of both rather than a group box. */
+function isCloudPlus(ms: readonly Markup[]): boolean {
+  return ms.length === 2 && ms.some((m) => m.type === 'callout') && ms.some((m) => m.type === 'cloud' || m.type === 'polygonCloud');
 }
 
 /**
@@ -4372,8 +4985,86 @@ function canEditVertices(m: Markup): boolean {
   return TYPE_INFO[m.type].handles === 'vertices' && !!click && !click.fixed && m.type !== 'count';
 }
 
+/** A 3-point arc's marker: a small ring at the pointer while waiting for the curve point, a dot on it once placed. */
+function drawArcMarker(ctx: CanvasRenderingContext2D, at: Point, zoom: number, placed: boolean) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(at[0], at[1], 4 / zoom, 0, Math.PI * 2);
+  ctx.lineWidth = 1.5 / zoom;
+  ctx.strokeStyle = '#2563eb';
+  ctx.fillStyle = placed ? '#2563eb' : 'rgba(37, 99, 235, 0.15)';
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
 /** Measurements whose segments can curve. */
 const ARC_TYPES: ReadonlySet<MarkupType> = new Set<MarkupType>(['polylength', 'area', 'perimeter', 'volume']);
+
+/** Drops the bulges of segments that are gone (one fewer than the points, unless `segments` says otherwise); all straight is none at all. */
+function trimBulges(m: Markup, segments = m.points.length - 1) {
+  if (!m.bulges) return;
+  const bulges = m.bulges.slice(0, Math.max(0, segments));
+  m.bulges = bulges.some(Boolean) ? bulges : undefined;
+}
+
+/** The bulge Convert to Arc gives a segment. */
+const DEFAULT_BULGE = 0.4;
+
+/** The number of segments of a markup (the closing one included for outlines). */
+function edgeCount(m: Markup): number {
+  return TYPE_INFO[m.type].closed && m.points.length > 2 ? m.points.length : m.points.length - 1;
+}
+
+/** The segment nearest a point within `tol`, where along it (0 to 1, by angle on an arc), and the point of the curve there. */
+function segmentHit(m: Markup, p: Point, tol: number): { segment: number; t: number; at: Point } | null {
+  let best: { segment: number; t: number; d: number } | null = null;
+  const n = m.points.length;
+  for (let i = 0; i < edgeCount(m); i++) {
+    const a = m.points[i]!;
+    const b = m.points[(i + 1) % n]!;
+    const path: Point[] = [a, ...arcPoints(a, b, m.bulges?.[i] ?? 0, 48)];
+    for (let k = 0; k + 1 < path.length; k++) {
+      const [x0, y0] = path[k]!;
+      const [x1, y1] = path[k + 1]!;
+      const len2 = (x1 - x0) ** 2 + (y1 - y0) ** 2;
+      const s = len2 ? Math.max(0, Math.min(1, ((p[0] - x0) * (x1 - x0) + (p[1] - y0) * (y1 - y0)) / len2)) : 0;
+      const d = Math.hypot(p[0] - (x0 + (x1 - x0) * s), p[1] - (y0 + (y1 - y0) * s));
+      if (d <= tol && (!best || d < best.d)) best = { segment: i, t: (k + s) / (path.length - 1), d };
+    }
+  }
+  if (!best) return null;
+  const t = Math.max(0.05, Math.min(0.95, best.t));
+  const a = m.points[best.segment]!;
+  const b = m.points[(best.segment + 1) % n]!;
+  return { segment: best.segment, t, at: arcSplit(a, b, m.bulges?.[best.segment] ?? 0, t).at };
+}
+
+/** A markup's edits when a vertex is added at a segment hit: the segment becomes two (halves of the same arc if curved). */
+function insertVertex(m: Markup, hit: { segment: number; t: number; at: Point }): Partial<Markup> {
+  const n = m.points.length;
+  const e = hit.segment;
+  const { first, second } = arcSplit(m.points[e]!, m.points[(e + 1) % n]!, m.bulges?.[e] ?? 0, hit.t);
+  const points = [...m.points];
+  points.splice(e + 1, 0, hit.at);
+  const bulges = Array.from({ length: edgeCount(m) }, (_, i) => m.bulges?.[i] ?? 0);
+  bulges.splice(e, 1, first, second);
+  return { points, bulges: bulges.some(Boolean) ? bulges : undefined };
+}
+
+/** A markup's edits when a vertex is removed: the two segments meeting there become one straight one. */
+function removeVertex(m: Markup, index: number): Partial<Markup> {
+  const n = m.points.length;
+  const closed = TYPE_INFO[m.type].closed && n > 2;
+  const bulges = Array.from({ length: edgeCount(m) }, (_, i) => m.bulges?.[i] ?? 0);
+  if (!closed && index === 0) bulges.splice(0, 1);
+  else if (!closed && index === n - 1) bulges.splice(n - 2, 1);
+  else {
+    bulges[(index - 1 + n) % n] = 0;
+    bulges.splice(index, 1);
+  }
+  return { points: m.points.filter((_, i) => i !== index), bulges: bulges.some(Boolean) ? bulges : undefined };
+}
 
 /** A markup's bulges with one segment's changed (all straight is none at all). */
 function withBulge(m: Markup, segment: number, bulge: number): number[] | undefined {
@@ -4475,6 +5166,12 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
 function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Point[] {
   return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+}
+
+/** How much a separate Y scale stretches the page up it, relative to across it (1 without one). */
+function yStretchOf(scale: { metersPerPoint: number; yMetersPerPoint?: number } | undefined): number {
+  const y = scale?.yMetersPerPoint;
+  return scale && y !== undefined && y > 0 && scale.metersPerPoint > 0 ? y / scale.metersPerPoint : 1;
 }
 
 /** A Length or Dimension's style with its text dragged or turned (zero offsets and turns left unset). */
@@ -4635,13 +5332,19 @@ function drawPickMark(ctx: CanvasRenderingContext2D, [x, y]: Point, zoom: number
   ctx.restore();
 }
 
-function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number) {
+/** A box dragged right to left selects everything it touches (crossing); left to right, only what it encloses (window). */
+function isCrossing(g: { start: Point; end: Point }): boolean {
+  return g.end[0] < g.start[0];
+}
+
+/** A window selection draws a solid blue outline; a crossing one (or a lasso) a dashed green one. */
+function drawSelectionOutline(ctx: CanvasRenderingContext2D, path: readonly Point[], zoom: number, crossing: boolean) {
   if (path.length < 2) return;
   ctx.save();
   ctx.lineWidth = 1 / zoom;
-  ctx.strokeStyle = '#3b82f6';
-  ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
-  ctx.setLineDash([4 / zoom, 3 / zoom]);
+  ctx.strokeStyle = crossing ? '#16a34a' : '#3b82f6';
+  ctx.fillStyle = crossing ? 'rgba(22, 163, 74, 0.10)' : 'rgba(59, 130, 246, 0.08)';
+  ctx.setLineDash(crossing ? [4 / zoom, 3 / zoom] : []);
   ctx.beginPath();
   path.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
   ctx.closePath();

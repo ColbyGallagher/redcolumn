@@ -25,6 +25,6 @@ Select the polyline (press [[V]], click it). Then:
 
 - **Move a corner:** drag its square handle.
 - **Add a corner:** drag the small knob halfway along a section.
-- **Remove a corner:** hold [[Ctrl]] and click its handle.
+- **Remove a corner:** hold [[Alt]] and click its handle.
 
 > **Note:** To measure along a path, use [Polylength](#measure-polylength).

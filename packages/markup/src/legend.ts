@@ -1,4 +1,4 @@
-import { DEFAULT_SCALE, formatMeasure, isMeasureKind, measureValue, QUANTITY, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatMeasure, isMeasureKind, measureValue, quantityOf, type MeasureKind, type Scale } from '@nb/measure';
 import { contentBox, MARKUP_LABELS, measureProps, type Markup, type Point, type Rect } from './model';
 import { cloudPlusGroups, legendKeyOf } from './bluebeamTypes';
 import { TYPE_INFO } from './types';
@@ -17,7 +17,7 @@ export interface LegendRow {
 /** Measurements whose values add up: lengths, areas and volumes (not counts or angles). */
 function totals(m: Markup): m is Markup & { type: MeasureKind } {
   if (!isMeasureKind(m.type)) return false;
-  const q = QUANTITY[m.type];
+  const q = quantityOf(m.type, m);
   return q === 'length' || q === 'area' || q === 'volume';
 }
 
@@ -56,7 +56,7 @@ export function legendRows(
   const plus = legend.legend?.keys ? cloudPlusGroups(all) : new Set<string>();
   for (const m of [...all].sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt)) {
     if (!listed(m, legend) || !onLegendPage(legend, m.pageIndex) || !inLegendKeys(legend, m, plus)) continue;
-    const key = `${m.type}|${m.subject ?? ''}|${m.style.stroke}|${m.style.fill ?? ''}`;
+    const key = `${m.type}${m.manual?.kind ?? ''}|${m.subject ?? ''}|${m.style.stroke}|${m.style.fill ?? ''}`;
     let row = rows.get(key);
     if (!row) {
       row = { key, sample: m, label: m.subject || MARKUP_LABELS[m.type], count: 0, measure: '', meters: 0 };
@@ -68,7 +68,7 @@ export function legendRows(
   }
   const scale = scaleFor(legend.pageIndex);
   return [...rows.values()].map(({ meters, ...row }) =>
-    totals(row.sample) ? { ...row, measure: formatMeasure(row.sample.type, meters, scale) } : row,
+    totals(row.sample) ? { ...row, measure: formatMeasure(row.sample.type, meters, scale, row.sample) } : row,
   );
 }
 

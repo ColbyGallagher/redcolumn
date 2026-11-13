@@ -9,10 +9,11 @@ import math
 from reportlab.lib.colors import white
 from reportlab.lib.units import mm
 
-from .catalog import drg
+from . import truth
+from .catalog import BY_KEY, drg
 from .draw import *  # noqa: F401,F403
 from .geom import (CULVERT_CH, CULVERT_INV, JUNCTION_CH, MATCHLINES, MC00, MC01, MM_PER_M, WIN_H, WIN_W,
-                   WINDOWS, WORLD_H, WORLD_W)
+                   WINDOWS, WORLD_H, WORLD_W, plan_pages, xs_page)
 from .site import site
 from .titleblock import F, FB, INK, text
 
@@ -238,7 +239,9 @@ def plan_sheet(c, n):
             nx, ny = (math.cos(b) * side, -math.sin(b) * side)
             ang = readable(math.degrees(math.atan2(ny, nx)))
             X, Y = P(tx, ty)
-            rtext(c, X, Y - 1.0 * (0 if abs(ang) > 45 else 1), "%d" % s, ang, F, 8, INK, "c")
+            ty_ = Y - 1.0 * (0 if abs(ang) > 45 else 1)
+            rtext(c, X, ty_, "%d" % s, ang, F, 8, INK, "c")
+            _tick_truth(n, MC00, s, truth.text_box(X, ty_, "%d" % s, ang, F, 8, "c"))
     for s in range(0, int(MC01.length) + 1, 20):
         x1, y1 = MC01.pt(s, 14.0)
         if s < 28 or not inwin(x1, y1, 2):
@@ -248,7 +251,9 @@ def plan_sheet(c, n):
         ang = readable(math.degrees(math.atan2(ny, nx)))
         X, Y = P(*MC01.pt(s, 18.5))
         pl(c, [P(*MC01.pt(s, 14.0)), P(*MC01.pt(s, 16.5))], 0.2, PROJECT)
-        rtext(c, X, Y - 1.0 * (0 if abs(ang) > 45 else 1), "%d" % s, ang, F, 7.5, INK, "c")
+        ty_ = Y - 1.0 * (0 if abs(ang) > 45 else 1)
+        rtext(c, X, ty_, "%d" % s, ang, F, 7.5, INK, "c")
+        _tick_truth(n, MC01, s, truth.text_box(X, ty_, "%d" % s, ang, F, 7.5, "c"))
 
     # key stations: tangent/curve points
     for s, lab in MC00.key_stations():
@@ -302,6 +307,8 @@ def plan_sheet(c, n):
         x, y, _ = MC00.at(0)
         X, Y = P(x, y)
         rtext(c, X - 2.0, Y + 28.0, "START OF WORKS  CH 0.000", 90, FB, 7.5, INK, "c")
+        truth.link("chainage", "CH 0.000", truth.text_box(X - 2.0, Y + 28.0, "START OF WORKS  CH 0.000", 90, FB, 7.5, "c"),
+                   [xs_page("MC00", 0.0)], alignment="MC00", value=0.0, optional=True)
     if n == 4:
         x, y, _ = MC00.at(MC00.length)
         X, Y = P(x, y)
@@ -329,6 +336,7 @@ def plan_sheet(c, n):
         pl(c, [(bx, by), (px, py)], 0.2, INK)
         arrow(c, bx, by, px, py, 1.8, 0.2)
         label_box(c, bx, by, name, 8)
+    _references(c, n, P)
     # services tags
     for s, off, tag, col in ((60.0, -15.0, "SEW", SEWER), (180.0, 12.4, "WM", WATER),
                              (260.0, -13.4, "UGE", POWER), (400.0, 13.6, "TEL", COMMS),
@@ -366,9 +374,12 @@ def plan_sheet(c, n):
                (lx + dx * 8.7 + ax * half, ly + dy * 8.7 + ay * half), (lx + dx * 0.9 + ax * half, ly + dy * 0.9 + ay * half)],
            0, white, close=True, fill=white)
         toward = (ux * dx + uy * dy) > 0
+        boxes = []
         for j, t in enumerate(lines):
             base = (1.5 if toward else 4.5) + 3.6 * j
             rtext(c, lx + dx * base, ly + dy * base, t, ang, FB, 8, INK, "c")
+            boxes.append(truth.text_box(lx + dx * base, ly + dy * base, t, ang, FB, 8, "c"))
+        truth.link("matchline", " ".join(lines), truth.union(*boxes), [BY_KEY[PLAN_KEYS[other]]["page"]], value=ms)
     c.restoreState()
 
     # ---- frame furniture (not clipped)
@@ -389,3 +400,78 @@ def plan_sheet(c, n):
     ], 6.4, 3.0)
     y -= 28.0
     _keyplan(c, xr, y, RIGHT_COL_W, n)
+
+
+# ---- references to other sheets: section cuts, detail callouts, elevation marks
+# (sheet number, alignment, chainage, offset of each bubble from the control line, id, target sheet key)
+SECTION_CUTS = [
+    (1, MC00, 30.0, 36.0, "A", "ts1"),
+    (2, MC00, 430.0, 36.0, "B", "ts1"),
+    (1, MC01, 90.0, 26.0, "C", "ts2"),
+]
+# (sheet number, alignment, chainage, offset of the thing pointed at, bubble chainage, bubble offset, id, target key)
+DETAIL_CALLOUTS = [
+    (1, MC00, 230.0, 8.6, 222.0, 17.5, "1", "ts2"),
+    (3, MC00, 700.0, -10.7, 690.0, -19.0, "2", "ts2"),
+    (4, MC00, 880.0, 7.0, 872.0, 17.5, "3", "ts2"),
+]
+# (sheet number, bubble chainage, bubble offset, point chainage, point offset, id, target key)
+ELEVATION_MARKS = [
+    (4, CULVERT_CH - 4.0, -38.0, CULVERT_CH, -24.0, "E1", "ts2"),
+]
+
+
+def _short(key):
+    return BY_KEY[key]["num"]
+
+
+def _references(c, n, P):
+    for sheet, al, s, off, ident, key in SECTION_CUTS:
+        if sheet != n:
+            continue
+        a, b = P(*al.pt(s, -off + 6.0)), P(*al.pt(s, off - 6.0))
+        pl(c, [a, b], 0.5, INK, (10.0, 1.5, 1.5, 1.5))
+        bear = al.at(s)[2]
+        fx, fy = math.sin(bear), math.cos(bear)  # forward along the alignment, page mm per unit
+        for sign in (-1, 1):
+            bx, by = P(*al.pt(s, sign * off))
+            # view arrow: from the bubble's side point, pointing up chainage
+            ex, ey = P(*al.pt(s, sign * (off - 6.0)))
+            pl(c, [(ex, ey), (bx, by)], 0.35, INK)
+            arrow(c, ex, ey, ex + fx * 7.0, ey + fy * 7.0, 2.4, 0.4)
+            bb = bubble(c, bx, by, ident, _short(key))
+            truth.link("section", "%s/%s" % (ident, _short(key)), bb, [], ident=ident, target_key=("section", ident))
+    for sheet, al, s, off, bs, boff, ident, key in DETAIL_CALLOUTS:
+        if sheet != n:
+            continue
+        tx, ty = P(*al.pt(s, off))
+        bx, by = P(*al.pt(bs, boff))
+        d = math.hypot(tx - bx, ty - by)
+        pl(c, [(bx + (tx - bx) * 5.5 / d, by + (ty - by) * 5.5 / d), (tx, ty)], 0.25, INK)
+        circle(c, tx, ty, 0.7, 0.1, INK, INK)
+        bb = bubble(c, bx, by, ident, _short(key))
+        truth.link("detail", "%s/%s" % (ident, _short(key)), bb, [], ident=ident, target_key=("detail", ident))
+    for sheet, bs, boff, ps, poff, ident, key in ELEVATION_MARKS:
+        if sheet != n:
+            continue
+        bx, by = P(*MC00.pt(bs, boff))
+        tx, ty = P(*MC00.pt(ps, poff))
+        d = math.hypot(tx - bx, ty - by)
+        ux, uy = (tx - bx) / d, (ty - by) / d
+        # solid pointer from the bubble towards the face seen
+        tip = (bx + ux * 10.0, by + uy * 10.0)
+        pl(c, [(bx - uy * 4.0 + ux * 3.0, by + ux * 4.0 + uy * 3.0), tip, (bx + uy * 4.0 + ux * 3.0, by - ux * 4.0 + uy * 3.0)],
+           0.2, INK, close=True, fill=INK)
+        bb = bubble(c, bx, by, ident, _short(key))
+        truth.link("elevation", "%s/%s" % (ident, _short(key)), bb, [], ident=ident, target_key=("elevation", ident))
+
+
+def _tick_truth(n, al, s, b):
+    """A chainage tick on plan n: it should link to the cross section drawn there, if any. Ticks
+    with none may link to the other plan sheet that shows the same point, or not at all."""
+    xs = xs_page(al.name, s)
+    if xs:
+        truth.link("chainage", "%d" % s, b, [xs], alignment=al.name, value=float(s))
+    else:
+        others = [p for p in plan_pages(al, s) if p != BY_KEY[PLAN_KEYS[n]]["page"]]
+        truth.link("chainage", "%d" % s, b, others, alignment=al.name, value=float(s), optional=True)

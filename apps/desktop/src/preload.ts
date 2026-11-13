@@ -77,6 +77,10 @@ contextBridge.exposeInMainWorld('redcolumn', {
   },
   pkiFetch: (url: string, body?: Uint8Array, type?: string) => call<Uint8Array>('pki:fetch', url, body, type),
   pkiRoots: () => call<string[]>('pki:roots'),
+  fonts: {
+    list: () => call('fonts:list'),
+    read: async (id: string) => new Uint8Array(await call<Uint8Array>('fonts:read', id)),
+  },
   tokens: {
     modules: () => call('token:modules'),
     addModule: () => call('token:add-module'),
@@ -112,7 +116,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
     ? {
         excel: {
           pick: (suggestedName: string) => call('excel:pick', suggestedName),
-          write: (id: string, xlsx: Uint8Array, table: (string | number)[][]) => call('excel:write', id, xlsx, table),
+          write: (id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[]) => call('excel:write', id, xlsx, table, extra),
           open: (id: string) => call('excel:open', id),
           show: (id: string) => call('excel:show', id),
         },

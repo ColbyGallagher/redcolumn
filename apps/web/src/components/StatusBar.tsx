@@ -6,7 +6,7 @@ import { useOnline } from '../offline/network';
 import { desktop } from '../desktop/host';
 import { assistantIsOn, subscribeAssistant } from '../desktop/assistantFlag';
 import { ContextMenu, type ContextMenuState } from './ContextMenu';
-import { toolLabel, type Tool } from '../markup/MarkupTools';
+import { toolLabel, type ArcMode, type Tool } from '../markup/MarkupTools';
 import { shortcutLabel } from '../commands/shortcuts';
 import type { Category } from './PreferencesDialog';
 
@@ -37,7 +37,15 @@ interface Props {
   tool: Tool;
   /** Back to the Select tool (clicking the tool's name). */
   onSelectTool: () => void;
+  /** A 3-point arc is armed: what the next click is for. */
+  arc?: ArcMode;
 }
+
+/** What to click next while a 3-point arc is armed. */
+const ARC_HINTS: Record<Exclude<ArcMode, 'off'>, string> = {
+  awaitMid: 'Arc: click a point on the curve, then the arc end',
+  awaitEnd: 'Arc: click the arc end',
+};
 
 function Toggle({
   label,
@@ -72,7 +80,7 @@ function Toggle({
  * the page's scale) on the right. It follows the pointer itself so moving the mouse does not
  * re-render the rest of the app.
  */
-export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings, tool, onSelectTool }: Props) {
+export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapContent, onSnapContent, disabled, sync, onSync, onOpenSettings, tool, onSelectTool, arc }: Props) {
   const prefs = useSettings();
   const online = useOnline();
   const assistantOn = useSyncExternalStore(subscribeAssistant, assistantIsOn, () => false);
@@ -100,7 +108,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
   const scale = cursor ? scaleFor(cursor.pageIndex) : null;
   const size = cursor && viewer ? viewer.pageSize(cursor.pageIndex) : null;
   const onPage = cursor && size && cursor.point[0] >= 0 && cursor.point[1] >= 0 && cursor.point[0] <= size.width && cursor.point[1] <= size.height;
-  const coord = (pt: number) => (scale ? formatLength(pt * scale.metersPerPoint, scale) : `${pt.toFixed(1)} pt`);
+  const coord = (pt: number, axis: 'x' | 'y') => (scale ? formatLength(pt * (axis === 'y' ? (scale.yMetersPerPoint ?? scale.metersPerPoint) : scale.metersPerPoint), scale) : `${pt.toFixed(1)} pt`);
   const geo = onPage ? geoAt(geoRegions(), cursor.pageIndex, cursor.point) : null;
 
   return (
@@ -111,6 +119,11 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
             <button type="button" className="status-toggle on status-tool" title="The active tool. Click (or press Esc) to go back to Select." onClick={onSelectTool}>
               {shortcut ? `${toolLabel(tool)} (${shortcut})` : toolLabel(tool)}
             </button>
+            {arc && arc !== 'off' && (
+              <span className="status-hint" data-testid="arc-hint" title="Esc or Backspace cancels the arc">
+                {ARC_HINTS[arc]}
+              </span>
+            )}
             <span className="status-sep" />
           </>
         )}
@@ -155,7 +168,7 @@ export function StatusBar({ viewer, rotation: turns, scaleFor, geoRegions, snapC
           </span>
         ) : (
           <span className="status-coords" title="Pointer position from the page's top-left corner, at the page scale">
-            {onPage ? `X ${coord(cursor.point[0])}   Y ${coord(cursor.point[1])}` : ''}
+            {onPage ? `X ${coord(cursor.point[0], 'x')}   Y ${coord(cursor.point[1], 'y')}` : ''}
           </span>
         )}
       </div>

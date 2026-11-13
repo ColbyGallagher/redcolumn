@@ -120,6 +120,19 @@ export function calibratedScale(lengthPoints: number, realLength: number, unit: 
   };
 }
 
+/**
+ * A scale with one axis re-calibrated from a line of known length drawn along it, the other axis
+ * left exactly as it was. Calibrating X sets `metersPerPoint` (a separate Y stays as it was; with
+ * none, Y keeps following X); calibrating Y sets `yMetersPerPoint`, making Y separate. With no
+ * current scale the line sets both axes.
+ */
+export function calibrateAxis(current: Scale | null, axis: 'x' | 'y', lengthPoints: number, realLength: number, unit: LengthUnit): Scale {
+  const fresh = calibratedScale(lengthPoints, realLength, unit);
+  if (!current) return fresh;
+  if (axis === 'x') return { ...current, metersPerPoint: fresh.metersPerPoint, label: 'Calibrated' };
+  return { ...current, yMetersPerPoint: fresh.metersPerPoint, label: 'Calibrated' };
+}
+
 function gcd(a: number, b: number): number {
   return b ? gcd(b, a % b) : a;
 }

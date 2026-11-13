@@ -2,9 +2,9 @@ import { areaLabelOf, areaUnitOf, formatArea, formatLength, formatVolume, METERS
 
 export type Pt = readonly [number, number];
 
-export type MeasureKind = 'length' | 'polylength' | 'area' | 'perimeter' | 'count' | 'angle' | 'diameter' | 'radius' | 'arcLength' | 'volume';
+export type MeasureKind = 'length' | 'polylength' | 'area' | 'perimeter' | 'count' | 'angle' | 'diameter' | 'radius' | 'arcLength' | 'volume' | 'manual';
 
-export const MEASURE_KINDS: readonly MeasureKind[] = ['length', 'polylength', 'area', 'perimeter', 'count', 'angle', 'diameter', 'radius', 'arcLength', 'volume'];
+export const MEASURE_KINDS: readonly MeasureKind[] = ['length', 'polylength', 'area', 'perimeter', 'count', 'angle', 'diameter', 'radius', 'arcLength', 'volume', 'manual'];
 
 /** What a kind measures: a length, an area, a volume, a number of items, or an angle. */
 export type Quantity = 'length' | 'area' | 'volume' | 'count' | 'angle';
@@ -20,13 +20,45 @@ export const QUANTITY: Record<MeasureKind, Quantity> = {
   volume: 'volume',
   count: 'count',
   angle: 'angle',
+  // A manual quantity's real kind is in its props: see `quantityOf` and `effectiveKind`.
+  manual: 'length',
 };
 
-/** How steep a measured run or surface is: rise per 12 of run, degrees, or percent grade. */
-export interface Slope {
-  kind: 'pitch' | 'degrees' | 'percent';
+/** The kinds a typed (manual) quantity can be. */
+export type ManualKind = 'length' | 'area' | 'volume' | 'count';
+
+export const MANUAL_KINDS: readonly ManualKind[] = ['length', 'area', 'volume', 'count'];
+
+/**
+ * A quantity typed in rather than drawn: `value` is in SI base units (meters, square meters, cubic
+ * meters, or a count); `unit` is the unit it was typed in, kept for editing.
+ */
+export interface ManualQuantity {
+  kind: ManualKind;
   value: number;
+  unit?: string;
+  note?: string;
 }
+
+
+/**
+ * A single plane's steepness: rise per 12 of run (pitch), degrees, percent grade, or a free
+ * rise:run ratio in any units (1:4, 6:12).
+ */
+export type SlopeSpec = { kind: 'pitch'; value: number } | { kind: 'degrees'; value: number } | { kind: 'percent'; value: number } | { kind: 'ratio'; rise: number; run: number };
+
+/**
+ * How steep a measured run or surface is. Besides a single plane (`SlopeSpec`):
+ * - `elevation`: the two ends' levels in meters. A run's true length is sqrt(plan² + Δh²), exactly;
+ *   an area needs the horizontal `run` (meters) the rise happens over, and without one stays flat.
+ * - `hip` / `valley`: the line where two roof planes meet, traced on plan. `a` is one plane's
+ *   slope and `b` the other's (the same as `a` when left out). Runs only: areas ignore them.
+ * Markups saved before the other kinds (`{ kind, value }` pitch, degrees or percent) are
+ * `SlopeSpec`s as they are.
+ */
+export type Slope = SlopeSpec | { kind: 'elevation'; from: number; to: number; run?: number } | { kind: 'hip'; a: SlopeSpec; b?: SlopeSpec } | { kind: 'valley'; a: SlopeSpec; b?: SlopeSpec };
+
+export type SlopeKind = Slope['kind'];
 
 /**
  * Extra properties of a measurement: cutouts (holes subtracted from areas and volumes), a depth
@@ -41,6 +73,20 @@ export interface MeasureProps {
   bulges?: readonly number[];
   /** Cutouts' curved segments: per cutout, its bulges as for `bulges` (ignored unless one per edge). */
   holeBulges?: readonly (readonly number[] | null | undefined)[];
+  /** Internal: the points are already a stretched, sampled arc (not a three-point arc). */
+  flattened?: boolean;
+  /** Manual measurements: the typed quantity. */
+  manual?: ManualQuantity;
+}
+
+/** What a measurement of this kind measures; a manual quantity is whatever kind was typed. */
+export function quantityOf(kind: MeasureKind, props?: Pick<MeasureProps, 'manual'>): Quantity {
+  return kind === 'manual' ? (props?.manual?.kind ?? 'length') : QUANTITY[kind];
+}
+
+/** The kind a measurement counts as in totals and formulas: a manual quantity is the kind it was typed as. */
+export function effectiveKind(kind: MeasureKind, props?: Pick<MeasureProps, 'manual'>): MeasureKind {
+  return kind === 'manual' ? (props?.manual?.kind ?? 'length') : kind;
 }
 
 // --- Arc segments ---------------------------------------------------------------------------------
@@ -57,6 +103,24 @@ export function bulgeThrough(p: Pt, q: Pt, m: Pt): number {
   // Signed distance of m from the chord (right of travel positive), as the sagitta.
   const h = ((m[0] - p[0]) * dy - (m[1] - p[1]) * dx) / c;
   return (2 * h) / c;
+}
+
+/**
+ * The bulge of the circular arc from `p` to `q` that passes exactly through `m`, anywhere along it
+ * (a 3-point arc). The angle the chord makes at `m` is π − θ/2, so the bulge tan(θ/4) is the
+ * cotangent of half that angle. 0 when the three points are (nearly) in a line; it grows without
+ * limit as `m` nears either end, so callers clamp it.
+ */
+export function bulgeThroughPoint(p: Pt, q: Pt, m: Pt): number {
+  const u: Pt = [p[0] - m[0], p[1] - m[1]];
+  const v: Pt = [q[0] - m[0], q[1] - m[1]];
+  const cross = u[0] * v[1] - u[1] * v[0];
+  const lu = Math.hypot(u[0], u[1]);
+  const lv = Math.hypot(v[0], v[1]);
+  if (lu < 1e-9 || lv < 1e-9 || Math.abs(cross) < 1e-12 * lu * lv) return 0;
+  const cot = (lu * lv + u[0] * v[0] + u[1] * v[1]) / Math.abs(cross);
+  // Same side convention as bulgeThrough: positive with m to the right of travel from p to q.
+  return cross < 0 ? cot : -cot;
 }
 
 /** An arc segment's length and the signed area between its chord and the arc. */
@@ -95,6 +159,48 @@ export function arcPoints(p: Pt, q: Pt, bulge: number, steps = 24): [number, num
     out.push(i === n ? [q[0], q[1]] : [cx + r * Math.cos(a), cy + r * Math.sin(a)]);
   }
   return out;
+}
+
+/** Where a point `t` (0 to 1, by angle) of the way along an arc segment is, and the two parts' bulges when it is split there. */
+export function arcSplit(p: Pt, q: Pt, bulge: number, t: number): { at: [number, number]; first: number; second: number } {
+  if (!bulge) return { at: [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t], first: 0, second: 0 };
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  const c = Math.hypot(dx, dy);
+  const theta = 4 * Math.atan(bulge);
+  const r = c / (2 * Math.sin(Math.abs(theta) / 2));
+  const d = Math.sqrt(Math.max(0, r * r - (c / 2) * (c / 2))) * (Math.abs(theta) > Math.PI ? -1 : 1);
+  const s = Math.sign(bulge);
+  // The centre, as arcPoints finds it; the split point turns about it from p by t of the arc's angle.
+  const cx = (p[0] + q[0]) / 2 - (dy / c) * d * s;
+  const cy = (p[1] + q[1]) / 2 + (dx / c) * d * s;
+  const a = Math.atan2(p[1] - cy, p[0] - cx) + theta * t;
+  // Each part is an arc of the same circle: its bulge is tan(angle / 4), the angle being a share of the whole.
+  return { at: [cx + r * Math.cos(a), cy + r * Math.sin(a)], first: Math.tan((theta * t) / 4), second: Math.tan((theta * (1 - t)) / 4) };
+}
+
+/**
+ * The bulges of the two segments meeting at vertex `i` that make the curve pass smoothly through it:
+ * arcs of the circle through the vertex and its two neighbours. Null at the end of an open path,
+ * which has only one segment there; collinear neighbours give straight segments.
+ */
+export function smoothBulgesAt(points: readonly Pt[], i: number, closed: boolean): { before: number; after: number } | null {
+  const n = points.length;
+  if (n < 3 || (!closed && (i <= 0 || i >= n - 1))) return null;
+  const a = points[(i - 1 + n) % n]!;
+  const b = points[i]!;
+  const c = points[(i + 1) % n]!;
+  // The arc p to q bulges away from the third point, on the circle through all three: its included angle is twice the angle there.
+  const turn = (p: Pt, q: Pt, away: Pt): number => {
+    const cross = (q[0] - p[0]) * (away[1] - p[1]) - (q[1] - p[1]) * (away[0] - p[0]);
+    const u = [p[0] - away[0], p[1] - away[1]] as const;
+    const v = [q[0] - away[0], q[1] - away[1]] as const;
+    const angle = Math.atan2(Math.abs(u[0] * v[1] - u[1] * v[0]), u[0] * v[0] + u[1] * v[1]);
+    // Neighbours in a straight line give no curve.
+    if (Math.abs(cross) < 1e-9 * (Math.hypot(q[0] - p[0], q[1] - p[1]) * Math.hypot(away[0] - p[0], away[1] - p[1]) || 1)) return 0;
+    return Math.sign(cross) * Math.tan(angle / 2);
+  };
+  return { before: turn(a, b, c), after: turn(b, c, a) };
 }
 
 /** A path with its arc segments turned into points (for drawing, hit tests and export); a closed one without repeating its start. */
@@ -139,23 +245,129 @@ export function polygonAreaArcs(points: readonly Pt[], bulges: readonly number[]
   return Math.abs(twice / 2 + segments);
 }
 
-/** The slope as an angle in radians. */
-export function slopeAngle(slope: Slope): number {
-  if (slope.kind === 'degrees') return (slope.value * Math.PI) / 180;
-  return Math.atan(slope.kind === 'pitch' ? slope.value / 12 : slope.value / 100);
+const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+
+/** One plane's slope as rise over run (the tangent of its angle). */
+function specTan(spec: SlopeSpec | undefined): number {
+  if (!spec) return 0;
+  switch (spec.kind) {
+    case 'pitch':
+      return num(spec.value) / 12;
+    case 'degrees': {
+      const d = num(spec.value);
+      return Math.abs(d) >= 90 ? 0 : Math.tan((d * Math.PI) / 180);
+    }
+    case 'percent':
+      return num(spec.value) / 100;
+    case 'ratio':
+      return num(spec.run) > 0 ? num(spec.rise) / num(spec.run) : 0;
+  }
+  return 0;
 }
 
-/** Plan-to-true multiplier for a slope (1 when flat). */
+/**
+ * The plan-to-true factor along a hip or valley traced on plan, where planes rising t1 and t2 per
+ * unit run meet: sqrt(1 + t1²·t2² / (t1² + t2²)), which is sqrt(1 + t²/2) for equal slopes.
+ *
+ * Assumes the eaves meet at a square (90°) corner on plan: the hip then runs, on plan, where both
+ * planes reach the same height. Eaves meeting at other angles are not modelled.
+ */
+function hipFactor(a: SlopeSpec | undefined, b: SlopeSpec | undefined): number {
+  const t1 = specTan(a);
+  const t2 = b ? specTan(b) : t1;
+  const sq = t1 * t1 + t2 * t2;
+  return sq > 0 ? Math.sqrt(1 + (t1 * t1 * t2 * t2) / sq) : 1;
+}
+
+/** The kinds a hip or valley slope applies to: traced runs. */
+const HIP_KINDS: ReadonlySet<MeasureKind> = new Set(['length', 'polylength']);
+
+/** Whether a slope changes this kind of measurement (lengths and areas; hips and valleys runs only). */
+export function slopeApplies(kind: MeasureKind, slope: Slope | undefined): boolean {
+  // A typed (manual) quantity is already the true value.
+  if (!slope || kind === 'manual') return false;
+  const q = QUANTITY[kind];
+  if (q !== 'length' && q !== 'area') return false;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return HIP_KINDS.has(kind);
+  return true;
+}
+
+/** The slope as an angle in radians (an elevation's over its run, 0 without one; a hip's along the hip). */
+export function slopeAngle(slope: Slope): number {
+  if (slope.kind === 'degrees') {
+    const d = num(slope.value);
+    return Math.abs(d) >= 90 ? 0 : (d * Math.PI) / 180;
+  }
+  if (slope.kind === 'elevation') return num(slope.run) > 0 ? Math.atan(Math.abs(num(slope.to) - num(slope.from)) / num(slope.run)) : 0;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return Math.acos(1 / hipFactor(slope.a, slope.b));
+  return Math.atan(specTan(slope));
+}
+
+/**
+ * Plan-to-true multiplier for a slope (1 when flat). An elevation's is its area factor (over its
+ * run); runs with elevations use the exact length through `slopedValue` instead.
+ */
 export function slopeFactor(slope: Slope | undefined): number {
-  if (!slope || !slope.value) return 1;
+  if (!slope) return 1;
+  if (slope.kind === 'hip' || slope.kind === 'valley') return hipFactor(slope.a, slope.b);
   const a = slopeAngle(slope);
   return Math.abs(Math.cos(a)) < 1e-6 ? 1 : 1 / Math.cos(a);
 }
 
+/**
+ * A plan value (meters for runs, square meters for areas) made true for its slope. Runs with
+ * elevations are exact: sqrt(plan² + Δh²), `plan` being the whole path's plan length. Other kinds,
+ * and slopes that do not apply (a hip on an area), come back unchanged.
+ */
+export function slopedValue(kind: MeasureKind, plan: number, slope: Slope | undefined): number {
+  if (!slope || !slopeApplies(kind, slope)) return plan;
+  if (slope.kind === 'elevation' && QUANTITY[kind] === 'length') return Math.hypot(plan, num(slope.to) - num(slope.from));
+  return plan * slopeFactor(slope);
+}
+
+/** The factor a measurement's slope actually makes (true over plan): 1 when flat or not applied. */
+export function effectiveSlopeFactor(kind: MeasureKind, plan: number, slope: Slope | undefined): number {
+  if (!slope || !slopeApplies(kind, slope)) return 1;
+  if (slope.kind === 'elevation' && QUANTITY[kind] === 'length') return plan > 0 ? slopedValue(kind, plan, slope) / plan : 1;
+  return slopeFactor(slope);
+}
+
+/** Whether a slope makes no difference anywhere (none, or all zeros). */
+export function slopeIsFlat(slope: Slope | undefined): boolean {
+  if (!slope) return true;
+  if (slope.kind === 'elevation') return num(slope.to) === num(slope.from);
+  return slopeFactor(slope) === 1;
+}
+
+/** An area with an elevation slope but no run: it cannot be sloped, so it stays flat (the UI says so). */
+export function slopeNeedsRun(kind: MeasureKind, slope: Slope | undefined): boolean {
+  return !!slope && slope.kind === 'elevation' && QUANTITY[kind] === 'area' && !(num(slope.run) > 0) && num(slope.to) !== num(slope.from);
+}
+
+const fmt = (v: number, digits: number) => String(+num(v).toFixed(digits));
+
+function formatSpec(spec: SlopeSpec): string {
+  switch (spec.kind) {
+    case 'pitch':
+      return `${fmt(spec.value, 2)}:12`;
+    case 'degrees':
+      return `${fmt(spec.value, 1)}°`;
+    case 'percent':
+      return `${fmt(spec.value, 1)}%`;
+    case 'ratio':
+      return `${fmt(spec.rise, 2)}:${fmt(spec.run, 2)}`;
+  }
+  return '';
+}
+
+/** A slope as shown: `6:12`, `30°`, `8%`, `1:4`, `Δ1.20 m`, `Hip 6:12`, `Valley 6:12/8:12`. */
 export function formatSlope(slope: Slope): string {
-  if (slope.kind === 'pitch') return `${+slope.value.toFixed(2)}:12`;
-  if (slope.kind === 'degrees') return `${+slope.value.toFixed(1)}°`;
-  return `${+slope.value.toFixed(1)}%`;
+  if (slope.kind === 'elevation') return `Δ${Math.abs(num(slope.to) - num(slope.from)).toFixed(2)} m`;
+  if (slope.kind === 'hip' || slope.kind === 'valley') {
+    const name = slope.kind === 'hip' ? 'Hip' : 'Valley';
+    return `${name} ${formatSpec(slope.a)}${slope.b ? `/${formatSpec(slope.b)}` : ''}`;
+  }
+  return formatSpec(slope);
 }
 
 /**
@@ -203,10 +415,11 @@ export const MIN_POINTS: Record<MeasureKind, number> = {
   radius: 2,
   arcLength: 3,
   volume: 3,
+  manual: 1,
 };
 
 /** Kinds that finish automatically once they have this many points. */
-export const FIXED_POINTS: Partial<Record<MeasureKind, number>> = { length: 2, angle: 3, diameter: 2, radius: 2, arcLength: 3 };
+export const FIXED_POINTS: Partial<Record<MeasureKind, number>> = { manual: 1, length: 2, angle: 3, diameter: 2, radius: 2, arcLength: 3 };
 
 export function pathLength(points: readonly Pt[], closed = false): number {
   let sum = 0;
@@ -268,12 +481,125 @@ function netArea(points: readonly Pt[], holes: MeasureProps['holes'], bulges?: r
   return Math.max(0, polygonAreaArcs(points, bulges) - (holes ?? []).reduce((sum, h, i) => sum + (h.length > 2 ? hole(h, i) : 0), 0));
 }
 
-/** Stretch Y when the page has a separate vertical scale, so lengths and areas follow both axes. */
-function applyY(points: readonly Pt[], props: MeasureProps, x: number, y?: number): { points: readonly Pt[]; props: MeasureProps } {
+/**
+ * An arc segment stretched by `s` up the page: its samples, with the page's circle turned into the
+ * ellipse it becomes. Refined until the length stops changing (under 0.01%).
+ */
+function stretchedArc(p: Pt, q: Pt, bulge: number, s: number): [number, number][] {
+  const from: Pt = [p[0], p[1] * s];
+  const lengthOf = (pts: readonly Pt[]) => pathLength([from, ...pts]);
+  let steps = 24;
+  let samples = arcPoints(p, q, bulge, steps).map((a): [number, number] => [a[0], a[1] * s]);
+  let length = lengthOf(samples);
+  while (steps < 12288) {
+    steps *= 2;
+    const finer = arcPoints(p, q, bulge, steps).map((a): [number, number] => [a[0], a[1] * s]);
+    const finerLength = lengthOf(finer);
+    const settled = Math.abs(finerLength - length) <= 1e-4 * Math.max(finerLength, 1e-12);
+    samples = finer;
+    length = finerLength;
+    if (settled) break;
+  }
+  return samples;
+}
+
+/** The arc from `a` through `b` to `c` (as `arcLength3` reads it), stretched by `s` up the page, as points. */
+function stretchedArc3(a: Pt, b: Pt, c: Pt, s: number): Pt[] {
+  const circle = circleThrough3(a, b, c);
+  const map = (p: Pt): Pt => [p[0], p[1] * s];
+  if (!circle) return [map(a), map(c)];
+  const { cx, cy, r } = circle;
+  const TAU = Math.PI * 2;
+  const norm = (x: number) => ((x % TAU) + TAU) % TAU;
+  const a0 = Math.atan2(a[1] - cy, a[0] - cx);
+  const sweepC = norm(Math.atan2(c[1] - cy, c[0] - cx) - a0);
+  const sweepB = norm(Math.atan2(b[1] - cy, b[0] - cx) - a0);
+  const sweep = sweepB <= sweepC ? sweepC : sweepC - TAU;
+  const sample = (steps: number): Pt[] => Array.from({ length: steps + 1 }, (_, i): Pt => map([cx + r * Math.cos(a0 + (sweep * i) / steps), cy + r * Math.sin(a0 + (sweep * i) / steps)]));
+  let steps = 24;
+  let out = sample(steps);
+  let length = pathLength(out);
+  while (steps < 12288) {
+    steps *= 2;
+    const finer = sample(steps);
+    const finerLength = pathLength(finer);
+    const settled = Math.abs(finerLength - length) <= 1e-4 * Math.max(finerLength, 1e-12);
+    out = finer;
+    length = finerLength;
+    if (settled) break;
+  }
+  return out;
+}
+
+/** A shape's outline with its curved segments stretched by `s` (no bulges left), as plain points. */
+function stretchedOutline(points: readonly Pt[], bulges: readonly number[] | undefined, closed: boolean, s: number): Pt[] {
+  const out: Pt[] = points.length ? [[points[0]![0], points[0]![1] * s]] : [];
+  const n = closed && points.length > 2 ? points.length : points.length - 1;
+  for (let i = 0; i < n; i++) {
+    const p = points[i]!;
+    const q = points[(i + 1) % points.length]!;
+    const b = bulges?.[i] ?? 0;
+    if (b) out.push(...stretchedArc(p, q, b, s));
+    else out.push([q[0], q[1] * s]);
+  }
+  // A closed outline does not repeat its first point.
+  if (closed && n === points.length && out.length > 1) out.pop();
+  return out;
+}
+
+/**
+ * Stretch Y when the page has a separate vertical scale, so lengths and areas follow both axes.
+ * Curved segments become their stretched (elliptical) arcs, sampled, rather than keeping bulges
+ * that would describe a circle through the stretched ends.
+ */
+function applyY(kind: MeasureKind, points: readonly Pt[], props: MeasureProps, x: number, y?: number): { points: readonly Pt[]; props: MeasureProps } {
   if (y === undefined || !(x > 0) || Math.abs(y / x - 1) < 1e-9) return { points, props };
   const s = y / x;
   const map = (p: Pt): Pt => [p[0], p[1] * s];
-  return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
+  const curved = kind === 'arcLength' ? points.length >= 3 : props.bulges?.some(Boolean);
+  const holesCurved = props.holeBulges?.some((b) => b?.some(Boolean));
+  if (!curved && !holesCurved) return { points: points.map(map), props: props.holes ? { ...props, holes: props.holes.map((h) => h.map(map)) } : props };
+  const { bulges: _b, holeBulges: _hb, ...rest } = props;
+  const holes = props.holes?.map((h, i) => {
+    const hb = props.holeBulges?.[i];
+    return hb && hb.length === h.length ? stretchedOutline(h, hb, true, s) : h.map(map);
+  });
+  const next: MeasureProps = { ...rest, ...(holes ? { holes } : {}) };
+  if (kind === 'arcLength' && points.length >= 3) {
+    // The arc from the first point through the second to the third, sampled and stretched.
+    return { points: stretchedArc3(points[0]!, points[1]!, points[2]!, s), props: { ...next, flattened: true } };
+  }
+  return { points: stretchedOutline(points, props.bulges, kind !== 'polylength', s), props: next };
+}
+
+/** The scale fields that decide how page offsets become real lengths. */
+interface AxisScale {
+  metersPerPoint: number;
+  yMetersPerPoint?: number;
+}
+
+/** Page Y stretched to X's units: 1 unless the page has a separate vertical scale. */
+function yStretch(scale: AxisScale): number {
+  const y = scale.yMetersPerPoint;
+  return y !== undefined && y > 0 && scale.metersPerPoint > 0 ? y / scale.metersPerPoint : 1;
+}
+
+/**
+ * Real length (meters) of a page-space offset `(dx, dy)`, using the X scale across the page and
+ * the separate Y scale up it. The one place live readouts convert page points to real lengths.
+ */
+export function realLengthAlong(scale: AxisScale, dx: number, dy: number): number {
+  return Math.hypot(dx, dy * yStretch(scale)) * scale.metersPerPoint;
+}
+
+/**
+ * Page points that make a real length of `meters` along the direction `(dx, dy)` (across the page
+ * by default). The inverse of `realLengthAlong`, for typed lengths.
+ */
+export function pageLengthFor(scale: AxisScale, meters: number, dx = 1, dy = 0): number {
+  const per = realLengthAlong(scale, dx, dy);
+  const len = Math.hypot(dx, dy);
+  return per > 0 && len > 0 ? (meters * len) / per : meters / scale.metersPerPoint;
 }
 
 /**
@@ -282,20 +608,28 @@ function applyY(points: readonly Pt[], props: MeasureProps, x: number, y?: numbe
  * areas and volumes. `yMetersPerPoint` stretches the page vertically before measuring.
  */
 export function measureValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
-  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
-  const k = slopeFactor(props.slope);
+  // A typed quantity is already in real units: no scale, slope or cutouts.
+  if (kind === 'manual') return props.manual?.value ?? 0;
+  return slopedValue(kind, planValue(kind, points, metersPerPoint, props, yMetersPerPoint), props.slope);
+}
+
+/** A measurement's value before its slope: the plan length or plan area (other kinds as `measureValue`). */
+export function planValue(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): number {
+  // A typed quantity is its own plan value: the slope never applies to it.
+  if (kind === 'manual') return props.manual?.value ?? 0;
+  ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   switch (kind) {
     case 'length':
     case 'polylength':
     case 'diameter':
     case 'radius':
-      return (kind === 'polylength' ? pathLengthArcs(points, props.bulges) : pathLength(points.slice(0, 2))) * metersPerPoint * k;
+      return (kind === 'polylength' ? pathLengthArcs(points, props.bulges) : pathLength(points.slice(0, 2))) * metersPerPoint;
     case 'arcLength':
-      return (points.length >= 3 ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint * k;
+      return (points.length >= 3 && !props.flattened ? arcLength3(points[0]!, points[1]!, points[2]!) : pathLength(points)) * metersPerPoint;
     case 'perimeter':
-      return pathLengthArcs(points, props.bulges, true) * metersPerPoint * k;
+      return pathLengthArcs(points, props.bulges, true) * metersPerPoint;
     case 'area':
-      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * k;
+      return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint;
     case 'volume':
       return netArea(points, props.holes, props.bulges, props.holeBulges) * metersPerPoint * metersPerPoint * (props.depth ?? 0);
     case 'count':
@@ -315,7 +649,12 @@ export interface MeasureDetails {
 }
 
 export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersPerPoint: number, props: MeasureProps = {}, yMetersPerPoint?: number): MeasureDetails {
-  ({ points, props } = applyY(points, props, metersPerPoint, yMetersPerPoint));
+  if (kind === 'manual') {
+    const m = props.manual;
+    if (!m) return {};
+    return m.kind === 'length' ? { length: m.value } : m.kind === 'area' ? { area: m.value } : m.kind === 'volume' ? { volume: m.value } : {};
+  }
+  ({ points, props } = applyY(kind, points, props, metersPerPoint, yMetersPerPoint));
   const q = QUANTITY[kind];
   if (q === 'length') {
     const length = measureValue(kind, points, metersPerPoint, props);
@@ -323,6 +662,8 @@ export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersP
   }
   if (kind === 'area' || kind === 'volume') {
     const out: MeasureDetails = {
+      // A sloped area's perimeter stays its plan perimeter on purpose: level eaves keep their plan
+      // length while rakes grow with the slope, and which edges are which is not known here.
       length: pathLengthArcs(points, props.bulges, true) * metersPerPoint,
       area: measureValue('area', points, metersPerPoint, kind === 'volume' ? { holes: props.holes, bulges: props.bulges, holeBulges: props.holeBulges } : props),
     };
@@ -332,8 +673,8 @@ export function measureDetails(kind: MeasureKind, points: readonly Pt[], metersP
   return {};
 }
 
-export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): string {
-  switch (QUANTITY[kind]) {
+export function formatMeasure(kind: MeasureKind, value: number, scale: Scale, props?: Pick<MeasureProps, 'manual'>): string {
+  switch (quantityOf(kind, props)) {
     case 'length':
       return formatLength(value, scale);
     case 'area':
@@ -351,11 +692,11 @@ export function formatMeasure(kind: MeasureKind, value: number, scale: Scale): s
  * A measured value in the scale's display units, for spreadsheets: lengths in `scale.unit`
  * (decimal, even when shown as feet-inches), areas in its square, counts in items, angles in degrees.
  */
-export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale): { value: number; unit: string } {
+export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale, props?: Pick<MeasureProps, 'manual'>): { value: number; unit: string } {
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
   const perVolume = METERS_PER_UNIT[volumeUnitOf(scale)];
-  switch (QUANTITY[kind]) {
+  switch (quantityOf(kind, props)) {
     case 'length':
       return { value: value / per, unit: scale.unit };
     case 'area':
@@ -370,7 +711,7 @@ export function toDisplayQuantity(kind: MeasureKind, value: number, scale: Scale
 }
 
 export function measureLabel(kind: MeasureKind, points: readonly Pt[], scale: Scale, props: MeasureProps = {}): string {
-  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props, scale.yMetersPerPoint), scale);
+  return formatMeasure(kind, measureValue(kind, points, scale.metersPerPoint, props, scale.yMetersPerPoint), scale, props);
 }
 
 /** Where a measurement's label sits, in page space. */
@@ -380,7 +721,7 @@ export function labelAnchor(kind: MeasureKind, points: readonly Pt[]): [number, 
   if (kind === 'diameter' || kind === 'radius') return points.length >= 2 ? [(points[0]![0] + points[1]![0]) / 2, (points[0]![1] + points[1]![1]) / 2] : [points[0]![0], points[0]![1]];
   if (kind === 'arcLength' && points.length >= 2) return [points[1]![0], points[1]![1]];
   if (kind === 'angle' && points.length >= 2) return [points[1]![0], points[1]![1]];
-  if (kind === 'count') return [points[0]![0], points[0]![1]];
+  if (kind === 'count' || kind === 'manual') return [points[0]![0], points[0]![1]];
   // Midpoint of the segment containing the path's halfway point.
   const half = pathLength(points) / 2;
   let run = 0;

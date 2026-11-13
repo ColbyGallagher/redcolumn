@@ -1,8 +1,9 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, type PDFObject } from 'pdf-lib';
 import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue } from './bluebeam';
 import { toPdfValue } from './pdfValue';
-import { ASSEMBLIES_KEY, pageMatrix } from './export';
+import { ASSEMBLIES_KEY, ESTIMATING_KEY, pageMatrix } from './export';
 import { sanitizeAssemblies, type Assembly } from './assemblies';
+import { sanitizeEstimating, type Estimating } from './estimating';
 
 /** Above this size the raw read is skipped (PDFium's view of the annotations still applies). */
 const MAX_BYTES = 400 * 1024 * 1024;
@@ -66,7 +67,18 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const columns = arr(value(doc.catalog.get(PDFName.of('BSIAnnotColumns')), 'BSIAnnotColumns', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
-  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}) };
+  const estimating = readEstimating(str(value(doc.catalog.get(PDFName.of(ESTIMATING_KEY)), ESTIMATING_KEY, 0)));
+  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}) };
+}
+
+function readEstimating(json: string | null): Estimating | null {
+  if (!json) return null;
+  try {
+    const out = sanitizeEstimating(JSON.parse(json));
+    return out.items.length || out.productLists.length || out.templates.length ? out : null;
+  } catch {
+    return null;
+  }
 }
 
 function readAssemblies(json: string | null): Assembly[] {

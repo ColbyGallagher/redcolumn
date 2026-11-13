@@ -20,6 +20,10 @@ export interface ToolChestItem {
   style: MarkupStyle;
   label: string;
   subject?: string;
+  /** The Label (category) its markups take; `label` above is the tool's own name. */
+  markupLabel?: string;
+  /** The markup layer its markups go on. */
+  layer?: string;
   image?: string;
   /**
    * The exact markup it was saved from (its geometry moved to the origin): the tool places copies
