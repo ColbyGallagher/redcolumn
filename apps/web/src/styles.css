@@ -1598,7 +1598,8 @@ select[size] {
 }
 
 .thumb.drop-before {
-  box-shadow: 0 -3px 0 0 var(--accent);
+  /* Above the page in one column, and beside it in several. */
+  box-shadow: 0 -3px 0 0 var(--accent), -3px 0 0 0 var(--accent);
 }
 
 .pages-panel {
@@ -1612,6 +1613,26 @@ select[size] {
   /* Fills the panel below the last page, which takes the right-click menu and the keys too. */
   flex: 1 0 auto;
   min-width: 0;
+  /* As many columns as the panel is wide enough for: a wider panel or a smaller size shows more. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--thumb-w, 150px) + 12px), 1fr));
+  justify-items: center;
+  align-content: start;
+  align-items: start;
+  gap: 10px 6px;
+  padding: 10px 6px;
+}
+
+.pages-panel .thumb {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pages-panel .thumb > span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pages-panel .thumbs:focus {

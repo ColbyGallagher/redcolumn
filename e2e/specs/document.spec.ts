@@ -393,6 +393,17 @@ test.describe('document pages', () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
+  test('a smaller thumbnail size stacks the thumbnails in more columns', async ({ app }) => {
+    await app.cmd('document.thumbnails');
+    const thumbs = app.page.locator('.thumbs .thumb');
+    await expect.poll(() => thumbs.count()).toBeGreaterThan(1);
+    const columns = async () => new Set(await thumbs.evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().left)))).size;
+    await app.page.getByLabel('Thumbnail size').fill('360');
+    await expect.poll(columns).toBe(1);
+    await app.page.getByLabel('Thumbnail size').fill('64');
+    await expect.poll(columns).toBeGreaterThan(1);
+  });
+
   test('right-click between thumbnails offers only what needs no page', async ({ app }) => {
     await app.cmd('document.thumbnails');
     const thumbs = app.page.locator('.thumbs');
