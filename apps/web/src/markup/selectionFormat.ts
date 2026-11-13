@@ -53,6 +53,8 @@ export const FOLLOW_START: FormatFollow = { onFormat: false, auto: false, seen: 
 export type FormatFollowEvent =
   /** The selection (its ids joined) changed, or something that held the switch back has ended. */
   | { type: 'selection'; key: string; contextual: boolean; busy: boolean }
+  /** A tool was picked (`active`) or put down; `contextual` is whether the tab has anything to show for it. */
+  | { type: 'tool'; active: boolean; contextual: boolean }
   /** The user picked a tab. */
   | { type: 'pick'; format: boolean }
   /** The Format tab has nothing to show any more. */
@@ -68,6 +70,10 @@ export function followFormat(s: FormatFollow, e: FormatFollowEvent): FormatFollo
     case 'pick':
       // Picking Format while it already shows keeps it automatic; coming back to it later is the user's choice.
       return { ...s, onFormat: e.format, auto: e.format && s.onFormat ? s.auto : false };
+    case 'tool':
+      // A tool brings the tab forward; putting it down goes back, unless the user chose the tab themselves.
+      if (e.active) return e.contextual && !s.onFormat ? { ...s, onFormat: true, auto: true } : s;
+      return s.auto ? { ...s, onFormat: false, auto: false } : s;
     case 'gone':
       return { ...s, onFormat: false, auto: false };
     case 'selection': {

@@ -26,6 +26,21 @@ test.describe('ribbon', () => {
     await app.open('plan.pdf');
   });
 
+  test('a tool brings the Markup Format tab forward, and the previous tab returns when it is put down', async ({ app }) => {
+    const tabs = ribbon(app).getByRole('tab');
+    await tabs.filter({ hasText: 'View' }).click();
+    await app.cmd('tool.rect');
+    await expect(tabs.filter({ hasText: 'Markup Format' })).toHaveAttribute('aria-selected', 'true');
+    await app.cmd('tool.select');
+    await expect(tabs.filter({ hasText: 'View' })).toHaveAttribute('aria-selected', 'true');
+
+    // A tab picked while the tool is active is the user's own: putting the tool down leaves it be.
+    await app.cmd('tool.rect');
+    await tabs.filter({ hasText: 'Home' }).click();
+    await app.cmd('tool.select');
+    await expect(tabs.filter({ hasText: 'Home' })).toHaveAttribute('aria-selected', 'true');
+  });
+
   test('starts as a ribbon, and switches to its tabs only and the simplified toolbar', async ({ app }) => {
     await expect(ribbon(app)).toBeVisible();
     await expect(app.page.locator('.toolbar.tools')).toHaveCount(0);

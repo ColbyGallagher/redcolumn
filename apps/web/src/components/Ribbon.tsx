@@ -641,6 +641,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   useEffect(() => {
     dispatch({ type: 'selection', key: selectionKey, contextual, busy });
   }, [selectionKey, contextual, busy]);
+  // Picking a tool brings the Markup Format tab forward, and putting it down returns to the tab before.
+  const lastTool = useRef(tool);
+  useEffect(() => {
+    if (tool === lastTool.current) return;
+    lastTool.current = tool;
+    dispatch({ type: 'tool', active: tool !== 'select', contextual });
+  }, [tool, contextual]);
   useEffect(() => {
     const down = () => setPressed(true);
     const up = () => setPressed(false);
