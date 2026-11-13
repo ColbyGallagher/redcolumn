@@ -3,6 +3,7 @@ import type { Dropped } from './diagnostics';
 import type { HatchSet } from './hatchSet';
 import type { LineSet } from './lineSet';
 import type { Markup, MarkupStyle, MarkupType } from './model';
+import { daFontName, isNamedFont } from './fonts';
 import type { LineEnding } from './style';
 import { parsePdfObject, type PdfDict, type PdfName, type PdfValue, type RevuToolSource, type ToolChestItem, type ToolSet } from './toolchest';
 
@@ -287,7 +288,8 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
   // for every type (a measurement's label too).
   const text = TEXT_TYPES.has(type);
   if (text || s.fontSize !== undefined || s.fontFamily || s.bold || s.italic || s.underline || s.strikethrough) {
-    const [font, family] = s.fontFamily === 'serif' ? ['TiRo', 'Times New Roman'] : s.fontFamily === 'mono' ? ['Cour', 'Courier New'] : ['Helv', 'Helvetica'];
+    // A named font is written by its real name (the /DA resource name has the spaces left out).
+    const [font, family] = isNamedFont(s.fontFamily) ? [daFontName(s.fontFamily), s.fontFamily] : s.fontFamily === 'serif' ? ['TiRo', 'Times New Roman'] : s.fontFamily === 'mono' ? ['Cour', 'Courier New'] : ['Helv', 'Helvetica'];
     const ds = [`font: ${family}${s.fontSize !== undefined ? ` ${fmt(s.fontSize)}pt` : ''}`];
     if (text && type !== 'typewriter' && s.textAlign) ds.push(`text-align:${s.textAlign}`);
     if (text && type !== 'typewriter' && s.verticalAlign) ds.push(`text-valign:${s.verticalAlign}`);

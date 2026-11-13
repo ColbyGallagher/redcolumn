@@ -67,4 +67,21 @@ module.exports = async function (h) {
   await h.shot('install-button', { around: ['.install-app-btn'], pad: 60, minWidth: 360 });
   await h.run('Help', 'Install App…');
   await h.shot('install-dialog', { around: ['.modal'], pad: 20 });
+  await page.keyboard.press('Escape');
+  // Some dialogs close on a click outside rather than Escape.
+  if (await page.locator('.modal-backdrop').count()) await page.mouse.click(4, 4);
+  await page.locator('.modal-backdrop').waitFor({ state: 'detached', timeout: 5_000 });
+
+  // A DWG drawing opened as a PDF: the conversion report, then Convert Again.
+  const drawing = require('node:path').join(__dirname, '../../../apps/web/test/fixtures/cad/dwg/kestrel-plan.R2018.dwg');
+  await page.locator('input[type=file][accept*=".dwg"][multiple]').first().setInputFiles(drawing);
+  await page.locator('.cad-report').waitFor({ timeout: 60_000 });
+  await h.wait(1500);
+  await page.locator('.cad-report button', { hasText: 'Details' }).click();
+  await h.wait(300);
+  await h.shot('drawing-report', { around: ['.cad-report'], pad: 20 });
+  await page.locator('.cad-report button', { hasText: 'Convert Again' }).click();
+  await h.wait(300);
+  await h.shot('drawing-convert-again', { around: ['.cad-convert-dialog'], pad: 20 });
+  await page.keyboard.press('Escape');
 };

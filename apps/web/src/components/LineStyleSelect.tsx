@@ -8,6 +8,8 @@ interface Props {
   /** The open document's markups, whose own line styles are offered beside the sets. */
   markups: readonly Markup[];
   onChange: (patch: Partial<MarkupStyle>) => void;
+  /** The selected markups have different line styles: nothing is shown as picked. */
+  mixed?: boolean;
 }
 
 const sameLine = (a: CustomLine, b: CustomLine) => a.name === b.name && JSON.stringify(a.spec) === JSON.stringify(b.spec);
@@ -16,7 +18,7 @@ const sameLine = (a: CustomLine, b: CustomLine) => a.name === b.name && JSON.str
  * The Line style picker: plain dashes, the built-in and imported line style sets, and the custom
  * styles a Revu document brings with it. A style's own pick shows as selected wherever it is listed.
  */
-export function LineStyleSelect({ style, markups, onChange }: Props) {
+export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   const ws = useWorkspace();
   const sets = useMemo(() => lineSetLibrary(ws), [ws]);
   const inDocument = useMemo(() => documentLineStyles(markups, sets.flatMap((s) => s.styles)), [markups, sets]);
@@ -36,7 +38,7 @@ export function LineStyleSelect({ style, markups, onChange }: Props) {
 
   return (
     <select
-      value={value}
+      value={mixed ? '' : value}
       onChange={(e) => {
         const v = e.target.value;
         if (v === 'custom') return;
@@ -54,7 +56,12 @@ export function LineStyleSelect({ style, markups, onChange }: Props) {
         else onChange({ dash: v === 'solid' ? undefined : (v as LineDash), dashArray: undefined, lineStyle: undefined });
       }}
     >
-      {value === 'custom' && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
+      {mixed && (
+        <option value="" disabled hidden>
+          Mixed
+        </option>
+      )}
+      {value === 'custom' && !mixed && <option value="custom">{style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`}</option>}
       {LINE_DASHES.map((d) => (
         <option key={d.value} value={d.value}>
           {d.label}

@@ -89,32 +89,40 @@ module.exports = async function (h) {
   await h.wait(500);
   await page.locator('.doc-tab', { hasText: /^sample-plans\.pdf/ }).first().click().catch(() => {});
   await h.wait(800);
-  await h.run('Document', 'Drawing Standards…');
+  // A standard for the sample client, made in the setup (over the app, so no second window):
+  // the sheet number box, and the template worked out from it. The setup's own screenshots come
+  // from scripts/help/standards-gifs.cjs (shots).
+  await page.evaluate(() => {
+    window.open = () => null;
+    window.__nb.commands().get('document.setUpDrawingStandard').run();
+  });
+  const wizard = page.locator('.standards-wizard');
+  await wizard.getByLabel('Standard name').fill('Sample client');
+  await wizard.getByRole('button', { name: 'Start', exact: true }).click();
+  await h.wait(2000);
+  await wizard.locator('.sw-sheet .pagenav button[title^="Fit page"]').click();
   await h.wait(600);
-  const ds = page.locator('.drawing-standard');
-  await ds.getByLabel('Name', { exact: true }).fill('Sample client');
-  await ds.getByLabel("Words on this client's sheets").fill('REDCOLUMN');
-  // Wider than the page, so the title block sits left of the panel.
-  await h.zoomTo(1380, 860, 2240, 1280);
-  // The box tool is armed when the panel opens; + Draw box arms it again otherwise.
-  const arm = ds.getByRole('button', { name: '+ Draw box' });
-  if (await arm.isVisible()) await arm.click();
-  await h.drag([1430, 1160], [1700, 1252]); // sheet number
-  await h.drag([1430, 1100], [1700, 1150]); // sheet title
-  await h.drag([1430, 988], [1700, 1016]); // revision
-  await h.drag([1430, 884], [1700, 912]); // project number: not the sheet's
-  await ds.getByLabel('Box 4 holds').selectOption('ignore');
-  await ds.getByRole('button', { name: 'Work out from this set' }).click();
-  await h.wait(600);
-  await h.shot('drawing-standard', { around: ['main.stage'], pad: 0 });
-  await ds.locator('summary', { hasText: 'Sheet links and marks' }).click();
-  // The panel's body scrolls: bring the section to its top.
-  await ds.locator('.ds-more').evaluate((e) => e.scrollIntoView({ block: 'start' }));
-  await h.wait(300);
-  await h.shot('drawing-standard-links', { around: ['.drawing-standard'], pad: 12 });
-  await ds.getByRole('button', { name: 'Save and use' }).click();
-  await h.wait(3000);
-  await ds.getByRole('button', { name: 'Close' }).click().catch(() => {});
+  // The sheet number, in page points, through the setup sheet's view.
+  const at = (x, y) =>
+    page.evaluate(([x, y]) => {
+      const el = document.querySelector('.sheet-view-body');
+      const [cx, cy, zoom] = el.dataset.view.split(',').map(Number);
+      const r = el.getBoundingClientRect();
+      return { x: r.left + (x - cx) * zoom + r.width / 2, y: r.top + (y - cy) * zoom + r.height / 2 };
+    }, [x, y]);
+  const a = await at(1430, 1160);
+  const z = await at(1700, 1252);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(z.x, z.y, { steps: 8 });
+  await page.mouse.up();
+  await h.wait(800);
+  await wizard.locator('.sw-checklist').getByRole('button', { name: 'Drawing numbers' }).click();
+  await h.wait(500);
+  const use = wizard.getByRole('button', { name: /^Use / });
+  if (await use.count()) await use.first().click();
+  await wizard.getByRole('button', { name: 'Close the setup' }).click();
+  await h.wait(800);
 
   // Offered for the next set from the same client.
   await page.locator('.doc-tab', { hasText: /^sample-plans-rev1\.pdf/ }).first().click().catch(() => {});

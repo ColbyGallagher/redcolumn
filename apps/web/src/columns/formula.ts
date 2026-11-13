@@ -6,10 +6,15 @@
  *   IF([Status] = "Accepted", [Cost], 0)
  *   CONCAT([Page], " / ", [Author])
  *
+ * Function names are not case-sensitive (if, If, IF). Yes/No values (checkmark columns, switches)
+ * count as 1 and 0.
+ *
  * Columns are referenced by name in square brackets. Numbers, "strings", + - * / ^ and & (join
  * text), comparisons (= <> < > <= >=), and the functions in FUNCTIONS are supported. Evaluation
  * never runs code: expressions are parsed into a tree and interpreted.
  */
+
+import { AREA_LABELS, METERS_PER_UNIT, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
 
 export type Value = number | string | boolean;
 
@@ -159,6 +164,42 @@ const num = (v: Value): number => {
 const str = (v: Value): string => (typeof v === 'number' ? String(Math.round(v * 1e9) / 1e9) : String(v));
 const truthy = (v: Value) => (typeof v === 'string' ? v !== '' && v !== '0' : !!v);
 
+/** Unit names CONVERT knows, to their size in metres (or m², m³) and dimension (1 length, 2 area, 3 volume). */
+const UNIT_SIZES: Map<string, { size: number; dim: 1 | 2 | 3 }> = (() => {
+  const out = new Map<string, { size: number; dim: 1 | 2 | 3 }>();
+  for (const [u, m] of Object.entries(METERS_PER_UNIT)) {
+    out.set(u, { size: m, dim: 1 });
+    out.set(AREA_LABELS[u as LengthUnit].toLowerCase(), { size: m * m, dim: 2 });
+    out.set(VOLUME_LABELS[u as LengthUnit].toLowerCase(), { size: m * m * m, dim: 3 });
+    for (const [suffix, dim] of [['2', 2], ['²', 2], ['^2', 2], ['3', 3], ['³', 3], ['^3', 3]] as const) out.set(u + suffix, { size: m ** dim, dim });
+    out.set(`sq ${u}`, { size: m * m, dim: 2 });
+    out.set(`cu ${u}`, { size: m * m * m, dim: 3 });
+  }
+  for (const [names, size, dim] of [
+    [['lf', 'feet', 'foot'], 0.3048, 1],
+    [['inch', 'inches'], 0.0254, 1],
+    [['metre', 'metres', 'meter', 'meters'], 1, 1],
+    [['sq', 'square'], 0.3048 ** 2 * 100, 2],
+    [['ac', 'acre', 'acres'], 4046.8564224, 2],
+    [['ha', 'hectare', 'hectares'], 10000, 2],
+    [['l', 'litre', 'litres', 'liter', 'liters'], 0.001, 3],
+  ] as const)
+    for (const n of names) out.set(n, { size, dim });
+  return out;
+})();
+
+const DIMENSIONS = ['', 'length', 'area', 'volume'];
+
+/** CONVERT(value, "from", "to"): a length, area or volume in another unit of the same kind. */
+function convert(value: number, from: string, to: string): number {
+  const a = UNIT_SIZES.get(from.trim().toLowerCase());
+  const b = UNIT_SIZES.get(to.trim().toLowerCase());
+  if (!a) throw new FormulaError(`CONVERT does not know the unit "${from}"`);
+  if (!b) throw new FormulaError(`CONVERT does not know the unit "${to}"`);
+  if (a.dim !== b.dim) throw new FormulaError(`CONVERT cannot turn ${DIMENSIONS[a.dim]} ("${from}") into ${DIMENSIONS[b.dim]} ("${to}")`);
+  return Number(((value * a.size) / b.size).toPrecision(15));
+}
+
 const FUNCTIONS: Record<string, (args: Value[]) => Value> = {
   SUM: (a) => a.reduce<number>((s, v) => s + num(v), 0),
   AVG: (a) => (a.length ? a.reduce<number>((s, v) => s + num(v), 0) / a.length : 0),
@@ -181,7 +222,29 @@ const FUNCTIONS: Record<string, (args: Value[]) => Value> = {
   LOWER: (a) => str(a[0] ?? '').toLowerCase(),
   LEN: (a) => str(a[0] ?? '').length,
   ISBLANK: (a) => (str(a[0] ?? '') === '' ? 1 : 0),
+  CONVERT: (a) => {
+    if (a.length !== 3) throw new FormulaError('CONVERT takes a value, the unit it is in and the unit to give, e.g. CONVERT([Length], "ft", "m")');
+    return convert(num(a[0]!), str(a[1]!), str(a[2]!));
+  },
 };
+
+/** The functions as the Formula Builder lists them: how to call each and what it gives. */
+export const FUNCTION_DOCS: { name: string; signature: string; hint: string }[] = [
+  { name: 'IF', signature: 'IF(test, then, else)', hint: 'One value or another: IF([Area] > 100, 2, 1)' },
+  { name: 'CONVERT', signature: 'CONVERT(value, "from", "to")', hint: 'A length, area or volume in another unit: CONVERT([Area], "sf", "m2")' },
+  { name: 'ROUND', signature: 'ROUND(x, places)', hint: 'Rounded to a number of decimal places' },
+  { name: 'CEILING', signature: 'CEILING(x)', hint: 'Rounded up to a whole number' },
+  { name: 'FLOOR', signature: 'FLOOR(x)', hint: 'Rounded down to a whole number' },
+  { name: 'MIN', signature: 'MIN(a, b, ...)', hint: 'The smallest' },
+  { name: 'MAX', signature: 'MAX(a, b, ...)', hint: 'The largest' },
+  { name: 'SUM', signature: 'SUM(a, b, ...)', hint: 'The total' },
+  { name: 'AVG', signature: 'AVG(a, b, ...)', hint: 'The average' },
+  { name: 'ABS', signature: 'ABS(x)', hint: 'Without its sign' },
+  { name: 'SQRT', signature: 'SQRT(x)', hint: 'The square root' },
+  { name: 'AND', signature: 'AND(a, b, ...)', hint: '1 when every test is true' },
+  { name: 'OR', signature: 'OR(a, b, ...)', hint: '1 when any test is true' },
+  { name: 'NOT', signature: 'NOT(test)', hint: '1 when the test is false' },
+];
 
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS);
 

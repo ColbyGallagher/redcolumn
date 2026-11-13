@@ -347,6 +347,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="edit.alignPoints" />
               <Cmd id="edit.stretch" />
               <Cmd id="edit.scaleToLength" />
+              <Cmd id="edit.createViewport" />
               <Sep />
               <Cmd id="edit.arrayPolar" />
               <Cmd id="edit.arrayPath" />
@@ -364,6 +365,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.snapshot" />
             <Cmd id="edit.formatPainter" />
             <Cmd id="edit.scaleToLength" />
+            <Cmd id="edit.createViewport" />
             <Cmd id="edit.group" />
             <Cmd id="edit.ungroup" />
             <Cmd id="edit.lock" />
@@ -476,6 +478,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.stitching" />
             <Cmd id="document.geospatial" />
             <Cmd id="document.stitchToPage" />
+            <Cmd id="document.convertDrawingAgain" />
             <Cmd id="document.ocr" />
             <Cmd id="document.colour" />
             <Sep />
@@ -545,6 +548,16 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="tools.assemblies" />
               <Cmd id="tools.quantities" />
               <Cmd id="tools.takeoffReview" />
+              <Cmd id="takeoff.items" />
+              <Cmd id="takeoff.productLists" />
+              <Cmd id="takeoff.templates" />
+              <Cmd id="takeoff.saveTemplate" />
+              <Cmd id="tool.cutout" />
+              <Cmd id="takeoff.manual" />
+              <Cmd id="takeoff.reports" />
+              <Cmd id="takeoff.syncExcel" />
+              <Cmd id="takeoff.hip" />
+              <Cmd id="takeoff.valley" />
             </Submenu>
             <Cmd id="tools.lineStyles" />
             <Cmd id="tools.sketchToScale" />

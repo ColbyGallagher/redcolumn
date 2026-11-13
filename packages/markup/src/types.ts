@@ -37,16 +37,16 @@ export interface MarkupTypeInfo {
   caps: StyleCapabilities;
 }
 
-const NONE: StyleCapabilities = { fill: false, hatch: false, dash: false, lineEnds: false, font: false, textLayout: false, label: false, leader: false, arcRadius: null };
+const NONE: StyleCapabilities = { fill: false, hatch: false, dash: false, lineEnds: false, font: false, textLayout: false, label: false, blend: false, leader: false, arcRadius: null };
 const caps = (c: Partial<StyleCapabilities>): StyleCapabilities => ({ ...NONE, ...c });
 
 const RED = '#e11d48';
 const line = (style?: Partial<MarkupStyle>): MarkupStyle => ({ stroke: RED, fill: null, width: 1.5, opacity: 1, ...style });
 
 /** Lines and open paths: dashes and line endings. */
-const OPEN = caps({ dash: true, lineEnds: true });
+const OPEN = caps({ dash: true, lineEnds: true, blend: true });
 /** Closed shapes: fill, hatching and dashes. */
-const SHAPE = caps({ fill: true, hatch: true, dash: true });
+const SHAPE = caps({ fill: true, hatch: true, dash: true, blend: true });
 /** Measurements: their label; closed ones also fill. */
 const MEASURE = caps({ dash: true, font: true, label: true });
 
@@ -73,7 +73,7 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
   },
   // Part of an ellipse, from `arcAngles[0]` to `arcAngles[1]`: drag out the ellipse's box.
   ellipticalArc: { label: 'Elliptical Arc', style: line(), draw: 'drag', closed: false, handles: 'ends', solid: false, ends: ['none', 'none'], measure: false, caps: OPEN },
-  pen: { label: 'Pen', style: line({ stroke: '#2563eb' }), draw: 'freehand', closed: false, handles: 'none', solid: false, measure: false, caps: caps({ dash: true }) },
+  pen: { label: 'Pen', style: line({ stroke: '#2563eb' }), draw: 'freehand', closed: false, handles: 'none', solid: false, measure: false, caps: caps({ dash: true, blend: true }) },
   highlighter: { label: 'Highlight', style: { stroke: '#facc15', fill: null, width: 12, opacity: 0.4 }, draw: 'freehand', closed: false, handles: 'none', solid: false, measure: false, multiply: true, caps: NONE },
   // Text markups follow the PDF's own text: drag across words to mark them.
   textHighlight: { label: 'Text Highlight', style: { stroke: '#facc15', fill: null, width: 1, opacity: 0.5 }, draw: 'text', closed: false, handles: 'none', solid: true, measure: false, multiply: true, caps: NONE },
@@ -115,8 +115,8 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     caps: caps({ font: true, textLayout: true }),
   },
   note: { label: 'Note', style: { stroke: '#a16207', fill: '#fde047', width: 0.75, opacity: 1 }, draw: 'place', closed: false, handles: 'none', solid: true, measure: false, caps: caps({ fill: true }) },
-  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: NONE },
-  signature: { label: 'Signature', style: { stroke: '#1e3a8a', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: NONE },
+  image: { label: 'Image', style: { stroke: '#000000', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: caps({ blend: true }) },
+  signature: { label: 'Signature', style: { stroke: '#1e3a8a', fill: null, width: 0, opacity: 1 }, draw: 'drag', closed: false, handles: 'box', solid: true, content: 'image', measure: false, caps: caps({ blend: true }) },
   stamp: {
     label: 'Stamp',
     style: { stroke: '#15803d', fill: null, width: 2, opacity: 0.9 },
@@ -334,6 +334,18 @@ export const TYPE_INFO: Readonly<Record<MarkupType, MarkupTypeInfo>> = {
     solid: false,
     measure: true,
     caps: { ...MEASURE, fill: true, dash: false, arcRadius: 'Marker size' },
+  },
+  // A quantity typed in, not drawn: a tag at one point (placed by the Manual Quantity command).
+  manual: {
+    label: 'Manual',
+    style: { stroke: '#0f766e', fill: '#f0fdfa', width: 1, opacity: 1, dash: 'dashed' },
+    draw: 'click',
+    click: { min: 1, fixed: 1 },
+    closed: false,
+    handles: 'none',
+    solid: true,
+    measure: true,
+    caps: caps({ dash: true, font: true, label: true }),
   },
   angle: {
     label: 'Angle',

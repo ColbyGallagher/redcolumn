@@ -167,3 +167,15 @@ def sheet_note_box(c, x, y_top, w, title, lines, size=6.6, lead=3.1):
             y -= lead
         y -= 0.8
     return y
+
+
+def bubble(c, x, y, top, bottom, r=5.5, fill=white):
+    """A reference bubble centred on (x, y): a circle split across the middle, the drawing's
+    identifier above the line and a drawing number below it. Returns its bounds (mm)."""
+    circle(c, x, y, r, 0.35, INK, fill)
+    pl(c, [(x - r, y), (x + r, y)], 0.25, INK)
+    # identifier about 1.5 times the drawing number's height, both lettered close to the divider
+    ts, bs = r * 1.6, r * 1.1
+    text(c, x, y + r * 0.14, top, FB, ts, INK, "c", max_w=r * 1.5)
+    text(c, x, y - 0.35 - bs * 0.3528 * 0.72, bottom, F, bs, INK, "c", max_w=r * 1.7)
+    return (x - r, y - r, x + r, y + r)

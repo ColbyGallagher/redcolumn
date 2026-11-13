@@ -380,6 +380,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </span>
         </Row>
         <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
+        <C>{check('showThumbnailsOnOpen', 'Show Thumbnails When Opening a File')}</C>
         <C>{check('startTips', 'Show a Tip on the Start Screen')}</C>
       </Grid>
     ),
@@ -456,6 +457,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         {num('gridSize', 'Grid Spacing', { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? 'in (set by Units)' : 'mm (set by Units)' })}
         <C>{check('snapToGeometry', 'Snap to Content', { title: 'Lines, ends and intersections in the PDF (hold Alt to bypass)' })}</C>
         <C>{check('snapToMarkup', 'Snap to Markup')}</C>
+        <C>{check('rightClickFinishes', 'Right-click Finishes Markup', { title: 'While clicking out a measurement or shape, a right-click completes it instead of opening the menu (Enter, Space and double-click always do)' })}</C>
         <C>{check('snapLines', 'Snap to Lines', { disabled: !snapping })}</C>
         <C>{check('snapCurves', 'Snap to Curves', { disabled: !snapping })}</C>
         <C>{check('snapMidpoints', 'Snap to Mid-Points', { disabled: !snapping })}</C>

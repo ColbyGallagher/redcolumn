@@ -260,6 +260,11 @@ export class TileViewer {
   private inFlight = new Map<string, AbortController>();
   /** Tiles that failed to render: not retried until the tile cache is cleared. */
   private failed = new Set<string>();
+  /** A tile in view failed to render in the last frame: the page shows the problem pill. */
+  private sawFailed = false;
+  /** The problem pill's Retry button, in canvas CSS px, while it is showing. */
+  private retryBox: { x: number; y: number; w: number; h: number } | null = null;
+  private onRetry: (() => void | Promise<void>) | null = null;
   private queue: TileJob[] = [];
   /** Whole-page images by page; Map order doubles as LRU order. */
   private previews = new Map<number, PageImage>();
@@ -1042,6 +1047,7 @@ export class TileViewer {
     }
 
     const wanted: TileJob[] = [];
+    this.sawFailed = false;
     /** Every render this frame still needs, coming or not: renders in flight for anything else are stopped. */
     const needed = new Set<string>();
     /** Pages near enough the view that their markups may show, for the overlay pass. */
@@ -1094,7 +1100,8 @@ export class TileViewer {
       /** Asks for a render unless it is already coming (or failed); `key` stays needed either way. */
       const want = (job: TileJob) => {
         needed.add(job.key);
-        if (!this.inFlight.has(job.key) && !this.failed.has(job.key)) wanted.push(job);
+        if (this.failed.has(job.key)) this.sawFailed = true;
+        else if (!this.inFlight.has(job.key)) wanted.push(job);
       };
       const preview = this.previews.get(p.pageIndex);
       if (preview) {
@@ -1196,7 +1203,9 @@ export class TileViewer {
     if (this.rulerUnits) this.drawRulers(dpr, cw, ch);
 
     // Tiles still to come: say so, as a blank page reads as broken.
+    this.retryBox = null;
     if (wanted.length + this.inFlight.size > 0) this.drawLoading(dpr, cw, ch);
+    else if (this.sawFailed) this.drawProblem(dpr, cw, ch);
 
     wanted.sort((a, b) => a.dist - b.dist);
     this.queue = wanted;
@@ -1214,6 +1223,60 @@ export class TileViewer {
       if (!this.quietView) for (const l of this.viewListeners) l();
     }
     this.quietView = false;
+  }
+
+  /** "Couldn't draw this page" with a Retry button, where the "Loading" pill would be. */
+  private drawProblem(dpr: number, cw: number, ch: number) {
+    const { ctx } = this;
+    const label = "Couldn't draw this page";
+    const retry = 'Retry';
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '12px system-ui, sans-serif';
+    const labelW = ctx.measureText(label).width;
+    const btnW = ctx.measureText(retry).width + 20;
+    const h = 28;
+    const w = labelW + btnW + 40;
+    const x = (cw - w) / 2;
+    const y = ch - h - 16;
+    ctx.fillStyle = 'rgba(20, 22, 26, 0.9)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.fillStyle = '#e6e8eb';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, x + 16, y + h / 2 + 0.5);
+    const bx = x + 16 + labelW + 10;
+    ctx.fillStyle = '#2ec4b6';
+    ctx.beginPath();
+    ctx.roundRect(bx, y + 4, btnW, h - 8, (h - 8) / 2);
+    ctx.fill();
+    ctx.fillStyle = '#10161a';
+    ctx.textAlign = 'center';
+    ctx.fillText(retry, bx + btnW / 2, y + h / 2 + 0.5);
+    ctx.restore();
+    this.retryBox = { x: bx, y: y + 4, w: btnW, h: h - 8 };
+  }
+
+  /**
+   * Retry from the problem pill. `handler` first gets a chance to bring the renderer back (the app
+   * restarts it if it has given up); then every failed tile is asked for again.
+   */
+  setRetryHandler(handler: (() => void | Promise<void>) | null) {
+    this.onRetry = handler;
+  }
+
+  retryFailed() {
+    void Promise.resolve(this.onRetry?.()).finally(() => {
+      this.failed.clear();
+      this.invalidate();
+    });
+  }
+
+  /** The renderer was replaced: tiles in flight or failed belonged to the old one, so draw everything again. */
+  engineRestarted() {
+    this.clearTiles();
+    this.invalidate();
   }
 
   /** A small "Loading" pill at the bottom of the view while page content is still being drawn. */
@@ -1591,11 +1654,37 @@ export class TileViewer {
     this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015 * sensitivity)), x, y);
   };
 
+  private lastMiddleDown: { t: number; x: number; y: number } | null = null;
+
   private onPointerDown = (e: PointerEvent) => {
     if (e.pointerType === 'pen') this.pens.pen('down', e.timeStamp);
     if (e.pointerType === 'touch' && this.touchDown(e)) return;
+    if (e.button === 0 && this.retryBox) {
+      const r = this.canvas.getBoundingClientRect();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      const b = this.retryBox;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        e.preventDefault();
+        this.retryFailed();
+        return;
+      }
+    }
     // Ctrl+click is a Mac's right-click: the menu follows, so it must not also start a drawing or a drag.
     if (e.button === 0 && e.ctrlKey && e.pointerType === 'mouse' && isMac()) return;
+    // Double-click of the middle button zooms the whole document to its extents.
+    if (e.button === 1 && e.pointerType === 'mouse') {
+      const last = this.lastMiddleDown;
+      this.lastMiddleDown = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+      if (last && e.timeStamp - last.t < 400 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
+        this.lastMiddleDown = null;
+        e.preventDefault();
+        this.drag = null;
+        this.canvas.style.cursor = '';
+        if (this.doc) this.fit();
+        return;
+      }
+    }
     this.canvas.setPointerCapture(e.pointerId);
     const page = this.eventPage(e);
     if (e.button === 0 && this.doc && (this.navTool === 'zoomBox' || this.navTool === 'dynamicZoom')) {

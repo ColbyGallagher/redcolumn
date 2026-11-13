@@ -18,3 +18,5 @@ The volume (for example in cubic feet, *cf*, or cubic metres) is shown on the pa
 > **Note:** A new volume shows **0** until you enter a depth.
 
 > **Tip:** Any [Area](#measure-area) becomes a volume when you give it a depth, and [Smart Fill](#smart-fill) can make volumes directly.
+
+> **Tip:** To draw a curved section as you go, hold [[Ctrl]], press where the next corner goes and drag away from it. The section bends through the pointer; release to set it, then let go of [[Ctrl]]. Further clicks are straight again, and [[Backspace]] removes the curved corner. The length and area follow the curve.

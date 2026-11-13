@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import { boundsOf, circleBox, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupStore, type Point } from '@nb/markup';
-import { formatLength, METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
+import { formatLength, METERS_PER_UNIT, pageLengthFor, parseLength, realLengthAlong, type Scale } from '@nb/measure';
 
 interface Props {
   markup: Markup;
@@ -29,7 +29,7 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
     return (
       <>
         <LengthField label="Width" title="Width at the page's scale; the first corner stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => setPoints(resizedBox(m, w, b.h))} />
-        <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} scale={scale} readOnly={readOnly} onChange={(h) => setPoints(resizedBox(m, b.w, h))} />
+        <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => setPoints(resizedBox(m, b.w, h))} />
       </>
     );
   }
@@ -40,7 +40,7 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
   const setEnd = (l: number, a: number) => setPoints([start, polarPoint(start, l, a), ...m.points.slice(2)]);
   return (
     <>
-      <LengthField label="Length" title="Length at the page's scale; the line's start stays put" points={length} scale={scale} readOnly={readOnly} onChange={(l) => setEnd(l, angle)} />
+      <LengthField label="Length" title="Length at the page's scale; the line's start stays put" points={length} dir={unitDir(start, m.points[1]!)} scale={scale} readOnly={readOnly} onChange={(l) => setEnd(l, angle)} />
       <AngleField angle={angle} readOnly={readOnly} onChange={(a) => setEnd(length, a)} />
     </>
   );
@@ -79,7 +79,7 @@ function EllipseGeometry({ markup: m, scale, readOnly, onChange }: { markup: Mar
       ) : (
         <>
           <LengthField label="Width" title="Width at the page's scale; the first corner stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => onChange(resizedBox(m, w, b.h))} />
-          <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} scale={scale} readOnly={readOnly} onChange={(h) => onChange(resizedBox(m, b.w, h))} />
+          <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => onChange(resizedBox(m, b.w, h))} />
         </>
       )}
     </>
@@ -92,7 +92,8 @@ function PolylineGeometry({ markup: m, scale, readOnly, onChange }: { markup: Ma
   const i = Math.min(chosen, count - 1);
   const { length, angle } = segmentPolar(m.points[i]!, m.points[i + 1]!);
   let total = 0;
-  for (let k = 0; k < count; k++) total += segmentPolar(m.points[k]!, m.points[k + 1]!).length;
+  // The whole polyline's real length (meters): each segment at the scale along its own direction.
+  for (let k = 0; k < count; k++) total += realLengthAlong(scale, m.points[k + 1]![0] - m.points[k]![0], m.points[k + 1]![1] - m.points[k]![1]);
   return (
     <>
       <label className="field" title="Segment to edit, counted from the polyline's start">
@@ -109,16 +110,23 @@ function PolylineGeometry({ markup: m, scale, readOnly, onChange }: { markup: Ma
         label="Length"
         title="This segment's length at the page's scale; the points after it move along"
         points={length}
+        dir={unitDir(m.points[i]!, m.points[i + 1]!)}
         scale={scale}
         readOnly={readOnly}
         onChange={(l) => onChange(withSegment(m.points, i, l, angle))}
       />
       <AngleField angle={angle} readOnly={readOnly} onChange={(a) => onChange(withSegment(m.points, i, length, a))} />
       <span className="field" title="Total length of all segments">
-        Total {formatLength(total * scale.metersPerPoint, scale)}
+        Total {formatLength(total, scale)}
       </span>
     </>
   );
+}
+
+/** The unit page direction from `a` to `b` (across the page when they coincide). */
+function unitDir(a: Point, b: Point): Point {
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  return len > 1e-9 ? [(b[0] - a[0]) / len, (b[1] - a[1]) / len] : [1, 0];
 }
 
 /** Typing here must not reach the app's shortcuts; Enter applies. */
@@ -128,8 +136,9 @@ function keys(e: KeyboardEvent<HTMLInputElement>) {
 }
 
 /** A length in real units (feet-inches too) for a distance of `points` on the page. */
-function LengthField({ label, title, points, scale, readOnly, onChange }: { label: string; title: string; points: number; scale: Scale; readOnly: boolean; onChange: (points: number) => void }) {
-  const shown = formatLength(points * scale.metersPerPoint, scale);
+function LengthField({ label, title, points, scale, readOnly, onChange, dir = [1, 0] }: { label: string; title: string; points: number; scale: Scale; readOnly: boolean; onChange: (points: number) => void; dir?: Point }) {
+  // `dir` is the page direction it is measured along, which a separate Y scale makes matter.
+  const shown = formatLength(realLengthAlong(scale, dir[0] * points, dir[1] * points), scale);
   return (
     <label className="field" title={title}>
       {label}
@@ -146,7 +155,7 @@ function LengthField({ label, title, points, scale, readOnly, onChange }: { labe
             e.target.value = shown;
             return;
           }
-          const next = (v * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+          const next = pageLengthFor(scale, v * METERS_PER_UNIT[scale.unit], dir[0], dir[1]);
           if (Math.abs(next - points) > 1e-6) onChange(next);
         }}
         onKeyDown={keys}
