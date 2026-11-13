@@ -40,13 +40,13 @@ function hex(color: string) {
 }
 
 /** Replaces characters the standard fonts cannot encode. */
-function safe(font: PDFFont, s: string): string {
+export function safe(font: PDFFont, s: string): string {
   const supported = new Set(font.getCharacterSet());
   return [...s.replace(/\t/g, ' ')].map((ch) => (ch === '\n' || supported.has(ch.codePointAt(0)!) ? ch : '?')).join('');
 }
 
 /** Word-wraps `text` to `width` points, breaking words that do not fit on their own. */
-function wrap(font: PDFFont, text: string, width: number, size: number): string[] {
+export function wrap(font: PDFFont, text: string, width: number, size: number): string[] {
   const lines: string[] = [];
   for (const para of text.split('\n')) {
     let line = '';

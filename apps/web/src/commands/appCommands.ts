@@ -41,6 +41,8 @@ export interface Command {
   run: () => void;
   enabled: boolean;
   checked?: boolean;
+  /** Shown as the tooltip while the command is disabled: what to do to enable it. */
+  hint?: string;
 }
 
 /** What the app can do; App supplies these, the command table decides when each is available. */
@@ -122,6 +124,8 @@ export interface CommandActions {
   geospatial: () => void;
   /** Writes the current sheet's stitched group as one new page. */
   stitchToPage: () => void;
+  /** Converts the drawing the current PDF was made from again (DWG/DXF opened in this visit). */
+  convertDrawingAgain: () => void;
   split: () => void;
   unsplit: () => void;
   switchPanes: () => void;
@@ -181,6 +185,8 @@ export interface CommandActions {
   labelRegions: () => void;
   /** Document › Drawing Standards: a client's title block and drawing numbers, chosen per document. */
   drawingStandards: () => void;
+  /** Document › Set Up Drawing Standard: the step-by-step setup, in its own window. */
+  setUpDrawingStandard: () => void;
   /** Box an example of a section mark, title or detail callout for sheet links to learn. */
   teachMark: () => void;
   scaleRegions: () => void;
@@ -199,6 +205,26 @@ export interface CommandActions {
   scripts: () => void;
   /** Tools › Takeoff › Review AI Proposals. */
   takeoffReview: () => void;
+  /** Takeoff › Cutout: draws a hole in the selected area. */
+  cutout: () => void;
+  /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
+  syncExcel: () => void;
+  /** Takeoff › Reports: the quantity, detail and count reports as PDF, Excel or CSV. */
+  takeoffReports: () => void;
+  /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
+  toggleArc: () => void;
+  /** Takeoff › Hip / Valley: arms Polylength to measure a hip or valley at the Slope group's pitch. */
+  hipValley: (kind: 'hip' | 'valley') => void;
+  /** Takeoff › Manual Quantity: asks for a typed quantity, then arms placing it. */
+  manualQuantity: () => void;
+  /** Takeoff › Items: the catalog of cost lines assemblies price from. */
+  manageItems: () => void;
+  /** Takeoff › Product Lists: price lists catalog items link to. */
+  manageProductLists: () => void;
+  /** Takeoff › Templates › Manage Templates: rename, delete, import and export takeoff templates. */
+  manageTemplates: () => void;
+  /** Takeoff › Save as Template: the selected measurement's tool, look and assembly as a takeoff template. */
+  saveTemplate: () => void;
   signatures: () => void;
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
@@ -269,6 +295,7 @@ export interface CommandState {
   stitched: boolean;
   canStitch: boolean;
   canStitchToPage: boolean;
+  canConvertDrawingAgain: boolean;
   showLinks: boolean;
   snap: boolean;
   showToolbar: boolean;
@@ -294,6 +321,18 @@ export interface CommandState {
   canAddNextShape: boolean;
   /** Two or more shapes are selected to join. */
   canConnectShapes: boolean;
+  /** One unlocked area or volume is selected, so Cutout knows where to cut. */
+  cutoutReady: boolean;
+  /** A polylength, area, perimeter or volume is being drawn (or its tool is active), so a 3-point arc can be armed. */
+  canArc: boolean;
+  /** A 3-point arc is armed and waiting for its clicks. */
+  arcArmed: boolean;
+  /** Polylength is armed as a hip or valley (Takeoff › Hip / Valley). */
+  hipValley: 'hip' | 'valley' | null;
+  /** One measurement is selected that can be saved as a takeoff template. */
+  canSaveTemplate: boolean;
+  /** Why Cutout is disabled with the selection as it is, for its tooltip. */
+  cutoutHint?: string;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -498,10 +537,12 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
     cmd('document.geospatial', 'Document', 'Geospatial…', a.geospatial, doc, sidePanelOpen('geospatial')),
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
+    cmd('document.convertDrawingAgain', 'Document', 'Convert Drawing Again… (Experimental)', a.convertDrawingAgain, s.canConvertDrawingAgain),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
     cmd('document.scaleReview', 'Document', 'Review Sheet Scales…', a.scaleReview, doc),
     cmd('document.drawingStandards', 'Document', 'Drawing Standards…', a.drawingStandards, doc),
+    cmd('document.setUpDrawingStandard', 'Document', 'Set Up Drawing Standard…', a.setUpDrawingStandard, doc),
     cmd('document.thumbnails', 'Document', 'Edit Page Labels in Thumbnails', a.thumbnails, doc),
     cmd('document.teachMark', 'Document', 'Teach Sheet Links…', a.teachMark, doc && s.editable),
 
@@ -535,7 +576,18 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
+    cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
+    { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
+    cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
+    cmd('takeoff.reports', 'Tools', 'Takeoff Reports…', a.takeoffReports, doc),
+    { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
+    cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
+    cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
     cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
+    cmd('takeoff.items', 'Tools', 'Items…', a.manageItems, doc),
+    cmd('takeoff.productLists', 'Tools', 'Product Lists…', a.manageProductLists, doc),
+    cmd('takeoff.templates', 'Tools', 'Takeoff Templates…', a.manageTemplates, doc),
+    cmd('takeoff.saveTemplate', 'Tools', 'Save as Template…', a.saveTemplate, doc && s.canSaveTemplate),
     cmd('tools.signatures', 'Tools', 'Sign…', a.signatures, doc),
     ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
     cmd('tool.connector', 'Tools', 'Connector', () => a.setTool('connector'), doc && s.editable, s.tool === 'connector'),

@@ -84,7 +84,7 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
                   <span className="num">{l.label}</span>
                   <span className="name">
                     {sheetName(sheets, l.pageIndex)} → {sheetName(sheets, l.targetPage)}
-                    <span className="confidence" title={l.id.startsWith('mark-') ? 'Found from a taught mark' : 'Found from the text'}>
+                    <span className="confidence" title={l.id.startsWith('ai-') ? `Proposed by AI${l.note ? `: ${l.note}` : ''}` : l.id.startsWith('mark-') ? 'Found from a taught mark' : 'Found from the text'}>
                       {Math.round(l.confidence * 100)}%
                     </span>
                   </span>

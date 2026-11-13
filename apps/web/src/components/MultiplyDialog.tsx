@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
+import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 
 interface Props {
   /** The page scale spacing is entered in (page units when the page has no scale). */
@@ -11,10 +11,10 @@ interface Props {
 const MAX_COPIES = 400;
 
 /** Spacing typed in the scale's unit, in PDF points; 0 is allowed (copies touching). */
-function gapPoints(text: string, scale: Scale): number | null {
+function gapPoints(text: string, scale: Scale, axis: 'x' | 'y'): number | null {
   if (/^\s*0*\.?0*\s*$/.test(text) && text.trim() !== '.') return 0;
   const value = parseLength(text, scale.unit);
-  return value === null ? null : (value * METERS_PER_UNIT[scale.unit]) / scale.metersPerPoint;
+  return value === null ? null : pageLengthFor(scale, value * METERS_PER_UNIT[scale.unit], axis === 'x' ? 1 : 0, axis === 'x' ? 0 : 1);
 }
 
 /** Edit → Multiply: copies the selected markups into a grid of rows and columns. */
@@ -23,8 +23,8 @@ export function MultiplyDialog({ scale, onApply, onCancel }: Props) {
   const [columns, setColumns] = useState(3);
   const [gapX, setGapX] = useState('0');
   const [gapY, setGapY] = useState('0');
-  const gx = gapPoints(gapX, scale);
-  const gy = gapPoints(gapY, scale);
+  const gx = gapPoints(gapX, scale, 'x');
+  const gy = gapPoints(gapY, scale, 'y');
   const copies = rows * columns - 1;
   const valid = gx !== null && gy !== null && rows >= 1 && columns >= 1 && copies >= 1 && copies <= MAX_COPIES;
 

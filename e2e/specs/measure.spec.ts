@@ -90,6 +90,25 @@ test.describe('measure tools', () => {
     expect((await app.toolState()).selected).toEqual([m!.id]);
   });
 
+  test('a 6/12 pitch set in Properties gives a line its sloped length', async ({ app }) => {
+    await app.tool('length');
+    await app.clicks([
+      [300, 450],
+      [500, 450],
+    ]);
+    const [m] = await app.markups();
+    expect(m!.measurement).toBe(`20'-0"`);
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), m!.id);
+    await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
+    const props = app.page.locator('.props-panel');
+    await props.getByLabel('Slope kind').selectOption('pitch');
+    await props.getByLabel('Slope', { exact: true }).fill('6');
+    await props.getByLabel('Slope', { exact: true }).press('Enter');
+    expect((await app.raw())[0]!.slope).toEqual({ kind: 'pitch', value: 6 });
+    // 20 ft on plan x sqrt(1 + (6/12)²) = 22.3607 ft: 22 ft 4.33 in, 4 5/16" to the nearest 1/16".
+    await expect.poll(async () => (await app.markups())[0]!.measurement).toBe(`22'-4 5/16"`);
+  });
+
   test('Smart Fill measures the room around a click', async ({ app }) => {
     await app.tool('dynamicFill');
     expect((await app.command('tool.dynamicFill')).checked).toBe(true);

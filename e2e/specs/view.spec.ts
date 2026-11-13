@@ -1,5 +1,6 @@
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
+import { boxInSetup, openSetup, setupPage, setupStep, startStandard } from '../support/setup.ts';
 
 const page = async (app: App) => (await app.documents()).find((d) => d.active)!.page;
 
@@ -124,8 +125,8 @@ test.describe('view', () => {
     await expect(previews).toHaveCount(0);
   });
 
-  test('teach links: a mark kept alone is kept in the profile and marks like it wait in Needs review', async ({ app }) => {
-    const { sheetNumbers, radius: r, callouts } = PLAN.marks;
+  test("teach sheet links: the setup's Details step keeps a callout and its title in the standard, looked for only in sets read with it", async ({ app }) => {
+    const { sheetNumbers, radius: r, callouts, title } = PLAN.marks;
     await app.open('marks.pdf');
     await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
     // Sheet numbers as the Pages panel would have them (the fixture has no title blocks).
@@ -133,126 +134,40 @@ test.describe('view', () => {
       const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
       store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
     }, sheetNumbers);
-    await app.cmd('document.teachMark');
-    const panel = app.page.locator('.links');
-    await expect(panel).toBeVisible();
-    const wizard = app.page.locator('.teach-links');
-    await wizard.getByRole('tab', { name: 'Details' }).click();
-    // Box the first callout, with its label: its words are read, any of them can be left out.
-    const [first] = callouts;
-    await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
-    await expect(wizard.locator('.tl-words button')).toHaveText(['1', 'A-501']);
-    // The circle and its line (33 segments); the white mask under the label is not line work.
-    await expect(wizard.getByText('lines kept')).toContainText('33 of 33 lines kept');
-    // This callout's detail has no title to box: keep the mark alone.
-    await wizard.getByRole('button', { name: 'No title to box' }).click();
-    await wizard.getByLabel('Name').fill('Split bubble');
-    await wizard.getByRole('button', { name: 'Keep' }).click();
-    await wizard.getByRole('button', { name: 'Close' }).click();
-    await expect(wizard).toHaveCount(0);
-    // Every callout (the example too) is a link to review, with how sure the match is; the grid bubble is not.
-    await expect(panel.locator('h3', { hasText: 'Needs review' })).toHaveText(`Needs review (${callouts.length})`);
-    const rows = panel.locator('li', { has: app.page.locator('button[title="Keep this link"]') });
-    await expect(rows).toHaveCount(callouts.length);
-    for (const c of callouts) await expect(rows.filter({ hasText: `${c.detail}/${c.sheet}` })).toContainText(/A-101 → A-501\s*\d+%/);
-    // Kept in the profile, on this device.
-    const taught = await app.page.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: { name: string; kind: string }[] } }[] };
-      return saved.profiles.find((p) => p.id === saved.activeId)!.state.taughtMarks.map((m) => [m.name, m.kind]);
-    });
-    expect(taught).toEqual([['Split bubble', 'detailCallout']]);
-    await expect(panel.locator('h3', { hasText: 'Taught marks' })).toHaveText('Taught marks (1)');
-    // Nothing is applied until a person keeps it.
-    await rows.filter({ hasText: '2/A-501' }).locator('button[title="Keep this link"]').click();
-    await expect(rows).toHaveCount(callouts.length - 1);
-    const kept = await app.page.evaluate(() => (window.__nb.tools as unknown as { store: { allLinks(): { label: string; status: string }[] } }).store.allLinks().filter((l) => l.status === 'accepted').map((l) => l.label));
-    expect(kept).toEqual(['2/A-501']);
-    // Forgetting the mark takes back the links still waiting, not the one kept.
-    await panel.getByRole('button', { name: 'Forget Split bubble' }).click();
-    await expect(panel.locator('h3', { hasText: 'Needs review' })).toHaveCount(0);
-    await expect(panel.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
-  });
-
-  test("a drawing standard's own taught marks are looked for only in sets read with it", async ({ app }) => {
-    const { sheetNumbers, radius: r, callouts } = PLAN.marks;
-    await app.open('marks.pdf');
-    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
-    await app.page.evaluate((numbers) => {
-      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
-      store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
-    }, sheetNumbers);
-    // A standard with no title-block boxes: this client's sets only need its marks.
-    await app.cmd('document.drawingStandards');
-    const standard = app.page.locator('.drawing-standard');
-    await standard.getByLabel('Name', { exact: true }).fill('Bubble client');
-    await standard.getByRole('button', { name: 'Save and use' }).click();
-    await expect(standard.getByLabel('Drawing standard for this document')).not.toHaveValue('');
-    await standard.locator('summary', { hasText: 'Sheet links and marks' }).click();
-    await standard.getByRole('button', { name: 'Teach links…' }).click();
-    const wizard = app.page.locator('.teach-links');
-    await wizard.getByRole('tab', { name: 'Details' }).click();
-    const [first] = callouts;
-    await app.drag([first!.x - r - 4, first!.y - r - 4], [first!.x + r + 4, first!.y + r + 4]);
-    await wizard.getByRole('button', { name: 'No title to box' }).click();
-    await expect(wizard.getByLabel('Bubble client')).toBeChecked();
-    await wizard.getByLabel('Name').fill('Client bubble');
-    await wizard.getByRole('button', { name: 'Keep' }).click();
-    await wizard.getByRole('button', { name: 'Close' }).click();
-    // Reading the set with the standard already linked these bubbles from their text, so the mark
-    // suggests nothing new here; what matters is that it is looked for in this set.
-    const searched = () => app.page.evaluate(() => (window.__nb.tools as unknown as { store: { marksSearched(): string[] } }).store.marksSearched().length);
-    await expect.poll(searched).toBe(1);
-    const links = app.page.locator('.links');
-    await expect(links.locator('.taught-kind')).toHaveText('Detail callout · Bubble client');
-    await expect(standard.locator('h4', { hasText: 'Marks' })).toHaveText('Marks (1)');
-    // Kept with the standard, not with the marks for every set.
-    const kept = await app.page.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: unknown[]; drawingStandards: { name: string; marks: { name: string }[] }[] } }[] };
-      const state = saved.profiles.find((p) => p.id === saved.activeId)!.state;
-      return [state.taughtMarks.length, state.drawingStandards.map((s) => [s.name, s.marks.map((m) => m.name)])];
-    });
-    expect(kept).toEqual([0, [['Bubble client', ['Client bubble']]]]);
-    // Read without the standard, its marks are not looked for.
-    await standard.getByLabel('Drawing standard for this document').selectOption('');
-    await expect.poll(searched).toBe(0);
-    await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveCount(0);
-  });
-
-  test('teach links: a callout and the title it points to are checked, kept as a pair, and every callout like it links to the title', async ({ app }) => {
-    const { sheetNumbers, radius: r, callouts, title } = PLAN.marks;
-    await app.open('marks.pdf');
-    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('marks.pdf');
-    await app.page.evaluate((numbers) => {
-      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
-      store.setDetectedSheets(numbers.map((number, i) => [i, { number, title: null, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
-    }, sheetNumbers);
-    await app.cmd('document.teachMark');
-    const wizard = app.page.locator('.teach-links');
-    await wizard.getByRole('tab', { name: 'Details' }).click();
-    // 1. The callout to detail 2.
+    const size = await app.page.evaluate(() => (window.__nb.viewer as unknown as { pageSize(i: number): { width: number; height: number } }).pageSize(0));
+    // Teach Sheet Links opens the setup at its link steps; a standard keeps what is taught.
+    const { win, wizard } = await openSetup(app, 'document.teachMark');
+    await startStandard(wizard, 'Bubble client');
+    await expect(wizard.locator('.sw-progress')).toContainText('Sections');
+    await setupStep(wizard, 'Details');
+    // 1. The callout to detail 2, with its label.
     const two = callouts.find((c) => c.detail === title.detail)!;
-    await app.drag([two.x - r - 4, two.y - r - 4], [two.x + r + 4, two.y + r + 4]);
-    await wizard.getByRole('button', { name: 'Next' }).click();
-    // 2. Its title, on the sheet the callout names.
-    await wizard.getByRole('button', { name: 'Go to A-501' }).click();
-    await expect.poll(() => app.page.evaluate(() => window.__nb.viewer.currentPageIndex)).toBe(1);
-    await app.drag([title.x - 10, title.y - 20], [title.x + 96, title.y + 10]);
-    await expect(wizard.locator('.tl-notes')).toContainText('Detail callout 2 on A-101 goes to detail title 2 on A-501.');
-    await expect(wizard.locator('.tl-problem')).toHaveCount(0);
-    await wizard.getByRole('button', { name: 'Keep' }).click();
-    const taught = await app.page.evaluate(() => {
-      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: { name: string; kind: string }[] } }[] };
-      return saved.profiles.find((p) => p.id === saved.activeId)!.state.taughtMarks.map((m) => [m.name, m.kind]);
+    await boxInSetup(win, wizard, size, { x: two.x - r - 4, y: two.y - r - 4, w: 2 * r + 8, h: 2 * r + 8 });
+    await expect(wizard.locator('.sw-verdict')).toHaveText(`Detail ${title.detail}, on A-501.`);
+    // 2. Next goes to the sheet it names; its title there.
+    await wizard.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect.poll(() => setupPage(wizard)).toBe(2);
+    await boxInSetup(win, wizard, size, { x: title.x - 10, y: title.y - 20, w: 106, h: 30 });
+    await expect(wizard.locator('.sw-read')).toContainText(title.detail);
+    await wizard.getByRole('button', { name: 'Find the rest' }).click();
+    // 3. What was found, with the meter and links to check.
+    await expect(wizard.locator('.sw-question h2')).toHaveText('Check the details found');
+    await expect(wizard.locator('.sw-meter')).toBeVisible();
+    // Kept with the standard, with the boxes as examples; nothing for every set.
+    const kept = await app.page.evaluate(() => {
+      const saved = JSON.parse(localStorage.getItem('nb.profiles')!) as { activeId: string; profiles: { id: string; state: { taughtMarks: unknown[]; drawingStandards: { name: string; marks: { kind: string }[]; examples?: { step: string; role: string }[] }[] } }[] };
+      const state = saved.profiles.find((p) => p.id === saved.activeId)!.state;
+      return [state.taughtMarks.length, state.drawingStandards.map((s) => [s.name, s.marks.map((m) => m.kind), (s.examples ?? []).map((e) => `${e.step}:${e.role}`)])];
     });
-    expect(taught).toEqual([
-      ['Detail mark', 'detailCallout'],
-      ['Detail title', 'detailTitle'],
-    ]);
-    // Callout 2 links to its title; the others to their sheet.
-    const links = app.page.locator('.links');
-    await expect(links.locator('h3', { hasText: 'Taught marks' })).toHaveText('Taught marks (2)');
-    const rows = links.locator('li', { has: app.page.locator('button[title="Keep this link"]') });
-    await expect(rows.filter({ hasText: '2/A-501' })).toHaveCount(1);
+    expect(kept).toEqual([0, [['Bubble client', ['detailCallout', 'detailTitle'], ['details:mark', 'details:title']]]]);
+    // Read with the standard, its marks are looked for in this set; read without it, they are not.
+    await setupStep(wizard, 'Review');
+    await wizard.getByRole('button', { name: 'Read this document with it' }).click();
+    const searched = () => app.page.evaluate(() => (window.__nb.tools as unknown as { store: { marksSearched(): string[] } }).store.marksSearched().length);
+    await expect.poll(searched).toBe(2);
+    await wizard.getByLabel('Drawing standard for this document').selectOption('');
+    await expect.poll(searched).toBe(0);
+    await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
   });
 
   test('chainage links: to the cross section at a station, else the plan that covers it; kept once a drawing standard says how', async ({ app }) => {
@@ -268,37 +183,12 @@ test.describe('view', () => {
       );
     // Without a standard: the sheets' titles say plan and cross sections, and every link waits for review.
     await expect.poll(chainage).toEqual(['1:12+00>2:review', '1:13+00>2:review', '2:STA 12+00>1:review', '2:STA 13+00>1:review', '3:STA 14+50>1:review']);
-    await app.cmd('document.drawingStandards');
-    const standard = app.page.locator('.drawing-standard');
-    await standard.getByLabel('Name', { exact: true }).fill('Road client');
-    await standard.getByRole('button', { name: 'Save and use' }).click();
+    const { win, wizard } = await openSetup(app);
+    await startStandard(wizard, 'Road client');
+    await setupStep(wizard, 'Review');
+    await wizard.getByRole('button', { name: 'Read this document with it' }).click();
     await expect.poll(chainage).toEqual(['1:12+00>2:auto', '1:13+00>2:auto', '2:STA 12+00>1:auto', '2:STA 13+00>1:auto', '3:STA 14+50>1:auto']);
-  });
-
-  test('teach links: chainage waits for a drawing standard and the sheet titles, and says how to get them', async ({ app }) => {
-    await app.open('chainage.pdf');
-    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toBe('chainage.pdf');
-    await app.cmd('document.teachMark');
-    const wizard = app.page.locator('.teach-links');
-    await wizard.getByRole('tab', { name: 'Chainage' }).click();
-    // No standard: the steps to set one up, not the first box.
-    await expect(wizard.locator('.tl-gate')).toContainText('tells plans from cross sections by their sheet titles');
-    await expect(wizard.getByRole('button', { name: 'Draw box' })).toHaveCount(0);
-    await wizard.getByRole('button', { name: 'Open Drawing Standards' }).click();
-    const standard = app.page.locator('.drawing-standard');
-    await standard.getByLabel('Name', { exact: true }).fill('Road client');
-    await standard.getByRole('button', { name: 'Save and use' }).click();
-    // The standard has no box for the sheet title, so the titles are still not read.
-    await expect(wizard.locator('.tl-gate')).toContainText('Road client has no box for the sheet title yet');
-    await expect(wizard.getByRole('button', { name: 'Draw box' })).toHaveCount(0);
-    // Titles read (as a Sheet title box would read them): which sheets are plans and which cross sections; on to the boxes.
-    await app.page.evaluate((titles) => {
-      const store = (window.__nb.tools as unknown as { store: { setDetectedSheets(s: unknown[]): void } }).store;
-      store.setDetectedSheets(titles.map((title, i) => [i, { number: `C-${i + 1}`, title, discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]));
-    }, ['PLAN AND PROFILE', 'CROSS SECTIONS', 'GENERAL NOTES']);
-    await expect(wizard.locator('.tl-gate')).toHaveCount(0);
-    await expect(wizard.getByText('By their titles, 1 sheet is a plan and 1 is a cross section.')).toBeVisible();
-    await expect(wizard.getByRole('button', { name: 'Draw box' })).toBeVisible();
+    await Promise.all([win.waitForEvent('close'), wizard.getByRole('button', { name: 'Close the setup' }).click()]);
   });
 
   test('next and previous document', async ({ app }) => {

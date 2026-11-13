@@ -6,6 +6,7 @@ window.HELP_TOC = [
       { id: 'welcome', title: 'Welcome to redcolumn' },
       { id: 'workspace', title: 'A tour of the screen' },
       { id: 'open', title: 'Open a PDF' },
+      { id: 'open-drawings', title: 'Open a DWG or DXF drawing' },
       { id: 'save', title: 'Save your work' },
       { id: 'tabs', title: 'Work with several documents' },
       { id: 'file-access', title: 'File Access (your files on this device)' },
@@ -154,13 +155,21 @@ window.HELP_TOC = [
           { id: 'measure-diameter-radius', title: 'Diameter and Radius' },
           { id: 'measure-arc-length', title: 'Arc Length' },
           { id: 'measure-volume', title: 'Volume' },
+          { id: 'measure-manual', title: 'Manual Quantity' },
           { id: 'cutouts', title: 'Cut a hole out of an area' },
+          { id: 'measure-slope', title: 'Slopes, pitches, hips and valleys' },
         ],
       },
       { id: 'smart-fill', title: 'Smart Fill' },
       { id: 'symbol-search', title: 'Symbol Search' },
       { id: 'measurements-panel', title: 'The Measurements panel' },
+      { id: 'takeoff-tab', title: 'The Takeoff tab' },
       { id: 'assemblies', title: 'Assemblies and takeoff quantities' },
+      { id: 'estimating-items', title: 'Items (the estimating catalog)' },
+      { id: 'product-lists', title: 'Product Lists' },
+      { id: 'formula-builder', title: 'Formula Builder' },
+      { id: 'takeoff-templates', title: 'Takeoff templates' },
+      { id: 'takeoff-reports', title: 'Takeoff reports (PDF, Excel, CSV)' },
       { id: 'spaces', title: 'Spaces (rooms and zones)' },
     ],
   },
@@ -274,6 +283,51 @@ window.HELP_TOC = [
       { id: 'profiles', title: 'Profiles' },
       { id: 'shortcuts', title: 'Keyboard shortcuts' },
       { id: 'panels', title: 'Arrange the panels' },
+    ],
+  },
+  {
+    title: 'AI Assistant (MCP)',
+    children: [
+      {
+        title: 'Get started',
+        children: [
+          { id: 'mcp', title: 'Connect an AI client' },
+          { id: 'mcp-models', title: 'Which AI model for which job' },
+        ],
+      },
+      {
+        title: 'Look at the drawing',
+        children: [
+          { id: 'mcp-documents', title: 'Open drawings and pages' },
+          { id: 'mcp-list-markups', title: 'List markups' },
+          { id: 'mcp-page-view', title: 'See and read a page' },
+        ],
+      },
+      {
+        title: 'Change markups',
+        children: [
+          { id: 'mcp-draw', title: 'Draw markups' },
+          { id: 'mcp-edit', title: 'Edit and delete markups' },
+          { id: 'mcp-commands', title: 'Run commands' },
+          { id: 'mcp-command-list', title: 'Every command' },
+        ],
+      },
+      {
+        title: 'Takeoff and scale',
+        children: [
+          { id: 'mcp-takeoff', title: 'Takeoff proposals' },
+          { id: 'ai-auto-count', title: 'AI auto count' },
+          { id: 'mcp-scale', title: 'Sheet scales' },
+        ],
+      },
+      {
+        title: 'Compare, stitch and viewports',
+        children: [
+          { id: 'mcp-compare', title: 'Compare documents' },
+          { id: 'mcp-stitch', title: 'Stitch sheets' },
+          { id: 'mcp-viewports', title: 'Viewports' },
+        ],
+      },
     ],
   },
   {

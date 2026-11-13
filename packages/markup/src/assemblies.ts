@@ -9,15 +9,23 @@
 /** A named number an assembly's formulas can use, such as `Stud Spacing` or `Layers`. */
 export interface AssemblyVariable {
   name: string;
+  /** The default; a measurement's `assemblyInputs` can set its own. A Yes/No switch is 1 (Yes) or 0 (No). */
   value: number;
+  /** `boolean` makes it a Yes/No switch; unset is a number. */
+  type?: 'number' | 'boolean';
+  /** What the number is in, as shown beside it: `ft`, `in`, `%`. */
+  unit?: string;
 }
 
 /** One quantity an assembly produces from each measurement. */
 export interface AssemblyItem {
   /** Stable id, so renaming an item keeps its place. */
   id: string;
+  /** The catalog item (see `Item` in estimating.ts) it takes its name, unit, cost, waste and rounding from, where it sets none of its own. */
+  itemId?: string;
+  /** Empty takes the catalog item's name (with `itemId`). */
   name: string;
-  /** The unit it is counted in, as shown: `ea`, `sheets`, `lf`, `m²`. */
+  /** The unit it is counted in, as shown: `ea`, `sheets`, `lf`, `m²`. Empty takes the catalog item's. */
   unit: string;
   /**
    * How much per measurement, from the measurement and the assembly's variables, e.g.
@@ -26,7 +34,10 @@ export interface AssemblyItem {
   formula: string;
   /** Waste allowance in percent, added before rounding. */
   waste?: number;
-  /** Round the quantity up (sheets, boxes, lengths of pipe), to a whole number unless `roundTo` says otherwise. */
+  /**
+   * Round the quantity up (sheets, boxes, lengths of pipe), to a whole number unless `roundTo` says
+   * otherwise. With `itemId`, unset takes the catalog item's rounding and false turns it off.
+   */
   roundUp?: boolean;
   /** With `roundUp`, round up to a multiple of this instead of 1: 10 for pipe sold in 10 ft lengths, 0.5 for half-sheets. */
   roundTo?: number;
@@ -70,8 +81,9 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
     for (const i of Array.isArray(r.items) ? r.items.slice(0, 200) : []) {
       if (!i || typeof i !== 'object') continue;
       const x = i as Record<string, unknown>;
-      const itemName = text(x.name)?.trim();
-      if (!itemName) continue;
+      const itemName = text(x.name)?.trim() ?? '';
+      const itemId = text(x.itemId)?.trim();
+      if (!itemName && !itemId) continue;
       let id = text(x.id) || newId();
       if (itemIds.has(id)) id = newId();
       itemIds.add(id);
@@ -80,11 +92,12 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
       const roundTo = finite(x.roundTo);
       items.push({
         id,
+        ...(itemId ? { itemId } : {}),
         name: itemName,
         unit: text(x.unit) ?? '',
         formula: text(x.formula) ?? '',
         ...(waste !== null && waste !== 0 ? { waste } : {}),
-        ...(x.roundUp === true ? { roundUp: true } : {}),
+        ...(x.roundUp === true ? { roundUp: true } : x.roundUp === false && itemId ? { roundUp: false } : {}),
         ...(x.roundUp === true && roundTo !== null && roundTo > 0 && roundTo !== 1 ? { roundTo } : {}),
         ...(unitCost !== null ? { unitCost } : {}),
       });
@@ -95,7 +108,11 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
       const x = v as Record<string, unknown>;
       const vName = text(x.name)?.trim();
       const value = finite(x.value);
-      if (vName && value !== null) variables.push({ name: vName, value });
+      const unit = text(x.unit)?.trim();
+      if (vName && value !== null)
+        variables.push(
+          x.type === 'boolean' ? { name: vName, value: value ? 1 : 0, type: 'boolean' } : { name: vName, value, ...(x.type === 'number' ? { type: 'number' as const } : {}), ...(unit ? { unit } : {}) },
+        );
     }
     const description = text(r.description)?.trim();
     out.push({ id: unique(text(r.id)), name, ...(description ? { description } : {}), variables, items });

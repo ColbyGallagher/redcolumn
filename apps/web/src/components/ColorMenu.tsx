@@ -32,13 +32,15 @@ interface ColorMenuProps {
   /** Draws the button as a labelled row control (properties panel) instead of a toolbar button. */
   wide?: boolean;
   title?: string;
+  /** The selected markups disagree on this color: the button shows a mixed state instead of one color. */
+  mixed?: boolean;
 }
 
 /**
  * A Word/Excel-style color button: the icon with a bar in the current color under it, and a palette
  * dropdown with "No fill", standard colors and a custom picker.
  */
-export function ColorMenu({ label, short, icon, value, fallback, onChange, noneLabel, disabled, wide, title }: ColorMenuProps) {
+export function ColorMenu({ label, short, icon, value, fallback, onChange, noneLabel, disabled, wide, title, mixed }: ColorMenuProps) {
   const [open, setOpen] = useState(false);
   const [hex, setHex] = useState('');
   const custom = useSyncExternalStore(profiles.subscribe, () => profiles.active().state.customColors) ?? NO_COLORS;
@@ -86,17 +88,18 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
         type="button"
         className={`btn color-btn${open ? ' open' : ''}`}
         disabled={disabled}
-        title={title ?? label}
+        title={mixed ? `${title ?? label} (mixed)` : (title ?? label)}
         aria-label={label}
+        data-mixed={mixed || undefined}
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((v) => !v)}
       >
         <span className="color-btn-icon">
           <span className="field-icon">{icon}</span>
-          <span className={`color-bar${value || fallback ? '' : ' none'}`} style={value || fallback ? { background: value ?? fallback } : undefined} />
+          <span className={`color-bar${mixed ? ' mixed' : value || fallback ? '' : ' none'}`} style={!mixed && (value || fallback) ? { background: value ?? fallback } : undefined} />
         </span>
-        <span className="field-label">{wide ? (value ?? noneLabel ?? 'None') : short}</span>
+        <span className="field-label">{wide ? (mixed ? 'Mixed' : (value ?? noneLabel ?? 'None')) : short}</span>
         <span className="color-caret" aria-hidden="true">
           ▾
         </span>
