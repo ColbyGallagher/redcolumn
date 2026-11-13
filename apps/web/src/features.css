@@ -3573,6 +3573,18 @@
   padding: 3px;
 }
 
+.ms-vp-sepy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ms-vp-sepy input {
+  width: auto;
+}
+
 .ms-vp-row.on {
   background: rgba(20, 163, 154, 0.28);
 }

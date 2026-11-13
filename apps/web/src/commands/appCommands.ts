@@ -446,6 +446,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.distributeVertical', 'Edit', 'Distribute Vertically', () => a.distribute('vertical'), s.selectionCount > 2 && s.editable && !s.selectionLocked),
     cmd('edit.flipHorizontal', 'Edit', 'Flip Horizontal', () => a.flip('horizontal'), sel && s.editable && !s.selectionLocked),
     cmd('edit.flipVertical', 'Edit', 'Flip Vertical', () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
+    cmd('edit.createViewport', 'Edit', 'Create Viewport', () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
