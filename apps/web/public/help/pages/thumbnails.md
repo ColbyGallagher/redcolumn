@@ -10,6 +10,8 @@ Click **Thumbnails** on the panel rail.
 
 Under each picture is the page's **label** (sheet number) and page number, for example *A-101 · 1*.
 
+Click a page that is the same size as the one you are on and the view stays at the same zoom, on the same part of the sheet. Zoom into a stair on one floor, click the next floor, and the same stair is in view.
+
 ## The controls
 
 ![The controls at the top of the Thumbnails panel](img/thumbnails-controls.png)

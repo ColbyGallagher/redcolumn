@@ -25,7 +25,9 @@ interface Window {
       goToPage(i: number): void;
       setPageMode(mode: 'single' | 'continuous'): void;
       zoomFor(pageIndex: number): number;
-      getView(): { pageIndex: number; zoom: number; mode: string };
+      getView(): { pageIndex: number; zoom: number; mode: string; panX: number; panY: number };
+      pageSize(pageIndex: number): { width: number; height: number } | null;
+      zoomBy(factor: number, x?: number, y?: number): void;
       pageView(): { pageIndex: number; zoom: number; rotation: number };
     };
     tools: {

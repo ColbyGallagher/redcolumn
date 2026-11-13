@@ -404,6 +404,24 @@ test.describe('document pages', () => {
     await expect.poll(columns).toBeGreaterThan(1);
   });
 
+  test('picking a same-size page from the thumbnails keeps the zoom and the part of the sheet in view', async ({ app }) => {
+    await app.cmd('document.thumbnails');
+    const thumbs = app.page.locator('.thumbs .thumb');
+    await expect.poll(() => thumbs.count()).toBeGreaterThan(1);
+    const sizes = await app.page.evaluate(() => [0, 1].map((i) => window.__nb.viewer.pageSize(i)));
+    test.skip(!sizes[0] || !sizes[1] || Math.abs(sizes[0].width - sizes[1].width) > 1 || Math.abs(sizes[0].height - sizes[1].height) > 1, 'needs two pages the same size');
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(3, 100, 100));
+    // The same spot on each sheet lands in the same place on screen (a continuous view stacks the sheets, so compare on-screen).
+    const spot = (page: number) => app.page.evaluate((page) => ({ zoom: window.__nb.viewer.getView().zoom, at: window.__nb.viewer.pageToClient([100, 100], page) }), page);
+    const before = await spot(0);
+    await thumbs.nth(1).click();
+    await expect.poll(() => app.page.evaluate(() => window.__nb.viewer.currentPageIndex)).toBe(1);
+    const after = await spot(1);
+    expect(after.zoom).toBeCloseTo(before.zoom, 5);
+    expect(after.at[0]).toBeCloseTo(before.at[0], 0);
+    expect(after.at[1]).toBeCloseTo(before.at[1], 0);
+  });
+
   test('right-click between thumbnails offers only what needs no page', async ({ app }) => {
     await app.cmd('document.thumbnails');
     const thumbs = app.page.locator('.thumbs');

@@ -9111,7 +9111,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             sheets={sheets}
             scales={scales}
             busy={busyPages || indexing}
-            onGoTo={(i) => v?.goToPage(i)}
+            onGoTo={(i) => v?.goToPage(i, true)}
             onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
             onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
             onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
