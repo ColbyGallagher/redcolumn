@@ -15,7 +15,8 @@ interface Props {
   onZoomOut: () => void;
   onFit: () => void;
   onFitWidth: () => void;
-  onToggleContinuous: () => void;
+  /** Absent where there is only one page at a time (the drawing standards setup). */
+  onToggleContinuous?: () => void;
   /** The active tool, and a switch to pan (Shift+V), select (V) or select text (Shift+T). */
   tool?: string;
   onTool?: (tool: 'pan' | 'select' | 'selectText') => void;
@@ -23,7 +24,7 @@ interface Props {
   sheetTitle?: string;
   pageWidthPt: number | null;
   pageHeightPt: number | null;
-  scaleControl: ReactNode;
+  scaleControl?: ReactNode;
   /** Sets the zoom (CSS px per point, 1 = 100%) typed into the zoom box. */
   onZoomTo?: (zoom: number) => void;
   onBack?: () => void;
@@ -46,9 +47,17 @@ function formatPageSize(widthPt: number, heightPt: number) {
 const FOLD_ORDER = ['sheet', 'size', 'history', 'layout', 'fit', 'ends', 'scale', 'zoom'] as const;
 type Fold = (typeof FOLD_ORDER)[number];
 
-/** True when any part of the strip is wider than the room it has. */
+/**
+ * True when any part of the strip is wider than the room it has. The right-hand side is packed to
+ * its right edge, so it overflows to the left, which scrollWidth does not count: look for a control
+ * that starts before its side does.
+ */
 function overflowing(el: HTMLElement) {
-  return [el, ...Array.from(el.children)].some((c) => c.scrollWidth > c.clientWidth + 1);
+  if ([el, ...Array.from(el.children)].some((c) => c.scrollWidth > c.clientWidth + 1)) return true;
+  return Array.from(el.children).some((side) => {
+    const left = side.getBoundingClientRect().left;
+    return Array.from(side.children).some((c) => c.getBoundingClientRect().left < left - 1);
+  });
 }
 
 /**
@@ -88,7 +97,9 @@ export function PageNav(p: Props) {
   useEffect(() => {
     const el = navRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e!.contentRect.width)));
+    // Its own window's observer: the strip can be shown in a popped-out window.
+    const RO = el.ownerDocument.defaultView?.ResizeObserver ?? ResizeObserver;
+    const ro = new RO(([e]) => setWidth(Math.round(e!.contentRect.width)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -112,11 +123,12 @@ export function PageNav(p: Props) {
     const esc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setMenuOpen(false);
     };
-    document.addEventListener('pointerdown', away, true);
-    document.addEventListener('keydown', esc, true);
+    const doc = menuRef.current?.ownerDocument ?? document;
+    doc.addEventListener('pointerdown', away, true);
+    doc.addEventListener('keydown', esc, true);
     return () => {
-      document.removeEventListener('pointerdown', away, true);
-      document.removeEventListener('keydown', esc, true);
+      doc.removeEventListener('pointerdown', away, true);
+      doc.removeEventListener('keydown', esc, true);
     };
   }, [menuOpen]);
   /** A menu row that runs `fn` and closes the menu. */
@@ -179,7 +191,7 @@ export function PageNav(p: Props) {
             </button>
           </>
         )}
-        {show('layout') && (
+        {show('layout') && p.onToggleContinuous && (
           <button
             className={`btn flat${p.continuous ? ' active' : ''}`}
             disabled={disabled}
@@ -292,7 +304,7 @@ export function PageNav(p: Props) {
                     {item('↔  Fit width', p.onFitWidth, disabled, 'Ctrl+0')}
                   </>
                 )}
-                {hidden.has('layout') && item(p.continuous ? '▢  Single page' : '▤  Continuous', p.onToggleContinuous, disabled, p.continuous ? 'Ctrl+4' : 'Ctrl+5')}
+                {hidden.has('layout') && p.onToggleContinuous && item(p.continuous ? '▢  Single page' : '▤  Continuous', p.onToggleContinuous, disabled, p.continuous ? 'Ctrl+4' : 'Ctrl+5')}
                 {hidden.has('ends') && (
                   <>
                     {item('|‹  First page', p.onFirst, disabled || pageIndex <= 0, 'Home')}

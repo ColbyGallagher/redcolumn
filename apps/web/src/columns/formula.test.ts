@@ -45,3 +45,31 @@ test('filters: contains, not, exact, numeric and blank', () => {
   assert.ok(matchesFilter({ text: '', num: null }, '(blank)'));
   assert.ok(matchesFilter(c, '(not blank)'));
 });
+
+test('function names are not case-sensitive', () => {
+  assert.deepEqual(run('if([Quantity] > 3, 1, 0)'), { value: 1 });
+  assert.deepEqual(run('If([Quantity] > 3, 1, 0)'), { value: 1 });
+  assert.deepEqual(run('Round(10 / 3, 1) + ceiling(0.2)'), { value: 4.3 });
+});
+
+test('Yes/No values count as 1 and 0', () => {
+  const yes = (name: string) => (name === 'Insulated' ? true : name === 'Done' ? false : undefined);
+  assert.deepEqual(evalFormula('[Insulated] * 10 + [Done]', yes), { value: 10 });
+  assert.deepEqual(evalFormula('IF([Insulated], 2, 3)', yes), { value: 2 });
+});
+
+test('CONVERT turns lengths, areas and volumes into other units', () => {
+  const near = (src: string, want: number) => {
+    const r = run(src);
+    assert.ok('value' in r && Math.abs((r.value as number) - want) < 1e-9, `${src}: ${JSON.stringify(r)}`);
+  };
+  near('CONVERT(10, "ft", "m")', 3.048);
+  near('CONVERT(1, "m2", "sf")', 10.763910416709722);
+  near('CONVERT(100, "sq ft", "m²")', 9.290304);
+  near('CONVERT(1, "cy", "cf")', 27);
+  near('convert(1, "m3", "l")', 1000);
+  near('CONVERT(1, "ac", "sf")', 43560);
+  assert.match((run('CONVERT(1, "m", "m2")') as { error: string }).error, /length .* into area/);
+  assert.match((run('CONVERT(1, "furlong", "m")') as { error: string }).error, /does not know the unit "furlong"/);
+  assert.ok('error' in run('CONVERT(1, "m")'));
+});

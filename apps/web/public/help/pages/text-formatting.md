@@ -10,7 +10,7 @@ Pick the text tool (or select a text markup). The toolbar shows:
 
 1. **Box** — untick to show the text with no box at all.
 2. **Border** — untick to keep the box's fill but hide its outline.
-3. **Font** — the typeface.
+3. **Font** — the typeface: the standard fonts, or any font installed on your computer (see below).
 4. **Size** — the text size in points. Leave it empty (**Auto**) to fit the zoom you are working at.
 
 The **colour** swatch sets the box outline. To fill the box, tick **Fill**.
@@ -25,6 +25,18 @@ Select the text markup and open the [Properties panel](#properties) for more:
 - **Align** — left, centre or right.
 - **Vertical** — top, middle or bottom of the box.
 - **Text color** — the colour of the words (separate from the box).
+
+## Use a font installed on your computer
+
+The **Font** list (on the toolbar and in the Properties panel) starts with the three standard fonts, then fonts you used recently, then every font installed on your computer. Each name is shown in its own typeface; type in the box at the top to narrow the list.
+
+- **Desktop app** — your installed fonts are listed straight away.
+- **Browser** — click **Show installed fonts…** at the bottom of the list. Chrome and Edge ask your permission once. Other browsers cannot list them, so only the three standard fonts are offered.
+
+When you save or export, the font is **embedded** in the PDF (only the letters you used), so the text looks the same in every viewer, even on a computer without that font.
+
+- Some fonts' licences forbid embedding (Segoe Script is one). Those, and fonts that cannot be embedded for technical reasons, are written as the nearest standard font (Helvetica, Times or Courier), and a notice tells you which.
+- If you open a document that uses a font this computer does not have, a notice lists it and the text is shown in a similar font. The font name is kept, so it appears correctly again on a computer that has it.
 
 ## Lists
 

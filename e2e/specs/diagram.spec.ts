@@ -7,7 +7,11 @@ import type { Pt } from '../support/driver.ts';
 
 const ribbon = (app: App) => app.page.locator('.ribbon');
 const button = (app: App, id: string) => ribbon(app).locator(`[data-ribbon-command="${id}"]`);
-const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
+// Selecting markups switches the ribbon to the Markup Format tab; these specs work on the Diagram tab, so pick it back.
+const select = async (app: App, ids: string[]) => {
+  await app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
+  if (ids.length) await app.page.locator('.ribbon').getByRole('tab', { name: 'Diagram' }).click();
+};
 
 type Raw = { id: string; type: string; points: [number, number][]; text?: string; flowShape?: string; connect?: { from?: { id: string; side?: string }; to?: { id: string; side?: string }; route?: string } };
 const raw = async (app: App) => (await app.raw()) as unknown as Raw[];
@@ -24,6 +28,8 @@ async function typeAndCommit(app: App, text: string) {
   await app.page.keyboard.type(text);
   await app.page.keyboard.press('Control+Enter');
   await expect(app.page.locator('textarea.text-editor')).toHaveCount(0);
+  // The new shape is selected, which switches the ribbon to Markup Format.
+  await app.page.locator('.ribbon').getByRole('tab', { name: 'Diagram' }).click();
 }
 
 test.describe('diagram', () => {

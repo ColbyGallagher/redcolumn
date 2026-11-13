@@ -433,6 +433,7 @@ const EXTRA: { key: string; bcfKey: string; name: string; type: number; measure?
   { key: 'slope', bcfKey: 'Slope', name: 'Slope', type: COLUMN_TYPE.Measure, measure: true, align: 'right', width: 70 },
   { key: 'checked', bcfKey: 'Checkmark', name: 'Checkmark', type: COLUMN_TYPE.CheckBox, width: 50 },
   { key: 'type', bcfKey: 'MarkupType', name: 'Type', type: COLUMN_TYPE.Text, width: 90 },
+  { key: 'assembly', bcfKey: 'Assembly', name: 'Assembly', type: COLUMN_TYPE.Text, width: 110 },
   { key: 'capture', bcfKey: 'Capture', name: 'Capture', type: COLUMN_TYPE.Capture, width: 70 },
 ];
 

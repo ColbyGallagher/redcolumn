@@ -20,6 +20,6 @@ Draws a closed shape with any number of straight sides. Use it to outline rooms 
 
 ## Change it
 
-Select it (press [[V]] and click it). Drag a corner handle to move it. Drag the small knob in the middle of a side to add a corner. Hold [[Ctrl]] and click a corner to remove it.
+Select it (press [[V]] and click it). Drag a corner handle to move it. Drag the small knob in the middle of a side to add a corner. Hold [[Alt]] and click a corner to remove it.
 
 > **Note:** To measure the area inside, use [Area](#measure-area).
