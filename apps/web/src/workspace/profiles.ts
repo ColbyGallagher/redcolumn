@@ -22,6 +22,8 @@ export interface ToolChestItem {
   subject?: string;
   /** The Label (category) its markups take; `label` above is the tool's own name. */
   markupLabel?: string;
+  /** The comment its markups take (Revu's Comment column), for markups with no text of their own. */
+  comment?: string;
   /** The markup layer its markups go on. */
   layer?: string;
   image?: string;
