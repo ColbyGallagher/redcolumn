@@ -1,4 +1,4 @@
-import { DEFAULT_SCALE, isMeasureKind, measureValue, toDisplayQuantity, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, effectiveKind, isMeasureKind, measureValue, toDisplayQuantity, type MeasureKind, type Scale } from '@nb/measure';
 import { arr, dict, num, PdfName, PdfRefNum, str, type PdfDictValue, type PdfValue } from './bluebeam';
 import { CLOUD_PLUS_CLOUD_TYPE, CLOUD_PLUS_TYPE, CLOUD_TYPE, cloudPlusGroups, legendKeyOf } from './bluebeamTypes';
 import { inLegendKeys, listed, onLegendPage } from './legend';
@@ -128,8 +128,8 @@ export function bsiLegendValue(
     row.sample ??= m;
     const kind: string = m.type;
     if (isMeasureKind(kind) && kind !== 'arcLength') {
-      row.measured = kind;
-      if (kind === 'count') row.count += m.points.length;
+      row.measured = effectiveKind(kind, m);
+      if (row.measured === 'count') row.count += kind === 'manual' ? Math.round(measureValue(kind, m.points, 1, measureProps(m))) : m.points.length;
       else row.amount += measureValue(kind, m.points, scaleOf(m).metersPerPoint, measureProps(m), scaleOf(m).yMetersPerPoint);
     } else row.count += 1;
   }

@@ -132,7 +132,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
   const other = target && target.pageIndex !== mark.pageIndex;
   const targetNumber = target ? (sheetNumbers[target.pageIndex] ?? null) : null;
 
-  // Which part of the drawing number the mark cites (000022 of SBUCD-WSPAU-0002-RW-DRG-000022).
+  // Which part of the drawing number the mark cites (000022 of KSTRD-ACMEA-0002-RW-DRG-000022).
   if (other && targetNumber) {
     const cites = (part: number | null) => mark.contents.words.some((w) => new SheetLookup(sheetNumbers, part).find(w.text, true) === target.pageIndex);
     if (!cites(h.calloutPart)) {
@@ -216,7 +216,7 @@ export function titleWords(title: string | null | undefined): string | null {
 const PLAIN = /^\d{1,6}(?:\.\d{1,3})?$/;
 
 /** The chainage in a box: its value and the words in front of it on its row. */
-function chainageIn(words: readonly Word[]): { value: number; prefix: string | null; plus: boolean } | null {
+export function chainageIn(words: readonly Word[]): { value: number; prefix: string | null; plus: boolean } | null {
   const sorted = [...words].sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0);
   for (let i = sorted.length - 1; i >= 0; i--) {
     const w = sorted[i]!;
@@ -228,6 +228,24 @@ function chainageIn(words: readonly Word[]): { value: number; prefix: string | n
       .filter((o) => o !== w && o.x1 <= w.x0 + 1 && Math.abs((o.y0 + o.y1) / 2 - (w.y0 + w.y1) / 2) < Math.max(o.size, w.size) * 0.6 && !/\d/.test(o.text))
       .sort((a, b) => b.x0 - a.x0)[0];
     return { value, prefix: before ? clean(before.text) || null : null, plus: plus !== null };
+  }
+  return null;
+}
+
+/**
+ * Adds the title words of a cross-section sheet and a plan sheet to `h` where its words do not
+ * already tell them apart, noting what was learned. Returns why it cannot, or null.
+ */
+export function learnSheetTitles(h: ChainageHints, section: TaughtBox, plan: TaughtBox, sheets: readonly (SheetInfo | null | undefined)[], notes: string[]): string | null {
+  for (const [box, key, what] of [
+    [section, 'sectionTitles', 'Cross-section'],
+    [plan, 'planTitles', 'Plan'],
+  ] as const) {
+    if (sheetTitled(box.page, sheets[box.pageIndex], h[key])) continue;
+    const words = titleWords(sheets[box.pageIndex]?.title);
+    if (!words) return `redcolumn has not read the title of ${sheets[box.pageIndex]?.number ?? `page ${box.pageIndex + 1}`}, so it cannot tell that it is a ${what.toLowerCase()} sheet. Check the title block's Sheet title box covers the title on that sheet.`;
+    h[key] = [...h[key], words];
+    notes.push(`${what} sheets are titled ${words}.`);
   }
   return null;
 }
@@ -248,16 +266,8 @@ export function learnChainage(section: TaughtBox, plan: TaughtBox, sheets: reado
     notes.push(`Chainages are written after ${cut.prefix}.`);
   }
   if (!cut.prefix && !cut.plus) return fail('Box the chainage on the cross section with the word in front of it (CH, CHAINAGE): a number alone could be anything.');
-  for (const [box, key, what] of [
-    [section, 'sectionTitles', 'Cross-section'],
-    [plan, 'planTitles', 'Plan'],
-  ] as const) {
-    if (sheetTitled(box.page, sheets[box.pageIndex], h[key])) continue;
-    const words = titleWords(sheets[box.pageIndex]?.title);
-    if (!words) return fail(`redcolumn has not read the title of ${sheets[box.pageIndex]?.number ?? `page ${box.pageIndex + 1}`}, so it cannot tell that it is a ${what.toLowerCase()} sheet. Check the drawing standard's Sheet title box covers the title on that sheet, or type the words its title uses under ${what === 'Plan' ? 'Plan sheet titles' : 'Cross-section sheet titles'}.`);
-    h[key] = [...h[key], words];
-    notes.push(`${what} sheets are titled ${words}.`);
-  }
+  const titles = learnSheetTitles(h, section, plan, sheets, notes);
+  if (titles) return fail(titles);
   const linked = detectChainageLinks([plan.page, section.page], [sheets[plan.pageIndex], sheets[section.pageIndex]], h, true).some((l) => l.pageIndex === 1 && l.targetPage === 0);
   notes.push(linked ? `Chainage ${cut.value} on the cross section links to the plan.` : `No run of chainages was found along the alignment on the plan, so chainage ${cut.value} is not linked yet.`);
   return { marks: [], links: null, chainage: same(h, hints) ? null : h, notes, problem: null };

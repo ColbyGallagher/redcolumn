@@ -33,6 +33,25 @@ export function checkTable(value: unknown): Table {
   });
 }
 
+/** A further sheet of the workbook: the page sends its name and cells beside the main table. */
+export interface ExtraSheet {
+  name: string;
+  table: Table;
+}
+
+const MAX_SHEETS = 8;
+
+/** The extra sheets as the page sent them, or an error: a few sheets, each with a name Excel accepts and a valid table. */
+export function checkSheets(value: unknown): ExtraSheet[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_SHEETS) throw new Error('That table cannot be written to Excel.');
+  return value.map((s) => {
+    const name = (s as { name?: unknown } | null)?.name;
+    if (typeof name !== 'string' || !name.trim() || name.length > 31 || /[:\\/?*[\]]/.test(name)) throw new Error('That table cannot be written to Excel.');
+    return { name, table: checkTable((s as { table?: unknown }).table) };
+  });
+}
+
 /**
  * Text Excel would read as a formula (or a DDE call) gets a leading apostrophe, which Excel keeps
  * as "this is text" and does not show. Markup subjects and comments are other people's words.
@@ -78,19 +97,24 @@ try {
   if (-not $book) { $result = 'not-open' }
   elseif ($book.ReadOnly) { $result = 'read-only' }
   else {
-    $ws = $null
-    foreach ($s in $book.Worksheets) { if ($s.Name -eq $in['sheet']) { $ws = $s; break } }
-    if (-not $ws) { $ws = $book.Worksheets.Add(); $ws.Name = $in['sheet'] }
-    $rows = @($in['rows'])
-    $used = $ws.UsedRange
-    $r = [Math]::Max([Math]::Max($rows.Count, $used.Row + $used.Rows.Count - 1), 1)
-    $c = [Math]::Max([Math]::Max([int]$in['cols'], $used.Column + $used.Columns.Count - 1), 1)
-    $grid = New-Object 'object[,]' $r, $c
-    for ($i = 0; $i -lt $rows.Count; $i++) {
-      $row = @($rows[$i])
-      for ($j = 0; $j -lt $row.Count; $j++) { $grid[$i, $j] = $row[$j] }
+    # The main sheet, then any further ones (such as the quantities), each replaced as a whole.
+    $targets = @(@{ sheet = $in['sheet']; cols = $in['cols']; rows = $in['rows'] })
+    if ($in.ContainsKey('extra')) { foreach ($e in @($in['extra'])) { $targets += ,@{ sheet = $e['sheet']; cols = $e['cols']; rows = $e['rows'] } } }
+    foreach ($t in $targets) {
+      $ws = $null
+      foreach ($s in $book.Worksheets) { if ($s.Name -eq $t['sheet']) { $ws = $s; break } }
+      if (-not $ws) { $ws = $book.Worksheets.Add([Type]::Missing, $book.Worksheets.Item($book.Worksheets.Count)); $ws.Name = $t['sheet'] }
+      $rows = @($t['rows'])
+      $used = $ws.UsedRange
+      $r = [Math]::Max([Math]::Max($rows.Count, $used.Row + $used.Rows.Count - 1), 1)
+      $c = [Math]::Max([Math]::Max([int]$t['cols'], $used.Column + $used.Columns.Count - 1), 1)
+      $grid = New-Object 'object[,]' $r, $c
+      for ($i = 0; $i -lt $rows.Count; $i++) {
+        $row = @($rows[$i])
+        for ($j = 0; $j -lt $row.Count; $j++) { $grid[$i, $j] = $row[$j] }
+      }
+      $ws.Range($ws.Cells(1, 1), $ws.Cells($r, $c)).Value2 = $grid
     }
-    $ws.Range($ws.Cells(1, 1), $ws.Cells($r, $c)).Value2 = $grid
     $book.Save()
   }
 } catch {
@@ -194,7 +218,7 @@ const defaultDeps: WorkbookDeps = { read: (p) => fs.readFile(p), write: (p, d) =
  * the cells are written into it. A workbook the person has added sheets to is always updated
  * through Excel, opened hidden when it is closed, so their sheets are kept.
  */
-export async function writeWorkbook(filePath: string, xlsx: Uint8Array, table: Table, sheet = 'Markups', deps: WorkbookDeps = defaultDeps): Promise<'file' | 'live'> {
+export async function writeWorkbook(filePath: string, xlsx: Uint8Array, table: Table, sheet = 'Markups', deps: WorkbookDeps = defaultDeps, extra: readonly ExtraSheet[] = []): Promise<'file' | 'live'> {
   const name = path.basename(filePath);
   let existing: Uint8Array | null | undefined;
   try {
@@ -204,7 +228,9 @@ export async function writeWorkbook(filePath: string, xlsx: Uint8Array, table: T
     existing = (err as NodeJS.ErrnoException).code === 'ENOENT' ? null : undefined;
   }
   const names = existing ? sheetNames(existing) : null;
-  const ours = existing === null || (names !== null && names.length === 1 && names[0] === sheet);
+  // Ours: new, or holding only the sheets this app writes (the main one and any extras).
+  const mine = new Set([sheet, ...extra.map((e) => e.name)]);
+  const ours = existing === null || (names !== null && names.length > 0 && names.every((n) => mine.has(n)) && names.includes(sheet));
   if (ours) {
     try {
       await deps.write(filePath, xlsx);
@@ -214,7 +240,16 @@ export async function writeWorkbook(filePath: string, xlsx: Uint8Array, table: T
     }
   }
   const cols = table.reduce((n, row) => Math.max(n, row.length), 0);
-  const input = JSON.stringify({ path: filePath, name, sheet, cols, openIfClosed: !ours, rows: table.map((row) => row.map(asText)) });
+  const sized = (t: Table) => t.reduce((n, row) => Math.max(n, row.length), 0);
+  const input = JSON.stringify({
+    path: filePath,
+    name,
+    sheet,
+    cols,
+    openIfClosed: !ours,
+    rows: table.map((row) => row.map(asText)),
+    ...(extra.length ? { extra: extra.map((e) => ({ sheet: e.name, cols: sized(e.table), rows: e.table.map((row) => row.map(asText)) })) } : {}),
+  });
   const answer = await deps.run(LIVE_SCRIPT, input);
   if (answer === 'ok') return 'live';
   if (answer === 'busy') throw new Error(`Excel is busy (a cell in ${name} may be being edited). It is tried again shortly.`);

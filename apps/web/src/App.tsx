@@ -4,13 +4,16 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
+import { hipValleySlope } from './markup/slopePicker';
+import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
-import { useAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
@@ -24,7 +27,10 @@ import { myAccess, recordToCsv, type CollabSession, type StudioSnapshot } from '
 import { Library } from './components/Library';
 import { MarkupList } from './components/MarkupList';
 import { SheetSyncDialog } from './components/SheetSyncDialog';
+import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
+import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
+import type { SheetSpec } from './sheetsync/xlsx';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
@@ -36,6 +42,11 @@ import { TOOL_DRAG_TYPE, ToolChestPanel } from './components/ToolChest';
 import { SignaturesPanel } from './components/SignaturesPanel';
 import { ColumnsDialog } from './components/ColumnsDialog';
 import { AssembliesDialog } from './components/AssembliesDialog';
+import { ItemsDialog } from './components/ItemsDialog';
+import { ProductListsDialog } from './components/ProductListsDialog';
+import { TemplatesDialog } from './components/TemplatesDialog';
+import { addToLibrary, copyIntoDocument, documentFile, libraryFile } from './assemblies/estimatingLibrary';
+import { estimatingFromJson, estimatingToJson, mergeAssemblies, mergeEstimating, referencedRecords, resolveAssemblies, type TakeoffTemplate } from '@nb/markup';
 import { QuantitiesDialog } from './components/QuantitiesDialog';
 import { CommentsTableDialog } from './components/CommentsTableDialog';
 import { commentRows, type CommentRow } from './studio/comments';
@@ -47,6 +58,7 @@ import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleRev
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
 import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
+import { countProposals, countStateOf } from './assemblies/countProposals';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -73,6 +85,7 @@ import { CameraDialog } from './components/CameraDialog';
 import { ApplyRedactionsDialog, contrastOn, type RedactOptions } from './components/ApplyRedactionsDialog';
 import type { ExportOptions } from '@nb/markup/export';
 import type { PdfLayer } from './documents/layers';
+import { markupLayersOfHiddenPdf } from './documents/layerMarkups';
 import { logFile } from './help/logs';
 import { PROJECT_URL } from './help/whatsNew';
 import { APP_VERSION } from './version';
@@ -85,6 +98,8 @@ import { SpacesPanel } from './components/SpacesPanel';
 import { SketchBar } from './components/SketchBar';
 import { CadBar } from './components/CadBar';
 import { TextSelectionBar } from './components/TextSelectionBar';
+import { RecoveredMarkupsBar } from './components/RecoveredMarkupsBar';
+import { planDiscard } from './documents/discardUnsaved';
 import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
@@ -138,13 +153,19 @@ import { CombineDialog, type CombineSource } from './components/CombineDialog';
 import { BulkInsertDialog, type BulkInsertWhere } from './components/BulkInsertDialog';
 import { DocumentPropertiesDialog } from './components/DocumentPropertiesDialog';
 import { imageToPdf, isImageFile } from './documents/imagePdf';
+import { pdfNameFor, type CadOptions } from './cad/client';
+import type { CadFile } from './cad/convert';
+import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { convertAsJob, convertFile } from './cad/open';
+import { cadSession, useCadConversion } from './cad/session';
+import { CadConvertDialog } from './components/CadConvertDialog';
+import { CadReportBar } from './components/CadReportBar';
 import { setDocumentInfo, type EditableInfo } from './documents/docInfo';
 import { assertCertificationAllowsMarkups, assertKeepsSignatures, hasSignature } from './documents/signedBytes';
 import { rememberPassword } from './documents/idPasswords';
 import { LabelRegionsPanel } from './components/LabelRegionsPanel';
-import { DrawingStandardPanel } from './components/DrawingStandardPanel';
 import { exportStandard, parseStandardFile, standardFileName, standardHash, standardOfProject, withDefaults, type DrawingStandard } from './sheets/standards';
-import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, standardFit } from '@nb/sheets';
+import { standardFit } from '@nb/sheets';
 import { EraseRegionsPanel, type EraseRegionsSpec } from './components/EraseRegionsPanel';
 import { ScaleRegionsPanel } from './components/ScaleRegionsPanel';
 import type { Region } from './sheets/regions';
@@ -156,9 +177,10 @@ import { ScaleToLengthDialog } from './components/ScaleToLengthDialog';
 import { SetScaleDialog } from './components/SetScaleDialog';
 import { ScaleRequiredDialog } from './components/ScaleRequiredDialog';
 import { ScaleControl } from './components/ScaleControl';
-import { PagesPanel } from './components/PagesPanel';
+import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
+import { countsFromHits, type CountTool } from './search/countFromHits';
 import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
@@ -181,9 +203,9 @@ import {
 import { addedMarkupLayers, LayersPanel } from './components/LayersPanel';
 import type { SearchHit } from '@nb/sheets';
 import { LinksPanel } from './components/LinksPanel';
-import { TeachLinksPanel } from './components/TeachLinksPanel';
+import { StandardsWizard } from './components/standardsWizard/StandardsWizard';
+import type { WizardStepId } from './sheets/standardsWizard';
 import { inked, type TaughtMark } from './sheets/marks';
-import { type Lesson } from './sheets/teachLinks';
 import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readPdfAnnotations, indexFromText, linkFromMarks, linkFromText, loadPageTexts, repairSquareImages, stitchFromText, type IndexProgress } from './sheets/indexer';
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
@@ -199,10 +221,12 @@ import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import { assistantCall, beginComparison, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
+import type { AssistantStandards } from './desktop/assistantStandards';
 import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
+import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
 
 interface Controllers {
   engine: PdfEngine;
@@ -217,7 +241,7 @@ interface OpenFile {
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
-const savedState = new WeakMap<MarkupStore, { edits: number; hash: string }>();
+const savedState = new WeakMap<MarkupStore, { edits: number; hash: string; undo?: number }>();
 /** File contents an open document's undo history can bring back, kept stored until it closes. */
 const heldContents = new WeakMap<MarkupStore, string[]>();
 function holdFor(store: MarkupStore, hashes: string[]) {
@@ -256,8 +280,13 @@ function stepLabel(revisionNote: string | undefined): string | undefined {
 /** Autosave waits this long after the last change, so a burst of edits is written once. */
 const AUTOSAVE_DELAY_MS = 5000;
 function markSaved(t: OpenFile) {
-  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash });
+  // Later edits are their own undo steps, so Don't Save can undo just those.
+  t.store.checkpoint();
+  savedState.set(t.store, { edits: t.store.editCount, hash: t.file.hash, undo: t.store.undoHistory().length });
 }
+/** Documents that opened with unsaved markups kept from an earlier session, and those whose bar was answered with Keep. */
+const recoveredOnOpen = new Set<string>();
+const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
@@ -266,8 +295,10 @@ function hasUnsavedChanges(t: OpenFile) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
     else
     // Document Recovery: changes kept from an earlier session that never reached the file.
-    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
-    else markSaved(t);
+    if (settings.get().documentRecovery && recoveredDocs().has(t.file.id)) {
+      savedState.set(t.store, { edits: -1, hash: t.file.hash });
+      recoveredOnOpen.add(t.file.id);
+    } else markSaved(t);
     base = savedState.get(t.store)!;
   }
   return t.store.editCount !== base.edits || t.file.hash !== base.hash;
@@ -761,8 +792,12 @@ async function annotatedBytes(
   const embedFont = options.embedFont ?? (settings.get().embedFonts ? (await import('./documents/archiveFonts')).embedFontOrStandard : undefined);
   const stored = await readFile(cur.file.hash);
   const appending = options.keepSigned && hasSignature(new Uint8Array(stored));
-  return exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
+  const fonts = await fontExport(options.markups ?? cur.store.all());
+  const out = await exportWithAnnotations(stored, options.markups ?? cur.store.all(), {
     ...(embedFont ? { embedFont } : {}),
+    // Installed fonts named by markups are embedded; any that cannot be are reported in one notice.
+    ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}),
+    onFontFallback: fonts.onFontFallback,
     ...(appending ? { open: async (b: ArrayBuffer) => (await import('./documents/incremental')).openAppending(b) } : {}),
     // Greek and Cyrillic text would be question marks in the standard fonts: the Liberation fonts show it, and an installed font shows CJK.
     fallbackFont: async (doc, name, text) => (await import('./documents/archiveFonts')).embedFontForText(doc, name, text),
@@ -776,12 +811,15 @@ async function annotatedBytes(
     columns: cur.store.columnSet().columns,
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
+    estimating: cur.store.estimating(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
     // Until the file's own outline has been read in, leave it as it is.
     ...(cur.store.outlineImported() ? { bookmarks: cur.store.bookmarks() } : {}),
   });
+  fonts.done();
+  return out;
 }
 
 /**
@@ -877,6 +915,9 @@ export function App() {
   const canvasBRef = useRef<HTMLCanvasElement>(null);
   const [ctl, setCtl] = useState<Controllers | null>(null);
   const [ctlB, setCtlB] = useState<{ viewer: TileViewer; tools: MarkupTools } | null>(null);
+  /** The second pane's viewer and the problem pill's Retry, for the renderer supervisor. */
+  const viewerBRef = useRef<TileViewer | null>(null);
+  const retryRef = useRef<(() => void | Promise<void>) | undefined>(undefined);
   const prefs = useSettings();
   // Preference changes apply to the open panes straight away (new panes read them on creation).
   const ctlsRef = useRef<(MarkupTools | undefined)[]>([]);
@@ -904,11 +945,57 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   /** A passing confirmation (e.g. how many pages were labelled); clears itself. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** Convert Again for the PDF converted from a drawing with this id; and whether it is running. */
+  const [cadAgain, setCadAgain] = useState<string | null>(null);
+  const [cadBusy, setCadBusy] = useState(false);
   useEffect(() => {
     if (!notice) return;
     const t = setTimeout(() => setNotice(null), 5000);
     return () => clearTimeout(t);
   }, [notice]);
+  // Exports report the installed fonts they could not embed through the same notice line.
+  useEffect(() => setFontNoticeSink(setNotice), []);
+  // Installed fonts the open documents' markups use are loaded before they are drawn; a font this
+  // computer lacks is shown in a similar one, and said so once per document.
+  const fontWarned = useRef(new Set<string>());
+  useEffect(() => {
+    const docs = [open, openB].filter((d): d is OpenFile => !!d);
+    if (!docs.length) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const run = async () => {
+      for (const d of docs) {
+        const markups = d.store.all();
+        if (!markupsUseNamedFonts(markups)) continue;
+        const fonts = await import('./fonts/documentFonts');
+        if (cancelled) return;
+        unsubscribe ??= fonts.onSystemFontsChanged(() => {
+          ctl?.viewer.invalidate();
+          ctlB?.viewer.invalidate();
+        });
+        const missing = await fonts.usedMissingFonts(markups);
+        if (cancelled) return;
+        const text = missingFontsNotice(missing);
+        if (text && !fontWarned.current.has(d.file.id)) {
+          fontWarned.current.add(d.file.id);
+          setNotice(text);
+        }
+      }
+    };
+    void run();
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void run(), 500);
+    };
+    const offs = docs.map((d) => d.store.subscribe(arm));
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      offs.forEach((off) => off());
+      unsubscribe?.();
+    };
+  }, [open, openB, ctl, ctlB]);
   const [dragOver, setDragOver] = useState(false);
   const [editingText, setEditingText] = useState<string | null>(null);
   /** Pane whose Custom scale dialog is open (from the Scale dropdown in the page bar). */
@@ -917,19 +1004,39 @@ export function App() {
   const [customScalePage, setCustomScalePage] = useState<number | null>(null);
   /** Scale to Length or a measuring tool was used on a page with no scale. */
   const [scaleNeeded, setScaleNeeded] = useState<{ pane: Pane; pageIndex: number; tool: Tool } | null>(null);
-  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number] } | null>(null);
+  const [calibration, setCalibration] = useState<{ pageIndex: number; lengthPoints: number; at: [number, number]; delta: [number, number] } | null>(null);
   /** Scale to Length: the reference points picked, waiting for the length they should be. */
   const [scaleAsk, setScaleAsk] = useState<{ pane: Pane; pageIndex: number; points: [[number, number], [number, number]] } | null>(null);
   /** Subject, label and assembly the Measurements panel gives the next measurement. */
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  const [leftTab, setLeftTab] = useState<LeftTab>(() => (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
-  const [leftOpen, setLeftOpen] = useState(() => !narrowScreen());
+  // The side panels' open state and tab are remembered between sessions.
+  const readSavedPanel = (side: DockSide) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
+      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
+    } catch {
+      return { tab: null, open: null };
+    }
+  };
+  const [saved] = useState(() => ({ left: readSavedPanel('left'), right: readSavedPanel('right') }));
+  const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
+  // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
+  const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
   const [leftWidth, setLeftWidth] = useState(440);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
-  const [rightTab, setRightTab] = useState<LeftTab>(() => firstPanelOn('right') ?? 'properties');
-  const [rightOpen, setRightOpen] = useState(() => !!firstPanelOn('right'));
+  const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
+  const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
+  useEffect(() => {
+    try {
+      localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
+      localStorage.setItem('nb.panel.right', JSON.stringify({ tab: rightTab, open: rightOpen }));
+    } catch {
+      /* storage off limits: the layout lasts for this session */
+    }
+  }, [leftTab, leftOpen, rightTab, rightOpen]);
   const [rightWidth, setRightWidth] = useState(360);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -970,6 +1077,9 @@ export function App() {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [assembliesOpen, setAssembliesOpen] = useState(false);
   const [quantitiesOpen, setQuantitiesOpen] = useState(false);
+  const [itemsOpen, setItemsOpen] = useState(false);
+  const [productListsOpen, setProductListsOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   /** The Comments table, for a Project or a Live Session; hidden while one of its rows is open. */
   const [commentsTable, setCommentsTable] = useState<{
     key: string;
@@ -988,6 +1098,12 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const [reportsBusy, setReportsBusy] = useState(false);
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  /** The typed quantity the next click on a page places (Takeoff › Manual Quantity). */
+  const manualPendingRef = useRef<ManualRequest | null>(null);
   const exportBusy = useJobRunning('export');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
@@ -1113,9 +1229,12 @@ export function App() {
   const [bookmarkAction, setBookmarkAction] = useState<string | null>(null);
   // Symbol Search › Hyperlinks…: the copies found, waiting for where their links go.
   const [vsLinks, setVsLinks] = useState<{ pane: Pane; hits: VisualSearchHit[] } | null>(null);
-  const [teachBox, setTeachBox] = useState<{ pane: Pane; pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null>(null);
-  /** The pane Teach Links is open on. */
-  const [teachLinks, setTeachLinks] = useState<Pane | null>(null);
+  /**
+   * The drawing standards setup, on a pane's document: in its own window, or over the app when
+   * pop-ups are blocked. `step` is where it opens; `n` changes when a command asks for a step.
+   */
+  const [setup, setSetup] = useState<{ pane: Pane; inline: boolean; step?: WizardStepId; n: number } | null>(null);
+  const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
   const [securityOpen, setSecurityOpen] = useState(false);
@@ -1237,8 +1356,7 @@ export function App() {
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
   /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
   const [suggestion, setSuggestion] = useState<{ fileId: string; standard: DrawingStandard; fit: number } | null>(null);
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase' | 'standard'; pages?: number[]; typed?: boolean } | null>(null);
-  const setStandardRegions = useCallback((regions: Region[]) => setLabelMode((m) => (m ? { ...m, regions } : m)), []);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -1349,6 +1467,9 @@ export function App() {
   const columnSet = paneB ? columnsB : columnsA;
   const viewports = useViewports(activeStore);
   const assemblies = useAssemblies(activeStore);
+  /** The assemblies with their catalog items filled in: what quantities are worked out from. */
+  const takeoffAssemblies = useResolvedAssemblies(activeStore);
+  const estimating = useEstimating(activeStore);
   /** The scale a markup in the active pane is measured at: its viewport's, else its page's. */
   const scaleOf = useCallback((m: Markup) => scaleOfMarkup(m, scales[m.pageIndex] ?? DEFAULT_SCALE, viewports), [scales, viewports]);
 
@@ -1370,13 +1491,21 @@ export function App() {
     return new MarkupTools(viewer, {
       author: () => authorRef.current,
       onEditText: setEditingText,
-      onCalibrate: (pageIndex, lengthPoints, at) => setCalibration({ pageIndex, lengthPoints, at }),
+      onCalibrate: (pageIndex, lengthPoints, at, delta) => setCalibration({ pageIndex, lengthPoints, at, delta }),
       onScaleToLength: (pageIndex, points) => setScaleAsk({ pane, pageIndex, points }),
       onScaleRequired: (pageIndex, tool) => setScaleNeeded({ pane, pageIndex, tool }),
       measureDefaults: () => {
         // The assembly chosen in one document is not one of another's.
         const d = measureDefaultsRef.current;
         return d.assemblyId && !front()?.store.assemblies().some((a) => a.id === d.assemblyId) ? { ...d, assemblyId: undefined } : d;
+      },
+      manualQuantity: () => {
+        const p = manualPendingRef.current;
+        // The assembly chosen in one document is not one of another's.
+        return p ? { ...p, assemblyId: p.assemblyId && front()?.store.assemblies().some((a) => a.id === p.assemblyId) ? p.assemblyId : undefined } : null;
+      },
+      onManualPlaced: () => {
+        manualPendingRef.current = null;
       },
       onViewport: (pageIndex, rect) => viewportRef.current(pageIndex, rect),
       onFollowLink: (link) => followLinkRef.current(link),
@@ -1397,10 +1526,6 @@ export function App() {
       onSpaceDrawn: (id) => nameSpaceRef.current(front(), id),
       onNotice: (text) => setNotice(text),
       onVisualSearch: (pageIndex, rect) => setVisualSearchBox({ pane, pageIndex, rect }),
-      onTeachMark: (pageIndex, rect) => {
-        setTeachBox({ pane, pageIndex, rect });
-        setTeachLinks(pane);
-      },
       onCropArea: (_pageIndex, rect) => setPageTool({ kind: 'crop', drawnRect: rect }),
       onEraseContent: (pageIndex, rect, points) => eraseRef.current(pageIndex, rect, points),
       onEditPdfText: (pageIndex, at) => editTextRef.current(pageIndex, at),
@@ -1428,6 +1553,27 @@ export function App() {
     const tools = createTools('a', viewer);
     viewer.setOverlay(tools);
     setCtl({ engine, viewer, tools });
+    // A renderer that crashes or stops answering is replaced, and the open documents reopened in it
+    // from the copies kept on this device (markups live outside the renderer and are untouched).
+    const tabOf = (doc: PdfDocument) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.doc === doc);
+    const supervisor = new EngineSupervisor<PdfDocument>(engine, {
+      bytesFor: async (doc) => {
+        const tab = tabOf(doc);
+        return tab ? readFile(tab.file.hash) : null;
+      },
+      sizeOf: (doc) => tabOf(doc)?.file.size,
+      onRestarted: ({ lost }) => {
+        viewer.engineRestarted();
+        viewerBRef.current?.engineRestarted();
+        resetThumbnails();
+        setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
+      },
+      onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),
+      log: (message, detail) => console.error(message, detail),
+    });
+    const retry = () => (supervisor.needsRetry ? supervisor.retry().then(() => undefined) : undefined);
+    viewer.setRetryHandler(retry);
+    retryRef.current = retry;
     // Debugging handle for the browser console and the end-to-end tests. `commands` are the live
     // commands by id; `assistant` answers the MCP tools (list_markups, get_page...) without asking.
     if (TEST_HOOK)
@@ -1444,6 +1590,7 @@ export function App() {
         },
       });
     return () => {
+      supervisor.dispose();
       tools.dispose();
       viewer.destroy();
       engine.terminate();
@@ -1458,7 +1605,10 @@ export function App() {
     const tools = createTools('b', viewer);
     viewer.setOverlay(tools);
     setCtlB({ viewer, tools });
+    viewer.setRetryHandler(retryRef.current ?? null);
+    viewerBRef.current = viewer;
     return () => {
+      viewerBRef.current = null;
       tools.dispose();
       viewer.destroy();
       setCtlB(null);
@@ -1587,9 +1737,10 @@ export function App() {
       const at = front ? tabs.indexOf(front) + 1 : tabs.length;
       setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
       activateTab(pane, packed);
-      if (pane === 'a') {
-        // Stay on Sessions, Sets or Search when opening from them (or joining from an invite link).
-        // On narrow screens the panel covers the drawing, so it opens only when asked.
+      if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
+        // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
+        // when opening from them (or joining from an invite link). On narrow screens the panel covers the
+        // drawing, so it opens only when asked.
         revealPanel('pages', (tab) => tab === 'sessions' || tab === 'projects' || tab === 'sets' || tab === 'search', !narrowScreen());
       }
     },
@@ -1876,32 +2027,59 @@ export function App() {
     async (f: File | File[], target: Pane = 'a') => {
       for (const file of Array.isArray(f) ? f : [f]) {
         try {
-          // Pictures open as one-page PDFs at their real size.
-          const image = isImageFile(file);
-          const raw = image ? null : await file.arrayBuffer();
-          const bytes = image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
-          const name = image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+          // Pictures open as one-page PDFs at their real size; DWG/DXF drawings as vector PDFs.
+          const cad = isCadFile(file);
+          const image = !cad && isImageFile(file);
+          const conversion = cad ? await convertFile(file) : null;
+          const raw = image || cad ? null : await file.arrayBuffer();
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // A document moved from another window with no file of its own has nowhere to save back to.
           const moved = movedFiles.get(file);
           const source = moved && !moved.hasFile ? undefined : handleOf(file);
           // The engine takes ownership of the buffer it is given, so store a copy first.
-          const hostId = hostDocumentId(tokenOf(source));
+          const hostId = cad ? null : hostDocumentId(tokenOf(source));
           let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
           // An embedding application's document, opened again with other contents (saved over
           // since, say): they come in as a change to it, so its markups and open tab follow.
           if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
-          // Save writes back over the file it came from, except pictures and protected PDFs
-          // (which are kept unprotected here and must not replace the original).
+          // Save writes back over the file it came from, except pictures, drawings and protected
+          // PDFs (which are kept unprotected here and must not replace the original).
           if (source && bytes === raw) await rememberHandle(stored.id, source);
           if (moved?.dirty) movedDirty.add(stored.id);
           await openStored(stored, bytes, target);
+          if (conversion) cadSession.set(stored.id, conversion);
         } catch (err) {
+          if (isAbort(err)) continue;
           setError(err instanceof Error ? err.message : String(err));
         }
       }
       void refreshLibrary();
     },
     [openStored, refreshLibrary, unlockBytes],
+  );
+
+  /** Converts the drawing behind a converted PDF again (other pages, line options or reference files), opening the result as a new PDF. */
+  const convertAgain = useCallback(
+    async (fileId: string, options: CadOptions, references: CadFile[]) => {
+      const entry = cadSession.get(fileId);
+      if (!entry) return;
+      setCadBusy(true);
+      try {
+        const conversion = await convertAsJob(entry.conversion.source, options, references);
+        settings.set({ cadColorMode: options.colorMode ?? 'auto', cadLineweights: options.lineweights ?? true });
+        const stored = await saveFile(pdfNameFor(entry.conversion.source.name), conversion.pdf.slice(0));
+        await openStored(stored, conversion.pdf, split && activePaneRef.current === 'b' ? 'b' : 'a');
+        cadSession.set(stored.id, conversion);
+        setCadAgain(null);
+        void refreshLibrary();
+      } catch (err) {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCadBusy(false);
+      }
+    },
+    [openStored, refreshLibrary, split],
   );
 
   /** The system Open dialog where the browser has one (so Save can write back to the file), else the file input. */
@@ -1950,7 +2128,7 @@ export function App() {
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
-            parts.push(isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
+            parts.push(isCadFile(src.file) ? (await convertFile(src.file)).pdf : isImageFile(src.file) ? await imageToPdf(src.file) : await unlockBytes(await src.file.arrayBuffer(), src.file.name));
           }
         }
         const [first, ...rest] = parts;
@@ -3160,7 +3338,9 @@ export function App() {
                   if (prefs.setFlattenAfter) {
                     const fresh = copies.map(({ replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' as const }));
                     const { exportWithAnnotations } = await import('@nb/markup/export');
-                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+                    const fonts = await fontExport(fresh);
+                    const exported = await exportWithAnnotations(await readFile(b.open.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}), onFontFallback: fonts.onFontFallback });
+                    fonts.done();
                     const { flattenSelection } = await import('./documents/process');
                     const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
                     await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
@@ -4101,6 +4281,24 @@ export function App() {
   );
 
   /**
+   * Puts a document's markups back to what its file holds: undoes what was done since it matched
+   * the file, or, when that is not known (changes kept from an earlier session), reads them from the file again.
+   */
+  const discardUnsavedChanges = useCallback(async (t: OpenFile) => {
+    const plan = planDiscard(savedState.get(t.store), t.store.undoHistory().length);
+    if (plan.kind === 'undo') t.store.undoSteps(plan.steps);
+    else if (!linkOf(t.file.id)) {
+      const found = await readPdfAnnotations(await readFile(t.file.hash), t.store);
+      t.store.resetMarkups([]);
+      t.store.importAnnotations(found.markups, found.links, found.imported, found.extras);
+    }
+    markSaved(t);
+    recoveredOnOpen.delete(t.file.id);
+    rememberUnsaved(new Map([[t.file.id, false]]));
+    setSavedTick((n) => n + 1);
+  }, []);
+
+  /**
    * Asks whether to save a document with unsaved changes, and saves it when told to. Resolves to
    * false on Cancel or when the save does not happen; true when the document can go.
    */
@@ -4112,18 +4310,14 @@ export function App() {
       const choice = await askSaveChanges(t.file.name);
       if (choice === 'cancel') return false;
       if (choice === 'discard') {
-        // Without Document Recovery, changes that are not saved are not kept either.
-        if (!settings.get().documentRecovery) {
-          t.store.undoSteps(t.store.undoHistory().length);
-          markSaved(t);
-          rememberUnsaved(new Map([[fileId, false]]));
-        }
+        // Don't Save always means it: Document Recovery is for crashes, not for changes the person turned down.
+        await discardUnsavedChanges(t);
         return true;
       }
       const now = find();
       return !now || saveDocument(false, { pane, t: now });
     },
-    [saveDocument],
+    [saveDocument, discardUnsavedChanges],
   );
 
   /**
@@ -4477,14 +4671,14 @@ export function App() {
    * A session document's markups: from its tab when open, else synced into a store opened just for
    * this (closed again afterwards).
    */
-  const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<T> => {
+  const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<Awaited<T>> => {
     const fileId = studioFileId(session.id, docId);
     const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
-    if (tab) return use(tab.store);
+    if (tab) return await use(tab.store);
     const store = await MarkupStore.open(fileId);
     try {
       await session.attach(docId, store);
-      return use(store);
+      return await use(store);
     } finally {
       await store.destroy();
     }
@@ -4580,11 +4774,15 @@ export function App() {
         for (const d of meta.documents) {
           step(`Preparing ${d.name}`);
           const bytes = await session.fetchDocument(d.id);
-          const out = await withSessionMarkups(session, d.id, (store) =>
-            exportWithAnnotations(
+          const out = await withSessionMarkups(session, d.id, async (store) => {
+            const chosen = store.all().filter((m) => choice.authors.includes(m.author));
+            const fonts = await fontExport(chosen);
+            const exported = await exportWithAnnotations(
               bytes.slice(0),
-              store.all().filter((m) => choice.authors.includes(m.author)),
+              chosen,
               {
+                ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}),
+                onFontFallback: fonts.onFontFallback,
                 scaleFor: (i) => store.scaleFor(i),
                 viewports: store.allViewports(),
                 links: store.allLinks(),
@@ -4595,10 +4793,13 @@ export function App() {
                 columns: store.columnSet().columns,
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
+                estimating: store.estimating(),
                 places: store.places(),
               },
-            ),
-          );
+            );
+            fonts.done();
+            return exported;
+          });
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
         }
       }
@@ -5009,6 +5210,10 @@ export function App() {
       // Keys that mean something while clicking out a measurement or drawing.
       const measuring = tools.getState().measuring;
       if (e.key === 'Enter' && measuring) tools.finish();
+      else if (e.key === ' ' && measuring && tools.finishKey(e.key, e.target)) {
+        // Space finished it, like Enter; the page must not scroll too.
+        e.preventDefault();
+      }
       else if ((e.key === 'Backspace' || e.key === 'Delete') && measuring) tools.removeLastPoint();
       else if (e.key === 'Escape') tools.cancel();
       // Typing on a selected table cell, or Enter or F2, edits it; the typed character starts its new text.
@@ -5074,7 +5279,7 @@ export function App() {
         e.preventDefault();
         const moved = rightDown && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) > 4;
         rightDown = null;
-        if (!moved) canvasMenuRef.current(e, pane);
+        if (!moved && !tools.rightClickFinish()) canvasMenuRef.current(e, pane);
       };
       canvas.addEventListener('dblclick', onDblClick);
       canvas.addEventListener('pointerdown', onDown);
@@ -5122,7 +5327,7 @@ export function App() {
   );
 
   /** The Markups list's selection: Ctrl toggles, Shift extends a range, a plain click focuses one. */
-  const selectRowsFromList = useCallback((ids: readonly string[], focus: Markup, zoom: boolean) => {
+  const selectRowsFromList = useCallback((ids: readonly string[], focus: Markup, zoom: boolean, exact = false) => {
     const useB = activePaneRef.current === 'b' && ctlB;
     const viewer = useB ? ctlB.viewer : ctl?.viewer;
     const tools = useB ? ctlB.tools : ctl?.tools;
@@ -5130,7 +5335,8 @@ export function App() {
     if (ids.includes(focus.id) && viewer.currentPageIndex !== focus.pageIndex) viewer.goToPage(focus.pageIndex);
     if (zoom && settings.get().zoomFitSelected) zoomToMarkup(viewer, focus);
     tools.setTool('select');
-    tools.select(ids);
+    if (exact) tools.selectOnly(ids);
+    else tools.select(ids);
   }, [ctl, ctlB]);
 
   // --- Comments table: every comment and reply across a Project's or Live Session's files -------
@@ -5537,6 +5743,8 @@ export function App() {
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
   const activeOpen = paneB && openB ? openB : open;
+  /** The drawing the active PDF was converted from in this visit, if any. */
+  const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
   const activePages = activeOpen?.doc.pages;
   const scaleRows = useMemo(
@@ -5580,7 +5788,7 @@ export function App() {
     if (!open || !files.length) return;
     try {
       const sources: ArrayBuffer[] = [];
-      for (const file of files) sources.push(isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
+      for (const file of files) sources.push(isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await unlockBytes(await file.arrayBuffer(), file.name));
       const at = where === 'start' ? 0 : where === 'after' ? (v?.currentPageIndex ?? pageIndex) + 1 : Number.MAX_SAFE_INTEGER;
       // Appending lands each file past the last; at a fixed position the files go in back to front so they end up in order.
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
@@ -5708,6 +5916,11 @@ export function App() {
       return cur ? stitchToNewPage(group, withMarkups, cur, intoB!) : Promise.resolve(null);
     },
   };
+  // The profile's drawing standards, for get_drawing_standard and propose_standard_hints.
+  const assistantStandards: AssistantStandards = {
+    list: () => profiles.active().state.drawingStandards,
+    save: (standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] })),
+  };
   const assistantRuntime = useRef({
     documents: () => assistantHost.current(),
     commands: () => commandsRef.current,
@@ -5715,6 +5928,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: undefined as (() => void) | undefined,
+    standards: assistantStandards,
   });
   assistantRuntime.current = {
     documents: () => assistantHost.current(),
@@ -5723,6 +5937,7 @@ export function App() {
     confirm: confirmAssistant,
     stitch: assistantStitching,
     revealComparison: () => showPanel('ai'),
+    standards: assistantStandards,
   };
   useEffect(() => installAssistant(() => assistantRuntime.current), []);
 
@@ -5764,13 +5979,16 @@ export function App() {
     }
   }, [open, openB, pdfLayers]);
 
-  // Markup layers switched off stay off for each pane's document.
+  // Markup layers switched off stay off for each pane's document, and so do the markups on a PDF
+  // layer that is switched off.
   useEffect(() => {
-    ctl?.tools.setHiddenLayers(new Set(open ? (hiddenMarkupLayers[open.file.id] ?? []) : []));
-    ctlB?.tools.setHiddenLayers(new Set(openB ? (hiddenMarkupLayers[openB.file.id] ?? []) : []));
+    const hiddenFor = (o: typeof open) =>
+      new Set(o ? [...(hiddenMarkupLayers[o.file.id] ?? []), ...markupLayersOfHiddenPdf(pdfLayers[o.file.hash] ?? [], hiddenPdfLayers[o.file.id] ?? [])] : []);
+    ctl?.tools.setHiddenLayers(hiddenFor(open));
+    ctlB?.tools.setHiddenLayers(hiddenFor(openB));
     ctl?.tools.setFadedLayers(new Set(open ? (fadedMarkupLayers[open.file.id] ?? []) : []));
     ctlB?.tools.setFadedLayers(new Set(openB ? (fadedMarkupLayers[openB.file.id] ?? []) : []));
-  }, [hiddenMarkupLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
+  }, [hiddenMarkupLayers, hiddenPdfLayers, pdfLayers, fadedMarkupLayers, open, openB, ctl, ctlB]);
 
   // The magnifier follows the active pane.
   useEffect(() => {
@@ -5858,6 +6076,22 @@ export function App() {
     });
   }, [activeHash, activeOpen]);
 
+  // Count proposals an AI client staged (find_symbol_matches, then propose_counts) open the same review panel.
+  useEffect(() => {
+    if (!activeHash || !activeOpen) return;
+    const store = activeOpen.store;
+    const waiting = () => countProposals.list(activeHash).filter((p) => countStateOf(p, store) === 'pending').length;
+    let seen = waiting();
+    return countProposals.subscribe(() => {
+      const now = waiting();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice('A count proposal is waiting for your review. Nothing is counted until you approve it.');
+      }
+      seen = now;
+    });
+  }, [activeHash, activeOpen]);
+
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
   const stitchToNewPage = async (group: StoredStitchGroup, withMarkups: boolean, cur: OpenFile | null = activeOpen, intoB: boolean = paneB): Promise<{ pageIndex: number; markups: number } | null> => {
@@ -5909,13 +6143,61 @@ export function App() {
     };
   }, [activeOpen, markups]);
 
+  /** A measurement can be saved as a takeoff template: a drawn one (a typed quantity has no tool to arm). */
+  const templateable = (m: Markup) => isMeasureKind(m.type) && m.type !== 'manual';
+  /** Right-click › Save as Template: the measurement's tool, subject, layer, style, slope, depth, assembly and inputs, kept in the document and the library. */
+  const saveAsTemplate = async (m: Markup) => {
+    const store = activeOpen?.store;
+    if (!store || store.readOnly) return;
+    const assembly = m.assemblyId ? store.assemblies().find((a) => a.id === m.assemblyId) : undefined;
+    const name = (await askText('Save as Template', m.subject || assembly?.name || MARKUP_LABELS[m.type], { label: 'Pick it from Takeoff › Templates to measure more like this one: the same tool, subject, layer, style, slope, depth, assembly and inputs.', confirm: 'Save' }))?.trim();
+    if (!name) return;
+    const t: TakeoffTemplate = {
+      id: crypto.randomUUID(),
+      name,
+      tool: m.type,
+      preset: { ...(m.subject ? { subject: m.subject } : {}), ...(m.layer ? { layer: m.layer } : {}), style: structuredClone(m.style), ...(m.slope ? { slope: structuredClone(m.slope) } : {}), ...(m.depth ? { depth: m.depth } : {}) },
+      ...(assembly ? { assemblyId: assembly.id } : {}),
+      ...(assembly && m.assemblyInputs ? { inputs: { ...m.assemblyInputs } } : {}),
+    };
+    store.checkpoint();
+    store.setEstimating({ templates: [...store.estimating().templates, t] });
+    // The library gets it too, with its assembly and what that prices from, for other documents.
+    const kept = addToLibrary({ ...referencedRecords(documentFile(store), assembly ? [assembly.id] : []), templates: [t] });
+    setNotice(`Saved the template “${name}”${kept ? '' : ' in this document (this browser would not keep the library)'}. Pick it from Takeoff › Templates to measure more like it.`);
+  };
+  /** Arms a takeoff template's tool; one from the library is copied into the document first, with its assembly. */
+  const armTemplate = (t: TakeoffTemplate) => {
+    const store = activeOpen?.store;
+    const tools = activeTools;
+    if (!store || !tools) return;
+    if (!store.readOnly && !store.estimating().templates.some((x) => x.id === t.id)) {
+      store.checkpoint();
+      store.batch(() => {
+        copyIntoDocument(store, libraryFile(), t.assemblyId ? [t.assemblyId] : []);
+        store.setEstimating({ templates: [...store.estimating().templates, t] });
+      });
+    }
+    const assemblyId = t.assemblyId && store.assemblies().some((a) => a.id === t.assemblyId) ? t.assemblyId : undefined;
+    tools.setTool(t.tool as Tool, {
+      ...(t.preset.subject ? { subject: t.preset.subject } : {}),
+      ...(t.preset.layer ? { layer: t.preset.layer } : {}),
+      ...(t.preset.style ? { style: structuredClone(t.preset.style) } : {}),
+      ...(t.preset.slope ? { slope: t.preset.slope } : {}),
+      ...(t.preset.depth ? { depth: t.preset.depth } : {}),
+      ...(assemblyId ? { assemblyId, ...(t.inputs ? { assemblyInputs: t.inputs } : {}) } : {}),
+      takeoffTemplateId: t.id,
+    });
+    setNotice(`Template “${t.name}” armed: each ${MARKUP_LABELS[t.tool as Markup['type']]?.toLowerCase() ?? 'measurement'} you draw gets its ${assemblyId ? 'assembly and ' : ''}settings.`);
+  };
+
   const cellContext: CellContext = {
     scaleOf,
     sheets,
     spaces: markups.filter((m) => m.type === 'space'),
     statuses: columnSet.statuses,
     columns: columnSet.columns,
-    assemblies,
+    assemblies: takeoffAssemblies,
   };
   /** The measurement the Assemblies window shows quantities for while editing: the first one selected. */
   const takeoffSample = markups.find((m) => toolsState.selected.has(m.id) && isMeasureKind(m.type) && m.type !== 'angle') ?? null;
@@ -5946,7 +6228,7 @@ export function App() {
       const store = activeOpen?.store;
       const k = set?.scaleToPage && item.metersPerPoint && store?.hasScale(pageIndex) ? item.metersPerPoint / store.scaleFor(pageIndex).metersPerPoint : 1;
       const template = k === 1 ? item.markups : item.markups.map((m) => ({ ...m, points: m.points.map(([x, y]) => [x * k, y * k] as [number, number]) }));
-      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), ...(item.sequence ? { sequence: item.sequence } : {}), once: !settings.get().toolChestSticky });
+      tools.setTool(item.type, { id: item.id, template, ...(item.subject ? { subject: item.subject } : {}), ...(item.markupLabel ? { label: item.markupLabel } : {}), ...(item.layer ? { layer: item.layer } : {}), ...(item.sequence ? { sequence: item.sequence } : {}), once: !settings.get().toolChestSticky });
       return;
     }
     if (item.type === 'signature') {
@@ -5971,6 +6253,8 @@ export function App() {
       id: item.id,
       style: item.style,
       ...(item.subject ? { subject: item.subject } : {}),
+      ...(item.markupLabel ? { label: item.markupLabel } : {}),
+      ...(item.layer ? { layer: item.layer } : {}),
       ...(carried?.image ? { image: carried.image, ...(aspect ? { aspect } : {}) } : {}),
       ...(stamp ? { stamp } : {}),
       ...(carried?.attachment ? { attachment: carried.attachment } : {}),
@@ -5983,10 +6267,11 @@ export function App() {
     for (const m of list) {
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
-      const t = totals.get(m.type) ?? { value: 0, scale, n: 0 };
+      const kind = measureKindOf(m);
+      const t = totals.get(kind) ?? { value: 0, scale, n: 0 };
       t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
-      totals.set(m.type, t);
+      totals.set(kind, t);
     }
     return [...totals].map(([kind, t]) => `Total ${MARKUP_LABELS[kind]} (${t.n}): ${formatMeasure(kind, t.value, t.scale)}`);
   };
@@ -6017,6 +6302,7 @@ export function App() {
             spaces: all.filter((m) => m.type === 'space'),
             statuses: set.statuses,
             columns: set.columns,
+            assemblies: cur.store.resolvedAssemblies(),
           },
         });
       }
@@ -6075,10 +6361,81 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
+  const quantitiesSheet = async () => {
+    const { buildReport, reportPageLabel } = await import('./takeoff/reports');
+    const { reportSheet } = await import('./takeoff/reportFiles');
+    const table = buildReport('byItem', { markups, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel: reportPageLabel(sheets) });
+    return { ...reportSheet(table), name: 'Quantities' };
+  };
+  const [syncExtras, setSyncExtras] = useState<SheetSpec[]>([]);
+  const wantQuantities = !!sheetSync.link?.quantities;
+  useEffect(() => {
+    if (!wantQuantities) {
+      setSyncExtras((x) => (x.length ? [] : x));
+      return;
+    }
+    let live = true;
+    void quantitiesSheet().then((sheet) => live && setSyncExtras([sheet]));
+    return () => {
+      live = false;
+    };
+    // The context is rebuilt every render; these are what the quantities depend on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable);
-  }, [syncTable, sheetSync.link, pushSyncTable]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : []);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities]);
+
+  /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
+  const runReports = async (req: ReportRequest) => {
+    const cur = activeOpen;
+    if (!cur) return;
+    setReportsBusy(true);
+    setReportsError(null);
+    try {
+      const { buildReports, scopeMarkups, scopeLabel, scaleNote, reportPageLabel } = await import('./takeoff/reports');
+      const { reportsXlsx, reportCsv, reportFileName } = await import('./takeoff/reportFiles');
+      const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+      const scoped = scopeMarkups(markups, req.scope, { pageIndex, selected: toolsState.selected, listIds });
+      const pageLabel = reportPageLabel(cur.store.allSheets());
+      const tables = buildReports(req.reports, { markups: scoped, assemblies: takeoffAssemblies, items: estimating.items, ctx: cellContext, pageLabel });
+      const base = cur.file.name.replace(/\.pdf$/i, '');
+      const scope = scopeLabel(req.scope, { pageLabel: pageLabel(pageIndex), count: scoped.length });
+      const date = new Date().toISOString().slice(0, 10);
+      const note = scaleNote(scoped, cellContext, pageLabel);
+      if (req.format === 'pdf') {
+        const { reportPdf } = await import('@nb/markup/report');
+        const bytes = await reportPdf({ project: base, date, scope, ...(note ? { scaleNote: note } : {}), paper: req.paper, reports: tables });
+        download(`${base} - Takeoff Reports.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+      } else if (req.format === 'xlsx') {
+        const info = [[`Project: ${base}`], [`Cover: ${scope}`], [`Date: ${date}`], ...(note ? [[note]] : [])];
+        download(`${base} - Takeoff Reports.xlsx`, new Blob([reportsXlsx(tables, info) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      } else {
+        // Byte-order mark so Excel reads the CSV as UTF-8.
+        const files = tables.map((t) => ({ name: reportFileName(base, t.title, 'csv'), data: new TextEncoder().encode(`\uFEFF${reportCsv(t)}`) }));
+        if (files.length === 1) download(files[0]!.name, new Blob([files[0]!.data as BlobPart], { type: 'text/csv' }));
+        else {
+          const { zipFiles } = await import('./documents/zip');
+          download(`${base} - Takeoff Reports.zip`, new Blob([zipFiles(files) as BlobPart], { type: 'application/zip' }));
+        }
+      }
+      setReportsOpen(false);
+    } catch (err) {
+      setReportsError(err instanceof Error ? err.message : 'The reports could not be made.');
+    } finally {
+      setReportsBusy(false);
+    }
+  };
+  /** What each report scope covers, for the dialog (measurements only: the reports ignore other markups). */
+  const reportCounts = useMemo(() => {
+    if (!reportsOpen) return { all: 0, page: 0, selection: 0, list: 0 };
+    const measured = markups.filter((m) => isMeasureKind(m.type));
+    const listIds = new Set(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, listFilters, listSort, ws.list.advanced).map((r) => r.markup.id));
+    return { all: measured.length, page: measured.filter((m) => m.pageIndex === pageIndex).length, selection: measured.filter((m) => toolsState.selected.has(m.id)).length, list: measured.filter((m) => listIds.has(m.id)).length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportsOpen, markups, pageIndex, toolsState.selected, scaleOf, sheets, columnSet, ws.list]);
 
   // Tell the others in the session which document and page this attendee is on.
   useEffect(() => {
@@ -6495,7 +6852,9 @@ export function App() {
       // Each target is written once as a new annotation (no replies or states, which have nothing to draw).
       const fresh: Markup[] = targets.map(({ pdfAnnot: _link, replies: _replies, checked: _checked, ...m }) => ({ ...m, status: 'none' }));
       const { exportWithAnnotations } = await import('@nb/markup/export');
-      const exported = await exportWithAnnotations(await readFile(o.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports() });
+      const fonts = await fontExport(fresh);
+      const exported = await exportWithAnnotations(await readFile(o.file.hash), fresh, { scaleFor: (i) => store.scaleFor(i), viewports: store.allViewports(), ...(fonts.systemFonts ? { systemFonts: fonts.systemFonts } : {}), onFontFallback: fonts.onFontFallback });
+      fonts.done();
       const { flattenSelection } = await import('./documents/process');
       const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
       c?.tools.select([]);
@@ -6604,8 +6963,17 @@ export function App() {
       { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
+      // Right-click on a measurement's segment: curve it, or straighten it.
+      ...(() => {
+        const seg = one && at ? c.tools.segmentAt(first.id, at) : null;
+        return seg
+          ? [{ label: seg.curved ? 'Convert to Line' : 'Convert to Arc', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
+          : [];
+      })(),
       ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
       ...(one && first.type === 'table' ? tableItems(first) : []),
+      // A count or an open line carries on from where it stopped (a line from the end nearest the click).
+      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: 'Resume', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
       ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
       ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
@@ -6815,6 +7183,7 @@ export function App() {
           },
         ],
       },
+      ...(one && templateable(first) ? [{ label: 'Save as Template…', disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
       SEP,
       { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
       {
@@ -6842,7 +7211,11 @@ export function App() {
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
     const geo = geoAt(o.store.allGeoRegions(), page, pt);
+    // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
+    const arcOn = c.tools.getState().arc !== 'off';
+    const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: 'Arc (3-point)', shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
     return [
+      ...arcEntry,
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
       { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
       { label: 'Measure', disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
@@ -7468,13 +7841,38 @@ export function App() {
   ];
 
   /** Links › Teach Links: shows the Links tab, opens Teach Links and turns on the tool for boxing a mark. */
-  const startTeachMark = () => {
-    if (!activeTools) return;
-    showBottomPanel('links');
-    setTeachBox(null);
-    setTeachLinks(activePane);
-    activeTools.setTool('teachMark');
+  /** Opens the drawing standards setup on the active document, and reads its text for the checks. */
+  const startSetup = (pane: Pane = paneB ? 'b' : 'a', step?: WizardStepId) => {
+    const { o } = paneParts(pane);
+    if (!o) return;
+    setActivePane(pane);
+    setSetup((cur) => (cur?.pane === pane && !step ? cur : { pane, inline: cur?.pane === pane ? cur.inline : false, step, n: (cur?.n ?? 0) + 1 }));
+    setSetupTexts(null);
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+      .then((texts) => {
+        if ((pane === 'b' ? openBRef.current : openRef.current) === o) setSetupTexts(texts);
+      })
+      .catch((err) => {
+        if (!isAbort(err)) setError(err instanceof Error ? err.message : String(err));
+      });
   };
+  // The setup closes with its document.
+  useEffect(() => {
+    if (setup && !paneParts(setup.pane).o) setSetup(null);
+  });
+  const setupRenderRef = useRef<(pageIndex: number, width: number, height: number, view: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
+  setupRenderRef.current = async (pageIndex, width, height, view) => {
+    const o = setup ? paneParts(setup.pane).o : null;
+    if (!o) return null;
+    const dpr = window.devicePixelRatio || 1;
+    const seen = { x: view.cx - width / 2 / view.zoom, y: view.cy - height / 2 / view.zoom, w: width / view.zoom, h: height / view.zoom };
+    const region = await renderRegion(o, pageIndex, seen, () => Math.min(16, Math.max(0.05, view.zoom * dpr)), false);
+    if (!region) return { canvas: document.createElement('canvas'), x0: 0, y0: 0, view };
+    region.canvas.style.width = `${region.w * view.zoom}px`;
+    region.canvas.style.height = `${region.h * view.zoom}px`;
+    return { canvas: region.canvas, x0: region.x0, y0: region.y0, view };
+  };
+  const setupRender = useCallback((pageIndex: number, width: number, height: number, view: PreviewView) => setupRenderRef.current(pageIndex, width, height, view), []);
 
   /** Forgets a taught mark, whether it was for every set or a drawing standard's own, and looks again without it. */
   const forgetMark = (id: string, doc: OpenFile | null) => {
@@ -7486,30 +7884,10 @@ export function App() {
     void findTaughtMarks(doc);
   };
 
-  /**
-   * Keeps what a pair taught in Teach Links: its marks, in the document's drawing standard or for
-   * every set, and what it taught about the client's drawings in the standard. A standard that
-   * learned something reads the set again; otherwise only the marks are looked for.
-   */
-  const keepLesson = (o: OpenFile, lesson: Lesson, forStandard: boolean) => {
-    const standard = standardOf(o.store);
-    if (forStandard && standard) {
-      const next: DrawingStandard = { ...standard, links: lesson.links ?? standard.links, chainage: lesson.chainage ?? standard.chainage, marks: [...standard.marks, ...lesson.marks], updatedAt: Date.now() };
-      updateWorkspace((s) => ({ ...s, drawingStandards: s.drawingStandards.map((d) => (d.id === next.id ? next : d)) }));
-      if (lesson.links || lesson.chainage) void readWithStandard(o, next).then(() => setNotice(`Read ${o.file.name} again with what ${next.name} has learned. New links wait under Needs review in the Links tab.`));
-      else void findTaughtMarks(o, true);
-      return;
-    }
-    if (!lesson.marks.length) return;
-    updateWorkspace((s) => ({ ...s, taughtMarks: [...s.taughtMarks, ...lesson.marks] }));
-    void findTaughtMarks(o, true);
-  };
-
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   /** `erase` is Bulk Redact, which draws its boxes the same way. */
-  /** `standard` edits drawing standards, whose title-block boxes are drawn the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' | 'standard' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
@@ -7518,8 +7896,8 @@ export function App() {
     }
     setActivePane(pane);
     // Reopening with new pages or a new source starts the panel afresh (it is keyed on them), keeping the boxes drawn.
-    // Erase boxes and a standard's boxes are not label boxes, so switching between them starts with none.
-    const own = (k: string) => (k === 'erase' || k === 'standard' ? k : 'label');
+    // Erase boxes are not label boxes, so switching between them starts with none.
+    const own = (k: string) => (k === 'erase' ? k : 'label');
     setLabelMode((m) =>
       m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
         ? m
@@ -7704,6 +8082,13 @@ export function App() {
   // --- commands: one table behind the menus, shortcuts and command palette ------------------
   const pane: Pane = paneB ? 'b' : 'a';
   const selectedMarkups = activeOpen ? [...toolsState.selected].map((id) => activeOpen.store.get(id)).filter((m): m is Markup => !!m) : [];
+  const mayEditMarkup = (m: Markup) => !activeOpen || activeOpen.store.mayEdit(m);
+  /** Cutout: draws a hole in the one selected area; with no area selected it says so instead of starting a cutout with nowhere to cut. */
+  const startCutoutFromSelection = () => {
+    const blocker = cutoutBlocker(selectedMarkups, mayEditMarkup);
+    if (!blocker) activeTools?.startCutout(selectedMarkups[0]!.id);
+    else setNotice(selectedMarkups.length ? `${blocker}.` : 'Select an area first, then draw the cutout inside it.');
+  };
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
   const placeStamp = (s: StampDef, filled = false) => {
     updateWorkspace((w) => ({ ...w, lastStampId: s.id }));
@@ -7944,6 +8329,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    convertDrawingAgain: () => {
+      if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
+    },
     split: () => {
       setSplitHorizontal(false);
       startSplit();
@@ -8073,8 +8461,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       void applyPageOps([{ type: 'delete', pages }]);
     },
     labelRegions: () => startLabelRegions(),
-    drawingStandards: () => startLabelRegions(undefined, 'standard'),
-    teachMark: () => startTeachMark(),
+    drawingStandards: () => startSetup(undefined, 'review'),
+    setUpDrawingStandard: () => startSetup(),
+    teachMark: () => startSetup(undefined, 'sections'),
     scaleRegions: () => startLabelRegions(undefined, 'scale'),
     scaleReview: () => setScaleReviewOpen(true),
     bulkRedact: () => startLabelRegions(undefined, 'erase'),
@@ -8085,6 +8474,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
+    cutout: startCutoutFromSelection,
+    syncExcel: () => setSyncOpen(true),
+    takeoffReports: () => {
+      setReportsError(null);
+      setReportsOpen(true);
+    },
+    toggleArc: () => activeTools?.toggleArc(),
+    hipValley: (kind) => activeTools?.setTool('polylength', { subject: kind === 'hip' ? 'Hip' : 'Valley', slope: hipValleySlope(kind) }),
+    manualQuantity: () => setManualOpen(true),
+    manageItems: () => setItemsOpen(true),
+    manageProductLists: () => setProductListsOpen(true),
+    manageTemplates: () => setTemplatesOpen(true),
+    saveTemplate: () => {
+      const m = selectedMarkups.length === 1 ? selectedMarkups[0] : undefined;
+      if (m && templateable(m)) void saveAsTemplate(m);
+    },
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
@@ -8121,6 +8526,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());
       if (from.assemblies().length) to.setAssemblies(from.assemblies());
+      to.setEstimating(from.estimating());
       await Promise.all([from.destroy(), to.destroy()]);
       await openStored(file, bytes, activePaneRef.current);
       void refreshLibrary();
@@ -8484,6 +8890,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
     showToolbar: showTools,
@@ -8503,6 +8910,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     connectorRoute: toolsState.connectorRoute,
     canAddNextShape: !activeReadOnly && selectedMarkups.length === 1 && !selectedMarkups[0]!.locked && canConnect(selectedMarkups[0]!),
     canConnectShapes: !activeReadOnly && selectedMarkups.filter((m) => !m.locked && canConnect(m)).length > 1,
+    cutoutReady: !activeReadOnly && !!cutoutTargetOf(selectedMarkups, mayEditMarkup),
+    canArc: !activeReadOnly && !!activeTools?.canArc(),
+    arcArmed: toolsState.arc !== 'off',
+    hipValley: toolsState.tool === 'polylength' && (toolsState.preset?.slope?.kind === 'hip' || toolsState.preset?.slope?.kind === 'valley') ? toolsState.preset.slope.kind : null,
+    canSaveTemplate: !activeReadOnly && selectedMarkups.length === 1 && templateable(selectedMarkups[0]!),
+    cutoutHint: cutoutBlocker(selectedMarkups, mayEditMarkup) ?? undefined,
   });
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
@@ -8645,6 +9058,30 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       for (const r of h.rects)
                         store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
                     setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
+                  }
+                : undefined
+            }
+            readOnly={activeReadOnly}
+            countTools={ws.toolChests
+              .filter((t) => t.id !== RECENT_TOOLS_ID)
+              .flatMap((t) => t.items)
+              .filter((i) => i.type === 'count')
+              .map((i): CountTool => ({ id: i.id, name: i.label || i.subject || 'Count', style: i.style, ...(i.subject ? { subject: i.subject } : {}), ...(i.label ? { label: i.label } : {}), ...(i.markups ? { markups: i.markups } : {}) }))}
+            onApplyCount={
+              activeOpen
+                ? (found, tool) => {
+                    const store = activeOpen.store;
+                    if (store.readOnly || !found.length) return;
+                    const now = Date.now();
+                    const made = countsFromHits(found, {
+                      base: { status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now, fields: defaultFieldsFor(store) },
+                      style: { ...(activeTools?.getState().styles.count ?? DEFAULT_STYLES.count) },
+                      subject: 'Text Search',
+                      tool,
+                    });
+                    store.checkpoint();
+                    store.batch(() => made.forEach((m) => store.add(m)));
+                    setNotice(`Counted ${found.length} match${found.length === 1 ? '' : 'es'}${tool ? ` with ${tool.name}` : ''}.`);
                   }
                 : undefined
             }
@@ -8863,11 +9300,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onScale={activeOpen && !activeReadOnly ? (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)) : null}
             onApplyScale={activeOpen && !activeReadOnly && scales[pageIndex] ? (pages) => activeOpen.store.setScale(pages, scales[pageIndex]!) : null}
             tool={toolsState.tool}
-            onTool={activeOpen && !activeReadOnly ? (next) => activeTools?.setTool(next) : null}
+            onTool={activeOpen && !activeReadOnly ? (next) => (next === 'cutout' ? startCutoutFromSelection() : activeTools?.setTool(next)) : null}
             store={activeOpen && !activeReadOnly ? activeOpen.store : null}
             defaults={measureDefaults}
             onDefaults={setMeasureDefaults}
-            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, assemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
+            takeoff={activeOpen ? { assemblies, totals: (ms) => rollup(ms, takeoffAssemblies, cellContext, 'item'), onManage: () => setAssembliesOpen(true) } : null}
           />
         ) : tab === 'spaces' ? (
           <SpacesPanel
@@ -9248,7 +9685,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onRedetect={() => void redetectLinks()}
             marks={[...ws.taughtMarks, ...((activeOpen && standardOf(activeOpen.store)?.marks.map((m) => ({ ...m, standard: standardOf(activeOpen.store)!.name }))) ?? [])]}
             editable={!!activeOpen && !activeOpen.store.readOnly}
-            onTeach={startTeachMark}
+            onTeach={() => startSetup(undefined, 'sections')}
             onForget={(id) => forgetMark(id, activeOpen)}
           />
         ) : markupsPopped ? (
@@ -9282,7 +9719,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={openFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9294,20 +9731,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={insertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
           if (!file || !open) return;
           const at = (v?.currentPageIndex ?? pageIndex) + 1;
-          void applyPageOps([{ type: 'insert', source: 0, at }], [isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
+          void applyPageOps([{ type: 'insert', source: 0, at }], [isCadFile(file) ? (await convertFile(file)).pdf : isImageFile(file) ? await imageToPdf(file) : await file.arrayBuffer()]);
         }}
       />
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept="application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp"
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -9373,6 +9810,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           selectedStyle,
           cloudBubble,
           geometry: selectedShape && activeOpen ? { markup: selectedShape, scale: activeOpen.store.scaleOf(selectedShape), store: activeOpen.store, readOnly: activeReadOnly || !!selectedShape.locked || !activeOpen.store.mayEdit(selectedShape) } : null,
+          // Whatever is selected: the Markup Format tab edits what they share, together (style needs two or more).
+          selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 0 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
+          layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.hash) : [])])],
+          askLayer: () => askText('New Markup Layer', '', { label: 'Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => name?.trim() || null),
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
@@ -9389,6 +9830,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           },
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
+          takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
@@ -9468,6 +9910,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   />
                 )}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
+                  <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />
+                )}
                 {ctl && open && toolsStateA.textSelection && (
                   <TextSelectionBar tools={ctl.tools} length={toolsStateA.textSelection.text.length} readOnly={open.store.readOnly} onCopy={() => copyMarkups('a')} />
                 )}
@@ -9483,6 +9928,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 )}
                 {import.meta.env.DEV && ctl && open && <TileDiagnostics viewer={ctl.viewer} />}
                 {ctl && open && <SlowDrawingPrompt viewer={ctl.viewer} doc={open.doc} fileId={open.file.id} />}
+                {open && <CadReportBar fileId={open.file.id} onConvertAgain={() => setCadAgain(open.file.id)} />}
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
@@ -9558,6 +10004,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     <canvas ref={canvasBRef} />
                     {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
+                    {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
+                      <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
+                    )}
+                    {openB && <CadReportBar fileId={openB.file.id} onConvertAgain={() => setCadAgain(openB.file.id)} />}
                     {ctlB && openB && toolsStateB.textSelection && (
                       <TextSelectionBar tools={ctlB.tools} length={toolsStateB.textSelection.text.length} readOnly={openB.store.readOnly} onCopy={() => copyMarkups('b')} />
                     )}
@@ -9614,113 +10064,103 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
-          {labelMode?.kind === 'standard' && labelPaneParts?.o && (
-            <DrawingStandardPanel
-              key={labelPaneParts.o.file.id}
-              standards={ws.drawingStandards}
-              current={labelPaneParts.o.store.drawingStandard()?.id ?? null}
-              regions={labelMode.regions}
-              drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
-              currentPage={(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0}
-              pageSize={labelPaneParts.o.doc.pages[(labelMode.pane === 'b' ? statsB : stats)?.pageIndex ?? 0] ?? null}
-              texts={labelTexts}
-              readOnly={labelPaneParts.o.store.readOnly}
-              onDraw={() => labelPaneParts.c?.tools.setTool('labelRegion')}
-              onChange={setStandardRegions}
-              onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
-              onDelete={(id) => updateWorkspace((w) => ({ ...w, drawingStandards: w.drawingStandards.filter((s) => s.id !== id) }))}
-              onUse={(id) => {
-                const o = labelPaneParts.o!;
-                const standard = id ? (profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null) : null;
-                void readWithStandard(o, standard).then(() => {
-                  const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
-                  setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
-                });
-              }}
-              onImport={(file) =>
-                void file
-                  .text()
-                  .then((content) => {
-                    const standard = parseStandardFile(content);
-                    const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
-                    updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
-                    setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
-                  })
-                  .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-              }
-              onExport={(standard) => download(standardFileName(standard), new Blob([exportStandard(standard)], { type: 'application/json' }))}
-              everySetMarks={ws.taughtMarks.length}
-              onTeach={startTeachMark}
-              onMoveMarks={(id) => {
-                updateWorkspace((w) => ({
-                  ...w,
-                  taughtMarks: [],
-                  drawingStandards: w.drawingStandards.map((d) => (d.id === id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, ...w.taughtMarks], updatedAt: Date.now() } : d)),
-                }));
-                void findTaughtMarks(labelPaneParts.o);
-              }}
-              onForgetMark={(id) => forgetMark(id, labelPaneParts.o)}
-              project={(() => {
-                const link = linkOf(labelPaneParts.o.file.id);
-                const project = link ? projectById(link.projectId) : null;
-                if (!project) return null;
-                const { manifest } = project.getSnapshot();
-                return { name: manifest.name, owner: project.level === 'owner', standard: standardOfProject(manifest.standard)?.name ?? null };
-              })()}
-              onProjectStandard={(standard) => {
-                const link = linkOf(labelPaneParts.o!.file.id);
-                const project = link ? projectById(link.projectId) : null;
-                if (!project) return;
-                void project
-                  .setStandard(standard ? exportStandard(standard) : null, standard?.name)
-                  .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
-                  .catch((err) => setError(err instanceof Error ? err.message : String(err)));
-              }}
-              onClose={() => setLabelMode(null)}
-            />
-          )}
-          {teachLinks &&
+          {setup &&
             (() => {
-              const { c, o } = paneParts(teachLinks);
-              if (!c || !o) return null;
-              const standard = standardOf(o.store);
-              return (
-                <TeachLinksPanel
-                  key={`teach:${o.file.id}`}
-                  standard={standard?.name ?? null}
-                  titleBox={!!standard?.sheets.boxes.some((b) => b.field === 'title')}
-                  sheetInfo={teachLinks === 'b' ? sheetsB : sheetsA}
-                  pageCount={o.doc.pages.length}
-                  linkHints={standard?.links ?? DEFAULT_LINK_HINTS}
-                  chainageHints={standard?.chainage ?? DEFAULT_CHAINAGE_HINTS}
-                  box={teachBox?.pane === teachLinks ? teachBox : null}
+              const { o } = paneParts(setup.pane);
+              if (!o) return null;
+              const pane = setup.pane;
+              const sheets = pane === 'b' ? sheetsB : sheetsA;
+              const wizard = (
+                <StandardsWizard
+                  key={`setup:${o.file.id}:${setup.n}`}
+                  initialStep={setup.step}
+                  fileName={o.file.name}
+                  pages={o.doc.pages}
+                  texts={setupTexts}
+                  sheets={o.doc.pages.map((_, i) => sheets[i])}
+                  render={setupRender}
+                  standards={ws.drawingStandards}
+                  current={o.store.drawingStandard()?.id ?? null}
+                  readOnly={o.store.readOnly}
                   readPage={async (i) => {
                     const [words, geometry] = await Promise.all([o.doc.text(i), o.doc.geometry(i)]);
                     return { width: o.doc.pages[i]!.width, height: o.doc.pages[i]!.height, words, segments: inked(geometry.segments, geometry.paper) };
                   }}
-                  onArm={() => {
-                    setActivePane(teachLinks);
-                    c.tools.setTool('teachMark');
-                  }}
-                  onGoTo={(i) => {
-                    setActivePane(teachLinks);
-                    c.viewer.goToPage(i);
-                  }}
-                  onKeep={(lesson, forStandard) => keepLesson(o, lesson, forStandard)}
-                  onSetUp={() => startLabelRegions(teachLinks, 'standard')}
-                  onReadSheets={() => {
-                    if (!standard) return;
+                  onSave={(standard) => updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }))}
+                  onUse={(id, checks) => {
+                    const standard = profiles.active().state.drawingStandards.find((s) => s.id === id) ?? null;
                     void readWithStandard(o, standard).then(() => {
-                      const titled = Object.values(o.store.allSheets()).filter((s) => s.title).length;
-                      setNotice(`Read ${o.file.name} with ${standard.name}: sheet titles on ${titled} of ${o.doc.pages.length} sheets.`);
+                      // The links the person checked in the setup are kept, or turned down, as they said.
+                      const known = new Set(o.store.allLinks().map((l) => l.id));
+                      for (const [linkId, ok] of checks) if (known.has(linkId)) o.store.setLinkStatus(linkId, ok ? 'accepted' : 'rejected');
+                      const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
+                      setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
                     });
                   }}
-                  onClose={() => {
-                    setTeachLinks(null);
-                    setTeachBox(null);
-                    if (c.tools.getState().tool === 'teachMark') c.tools.setTool('select');
+                  onStitch={() => {
+                    void restitch(o).then(() => {
+                      const groups = o.store.stitchGroups();
+                      setNotice(groups.length ? `Stitched ${o.file.name}: ${groups.length} group${groups.length === 1 ? '' : 's'} of plans joined along their match lines. Open them from the Stitching panel.` : `No plans in ${o.file.name} could be stitched from their match lines.`);
+                    });
                   }}
+                  onUseNone={() => void readWithStandard(o, null).then(() => setNotice(`${o.file.name} is read from its text again.`))}
+                  onImport={(file) =>
+                    void file
+                      .text()
+                      .then((content) => {
+                        const standard = parseStandardFile(content);
+                        const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
+                        updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
+                        setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
+                      })
+                      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+                  }
+                  onExport={(standard) => download(standardFileName(standard), new Blob([exportStandard(standard)], { type: 'application/json' }))}
+                  onDelete={(id) => updateWorkspace((w) => ({ ...w, drawingStandards: w.drawingStandards.filter((s) => s.id !== id) }))}
+                  everySetMarks={ws.taughtMarks.length}
+                  onMoveMarks={(id) => {
+                    updateWorkspace((w) => ({
+                      ...w,
+                      taughtMarks: [],
+                      drawingStandards: w.drawingStandards.map((d) => (d.id === id ? { ...withDefaults(d), marks: [...withDefaults(d).marks, ...w.taughtMarks], updatedAt: Date.now() } : d)),
+                    }));
+                    void findTaughtMarks(o);
+                  }}
+                  onForgetMark={(id) => forgetMark(id, o)}
+                  project={(() => {
+                    const link = linkOf(o.file.id);
+                    const project = link ? projectById(link.projectId) : null;
+                    if (!project) return null;
+                    const { manifest } = project.getSnapshot();
+                    return { name: manifest.name, owner: project.level === 'owner', standard: standardOfProject(manifest.standard)?.name ?? null };
+                  })()}
+                  onProjectStandard={(standard) => {
+                    const link = linkOf(o.file.id);
+                    const project = link ? projectById(link.projectId) : null;
+                    if (!project) return;
+                    void project
+                      .setStandard(standard ? exportStandard(standard) : null, standard?.name)
+                      .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
+                      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+                  }}
+                  onClose={() => setSetup(null)}
                 />
+              );
+              if (setup.inline) return wizard;
+              return (
+                <PopOutWindow
+                  name="redcolumn-standards"
+                  title="Set up drawing standard"
+                  width={Math.min(1500, Math.round(window.screen.availWidth * 0.9))}
+                  height={Math.min(1000, Math.round(window.screen.availHeight * 0.9))}
+                  onClose={(reason) => {
+                    // Pop-ups blocked: the setup covers the app instead.
+                    if (reason === 'blocked') setSetup((cur) => (cur ? { ...cur, inline: true } : cur));
+                    else setSetup(null);
+                  }}
+                >
+                  {wizard}
+                </PopOutWindow>
               );
             })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
@@ -9771,6 +10211,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         snapContent={toolsState.snap}
         onSnapContent={(on) => activeTools?.setSnap(on)}
         tool={toolsState.tool}
+        arc={toolsState.arc}
         onSelectTool={() => activeTools?.setTool('select')}
         onOpenSettings={(category, tab) => {
           setPrefsCategory({ category, tab });
@@ -9893,6 +10334,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
                 .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
           }}
+        />
+      )}
+      {cadAgain && cadSession.get(cadAgain) && (
+        <CadConvertDialog
+          conversion={cadSession.get(cadAgain)!.conversion}
+          busy={cadBusy}
+          onCancel={() => setCadAgain(null)}
+          onConvert={(options, references) => void convertAgain(cadAgain, options, references)}
         />
       )}
       {bulkInsertFiles && (
@@ -10460,9 +10909,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   return;
                 }
                 if (action === 'count') {
-                  const byPage = new Map<number, [number, number][]>();
-                  for (const h of hits) byPage.set(h.pageIndex, [...(byPage.get(h.pageIndex) ?? []), h.match.center]);
-                  for (const [pageIndex, points] of byPage) made.push({ ...base, id: crypto.randomUUID(), type: 'count', pageIndex, points, style: { ...styles.count }, subject: 'Symbol Search' });
+                  made.push(...countsFromHits(hits.map((h) => ({ pageIndex: h.pageIndex, point: h.match.center })), { base, style: styles.count, subject: 'Symbol Search' }));
                 } else {
                   for (const h of hits) {
                     const r = h.match.rect;
@@ -10730,7 +11177,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {calibration && activeOpen && (
         <CalibrateDialog
-          lengthPoints={calibration.lengthPoints}
+          delta={calibration.delta}
+          current={calibrationViewport?.scale ?? scales[calibration.pageIndex] ?? null}
           pageCount={pageCount}
           defaultAllPages={Object.keys(scales).length === 0}
           viewportName={calibrationViewport?.name}
@@ -10751,13 +11199,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           usage={Object.fromEntries(Object.entries(Object.groupBy(markups.filter((m) => m.assemblyId), (m) => m.assemblyId!)).map(([id, list]) => [id, list?.length ?? 0]))}
           // Examples in the units this page measures in, else the preferred ones.
           unitSystem={scales[pageIndex] ? systemOf(scales[pageIndex]!.unit) : prefs.unitSystem}
-          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, a, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          preview={takeoffSample ? (a) => itemQuantities(takeoffSample, resolveAssemblies([a], estimating.items, estimating.productLists)[0]!, cellsFor(takeoffSample, cellContext), columnSet.columns) : null}
+          estimating={estimating}
+          onImportEstimating={(incoming) => activeOpen.store.setEstimating(mergeEstimating(activeOpen.store.estimating(), incoming))}
           previewLabel={takeoffSample ? `${takeoffSample.subject || MARKUP_LABELS[takeoffSample.type]} on page ${takeoffSample.pageIndex + 1}` : ''}
           onSave={(list) => {
             activeOpen.store.setAssemblies(list);
             setAssembliesOpen(false);
           }}
-          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} assemblies.json`, new Blob([json], { type: 'application/json' }))}
+          onExportJson={(json) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} estimating.json`, new Blob([json], { type: 'application/json' }))}
           onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
           onClose={() => setAssembliesOpen(false)}
         />
@@ -10816,6 +11266,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onShow={(m) => selectFromList(m)}
+          onShowRect={(pageIndex, r) => {
+            const viewer = activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer;
+            if (!viewer) return;
+            viewer.goToPage(pageIndex);
+            viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, pageIndex);
+          }}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />
@@ -10823,7 +11279,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {quantitiesOpen && activeOpen && (
         <QuantitiesDialog
           markups={markups}
-          assemblies={assemblies}
+          assemblies={takeoffAssemblies}
           ctx={cellContext}
           pageLabel={(i) => pageLabelFor(activeOpen, i)}
           onManage={() => {
@@ -10833,6 +11289,66 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Byte-order mark so Excel reads the CSV as UTF-8.
           onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
+        />
+      )}
+      {itemsOpen && activeOpen && (
+        <ItemsDialog
+          initial={estimating.items}
+          productLists={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(assemblies.flatMap((a) => a.items.flatMap((i) => (i.itemId ? [i.itemId] : []))), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(items, lists) => {
+            activeOpen.store.setEstimating({ items, ...(lists.length ? { productLists: [...estimating.productLists, ...lists] } : {}) });
+            setItemsOpen(false);
+          }}
+          onManageLists={() => {
+            setItemsOpen(false);
+            setProductListsOpen(true);
+          }}
+          onClose={() => setItemsOpen(false)}
+        />
+      )}
+      {productListsOpen && activeOpen && (
+        <ProductListsDialog
+          initial={estimating.productLists}
+          readOnly={activeReadOnly}
+          usage={Object.fromEntries(Object.entries(Object.groupBy(estimating.items.flatMap((i) => (i.listRef ? [i.listRef.listId] : [])), (id) => id)).map(([id, l]) => [id, l?.length ?? 0]))}
+          onSave={(productLists) => {
+            activeOpen.store.setEstimating({ productLists });
+            setProductListsOpen(false);
+          }}
+          onClose={() => setProductListsOpen(false)}
+        />
+      )}
+      {templatesOpen && activeOpen && (
+        <TemplatesDialog
+          initial={estimating.templates}
+          assemblies={assemblies}
+          readOnly={activeReadOnly}
+          onSave={(templates) => {
+            activeOpen.store.setEstimating({ templates });
+            setTemplatesOpen(false);
+          }}
+          onUse={(t) => {
+            setTemplatesOpen(false);
+            armTemplate(t);
+          }}
+          onImport={async (f) => {
+            const file = estimatingFromJson(await f.text());
+            const store = activeOpen.store;
+            store.checkpoint();
+            store.batch(() => {
+              if (file.assemblies.length) store.setAssemblies(mergeAssemblies(store.assemblies(), file.assemblies));
+              store.setEstimating(mergeEstimating(store.estimating(), file));
+            });
+            return `Imported ${file.templates.length} template${file.templates.length === 1 ? '' : 's'}, ${file.assemblies.length} assembl${file.assemblies.length === 1 ? 'y' : 'ies'}, ${file.items.length} item${file.items.length === 1 ? '' : 's'} and ${file.productLists.length} product list${file.productLists.length === 1 ? '' : 's'} from ${f.name}.`;
+          }}
+          onExport={() => {
+            const doc = documentFile(activeOpen.store);
+            const used = referencedRecords(doc, estimating.templates.flatMap((t) => (t.assemblyId ? [t.assemblyId] : [])));
+            download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} takeoff templates.json`, new Blob([estimatingToJson({ ...used, templates: estimating.templates })], { type: 'application/json' }));
+          }}
+          onClose={() => setTemplatesOpen(false)}
         />
       )}
       {commentsTable && !commentsTable.hidden && (
@@ -10883,6 +11399,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setSummaryOpen(false)}
         />
       )}
+      {manualOpen && activeOpen && (
+        <ManualQuantityDialog
+          scale={activeOpen.store.scaleFor(pageIndex)}
+          assemblies={assemblies}
+          onCancel={() => setManualOpen(false)}
+          onOk={(request) => {
+            setManualOpen(false);
+            manualPendingRef.current = request;
+            activeTools?.setTool('manual');
+          }}
+        />
+      )}
       {syncOpen && activeOpen && syncTable && (
         <SheetSyncDialog
           docName={activeOpen.file.name}
@@ -10891,13 +11419,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           rowCount={Math.max(0, syncTable.length - 1)}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title) => void sheetSync.connectLocal(title, syncTable)}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities))()}
+          onSetQuantities={sheetSync.setQuantities}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
           onClose={() => setSyncOpen(false)}
         />
+      )}
+      {reportsOpen && activeOpen && (
+        <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}

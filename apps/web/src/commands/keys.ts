@@ -241,6 +241,8 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'tool.volume': ['Alt+Shift+V'],
   'tool.dynamicFill': ['J'],
   'tools.nextMeasure': ['Shift+M'],
+  // B for bend: the next segment of a polylength or area is a 3-point arc.
+  'draw.arc': ['Shift+B'],
   'tools.applyRedactions': ['Shift+A'],
   'tools.sign': ['X'],
   'tools.forms': ['Ctrl+Shift+F'],

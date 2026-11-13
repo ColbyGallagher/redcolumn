@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -36,7 +36,8 @@ interface Props {
   readOnly: boolean;
   selected: ReadonlySet<string>;
   /** Replace the selection with these markups. `zoom` focuses the one that was clicked on its own. */
-  onSelect: (ids: readonly string[], focus: Markup, zoom: boolean) => void;
+  /** `exact`: select just these, even part of a group (a member of a group row, to edit it alone). */
+  onSelect: (ids: readonly string[], focus: Markup, zoom: boolean, exact?: boolean) => void;
   /** Write a reply to this markup, or to one of its replies when `parentReplyId` is set. */
   onReply: (m: Markup, parentReplyId?: string) => void;
   /** Right-click on a markup row (the App adds tool library and other actions). */
@@ -89,7 +90,9 @@ const ROW_GUESS = 30;
 /** A row of the list body: a group header, a markup, or a reply under its markup. */
 type Line =
   | { kind: 'group'; label: string; count: number }
-  | { kind: 'markup'; row: ListRowData }
+  | { kind: 'markup'; row: ListRowData; nested?: boolean }
+  /** A group of markups (Group in the ribbon): its members follow, nested under it, as in Bluebeam. */
+  | { kind: 'cluster'; groupId: string; rows: ListRowData[] }
   | { kind: 'reply'; m: Markup; reply: Reply; depth: number; children: boolean };
 
 /**
@@ -147,7 +150,7 @@ function CommentCell({ value, disabled, wrap, onSave }: { value: string; disable
 }
 
 /** A list line's React key, also used to keep its measured height. */
-const lineKey = (l: Line) => (l.kind === 'group' ? `group:${l.label}` : l.kind === 'reply' ? `${l.m.id}:${l.reply.id}` : l.row.markup.id);
+const lineKey = (l: Line) => (l.kind === 'group' ? `group:${l.label}` : l.kind === 'cluster' ? `cluster:${l.groupId}` : l.kind === 'reply' ? `${l.m.id}:${l.reply.id}` : l.row.markup.id);
 
 /**
  * What the list is showing beyond the profile's settings. There is one list, and it is remounted when the
@@ -230,11 +233,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     for (const { label, rows: list } of groups) {
       if (groupBy) out.push({ kind: 'group', label, count: list.length });
       if (groupBy && folded.has(label)) continue;
-      for (const row of list) {
+      const push = (row: ListRowData, nested: boolean) => {
         const threaded = threadReplies(row.markup.replies ?? []);
         const childOf = new Set(threaded.flatMap(({ reply }) => (reply.parentId ? [reply.parentId] : [])));
-        out.push({ kind: 'markup', row });
-        if (!threaded.length || closed.has(`m:${row.markup.id}`)) continue;
+        out.push({ kind: 'markup', row, ...(nested ? { nested } : {}) });
+        if (!threaded.length || closed.has(`m:${row.markup.id}`)) return;
         let skipBelow = 0;
         for (const { reply, depth } of threaded) {
           if (skipBelow && depth > skipBelow) continue;
@@ -242,6 +245,25 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           out.push({ kind: 'reply', m: row.markup, reply, depth, children: childOf.has(reply.id) });
           if (closed.has(`r:${reply.id}`)) skipBelow = depth;
         }
+      };
+      // Members of one group gather under a row for the group, where its first member sits.
+      const members = new Map<string, ListRowData[]>();
+      for (const row of list) {
+        const id = row.markup.groupId;
+        if (id) members.set(id, [...(members.get(id) ?? []), row]);
+      }
+      const done = new Set<string>();
+      for (const row of list) {
+        const id = row.markup.groupId;
+        const together = id ? members.get(id)! : [];
+        if (!id || together.length < 2) {
+          push(row, false);
+          continue;
+        }
+        if (done.has(id)) continue;
+        done.add(id);
+        out.push({ kind: 'cluster', groupId: id, rows: together });
+        if (!closed.has(`g:${id}`)) for (const r of together) push(r, true);
       }
     }
     return out;
@@ -453,10 +475,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       const m = r.markup;
       if (!isMeasureKind(m.type) || m.type === 'angle') continue;
       const scale = scaleOf(m);
-      const t = out.get(m.type) ?? { value: 0, scale, n: 0 };
+      const kind = measureKindOf(m);
+      const t = out.get(kind) ?? { value: 0, scale, n: 0 };
       t.value += measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);
       t.n++;
-      out.set(m.type, t);
+      out.set(kind, t);
     }
     return out;
   }, [rows, scaleOf]);
@@ -492,7 +515,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       return next;
     });
   /** Ctrl toggles a row. Shift selects from the anchor through this row. A plain click selects one. */
-  const selectMarkup = (id: string, shift: boolean, toggle: boolean) => {
+  const selectMarkup = (id: string, shift: boolean, toggle: boolean, nested = false) => {
     const order = lines.flatMap((l) => (l.kind === 'markup' ? [l.row.markup.id] : []));
     const focus = markups.find((m) => m.id === id);
     if (!focus || !order.includes(id)) return;
@@ -517,14 +540,15 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       ids = [id];
       anchorId.current = id;
     }
-    onSelect(ids, focus, !shift && !toggle);
+    // A member nested under its group is picked alone: the group row picks the group.
+    onSelect(ids, focus, !shift && !toggle, nested && !shift && !toggle);
   };
-  const onRowPointer = (id: string, e: ReactMouseEvent) => {
+  const onRowPointer = (id: string, e: ReactMouseEvent, nested = false) => {
     if (e.button !== 0) return;
     if ((e.target as HTMLElement).closest('input, textarea, select, button, a, label')) return;
     e.preventDefault();
     setActiveReply(null);
-    selectMarkup(id, e.shiftKey, e.ctrlKey || e.metaKey);
+    selectMarkup(id, e.shiftKey, e.ctrlKey || e.metaKey, nested);
   };
   const replyRef = useRef(activeReply);
   replyRef.current = activeReply;
@@ -956,6 +980,57 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     </tr>
                   );
                 }
+                if (line.kind === 'cluster') {
+                  const first = line.rows[0]!.markup;
+                  const ids = line.rows.map((r) => r.markup.id);
+                  const foldKey = `g:${line.groupId}`;
+                  const cells = line.rows[0]!.cells;
+                  const types = new Set(line.rows.map((r) => r.markup.type));
+                  const name = types.size === 1 ? first.subject || MARKUP_LABELS[first.type] : 'Group';
+                  return (
+                    <tr
+                      key={`cluster:${line.groupId}`}
+                      data-key={`cluster:${line.groupId}`}
+                      className={`cluster-row${ids.every((id) => selected.has(id)) ? ' selected' : ''}`}
+                      title="Group: click to select it whole; click a member to edit just that one"
+                      onMouseDown={(e) => {
+                        if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
+                        e.preventDefault();
+                        setActiveReply(null);
+                        onSelect(ids, first, !e.shiftKey && !(e.ctrlKey || e.metaKey), true);
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        onSelect(ids, first, false, true);
+                        onRowMenu(first, e.clientX, e.clientY);
+                      }}
+                    >
+                      {visible.map((c) => {
+                        if (c.key === treeKey) {
+                          return (
+                            <td key={c.key}>
+                              <span className="subject-cell">
+                                <button type="button" className="thread-fold" title={closed.has(foldKey) ? 'Show group members' : 'Hide group members'} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(foldKey)}>
+                                  {closed.has(foldKey) ? '▸' : '▾'}
+                                </button>
+                                <span className="type-icon" title="Group" aria-hidden="true">
+                                  <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.2">
+                                    <rect x="1.5" y="1.5" width="13" height="13" strokeDasharray="2 1.6" />
+                                    <rect x="4" y="4" width="5" height="5" />
+                                    <rect x="7.5" y="7.5" width="5" height="5" />
+                                  </svg>
+                                </span>
+                                <span className="group-name">{name}</span>
+                              </span>
+                            </td>
+                          );
+                        }
+                        const shared = c.key === 'page' || c.key === 'sheet' ? cells[c.key]?.text : '';
+                        return <td key={c.key} className={c.align === 'right' ? 'num' : ''}>{shared}</td>;
+                      })}
+                    </tr>
+                  );
+                }
                 if (line.kind === 'reply') {
                   const { m, reply: r, depth, children } = line;
                   const cells = replyCells(m, r, ctx);
@@ -1047,9 +1122,9 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     key={m.id}
                     data-id={m.id}
                     data-key={m.id}
-                    className={`${selected.has(m.id) ? 'selected' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
+                    className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
                     title={m.hidden ? 'Hidden on the page (right-click › Show)' : undefined}
-                    onMouseDown={(e) => onRowPointer(m.id, e)}
+                    onMouseDown={(e) => onRowPointer(m.id, e, !!line.nested)}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       onRowMenu(m, e.clientX, e.clientY);

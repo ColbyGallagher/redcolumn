@@ -1,13 +1,16 @@
-import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
-import { toolLabel, type Tool } from '../markup/MarkupTools';
-import { FLOW_SHAPES, type FlowShapeKind } from '@nb/markup';
+import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
+import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
+import { pickedSlopePatch, pickedSpec, setSlopePick, useSlopePick, type SlopePick } from '../markup/slopePicker';
+import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind, type TakeoffTemplate } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
-import { ContextMenu, type ContextMenuState } from './ContextMenu';
+import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -49,6 +52,7 @@ const ICONS: Record<string, ReactNode> = {
   'edit.alignPoints': ic('M2 13l5-5M9 6l5-5', <><circle cx="2" cy="13" r="1.2" /><circle cx="14" cy="1" r="1.2" /></>),
   'edit.stretch': ic('M2 4h6v8H2zM8 8h6M12 6l2 2-2 2'),
   'edit.scaleToLength': MENU_ICONS.scale,
+  'edit.createViewport': ic('M2 3h12v10H2z', <path d="M5 6h6v4H5z" strokeDasharray="2 1.5" />),
   'edit.offset': ic('M2 12.5 6 3.5h8M5 14.5l4-9h5'),
   'edit.trim': ic('M2 8h12M8 2v12', <path d="M10.5 6.5l2 2M12.5 6.5l-2 2" />),
   'edit.extend': ic('M2 8h8M10 8h3', <path d="M14 2v12M10 8h3.5" strokeDasharray="1.5 1.2" />),
@@ -128,6 +132,18 @@ const ICONS: Record<string, ReactNode> = {
   'tools.forms': ic('M3 1.5h10v13H3zM5 5h6M5 8h6M5 11h3'),
   'document.scaleRegions': MENU_ICONS.scale,
   'document.scaleReview': MENU_ICONS.scale,
+  'draw.arc': ic('M2 13.5C3 6 9 3 14 3.5', <><circle cx="2" cy="13.5" r="1.3" /><circle cx="6" cy="6.3" r="1.3" /><circle cx="14" cy="3.5" r="1.3" /></>),
+  'tool.cutout': ic('M2 2.5h12v11H2z', <path d="M6 6h4v4H6z" strokeDasharray="1.6 1.2" />),
+  'takeoff.manual': ic('M2 3.5h12v9H2z', <path d="M4.5 8h7M8 4.8v6.4" />),
+  'takeoff.syncExcel': ic('M2 3.5h12v9H2zM2 7h12M6.5 3.5v9M12 1.5l1.5 1.5L12 4.5'),
+  'takeoff.reports': ic('M3 1.5h8l2.5 2.5v10.5H3zM5.5 7h5M5.5 9.5h5M5.5 12h3'),
+  'takeoff.items': ic('M3 2.5h10v11H3zM5.5 5h5M5.5 8h5M5.5 11h3'),
+  'takeoff.productLists': ic('M2 3h12v10H2zM2 6h12M2 9.5h12M6 3v10'),
+  'takeoff.templates': ic('M2.5 2.5h7v4h-7zM2.5 9.5h7v4h-7zM12 4.5v7M10.5 10l1.5 1.5 1.5-1.5'),
+  'takeoff.saveTemplate': ic('M3 2.5h8l2 2v9H3zM5.5 2.5v3.5h4.5V2.5M5.5 13.5v-4h5v4'),
+  // Hip: two roof planes meeting along a ridge-to-corner line; Valley: the inside corner.
+  'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
+  'takeoff.valley': ic('M1.5 4L8 13.5 14.5 4M8 13.5V4', <path d="M1.5 4h13" strokeDasharray="1.4 1.2" />),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
@@ -216,7 +232,7 @@ Object.assign(ICONS, {
 /** Each tool's toolbar icon. */
 const TOOL_ICON = new Map<Tool, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
 
-type TabId = 'home' | 'markup' | 'measure' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
+type TabId = 'home' | 'markup' | 'measure' | 'takeoff' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
 
 /**
  * The contextual tab, as Excel's Table Design: it appears at the end of the tabs while the tool or
@@ -228,6 +244,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'home', label: 'Home' },
   { id: 'markup', label: 'Markup' },
   { id: 'measure', label: 'Measure' },
+  { id: 'takeoff', label: 'Takeoff' },
   { id: 'diagram', label: 'Diagram' },
   { id: 'modify', label: 'Modify' },
   { id: 'document', label: 'Document' },
@@ -282,7 +299,7 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
       data-ribbon-command={id}
       disabled={!c?.enabled}
       aria-pressed={c?.checked === undefined ? undefined : c.checked}
-      title={`${c?.label ?? name}${key ? ` (${key})` : ''}`}
+      title={!c?.enabled && c?.hint ? c.hint : `${c?.label ?? name}${key ? ` (${key})` : ''}`}
       onClick={() => {
         c?.run();
         done();
@@ -438,6 +455,146 @@ function Stack({ children }: { children: ReactNode }) {
   return <div className="rb-stack">{children}</div>;
 }
 
+const PICK_KINDS: { value: SlopePick['kind']; label: string; unit: string }[] = [
+  { value: 'none', label: 'No slope', unit: '' },
+  { value: 'pitch', label: 'Pitch', unit: ':12' },
+  { value: 'degrees', label: 'Degrees', unit: '°' },
+  { value: 'percent', label: 'Grade %', unit: '%' },
+  { value: 'ratio', label: 'Rise:Run', unit: '' },
+];
+
+/**
+ * Takeoff › Slope: a slope that goes on the selected measurements and on the next ones the running
+ * measure tool places (as the Markup Format tab's Subject, Label and Layer do), and the pitch Hip
+ * and Valley arm Polylength with.
+ */
+/**
+ * Takeoff › Templates: a drop-down of the document's takeoff templates and the library's; picking
+ * one arms its tool. Manage Templates… (the `takeoff.templates` command) renames, deletes,
+ * imports and exports them.
+ */
+function TemplatesMenu() {
+  const { commands, toolbar, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const c = commands.get('takeoff.templates');
+  const t = toolbar.takeoffTemplates;
+  const armed = toolbar.state.preset?.takeoffTemplateId;
+  const open = (el: HTMLElement) => {
+    if (!t) return;
+    const r = el.getBoundingClientRect();
+    const lib = loadEstimatingLibrary().templates.filter((x) => !t.document.some((d) => d.id === x.id));
+    const entry = (x: TakeoffTemplate, suffix = ''): MenuEntry => ({
+      label: `${x.name}${suffix}`,
+      checked: armed === x.id,
+      disabled: !toolbar.enabled,
+      onClick: () => {
+        t.onUse(x);
+        done();
+      },
+    });
+    const items: MenuEntry[] = [
+      ...t.document.map((x) => entry(x)),
+      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, ' (library)'))] : []),
+      ...(!t.document.length && !lib.length ? [{ label: 'No templates yet: right-click a measurement › Save as Template', disabled: true }] : []),
+      SEP,
+      {
+        label: 'Manage Templates…',
+        onClick: () => {
+          c?.run();
+          done();
+        },
+      },
+    ];
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className={`btn tool rb-btn small${armed ? ' active' : ''}`}
+        data-ribbon-command="takeoff.templates"
+        disabled={!c?.enabled}
+        aria-haspopup="menu"
+        title="Takeoff templates: pick one to arm its tool with its settings and assembly"
+        onClick={(e) => open(e.currentTarget)}
+      >
+        <span className="rb-icon">{ICONS['takeoff.templates']}</span>
+        <span className="rb-label">Templates ▾</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
+function SlopePicker() {
+  const { toolbar } = useContext(Ctx);
+  const { tools, state, selection, enabled } = toolbar;
+  const p = useSlopePick();
+  const apply = (next: SlopePick) => {
+    setSlopePick(next);
+    if (!enabled) return;
+    const spec = pickedSpec(next);
+    if (selection?.markups.length) {
+      const { store } = selection;
+      const targets = selection.markups.map((m) => store.get(m.id) ?? m).filter((m) => !m.locked && store.mayEdit(m));
+      const patches = targets.map((m) => [m.id, pickedSlopePatch(m, spec)] as const).filter(([, patch]) => Object.keys(patch).length);
+      if (patches.length) {
+        store.checkpoint();
+        store.batch(() => {
+          for (const [id, patch] of patches) store.update(id, patch);
+        });
+      }
+    }
+    // The running measure tool: a Hip or Valley stays one, with the new pitch. A typed (manual) quantity never takes a slope.
+    if (isMeasureKind(state.tool) && state.tool !== 'manual') {
+      const armed = state.toolFields?.slope ?? state.preset?.slope;
+      tools.setToolFields({ slope: spec && (armed?.kind === 'hip' || armed?.kind === 'valley') ? { ...armed, a: spec } : spec });
+    }
+  };
+  const num = (key: 'value' | 'rise' | 'run', label: string, width = 46) => (
+    <input
+      key={`${key}:${p[key]}`}
+      type="number"
+      step="any"
+      min={0}
+      aria-label={label}
+      title={label}
+      defaultValue={p[key]}
+      disabled={!enabled}
+      style={{ width }}
+      onBlur={(e) => {
+        const v = Number(e.currentTarget.value);
+        if (Number.isFinite(v) && v >= 0 && v !== p[key]) apply({ ...p, [key]: v });
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+    />
+  );
+  const unit = PICK_KINDS.find((k) => k.value === p.kind)?.unit;
+  return (
+    <div className="rb-stack rb-slope">
+      <select aria-label="Takeoff slope kind" title="Slope for the selected measurements and the next ones drawn" value={p.kind} disabled={!enabled} onChange={(e) => apply({ ...p, kind: e.target.value as SlopePick['kind'] })}>
+        {PICK_KINDS.map((k) => (
+          <option key={k.value} value={k.value}>
+            {k.label}
+          </option>
+        ))}
+      </select>
+      {p.kind !== 'none' && (
+        <span className="field">
+          {p.kind === 'ratio' ? (
+            <>
+              {num('rise', 'Rise', 38)}:{num('run', 'Run', 38)}
+            </>
+          ) : (
+            num('value', 'Takeoff slope')
+          )}
+          {unit && <span className="unit">{unit}</span>}
+        </span>
+      )}
+    </div>
+  );
+}
+
 
 /**
  * The top toolbar as a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
@@ -446,8 +603,11 @@ function Stack({ children }: { children: ReactNode }) {
  */
 export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu }: RibbonProps) {
   const [baseTab, setBaseTab] = useState<TabId>(savedTab);
-  // Whether the contextual tab is the one picked; it is never remembered, and gives way when it goes.
-  const [onFormat, setOnFormat] = useState(false);
+  // Whether the contextual tab is the one showing (picked, or switched to by a selection); it is never remembered, and gives way when it goes.
+  const [follow, dispatch] = useReducer(followFormat, FOLLOW_START);
+  const onFormat = follow.onFormat;
+  // A press is under way (a click, a drag, a box being drawn): the selection it makes switches tabs once it ends.
+  const [pressed, setPressed] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
   const [customizing, setCustomizing] = useState(false);
@@ -455,12 +615,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const root = useRef<HTMLDivElement>(null);
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
-  const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry);
+  const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
   const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
   const tab: TabId = onFormat && contextual ? 'format' : baseTab;
 
   const pick = (id: TabId) => {
-    setOnFormat(id === 'format');
+    dispatch({ type: 'pick', format: id === 'format' });
     if (id === 'format') return;
     setBaseTab(id);
     try {
@@ -471,8 +631,38 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   };
 
   useEffect(() => {
-    if (!contextual) setOnFormat(false);
+    if (!contextual) dispatch({ type: 'gone' });
   }, [contextual]);
+
+  // Selecting markups switches to the Markup Format tab, and clearing the selection goes back to the tab before.
+  // Nothing switches while a drawing tool is mid-way or a press is held; it follows when that ends.
+  const { selected, tool, measuring, sketch, cad } = toolbar.state;
+  const selectionKey = [...selected].sort().join(',');
+  const busy = pressed || tool !== 'select' || measuring || !!sketch || !!cad;
+  useEffect(() => {
+    dispatch({ type: 'selection', key: selectionKey, contextual, busy });
+  }, [selectionKey, contextual, busy]);
+  // Picking a tool brings the Markup Format tab forward, and putting it down returns to the tab before.
+  const lastTool = useRef(tool);
+  useEffect(() => {
+    if (tool === lastTool.current) return;
+    lastTool.current = tool;
+    dispatch({ type: 'tool', active: tool !== 'select', contextual });
+  }, [tool, contextual]);
+  useEffect(() => {
+    const down = () => setPressed(true);
+    const up = () => setPressed(false);
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    window.addEventListener('blur', up);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      window.removeEventListener('blur', up);
+    };
+  }, []);
 
   useEffect(() => {
     if (!collapsed) setDropped(false);
@@ -582,12 +772,24 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
       case 'markup':
         return <>{toolGroups(MARKUP_GROUPS.filter((g) => g.label !== 'Select'))}</>;
       case 'format':
-        return properties;
+        return (
+          <>
+            {(toolbar.selection?.markups.length || isMarkupTool(toolbar.state.tool) || toolbar.state.tool === 'cloudPlus') && (
+              <Group label="Markup" wide>
+                <div className="rb-props">
+                  <MarkupFields {...toolbar} />
+                </div>
+              </Group>
+            )}
+            {properties}
+          </>
+        );
       case 'measure':
         return (
           <>
             <Group label="Scale">
               <ToolBtn tool="calibrate" size="large" />
+              <Cmd id="edit.createViewport" size="large" />
               <Stack>
                 <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
                 <Cmd id="document.scaleReview" label="Review Scales" />
@@ -595,12 +797,64 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             {toolGroups(MEASURE_GROUPS.filter((g) => g.label !== 'Scale'))}
-            <Group label="Takeoff">
+          </>
+        );
+      case 'takeoff':
+        return (
+          <>
+            <Group label="Setup">
+              <ToolBtn tool="calibrate" size="large" />
+              <Stack>
+                <Cmd id="document.scaleRegions" label="Bulk Page Scale" />
+                <Cmd id="document.scaleReview" label="Review Scales" />
+              </Stack>
+              <Stack>
+                <Cmd id="document.labelRegions" label="Page Labels" />
+                <Cmd id="batch.pageLabels" label="Bulk Page Labels" />
+              </Stack>
+            </Group>
+            <Group label="Measure">
+              <ToolBtn tool="length" size="large" />
+              <ToolBtn tool="polylength" size="large" />
+              <ToolBtn tool="area" size="large" />
+              <ToolBtn tool="count" size="large" />
+              <Stack>
+                <Cmd id="tool.cutout" />
+                <Cmd id="tools.nextMeasure" />
+                <Cmd id="draw.arc" />
+              </Stack>
+            </Group>
+            <Group label="Manual">
+              <Cmd id="takeoff.manual" size="large" />
+            </Group>
+            <Group label="Slope">
+              <SlopePicker />
+              <Stack>
+                <Cmd id="takeoff.hip" label="Hip" />
+                <Cmd id="takeoff.valley" label="Valley" />
+              </Stack>
+            </Group>
+            <Group label="Estimating">
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
+                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="takeoff.items" label="Items" />
+              </Stack>
+              <Stack>
+                <Cmd id="takeoff.productLists" label="Product Lists" />
+                <TemplatesMenu />
+                <Cmd id="takeoff.saveTemplate" label="Save as Template" />
+              </Stack>
+            </Group>
+            <Group label="Auto Count">
+              <ToolBtn tool="visualSearch" size="large" />
+            </Group>
+            <Group label="Output">
+              <Cmd id="takeoff.syncExcel" size="large" />
+              <Stack>
+                <Cmd id="takeoff.reports" label="Reports" />
                 <Cmd id="tools.columns" label="Columns & Statuses" />
-                <Cmd id="tools.nextMeasure" />
               </Stack>
             </Group>
           </>
@@ -805,7 +1059,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Standards">
-              <Cmd id="document.drawingStandards" size="large" label="Drawing Standards" />
+              <Cmd id="document.setUpDrawingStandard" size="large" label="Set Up Standard" />
+              <Stack>
+                <Cmd id="document.drawingStandards" label="Drawing Standards" />
+              </Stack>
             </Group>
             <Group label="Process">
               <Cmd id="document.ocr" size="large" label="OCR" />
