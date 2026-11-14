@@ -3,7 +3,8 @@
 // lists of points; the web app's tools pick what to work on and apply the results.
 import { arcPoints as arcSegmentPoints, bulgeThrough } from '@nb/measure';
 import { flatten, markupShape } from './geometry';
-import { boundsOf, outlinePoints, rotatePoint, rotationCentre, ROTATABLE, isTextType, type Markup, type MarkupType, type Point, type Rect } from './model';
+import type { Axis } from './arrange';
+import { boundsOf, outlinePoints, rotatePoint, rotationCentre, ROTATABLE, isImageType, isTextType, type Markup, type MarkupType, type Point, type Rect } from './model';
 import { TYPE_INFO } from './types';
 
 type Pt = readonly [number, number];
@@ -590,10 +591,29 @@ export function alignment(s1: Pt, d1: Pt, s2: Pt, d2: Pt, scale: boolean): Affin
 /** Types whose two points are opposite corners of a box. */
 const isBox = (m: Pick<Markup, 'type'>) => TYPE_INFO[m.type].handles === 'box' && m.type !== 'callout';
 
+/** The turn, in degrees, that `t` gives a box: where it sends the box's own x-axis. */
+function boxTurn(m: Pick<Markup, 'rotation'>, t: Affine): number {
+  const r0 = ((m.rotation ?? 0) * Math.PI) / 180;
+  const ax = applyAffine({ ...t, e: 0, f: 0 }, [Math.cos(r0), Math.sin(r0)]);
+  return Math.round(((Math.atan2(ax[1], ax[0]) * 180) / Math.PI) * 1e6) / 1e6;
+}
+
+/**
+ * How a picture's pixels turn over when `t` mirrors it, or null when `t` does not mirror or the markup
+ * has no picture. A mirror is a turn plus a flip of the picture: turned top to bottom it keeps the turn
+ * `boxTurn` gives, left to right it is a half turn more. Whichever leaves it nearer upright is used, so a
+ * picture mirrored across an upright line comes out reversed, not upside down.
+ */
+export function pictureMirror(m: Pick<Markup, 'type' | 'image' | 'rotation'>, t: Affine): Axis | null {
+  if (!isImageType(m.type) || !m.image || t.a * t.d - t.b * t.c >= 0) return null;
+  return Math.abs(boxTurn(m, t)) <= 90 ? 'vertical' : 'horizontal';
+}
+
 /**
  * A markup moved by a similarity transform (`Affine`) (Mirror, Rotate, Align, arrays): its points, cutouts and
  * curves; boxes keep their shape and turn when they can; text grows with the scale. Mirrored text
- * and pictures stay readable, as AutoCAD leaves mirrored text.
+ * stays readable, as AutoCAD leaves mirrored text. A mirrored picture is turned so that flipping its
+ * pixels as `pictureMirror` says finishes the mirror; the caller flips them.
  */
 export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   const det = t.a * t.d - t.b * t.c;
@@ -625,11 +645,10 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   if (isBox(m)) {
     out.points = scaleBox(m.points);
     if (ROTATABLE.has(m.type)) {
-      // Where the box's own x-axis goes decides its new turn.
-      const r0 = ((m.rotation ?? 0) * Math.PI) / 180;
-      const ax = applyAffine({ ...t, e: 0, f: 0 }, [Math.cos(r0), Math.sin(r0)]);
-      let rot = (Math.atan2(ax[1], ax[0]) * 180) / Math.PI;
-      rot = Math.round(rot * 1e6) / 1e6;
+      // Where the box's own x-axis goes decides its new turn; a picture flipped left to right turns half
+      // round more (`pictureMirror`).
+      let rot = boxTurn(m, t);
+      if (pictureMirror(m, t) === 'horizontal') rot = Math.round((rot > 0 ? rot - 180 : rot + 180) * 1e6) / 1e6;
       if (Math.abs(rot) > 1e-6 || m.rotation) out.rotation = rot || undefined;
       if (flip && m.arcAngles) out.arcAngles = [-m.arcAngles[1], -m.arcAngles[0]];
     }

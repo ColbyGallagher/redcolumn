@@ -4629,13 +4629,18 @@ export class MarkupTools implements ViewerOverlay {
       return;
     }
     if ('done' in r) {
-      const { update, add, remove } = r.done;
+      const { update, add, remove, mirrorPictures } = r.done;
       store.checkpoint();
       store.batch(() => {
         if (remove.length) store.remove(remove);
         for (const [id, patch] of update) store.update(id, patch);
         for (const m of add) store.add(m);
       });
+      // Mirrored pictures turn their pixels over too, as Flip does.
+      for (const [id, axis] of mirrorPictures ?? []) {
+        const image = store.get(id)?.image;
+        if (image) void mirrorDataUrl(image, axis).then((flipped) => flipped && store.get(id)?.image === image && store.update(id, { image: flipped }), () => undefined);
+      }
       c.picks = r.picks ?? [];
       // The step is done: its snap marker and tracking lines go until the pointer moves again.
       this.snapHit = null;

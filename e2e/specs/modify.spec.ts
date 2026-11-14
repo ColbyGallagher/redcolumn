@@ -115,6 +115,47 @@ test.describe('modify', () => {
     expect(round(turned.points)).toEqual([[300, 600], [300, 550]]);
   });
 
+  test('mirror reverses a picture instead of turning it upside down', async ({ app }) => {
+    if (app.kind === 'desktop') await app.answerOpenDialog(app.fixture('picture.png'));
+    const chooser = app.kind === 'desktop' ? null : app.page.waitForEvent('filechooser');
+    await app.cmd('tool.image');
+    if (chooser) await (await chooser).setFiles(app.fixture('picture.png'));
+    await expect.poll(async () => (await app.toolState()).tool).toBe('image');
+    await app.drag([300, 450], [380, 500]);
+    await app.tool('select');
+    const [before] = await app.raw();
+    await select(app, [before!.id as string]);
+    await app.cmd('edit.mirror');
+    await bar(app).getByLabel('Keep original', { exact: true }).setChecked(false);
+    await app.clicks([[400, 300], [400, 650]]);
+    await expect.poll(async () => (await app.raw())[0]!.image).not.toBe(before!.image);
+    const [after] = await app.raw();
+    // Upright, give or take how square the clicked line was.
+    expect(Math.abs((after!.rotation as number | undefined) ?? 0)).toBeLessThan(0.01);
+    const xs = (m: typeof after) => (m!.points as number[][]).map(([x]) => x!);
+    // Across x = 400 the box's left edge lands where its right edge mirrors to.
+    expect(Math.round(Math.min(...xs(after)))).toBe(Math.round(800 - Math.max(...xs(before))));
+    // Each row of the new picture is the old row read right to left.
+    const reversed = await app.page.evaluate(async ([a, b]) => {
+      const rows = async (src: string) => {
+        const img = new Image();
+        img.src = src;
+        await img.decode();
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        const ctx = c.getContext('2d')!;
+        ctx.drawImage(img, 0, 0);
+        return { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+      };
+      const [x, y] = [await rows(a), await rows(b)];
+      if (x.w !== y.w || x.h !== y.h) return false;
+      for (let r = 0; r < x.h; r++) for (let c = 0; c < x.w; c++) for (let k = 0; k < 4; k++) if (x.d[(r * x.w + c) * 4 + k] !== y.d[(r * x.w + (x.w - 1 - c)) * 4 + k]) return false;
+      return true;
+    }, [String(before!.image), String(after!.image)] as [string, string]);
+    expect(reversed).toBe(true);
+  });
+
   test('align to points moves a markup by two point pairs; stretch drags the points in a window', async ({ app }) => {
     const l = await line(app, [300, 450], [350, 450]);
     await select(app, [l.id]);

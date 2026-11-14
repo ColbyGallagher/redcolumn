@@ -23,6 +23,7 @@ import {
   rotationAbout,
   stretchMarkup,
   transformMarkup,
+  pictureMirror,
   trimPath,
   trimmedPart,
   bulgeMidpoint,
@@ -187,6 +188,30 @@ test('mirror, rotate and align move points and turn boxes', () => {
   // Text grows with an aligning scale.
   const text = transformMarkup(markup('text', [[0, 0], [10, 10]], { style: { ...DEFAULT_STYLES.text, fontSize: 10 } }), al);
   assert.equal(text.style?.fontSize, 20);
+});
+
+test('mirrored pictures are turned so flipping their pixels finishes the mirror', () => {
+  const pic = markup('image', [[0, 0], [20, 10]], { image: 'data:image/png;base64,AA==' });
+  // Across an upright line: reversed left to right, not turned upside down.
+  const upright = mirrorAcross([50, 0], [50, 10]);
+  assert.equal(pictureMirror(pic, upright), 'horizontal');
+  const across = transformMarkup(pic, upright);
+  assert.ok(nearPts(across.points!, [[80, 0], [100, 10]]));
+  assert.equal(across.rotation, undefined);
+  // Across a level line: turned top to bottom, still unturned.
+  const level = mirrorAcross([0, 50], [10, 50]);
+  assert.equal(pictureMirror(pic, level), 'vertical');
+  assert.equal(transformMarkup(pic, level).rotation, undefined);
+  // A picture turned 30° comes out turned -30°, either way.
+  const turned = { ...pic, rotation: 30 };
+  assert.equal(pictureMirror(turned, upright), 'horizontal');
+  assert.ok(Math.abs(transformMarkup(turned, upright).rotation! + 30) < 1e-6);
+  assert.equal(pictureMirror(turned, level), 'vertical');
+  assert.ok(Math.abs(transformMarkup(turned, level).rotation! + 30) < 1e-6);
+  // Turns and boxes with no picture are not flipped; a mirrored rectangle keeps its old turn rule.
+  assert.equal(pictureMirror(pic, rotationAbout([0, 0], 90)), null);
+  assert.equal(pictureMirror(markup('rect', [[0, 0], [20, 10]]), upright), null);
+  assert.equal(transformMarkup(markup('rect', [[0, 0], [20, 10]]), upright).rotation, 180);
 });
 
 test('polar and path arrays place copies round a centre and along a path', () => {

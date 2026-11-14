@@ -20,6 +20,7 @@ import {
   nearestOnPath,
   pathArray,
   pathOf,
+  pictureMirror,
   polarArray,
   rotationAbout,
   scalingAbout,
@@ -31,6 +32,7 @@ import {
   closesOnItself,
   cornerClosing,
   type Affine,
+  type Axis,
   type Markup,
   type MarkupType,
   type Point,
@@ -127,6 +129,8 @@ export interface CadChanges {
   update: [id: string, patch: Partial<Markup>][];
   add: Markup[];
   remove: string[];
+  /** Pictures (by id, after the edit) whose pixels turn over to finish a mirror. */
+  mirrorPictures?: [id: string, axis: Axis][];
 }
 
 export type CadResult =
@@ -278,12 +282,16 @@ function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolea
     const copies: Markup[] = [];
     for (const m of ctx.selected) {
       const patch = transformMarkup(m, t);
+      const turnOver = pictureMirror(m, t);
+      let id = m.id;
       if (copy) {
         const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)) : undefined;
         const c = ctx.clone(m, { ...patch, groupId });
         copies.push(c);
         select.push(c.id);
+        id = c.id;
       } else out.update.push([m.id, patch]);
+      if (turnOver) (out.mirrorPictures ??= []).push([id, turnOver]);
     }
     // Copied connectors join the copies of their shapes.
     out.add.push(...relinkCopies(copies, new Map(ctx.selected.map((m, i) => [m.id, copies[i]?.id ?? m.id]))));
