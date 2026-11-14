@@ -138,6 +138,50 @@ export function bookmarksFromLabels(labels: readonly string[], newId: () => stri
   return labels.map((title, pageIndex) => ({ id: newId(), title, pageIndex, rect: null, children: [] }));
 }
 
+/**
+ * Names a bookmark for each page in `titles`. A page's own bookmark (one that opens the whole
+ * page and has nothing under it) takes the new title where it is, so folders from a template keep
+ * their order; a page with none gets a new bookmark at the top level, placed in page order among
+ * the other top-level bookmarks. Empty titles are skipped and returned as `skipped`.
+ */
+export function nameBookmarksByPage(
+  tree: readonly Bookmark[],
+  titles: readonly { pageIndex: number; title: string }[],
+  newId: () => string,
+): { tree: Bookmark[]; renamed: number; added: number; skipped: number[] } {
+  const want = new Map<number, string>();
+  const skipped: number[] = [];
+  for (const t of titles) {
+    const title = t.title.trim();
+    if (title) want.set(t.pageIndex, title);
+    else skipped.push(t.pageIndex);
+  }
+  let renamed = 0;
+  const done = new Set<number>();
+  const walk = (list: readonly Bookmark[]): Bookmark[] =>
+    list.map((b) => {
+      const title = want.get(b.pageIndex);
+      const own = !b.action && !b.children.length && !(b.rect && b.rect.w > 0 && b.rect.h > 0);
+      if (title === undefined || !own || done.has(b.pageIndex)) return { ...b, children: walk(b.children) };
+      done.add(b.pageIndex);
+      renamed++;
+      return { ...b, title };
+    });
+  const out = walk(tree);
+  let added = 0;
+  for (const [pageIndex, title] of [...want].sort((a, b) => a[0] - b[0])) {
+    if (done.has(pageIndex)) continue;
+    // After the last top-level bookmark on this page or an earlier one.
+    let at = 0;
+    out.forEach((b, i) => {
+      if (b.pageIndex <= pageIndex) at = i + 1;
+    });
+    out.splice(at, 0, { id: newId(), title, pageIndex, rect: null, children: [] });
+    added++;
+  }
+  return { tree: out, renamed, added, skipped };
+}
+
 /** Where an action lands, resolving Places; null for web links and missing Places. */
 export function actionTarget(action: LinkAction, places: readonly Place[]): { pageIndex: number; rect: Rect | null } | null {
   if (action.kind === 'page') return { pageIndex: action.pageIndex, rect: action.rect };

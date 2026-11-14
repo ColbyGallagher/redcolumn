@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -1356,7 +1356,7 @@ export function App() {
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
   /** A saved drawing standard that fits the document just opened, offered until used or turned down. */
   const [suggestion, setSuggestion] = useState<{ fileId: string; standard: DrawingStandard; fit: number } | null>(null);
-  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean } | null>(null);
+  const [labelMode, setLabelMode] = useState<{ pane: Pane; regions: Region[]; kind: 'label' | 'scale' | 'erase'; pages?: number[]; typed?: boolean; bookmarks?: boolean } | null>(null);
   const [labelTexts, setLabelTexts] = useState<PageText[] | null>(null);
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
@@ -7888,7 +7888,8 @@ export function App() {
   /** Starts drawing page-label boxes on a pane's document (Document → Page Labels → From Page Region). */
   /** `pages` starts the panel on those pages; `typed` opens Page Labels ready to type a label rather than draw boxes. */
   /** `erase` is Bulk Redact, which draws its boxes the same way. */
-  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean } = {}) => {
+  /** `bookmarks` opens Page Labels set to name each page's bookmark (Bookmarks panel → From regions). */
+  const startLabelRegions = (pane: Pane = paneB ? 'b' : 'a', kind: 'label' | 'scale' | 'erase' = 'label', opts: { pages?: number[]; typed?: boolean; bookmarks?: boolean } = {}) => {
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
@@ -7900,7 +7901,7 @@ export function App() {
     // Erase boxes are not label boxes, so switching between them starts with none.
     const own = (k: string) => (k === 'erase' ? k : 'label');
     setLabelMode((m) =>
-      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed
+      m?.pane === pane && m.kind === kind && !opts.pages && !opts.typed && !m.pages && !m.typed && !!opts.bookmarks === !!m.bookmarks
         ? m
         : { pane, regions: m?.pane === pane && own(m.kind) === own(kind) ? m.regions : [], kind, ...opts },
     );
@@ -9219,6 +9220,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onPlaces={(list) => activeOpen?.store.setPlaces(list)}
             onGo={(t) => ('action' in t && t.action ? followAction(t.action as LinkAction) : goToTarget(t))}
             onEditAction={(id) => setBookmarkAction(id)}
+            onFromRegions={() => startLabelRegions(undefined, 'label', { bookmarks: true })}
             currentView={() => (v ? visibleView(v, paneB ? canvasBRef.current : canvasRef.current) : { pageIndex, rect: null })}
           />
         ) : tab === 'layers' ? (
@@ -10166,10 +10168,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             })()}
           {labelMode?.kind === 'label' && labelPaneParts?.o && (
             <LabelRegionsPanel
-              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}`}
+              key={`${labelPaneParts.o.file.id}:${labelMode.pages?.join(',') ?? ''}:${labelMode.typed ? 't' : ''}:${labelMode.bookmarks ? 'b' : ''}`}
               initialPages={labelMode.pages}
               initialSource={labelMode.typed ? 'typed' : 'regions'}
-              labelOf={(page, target) => (target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
+              initialTarget={labelMode.bookmarks ? 'bookmark' : 'number'}
+              labelOf={(page, target) => (target === 'bookmark' ? pageLabelFor(labelPaneParts.o, page) : target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
               onSource={(source) => labelPaneParts.c?.tools.setTool(source === 'typed' ? 'select' : 'labelRegion')}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
@@ -10182,6 +10185,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onClose={() => setLabelMode(null)}
               onApply={(labels, target) => {
                 const store = labelPaneParts.o!.store;
+                if (target === 'bookmark') {
+                  const named = nameBookmarksByPage(
+                    store.bookmarks(),
+                    labels.map((l) => ({ pageIndex: l.page, title: l.label })),
+                    () => crypto.randomUUID(),
+                  );
+                  const n = named.renamed + named.added;
+                  if (n) store.setBookmarks(named.tree);
+                  setNotice(`Named ${n} bookmark${n === 1 ? '' : 's'}${named.added && named.renamed ? ` (${named.added} new)` : ''}${named.skipped.length ? `; ${named.skipped.length} page${named.skipped.length === 1 ? '' : 's'} had no text in the boxes and ${named.skipped.length === 1 ? 'was' : 'were'} left as ${named.skipped.length === 1 ? 'it was' : 'they were'}` : ''}.`);
+                  setLabelMode(null);
+                  return;
+                }
                 let done = 0;
                 store.checkpoint();
                 for (const { page, label } of labels) {
