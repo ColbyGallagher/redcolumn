@@ -5637,12 +5637,12 @@ function sameSketch(a: SketchState | null, b: SketchState | null): boolean {
 }
 
 
-/** A picture (as a data URL) turned over left to right or top to bottom; null if it cannot be decoded. */
 /** Whether `p` lies inside the box `b`, edges included. */
 function inBox(b: { x: number; y: number; w: number; h: number }, p: Point): boolean {
   return p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h;
 }
 
+/** A picture (as a data URL) turned over left to right or top to bottom; null if it cannot be decoded. */
 async function mirrorDataUrl(dataUrl: string, axis: Axis): Promise<string | null> {
   const img = new Image();
   img.src = dataUrl;
