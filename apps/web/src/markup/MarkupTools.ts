@@ -1,5 +1,10 @@
 import {
   align,
+  cropImage,
+  cropOf,
+  mirrorCrop,
+  uncropImage,
+  unrotate,
   centerOnPage,
   matchSize,
   boundsOf,
@@ -128,7 +133,7 @@ import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadT
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'cropImage' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -147,6 +152,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   dynamicFill: 'Smart Fill',
   visualSearch: 'Symbol Search',
   cropArea: 'Crop Area',
+  cropImage: 'Crop Image',
   eraseContent: 'Erase Content',
   selectText: 'Select Text',
   editText: 'Edit Text',
@@ -167,7 +173,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
 /** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
-const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
+const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'cropImage', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
 export interface StitchGuides {
@@ -1051,7 +1057,7 @@ export class MarkupTools implements ViewerOverlay {
     // Cloud+ draws its cloud with the preset (a Tool Library Cloud+); the callout keeps its own style.
     const drawn = tool === 'cloudPlus' ? 'cloud' : tool;
     const armed = !isMarkupTool(drawn) || !preset ? null : { ...preset, type: drawn, ...(preset.style ? { style: { ...preset.style } } : {}) };
-    const keepSelection = tool === 'select' || tool === 'lasso' || tool === 'scaleLength' || isCadTool(tool);
+    const keepSelection = tool === 'select' || tool === 'lasso' || tool === 'scaleLength' || tool === 'cropImage' || isCadTool(tool);
     this.setState({ tool, selected: keepSelection ? this.state.selected : new Set(), preset: armed, toolFields: {}, painterSource: null, cad: this.cad ? { picks: 0, error: null } : null });
     // Highlight decides from the words under the pointer, so load them as soon as the tool is picked.
     if (tool === 'highlighter') this.wordsFor(this.page);
@@ -1621,8 +1627,52 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     if (!store) return;
     for (const m of ms) {
-      if (isImageType(m.type) && m.image) void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image }), () => undefined);
+      if (!isImageType(m.type) || !m.image) continue;
+      // A cropped picture is turned over with its crop, so the same part stays shown.
+      const crop = cropOf(m);
+      void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}) }), () => undefined);
     }
+  }
+
+  /**
+   * The picture Crop Image works on: the one selected, or else the topmost unlocked picture on the
+   * page under the middle of the box drawn.
+   */
+  private cropTarget(pageIndex: number, middle: Point): Markup | null {
+    const picked = this.editable().filter((m) => m.type === 'image' && m.image && m.pageIndex === pageIndex);
+    if (picked.length === 1) return picked[0]!;
+    if (!this.store) return null;
+    const under = this.store
+      .all()
+      .filter((m) => m.type === 'image' && m.image && m.pageIndex === pageIndex && !this.frozen(m) && inBox(boundsOf(m.points), unrotate(m, middle)));
+    return under[under.length - 1] ?? null;
+  }
+
+  /** Crop Image: keeps the part of the picture between two corners, as one undo step, and selects it. */
+  private cropImageTo(pageIndex: number, a: Point, b: Point) {
+    const target = this.cropTarget(pageIndex, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+    const change = target ? cropImage(target, a, b) : null;
+    if (!target || !change || !this.store) {
+      this.setState({ tool: 'select' });
+      return;
+    }
+    this.store.checkpoint();
+    this.store.update(target.id, { ...change, modifiedAt: Date.now() });
+    this.setState({ tool: 'select', selected: new Set([target.id]) });
+  }
+
+  /** Reset Crop: shows the selected cropped pictures whole again, at the same size, as one undo step. */
+  resetCropSelected() {
+    const store = this.store;
+    const ms = this.editable().filter((m) => m.type === 'image' && cropOf(m));
+    if (!store || !ms.length) return;
+    store.checkpoint();
+    store.batch(() => {
+      for (const m of ms) {
+        const change = uncropImage(m);
+        if (change) store.update(m.id, { ...change, modifiedAt: Date.now() });
+      }
+    });
   }
 
   /** Turns the selected rotatable markups to an angle, in degrees clockwise, as one undo step. */
@@ -4326,6 +4376,8 @@ export class MarkupTools implements ViewerOverlay {
       } else if (this.state.tool === 'cropArea') {
         this.options.onCropArea?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
+      } else if (this.state.tool === 'cropImage') {
+        this.cropImageTo(m.pageIndex, [b.x, b.y], [b.x + b.w, b.y + b.h]);
       } else if (this.state.tool === 'visualSearch') {
         this.options.onVisualSearch?.(m.pageIndex, b);
         this.setState({ tool: 'select' });
@@ -5586,6 +5638,11 @@ function sameSketch(a: SketchState | null, b: SketchState | null): boolean {
 
 
 /** A picture (as a data URL) turned over left to right or top to bottom; null if it cannot be decoded. */
+/** Whether `p` lies inside the box `b`, edges included. */
+function inBox(b: { x: number; y: number; w: number; h: number }, p: Point): boolean {
+  return p[0] >= b.x && p[0] <= b.x + b.w && p[1] >= b.y && p[1] <= b.y + b.h;
+}
+
 async function mirrorDataUrl(dataUrl: string, axis: Axis): Promise<string | null> {
   const img = new Image();
   img.src = dataUrl;

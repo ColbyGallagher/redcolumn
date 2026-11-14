@@ -96,6 +96,8 @@ Undo, clipboard, selection, align, arrange, and the Modify tools. (73 commands)
 | `edit.flipHorizontal` | Flip Horizontal |  |
 | `edit.flipVertical` | Flip Vertical |  |
 | `edit.scaleToLength` | Scale to Length… | Dialog |
+| `edit.cropImage` | Crop Image |  |
+| `edit.resetCrop` | Reset Crop |  |
 | `edit.bringToFront` | Bring to Front |  |
 | `edit.bringForward` | Bring Forward |  |
 | `edit.sendBackward` | Send Backward |  |

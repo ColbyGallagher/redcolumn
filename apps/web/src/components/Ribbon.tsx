@@ -52,6 +52,8 @@ const ICONS: Record<string, ReactNode> = {
   'edit.alignPoints': ic('M2 13l5-5M9 6l5-5', <><circle cx="2" cy="13" r="1.2" /><circle cx="14" cy="1" r="1.2" /></>),
   'edit.stretch': ic('M2 4h6v8H2zM8 8h6M12 6l2 2-2 2'),
   'edit.scaleToLength': MENU_ICONS.scale,
+  'edit.cropImage': ic('M4 1.5v10.5h10.5M1.5 4h10.5v10.5'),
+  'edit.resetCrop': ic('M2 2h12v12H2z', <path d="M5 5h6v6H5z" strokeDasharray="2 1.5" />),
   'edit.createViewport': ic('M2 3h12v10H2z', <path d="M5 6h6v4H5z" strokeDasharray="2 1.5" />),
   'edit.offset': ic('M2 12.5 6 3.5h8M5 14.5l4-9h5'),
   'edit.trim': ic('M2 8h12M8 2v12', <path d="M10.5 6.5l2 2M12.5 6.5l-2 2" />),
@@ -941,6 +943,10 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.scaleToLength" />
                 <Cmd id="edit.flipHorizontal" />
                 <Cmd id="edit.flipVertical" />
+              </Stack>
+              <Stack>
+                <Cmd id="edit.cropImage" />
+                <Cmd id="edit.resetCrop" />
               </Stack>
             </Group>
             <Group label="Edit Geometry">
