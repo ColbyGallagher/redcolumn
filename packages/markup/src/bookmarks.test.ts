@@ -7,6 +7,7 @@ import {
   flattenBookmarks,
   indentBookmark,
   insertBookmark,
+  nameBookmarksByPage,
   normalizeUrl,
   outdentBookmark,
   remapBookmarks,
@@ -153,4 +154,46 @@ test('bookmarks with actions export them in the outline', async () => {
   assert.equal(first.get(PDFName.of('Dest')), undefined);
   const second = first.lookup(PDFName.of('Next'), PDFDict).lookup(PDFName.of('A'), PDFDict);
   assert.equal(second.get(PDFName.of('S')), PDFName.of('GoToR'));
+});
+
+test('nameBookmarksByPage makes a bookmark per page, in page order, and skips empty titles', () => {
+  let n = 0;
+  const res = nameBookmarksByPage(
+    [],
+    [
+      { pageIndex: 2, title: 'A-103 ROOF PLAN' },
+      { pageIndex: 0, title: ' A-101 FLOOR PLAN ' },
+      { pageIndex: 1, title: '  ' },
+    ],
+    () => `n${n++}`,
+  );
+  assert.deepEqual(
+    res.tree.map((b) => [b.title, b.pageIndex, b.rect]),
+    [
+      ['A-101 FLOOR PLAN', 0, null],
+      ['A-103 ROOF PLAN', 2, null],
+    ],
+  );
+  assert.deepEqual([res.renamed, res.added, res.skipped], [0, 2, [1]]);
+});
+
+test('nameBookmarksByPage renames a page\'s own bookmark where it is and leaves folders, views and links alone', () => {
+  const leaf = (id: string, title: string, pageIndex: number, extra: Partial<Bookmark> = {}): Bookmark => ({ id, title, pageIndex, rect: null, children: [], ...extra });
+  const tree: Bookmark[] = [
+    leaf('cover', 'Cover', 0),
+    { ...leaf('arch', 'Architectural', 1), children: [leaf('a1', 'A-101', 1), leaf('view', 'Kitchen detail', 1, { rect: { x: 10, y: 10, w: 50, h: 40 } }), leaf('a2', 'A-102', 2)] },
+    leaf('spec', 'Spec', 3, { action: { kind: 'url', url: 'https://example.com' } }),
+  ];
+  const res = nameBookmarksByPage(
+    tree,
+    [0, 1, 2, 3].map((pageIndex) => ({ pageIndex, title: `T${pageIndex}` })),
+    () => 'new',
+  );
+  assert.deepEqual(
+    flattenBookmarks(res.tree).map((r) => `${r.depth}:${r.bookmark.id}:${r.bookmark.title}`),
+    ['0:cover:T0', '0:arch:Architectural', '1:a1:T1', '1:view:Kitchen detail', '1:a2:T2', '0:spec:Spec', '0:new:T3'],
+  );
+  assert.deepEqual([res.renamed, res.added], [3, 1]);
+  // The tree passed in is not changed.
+  assert.equal(tree[1]!.children[0]!.title, 'A-101');
 });

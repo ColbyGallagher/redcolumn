@@ -18,7 +18,7 @@ When you open a drawing set, redcolumn finds the sheet numbers by itself from th
 
    ![The Page Labels from Regions panel](img/label-regions.png)
 3. Check the preview (*Page 1: A-101*).
-4. Choose **Set as**: **Page label** or **Sheet title**, and the **Pages**.
+4. Choose **Set as**: **Page label** or **Sheet title**, and the **Pages**. (**Bookmark** names each page's [bookmark](#bookmarks) from the boxes instead, and leaves the labels as they are.)
 5. Click **Apply to *n* pages**.
 
 Each page gets the text found in the same place on that page.

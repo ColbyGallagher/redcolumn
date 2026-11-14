@@ -3,7 +3,8 @@ import type { PageText } from '@nb/sheets';
 import { labelFromRegions, numberedLabels, parsePageRange, textInRegion, type Region } from '../sheets/regions';
 import { rangeText } from '../measure/scalePresets';
 
-export type LabelTarget = 'number' | 'title';
+/** What the text names: the page's sheet number, its sheet title, or its bookmark. */
+export type LabelTarget = 'number' | 'title' | 'bookmark';
 /** Where labels come from: text in boxes drawn on the page, or typed by the user. */
 export type LabelSource = 'regions' | 'typed';
 
@@ -18,7 +19,9 @@ interface Props {
   /** Pages to start with (e.g. those selected in the thumbnails) instead of all pages. */
   initialPages?: readonly number[];
   initialSource?: LabelSource;
-  /** A page's current sheet number or title, to start the typed label from. */
+  /** What to set when the panel opens (the Bookmarks panel opens it on bookmarks). */
+  initialTarget?: LabelTarget;
+  /** A page's current sheet number, title or bookmark name, to start the typed label from. */
   labelOf: (page: number, target: LabelTarget) => string;
   /** The source changed: drawing boxes only makes sense when reading them. */
   onSource: (source: LabelSource) => void;
@@ -31,17 +34,18 @@ interface Props {
 /**
  * Page labels from a page region: draw boxes around title-block text (sheet number,
  * title, ...); every chosen page is labelled with the text found in the same boxes, joined in
- * box order. Labels can also be typed, numbered consecutively across the chosen pages.
+ * box order. Labels can also be typed, numbered consecutively across the chosen pages. The same
+ * text can name each page's bookmark instead.
  */
-export function LabelRegionsPanel({ regions, drawing, pageCount, currentPage, texts, readOnly, initialPages, initialSource = 'regions', labelOf, onSource, onDraw, onChange, onApply, onClose }: Props) {
+export function LabelRegionsPanel({ regions, drawing, pageCount, currentPage, texts, readOnly, initialPages, initialSource = 'regions', initialTarget = 'number', labelOf, onSource, onDraw, onChange, onApply, onClose }: Props) {
   const [source, setSource] = useState<LabelSource>(initialSource);
   const [separator, setSeparator] = useState(' ');
-  const [target, setTarget] = useState<LabelTarget>('number');
+  const [target, setTarget] = useState<LabelTarget>(initialTarget);
   const single = initialPages?.length === 1 && initialPages[0] === currentPage;
   const [scope, setScope] = useState<'all' | 'current' | 'range'>(initialPages?.length ? (single ? 'current' : 'range') : 'all');
   const [range, setRange] = useState(initialPages?.length && !single ? rangeText(initialPages) : '');
   const pages = scope === 'all' ? Array.from({ length: pageCount }, (_, i) => i) : scope === 'current' ? [currentPage] : parsePageRange(range, pageCount);
-  const [typed, setTyped] = useState(() => labelOf(pages[0] ?? currentPage, 'number'));
+  const [typed, setTyped] = useState(() => labelOf(pages[0] ?? currentPage, initialTarget));
   const [consecutive, setConsecutive] = useState(true);
   const words = texts?.[currentPage]?.words ?? [];
   const preview = texts ? labelFromRegions(words, regions, separator) : null;
@@ -87,8 +91,8 @@ export function LabelRegionsPanel({ regions, drawing, pageCount, currentPage, te
           <input
             className="lr-typed"
             autoFocus
-            aria-label={target === 'number' ? 'Page label' : 'Sheet title'}
-            placeholder={target === 'number' ? 'A-101' : 'Floor plan'}
+            aria-label={target === 'number' ? 'Page label' : target === 'title' ? 'Sheet title' : 'Bookmark name'}
+            placeholder={target === 'number' ? 'A-101' : target === 'title' ? 'Floor plan' : 'A-101 Floor plan'}
             value={typed}
             disabled={readOnly}
             onFocus={(e) => e.currentTarget.select()}
@@ -117,7 +121,11 @@ export function LabelRegionsPanel({ regions, drawing, pageCount, currentPage, te
         </>
       ) : (
         <>
-          <p className="hint">Draw a box around the sheet number (and more boxes to add the title, revision…). Each page gets the text in the same boxes, joined in order.</p>
+          <p className="hint">
+            {target === 'bookmark'
+              ? 'Draw a box around the sheet number, and another around the sheet title. Each page gets a bookmark named by the text in the same boxes, joined in order.'
+              : 'Draw a box around the sheet number (and more boxes to add the title, revision…). Each page gets the text in the same boxes, joined in order.'}
+          </p>
           <button className={`btn small${drawing ? ' active' : ''}`} onClick={onDraw} disabled={readOnly}>
             {drawing ? 'Drawing: drag a box on the page' : '+ Draw box'}
           </button>
@@ -165,6 +173,9 @@ export function LabelRegionsPanel({ regions, drawing, pageCount, currentPage, te
         </label>
         <label>
           <input type="radio" checked={target === 'title'} onChange={() => chooseTarget('title')} /> Sheet title
+        </label>
+        <label title="Name each page's bookmark, adding one for a page that has none">
+          <input type="radio" checked={target === 'bookmark'} onChange={() => chooseTarget('bookmark')} /> Bookmark
         </label>
       </fieldset>
       <fieldset className="lr-row">

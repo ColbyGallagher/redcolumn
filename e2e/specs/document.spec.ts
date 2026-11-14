@@ -600,6 +600,25 @@ test.describe('page labels and scales from regions', () => {
     await expect.poll(() => sheetNumbers(app, 3)).toEqual(S.labels.map((l, i) => `${l} - SCALE: ${S.scales[i]}`));
   });
 
+  test('Bookmarks panel: From regions names a bookmark for every page from two boxes, and renames them in place the second time', async ({ app }) => {
+    await app.cmd('window.bookmarks');
+    await app.page.locator('.bookmarks-panel').getByRole('button', { name: 'From regions…' }).click();
+    const panel = app.page.locator('.label-regions');
+    await expect(panel.getByRole('radio', { name: 'Bookmark' })).toBeChecked();
+    await drawBox(app, S.labelBox);
+    await drawBox(app, S.scaleBox);
+    await panel.locator('select').selectOption(' - ');
+    await panel.getByRole('button', { name: 'Apply to 3 pages' }).click();
+    await expect.poll(() => bookmarks(app)).toEqual(S.labels.map((l, i) => ({ title: `${l} - SCALE: ${S.scales[i]}`, pageIndex: i })));
+    // Page labels are left alone.
+    expect(await sheetNumbers(app, 3)).toEqual([null, null, null]);
+    // Again with one box: the same three bookmarks, renamed.
+    await app.page.locator('.bookmarks-panel').getByRole('button', { name: 'From regions…' }).click();
+    await drawBox(app, S.labelBox);
+    await panel.getByRole('button', { name: 'Apply to 3 pages' }).click();
+    await expect.poll(() => bookmarks(app)).toEqual(S.labels.map((title, pageIndex) => ({ title, pageIndex })));
+  });
+
   // Each sheet repeats "SHEET n OF 3" at the top and its room name and scale note at the bottom.
   test('tools.bulkRedact finds the repeated header and removes it from every page', async ({ app }) => {
     expect(await app.search('SHEET')).toEqual([1, 2, 3]);
