@@ -30,6 +30,7 @@ import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
+import { imageFrame } from './imageCrop';
 
 /**
  * Key under which each exported annotation carries its markup's full data, so re-opening the file
@@ -570,9 +571,11 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
 
   const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
   if (image) {
-    const b = boundsOf(m.points);
-    // Image space is a unit square with y up; page space is y down.
-    ops.push('q /GS1 gs', `${fmt(b.w)} 0 0 ${fmt(-b.h)} ${fmt(b.x)} ${fmt(b.y + b.h)} cm`, '/Im0 Do', 'Q');
+    const { clip, full } = imageFrame(m);
+    // Image space is a unit square with y up; page space is y down. A cropped picture is drawn
+    // whole and clipped to its box, so other PDF readers show the same part this app does.
+    const clipOps = full === clip ? [] : [`${fmt(clip.x)} ${fmt(clip.y)} ${fmt(clip.w)} ${fmt(clip.h)} re W n`];
+    ops.push('q /GS1 gs', ...clipOps, `${fmt(full.w)} 0 0 ${fmt(-full.h)} ${fmt(full.x)} ${fmt(full.y + full.h)} cm`, '/Im0 Do', 'Q');
     resources.XObject = { Im0: image.ref };
   }
 

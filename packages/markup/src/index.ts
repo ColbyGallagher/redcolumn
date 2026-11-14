@@ -20,6 +20,7 @@ export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
+export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {

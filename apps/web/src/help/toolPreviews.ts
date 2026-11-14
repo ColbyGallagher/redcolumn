@@ -53,6 +53,8 @@ const TOOLS: Record<string, ToolPreview> = {
   'edit.stretch': { gif: 'stretch', hint: 'Window the edge to move, then pick a base point and a target.' },
   'edit.alignPoints': { gif: 'align-to-points', hint: 'Click two points on the shape and where each should land.' },
   'edit.scaleToLength': { gif: 'scale-to-length', hint: 'Click two points a known distance apart, then type the new length.' },
+  'edit.cropImage': { hint: 'Select a picture, then drag a box around the part to keep.' },
+  'edit.resetCrop': { hint: 'Shows the selected picture whole again.' },
   'edit.flipHorizontal': { gif: 'flip', hint: 'Turns the selection over, left to right.' },
   'edit.flipVertical': { gif: 'flip', hint: 'Turns the selection over, top to bottom.' },
   // Modify tab: Edit Geometry.

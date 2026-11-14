@@ -8,6 +8,7 @@ import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
+import { imageFrame } from './imageCrop';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { BLEND_MODES, blendsFillOnly, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { fontKeyword } from './fonts';
@@ -471,9 +472,16 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillText(flow.text, flow.at[0], flow.at[1]);
   }
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
-    const b = boundsOf(m.points);
     const img = markupImage(m.image);
-    if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    if (img) {
+      const { clip, full } = imageFrame(m);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(clip.x, clip.y, clip.w, clip.h);
+      ctx.clip();
+      ctx.drawImage(img, full.x, full.y, full.w, full.h);
+      ctx.restore();
+    }
   }
   if (isTextType(m.type) && m.text) {
     const b = contentBox(m);

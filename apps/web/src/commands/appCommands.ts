@@ -167,6 +167,8 @@ export interface CommandActions {
   matchSize: (kind: 'width' | 'height' | 'both') => void;
   distribute: (axis: 'horizontal' | 'vertical') => void;
   scaleToLength: () => void;
+  /** Shows the selected cropped pictures whole again. */
+  resetCrop: () => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
@@ -276,6 +278,9 @@ export interface CommandState {
   selectionReversible: boolean;
   /** Auto-size has a text box selected to fit. */
   selectionAutoSizable: boolean;
+  /** Crop Image has one picture selected to crop; Reset Crop has a cropped one. */
+  selectionCroppable: boolean;
+  selectionCropped: boolean;
   /** Whether a Modify tool can work on the selection (true when nothing is selected). */
   selectionFits: (tool: CadTool | 'offset') => boolean;
   canPaste: boolean;
@@ -448,6 +453,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.flipVertical', 'Edit', 'Flip Vertical', () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
     cmd('edit.createViewport', 'Edit', 'Create Viewport', () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
+    cmd('edit.cropImage', 'Edit', 'Crop Image', () => a.setTool('cropImage'), s.selectionCroppable && s.editable, s.tool === 'cropImage'),
+    cmd('edit.resetCrop', 'Edit', 'Reset Crop', a.resetCrop, s.selectionCropped && s.editable),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
     cmd('edit.sendBackward', 'Edit', 'Send Backward', () => a.arrange('backward'), sel && s.editable),
