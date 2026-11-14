@@ -27,3 +27,17 @@ test('every top menu opens without errors', async ({ app }) => {
   await app.page.keyboard.press('Escape');
   expect(app.errors).toEqual([]);
 });
+
+test('clicking an open menu title closes it, and another title switches to that menu', async ({ app }) => {
+  const title = (name: string) => app.page.locator('.menubar .menu-title', { hasText: new RegExp(`^${name}$`) });
+  const drop = app.page.locator('.menu-drop');
+  await title('File').click();
+  await expect(drop).toBeVisible();
+  await title('Edit').click();
+  await expect(title('Edit')).toHaveAttribute('aria-expanded', 'true');
+  await expect(title('File')).toHaveAttribute('aria-expanded', 'false');
+  await title('Edit').click();
+  await expect(drop).toHaveCount(0);
+  await expect(title('Edit')).toHaveAttribute('aria-expanded', 'false');
+  expect(app.errors).toEqual([]);
+});

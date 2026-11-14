@@ -671,7 +671,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             role="menuitem"
             aria-haspopup="true"
             aria-expanded={open === id}
-            onClick={() => setOpen(id)}
+            onClick={() => setOpen(open === id ? null : id)}
             onMouseEnter={() => {
               if (open) setOpen(id);
             }}
