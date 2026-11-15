@@ -72,6 +72,7 @@ export interface CommandActions {
   print: () => void;
   preferences: () => void;
   manageProfiles: () => void;
+  migrateRevu: () => void;
   shortcuts: () => void;
   about: () => void;
   undo: () => void;
@@ -403,6 +404,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),
     cmd('file.manageProfiles', 'File', 'Manage Profiles…', a.manageProfiles),
+    cmd('file.migrateRevu', 'File', 'Migrate from Revu…', a.migrateRevu),
     cmd('file.shortcuts', 'File', 'Keyboard Shortcuts…', a.shortcuts),
     cmd('file.about', 'File', 'About redcolumn', a.about),
 

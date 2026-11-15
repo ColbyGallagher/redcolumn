@@ -174,6 +174,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'file.importPdfMarkups': 'todo',
   'file.importXfdf': 'todo',
   'file.manageProfiles': 'todo',
+  'file.migrateRevu': { spec: 'revu-migration' },
   'file.newFromTemplate': 'todo',
   'file.newPdf': 'todo',
   'file.open': 'todo',

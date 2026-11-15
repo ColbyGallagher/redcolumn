@@ -8201,3 +8201,96 @@ tr.hidden-markup td {
 .sw-check-pair {
   flex-wrap: nowrap;
 }
+
+/* File › Migrate from Revu (RevuMigrationDialog). */
+.modal.revu-migration {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.revu-migration code {
+  user-select: all;
+}
+
+.revu-migration .revu-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.revu-migration .revu-groups,
+.revu-migration .revu-results {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.revu-migration .revu-group {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.revu-migration .revu-group:last-child {
+  border-bottom: 0;
+}
+
+.revu-migration .revu-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.revu-migration .revu-group-head label {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.revu-migration .revu-group .count,
+.revu-migration .revu-files .size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.revu-migration .revu-group .pref-hint {
+  margin: 2px 0 0 22px;
+}
+
+.revu-migration .revu-files {
+  list-style: none;
+  margin: 4px 0 2px 22px;
+  padding: 0;
+}
+
+.revu-migration .revu-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.revu-migration .revu-results {
+  padding: 8px 10px;
+}
+
+.revu-migration .revu-results h4 {
+  margin: 8px 0 2px;
+}
+
+.revu-migration .revu-results p {
+  margin: 0 0 4px;
+}
+
+.revu-migration .revu-results .failed {
+  color: var(--danger-text);
+}
+
+.revu-migration progress {
+  width: 100%;
+  margin-bottom: 12px;
+}

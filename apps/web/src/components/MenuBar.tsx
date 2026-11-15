@@ -269,6 +269,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.manageProfiles" />
             </Submenu>
             <Cmd id="file.shortcuts" />
+            <Cmd id="file.migrateRevu" />
             <Sep />
             <Cmd id="file.newPdf" />
             <Cmd id="file.newFromTemplate" />
