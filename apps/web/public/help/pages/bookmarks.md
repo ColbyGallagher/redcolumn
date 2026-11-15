@@ -14,6 +14,21 @@ Click **From labels**. A bookmark is made for each page, named from its [page la
 
 ![Bookmarks made from page labels](img/bookmarks-made.png)
 
+## Name bookmarks from the title block
+
+When the sheet number and title are not what redcolumn read, or you want the bookmark to say something else (the title only, or number, title and revision), show it where to read:
+
+1. Click **From regions…**. The [Page Labels from Regions](#page-labels) panel opens with **Set as** on **Bookmark**.
+2. Drag a box around the sheet number in the title block, and another around the sheet title. Add more boxes for anything else you want in the name.
+3. Use **↑** and **↓** to put the boxes in the order the name should read, and choose what to **Join with**.
+4. Check the preview (*Page 1: A-101 - FLOOR PLAN*), choose the **Pages**, and click **Apply to *n* pages**.
+
+Each page's bookmark is named by the text found in the same boxes on that page. A page that already has a bookmark keeps it where it is, in its folder, with the new name; a page with none gets a new one. Folders, bookmarks for a zoomed view and bookmarks that open a web page, a Place or another document are left alone. A page with no text in the boxes is left as it was, and a note says how many.
+
+Page labels are not changed. To set those from boxes too, choose **Page label** or **Sheet title** under **Set as**.
+
+> **Tip:** On a scanned set, run [OCR](#ocr) first so there is text in the boxes to read.
+
 ## Add a bookmark yourself
 
 1. Go to the page, and zoom to the view you want the bookmark to open.

@@ -32,6 +32,7 @@ export {
   flattenBookmarks,
   indentBookmark,
   insertBookmark,
+  nameBookmarksByPage,
   normalizeUrl,
   outdentBookmark,
   remapBookmarks,
