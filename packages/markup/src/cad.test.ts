@@ -214,6 +214,19 @@ test('mirrored pictures stay upright; flipping their pixels as pictureMirror say
   assert.equal(transformMarkup(markup('rect', [[0, 0], [20, 10]]), upright).rotation, 180);
 });
 
+test('mirrored text and stamps stay upright', () => {
+  const upright = mirrorAcross([50, 0], [50, 10]);
+  for (const type of ['text', 'typewriter', 'stamp'] as const) {
+    const box = markup(type, [[0, 0], [20, 10]]);
+    const across = transformMarkup(box, upright);
+    assert.equal(across.rotation, undefined, `${type} is not turned upside down`);
+    assert.ok(nearPts(across.points!, [[80, 0], [100, 10]]));
+    assert.ok(Math.abs(transformMarkup({ ...box, rotation: 30 }, upright).rotation! + 30) < 1e-6, `${type} turned 30° comes out at -30°`);
+  }
+  // A turn is not a mirror: text rotated 180° stays rotated.
+  assert.equal(transformMarkup(markup('text', [[0, 0], [20, 10]]), rotationAbout([0, 0], 180)).rotation, 180);
+});
+
 test('polar and path arrays place copies round a centre and along a path', () => {
   const four = polarArray([0, 0], 4, 360, true, [10, 0]);
   assert.equal(four.length, 3);

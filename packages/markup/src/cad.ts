@@ -598,6 +598,9 @@ function boxTurn(m: Pick<Markup, 'rotation'>, t: Affine): number {
   return Math.round(((Math.atan2(ax[1], ax[0]) * 180) / Math.PI) * 1e6) / 1e6;
 }
 
+/** Boxes whose content is read (text, pictures, stamps): a mirror keeps them as near upright as it can. */
+const readsUpright = (m: Pick<Markup, 'type'>) => isTextType(m.type) || isImageType(m.type) || m.type === 'stamp';
+
 /**
  * How a picture's pixels turn over when `t` mirrors it, or null when `t` does not mirror or the markup
  * has no picture. A mirror is a turn plus a flip of the picture: turned top to bottom it keeps the turn
@@ -611,10 +614,10 @@ export function pictureMirror(m: Pick<Markup, 'type' | 'image' | 'rotation'>, t:
 
 /**
  * A markup moved by a similarity transform (`Affine`) (Mirror, Rotate, Align, arrays): its points, cutouts and
- * curves; boxes keep their shape and turn when they can; text grows with the scale. Mirrored text
- * stays readable, as AutoCAD leaves mirrored text. A mirrored picture is turned to stay as near upright
- * as it can; flipping its pixels as `pictureMirror` says then finishes a true mirror, which the caller
- * does when asked.
+ * curves; boxes keep their shape and turn when they can; text grows with the scale. Mirrored
+ * text, pictures and stamps stay readable and as near upright as they can, as AutoCAD leaves mirrored
+ * text. Flipping a picture's pixels as `pictureMirror` says then finishes a true mirror, which the
+ * caller does when asked.
  */
 export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   const det = t.a * t.d - t.b * t.c;
@@ -646,10 +649,11 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   if (isBox(m)) {
     out.points = scaleBox(m.points);
     if (ROTATABLE.has(m.type)) {
-      // Where the box's own x-axis goes decides its new turn; a mirrored picture turns half round more
-      // when that leaves it nearer upright (`pictureMirror`), whether or not its pixels are flipped.
+      // Where the box's own x-axis goes decides its new turn. Mirrored text, pictures and stamps turn half
+      // round more when that leaves them nearer upright, so they do not come out upside down (for a
+      // picture this is also the turn that `pictureMirror`'s flip of its pixels completes).
       let rot = boxTurn(m, t);
-      if (pictureMirror(m, t) === 'horizontal') rot = Math.round((rot > 0 ? rot - 180 : rot + 180) * 1e6) / 1e6;
+      if (flip && readsUpright(m) && Math.abs(rot) > 90) rot = Math.round((rot > 0 ? rot - 180 : rot + 180) * 1e6) / 1e6;
       if (Math.abs(rot) > 1e-6 || m.rotation) out.rotation = rot || undefined;
       if (flip && m.arcAngles) out.arcAngles = [-m.arcAngles[1], -m.arcAngles[0]];
     }
