@@ -76,6 +76,11 @@ redcolumn is licensed under the [Apache License 2.0](LICENSE). You can read the 
 yourself, change it and use it at work without paying for it. There is no paid tier that unlocks
 features. See [Licence](#licence).
 
+If redcolumn saves you time, you can support its development through
+[GitHub Sponsors](https://github.com/sponsors/ColbyGallagher). It is optional and unlocks nothing.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/ColbyGallagher)
+
 ### Bluebeam compatibility
 
 redcolumn reads and writes the PDF annotations that Bluebeam Revu uses, so markups travel both ways
