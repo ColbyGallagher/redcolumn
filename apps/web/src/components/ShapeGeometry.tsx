@@ -149,8 +149,7 @@ function LengthField({ label, title, points, scale, readOnly, onChange, dir = [1
         disabled={readOnly}
         aria-label={label}
         onBlur={(e) => {
-          const text = e.target.value.replace(/,/g, '').replace(new RegExp(`\\s*${scale.unit}$`), '').trim();
-          const v = parseLength(text, scale.unit);
+          const v = parseLength(e.target.value, scale.unit);
           if (v === null) {
             e.target.value = shown;
             return;
