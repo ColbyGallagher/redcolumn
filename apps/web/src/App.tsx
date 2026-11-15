@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -10172,7 +10172,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               initialPages={labelMode.pages}
               initialSource={labelMode.typed ? 'typed' : 'regions'}
               initialTarget={labelMode.bookmarks ? 'bookmark' : 'number'}
-              labelOf={(page, target) => (target === 'bookmark' ? pageLabelFor(labelPaneParts.o, page) : target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
+              labelOf={(page, target) => (target === 'bookmark' ? (flattenBookmarks(labelPaneParts.o?.store.bookmarks() ?? []).find((r) => r.bookmark.pageIndex === page && !r.bookmark.action && !r.bookmark.children.length && !r.bookmark.rect)?.bookmark.title ?? pageLabelFor(labelPaneParts.o, page)) : target === 'number' ? (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.number : (labelMode.pane === 'b' ? sheetsB : sheetsA)[page]?.title) ?? ''}
               onSource={(source) => labelPaneParts.c?.tools.setTool(source === 'typed' ? 'select' : 'labelRegion')}
               regions={labelMode.regions}
               drawing={(labelMode.pane === 'b' ? toolsStateB : toolsStateA).tool === 'labelRegion'}
