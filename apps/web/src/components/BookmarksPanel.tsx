@@ -38,6 +38,8 @@ interface Props {
   onGo: (target: ViewTarget) => void;
   /** Sets what the bookmark does: a page or view, a Place, a web page or another document. */
   onEditAction?: (id: string) => void;
+  /** Opens Page Labels from Regions set to name bookmarks from boxes drawn on the page. */
+  onFromRegions?: () => void;
   /** The page and area in view now, for new bookmarks and Places. */
   currentView: () => ViewTarget;
 }
@@ -48,7 +50,7 @@ const newId = () => crypto.randomUUID();
  * Bookmarks panel: the document outline, edited as a tree (add from the current view, rename,
  * nest, reorder, delete, generate from page labels), and the document's Places.
  */
-export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, pageLabel, editable, onBookmarks, onPlaces, onGo, currentView, onEditAction }: Props) {
+export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, pageLabel, editable, onBookmarks, onPlaces, onGo, currentView, onEditAction, onFromRegions }: Props) {
   const [selected, setSelected] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -153,6 +155,11 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           <button className="btn small" title="Create a bookmark for every page from its page label" onClick={fromLabels}>
             From labels
           </button>
+          {onFromRegions && (
+            <button className="btn small" title="Name a bookmark for every page from the text in boxes you draw on the title block" onClick={onFromRegions}>
+              From regions…
+            </button>
+          )}
           <select
             className="btn small"
             aria-label="Bookmark template"
@@ -193,7 +200,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
         </p>
       )}
       {!rows.length ? (
-        <p className="empty">No bookmarks. {editable ? 'Add one for the current view, or create them from page labels.' : ''}</p>
+        <p className="empty">No bookmarks. {editable ? 'Add one for the current view, or create them from page labels or from boxes on the title block.' : ''}</p>
       ) : (
         <ul className="bookmark-list bookmark-tree" role="tree">
           {rows.map(({ bookmark: b, depth }) => (

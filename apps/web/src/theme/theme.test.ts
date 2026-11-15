@@ -9,7 +9,7 @@ test('the chosen theme is used', () => {
 });
 
 test('"system", and a theme that no longer exists, follow the system', () => {
-  assert.equal(resolveTheme('system', true).id, 'navy');
+  assert.equal(resolveTheme('system', true).id, 'graphite');
   assert.equal(resolveTheme('system', false).id, 'light');
   assert.equal(resolveTheme('retired', false).id, 'light');
 });

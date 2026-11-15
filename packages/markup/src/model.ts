@@ -377,6 +377,11 @@ export interface Markup {
   fields?: Record<string, string>;
   /** Image drawn in the markup's box (images, signatures, other tools' attachments): a PNG or JPEG data URL. */
   image?: string;
+  /**
+   * The part of `image` shown in the box (Crop Image), as fractions of the picture, y down. The
+   * whole picture is kept, so a crop can be undone or widened later; unset shows all of it.
+   */
+  crop?: ImageCrop;
   signature?: SignatureInfo;
   /** Locked markups cannot be moved, reshaped, restyled or deleted; their status and comments stay editable. */
   locked?: boolean;
@@ -460,6 +465,14 @@ export const DEFAULT_STYLES = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYP
 
 /** Each type's name, as shown in menus and the markups list. */
 export const MARKUP_LABELS = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYPE_INFO[t].label])) as Record<MarkupType, string>;
+
+/** A part of a picture, as fractions of its width and height from its top-left corner. */
+export interface ImageCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export interface Rect {
   x: number;
