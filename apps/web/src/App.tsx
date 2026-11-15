@@ -9027,7 +9027,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     return (
       <aside
         className={`panel side ${side}${tab === 'sessions' || tab === 'projects' ? ' rc-chrome' : ''}${railDrag?.side === side && !railDrag.over ? ' drop-target' : ''}`}
-        style={{ width: tab === 'layers' ? Math.max(width, 380) : width }}
+        style={{ width }}
         onDragOver={(e) => dragOverSide(e, side)}
         onDrop={(e) => dropOnSide(e, side)}
       >
