@@ -8248,6 +8248,7 @@ export function App() {
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
+      else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
       else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {

@@ -392,6 +392,7 @@ Help menu. (9 commands)
 | `help.install` | Install App… | Dialog |
 | `help.support` | Technical Support |  |
 | `help.suggest` | Make a Suggestion |  |
+| `help.sponsor` | Sponsor |  |
 | `help.community` | redcolumn Community |  |
 | `help.logs` | Send Log Files |  |
 | `help.whatsNew` | Learn What's New |  |
