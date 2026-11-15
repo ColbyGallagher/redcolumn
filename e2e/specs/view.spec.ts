@@ -323,9 +323,12 @@ test.describe('view', () => {
       await app.cmd('view.singlePage');
       await expect.poll(async () => (await app.view()).mode).toBe('single');
       const c = await app.at([612, 396]);
-      await app.page.mouse.move(c.x, c.y);
-      // Small deltas with no pause between them: one swipe and its momentum.
-      for (let i = 0; i < 30; i++) await app.page.mouse.wheel(0, 20);
+      // Small deltas with no pause between them: one swipe and its momentum. Sent in one go from the
+      // page, so a busy test machine cannot space them out into separate gestures.
+      await app.page.evaluate(([x, y]) => {
+        const target = document.elementFromPoint(x, y)!;
+        for (let i = 0; i < 30; i++) target.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      }, [c.x, c.y] as const);
       await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
       await app.page.waitForTimeout(300);
       expect((await app.view()).pageIndex).toBe(1);
