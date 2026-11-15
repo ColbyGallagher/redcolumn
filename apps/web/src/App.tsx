@@ -19,6 +19,8 @@ import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
 import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
+import { studioFileId, studioDocOf } from './studio/documentId';
+import { saveConfirmedArchiveFile } from './studio/archive';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
@@ -513,16 +515,6 @@ function anchorDownload(name: string, blob: Blob) {
 /** Stops PDFium drawing annotations that were imported as editable markups. */
 async function hideImported(doc: PdfDocument, store: MarkupStore) {
   await Promise.all(Object.entries(store.importedAnnotations()).map(([page, indices]) => doc.hideAnnotations(Number(page), indices)));
-}
-
-/** Library-style ids for documents opened from a Live Session: `studio:<session>:<doc>`. */
-function studioFileId(sessionId: string, docId: string) {
-  return `studio:${sessionId}:${docId}`;
-}
-
-function studioDocOf(fileId: string | undefined): { sessionId: string; docId: string } | null {
-  const m = fileId ? /^studio:([^:]+):(.+)$/.exec(fileId) : null;
-  return m ? { sessionId: m[1]!, docId: m[2]! } : null;
 }
 
 const STUDIO_HASHES = 'nb.studio.docs';
@@ -4342,27 +4334,30 @@ export function App() {
     const stores = [...tabsA, ...tabsB];
     let last: boolean | null = null;
     const report = () => {
-      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t));
+      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) || sessions.some((s) => {
+        const state = s.getSnapshot().localSave;
+        return state === 'saving' || state === 'error';
+      });
       if (on !== last) host.setUnsavedChanges!((last = on));
     };
     report();
-    const offs = stores.map((t) => t.store.subscribe(report));
+    const offs = [...stores.map((t) => t.store.subscribe(report)), ...sessions.map((s) => s.subscribe(report))];
     return () => offs.forEach((off) => off());
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // In a browser, leaving or refreshing the page while documents have unsaved changes asks first
   // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
   useEffect(() => {
     if (desktop()) return;
     const stores = [...tabsA, ...tabsB];
     const warn = (e: BeforeUnloadEvent) => {
-      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t))) return;
+      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) && !sessions.some((s) => ['saving', 'error'].includes(s.getSnapshot().localSave ?? ''))) return;
       e.preventDefault();
       // Older browsers show the prompt only when returnValue is set.
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // Document Recovery: remember which open documents have changes not saved to their file.
   const recovery = prefs.documentRecovery;
   useEffect(() => {
@@ -4396,6 +4391,8 @@ export function App() {
               if (!(await settleUnsaved(pane, t.file.id))) return;
             }
           }
+          try { await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.())); }
+          catch { setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.'); return; }
           host.closeWindow?.();
         } finally {
           asking = false;
@@ -4742,7 +4739,7 @@ export function App() {
     async (sessionId: string, choice: EndSessionChoice, onProgress: (p: EndProgress) => void = () => {}) => {
       const session = sessionById(sessionId);
       if (!session?.end) return;
-      const meta = session.meta;
+      let meta = session.meta;
       const saving = choice.pdfs || choice.markupsCsv || choice.recordCsv || choice.reportPdf;
       // Each file is made, then saved; then documents go back to the library; then the session is removed.
       const made = (choice.pdfs ? meta.documents.length : 0) + (choice.markupsCsv && meta.documents.length ? 1 : 0) + (choice.recordCsv ? 1 : 0) + (choice.reportPdf ? 1 : 0);
@@ -4768,6 +4765,12 @@ export function App() {
       } else if (saving && choice.destination === 'onedrive') await authorizeMicrosoft();
       else if (saving && choice.destination === 'project' && choice.projectId) project = projectById(choice.projectId) ?? (await openProject(choice.projectId, authorRef.current, true, false));
 
+      // Ask for a destination while the initiating user gesture is still available.
+      // Then confirm our writes and refresh the shared state before preparing exports.
+      await session.prepareCloseout?.();
+      meta = session.meta;
+      const reviewState = () => JSON.stringify({ documents: session.meta.documents, revision: session.getSnapshot().revision, record: session.getSnapshot().record });
+      const archivedState = reviewState();
       const files: { name: string; blob: Blob }[] = [];
       if (choice.pdfs && meta.documents.length) {
         const { exportWithAnnotations } = await import('@nb/markup/export');
@@ -4827,9 +4830,9 @@ export function App() {
           } else {
             for (const f of files) {
               step(`Saving ${f.name}`);
-              download(f.name, f.blob);
+              await saveConfirmedArchiveFile(f.name, f.blob);
             }
-            where = 'your Downloads';
+            where = 'the files you chose';
           }
         } else if (choice.destination === 'onedrive') {
           const folder = `${meta.name} (ended ${stamp})`;
@@ -4854,6 +4857,8 @@ export function App() {
       }
 
       // Session Roundtrip: library documents take the session's markups (and its newer revision, if the host updated it).
+      await session.prepareCloseout?.();
+      if (reviewState() !== archivedState) throw new Error('The review changed while its archive was being saved. Its shared files have been kept. Check the latest changes and save the archive again.');
       const sentBack: string[] = [];
       for (const d of meta.documents) {
         const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
