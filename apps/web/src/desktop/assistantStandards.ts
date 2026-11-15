@@ -1,4 +1,4 @@
-import { explain, LINK_KINDS, type DetectedLink, type LinkKind, type Rect } from '@nb/sheets';
+import { buildSheetGraph, explain, LINK_KINDS, type DetectedLink, type LinkKind, type Rect } from '@nb/sheets';
 import { describeChanges, SETUP_STEPS, type DrawingStandard, type HintChanges } from '../sheets/standards';
 import { findDocument, pageIndexOf, record, type AssistantDocument } from './assistant';
 
@@ -8,7 +8,7 @@ import { findDocument, pageIndexOf, record, type AssistantDocument } from './ass
  * reads the set's links, and proposes links and words. Nothing it proposes is used until a person
  * keeps it: links wait in the Links panel's Needs review list, words in the setup's Review step.
  */
-export const STANDARD_METHODS = ['get_drawing_standard', 'list_sheet_links', 'propose_sheet_links', 'propose_standard_hints'] as const;
+export const STANDARD_METHODS = ['get_drawing_standard', 'list_sheet_links', 'get_sheet_graph', 'propose_sheet_links', 'propose_standard_hints'] as const;
 
 export type StandardMethod = (typeof STANDARD_METHODS)[number];
 
@@ -117,6 +117,42 @@ function listSheetLinks(docs: readonly AssistantDocument[], params: unknown) {
   };
 }
 
+/**
+ * The set's links rolled up sheet to sheet (buildSheetGraph), so an assistant sees how the set hangs
+ * together and where links are missing. A sheet index's edges are only listed for the index's own page:
+ * anywhere else they are one row per sheet of the set, and say nothing.
+ */
+function getSheetGraph(docs: readonly AssistantDocument[], params: unknown) {
+  const args = record(params);
+  const doc = findDocument(docs, args.document);
+  const kinds = Object.keys(LINK_KINDS);
+  if (args.kind !== undefined && (typeof args.kind !== 'string' || !kinds.includes(args.kind))) throw new Error(`kind is one of ${kinds.join(', ')}.`);
+  const page = args.page === undefined ? null : pageIndexOf(doc, args.page);
+  const offset = args.offset === undefined ? 0 : Number(args.offset);
+  const limit = args.limit === undefined ? DEFAULT_LIMIT : Number(args.limit);
+  if (!Number.isInteger(offset) || offset < 0) throw new Error('offset is a whole number, 0 or more.');
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) throw new Error(`limit is a whole number from 1 to ${MAX_LIMIT}.`);
+  const graph = buildSheetGraph(doc.pageCount, doc.store.allSheets(), doc.store.allLinks(), args.kind === undefined ? {} : { kinds: [args.kind as LinkKind] });
+  const sheet = (i: number) => graph.nodes[i]?.number ?? null;
+  const unlinked = new Set(graph.unlinked);
+  const index = new Set(graph.indexPages);
+  const wanted = graph.edges.filter((e) => (page === null ? !index.has(e.from) : (e.from === page || e.to === page) && (e.from === page || !index.has(e.from))));
+  const shown = wanted.slice(offset, offset + limit);
+  // The summary of the whole set comes once, with the first part of the unfiltered list.
+  const summary = page === null && offset === 0;
+  return {
+    document: doc.name,
+    sheets: doc.pageCount,
+    linkedSheets: doc.pageCount - graph.unlinked.length,
+    total: wanted.length,
+    ...(summary ? { disciplines: graph.groups.map((g) => ({ discipline: g.discipline, sheets: g.pages.length, unlinked: g.pages.filter((p) => unlinked.has(p)).length })) } : {}),
+    ...(summary && graph.indexPages.length ? { indexSheets: graph.indexPages.map((p) => ({ page: p + 1, sheet: sheet(p), links: graph.nodes[p]!.out })) } : {}),
+    edges: shown.map((e) => ({ fromPage: e.from + 1, fromSheet: sheet(e.from), toPage: e.to + 1, toSheet: sheet(e.to), links: e.links, kinds: e.byKind, ...(e.review ? { review: e.review } : {}) })),
+    ...(summary ? { unlinked: graph.unlinked.map((p) => ({ page: p + 1, sheet: sheet(p) })) } : {}),
+    ...(offset + shown.length < wanted.length ? { more: `Showing ${offset + 1}-${offset + shown.length}. Ask again with offset ${offset + shown.length} for the rest.` } : {}),
+  };
+}
+
 function rectIn(v: unknown, what: string, page: { width: number; height: number } | null): Rect {
   const r = record(v);
   const n = (k: string) => {
@@ -201,6 +237,7 @@ function proposeStandardHints(docs: readonly AssistantDocument[], standards: Ass
 export async function standardCall(docs: readonly AssistantDocument[], method: StandardMethod, params: unknown, standards: AssistantStandards | undefined): Promise<unknown> {
   if (method === 'get_drawing_standard') return getDrawingStandard(docs, standards, params);
   if (method === 'list_sheet_links') return listSheetLinks(docs, params);
+  if (method === 'get_sheet_graph') return getSheetGraph(docs, params);
   if (method === 'propose_sheet_links') return proposeSheetLinks(docs, params);
   return proposeStandardHints(docs, standards, params);
 }

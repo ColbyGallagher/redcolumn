@@ -60,6 +60,52 @@ test('get_drawing_standard: the standard the document is read with, its examples
   assert.equal(byName.name, 'Other');
 });
 
+test('get_sheet_graph rolls links up sheet to sheet, and leaves rejected ones out', async () => {
+  const d = await drawing();
+  type Graph = { sheets: number; linkedSheets: number; total: number; disciplines: { discipline: string | null; sheets: number; unlinked: number }[]; edges: { fromSheet: string; toSheet: string; links: number; kinds: Record<string, number>; review?: number }[]; unlinked?: unknown[] };
+  const all = (await assistantCall([d], 'get_sheet_graph', {})) as Graph;
+  assert.deepEqual([all.sheets, all.linkedSheets, all.total], [2, 2, 2]);
+  assert.deepEqual(all.disciplines, [{ discipline: 'Civil', sheets: 2, unlinked: 0 }]);
+  assert.deepEqual(all.edges, [
+    { fromPage: 1, fromSheet: 'C-101', toPage: 2, toSheet: 'C-501', links: 2, kinds: { detail: 2 }, review: 1 },
+    { fromPage: 2, fromSheet: 'C-501', toPage: 1, toSheet: 'C-101', links: 1, kinds: { sheet: 1 } },
+  ]);
+  assert.deepEqual(all.unlinked, []);
+  const sheetOnly = (await assistantCall([d], 'get_sheet_graph', { kind: 'sheet', page: 1 })) as Graph;
+  assert.deepEqual(sheetOnly.edges.map((e) => [e.fromSheet, e.toSheet]), [['C-501', 'C-101']]);
+  assert.equal(sheetOnly.unlinked, undefined);
+  for (const l of d.store.allLinks().filter((x) => x.kind === 'detail')) d.store.setLinkStatus(l.id, 'rejected');
+  const after = (await assistantCall([d], 'get_sheet_graph', {})) as Graph;
+  assert.deepEqual(after.edges.map((e) => [e.fromSheet, e.toSheet, e.links]), [['C-501', 'C-101', 1]]);
+  await assert.rejects(() => assistantCall([d], 'get_sheet_graph', { kind: 'callout' }), /kind is one of/);
+});
+
+test('get_sheet_graph names a sheet index and keeps its links out of the edges and the linked count', async () => {
+  // G-001 lists the other eleven sheets; C-102 calls up a detail on C-105.
+  const store = await MarkupStore.open(`standards-${Math.random()}`, { persist: false });
+  store.setDetectedSheets(Array.from({ length: 12 }, (_, i) => [i, sheet(i === 0 ? 'G-001' : `C-${100 + i}`)]));
+  store.setDetectedLinks([...Array.from({ length: 11 }, (_, i) => link(`0:C-${101 + i}`, 0, i + 1, 'sheet', `C-${101 + i}`, 0.8)), link('2:3/C-105', 2, 5, 'detail', '3/C-105', 0.9)]);
+  const d: AssistantDocument = { id: 'set', name: 'Set.pdf', pageCount: 12, pageIndex: 0, active: true, store, pageSize: () => ({ width: 1200, height: 800 }) };
+  type Graph = { linkedSheets: number; total: number; disciplines?: unknown[]; indexSheets?: unknown[]; edges: { fromSheet: string; toSheet: string }[]; unlinked?: { sheet: string }[]; more?: string };
+  const all = (await assistantCall([d], 'get_sheet_graph', {})) as Graph;
+  assert.deepEqual(all.indexSheets, [{ page: 1, sheet: 'G-001', links: 11 }]);
+  assert.deepEqual(all.edges.map((e) => [e.fromSheet, e.toSheet]), [['C-102', 'C-105']]);
+  assert.deepEqual([all.total, all.linkedSheets], [1, 3]);
+  assert.deepEqual(all.unlinked?.map((u) => u.sheet), ['C-101', 'C-103', 'C-104', 'C-106', 'C-107', 'C-108', 'C-109', 'C-110', 'C-111']);
+  // The index's own page lists what it points at; another sheet's page leaves the index out.
+  const index = (await assistantCall([d], 'get_sheet_graph', { page: 1, limit: 4 })) as Graph;
+  assert.equal(index.total, 11);
+  assert.match(index.more ?? '', /offset 4/);
+  assert.deepEqual([index.disciplines, index.indexSheets, index.unlinked], [undefined, undefined, undefined]);
+  const detail = (await assistantCall([d], 'get_sheet_graph', { page: 6 })) as Graph;
+  assert.deepEqual(detail.edges.map((e) => [e.fromSheet, e.toSheet]), [['C-102', 'C-105']]);
+  // The set's summary comes with the first part only.
+  const rest = (await assistantCall([d], 'get_sheet_graph', { page: 1, offset: 4 })) as Graph;
+  assert.equal(rest.edges.length, 7);
+  const later = (await assistantCall([d], 'get_sheet_graph', { offset: 1 })) as Graph;
+  assert.deepEqual([later.edges.length, later.disciplines, later.unlinked], [0, undefined, undefined]);
+});
+
 test('list_sheet_links filters by kind and status and says why each scored what it did', async () => {
   const d = await drawing();
   const all = (await assistantCall([d], 'list_sheet_links', {})) as { total: number; byStatus: Record<string, number> };
