@@ -147,6 +147,7 @@ const ICONS: Record<string, ReactNode> = {
   'takeoff.hip': ic('M1.5 13.5L8 4l6.5 9.5M8 4v9.5', <path d="M1.5 13.5h13" strokeDasharray="1.4 1.2" />),
   'takeoff.valley': ic('M1.5 4L8 13.5 14.5 4M8 13.5V4', <path d="M1.5 4h13" strokeDasharray="1.4 1.2" />),
   'tools.assemblies': ic('M2 2h5v5H2zM9 2h5v5H9zM2 9h5v5H2zM9 9h5v5H9z'),
+  'tools.library': ic('M2 3h3v10H2zM6 3h3v10H6zM10.2 3.6l2.8-.8 2.2 9.6-2.8.8z'),
   'tools.quantities': MENU_ICONS.summary,
   'tools.sketchToScale': ic('M2 14 14 2M2 14h4M2 14v-4M10 2h4v4'),
   'tools.columns': ic('M1.5 2.5h13v11h-13zM6 2.5v11M10.5 2.5v11'),
@@ -848,6 +849,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <TemplatesMenu />
                 <Cmd id="takeoff.saveTemplate" label="Save as Template" />
               </Stack>
+              <Cmd id="tools.library" label="Library" size="large" />
             </Group>
             <Group label="Auto Count">
               <ToolBtn tool="visualSearch" size="large" />
