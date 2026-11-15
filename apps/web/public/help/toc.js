@@ -13,6 +13,7 @@ window.HELP_TOC = [
       { id: 'find-tools', title: 'Find any tool or command' },
       { id: 'undo', title: 'Undo, redo and Undo History' },
       { id: 'install', title: 'Install the app and work offline' },
+      { id: 'revu-migration', title: 'Move from Bluebeam Revu' },
     ],
   },
   {

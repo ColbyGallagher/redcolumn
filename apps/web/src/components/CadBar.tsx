@@ -19,7 +19,7 @@ interface Props {
 
 type LengthKey = 'moveDistance' | 'offsetDistance' | 'filletRadius' | 'chamferDistance' | 'lengthenValue' | 'divideSpacing';
 type CountKey = 'offsetCount' | 'arrayCount' | 'divideCount';
-type CheckKey = 'mirrorKeep' | 'arrayRotate' | 'arrayAlign' | 'alignScale';
+type CheckKey = 'mirrorKeep' | 'mirrorPictures' | 'arrayRotate' | 'arrayAlign' | 'alignScale';
 
 /**
  * The options and next step of Offset and the CAD Modify tools (Trim, Fillet, Mirror, arrays...),
@@ -135,7 +135,12 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       fields = length('chamferDistance', 'Distance', '0 (sharp)', 'How far back from the corner each line is cut. Empty or 0 meets them at a sharp corner.', first);
       break;
     case 'mirror':
-      fields = check('mirrorKeep', 'Keep original', 'Make a mirrored copy; untick to flip the originals over instead');
+      fields = (
+        <>
+          {check('mirrorKeep', 'Keep original', 'Make a mirrored copy; untick to flip the originals over instead')}
+          {check('mirrorPictures', 'Mirror pictures', 'Reverse images and signatures too; untick to keep them unreversed and upright')}
+        </>
+      );
       break;
     case 'rotateRef':
       fields = (

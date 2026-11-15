@@ -146,6 +146,7 @@ import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
@@ -1257,6 +1258,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
@@ -8160,6 +8162,7 @@ export function App() {
       setPrefsOpen(true);
     },
     manageProfiles: () => setProfilesOpen(true),
+    migrateRevu: () => setRevuMigrationOpen(true),
     shortcuts: () => setShortcutsOpen(true),
     about: () =>
       alert(
@@ -8252,6 +8255,7 @@ export function App() {
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
+      else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
       else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {
@@ -11129,6 +11133,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {revuMigrationOpen && (
+        <RevuMigrationDialog
+          onClose={() => setRevuMigrationOpen(false)}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#revu-migration`, '_blank', 'noopener')}
+        />
+      )}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}

@@ -72,6 +72,7 @@ export interface CommandActions {
   print: () => void;
   preferences: () => void;
   manageProfiles: () => void;
+  migrateRevu: () => void;
   shortcuts: () => void;
   about: () => void;
   undo: () => void;
@@ -239,7 +240,7 @@ export interface CommandActions {
   toggleBottom: () => void;
   commandPalette: () => void;
   install: () => void;
-  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
+  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'sponsor' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
   manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
@@ -405,6 +406,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),
     cmd('file.manageProfiles', 'File', 'Manage Profiles…', a.manageProfiles),
+    cmd('file.migrateRevu', 'File', 'Migrate from Revu…', a.migrateRevu),
     cmd('file.shortcuts', 'File', 'Keyboard Shortcuts…', a.shortcuts),
     cmd('file.about', 'File', 'About redcolumn', a.about),
 
@@ -643,6 +645,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...(desktop() ? [] : [cmd('help.install', 'Help', 'Install App…', a.install)]),
     cmd('help.support', 'Help', 'Technical Support', () => a.help('support')),
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
+    cmd('help.sponsor', 'Help', 'Sponsor', () => a.help('sponsor')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),
     cmd('help.logs', 'Help', 'Send Log Files', () => a.help('logs')),
   ].map(applyCommandPolicy);

@@ -40,10 +40,11 @@ async function standInForGitHub(app: App) {
         if (!url.startsWith(base)) return real(input, init);
         w.__libraryAsked.push({ url, credentials: init?.credentials, referrerPolicy: init?.referrerPolicy });
         const path = url.slice(base.length);
-        return Promise.resolve(path in files ? new Response(files[path]) : new Response('', { status: 404 }));
+        const body = files[path];
+        return Promise.resolve(body === undefined ? new Response('', { status: 404 }) : new Response(body));
       };
     },
-    { base: BASE, files: { 'index.json': index, 'packs/e2e-kerbs.rctrade': pack, 'packs/e2e-tampered.rctrade': pack } },
+    { base: BASE, files: { 'index.json': index, 'packs/e2e-kerbs.rctrade': pack, 'packs/e2e-tampered.rctrade': pack } as Record<string, string> },
   );
 }
 
