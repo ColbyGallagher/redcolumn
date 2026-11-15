@@ -225,6 +225,38 @@ test('mirrored text and stamps stay upright', () => {
   }
   // A turn is not a mirror: text rotated 180° stays rotated.
   assert.equal(transformMarkup(markup('text', [[0, 0], [20, 10]]), rotationAbout([0, 0], 180)).rotation, 180);
+  // Flag labels and flow shapes point or slant one way, so they turn with the mirror: a flag pointing
+  // left points right once mirrored across an upright line.
+  for (const type of ['flagLabel', 'flowShape'] as const) assert.equal(transformMarkup(markup(type, [[0, 0], [20, 10]]), upright).rotation, 180, `${type} turns with the mirror`);
+});
+
+test('a mirrored picture turned and flipped as pictureMirror says is the true mirror image', () => {
+  // A picture pixel at q (in its own frame) after the flip shows the old pixel at S·q; it must land where
+  // the mirror sends that old pixel: R(new turn)·q = L·R(old turn)·S·q for every q.
+  const turn = (deg: number, [x, y]: Point): Point => {
+    const r = (deg * Math.PI) / 180;
+    return [x * Math.cos(r) - y * Math.sin(r), x * Math.sin(r) + y * Math.cos(r)];
+  };
+  for (const lineDeg of [0, 30, 45, 90, 120, 135, 200, -45]) {
+    const r = (lineDeg * Math.PI) / 180;
+    const t = mirrorAcross([7, 3], [7 + Math.cos(r), 3 + Math.sin(r)]);
+    for (const from of [0, 30, 90, 150, -60]) {
+      const pic = markup('image', [[0, 0], [20, 10]], { image: 'data:image/png;base64,AA==', ...(from ? { rotation: from } : {}) });
+      const axis = pictureMirror(pic, t)!;
+      const to = transformMarkup(pic, t).rotation ?? 0;
+      assert.ok(Math.abs(to) <= 90 + 1e-6, `line ${lineDeg}°, turned ${from}°: kept near upright (${to}°)`);
+      const s = (q: Point): Point => (axis === 'horizontal' ? [-q[0], q[1]] : [q[0], -q[1]]);
+      for (const q of [[1, 0], [0, 1]] as Point[]) {
+        const want = applyAffine({ ...t, e: 0, f: 0 }, turn(from, s(q)));
+        assert.ok(near(turn(to, q), want), `line ${lineDeg}°, turned ${from}°, ${axis}: [${turn(to, q)}] vs [${want}]`);
+      }
+    }
+  }
+  // A 45° line sends the x-axis straight down the page: exactly 90°, the edge between the two flips.
+  const diag = mirrorAcross([0, 0], [10, 10]);
+  const pic = markup('image', [[0, 0], [20, 10]], { image: 'data:image/png;base64,AA==' });
+  assert.equal(pictureMirror(pic, diag), 'vertical');
+  assert.equal(transformMarkup(pic, diag).rotation, 90);
 });
 
 test('polar and path arrays place copies round a centre and along a path', () => {

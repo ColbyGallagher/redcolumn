@@ -598,8 +598,12 @@ function boxTurn(m: Pick<Markup, 'rotation'>, t: Affine): number {
   return Math.round(((Math.atan2(ax[1], ax[0]) * 180) / Math.PI) * 1e6) / 1e6;
 }
 
-/** Boxes whose content is read (text, pictures, stamps): a mirror keeps them as near upright as it can. */
-const readsUpright = (m: Pick<Markup, 'type'>) => isTextType(m.type) || isImageType(m.type) || m.type === 'stamp';
+/**
+ * Boxes that are only read and look the same either way round (text, pictures, stamps): a mirror keeps
+ * them as near upright as it can. Flag labels and flow shapes are not: their outlines point or slant one
+ * way and connectors are glued to their sides, so they turn with the mirror as other boxes do.
+ */
+const UPRIGHT_ON_MIRROR: ReadonlySet<MarkupType> = new Set<MarkupType>(['text', 'typewriter', 'stamp', 'image', 'signature']);
 
 /**
  * How a picture's pixels turn over when `t` mirrors it, or null when `t` does not mirror or the markup
@@ -653,7 +657,7 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
       // round more when that leaves them nearer upright, so they do not come out upside down (for a
       // picture this is also the turn that `pictureMirror`'s flip of its pixels completes).
       let rot = boxTurn(m, t);
-      if (flip && readsUpright(m) && Math.abs(rot) > 90) rot = Math.round((rot > 0 ? rot - 180 : rot + 180) * 1e6) / 1e6;
+      if (flip && UPRIGHT_ON_MIRROR.has(m.type) && Math.abs(rot) > 90) rot = tidy(rot > 0 ? rot - 180 : rot + 180);
       if (Math.abs(rot) > 1e-6 || m.rotation) out.rotation = rot || undefined;
       if (flip && m.arcAngles) out.arcAngles = [-m.arcAngles[1], -m.arcAngles[0]];
     }
@@ -661,10 +665,8 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
     // A callout turns whole about the middle of its text box (its `rotation`), so its text turns while its
     // arrow tips go where the transform sends them: the leader points are stored in the box's own frame.
     const box = scaleBox(m.points.slice(2, 4));
-    const r0 = ((m.rotation ?? 0) * Math.PI) / 180;
-    const ax = applyAffine({ ...t, e: 0, f: 0 }, [Math.cos(r0), Math.sin(r0)]);
     // A mirror leaves the text upright (as for other text), so the whole callout is stored unturned.
-    const rot = flip ? 0 : Math.round(((Math.atan2(ax[1], ax[0]) * 180) / Math.PI) * 1e6) / 1e6;
+    const rot = flip ? 0 : boxTurn(m, t);
     const c0 = rotationCentre(m);
     const c1: Point = [(box[0]![0] + box[1]![0]) / 2, (box[0]![1] + box[1]![1]) / 2];
     const leader = (p: Point): Point => {
