@@ -158,7 +158,14 @@ test('parseLength reads any unit and converts to the scale unit', () => {
   assert.equal(parseLength('10 FT', 'ft'), 10);
   assert.equal(parseLength('.5', 'm'), 0.5);
   assert.equal(parseLength('5 1/2', 'in'), 5.5);
+  // What formatLength writes reads back, digit groups and unit included.
+  assert.equal(parseLength('1,250.50 m', 'm'), 1250.5);
+  assert.equal(parseLength('2,500mm', 'm'), 2.5);
+  assert.equal(parseLength('12.5 ft', 'ft'), 12.5);
+  // A metric suffix that ends in the scale's unit letter is not cut short.
+  assert.equal(parseLength('450mm', 'm'), 0.45);
   // Not lengths.
+  assert.equal(parseLength('1,25', 'm'), null);
   assert.equal(parseLength('5 parsecs', 'm'), null);
   assert.equal(parseLength('1m 25', 'mm'), null);
   assert.equal(parseLength('5 6', 'ft'), null);

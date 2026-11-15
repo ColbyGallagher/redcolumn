@@ -271,7 +271,8 @@ const LENGTH_PART = /\s*-?\s*(?:(\d+)\s*\/\s*(\d+)|(\d*\.?\d+)(?:(?:\s+|\s*-\s*)
 /**
  * Parses a length typed by a user into `unit`s, whatever units it is typed in. Accepts plain
  * numbers in `unit` (`25`, `25.5`, `5 1/2`), and lengths with units or unit marks, in any unit and
- * mixed (`1"`, `3/4 in`, `25'-6"`, `25' 6 1/2"`, `5' 6`, `450mm`, `1.2 m`, `1m 25cm`, `2 feet`).
+ * mixed (`1"`, `3/4 in`, `25'-6"`, `25' 6 1/2"`, `5' 6`, `450mm`, `1.2 m`, `1m 25cm`, `2 feet`), and
+ * digit groups (`1,250.5 m`, as `formatLength` writes them).
  * Returns null when the text is not a positive length.
  */
 export function parseLength(text: string, unit: LengthUnit): number | null {
@@ -279,7 +280,9 @@ export function parseLength(text: string, unit: LengthUnit): number | null {
     .trim()
     .toLowerCase()
     .replace(/[“”″]/g, '"')
-    .replace(/[‘’′]/g, "'");
+    .replace(/[‘’′]/g, "'")
+    // Digit groups: 1,250 is one number.
+    .replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
   if (!t || t.startsWith('-')) return null;
   const parts: { value: number; unit: LengthUnit | null }[] = [];
   LENGTH_PART.lastIndex = 0;
