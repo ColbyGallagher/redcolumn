@@ -238,25 +238,78 @@ export function formatArea(squareMeters: number, scale: Scale): string {
   return `${trimNumber(value, precision)} ${areaLabelOf(scale)}`;
 }
 
+/** Each unit in its system's smallest unit, so conversions within a system are exact ratios. */
+const IMPERIAL_IN: Partial<Record<LengthUnit, number>> = { in: 1, ft: 12, yd: 36, mi: 63360 };
+const METRIC_MM: Partial<Record<LengthUnit, number>> = { mm: 1, cm: 10, m: 1000, km: 1_000_000 };
+
+/** `value` `from`s in `to`s, exact between units of the same system. */
+function convertLength(value: number, from: LengthUnit, to: LengthUnit): number {
+  if (from === to) return value;
+  for (const table of [IMPERIAL_IN, METRIC_MM]) {
+    if (table[from] && table[to]) return (value * table[from]) / table[to];
+  }
+  return (value * METERS_PER_UNIT[from]) / METERS_PER_UNIT[to];
+}
+
+const UNIT_WORDS: [RegExp, LengthUnit][] = [
+  [/^(?:"|''|in|inch|inches)$/, 'in'],
+  [/^(?:'|ft|foot|feet)$/, 'ft'],
+  [/^(?:yd|yds|yard|yards)$/, 'yd'],
+  [/^(?:mi|mile|miles)$/, 'mi'],
+  [/^(?:mm|millimet(?:er|re)s?)$/, 'mm'],
+  [/^(?:cm|centimet(?:er|re)s?)$/, 'cm'],
+  [/^(?:m|met(?:er|re)s?)$/, 'm'],
+  [/^(?:km|kilomet(?:er|re)s?)$/, 'km'],
+];
+
 /**
- * Parses a length typed by a user into `unit`s. Accepts plain numbers (`25`, `25.5`) and, for
- * feet, feet-inches with optional fractions (`25'-6"`, `25' 6 1/2"`, `6"`, `3/4"`).
+ * One part of a typed length: a number (`2`, `2.5`, `.5`, `1/2`, `2 1/2`, `2-1/2`) and an optional
+ * unit mark or word, after an optional `-` or space joining it to the part before.
+ */
+const LENGTH_PART = /\s*-?\s*(?:(\d+)\s*\/\s*(\d+)|(\d*\.?\d+)(?:(?:\s+|\s*-\s*)(\d+)\s*\/\s*(\d+))?)\s*("|''|'|[a-z]+\.?)?/y;
+
+/**
+ * Parses a length typed by a user into `unit`s, whatever units it is typed in. Accepts plain
+ * numbers in `unit` (`25`, `25.5`, `5 1/2`), and lengths with units or unit marks, in any unit and
+ * mixed (`1"`, `3/4 in`, `25'-6"`, `25' 6 1/2"`, `5' 6`, `450mm`, `1.2 m`, `1m 25cm`, `2 feet`).
  * Returns null when the text is not a positive length.
  */
 export function parseLength(text: string, unit: LengthUnit): number | null {
-  const t = text.trim();
-  if (/^\d*\.?\d+$/.test(t)) {
-    const v = Number(t);
-    return v > 0 ? v : null;
+  const t = text
+    .trim()
+    .toLowerCase()
+    .replace(/[“”″]/g, '"')
+    .replace(/[‘’′]/g, "'");
+  if (!t || t.startsWith('-')) return null;
+  const parts: { value: number; unit: LengthUnit | null }[] = [];
+  LENGTH_PART.lastIndex = 0;
+  while (LENGTH_PART.lastIndex < t.length) {
+    const at = LENGTH_PART.lastIndex;
+    const m = LENGTH_PART.exec(t);
+    if (!m || LENGTH_PART.lastIndex === at) return null;
+    const [, fracNum, fracDen, whole, num, den, mark] = m;
+    if ((den && !Number(den)) || (fracDen && !Number(fracDen))) return null;
+    const value = whole !== undefined ? Number(whole) + (num ? Number(num) / Number(den) : 0) : Number(fracNum) / Number(fracDen);
+    let partUnit: LengthUnit | null = null;
+    if (mark) {
+      const word = mark.replace(/\.$/, '');
+      partUnit = UNIT_WORDS.find(([re]) => re.test(word))?.[1] ?? null;
+      if (!partUnit) return null;
+    }
+    parts.push({ value, unit: partUnit });
   }
-  if (unit !== 'ft' && unit !== 'in') return null;
-  const m = /^(?:(\d*\.?\d+)\s*')?\s*-?\s*(?:(\d+(?:\.\d+)?)?\s*(?:(\d+)\s*\/\s*(\d+))?\s*")?$/.exec(t);
-  if (!m || (!m[1] && !m[2] && !m[3])) return null;
-  const feet = Number(m[1] ?? 0);
-  const inches = Number(m[2] ?? 0) + (m[3] && m[4] ? Number(m[3]) / Number(m[4]) : 0);
-  const totalFeet = feet + inches / 12;
-  const value = unit === 'ft' ? totalFeet : totalFeet * 12;
-  return value > 0 ? value : null;
+  let total = 0;
+  for (const [i, part] of parts.entries()) {
+    let from = part.unit;
+    if (!from) {
+      if (parts.length === 1) from = unit;
+      // `5' 6` is five feet six inches.
+      else if (i === parts.length - 1 && parts[i - 1]!.unit === 'ft') from = 'in';
+      else return null;
+    }
+    total += convertLength(part.value, from, unit);
+  }
+  return total > 0 ? total : null;
 }
 
 function parseInches(text: string): number | null {
