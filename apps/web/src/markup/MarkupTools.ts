@@ -4695,13 +4695,18 @@ export class MarkupTools implements ViewerOverlay {
    * A mirror whose pictures turn their pixels over too (Mirror pictures). The pictures are turned over
    * first and the whole edit is then made at once, with each picture's crop turned over with it as
    * Flip does, so one undo puts everything back. If the markups changed while the pictures were being
-   * turned over (an undo, someone else's edit), nothing is made.
+   * turned over (a delete, a drag, an undo, someone else's edit), or the tool was put down, nothing is
+   * made.
    */
-  private async commitMirroredPictures(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }) {
+  private async commitMirroredPictures(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }, sources: readonly string[]) {
     const patches = new Map(done.update);
     const added = new Map(done.add.map((m) => [m.id, m]));
-    // What each edited markup looked like when the mirror was worked out.
-    const stamps = new Map(done.update.map(([id]) => [id, store.get(id)?.modifiedAt]));
+    // What the mirrored markups looked like when the mirror was worked out: the selection it was worked
+    // out from (copies are placed from it) and any markup it edits in place.
+    const stamps = new Map([...sources, ...done.update.map(([id]) => id)].map((id) => [id, store.get(id)?.modifiedAt]));
+    // Its points are all picked, so one Esc while it waits leaves the tool (and so calls the mirror off).
+    c.picks = [];
+    this.setState({ cad: { picks: 0, error: null } });
     this.cadPending = true;
     let flipped: (Pick<Markup, 'image' | 'crop'> | null)[];
     try {
@@ -4717,8 +4722,10 @@ export class MarkupTools implements ViewerOverlay {
     } finally {
       this.cadPending = false;
     }
+    // The tool was put down (Esc, another tool) while the pictures were turning over: the mirror is off.
+    if (this.cad !== c) return;
     if (this.store !== store || [...stamps].some(([id, at]) => store.get(id)?.modifiedAt !== at)) {
-      if (this.cad === c) this.setState({ cad: { picks: c.picks.length, error: 'The markups changed while mirroring; mirror again' } });
+      this.setState({ cad: { picks: c.picks.length, error: 'The markups changed while mirroring; mirror again' } });
       return;
     }
     (done.mirrorPictures ?? []).forEach(([id], i) => {
@@ -4746,13 +4753,14 @@ export class MarkupTools implements ViewerOverlay {
     // What was under the pointer is picked (or not) now; the next move finds the next target.
     this.pickIds = [];
     const p = this.cadPoint(tool, pt, e);
-    const r = cadClick(tool, c.picks, p, this.cadContext(pageIndex, e.shiftKey));
+    const ctx = this.cadContext(pageIndex, e.shiftKey);
+    const r = cadClick(tool, c.picks, p, ctx);
     if ('error' in r) {
       this.setState({ cad: { picks: c.picks.length, error: r.error } });
       return;
     }
     if ('done' in r) {
-      if (r.done.mirrorPictures?.length) void this.commitMirroredPictures(store, c, r.done, r);
+      if (r.done.mirrorPictures?.length) void this.commitMirroredPictures(store, c, r.done, r, ctx.selected.map((m) => m.id));
       else this.commitCad(store, c, r.done, r);
       return;
     }

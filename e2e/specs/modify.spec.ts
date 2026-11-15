@@ -225,6 +225,39 @@ test.describe('modify', () => {
     expect(left.map((m) => m.id)).toEqual([id]);
   });
 
+  test('a slow Mirror pictures is called off by Esc, or when the original changes meanwhile', async ({ app }) => {
+    const placed = await placePicture(app);
+    const id = placed.id as string;
+    // Pictures take a second to decode, so there is time to act while the mirror waits.
+    await app.page.evaluate(() => {
+      const decode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = function () {
+        return new Promise<void>((done) => setTimeout(done, 1000)).then(() => decode.call(this));
+      };
+    });
+    const mirror = async () => {
+      await select(app, [id]);
+      await app.cmd('edit.mirror');
+      await bar(app).getByLabel('Keep original', { exact: true }).setChecked(true);
+      await bar(app).getByLabel('Mirror pictures').setChecked(true);
+      await app.clicks([[400, 300], [400, 650]]);
+    };
+    const pictures = async () => (await app.raw()).filter((m) => m.type === 'image');
+
+    // Esc while it waits: one press leaves the tool, and no copy is made.
+    await mirror();
+    await app.page.keyboard.press('Escape');
+    await app.page.waitForTimeout(1500);
+    expect((await pictures()).map((m) => m.id)).toEqual([id]);
+    expect((await app.toolState()).tool).toBe('select');
+
+    // The original deleted while it waits: no copy of it appears, and the bar says why.
+    await mirror();
+    await app.page.evaluate((id) => window.__nb.tools.store!.remove([id]), id);
+    await expect(bar(app)).toContainText('The markups changed while mirroring');
+    expect(await pictures()).toEqual([]);
+  });
+
   test('align to points moves a markup by two point pairs; stretch drags the points in a window', async ({ app }) => {
     const l = await line(app, [300, 450], [350, 450]);
     await select(app, [l.id]);
