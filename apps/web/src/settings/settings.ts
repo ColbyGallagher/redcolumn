@@ -412,7 +412,7 @@ export function gridSpacingPoints(s: Pick<Settings, 'gridSize' | 'unitSystem'>):
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system',
+  theme: 'graphite',
   unitSystem: 'metric',
   lengthUnit: 'm',
   areaUnit: 'm',
