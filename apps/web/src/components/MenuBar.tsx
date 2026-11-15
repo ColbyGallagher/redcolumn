@@ -349,6 +349,9 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="edit.scaleToLength" />
               <Cmd id="edit.createViewport" />
               <Sep />
+              <Cmd id="edit.cropImage" />
+              <Cmd id="edit.resetCrop" />
+              <Sep />
               <Cmd id="edit.arrayPolar" />
               <Cmd id="edit.arrayPath" />
               <Cmd id="edit.divide" />
