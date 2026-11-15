@@ -277,6 +277,7 @@ Markup tools, measuring tools, flowchart shapes and takeoff commands. (92 comman
 | `tools.autoFields` | Auto-Create Fields… | Allow, Dialog |
 | `tools.columns` | Markup Columns & Statuses… | Dialog |
 | `tools.assemblies` | Assemblies… | Dialog |
+| `tools.library` | Browse Library… | Dialog |
 | `tools.quantities` | Takeoff Quantities… | Dialog |
 | `tools.scripts` | Scripts… | Dialog |
 | `tools.takeoffReview` | Review AI Proposals… | Dialog |

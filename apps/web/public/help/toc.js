@@ -170,6 +170,7 @@ window.HELP_TOC = [
       { id: 'product-lists', title: 'Product Lists' },
       { id: 'formula-builder', title: 'Formula Builder' },
       { id: 'takeoff-templates', title: 'Takeoff templates' },
+      { id: 'community-library', title: 'Community library (trade packs)' },
       { id: 'takeoff-reports', title: 'Takeoff reports (PDF, Excel, CSV)' },
       { id: 'spaces', title: 'Spaces (rooms and zones)' },
     ],

@@ -262,6 +262,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'takeoff.hip': { spec: 'takeoff-tab' },
   'takeoff.valley': { spec: 'takeoff-tab' },
   'tools.assemblies': { spec: 'measure' },
+  'tools.library': { spec: 'library' },
   'tools.autoFields': { spec: 'forms-sign-stamps' },
   'tools.bulkRedact': { spec: 'document' },
   'tools.columns': 'todo',

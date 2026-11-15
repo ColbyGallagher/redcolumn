@@ -26,6 +26,11 @@ test('the app policy lists cloud hosts only for the providers that are configure
   assert.deepEqual(ms.get('frame-src'), ["'none'"]);
 });
 
+test('the app may reach the community library host and no other GitHub host', () => {
+  const connect = directives(appCsp({ microsoft: false })).get('connect-src')!;
+  assert.deepEqual(connect, ["'self'", 'https://raw.githubusercontent.com']);
+});
+
 test('no policy allows inline script or eval', () => {
   for (const csp of [appCsp({ microsoft: true }), redirectCsp(), helpCsp()]) {
     const script = directives(csp).get('script-src')!;

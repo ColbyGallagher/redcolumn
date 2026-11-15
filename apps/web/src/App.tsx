@@ -213,6 +213,9 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readP
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
+import { LibraryDialog } from './components/LibraryDialog';
+import { installPack } from './library/install';
+import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
@@ -1175,6 +1178,7 @@ export function App() {
     return () => window.removeEventListener('nb-update-ready', ready);
   }, []);
   const [installOpen, setInstallOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   useEffect(() => {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
@@ -8489,6 +8493,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
+    browseLibrary: () => setLibraryOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
@@ -11472,6 +11477,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
+      {libraryOpen && (
+        <LibraryDialog
+          onInstall={(pack, source) => {
+            const { counts, saved } = installPack(pack, source);
+            const added = describeCounts(counts);
+            if (!saved) setError(`Added ${pack.name}, but this browser would not keep all of it (a private window, or storage is full).`);
+            return added;
+          }}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#community-library`, '_blank', 'noopener')}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
