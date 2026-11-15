@@ -23,6 +23,7 @@
       <nav aria-label="Main">
         <a href="#core">Core features</a>
         <a href="#further">Go further</a>
+        <a href="#revu">Coming from Revu</a>
         <a href="/help/">Help</a>
         <a class="btn small" href="/">Use in web app</a>
       </nav>
@@ -233,6 +234,84 @@
             <li><h3>Smaller, cleaner files</h3><p>Reduce file size, flatten markups, and save as PDF/A.</p></li>
           </ul>
         </div>
+      </section>
+
+      <section id="revu" class="wrap">
+        <h2>Coming from Bluebeam Revu</h2>
+        <p class="sub">Your markups open as they are, and your libraries come across in one step.</p>
+
+        <h3 class="group">Migrate from Revu</h3>
+        <p>In the desktop app, choose <strong>File › Migrate from Revu…</strong>. It finds Revu's settings folder, lists your tool sets, stamps, line styles, hatches, profiles, bookmark templates, Sets categories and keyboard shortcuts, and imports the ones you tick in one click. In the browser, pick the folder yourself. The keyboard shortcuts already follow Revu 21's. <a href="/help/#revu-migration">How it works</a></p>
+
+        <h3 class="group">What works with Revu</h3>
+        <p class="small muted">Tested against files Revu itself produced, by the round-trip suite in the repository. The <a href="https://github.com/ColbyGallagher/redcolumn/blob/master/docs/compatibility.md">full report</a> lists every item that did not come through.</p>
+        <div class="table-scroll">
+          <table class="compat">
+            <thead>
+              <tr><th scope="col">Markups</th><th scope="col">Save to PDF</th><th scope="col">Export .bax</th><th scope="col">XFDF round trip</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Shapes and lines</th><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Measurements</th><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Notes and text</th><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Stamps</th><td>Yes</td><td>Yes</td><td class="muted">Not tested yet</td></tr>
+              <tr><th scope="row">Images</th><td>Yes</td><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Form fields</th><td>Yes</td><td class="muted">Left out, as Revu does</td><td class="muted">Not tested yet</td></tr>
+              <tr><th scope="row">Pop-ups</th><td>Yes</td><td>Yes</td><td class="muted">Not tested yet</td></tr>
+              <tr><th scope="row">File attachments</th><td class="muted">Not tested yet</td><td class="muted">Not tested yet</td><td class="muted">Not tested yet</td></tr>
+            </tbody>
+          </table>
+          <table class="compat">
+            <thead>
+              <tr><th scope="col">Revu settings files</th><th scope="col">Import</th><th scope="col">Export</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Tool sets (.btx)</th><td>Yes, markup tools</td><td>Yes</td></tr>
+              <tr><th scope="row">Line styles (.blx)</th><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Hatches (.bhx)</th><td>Yes</td><td>Yes</td></tr>
+              <tr><th scope="row">Profiles (.bpx)</th><td>Markups list columns only</td><td>Markups list only</td></tr>
+              <tr><th scope="row">Stamps (PDF)</th><td>Yes</td><td class="muted">No</td></tr>
+              <tr><th scope="row">Bookmark templates, Sets categories</th><td>Yes</td><td>Categories</td></tr>
+              <tr><th scope="row">Keyboard shortcuts</th><td>Yes</td><td class="muted">No</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="group">What does not carry over</h3>
+        <ul class="gaps">
+          <li><strong>Tool set items that are not markups:</strong> images, PDF symbols and some stamps inside a tool set are skipped and counted.</li>
+          <li><strong>Profiles:</strong> only the Markups list layout. Toolbars and panel layout stay as they are.</li>
+          <li><strong>Preferences</strong> (units, colours, autosave): set them again in Preferences.</li>
+          <li><strong>Digital IDs:</strong> import your .pfx, or use your smart card or token. They are not in Revu's settings folder.</li>
+          <li><strong>Studio</strong> sessions and projects, Revu's form templates, workflows and batch sequences.</li>
+          <li><strong>Revu commands redcolumn does not have</strong> (3D, scanner, JavaScript console): their shortcuts are listed and left out.</li>
+          <li><strong>Custom hatches drawn in a PDF by Revu:</strong> not checked yet against a Revu-made file.</li>
+        </ul>
+        <p class="small muted">Found a file that does not come through? <a href="https://github.com/ColbyGallagher/redcolumn/issues">Open an issue</a> with the file or a description of it.</p>
+
+        <h3 class="group" id="benchmark">Heavy drawing benchmark</h3>
+        <p>Architectural sets exported from CAD can have hundreds of thousands of separate hatch strokes on one sheet. redcolumn draws those from an optimised copy, checked pixel by pixel against the original, and never changes your file. Here is what that does on a real, public drawing set, so you can repeat it.</p>
+        <dl class="bench-meta">
+          <div><dt>File</dt><dd><a href="https://www.schoolinfrastructure.nsw.gov.au/content/dam/infrastructure/projects/h/hastings-secondary-college/ssd-jan-2022/A2_-_EIS_2_-_Architectural_Documents.pdf">Hastings Secondary College, EIS 2 architectural documents</a> (NSW School Infrastructure; 38 MB, 45 A1 sheets, exported from ArchiCAD)</dd></div>
+          <div><dt>Hardware</dt><dd>Laptop, Intel Core i7-12650H (10 cores), 32 GB RAM, NVMe SSD, Windows 11 Pro</dd></div>
+          <div><dt>Method</dt><dd><code>pnpm bench:render &lt;file&gt;</code> from the repository: PDFium (WebAssembly, the engine the app uses) in Node 24, one thread, each sheet parsed and drawn whole at 2048 px on its long side. Measured 15 November 2026.</dd></div>
+        </dl>
+        <div class="table-scroll">
+          <table class="compat">
+            <thead>
+              <tr><th scope="col">Sheet</th><th scope="col" class="num">Drawing objects</th><th scope="col" class="num">As exported</th><th scope="col" class="num">Optimised copy</th><th scope="col" class="num">Pixels that differ</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">40 (heaviest)</th><td class="num">662,375</td><td class="num">4.2 s</td><td class="num">1.3 s</td><td class="num">0.013%</td></tr>
+              <tr><th scope="row">41</th><td class="num">372,688</td><td class="num">2.7 s</td><td class="num">0.8 s</td><td class="num">0.007%</td></tr>
+              <tr><th scope="row">33</th><td class="num">224,511</td><td class="num">1.6 s</td><td class="num">0.3 s</td><td class="num">0.014%</td></tr>
+              <tr><th scope="row">6</th><td class="num">137,669</td><td class="num">2.0 s</td><td class="num">0.5 s</td><td class="num">0.003%</td></tr>
+              <tr><th scope="row">20</th><td class="num">36,156</td><td class="num">0.9 s</td><td class="num">0.1 s</td><td class="num">0.011%</td></tr>
+              <tr><th scope="row">All 45 sheets</th><td class="num"></td><td class="num">27.2 s</td><td class="num">11.2 s</td><td class="num">at most 0.18%</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">Times are parse plus draw for each sheet. Building the optimised copy took 26.8 s, once, in the background; until it is ready the original is drawn. In the app the sheet is drawn in tiles as you zoom, so these are not time-to-screen figures. Revu has not been timed on the same laptop yet; when it is, the numbers go here with its version and settings. The file is public, so you can time any app on your own machine.</p>
       </section>
 
       <section class="wrap choose">

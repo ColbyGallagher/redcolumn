@@ -26,7 +26,7 @@ export type ThemeId = (typeof THEMES)[number]['id'];
 export type ThemeChoice = 'system' | ThemeId;
 
 /** Theme used for the system's dark and light preferences. */
-const SYSTEM_DARK: ThemeId = 'navy';
+const SYSTEM_DARK: ThemeId = 'graphite';
 const SYSTEM_LIGHT: ThemeId = 'light';
 
 export function resolveTheme(choice: string, systemPrefersDark: boolean): Theme {
