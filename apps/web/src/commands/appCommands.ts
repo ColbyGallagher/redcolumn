@@ -238,7 +238,7 @@ export interface CommandActions {
   toggleBottom: () => void;
   commandPalette: () => void;
   install: () => void;
-  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
+  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'sponsor' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
   manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
@@ -642,6 +642,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...(desktop() ? [] : [cmd('help.install', 'Help', 'Install App…', a.install)]),
     cmd('help.support', 'Help', 'Technical Support', () => a.help('support')),
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
+    cmd('help.sponsor', 'Help', 'Sponsor', () => a.help('sponsor')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),
     cmd('help.logs', 'Help', 'Send Log Files', () => a.help('logs')),
   ].map(applyCommandPolicy);

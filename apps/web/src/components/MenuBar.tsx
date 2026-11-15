@@ -22,7 +22,7 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
 ];
 
 /** Help menu commands also shown as buttons in the top bar. */
-const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest'] as const;
+const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest', 'help.sponsor'] as const;
 
 export type LeftTab =
   | 'files'
@@ -650,6 +650,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             {!desktop() && <Cmd id="help.install" />}
             <Cmd id="help.support" />
             <Cmd id="help.suggest" />
+            <Cmd id="help.sponsor" />
             <Cmd id="help.logs" />
             <Sep />
             <Cmd id="help.whatsNew" />

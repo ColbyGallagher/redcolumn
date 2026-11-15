@@ -194,6 +194,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'help.logs': 'todo',
   'help.suggest': { skip: 'opens an external site' },
   'help.support': { skip: 'opens an external site' },
+  'help.sponsor': { skip: 'opens an external site' },
   'help.updates': 'todo',
   'help.whatsNew': 'todo',
   'takeoff.syncExcel': { spec: 'takeoff-tab' },

@@ -6,6 +6,7 @@ import { appendRecord, describeChanges, recordId, watchMarkups } from '../record
 import { attendeeColor, type Backend, type CollabSession, type ConnectionStatus, type Presence, type SessionUpdate, type StudioSnapshot } from '../types';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { claimSeat, inPool } from './rooms';
+import { sessionJournal, type SessionJournal } from './pending';
 import { secretFragment, sealedJsonBytes, type Identity, type PublicIdentity, type SessionSecret } from '../crypto/keys';
 import { SessionCrypto, type AdmittedSeat, type EncManifest } from '../crypto/sessionCrypto';
 import { appFolderHostKeys, forgetSessionKeys, myIdentity, rememberSessionKeys, sessionKeys, type HostKeyStore } from '../crypto/store';
@@ -56,6 +57,7 @@ const FLUSH_DELAY_MS = 1200;
 const PRESENCE_DELAY_MS = 800;
 /** Transaction origin for state merged in from other attendees' seats. */
 const REMOTE = Symbol('remote');
+const RECOVERED = Symbol('recovered');
 
 interface Manifest {
   v: 1;
@@ -175,6 +177,8 @@ export interface DriveSessionOptions {
   identity?: () => Promise<Identity>;
   /** Where a host keeps its session keys (the host's app folder by default). */
   hostKeys?: HostKeyStore;
+  /** Durable pending changes; injectable for restart/failure tests. */
+  journal?: SessionJournal;
 }
 
 interface Init {
@@ -232,6 +236,8 @@ export class DriveSession implements CollabSession {
   private loaded: Promise<void>;
   private markLoaded!: () => void;
   private destroyed = false;
+  private localWork: Promise<void> = Promise.resolve();
+  private localRevision = 0;
   /** Set for an end-to-end encrypted session. */
   private crypto: SessionCrypto | null;
   /** The session key our room files were last written with: a newer one rewrites them. */
@@ -260,6 +266,9 @@ export class DriveSession implements CollabSession {
       isHost: init.isHost,
       me,
       status: 'connecting',
+      pendingChanges: 0,
+      localSave: 'saved',
+      syncing: false,
       record: [],
       presence: [],
       inviteLink: inviteLink({ backend: this.backend, id: init.folderId }) + (this.crypto ? `#${secretFragment(this.crypto.secret)}` : ''),
@@ -273,7 +282,10 @@ export class DriveSession implements CollabSession {
     rememberSession({ backend: this.backend, id: init.folderId }, init.manifest.name);
     if (this.crypto) rememberSessionKeys(init.folderId, { ...this.crypto.secret, epochs: this.crypto.knownEpochs() });
     if (init.seatId && init.remember) rememberSeat(init.folderId, init.seatId);
-    if (opts.pollMs !== 0) {
+  }
+
+  private startTimers() {
+    if (this.opts.pollMs !== 0) {
       void this.pollLoop();
       this.every(HEARTBEAT_MS, () => void this.pushPresence());
       document.addEventListener('visibilitychange', this.onVisible);
@@ -311,10 +323,13 @@ export class DriveSession implements CollabSession {
     const release = await claimSeat(folderId, seat.id);
     const session = new DriveSession(api, me, { folderId, manifestId: mf.id, manifest, isHost: true, seatId: seat.id, release, remember: true, viewOnly: false, needsAuth: false, crypto }, opts);
     session.manifestVersion = mf.version;
+    try { await session.recoverPending(); }
+    catch (err) { session.destroy(); throw err; }
     // A brand-new folder has nothing to read yet.
     session.synced = true;
     session.markLoaded();
     session.note('session', `started the session “${name}”`);
+    session.startTimers();
     return session;
   }
 
@@ -384,7 +399,10 @@ export class DriveSession implements CollabSession {
     if (crypto) await crypto.learn(manifest.enc, seatId);
     const session = new DriveSession(api, me, { folderId, manifestId: mf.id, manifest, isHost, seatId, release, remember: !shared, viewOnly, needsAuth, crypto }, opts);
     session.manifestVersion = mf.version;
+    try { await session.recoverPending(); }
+    catch (err) { session.destroy(); throw err; }
     await session.poll(files);
+    session.startTimers();
     return session;
   }
 
@@ -463,10 +481,12 @@ export class DriveSession implements CollabSession {
     if (!doc) {
       doc = new Y.Doc();
       doc.on('update', (u: Uint8Array, origin: unknown) => {
-        if (origin === REMOTE) return;
+        this.set({ revision: (this.snap.revision ?? 0) + 1 });
+        if (origin === REMOTE || origin === RECOVERED) return;
         const o = this.outbox(name);
         o.pending.push(u);
         o.own.push(u);
+        void this.saveLocally().catch(() => {});
         this.markDirty();
       });
       this.rooms.set(name, doc);
@@ -481,6 +501,48 @@ export class DriveSession implements CollabSession {
       this.outboxes.set(room, o);
     }
     return o;
+  }
+
+  private journalScope(): string {
+    return JSON.stringify([this.backend, this.folderId, this.seatId]);
+  }
+
+  private pendingCount(): number {
+    return [...this.outboxes.values()].reduce((n, o) => n + o.pending.length, 0);
+  }
+
+  private async recoverPending() {
+    if (!this.seatId) return;
+    const saved = await (this.opts.journal ?? sessionJournal).read(this.journalScope());
+    for (const entry of saved) {
+      const bytes = entry.sealed ? await this.crypto?.openBytes(entry.bytes) : entry.bytes;
+      if (!bytes) throw new Error('Pending session changes could not be recovered with this key. They have been kept on this device.');
+      Y.applyUpdate(this.room(entry.room), bytes, RECOVERED);
+      const o = this.outbox(entry.room);
+      o.pending.push(bytes);
+      o.own.push(bytes);
+    }
+    this.dirty = saved.length > 0;
+    this.set({ pendingChanges: this.pendingCount(), localSave: 'saved' });
+  }
+
+  /** Capture now and serialize transactions, so an older save cannot overwrite a newer edit. */
+  saveLocally(): Promise<void> {
+    if (!this.seatId) return Promise.resolve();
+    const scope = this.journalScope();
+    const revision = ++this.localRevision;
+    const rooms = [...this.outboxes].filter(([, o]) => o.pending.length).map(([room, o]) => ({ room, bytes: Y.mergeUpdates(o.pending) }));
+    this.set({ pendingChanges: this.pendingCount(), localSave: 'saving' });
+    const work = this.localWork.then(async () => {
+      const entries = await Promise.all(rooms.map(async ({ room, bytes }) => ({ room, bytes: this.crypto ? await this.crypto.sealBytes(bytes) : bytes, sealed: !!this.crypto })));
+      await (this.opts.journal ?? sessionJournal).write(scope, entries);
+      if (revision === this.localRevision) this.set({ localSave: 'saved' });
+    }).catch((err: unknown) => {
+      if (revision === this.localRevision) this.set({ localSave: 'error' });
+      throw err;
+    });
+    this.localWork = work.catch(() => {});
+    return work;
   }
 
   private note(kind: RecordEntry['kind'], text: string, extra: Partial<RecordEntry> = {}) {
@@ -749,10 +811,11 @@ export class DriveSession implements CollabSession {
     // Encoded now, synchronously, so a flush started just before leaving still has everything.
     const writes = [...this.outboxes].filter(([, o]) => o.compact || o.pending.length).map(([room, o]) => this.planWrite(room, o));
     const migrating = this.seatV1;
-    this.flushing = inPool(writes, READ_CONCURRENCY, (w) => this.saveRoom(w))
+    this.set({ syncing: true });
+    this.flushing = this.saveLocally().then(() => inPool(writes, READ_CONCURRENCY, (w) => this.saveRoom(w)))
       .then(() => (migrating ? this.finishMigration() : undefined))
       .catch((err: unknown) => this.writeFailed(err))
-      .finally(() => (this.flushing = null));
+      .finally(() => { this.flushing = null; this.set({ syncing: false, pendingChanges: this.pendingCount() }); });
     return this.flushing;
   }
 
@@ -776,6 +839,7 @@ export class DriveSession implements CollabSession {
       // Only this save's edits went up; edits made during the upload follow in the next chunk.
       o.pending.splice(0, taken);
       o.used = slot + 1;
+      await this.saveLocally();
       return;
     }
     o.compact = false;
@@ -784,12 +848,16 @@ export class DriveSession implements CollabSession {
     // The chunks' edits are in the snapshot now. They are left as they are (readers would only have to
     // download them again to learn nothing) and written over as the chunks are used again, from the first.
     o.used = 0;
+    await this.saveLocally();
     const n = o.pending.length;
     if (!n) return;
     // Edits made during the upload go in the first chunk.
-    await this.writeRoomFile(room, o, DELTA, 0, Y.mergeUpdates(o.pending));
+    const next = Y.mergeUpdates(o.pending);
+    await this.saveLocally();
+    await this.writeRoomFile(room, o, DELTA, 0, next);
     o.pending.splice(0, n);
     o.used = 1;
+    await this.saveLocally();
   }
 
   private async writeRoomFile(room: string, o: Outbox, kind: RoomWrite['kind'], slot: number, plain: Uint8Array) {
@@ -1022,6 +1090,7 @@ export class DriveSession implements CollabSession {
     this.note('session', 'ended the session and removed its files');
     if (this.meta.status !== 'finished') await this.update({ status: 'finished' });
     else await this.flush();
+    await this.prepareCloseout();
     // Attendees who read this before the folder goes are told why; the rest find it gone.
     await this.writeManifest({ ended: true });
     await this.api.removeFolder(this.folderId);
@@ -1029,6 +1098,16 @@ export class DriveSession implements CollabSession {
     dropRecentSession(this.folderId);
     forgetSessionKeys(this.folderId);
     this.destroy();
+  }
+
+  async prepareCloseout(): Promise<void> {
+    await this.saveLocally();
+    await this.poll();
+    await this.flush();
+    await this.poll();
+    if (this.pendingCount() || this.snap.localSave !== 'saved' || this.snap.status !== 'online' || this.snap.needsAuth || this.snap.viewOnly || this.snap.denied || this.snap.removed) {
+      throw new Error('This session still has unsynchronised changes or cannot be reached. Reconnect and try again; its files have not been removed.');
+    }
   }
 
   async invite(emails: string[]) {
@@ -1078,6 +1157,7 @@ export class DriveSession implements CollabSession {
   }
 
   retry() {
+    void this.saveLocally().catch(() => {});
     void this.poll();
     void this.flush();
   }
@@ -1115,7 +1195,9 @@ export class DriveSession implements CollabSession {
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisible);
     for (const a of [...this.attached.values()]) a.detach();
     this.listeners.clear();
-    this.releaseSeat?.();
+    const release = this.releaseSeat;
+    // A rejoin must not race an old writer clearing the same durable journal.
+    void (this.flushing ?? Promise.resolve()).then(() => this.localWork).finally(() => release?.());
     this.releaseSeat = null;
   }
 }
