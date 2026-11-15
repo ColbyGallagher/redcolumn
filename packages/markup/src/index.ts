@@ -11,7 +11,8 @@ export { categoriesToXml, parseCategoriesXml, type RevuCategory, type RevuCatego
 export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from './bpx';
 export * from './columns';
 export * from './assemblies';
-export { IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
+export * from './estimating';
+export { AI_LINK, IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, textPadding, translated, withSegment } from './geometry';
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
@@ -19,6 +20,7 @@ export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
+export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
@@ -30,6 +32,7 @@ export {
   flattenBookmarks,
   indentBookmark,
   insertBookmark,
+  nameBookmarksByPage,
   normalizeUrl,
   outdentBookmark,
   remapBookmarks,

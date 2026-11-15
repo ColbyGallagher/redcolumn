@@ -192,7 +192,7 @@ export interface DesktopExcel {
   /** A Save dialog for the workbook; null when cancelled. */
   pick(suggestedName: string): Promise<{ id: string; name: string } | null>;
   /** Replaces the file, or writes the cells into it while it is open in Excel (`live`). */
-  write(id: string, xlsx: Uint8Array, table: (string | number)[][]): Promise<'file' | 'live'>;
+  write(id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[]): Promise<'file' | 'live'>;
   /** Opens the workbook in Excel. */
   open(id: string): Promise<void>;
   show(id: string): Promise<void>;

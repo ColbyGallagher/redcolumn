@@ -1,4 +1,4 @@
-"""The 20-sheet drawing list: numbers, titles and per-sheet title block data."""
+"""The 21-sheet drawing list: numbers, titles and per-sheet title block data."""
 from .titleblock import SAMPLE
 
 PREFIX = "KRU2-MCC-0412-RW-DRG-"
@@ -25,6 +25,7 @@ _ROWS = [
     ("xs3", "000303", "CROSS SECTIONS", "CONTROL LINE MC00 CH 400-550", 3, 5, "1:100", "CROSS SECTIONS CONTROL LINE MC00"),
     ("xs4", "000304", "CROSS SECTIONS", "CONTROL LINE MC00 CH 600-750", 4, 5, "1:100", "CROSS SECTIONS CONTROL LINE MC00"),
     ("xs5", "000305", "CROSS SECTIONS", "CONTROL LINE MC00 CH 800-950", 5, 5, "1:100", "CROSS SECTIONS CONTROL LINE MC00"),
+    ("xs01", "000311", "CROSS SECTIONS", "CONTROL LINE MC01 CH 40-140", 1, 1, "1:100", "CROSS SECTIONS CONTROL LINE MC01"),
 ]
 
 SHEETS = []
@@ -32,7 +33,7 @@ for i, (key, num, t1, t2, sn, st, scale, idx_title) in enumerate(_ROWS, 1):
     SHEETS.append(dict(page=i, key=key, num=num, drg=PREFIX + num, t1=t1, t2=t2, sn=sn, st=st,
                        scale=scale, index_title=idx_title))
 BY_KEY = {s["key"]: s for s in SHEETS}
-assert len(SHEETS) == 20
+assert len(SHEETS) == 21
 
 
 def drg(key):

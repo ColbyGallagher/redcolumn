@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { assembliesFromJson, assembliesToJson, mergeAssemblies, type Assembly, type AssemblyItem, type CustomColumn } from '@nb/markup';
+import { estimatingFromJson, estimatingToJson, listCost, mergeAssemblies, type Assembly, type AssemblyItem, type CustomColumn, type Estimating, type Item } from '@nb/markup';
+import { FormulaBuilder, type FormulaNameGroup } from './FormulaBuilder';
 import { assemblyProblems, MEASURED_NAMES, type ItemQuantity } from '../assemblies/quantities';
 import { loadLibrary, writeLibrary } from '../assemblies/library';
 import { starterGroups } from '../assemblies/starters';
@@ -19,7 +19,11 @@ interface Props {
   preview: ((a: Assembly) => ItemQuantity[]) | null;
   /** What the preview is worked out for, e.g. "Length 24' 6\" on page 3". */
   previewLabel: string;
+  /** The document's catalog items, product lists and templates: items to pick from, and what Export writes with the assemblies. */
+  estimating: Estimating;
   onSave: (list: Assembly[]) => void;
+  /** An imported estimating file's items, product lists and templates, added to the document right away. */
+  onImportEstimating: (incoming: Estimating) => void;
   onExportJson: (json: string) => void;
   /** Opens a help page (by id) in a new window. */
   onHelp?: (page: string) => void;
@@ -51,8 +55,8 @@ function FormulaBox({ value, invalid, label, onFocus, onChange, onExpand }: { va
   return (
     <div className="asm-formula-box">
       <input aria-label={label} className="col-formula" value={value} title={value || undefined} aria-invalid={invalid} spellCheck={false} onFocus={(e) => onFocus(e.currentTarget)} onChange={(e) => onChange(e.target.value)} />
-      <button type="button" className="ms-glyph asm-expand" aria-label={`Expand ${label}`} title="Open in a larger editor" onClick={onExpand}>
-        ⤢
+      <button type="button" className="ms-glyph asm-expand" aria-label={`Formula Builder: ${label}`} title="Formula Builder: pick properties, functions and operators, and see the result" onClick={onExpand}>
+        ƒx
       </button>
     </div>
   );
@@ -146,7 +150,7 @@ function NumberBox({ value, onChange, label, placeholder, width = 70, title }: {
 }
 
 /** Tools › Takeoff › Assemblies: the document's assemblies, edited together and saved as one step. */
-export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem, preview, previewLabel, onSave, onExportJson, onHelp, onClose }: Props) {
+export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem, preview, previewLabel, estimating, onSave, onImportEstimating, onExportJson, onHelp, onClose }: Props) {
   const [list, setList] = useState<Assembly[]>(() => structuredClone([...initial]));
   const [selectedId, setSelectedId] = useState<string | null>(initial[0]?.id ?? null);
   const [message, setMessage] = useState('');
@@ -159,7 +163,18 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const selected = list.find((a) => a.id === selectedId) ?? null;
-  const problems = useMemo(() => new Map(list.map((a) => [a.id, assemblyProblems(a, list, columns)])), [list, columns]);
+  const catalog = estimating.items;
+  const problems = useMemo(
+    () =>
+      new Map(
+        list.map((a) => {
+          const p = assemblyProblems(a, list, columns);
+          for (const i of a.items) if (i.itemId && !catalog.some((c) => c.id === i.itemId) && !p.has(`item:${i.id}`)) p.set(`item:${i.id}`, 'The catalog item it links to is gone: pick another or none');
+          return [a.id, p];
+        }),
+      ),
+    [list, columns, catalog],
+  );
   const valid = [...problems.values()].every((p) => p.size === 0);
   const results = useMemo(() => (selected && preview ? preview(selected) : null), [selected, preview]);
 
@@ -202,10 +217,19 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
 
   const p = selected ? problems.get(selected.id)! : new Map<string, string>();
   const fmt = (n: number | null) => (n === null ? '' : formatNumber(n, 2));
-  /** The names the reference chips insert: measured values, then this assembly's variables and the document's number columns. */
-  const refs = selected
-    ? [...MEASURED_NAMES, ...selected.variables.filter((v) => v.name.trim()).map((v) => ({ name: v.name.trim(), hint: `Variable: ${v.value}` })), ...columns.filter((c) => c.type === 'number' || c.type === 'formula').map((c) => ({ name: c.name, hint: 'Custom column' }))]
+  const varHint = (v: Assembly['variables'][number]) => (v.type === 'boolean' ? `Yes/No switch: ${v.value ? 'Yes' : 'No'} (1 or 0)` : `Variable: ${v.value}${v.unit ? ` ${v.unit}` : ''}`);
+  /** What the Formula Builder's property picker offers: measured values, this assembly's variables and switches, the document's columns. */
+  const groups: FormulaNameGroup[] = selected
+    ? [
+        { label: 'Measured', names: MEASURED_NAMES },
+        { label: 'Variables', names: selected.variables.filter((v) => v.name.trim() && v.type !== 'boolean').map((v) => ({ name: v.name.trim(), hint: varHint(v) })) },
+        { label: 'Yes/No switches', names: selected.variables.filter((v) => v.name.trim() && v.type === 'boolean').map((v) => ({ name: v.name.trim(), hint: varHint(v) })) },
+        { label: 'Columns', names: columns.filter((c) => c.type === 'number' || c.type === 'formula' || c.type === 'checkmark').map((c) => ({ name: c.name, hint: c.type === 'checkmark' ? 'Checkmark column (1 or 0)' : 'Custom column' })) },
+      ]
     : [];
+  /** The names the reference chips insert: measured values, then this assembly's variables and the document's number columns. */
+  const refs = groups.flatMap((g) => g.names);
+  const linked = (item: AssemblyItem): Item | undefined => (item.itemId ? catalog.find((c) => c.id === item.itemId) : undefined);
   const expanded = selected?.items.find((i) => i.id === expandedId) ?? null;
   const roundHint = 'Round the quantity up to a multiple of this instead of a whole number: 10 for pipe sold in 10 ft lengths, 0.5 for half sheets. Leave blank for whole numbers.';
 
@@ -322,7 +346,9 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
 
                 <div className="col-field">
                   <span>Variables</span>
-                  <small className="hint-text">Numbers the formulas use by name, such as a stud spacing or a wall height. Lengths are in the page’s units (feet or metres).</small>
+                  <small className="hint-text">
+                    Numbers the formulas use by name, such as a stud spacing or a wall height, and Yes/No switches (Yes is 1, No is 0). Lengths are in the page’s units (feet or metres). These are the defaults: each measurement can set its own inputs when the assembly is applied.
+                  </small>
                   <table className="asm-table">
                     <tbody>
                       {selected.variables.map((v, i) => (
@@ -331,7 +357,30 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                             <input aria-label="Variable name" value={v.name} aria-invalid={p.has(`var:${i}`)} onChange={(e) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) }))} />
                           </td>
                           <td>
-                            <NumberBox key={`${selected.id}:${i}:${selected.variables.length}`} label="Variable value" value={v.value} width={90} onChange={(n) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, value: n ?? 0 } : x)) }))} />
+                            <select
+                              aria-label="Variable type"
+                              value={v.type === 'boolean' ? 'boolean' : 'number'}
+                              onChange={(e) => {
+                                const yesNo = e.target.value === 'boolean';
+                                patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? (yesNo ? { name: x.name, value: x.value ? 1 : 0, type: 'boolean' as const } : { name: x.name, value: x.value }) : x)) }));
+                              }}
+                            >
+                              <option value="number">Number</option>
+                              <option value="boolean">Yes/No</option>
+                            </select>
+                          </td>
+                          <td>
+                            {v.type === 'boolean' ? (
+                              <select aria-label="Variable value" value={v.value ? '1' : '0'} onChange={(e) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, value: Number(e.target.value) } : x)) }))}>
+                                <option value="1">Yes</option>
+                                <option value="0">No</option>
+                              </select>
+                            ) : (
+                              <NumberBox key={`${selected.id}:${i}:${selected.variables.length}`} label="Variable value" value={v.value} width={90} onChange={(n) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, value: n ?? 0 } : x)) }))} />
+                            )}
+                          </td>
+                          <td>
+                            {v.type !== 'boolean' && <input aria-label="Variable unit" placeholder="unit" value={v.unit ?? ''} style={{ width: 54 }} onChange={(e) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, unit: e.target.value || undefined } : x)) }))} />}
                           </td>
                           <td>
                             <button type="button" className="ms-glyph" aria-label={`Remove variable ${v.name}`} title="Remove" onClick={() => patch((a) => ({ ...a, variables: a.variables.filter((_, j) => j !== i) }))}>
@@ -346,6 +395,9 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   <div>
                     <button type="button" className="btn small" onClick={() => patch((a) => ({ ...a, variables: [...a.variables, { name: `Variable ${a.variables.length + 1}`, value: 1 }] }))}>
                       + Variable
+                    </button>{' '}
+                    <button type="button" className="btn small" onClick={() => patch((a) => ({ ...a, variables: [...a.variables, { name: `Switch ${a.variables.length + 1}`, value: 1, type: 'boolean' }] }))}>
+                      + Yes/No
                     </button>
                   </div>
                 </div>
@@ -367,6 +419,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                     <thead>
                       <tr>
                         <th>Item</th>
+                        <th title="A catalog item (Takeoff › Items) this item takes its name, unit, cost, waste and rounding from">Catalog</th>
                         <th>Quantity formula</th>
                         <th>Unit</th>
                         <th>Waste %</th>
@@ -380,15 +433,38 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                       {selected.items.map((item) => {
                         const r = results?.find((x) => x.item.id === item.id);
                         const err = p.get(`item:${item.id}`);
+                        const from = linked(item);
+                        const fromCost = from ? listCost(from, estimating.productLists).unitCost : undefined;
                         return (
                           <Fragment key={item.id}>
                             <tr>
                               <td>
-                                <input aria-label="Item name" value={item.name} onChange={(e) => patchItem(item.id, { name: e.target.value })} />
+                                <input aria-label="Item name" value={item.name} placeholder={from?.name} onChange={(e) => patchItem(item.id, { name: e.target.value })} />
+                              </td>
+                              <td>
+                                <select
+                                  aria-label={`Catalog item for ${item.name || from?.name || 'item'}`}
+                                  value={item.itemId ?? ''}
+                                  style={{ width: 120 }}
+                                  onChange={(e) => {
+                                    const id = e.target.value;
+                                    // Linking clears the fields the catalog item now supplies, so they follow it.
+                                    if (id) patchItem(item.id, { itemId: id, name: '', unit: '', waste: undefined, unitCost: undefined, roundUp: undefined, roundTo: undefined });
+                                    else patchItem(item.id, { itemId: undefined, name: item.name || from?.name || 'Item', unit: item.unit || from?.unit || '' });
+                                  }}
+                                >
+                                  <option value="">None</option>
+                                  {catalog.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.itemNo ? `${c.itemNo} ${c.name}` : c.name}
+                                    </option>
+                                  ))}
+                                  {item.itemId && !from && <option value={item.itemId}>(deleted item)</option>}
+                                </select>
                               </td>
                               <td className="asm-formula">
                                 <FormulaBox
-                                  label={`Formula for ${item.name}`}
+                                  label={`Formula for ${item.name || from?.name || ''}`}
                                   value={item.formula}
                                   invalid={!!err}
                                   onFocus={(el) => (formulaRef.current = { el, itemId: item.id })}
@@ -397,10 +473,10 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                 />
                               </td>
                               <td>
-                                <input aria-label="Unit" value={item.unit} style={{ width: 64 }} onChange={(e) => patchItem(item.id, { unit: e.target.value })} />
+                                <input aria-label="Unit" value={item.unit} placeholder={from?.unit} style={{ width: 64 }} onChange={(e) => patchItem(item.id, { unit: e.target.value })} />
                               </td>
                               <td>
-                                <NumberBox key={`${item.id}:w`} label="Waste percent" value={item.waste} placeholder="0" width={56} onChange={(n) => patchItem(item.id, { waste: n || undefined })} />
+                                <NumberBox key={`${item.id}:w`} label="Waste percent" value={item.waste} placeholder={from?.waste !== undefined ? String(from.waste) : '0'} width={56} onChange={(n) => patchItem(item.id, { waste: n || undefined })} />
                               </td>
                               <td>
                                 <div className="asm-round">
@@ -411,7 +487,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                 </div>
                               </td>
                               <td>
-                                <NumberBox key={`${item.id}:c`} label="Unit cost" value={item.unitCost} placeholder="—" width={70} onChange={(n) => patchItem(item.id, { unitCost: n })} />
+                                <NumberBox key={`${item.id}:c`} label="Unit cost" value={item.unitCost} placeholder={fromCost !== undefined ? String(fromCost) : '—'} width={70} onChange={(n) => patchItem(item.id, { unitCost: n })} />
                               </td>
                               {results && <td className="num" title={r?.error}>{r?.error ? '⚠' : `${fmt(r?.rounded ?? null)} ${item.unit}`}</td>}
                               <td>
@@ -423,7 +499,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                             {err && (
                               <tr className="asm-error-row">
                                 <td />
-                                <td colSpan={results ? 7 : 6}>
+                                <td colSpan={results ? 8 : 7}>
                                   <em className="col-error">{err}</em>
                                 </td>
                               </tr>
@@ -445,62 +521,30 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
           </div>
         </div>
 
-        {expanded &&
-          createPortal(
-            <div className="modal-backdrop" onMouseDown={(e) => { e.stopPropagation(); setExpandedId(null); }}>
-              <div className="modal asm-formula-dialog" role="dialog" aria-label={`Formula for ${expanded.name}`} onMouseDown={(e) => e.stopPropagation()}>
-                <div className="columns-head">
-                  <h3>Formula: {expanded.name || 'Untitled item'}</h3>
-                </div>
-                <p className="hint-text">The quantity of {expanded.name || 'this item'} for each measurement, in {expanded.unit || 'its unit'}. Click a name to put it in the formula at the cursor.</p>
-                <div className="asm-refs" aria-label="Insert into the formula">
-                  {refs.map((r) => (
-                    <button key={r.name} type="button" className="asm-ref" title={r.hint} onMouseDown={(e) => e.preventDefault()} onClick={() => insertRef(r.name)}>
-                      [{r.name}]
-                    </button>
-                  ))}
-                </div>
-                <textarea
-                  autoFocus
-                  rows={8}
-                  className="col-formula asm-formula-big"
-                  aria-label={`Formula for ${expanded.name}, expanded`}
-                  value={expanded.formula}
-                  readOnly={readOnly}
-                  aria-invalid={p.has(`item:${expanded.id}`)}
-                  spellCheck={false}
-                  onFocus={(e) => (formulaRef.current = { el: e.currentTarget, itemId: expanded.id })}
-                  onChange={(e) => patchItem(expanded.id, { formula: e.target.value })}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      e.stopPropagation();
-                      setExpandedId(null);
-                    }
-                  }}
-                />
-                {p.get(`item:${expanded.id}`) && <em className="col-error">{p.get(`item:${expanded.id}`)}</em>}
-                {results && (() => {
-                  const r = results.find((x) => x.item.id === expanded.id);
-                  return <p className="hint-text">{r?.error ? `For ${previewLabel}: ${r.error}` : `For ${previewLabel}: ${fmt(r?.rounded ?? null)} ${expanded.unit}`}</p>;
-                })()}
-                <FormulaSyntax onHelp={onHelp} />
-                <div className="actions columns-actions">
-                  <span className="grow" />
-                  <button type="button" className="btn primary" onClick={() => setExpandedId(null)}>
-                    Done
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )}
+        {expanded && (
+          <FormulaBuilder
+            item={expanded.name || linked(expanded)?.name || ''}
+            unit={expanded.unit || linked(expanded)?.unit || ''}
+            formula={expanded.formula}
+            groups={groups}
+            problem={p.get(`item:${expanded.id}`)}
+            result={(() => {
+              const r = results?.find((x) => x.item.id === expanded.id);
+              return r ? { rounded: r.rounded, base: r.base, ...(r.error ? { error: r.error } : {}) } : null;
+            })()}
+            resultLabel={previewLabel}
+            readOnly={readOnly}
+            onChange={(formula) => patchItem(expanded.id, { formula })}
+            onClose={() => setExpandedId(null)}
+          />
+        )}
 
         {message && <p className="columns-message">{message}</p>}
         <div className="actions columns-actions">
-          <button type="button" className="btn small" disabled={readOnly} onClick={() => importRef.current?.click()} title="Add assemblies from a file exported from another document">
+          <button type="button" className="btn small" disabled={readOnly} onClick={() => importRef.current?.click()} title="Add assemblies, items, product lists and templates from an estimating file (or an older assemblies file)">
             Import…
           </button>
-          <button type="button" className="btn small" disabled={!list.length} onClick={() => onExportJson(assembliesToJson(list))} title="Save these assemblies as a file to share">
+          <button type="button" className="btn small" disabled={!list.length && !estimating.items.length && !estimating.productLists.length && !estimating.templates.length} onClick={() => onExportJson(estimatingToJson({ assemblies: list, ...estimating }))} title="Save these assemblies, with the document's items, product lists and templates, as a file to share company-wide">
             Export
           </button>
           <button type="button" className="btn small" disabled={!selected || (selected && problems.get(selected.id)!.size > 0)} onClick={() => selected && saveToLibrary(selected)} title="Keep a copy in this browser, for any document">
@@ -532,11 +576,15 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
             e.target.value = '';
             if (!f) return;
             try {
-              const incoming = assembliesFromJson(await f.text());
+              const file = estimatingFromJson(await f.text());
+              const incoming = file.assemblies;
               const next = mergeAssemblies(list, incoming);
               setList(next);
               setSelectedId(incoming[0] ? (next.find((a) => a.name === incoming[0]!.name)?.id ?? selectedId) : selectedId);
-              setMessage(`Imported ${incoming.length} assembl${incoming.length === 1 ? 'y' : 'ies'} from ${f.name} (ones with the same name were replaced). Save to apply.`);
+              const extras = file.items.length + file.productLists.length + file.templates.length;
+              if (extras) onImportEstimating({ items: file.items, productLists: file.productLists, templates: file.templates });
+              const also = extras ? ` and ${file.items.length} item${file.items.length === 1 ? '' : 's'}, ${file.productLists.length} product list${file.productLists.length === 1 ? '' : 's'} and ${file.templates.length} template${file.templates.length === 1 ? '' : 's'} (added to the document now)` : '';
+              setMessage(`Imported ${incoming.length} assembl${incoming.length === 1 ? 'y' : 'ies'}${also} from ${f.name} (ones with the same name were replaced). Save to apply the assemblies.`);
             } catch (err) {
               setMessage(err instanceof Error ? err.message : String(err));
             }

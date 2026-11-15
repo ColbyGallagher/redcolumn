@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { COLUMN_TYPES, columnsFromXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
+import { COLUMN_TYPES, importColumnsXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { FUNCTION_NAMES, parseFormula } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, listColumns, newColumnName, resolveLayout, type CellContext } from '../columns/listColumns';
 import type { MarkupListSettings } from '../workspace/profiles';
@@ -156,11 +156,11 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
     });
   };
 
-  const load = (set: ColumnSet, how: string) => {
+  const load = (set: { columns: CustomColumn[]; statuses?: MarkupStatusDef[] }, how: string) => {
     setColumns(set.columns);
-    setStatuses(set.statuses);
+    if (set.statuses) setStatuses(set.statuses);
     setSelectedId(set.columns[0]?.id ?? null);
-    setMessage(`${how}: ${set.columns.length} column(s), ${set.statuses.length} status(es). Save to apply.`);
+    setMessage(`${how}: ${set.columns.length} column(s), ${(set.statuses ?? statuses).length - 1} status(es). Save to apply.`);
   };
 
   const refsFor = selected ? [...BUILT_IN_COLUMNS.filter((b) => b.key !== 'color').map((b) => b.label), ...columns.filter((c) => c.id !== selected.id).map((c) => c.name)] : [];
@@ -577,7 +577,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
             e.target.value = '';
             if (!f) return;
             try {
-              load(columnsFromXml(await f.text()), `Imported ${f.name}`);
+              load(importColumnsXml(await f.text()), `Imported ${f.name}`);
             } catch (err) {
               setMessage(err instanceof Error ? err.message : String(err));
             }

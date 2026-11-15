@@ -25,7 +25,7 @@ TOOL_LABELS = {
     'hyperlink': 'Hyperlink', 'attachment': 'File Attachment', 'pan': 'Pan', 'zoomBox': 'Zoom',
     'dynamicZoom': 'Dynamic Zoom',
 }
-GROUPS = [('File', 'file.'), ('Edit', 'edit.'), ('View', 'view.'), ('Document', 'document.'), ('Tools', 'tool'), ('Window', 'window.'), ('Help', 'help.')]
+GROUPS = [('File', 'file.'), ('Edit', 'edit.'), ('View', 'view.'), ('Document', 'document.'), ('Tools', ('tool', 'draw.')), ('Window', 'window.'), ('Help', 'help.')]
 
 
 def keycap(combo):

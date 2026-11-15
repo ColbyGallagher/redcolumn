@@ -4,10 +4,11 @@
 // so page points and screen pixels are the same.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { METERS_PER_UNIT, measureValue, pathLengthArcs } from '@nb/measure';
+import { METERS_PER_UNIT, measureValue, pathLengthArcs, polygonAreaArcs } from '@nb/measure';
 import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
+import { frameRect, groupFrame, groupHandles } from './groupBox';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
@@ -62,6 +63,7 @@ async function setup(extra: Partial<MarkupToolsOptions> = {}) {
     onFollowLink() {},
     onCreated: (m) => created.push(m),
     defaultStamp: () => DEFAULT_STAMPS[0]!,
+    manualQuantity: () => ({ manual: { kind: 'area', value: 24 } }),
     stampValues: () => ({ file: 'A-101.pdf', page: '1' }),
     ...extra,
   });
@@ -409,6 +411,50 @@ test('select, move and delete a drawn markup', async () => {
   await h.store.destroy();
 });
 
+test('Shift-dragging a markup moves it along one axis only', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  drag(h.tools, [100, 250], [160, 270], { shiftKey: true });
+  assert.deepEqual(h.store.get(m!.id)?.points, [[160, 200], [320, 300]], 'horizontal only');
+  assert.deepEqual(h.tools.getState().selected, new Set([m!.id]), 'still selected');
+  drag(h.tools, [200, 200], [210, 260], { shiftKey: true });
+  assert.deepEqual(h.store.get(m!.id)?.points, [[160, 260], [320, 360]], 'vertical only');
+  await h.store.destroy();
+});
+
+test('Shift-clicking a selected markup still deselects it', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  h.tools.select([m!.id]);
+  press(h.tools, [100, 220], { shiftKey: true });
+  release(h.tools, [100, 220], { shiftKey: true });
+  assert.equal(h.tools.getState().selected.size, 0);
+  await h.store.destroy();
+});
+
+test('Ctrl-dragging a markup leaves it and drops a copy; with Shift the copy is axis-locked', async () => {
+  const h = await setup();
+  await drawWith(h, 'rect');
+  const [m] = h.store.all();
+  h.tools.setTool('select');
+  drag(h.tools, [100, 250], [150, 270], { ctrlKey: true });
+  assert.equal(h.store.all().length, 2, 'copy made');
+  assert.deepEqual(h.store.get(m!.id)?.points, [[100, 200], [260, 300]], 'original stays');
+  const copy = h.store.all().find((x) => x.id !== m!.id)!;
+  assert.deepEqual(copy.points, [[150, 220], [310, 320]], 'copy at the drop point');
+  assert.deepEqual(h.tools.getState().selected, new Set([copy.id]), 'copy selected');
+  drag(h.tools, [150, 240], [210, 260], { ctrlKey: true, shiftKey: true });
+  assert.equal(h.store.all().length, 3);
+  const third = h.store.all().find((x) => x.id !== m!.id && x.id !== copy.id)!;
+  assert.deepEqual(third.points, [[210, 220], [370, 320]], 'copy moved horizontally only');
+  assert.deepEqual(h.store.get(copy.id)?.points, [[150, 220], [310, 320]], 'source copy stays');
+  await h.store.destroy();
+});
+
 test('nudgeSelected moves points and holes as one undo step and skips locked markups', async () => {
   const h = await setup();
   await drawWith(h, 'rect');
@@ -514,6 +560,53 @@ test('copy and paste makes a new markup; group moves together; lock stops edits'
   assert.equal(h.store.get(pasted.id)?.locked, true);
   h.tools.deleteSelected();
   assert.ok(h.store.get(pasted.id), 'a locked markup is not deleted');
+  await h.store.destroy();
+});
+
+test('a group selects whole with one box that scales and turns it; a second click picks one member', async () => {
+  const h = await setup();
+  h.tools.setTool('rect');
+  drag(h.tools, [100, 100], [200, 150]);
+  drag(h.tools, [300, 200], [400, 300]);
+  const [a, b] = h.store.all();
+  h.tools.select([a!.id, b!.id]);
+  h.tools.group();
+  h.tools.select([]);
+  h.tools.setTool('select');
+  const members = () => [h.store.get(a!.id)!, h.store.get(b!.id)!];
+
+  // A click on one member selects the whole group; a second click picks just that member.
+  click(h.tools, [100, 125]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id, b!.id]), 'the group');
+  click(h.tools, [100, 125]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id]), 'the member');
+  // The group's dashed box selects it whole again.
+  const box = frameRect(groupFrame(members(), 0));
+  click(h.tools, [box.x + box.w / 2, box.y]);
+  assert.deepEqual(h.tools.getState().selected, new Set([a!.id, b!.id]), 'the group again');
+
+  // The corner handle scales every member evenly about the opposite corner.
+  const [ax, ay] = h.store.get(a!.id)!.points[0]!;
+  drag(h.tools, [box.x + box.w, box.y + box.h], [box.x + box.w * 2, box.y + box.h * 2]);
+  const [sx, sy] = h.store.get(a!.id)!.points[0]!;
+  assert.ok(Math.abs(sx - (box.x + (ax - box.x) * 2)) < 1e-6 && Math.abs(sy - (box.y + (ay - box.y) * 2)) < 1e-6, 'scaled about the far corner');
+  const [b0, b1] = h.store.get(b!.id)!.points;
+  assert.ok(Math.abs(b1![0] - b0![0] - 200) < 1e-6, 'the other member grew with it');
+  h.store.undo();
+  assert.deepEqual(h.store.get(a!.id)!.points[0], [ax, ay], 'one undo step');
+
+  // The knob above the box turns every member about its middle.
+  const now = frameRect(groupFrame(members(), 0));
+  drag(h.tools, [now.x + now.w / 2, now.y - 22], [now.x + now.w * 3, now.y + now.h / 2]);
+  for (const m of members()) assert.ok(Math.abs((m.rotation ?? 0) - 90) < 0.2, `turned a quarter, got ${m.rotation}`);
+  // The box turned with the group, so its knob now sits to the right of the middle and follows the pointer.
+  const f = groupFrame(members(), 90);
+  assert.equal(f.angle, 90);
+  const knob = groupHandles(f, 1).find((x) => x.id === 'rotate')!.at;
+  assert.ok(knob[0] > f.c[0] + f.h / 2 && Math.abs(knob[1] - f.c[1]) < 1e-6, 'knob out to the right');
+  // Dragging it to the lower right turns the group on to 135°, snapping to a 15° step with Shift.
+  drag(h.tools, knob, [f.c[0] + 100, f.c[1] + 90], { shiftKey: true });
+  for (const m of members()) assert.ok(Math.abs((m.rotation ?? 0) - 135) < 0.2, `snapped to 135, got ${m.rotation}`);
   await h.store.destroy();
 });
 
@@ -1663,6 +1756,158 @@ test('an area curves a segment with Ctrl+drag and leaves the closing segment str
   assert.equal(m.bulges!.slice(1).every((b) => b === 0), true);
 });
 
+// Arc (3-point): armed, the next click is a point on the curve and the one after it the arc's end.
+const onCircle = (c: Point, r: number, degrees: number): Point => [c[0] + r * Math.cos((degrees * Math.PI) / 180), c[1] + r * Math.sin((degrees * Math.PI) / 180)];
+
+test('a 3-point arc through three points on a circle measures θ·r, and drawing goes straight again', async () => {
+  const h = await polylengthHarness();
+  const c: Point = [300, 400];
+  const r = 100;
+  click(h.tools, onCircle(c, r, 0));
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  // Any point along the arc will do, not only its middle.
+  click(h.tools, onCircle(c, r, 40));
+  assert.equal(h.tools.getState().arc, 'awaitEnd');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 1, 'the point on the curve is not a vertex');
+  click(h.tools, onCircle(c, r, 120));
+  assert.equal(h.tools.getState().arc, 'off', 'one arc per toggle');
+  const end = onCircle(c, r, 120);
+  click(h.tools, [end[0] - 100, end[1]]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 3);
+  assert.equal(m.bulges!.length, 2);
+  assert.equal(m.bulges![1], 0, 'the click after the arc is straight');
+  const arc = pathLengthArcs(m.points.slice(0, 2), m.bulges!.slice(0, 1));
+  const expected = ((2 * Math.PI) / 3) * r;
+  assert.ok(Math.abs(arc - expected) / expected < 1e-6, `${arc} vs ${expected}`);
+  assert.ok(Math.abs(pathLengthArcs(m.points, m.bulges) - (expected + 100)) / (expected + 100) < 1e-6);
+});
+
+test('a 3-point arc armed before the first vertex bends the segment after it', async () => {
+  const h = await polylengthHarness();
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'awaitMid');
+  click(h.tools, [100, 300]);
+  assert.equal(h.tools.getState().arc, 'awaitMid', 'the first click is the arc start');
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 2);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, 'a half circle');
+});
+
+test('an area with one 3-point arc edge has the polygon area plus the circular segment', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  click(h.tools, [100, 100]);
+  click(h.tools, [300, 100]);
+  h.tools.toggleArc();
+  // The right side bulges out in a half circle of radius 100 about (300, 200).
+  click(h.tools, [400, 200]);
+  click(h.tools, [300, 300]);
+  click(h.tools, [100, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.filter(Boolean).length, 1);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  const area = polygonAreaArcs(m.points, m.bulges);
+  assert.ok(Math.abs(area - expected) / expected < 1e-6, `${area} vs ${expected}`);
+});
+
+test('a 3-point arc ended on the first vertex closes the area along the arc', async () => {
+  const h = await setup();
+  h.tools.setTool('area');
+  for (const p of [[100, 100], [300, 100], [300, 300], [100, 300]] as Point[]) click(h.tools, p);
+  h.tools.toggleArc();
+  // The left side bulges out in a half circle about (100, 200), and the end click closes the shape.
+  click(h.tools, [0, 200]);
+  click(h.tools, [100, 100]);
+  assert.equal(h.tools.getState().measuring, false, 'the closing click finished it');
+  const m = h.store.all().find((s) => s.type === 'area')!;
+  assert.equal(m.points.length, 4);
+  assert.equal(m.bulges!.length, 4, 'the closing segment has a bulge');
+  assert.ok(Math.abs(Math.abs(m.bulges![3]!) - 1) < 1e-9);
+  const expected = 200 * 200 + (Math.PI * 100 * 100) / 2;
+  assert.ok(Math.abs(polygonAreaArcs(m.points, m.bulges) - expected) / expected < 1e-6);
+});
+
+test('Escape drops a pending 3-point arc and drawing carries on', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().measuring, true, 'still drawing');
+  click(h.tools, [200, 300]);
+  h.tools.cancel();
+  assert.equal(h.tools.getState().measuring, false, 'a second Escape drops the drawing as before');
+  assert.equal(h.store.all().length, 0);
+  // Escape with the arc armed before any vertex disarms it, keeping the tool.
+  h.tools.toggleArc();
+  h.tools.cancel();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.getState().tool, 'polylength');
+});
+
+test('Backspace drops a pending 3-point arc first, then removes points and their bulges', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 250]);
+  click(h.tools, [200, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [250, 350]);
+  h.tools.removeLastPoint();
+  assert.equal(h.tools.getState().arc, 'off');
+  const g = (h.tools as unknown as { gesture: { markup: Markup } }).gesture;
+  assert.equal(g.markup.points.length, 2, 'only the pending arc went');
+  h.tools.removeLastPoint();
+  assert.equal(g.markup.points.length, 1);
+  assert.equal(g.markup.bulges, undefined, 'the arc went with its point');
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+});
+
+test('a 3-point arc through nearly collinear points is straight, and only curving measurements arm one', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [100, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [150, 300.2]);
+  click(h.tools, [200, 300]);
+  h.tools.finish();
+  assert.equal(h.store.all()[0]!.bulges, undefined);
+  h.tools.setTool('line');
+  h.tools.toggleArc();
+  assert.equal(h.tools.getState().arc, 'off');
+  assert.equal(h.tools.canArc(), false);
+});
+
+test('Ctrl+drag still curves a segment alongside a 3-point arc', async () => {
+  const h = await polylengthHarness();
+  click(h.tools, [50, 300]);
+  h.tools.toggleArc();
+  click(h.tools, [100, 250]);
+  click(h.tools, [150, 300]);
+  drag(h.tools, [250, 300], [200, 350], { ctrlKey: true });
+  click(h.tools, [350, 300]);
+  h.tools.finish();
+  const m = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(m.points.length, 4);
+  assert.ok(Math.abs(Math.abs(m.bulges![0]!) - 1) < 1e-9, '3-point arc');
+  assert.ok(Math.abs(Math.abs(m.bulges![1]!) - 1) < 1e-9, 'Ctrl+drag');
+  assert.equal(m.bulges![2], 0);
+  // Half circles of radius 2.5 m each, then 5 m.
+  const metres = measureValue('polylength', m.points, 0.05, { bulges: m.bulges });
+  assert.ok(Math.abs(metres - (2 * Math.PI * 2.5 + 5)) < 1e-6, `${metres}`);
+});
+
 test('selected measurements: Ctrl-click smooths then corners a vertex; the ends of a path are left alone', async () => {
   const h = await setup();
   const line = put(h, 'polylength', [[0, 0], [100, 40], [200, 0]]);
@@ -1739,6 +1984,25 @@ test('Ctrl-click on a vertex of a shape that cannot curve does nothing; Convert 
   assert.equal(h.store.get(area.id)!.bulges, undefined);
 });
 
+test('a slope on the running measure tool or its preset goes on the next measurements (Hip, Valley, Takeoff › Slope)', async () => {
+  const h = await setup();
+  h.store.setScale([0], { metersPerPoint: 0.05, unit: 'm', label: '1:100' } as Parameters<typeof h.store.setScale>[1]);
+  h.tools.setTool('polylength', { subject: 'Hip', slope: { kind: 'hip', a: { kind: 'pitch', value: 6 } } });
+  click(h.tools, [50, 300]);
+  click(h.tools, [150, 300]);
+  h.tools.finish();
+  const hip = h.store.all().find((s) => s.type === 'polylength')!;
+  assert.equal(hip.subject, 'Hip');
+  assert.deepEqual(hip.slope, { kind: 'hip', a: { kind: 'pitch', value: 6 } });
+
+  h.tools.setTool('length');
+  h.tools.setToolFields({ slope: { kind: 'pitch', value: 6 } });
+  click(h.tools, [50, 400]);
+  click(h.tools, [150, 400]);
+  assert.deepEqual(h.store.all().find((s) => s.type === 'length')!.slope, { kind: 'pitch', value: 6 });
+  assert.equal(h.tools.getState().tool, 'length', 'the command carries on');
+});
+
 test('Subject, Label and Layer edited on the running tool go on the next markups without leaving the tool', async () => {
   const h = await setup();
   h.tools.setTool('rect', { id: 'chest-1', style: h.tools.getState().styles.rect, subject: 'Original', layer: 'Base' });
@@ -1762,4 +2026,23 @@ test('Subject, Label and Layer edited on the running tool go on the next markups
   h.tools.setTool('rect');
   drag(h.tools, [100, 300], [160, 360]);
   assert.equal(h.created.at(-1)!.subject, undefined);
+});
+
+test('restyling a selected markup leaves the tool default alone; with nothing selected it sets it', async () => {
+  const h = await setup();
+  h.tools.setTool('line');
+  const before = h.tools.getState().styles.line;
+  drag(h.tools, [100, 100], [300, 100]);
+  const line = h.store.all().find((m) => m.type === 'line')!;
+  h.tools.select([line.id]);
+  h.tools.setStyle('line', { width: 1.5, dash: 'dashed' });
+  assert.equal(h.store.get(line.id)!.style.width, 1.5);
+  assert.equal(h.store.get(line.id)!.style.dash, 'dashed');
+  assert.deepEqual(h.tools.getState().styles.line, before, 'the default is unchanged');
+  h.tools.select([]);
+  h.tools.setStyle('line', { width: 4 });
+  assert.equal(h.tools.getState().styles.line.width, 4, 'with nothing selected the toolbar sets the default');
+  h.tools.setDefaultStyle('line', { ...h.store.get(line.id)!.style });
+  assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
+  await h.store.destroy();
 });

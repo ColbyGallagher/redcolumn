@@ -26,6 +26,9 @@ export const ASSISTANT_METHODS = [
   'list_assemblies',
   'propose_takeoff',
   'list_takeoff_proposals',
+  'find_symbol_matches',
+  'propose_counts',
+  'list_count_proposals',
   'start_comparison',
   'get_comparison',
   'report_document_changes',
@@ -43,6 +46,10 @@ export const ASSISTANT_METHODS = [
   'set_viewport_scale',
   'get_sheet_info',
   'propose_page_scale',
+  'get_drawing_standard',
+  'list_sheet_links',
+  'propose_sheet_links',
+  'propose_standard_hints',
 ] as const;
 
 export type AssistantMethod = (typeof ASSISTANT_METHODS)[number];
@@ -451,6 +458,63 @@ const TOOLS: ToolDef[] = [
     annotations: READS,
   },
   {
+    name: 'find_symbol_matches',
+    title: 'Find repeats of a symbol',
+    description:
+      "Finds repeats of an example symbol on one or more pages, using redcolumn's own symbol search (line work, or pixels on a scanned sheet). Give the example as the id of a markup drawn around the symbol, or as a rectangle. Returns matches with a matchId, page, bbox (PDF points) and score. The example itself is among them. It changes nothing: check the matches (get_page_image), then stage the right ones with propose_counts.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        page: { type: 'integer', description: 'Page to search (1-based). Default: the page of the example.' },
+        pages: { type: 'array', items: { type: 'integer' }, description: 'Pages to search, instead of page.' },
+        example: {
+          type: 'object',
+          description: 'The symbol to look for: { markupId } of a markup drawn around it, or { rect: { page, x, y, w, h } } in PDF points.',
+          properties: {
+            markupId: { type: 'string' },
+            rect: { type: 'object', properties: { page: { type: 'integer' }, x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+          },
+        },
+        rotations: { type: 'boolean', description: 'Also find the symbol turned (any angle on line work; quarter turns on scans).' },
+        scales: { type: 'boolean', description: 'Also find copies drawn half to twice the size (line work only).' },
+        minScore: { type: 'number', description: 'Least score, above 0 and at most 1. Default 0.9 on line work, 0.75 on scans.' },
+        limit: { type: 'integer', description: 'Most matches returned. Default 200, at most 1000.' },
+      },
+      required: ['example'],
+    },
+    annotations: READS,
+  },
+  {
+    name: 'propose_counts',
+    title: 'Propose a count',
+    description:
+      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Takeoff Review, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
+        subject: { type: 'string', description: 'What is counted, such as "Smoke detector".' },
+        reasoning: { type: 'string', description: 'Why these matches are that symbol, for the person checking them.' },
+        matches: {
+          type: 'array',
+          description: 'matchIds, or items { page (1-based), bbox: { x, y, w, h } }. Up to 2000.',
+          items: { anyOf: [{ type: 'string' }, { type: 'object', properties: { page: { type: 'integer' }, bbox: { type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] } }, required: ['page', 'bbox'] }] },
+        },
+      },
+      required: ['matches', 'subject', 'reasoning'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'list_count_proposals',
+    title: 'List count proposals',
+    description: 'Lists count proposals on a drawing and where each stands: pending, approved (and by whom) or rejected.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
     name: 'start_comparison',
     title: 'Start a document comparison',
     description:
@@ -771,6 +835,94 @@ const TOOLS: ToolDef[] = [
         reasoning: { type: 'string', description: 'Where on the sheet you read it, for the person checking it.' },
       },
       required: ['page', 'scale', 'reasoning'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'get_drawing_standard',
+    title: 'Get the drawing standard',
+    description:
+      "A drawing standard is how one client draws: where its title block keeps each field, the words its section, elevation and match-line titles use, how it writes chainages and names alignments, and the marks (callout bubbles) a person taught. This returns the standard, with the boxes the person drew in the setup as examples (each with the text read in it), and how each setup step did (band good, review or ai; references found and linked; links checked and wrong; marks found by shape but not read; chainages whose alignment is unclear). Steps in band ai or review are the ones to finish: read the sheets with get_page_text and get_page_image, compare with the examples, and propose links with propose_sheet_links and words with propose_standard_hints. Without standard, the one the document is read with.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        standard: { type: 'string', description: 'Standard name or id. The one the document is read with when omitted.' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'list_sheet_links',
+    title: 'List sheet links',
+    description:
+      "The cross-references found in a set (callouts to details, sections and elevations, sheet references, match lines, chainages): where each is (page, rect), what it reads, the page it goes to, its confidence and why, its status (auto: kept; review: waiting for a person; accepted; rejected) and source (text, taught mark, pdf, ai). Filter by kind, status or page. Use it to see which references were missed or doubtful before proposing links.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        kind: { type: 'string', enum: ['detail', 'section', 'elevation', 'enlargedPlan', 'sheet', 'matchline', 'chainage'] },
+        status: { type: 'string', enum: ['auto', 'review', 'accepted', 'rejected'] },
+        page: { type: 'integer', description: '1-based page the links are on.' },
+        offset: { type: 'integer', description: 'Skip this many (for the next part of a long list).' },
+        limit: { type: 'integer', description: 'At most this many, 1 to 500 (100 when omitted).' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'propose_sheet_links',
+    title: 'Propose sheet links',
+    description:
+      "Proposes cross-references the text and shape search missed or got wrong: a callout's place on its page and the page it goes to. Nothing is linked yet: each waits in the Links panel under Needs review, marked as from AI with your reasoning, until a person keeps it. Proposing the same place again updates it. Rects are in PDF points from the top-left of the page. All links are checked first; one bad item means none is added.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        links: {
+          type: 'array',
+          maxItems: 200,
+          items: {
+            type: 'object',
+            properties: {
+              page: { type: 'integer', description: '1-based page the callout is on.' },
+              rect: { type: 'object', description: 'The callout, in PDF points: {x, y, w, h}.', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+              label: { type: 'string', description: 'The callout as it reads: 3/C-501, A/000031, CH 100, MATCH LINE 000032.' },
+              kind: { type: 'string', enum: ['detail', 'section', 'elevation', 'enlargedPlan', 'sheet', 'matchline', 'chainage'] },
+              detail: { type: 'string', description: 'The detail, section or elevation identifier (3, A, E1), when the label has one.' },
+              targetPage: { type: 'integer', description: '1-based page it goes to.' },
+              targetRect: { type: 'object', description: 'Where on the target page it goes (the detail or section), in PDF points. The whole sheet when omitted.', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+              reasoning: { type: 'string', description: 'How you read it, for the person checking it.' },
+            },
+            required: ['page', 'rect', 'label', 'kind', 'targetPage', 'reasoning'],
+          },
+        },
+      },
+      required: ['links'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'propose_standard_hints',
+    title: 'Propose drawing standard words',
+    description:
+      "Proposes words the drawing standard should learn, so text search finds more on this set and the next: section, elevation and match-line title words, chainage prefixes, alignment names and their form (MC## with # a digit, @ a letter), and the title words of plan and cross-section sheets. Words are only ever added. Nothing changes yet: the proposal waits in Set Up Drawing Standard's Review step, with your reasoning, until a person accepts it.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        standard: { type: 'string', description: 'Standard name or id. The one the document is read with when omitted.' },
+        sectionWords: { type: 'array', items: { type: 'string' } },
+        elevationWords: { type: 'array', items: { type: 'string' } },
+        matchLineWords: { type: 'array', items: { type: 'string' } },
+        chainagePrefixes: { type: 'array', items: { type: 'string' } },
+        alignments: { type: 'array', items: { type: 'string' } },
+        alignmentTemplate: { type: 'string' },
+        planTitles: { type: 'array', items: { type: 'string' } },
+        sectionTitles: { type: 'array', items: { type: 'string' } },
+        reasoning: { type: 'string', description: 'What you saw on the sheets, for the person deciding.' },
+      },
+      required: ['reasoning'],
     },
     annotations: ADDS,
   },

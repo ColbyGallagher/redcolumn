@@ -12,3 +12,7 @@ Take out areas you don't want counted, like a stair void, a lift shaft or a cour
    ![An area with a cutout](img/measure-cutout.png)
 
 The area shown is now the outer area minus the hole. Add as many cutouts as you need.
+
+## From the ribbon
+
+Select the area (or volume), then click **Cutout** on the **Takeoff** tab ([The Takeoff tab](#takeoff-tab)). It is greyed out until exactly one unlocked area or volume you may edit is selected, and its tooltip says what is missing. The Measurements panel's **Polygon Cutout** also needs the area selected first; without one it tells you to select it.

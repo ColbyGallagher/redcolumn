@@ -11,7 +11,7 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
-import { checkTable, loadExcelLinks, writeWorkbook } from './excel';
+import { checkSheets, checkTable, loadExcelLinks, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -261,7 +261,7 @@ async function start() {
       await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
       return { id, name: path.basename(filePath) };
     });
-    handle('excel:write', (id, xlsx, table) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table)));
+    handle('excel:write', (id, xlsx, table, extra) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra)));
     handle('excel:open', async (id) => {
       const failed = await shell.openPath(excel.path(id));
       if (failed) throw new Error(failed);

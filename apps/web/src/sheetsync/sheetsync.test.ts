@@ -109,3 +109,22 @@ test('LocalExcelTarget stops retrying a workbook the desktop app no longer knows
   };
   await assert.rejects(new LocalExcelTarget('xl-1', excel).push([['A']]), (err: Error) => err instanceof SyncStoppedError);
 });
+
+test('LocalExcelTarget sends further sheets in the workbook and beside the table', async () => {
+  const sent: { size: number; extra: unknown }[] = [];
+  const excel = {
+    pick: async () => null,
+    write: async (_id: string, xlsx: Uint8Array, _table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[]) => {
+      sent.push({ size: xlsx.byteLength, extra });
+      return 'file' as const;
+    },
+    open: async () => undefined,
+    show: async () => undefined,
+  };
+  const target = new LocalExcelTarget('xl-1', excel);
+  await target.push([['A']]);
+  await target.push([['A']], [{ name: 'Quantities', table: [['Item'], ['Stud']] }]);
+  assert.equal(sent[0]!.extra, undefined);
+  assert.deepEqual(sent[1]!.extra, [{ name: 'Quantities', table: [['Item'], ['Stud']] }]);
+  assert.ok(sent[1]!.size > sent[0]!.size);
+});

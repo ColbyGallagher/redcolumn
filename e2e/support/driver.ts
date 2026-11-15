@@ -231,6 +231,27 @@ export function driver(page: Page) {
     // Scales.
     /** Calibrates from the plan's 10'-0" bar (100 pt), for every page. */
     async calibrate(feet = PLAN.calibration.feet) {
+      // With the ribbon and the desktop app's side and bottom panels, a fit can leave the bar under
+      // the page navigation bar: zoom to the bar first, and fit again once the scale is set.
+      const { from, to } = PLAN.calibration;
+      const covered = await page.evaluate(
+        ([a, b]) => {
+          const v = window.__nb.viewer;
+          return [a, b].some((p) => {
+            const [x, y] = v.pageToClient(p, v.currentPageIndex);
+            return !document.elementFromPoint(x, y)?.closest('.stage');
+          });
+        },
+        [from, to] as const,
+      );
+      if (covered) {
+        await page.evaluate(
+          ([a, b]) =>
+            window.__nb.viewer.zoomToRect({ x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]) - 10, w: Math.abs(b[0] - a[0]), h: Math.abs(b[1] - a[1]) + 20 }, 2),
+          [from, to] as const,
+        );
+        await page.waitForTimeout(200);
+      }
       await d.tool('calibrate');
       await d.clicks([PLAN.calibration.from, PLAN.calibration.to]);
       const dialog = page.locator('.modal').filter({ hasText: 'Calibrate scale' });
@@ -244,6 +265,7 @@ export function driver(page: Page) {
       await submit.click();
       await expect(dialog).toBeHidden();
       await d.tool('select');
+      if (covered) await d.fit();
     },
     scaleSelect: () => page.locator('.pagenav-side.right select').first(),
 

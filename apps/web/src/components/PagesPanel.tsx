@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PageOp, PdfDocument } from '@nb/pdf-core';
 import { drawMarkup, onImageLoad, type Markup, type MarkupStore } from '@nb/markup';
 import type { SheetInfo } from '@nb/sheets';
@@ -545,6 +545,7 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
       </div>
       <div
         className="thumbs"
+        style={{ '--thumb-w': `${thumbW}px` } as CSSProperties}
         tabIndex={-1}
         onKeyDown={keys}
         onContextMenu={(e) => {

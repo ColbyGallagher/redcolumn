@@ -83,6 +83,19 @@ test.describe('markup format tab follows the selection', () => {
     await expect.poll(() => fillOpacities(app, ids)).toEqual(before);
   });
 
+  test('the Subject field shows the name the Markups list gives a markup with no subject of its own', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.tool('select');
+    const rect = (await app.markups()).at(-1)!;
+    await select(app, [rect.id]);
+    const subject = ribbon(app).getByLabel('Subject', { exact: true });
+    await expect(subject).toHaveValue('Rectangle');
+    await subject.fill('Slab edge');
+    await subject.press('Enter');
+    await expect.poll(() => app.page.evaluate((id) => (window.__nb.tools.store as unknown as { get(id: string): { subject?: string } }).get(id)?.subject, rect.id)).toBe('Slab edge');
+  });
+
   test('a mixed selection shows the tab with only the fields its types share', async ({ app }) => {
     const area = await draw(app, 'area', roomAt(0));
     const count = await draw(app, 'count', PLAN.symbols, 'enter');

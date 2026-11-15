@@ -1,0 +1,3336 @@
+{
+ "about": "Ground-truth cross-references in kestrel-road-set.pdf, written by scripts/make_road_set.py. Pages are 0-based; rects are [x, y, w, h] in PDF points from the page's top-left.",
+ "sheets": [
+  {
+   "pageIndex": 0,
+   "number": "KRU2-MCC-0412-RW-DRG-000001",
+   "title": "COVER SHEET AND LOCALITY PLAN"
+  },
+  {
+   "pageIndex": 1,
+   "number": "KRU2-MCC-0412-RW-DRG-000002",
+   "title": "DRAWING INDEX ROADWORKS"
+  },
+  {
+   "pageIndex": 2,
+   "number": "KRU2-MCC-0412-RW-DRG-000011",
+   "title": "GENERAL LEGEND AND NOTES"
+  },
+  {
+   "pageIndex": 3,
+   "number": "KRU2-MCC-0412-RW-DRG-000021",
+   "title": "TYPICAL SECTIONS KESTREL ROAD (MC00)"
+  },
+  {
+   "pageIndex": 4,
+   "number": "KRU2-MCC-0412-RW-DRG-000022",
+   "title": "TYPICAL SECTIONS SIDE ROAD AND DETAILS"
+  },
+  {
+   "pageIndex": 5,
+   "number": "KRU2-MCC-0412-RW-DRG-000031",
+   "title": "ALIGNMENT CONTROL PLAN CH 0 TO CH 280"
+  },
+  {
+   "pageIndex": 6,
+   "number": "KRU2-MCC-0412-RW-DRG-000032",
+   "title": "ALIGNMENT CONTROL PLAN CH 280 TO CH 565"
+  },
+  {
+   "pageIndex": 7,
+   "number": "KRU2-MCC-0412-RW-DRG-000033",
+   "title": "ALIGNMENT CONTROL PLAN CH 565 TO CH 830"
+  },
+  {
+   "pageIndex": 8,
+   "number": "KRU2-MCC-0412-RW-DRG-000034",
+   "title": "ALIGNMENT CONTROL PLAN CH 830 TO CH 1040"
+  },
+  {
+   "pageIndex": 9,
+   "number": "KRU2-MCC-0412-RW-DRG-000056",
+   "title": "SETOUT TABLES CONTROL LINES MC00 AND MC01"
+  },
+  {
+   "pageIndex": 10,
+   "number": "KRU2-MCC-0412-RW-DRG-000201",
+   "title": "LONGITUDINAL SECTION CONTROL LINE MC00 CH 0-260"
+  },
+  {
+   "pageIndex": 11,
+   "number": "KRU2-MCC-0412-RW-DRG-000202",
+   "title": "LONGITUDINAL SECTION CONTROL LINE MC00 CH 260-520"
+  },
+  {
+   "pageIndex": 12,
+   "number": "KRU2-MCC-0412-RW-DRG-000203",
+   "title": "LONGITUDINAL SECTION CONTROL LINE MC00 CH 520-780"
+  },
+  {
+   "pageIndex": 13,
+   "number": "KRU2-MCC-0412-RW-DRG-000204",
+   "title": "LONGITUDINAL SECTION CONTROL LINE MC00 CH 780-1040"
+  },
+  {
+   "pageIndex": 14,
+   "number": "KRU2-MCC-0412-RW-DRG-000221",
+   "title": "LONGITUDINAL SECTIONS MC01 AND DRAINAGE LINE D01"
+  },
+  {
+   "pageIndex": 15,
+   "number": "KRU2-MCC-0412-RW-DRG-000301",
+   "title": "CROSS SECTIONS CONTROL LINE MC00 CH 0-150"
+  },
+  {
+   "pageIndex": 16,
+   "number": "KRU2-MCC-0412-RW-DRG-000302",
+   "title": "CROSS SECTIONS CONTROL LINE MC00 CH 200-350"
+  },
+  {
+   "pageIndex": 17,
+   "number": "KRU2-MCC-0412-RW-DRG-000303",
+   "title": "CROSS SECTIONS CONTROL LINE MC00 CH 400-550"
+  },
+  {
+   "pageIndex": 18,
+   "number": "KRU2-MCC-0412-RW-DRG-000304",
+   "title": "CROSS SECTIONS CONTROL LINE MC00 CH 600-750"
+  },
+  {
+   "pageIndex": 19,
+   "number": "KRU2-MCC-0412-RW-DRG-000305",
+   "title": "CROSS SECTIONS CONTROL LINE MC00 CH 800-950"
+  },
+  {
+   "pageIndex": 20,
+   "number": "KRU2-MCC-0412-RW-DRG-000311",
+   "title": "CROSS SECTIONS CONTROL LINE MC01 CH 40-140"
+  }
+ ],
+ "links": [
+  {
+   "kind": "section",
+   "label": "A/000031",
+   "rect": [
+    68.03,
+    539.14,
+    39.69,
+    39.69
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": "A",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 3
+  },
+  {
+   "kind": "section",
+   "label": "B/000032",
+   "rect": [
+    68.03,
+    1247.8,
+    39.69,
+    39.69
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": "B",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 3
+  },
+  {
+   "kind": "section",
+   "label": "C/000031",
+   "rect": [
+    68.03,
+    432.98,
+    36.85,
+    36.85
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": "C",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 4
+  },
+  {
+   "kind": "detail",
+   "label": "3/000034",
+   "rect": [
+    68.03,
+    763.71,
+    34.02,
+    34.02
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": "3",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 4
+  },
+  {
+   "kind": "detail",
+   "label": "1/000031",
+   "rect": [
+    538.58,
+    763.71,
+    34.02,
+    34.02
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": "1",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 4
+  },
+  {
+   "kind": "detail",
+   "label": "2/000033",
+   "rect": [
+    1247.24,
+    763.71,
+    34.02,
+    34.02
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": "2",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 4
+  },
+  {
+   "kind": "elevation",
+   "label": "E1/000034",
+   "rect": [
+    963.78,
+    1561.8,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": "E1",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 4
+  },
+  {
+   "kind": "chainage",
+   "label": "0",
+   "rect": [
+    178.25,
+    593.05,
+    7.5,
+    4.45
+   ],
+   "targetPages": [
+    15
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 0.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "0",
+   "rect": [
+    178.25,
+    921.87,
+    7.5,
+    4.45
+   ],
+   "targetPages": [
+    15
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 0.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "20",
+   "rect": [
+    291.64,
+    590.83,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 20.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "20",
+   "rect": [
+    291.64,
+    919.65,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 20.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "40",
+   "rect": [
+    405.02,
+    590.83,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 40.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "40",
+   "rect": [
+    405.02,
+    919.65,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 40.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "60",
+   "rect": [
+    518.41,
+    590.83,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 60.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "60",
+   "rect": [
+    518.41,
+    919.65,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 60.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "80",
+   "rect": [
+    631.79,
+    590.83,
+    7.5,
+    8.9
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 80.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "100",
+   "rect": [
+    745.18,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    15
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 100.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "120",
+   "rect": [
+    858.57,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 120.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "140",
+   "rect": [
+    971.95,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 140.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "160",
+   "rect": [
+    1085.34,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 160.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "160",
+   "rect": [
+    1085.34,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 160.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "180",
+   "rect": [
+    1198.72,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 180.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "180",
+   "rect": [
+    1198.72,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 180.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "200",
+   "rect": [
+    1312.11,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 200.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "200",
+   "rect": [
+    1312.11,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 200.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "220",
+   "rect": [
+    1425.5,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 220.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "220",
+   "rect": [
+    1425.5,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 220.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "240",
+   "rect": [
+    1538.88,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 240.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "240",
+   "rect": [
+    1538.88,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 240.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "260",
+   "rect": [
+    1652.27,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 260.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "260",
+   "rect": [
+    1652.27,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 260.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "280",
+   "rect": [
+    1765.65,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 280.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "280",
+   "rect": [
+    1765.65,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 280.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "300",
+   "rect": [
+    1879.04,
+    588.6,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 300.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "300",
+   "rect": [
+    1879.04,
+    917.42,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 300.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "40",
+   "rect": [
+    698.82,
+    983.67,
+    8.34,
+    7.03
+   ],
+   "targetPages": [
+    20
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 40.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "60",
+   "rect": [
+    698.82,
+    1097.05,
+    8.34,
+    7.03
+   ],
+   "targetPages": [
+    20
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 60.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "80",
+   "rect": [
+    708.83,
+    1226.7,
+    9.39,
+    8.32
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC01",
+   "value": 80.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "100",
+   "rect": [
+    738.46,
+    1352.23,
+    14.12,
+    10.74
+   ],
+   "targetPages": [
+    20
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 100.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "120",
+   "rect": [
+    790.93,
+    1471.19,
+    14.35,
+    12.17
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC01",
+   "value": 120.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "140",
+   "rect": [
+    858.42,
+    1575.95,
+    14.28,
+    12.94
+   ],
+   "targetPages": [
+    20
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 140.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "CH 0.000",
+   "rect": [
+    172.96,
+    628.22,
+    7.03,
+    104.18
+   ],
+   "targetPages": [
+    15
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 0.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "section",
+   "label": "A/000021",
+   "rect": [
+    338.74,
+    540.0,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    3
+   ],
+   "id": "A",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    539.14,
+    517.73,
+    39.69
+   ],
+   "pageIndex": 5
+  },
+  {
+   "kind": "section",
+   "label": "A/000021",
+   "rect": [
+    338.74,
+    948.19,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    3
+   ],
+   "id": "A",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    539.14,
+    517.73,
+    39.69
+   ],
+   "pageIndex": 5
+  },
+  {
+   "kind": "section",
+   "label": "C/000022",
+   "rect": [
+    956.25,
+    1216.1,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "C",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    432.98,
+    498.57,
+    36.85
+   ],
+   "pageIndex": 5
+  },
+  {
+   "kind": "section",
+   "label": "C/000022",
+   "rect": [
+    670.61,
+    1289.03,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "C",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    432.98,
+    498.57,
+    36.85
+   ],
+   "pageIndex": 5
+  },
+  {
+   "kind": "detail",
+   "label": "1/000022",
+   "rect": [
+    1427.24,
+    843.31,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "1",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    538.58,
+    763.71,
+    246.02,
+    34.02
+   ],
+   "pageIndex": 5
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 280.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000032",
+   "rect": [
+    1778.41,
+    938.47,
+    17.71,
+    186.68
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 280.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 5
+  },
+  {
+   "kind": "chainage",
+   "label": "260",
+   "rect": [
+    11.01,
+    503.06,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 260.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "260",
+   "rect": [
+    11.01,
+    831.88,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 260.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "280",
+   "rect": [
+    124.39,
+    503.06,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 280.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "280",
+   "rect": [
+    124.39,
+    831.88,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 280.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "300",
+   "rect": [
+    237.78,
+    503.06,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 300.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "300",
+   "rect": [
+    237.78,
+    831.88,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    16
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 300.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "320",
+   "rect": [
+    351.16,
+    503.06,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 320.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "320",
+   "rect": [
+    351.16,
+    831.88,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 320.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "340",
+   "rect": [
+    475.78,
+    505.09,
+    8.43,
+    13.85
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 340.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "340",
+   "rect": [
+    452.31,
+    833.07,
+    8.43,
+    13.85
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 340.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "360",
+   "rect": [
+    610.32,
+    523.85,
+    10.17,
+    14.63
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 360.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "360",
+   "rect": [
+    540.39,
+    845.15,
+    10.17,
+    14.63
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 360.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "380",
+   "rect": [
+    740.86,
+    561.84,
+    11.69,
+    15.12
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 380.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "380",
+   "rect": [
+    625.9,
+    869.91,
+    11.69,
+    15.12
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 380.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "400",
+   "rect": [
+    864.74,
+    618.29,
+    12.98,
+    15.31
+   ],
+   "targetPages": [
+    17
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 400.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "400",
+   "rect": [
+    707.09,
+    906.86,
+    12.98,
+    15.31
+   ],
+   "targetPages": [
+    17
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 400.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "420",
+   "rect": [
+    979.43,
+    692.05,
+    14.0,
+    15.18
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 420.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "420",
+   "rect": [
+    782.31,
+    955.23,
+    14.0,
+    15.18
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 420.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "440",
+   "rect": [
+    1082.6,
+    784.45,
+    14.74,
+    14.74
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 440.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "440",
+   "rect": [
+    850.01,
+    1016.88,
+    14.74,
+    14.74
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 440.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "460",
+   "rect": [
+    1172.14,
+    887.99,
+    15.18,
+    14.0
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 460.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "460",
+   "rect": [
+    908.84,
+    1084.95,
+    15.18,
+    14.0
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 460.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "480",
+   "rect": [
+    1246.24,
+    1003.41,
+    15.31,
+    12.97
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 480.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "480",
+   "rect": [
+    957.57,
+    1160.87,
+    15.31,
+    12.97
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 480.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "500",
+   "rect": [
+    1303.38,
+    1128.34,
+    15.12,
+    11.69
+   ],
+   "targetPages": [
+    17
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 500.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "500",
+   "rect": [
+    995.23,
+    1243.1,
+    15.12,
+    11.69
+   ],
+   "targetPages": [
+    17
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 500.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "520",
+   "rect": [
+    1342.39,
+    1260.25,
+    14.63,
+    10.16
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 520.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "520",
+   "rect": [
+    1021.05,
+    1329.97,
+    14.63,
+    10.16
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 520.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "540",
+   "rect": [
+    1362.49,
+    1396.45,
+    13.84,
+    8.43
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 540.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "540",
+   "rect": [
+    1034.49,
+    1419.71,
+    13.84,
+    8.43
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 540.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "560",
+   "rect": [
+    1365.3,
+    1521.87,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 560.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "560",
+   "rect": [
+    1036.48,
+    1521.87,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 560.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "580",
+   "rect": [
+    1365.3,
+    1635.26,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 580.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "580",
+   "rect": [
+    1036.48,
+    1635.26,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 580.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "section",
+   "label": "B/000021",
+   "rect": [
+    1051.9,
+    698.36,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    3
+   ],
+   "id": "B",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    1247.8,
+    517.73,
+    39.69
+   ],
+   "pageIndex": 6
+  },
+  {
+   "kind": "section",
+   "label": "B/000021",
+   "rect": [
+    784.51,
+    1006.77,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    3
+   ],
+   "id": "B",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    1247.8,
+    517.73,
+    39.69
+   ],
+   "pageIndex": 6
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 280.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000031",
+   "rect": [
+    109.94,
+    852.93,
+    17.71,
+    186.68
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 280.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 565.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000033",
+   "rect": [
+    842.09,
+    1560.14,
+    186.68,
+    17.71
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 565.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 6
+  },
+  {
+   "kind": "chainage",
+   "label": "560",
+   "rect": [
+    992.95,
+    98.88,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 560.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "560",
+   "rect": [
+    664.14,
+    98.88,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 560.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "580",
+   "rect": [
+    992.95,
+    212.27,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 580.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "580",
+   "rect": [
+    664.14,
+    212.27,
+    13.34,
+    7.5
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 580.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "600",
+   "rect": [
+    996.0,
+    307.12,
+    14.07,
+    8.89
+   ],
+   "targetPages": [
+    18
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 600.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "600",
+   "rect": [
+    669.09,
+    342.49,
+    14.07,
+    8.89
+   ],
+   "targetPages": [
+    18
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 600.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "620",
+   "rect": [
+    1011.34,
+    394.72,
+    14.79,
+    10.58
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 620.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "620",
+   "rect": [
+    692.79,
+    476.27,
+    14.79,
+    10.58
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 620.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "640",
+   "rect": [
+    1039.26,
+    479.29,
+    15.2,
+    12.04
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 640.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "640",
+   "rect": [
+    735.57,
+    605.36,
+    15.2,
+    12.04
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 640.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "660",
+   "rect": [
+    1079.19,
+    559.11,
+    15.3,
+    13.27
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 660.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "660",
+   "rect": [
+    796.54,
+    727.14,
+    15.3,
+    13.27
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 660.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "680",
+   "rect": [
+    1130.32,
+    632.56,
+    15.09,
+    14.22
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 680.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "680",
+   "rect": [
+    874.48,
+    839.11,
+    15.09,
+    14.22
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 680.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "700",
+   "rect": [
+    1191.61,
+    695.29,
+    14.58,
+    14.88
+   ],
+   "targetPages": [
+    18
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 700.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "700",
+   "rect": [
+    967.78,
+    936.17,
+    14.58,
+    14.88
+   ],
+   "targetPages": [
+    18
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 700.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "720",
+   "rect": [
+    1261.81,
+    751.66,
+    13.76,
+    15.24
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 720.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "720",
+   "rect": [
+    1074.56,
+    1021.94,
+    13.76,
+    15.24
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 720.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "740",
+   "rect": [
+    1339.49,
+    797.66,
+    12.67,
+    15.29
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 740.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "740",
+   "rect": [
+    1192.63,
+    1091.86,
+    12.67,
+    15.29
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 740.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "760",
+   "rect": [
+    1423.07,
+    832.37,
+    11.32,
+    15.03
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 760.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "760",
+   "rect": [
+    1319.58,
+    1144.48,
+    11.32,
+    15.03
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 760.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "780",
+   "rect": [
+    1510.84,
+    855.08,
+    9.74,
+    14.46
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 780.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "780",
+   "rect": [
+    1452.84,
+    1178.74,
+    9.74,
+    14.46
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 780.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "800",
+   "rect": [
+    1601.02,
+    865.32,
+    7.96,
+    13.59
+   ],
+   "targetPages": [
+    19
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 800.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "800",
+   "rect": [
+    1589.69,
+    1193.94,
+    7.96,
+    13.59
+   ],
+   "targetPages": [
+    19
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 800.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "820",
+   "rect": [
+    1708.96,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 820.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "820",
+   "rect": [
+    1708.96,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 820.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "840",
+   "rect": [
+    1822.35,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 840.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "840",
+   "rect": [
+    1822.35,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 840.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "detail",
+   "label": "2/000022",
+   "rect": [
+    1111.7,
+    695.6,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "2",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    1247.24,
+    763.71,
+    192.03,
+    34.02
+   ],
+   "pageIndex": 7
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 565.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000032",
+   "rect": [
+    469.75,
+    109.94,
+    186.68,
+    17.71
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 565.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 830.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000034",
+   "rect": [
+    1778.41,
+    1215.76,
+    17.71,
+    186.68
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 830.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 7
+  },
+  {
+   "kind": "chainage",
+   "label": "820",
+   "rect": [
+    67.7,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 820.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "820",
+   "rect": [
+    67.7,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 820.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "840",
+   "rect": [
+    181.09,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 840.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "840",
+   "rect": [
+    181.09,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 840.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "860",
+   "rect": [
+    294.47,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 860.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "860",
+   "rect": [
+    294.47,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 860.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "880",
+   "rect": [
+    407.86,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 880.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "880",
+   "rect": [
+    407.86,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 880.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "900",
+   "rect": [
+    521.24,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    19
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 900.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "900",
+   "rect": [
+    521.24,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [
+    19
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 900.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "920",
+   "rect": [
+    634.63,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 920.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "920",
+   "rect": [
+    634.63,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 920.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "940",
+   "rect": [
+    748.02,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 940.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "940",
+   "rect": [
+    748.02,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 940.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "960",
+   "rect": [
+    861.4,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 960.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "960",
+   "rect": [
+    861.4,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 960.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "980",
+   "rect": [
+    974.79,
+    865.9,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 980.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "980",
+   "rect": [
+    974.79,
+    1194.72,
+    7.5,
+    13.34
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 980.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1000",
+   "rect": [
+    1088.17,
+    863.67,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1000.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1000",
+   "rect": [
+    1088.17,
+    1192.49,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1000.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1020",
+   "rect": [
+    1201.56,
+    863.67,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1020.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1020",
+   "rect": [
+    1201.56,
+    1192.49,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1020.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1040",
+   "rect": [
+    1314.94,
+    863.67,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1040.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "1040",
+   "rect": [
+    1314.94,
+    1192.49,
+    7.5,
+    17.79
+   ],
+   "targetPages": [],
+   "id": null,
+   "alignment": "MC00",
+   "value": 1040.0,
+   "optional": true,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "detail",
+   "label": "3/000022",
+   "rect": [
+    352.91,
+    1120.6,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "3",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    68.03,
+    763.71,
+    284.05,
+    34.02
+   ],
+   "pageIndex": 8
+  },
+  {
+   "kind": "elevation",
+   "label": "E1/000022",
+   "rect": [
+    573.0,
+    805.95,
+    31.18,
+    31.18
+   ],
+   "targetPages": [
+    4
+   ],
+   "id": "E1",
+   "alignment": null,
+   "value": null,
+   "optional": false,
+   "targetRect": [
+    963.78,
+    1561.8,
+    310.81,
+    31.18
+   ],
+   "pageIndex": 8
+  },
+  {
+   "kind": "matchline",
+   "label": "MATCH LINE CH 830.000 ADJOINS DRG KRU2-MCC-0412-RW-DRG-000033",
+   "rect": [
+    109.94,
+    1215.76,
+    17.71,
+    186.68
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": null,
+   "value": 830.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 8
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 0",
+   "rect": [
+    773.71,
+    403.44,
+    74.0,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 0.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 15
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 50",
+   "rect": [
+    770.37,
+    803.13,
+    80.68,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 50.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 15
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 100",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 100.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 15
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 150",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 150.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 15
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 200",
+   "rect": [
+    767.03,
+    403.44,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 200.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 16
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 250",
+   "rect": [
+    767.03,
+    803.13,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 250.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 16
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 300",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 300.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 16
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 350",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 350.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 16
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 400",
+   "rect": [
+    767.03,
+    403.44,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 400.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 17
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 450",
+   "rect": [
+    767.03,
+    803.13,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 450.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 17
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 500",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 500.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 17
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 550",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    6,
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 550.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 17
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 600",
+   "rect": [
+    767.03,
+    403.44,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 600.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 18
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 650",
+   "rect": [
+    767.03,
+    803.13,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 650.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 18
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 700",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 700.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 18
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 750",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 750.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 18
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 800",
+   "rect": [
+    767.03,
+    403.44,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    7
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 800.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 19
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 850",
+   "rect": [
+    767.03,
+    803.13,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 850.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 19
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 900",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 900.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 19
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 950",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    8
+   ],
+   "id": null,
+   "alignment": "MC00",
+   "value": 950.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 19
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 40",
+   "rect": [
+    770.37,
+    403.44,
+    80.68,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 40.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 20
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 60",
+   "rect": [
+    770.37,
+    803.13,
+    80.68,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 60.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 20
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 100",
+   "rect": [
+    767.03,
+    1202.81,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 100.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 20
+  },
+  {
+   "kind": "chainage",
+   "label": "CHAINAGE 140",
+   "rect": [
+    767.03,
+    1602.5,
+    87.35,
+    11.25
+   ],
+   "targetPages": [
+    5
+   ],
+   "id": null,
+   "alignment": "MC01",
+   "value": 140.0,
+   "optional": false,
+   "targetRect": null,
+   "pageIndex": 20
+  }
+ ],
+ "chainages": {
+  "MC00": {
+   "plans": [
+    {
+     "pageIndex": 5,
+     "from": 0.0,
+     "to": 298.0
+    },
+    {
+     "pageIndex": 6,
+     "from": 262.0,
+     "to": 583.0
+    },
+    {
+     "pageIndex": 7,
+     "from": 547.0,
+     "to": 848.0
+    },
+    {
+     "pageIndex": 8,
+     "from": 812.0,
+     "to": 1040.0
+    }
+   ],
+   "sections": [
+    {
+     "pageIndex": 15,
+     "values": [
+      0.0,
+      50.0,
+      100.0,
+      150.0
+     ]
+    },
+    {
+     "pageIndex": 16,
+     "values": [
+      200.0,
+      250.0,
+      300.0,
+      350.0
+     ]
+    },
+    {
+     "pageIndex": 17,
+     "values": [
+      400.0,
+      450.0,
+      500.0,
+      550.0
+     ]
+    },
+    {
+     "pageIndex": 18,
+     "values": [
+      600.0,
+      650.0,
+      700.0,
+      750.0
+     ]
+    },
+    {
+     "pageIndex": 19,
+     "values": [
+      800.0,
+      850.0,
+      900.0,
+      950.0
+     ]
+    }
+   ]
+  },
+  "MC01": {
+   "plans": [
+    {
+     "pageIndex": 5,
+     "from": 0.0,
+     "to": 153.0
+    }
+   ],
+   "sections": [
+    {
+     "pageIndex": 20,
+     "values": [
+      40.0,
+      60.0,
+      100.0,
+      140.0
+     ]
+    }
+   ]
+  }
+ }
+}

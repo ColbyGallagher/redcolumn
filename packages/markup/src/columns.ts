@@ -3,7 +3,10 @@
  * in a Live Session sees the same columns), each markup keeping its values in `Markup.fields`.
  */
 
-export type ColumnType = 'text' | 'multiline' | 'choice' | 'number' | 'date' | 'checkmark' | 'formula';
+import { bluebeamColumnId } from './bluebeam';
+import { parseXml, type XmlElement } from './xml';
+
+export type ColumnType ='text' | 'multiline' | 'choice' | 'number' | 'date' | 'checkmark' | 'formula';
 
 export const COLUMN_TYPES: { value: ColumnType; label: string; hint: string }[] = [
   { value: 'text', label: 'Text', hint: 'A single line of free text' },
@@ -89,12 +92,80 @@ export function columnsToXml(set: ColumnSet): string {
 
 const TYPES = new Set(COLUMN_TYPES.map((t) => t.value));
 
+const BLUEBEAM_SUBTYPES: Record<string, ColumnType> = {
+  Text: 'text',
+  Number: 'number',
+  Date: 'date',
+  Checkmark: 'checkmark',
+  Formula: 'formula',
+  Choice: 'choice',
+  Dropdown: 'choice',
+  List: 'choice',
+};
+
+const childText = (el: XmlElement, tag: string): string | undefined => el.children.find((c) => c.tagName === tag)?.textContent.trim() || undefined;
+
+/**
+ * Reads the custom columns file Bluebeam exports (Manage Columns > Export):
+ * `<BluebeamUserDefinedColumns>` of `<BSIColumnItem Subtype="…">`. It holds columns only, no statuses.
+ */
+export function bluebeamColumnsFromXml(xml: string): CustomColumn[] {
+  const root = parseXml(xml);
+  if (root.tagName !== 'BluebeamUserDefinedColumns') throw new Error('This is not a Bluebeam custom columns file.');
+  const items = root.children
+    .filter((el) => el.tagName === 'BSIColumnItem')
+    .map((el, i) => ({ el, i, order: Number(childText(el, 'DisplayOrder')) }))
+    .sort((a, b) => (Number.isFinite(a.order) && Number.isFinite(b.order) ? a.order - b.order : 0) || a.i - b.i);
+  const seen = new Set<string>();
+  const columns: CustomColumn[] = [];
+  for (const { el } of items) {
+    const name = childText(el, 'Name');
+    if (!name || childText(el, 'Deleted')?.toLowerCase() === 'true') continue;
+    const id = bluebeamColumnId(name);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const type: ColumnType = BLUEBEAM_SUBTYPES[el.attrs.Subtype ?? ''] ?? 'text';
+    const col: CustomColumn = { id, name, type };
+    if (type === 'choice') {
+      const entries = el.children.find((c) => c.tagName === 'Items')?.children.filter((c) => c.tagName === 'Item') ?? [];
+      col.options = entries.map((it) => childText(it, 'Value') ?? '').filter(Boolean);
+      const flagged = entries.find((it) => childText(it, 'Default')?.toLowerCase() === 'true');
+      const def = childText(el, 'DefaultValue') ?? (flagged ? childText(flagged, 'Value') : undefined);
+      if (def) col.defaultValue = def;
+    } else {
+      const def = childText(el, 'DefaultValue');
+      if (def) col.defaultValue = type === 'checkmark' ? String(def.toLowerCase() === 'true') : def;
+    }
+    const precision = childText(el, 'Precision');
+    if ((type === 'number' || type === 'formula') && precision !== undefined && Number.isFinite(Number(precision))) col.decimals = Number(precision);
+    const expr = childText(el, 'Expression') ?? childText(el, 'Formula');
+    if (type === 'formula' && expr) col.formula = expr;
+    columns.push(col);
+  }
+  return columns;
+}
+
+/**
+ * Reads a columns XML file: ours (columns and statuses) or Bluebeam's (columns only, `statuses` left
+ * undefined so the caller keeps the statuses it has). Throws with a readable message on anything else.
+ */
+export function importColumnsXml(xml: string, parser?: DOMParser): { columns: CustomColumn[]; statuses?: MarkupStatusDef[] } {
+  if (/<BluebeamUserDefinedColumns[\s>/]/.test(xml)) {
+    try {
+      return { columns: bluebeamColumnsFromXml(xml) };
+    } catch (e) {
+      throw new Error(`Could not read this Bluebeam columns file: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return columnsFromXml(xml, parser);
+}
+
 /** Reads XML written by `columnsToXml`. Throws with a readable message on anything else. */
 export function columnsFromXml(xml: string, parser: DOMParser = new DOMParser()): ColumnSet {
   const doc = parser.parseFromString(xml, 'application/xml');
   const root = doc.documentElement;
   if (!root || root.nodeName !== 'CustomColumns' || doc.getElementsByTagName('parsererror').length) {
-    throw new Error('This is not a custom columns file (expected a <CustomColumns> XML document).');
+    throw new Error('This is not a custom columns file (expected a <CustomColumns> or Bluebeam <BluebeamUserDefinedColumns> XML document).');
   }
   const columns: CustomColumn[] = [];
   for (const el of Array.from(root.getElementsByTagName('Column'))) {

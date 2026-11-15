@@ -1,0 +1,37 @@
+{
+  "format": "redcolumn.drawing-standard",
+  "version": 1,
+  "standard": {
+    "id": "kestrel-road-demo",
+    "name": "Meridian Civil (Kestrel Road demo)",
+    "notes": "Hand-made standard for the fictional Kestrel Road demo set, used by pnpm standards:bench --standard.",
+    "identify": ["MERIDIAN", "KRU2-MCC-0412"],
+    "createdAt": 1793836800000,
+    "updatedAt": 1793836800000,
+    "sheets": {
+      "boxes": [
+        { "field": "number", "x": 0.785, "y": 0.424, "w": 0.195, "h": 0.038 },
+        { "field": "title", "x": 0.785, "y": 0.33, "w": 0.195, "h": 0.056 },
+        { "field": "revision", "x": 0.785, "y": 0.465, "w": 0.04, "h": 0.047 },
+        { "field": "sheetSize", "x": 0.874, "y": 0.512, "w": 0.04, "h": 0.03 },
+        { "field": "scale", "x": 0.917, "y": 0.512, "w": 0.06, "h": 0.03 }
+      ],
+      "template": "KRU2-MCC-0412-RW-DRG-######",
+      "disciplinePart": 3,
+      "disciplines": { "RW": "Roadworks" }
+    },
+    "links": {
+      "ids": null,
+      "titles": { "section": ["SECTION"], "elevation": ["ELEVATION"], "enlargedPlan": ["ENLARGED"] },
+      "matchLine": ["MATCH LINE"],
+      "calloutPart": 5
+    },
+    "chainage": {
+      "prefixes": ["CH", "CHAINAGE"],
+      "alignments": ["MC00", "MC01"],
+      "planTitles": ["ALIGNMENT CONTROL PLAN"],
+      "sectionTitles": ["CROSS SECTIONS"]
+    },
+    "marks": []
+  }
+}

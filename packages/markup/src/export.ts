@@ -16,7 +16,7 @@ import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
-import { dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
+import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
 import { daFontName, fontKeyword, fontPermissions, isNamedFont, isTrueTypeOutline, type FontKeyword } from './fonts';
 import type { StoredLink } from './store';
 import type { Bookmark, Place } from './bookmarks';
@@ -25,10 +25,12 @@ import { importViewports } from './bluebeam';
 import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
+import type { Estimating } from './estimating';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
+import { imageFrame } from './imageCrop';
 
 /**
  * Key under which each exported annotation carries its markup's full data, so re-opening the file
@@ -37,6 +39,8 @@ import { toPdfDict } from './pdfValue';
 const APP_DATA_KEY = 'NBData';
 /** The catalog key the document's assemblies are kept under (read back by `readPdfExtras`). */
 export const ASSEMBLIES_KEY = 'NBAssemblies';
+/** The catalog key the document's catalog items, product lists and takeoff templates are kept under, as JSON. */
+export const ESTIMATING_KEY = 'NBEstimating';
 
 /** Affine [a b c d e f] mapping page space (top-left, y down, rotated) to PDF user space. */
 export type Matrix = [number, number, number, number, number, number];
@@ -416,6 +420,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const font = ctx.fonts.get(artStandardFont({ font: family, bold, italic }));
     return font ? font.widthOfTextAtSize(safeText(font, text), size) : text.length * size * 0.55;
   };
+  const fillOnly = blendsFillOnly(m);
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, measure)) {
     if (part.art) {
       ops.push(...artOps(part.art, ctx, [sr, sg, sb], artFonts));
@@ -440,6 +445,16 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       }
       continue;
     }
+    // A filled shape that blends its fill only: the fill on its own (GSF, with the blend mode), then its line.
+    if (fillOnly && part.fill && !part.decoration) {
+      const [fr, fg, fb] = rgb(part.fill);
+      ops.push('q /GSF gs', `${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`, pathOps(part.path), part.evenOdd ? 'f*' : 'f', 'Q');
+      if (!part.stroke) continue;
+      ops.push(`/GS0 gs ${dashOp(dash)}`);
+      if (style.dashArray) ops.push('0 J');
+      ops.push(pathOps(part.path), 'S');
+      continue;
+    }
     ops.push(part.decoration ? '/GSD gs [] 0 d' : `/GS0 gs ${dashOp(dash)}`);
     // An exact dash pattern has flat ends, as it does in other viewers.
     if (style.dashArray) ops.push(part.decoration ? '1 J' : '0 J');
@@ -454,15 +469,18 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   ops.push('[] 0 d');
 
   const blendName = pdfBlendName(m);
-  const bm = blendName ? { BM: blendName } : {};
+  // With the fill alone blending (fillOnly), the lines and text do not: the fill and hatch carry /BM.
+  const bm = blendName && !fillOnly ? { BM: blendName } : {};
   const bmExplicit = m.style.blendMode ? bm : {};
+  const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
       GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
       GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
-      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha },
+      GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {
@@ -483,7 +501,19 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       ops.push('q', `${[cos, sin, -sin, cos, x, y].map(fmt).join(' ')} cm`);
       x = y = 0;
     }
-    if (background) {
+    if (label.boxed) {
+      // A typed quantity's tag: filled, with a dashed border.
+      const [br, bg, bb] = rgb(style.fill ?? '#ffffff');
+      const [sr, sg, sb] = rgb(style.stroke);
+      const bw = Math.max(0.5, style.width);
+      ops.push(
+        `/GS1 gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`,
+        `${fmt(sr)} ${fmt(sg)} ${fmt(sb)} RG ${fmt(bw)} w ${dashOp(dash.length ? dash : [bw * 3, bw * 2])}`,
+        `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re S`,
+        '[] 0 d',
+      );
+    } else if (background) {
       const [br, bg, bb] = rgb(background);
       ops.push(`/GSL gs ${fmt(br)} ${fmt(bg)} ${fmt(bb)} rg`, `${fmt(x - w / 2)} ${fmt(y - h / 2)} ${fmt(w)} ${fmt(h)} re f`);
     }
@@ -541,9 +571,11 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
 
   const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
   if (image) {
-    const b = boundsOf(m.points);
-    // Image space is a unit square with y up; page space is y down.
-    ops.push('q /GS1 gs', `${fmt(b.w)} 0 0 ${fmt(-b.h)} ${fmt(b.x)} ${fmt(b.y + b.h)} cm`, '/Im0 Do', 'Q');
+    const { clip, full } = imageFrame(m);
+    // Image space is a unit square with y up; page space is y down. A cropped picture is drawn
+    // whole and clipped to its box, so other PDF readers show the same part this app does.
+    const clipOps = full === clip ? [] : [`${fmt(clip.x)} ${fmt(clip.y)} ${fmt(clip.w)} ${fmt(clip.h)} re W n`];
+    ops.push('q /GS1 gs', ...clipOps, `${fmt(full.w)} 0 0 ${fmt(-full.h)} ${fmt(full.x)} ${fmt(full.y + full.h)} cm`, '/Im0 Do', 'Q');
     resources.XObject = { Im0: image.ref };
   }
 
@@ -1094,6 +1126,19 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       };
       break;
     }
+    case 'manual': {
+      // Other viewers see the tag as a text box; ours comes back as the quantity from NBData.
+      const [r, g, bl] = rgb(textColor(m.style));
+      specific = {
+        Subtype: 'FreeText',
+        RD: rd,
+        DA: PDFString.of(`/${daFontName(m.style.fontFamily)} ${m.style.fontSize ?? 10} Tf ${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`),
+        Q: 1,
+        C: fill ?? [],
+      };
+      delete base.IC;
+      break;
+    }
     case 'signature':
       specific = { Subtype: 'Stamp', Name: 'Signature' };
       break;
@@ -1112,6 +1157,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         C: fill && m.type === 'text' ? fill : [],
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
+        // Bluebeam's own key for a turned text box: clockwise degrees (its /Rect is the turned box's bounds).
+        ...(m.type === 'text' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
       };
       if (m.type === 'flagLabel') {
         // Its box reaches the flag's point; the text sits right of it (RD's left inset).
@@ -1332,7 +1379,7 @@ function addLinks(doc: PDFDocument, pages: PDFPage[], links: readonly StoredLink
     const target = pages[link.targetPage];
     if (!page || !target || link.status === 'rejected') continue;
     // A match of a taught mark is only a suggestion until a person keeps it.
-    if (link.status === 'review' && link.id.startsWith('mark-')) continue;
+    if (link.status === 'review' && (link.id.startsWith('mark-') || link.id.startsWith('ai-'))) continue;
     const dest = link.targetRect ? [target.ref, 'FitR', ...userRect(pageMatrix(target), link.targetRect)] : [target.ref, 'Fit'];
     const annot = doc.context.obj({
       Type: 'Annot',
@@ -1355,7 +1402,7 @@ const countContents = (m: Markup, total: number) => (markupLabel(m) ? `${markupL
 /** Keys an edited markup's annotation keeps from the original even when its kind of annotation changes. */
 const KEEP_ALWAYS = new Set(['P', 'Subj', 'T', 'NM', 'CreationDate', 'BSIColumnData', 'OC', 'IRT', 'RT', 'GroupNesting', 'Popup', 'StructParent', 'ITEx']);
 /** Keys of the original an edited markup's annotation drops: they describe the old look or shape. */
-const STALE = new Set(['AP', 'AS', 'RC', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
+const STALE = new Set(['AP', 'AS', 'RC', 'Rotation', 'Curves', 'Cutouts', 'CutoutsCurves', 'LineStyle', 'LineStyleName', APP_DATA_KEY]);
 /** Keys where the original's value wins over ours: identity, and the other tool's own kind of markup. */
 const PREFER_ORIGINAL = new Set(['NM', 'CreationDate', 'IT']);
 /** Annotation flags we set (Invisible, Hidden, Print, NoView, Locked); others the original had stay. */
@@ -1768,6 +1815,17 @@ function writeAssemblies(doc: PDFDocument, assemblies: readonly Assembly[]) {
   if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
 }
 
+/** The document's items, product lists and templates as JSON in the catalog; none of any removes it. */
+function writeEstimating(doc: PDFDocument, est: Estimating) {
+  const key = PDFName.of(ESTIMATING_KEY);
+  if (!est.items.length && !est.productLists.length && !est.templates.length) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify({ items: est.items, productLists: est.productLists, templates: est.templates });
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
 /** A new Space in its page's /BSISpaces, the entry Bluebeam's Spaces panel lists. */
 function addSpace(doc: PDFDocument, page: PDFPage, matrix: Matrix, m: Markup) {
   const entry = doc.context.obj({
@@ -1925,6 +1983,8 @@ export interface ExportOptions {
   statuses?: readonly MarkupStatusDef[];
   /** The document's assemblies, kept in the catalog's /NBAssemblies; unset leaves the file's own as they are. */
   assemblies?: readonly Assembly[];
+  /** The document's catalog items, product lists and takeoff templates, kept in /NBEstimating; unset leaves the file's own. */
+  estimating?: Estimating;
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -2097,6 +2157,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
   const columns = writeColumns(doc, options.columns ?? [], markups.some((m) => m.fields && Object.keys(m.fields).length));
   if (options.assemblies) writeAssemblies(doc, options.assemblies);
+  if (options.estimating) writeEstimating(doc, options.estimating);
   if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }

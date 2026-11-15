@@ -1,11 +1,12 @@
-"""Cross sections of MC00, four per sheet at 50 m centres, 1:100 horizontal and vertical."""
+"""Cross sections, four per sheet, 1:100 horizontal and vertical: MC00 at 50 m centres, then MC01."""
 import math
 
 from reportlab.lib.colors import white
 from reportlab.lib.units import mm
 
 from .draw import *  # noqa: F401,F403
-from .geom import HALF_W, MC00, MC01, V00, crossfall, daylight, design_section, ground
+from . import truth
+from .geom import HALF_W, MC00, MC01, V00, V01, XS_SHEETS, crossfall, daylight, design_section, ground, plan_pages
 from .titleblock import F, FB, INK, text
 
 SCALE = 10.0  # mm per metre (1:100)
@@ -23,19 +24,22 @@ SERVICES = [  # offset, depth to centre, diameter, tag, colour
 ]
 
 
+ALIGNMENTS = {"MC00": (MC00, V00), "MC01": (MC01, V01)}
+
+
 def sections_for(n):
-    return [200.0 * (n - 1) + 50.0 * i for i in range(4)]
+    return XS_SHEETS["xs%d" % n][1]
 
 
-def draw_xs(c, ch, cell):
+def draw_xs(c, ch, cell, al=MC00, vert=V00):
     yc0 = 580.0 - PITCH * (cell + 1) + 8.0
     tb = yc0 + 10.0
     ttop = tb + ROW_H * len(ROWS)
-    pts, rl = design_section(MC00, V00, ch)
+    pts, rl = design_section(al, vert, ch)
     left_out, right_out = pts[0], pts[-1]
-    dl_l = daylight(MC00, ch, -1, left_out[0], left_out[1])
-    dl_r = daylight(MC00, ch, +1, right_out[0], right_out[1])
-    exg = [(o, ground(*MC00.pt(ch, o))) for o in range(-int(HALF_RANGE), int(HALF_RANGE) + 1)]
+    dl_l = daylight(al, ch, -1, left_out[0], left_out[1])
+    dl_r = daylight(al, ch, +1, right_out[0], right_out[1])
+    exg = [(o, ground(*al.pt(ch, o))) for o in range(-int(HALF_RANGE), int(HALF_RANGE) + 1)]
     lo = min([g for _, g in exg] + [p[1] for p in pts] + [dl_l[1], dl_r[1]])
     datum = math.floor(lo - 0.6)
 
@@ -66,12 +70,12 @@ def draw_xs(c, ch, cell):
     # cadastral and project boundaries
     for off, col, lab in ((-16.0, CADASTRAL, "CADASTRAL BDY"), (16.0, CADASTRAL, "CADASTRAL BDY"),
                           (-22.0, PROJECT, "PROJECT BDY"), (22.0, PROJECT, "PROJECT BDY")):
-        g = ground(*MC00.pt(ch, off))
+        g = ground(*al.pt(ch, off))
         pl(c, [(X(off), Y(g)), (X(off), Y(g) + 9.0)], 0.2, col, (3.0, 1.5) if col == PROJECT else None)
         rtext(c, X(off) + 1.0, Y(g) + 10.0, lab, 90, F, 5.8, col, "l")
     # buried services
-    for off, depth, dia, tag, col in SERVICES:
-        g = ground(*MC00.pt(ch, off))
+    for off, depth, dia, tag, col in (SERVICES if al is MC00 else []):
+        g = ground(*al.pt(ch, off))
         r = max(0.9, dia * SCALE / 2)
         circle(c, X(off), Y(g - depth), r, 0.3, col)
         rtext(c, X(off) + r + 0.9, Y(g - depth) - 1.0, tag, 0, FB, 5.2, col, "l")
@@ -94,9 +98,9 @@ def draw_xs(c, ch, cell):
     # control line
     gcl = Y(rl)
     pl(c, [(X(0.0), gcl + 1.0), (X(0.0), gcl + 22.0)], 0.3, INK, (6.0, 1.5, 1.0, 1.5))
-    label_box(c, X(0.0), gcl + 25.0, "MC00", 7)
+    label_box(c, X(0.0), gcl + 25.0, al.name, 7)
     # crossfall tags
-    sl, sr = crossfall(ch)
+    sl, sr = crossfall(ch) if al is MC00 else (-0.03, -0.03)
     for sgn, g in ((-1, sl), (1, sr)):
         text(c, X(sgn * 1.75), Y(rl + g * 1.75 * 1.0) + 3.0, "%+.1f%%" % (g * 100), F, 6.5, INK, "c")
     c.restoreState()
@@ -109,7 +113,7 @@ def draw_xs(c, ch, cell):
             continue
         x = X(o)
         pl(c, [(x, tb), (x, ttop)], 0.1, LINE)
-        g = ground(*MC00.pt(ch, o))
+        g = ground(*al.pt(ch, o))
         txtx = x + 0.9
         rtext(c, txtx, ttop - ROW_H / 2, code, 90, F, 5.6, INK, "c")
         rtext(c, txtx, ttop - ROW_H * 1.5, "%.3f" % v, 90, F, 6.4, INK, "c")
@@ -119,7 +123,10 @@ def draw_xs(c, ch, cell):
     for o, v, code in pts:
         pl(c, [(X(o), Y(v)), (X(o), ttop)], 0.08, LINE)
 
-    text(c, XC, yc0 + 1.5, "CHAINAGE %d" % ch, FB, 12, INK, "c")
+    label = "CHAINAGE %d" % ch
+    text(c, XC, yc0 + 1.5, label, FB, 12, INK, "c")
+    truth.link("chainage", label, truth.text_box(XC, yc0 + 1.5, label, 0, FB, 12, "c"), plan_pages(al, ch),
+               alignment=al.name, value=float(ch))
     text(c, X(HALF_RANGE) , yc0 + 1.5, "SCALE 1:100", F, 6.5, INK, "r")
 
 
@@ -158,16 +165,18 @@ def _legend(c, x, y_top, w=130.0):
 
 
 def xs_sheet(c, n):
-    chs = sections_for(n)
+    key = n if isinstance(n, str) else "xs%d" % n
+    name, chs = XS_SHEETS[key]
+    al, vert = ALIGNMENTS[name]
     for i, ch in enumerate(chs):
-        draw_xs(c, ch, i)
+        draw_xs(c, ch, i, al, vert)
     y = _legend(c, 530.0, 583.0) - 3.0
     h = 10 + 4 * 8.2
     rect(c, 530.0, y - h, 130.0, h, 0.25, INK, white)
     sheet_note_box(c, 534.0, y - 1.5, 124.0, "NOTES", [
         "FOR ROADWORKS ALIGNMENT CONTROL PLANS REFER TO DRAWINGS RW-DRG-000031 TO 000034.",
         "SECTIONS ARE VIEWED LOOKING UP CHAINAGE. LEFT IS ON THE LEFT.",
-        "LEVELS ARE IN METRES AHD71. OFFSETS ARE FROM CONTROL LINE MC00.",
+        "LEVELS ARE IN METRES AHD71. OFFSETS ARE FROM CONTROL LINE %s." % name,
     ], 6.6, 3.0)
     y -= h + 6.0
     scale_bar(c, 536.0, y - 12.0, SCALE, [0, 2, 4, 8], "m", "SCALE 1:100")
@@ -181,13 +190,14 @@ def xs_sheet(c, n):
     ox, oy = 536.0, y - kh + 4
     pl(c, [(ox + px * k, oy + py * k) for px, py in MC00.poly(0, step=6.0)], 0.4, INK)
     pl(c, [(ox + px * k, oy + py * k) for px, py in MC01.poly(0, step=6.0)], 0.3, INK)
-    for sn in range(1, 6):
-        for ch in sections_for(sn):
-            x1, y1 = MC00.pt(ch, -6.0)
-            x2, y2 = MC00.pt(ch, 6.0)
-            cur = sn == n
+    for other, (oname, ochs) in XS_SHEETS.items():
+        oal = ALIGNMENTS[oname][0]
+        for ch in ochs:
+            x1, y1 = oal.pt(ch, -6.0)
+            x2, y2 = oal.pt(ch, 6.0)
+            cur = other == key
             pl(c, [(ox + x1 * k, oy + y1 * k), (ox + x2 * k, oy + y2 * k)], 0.9 if cur else 0.3,
                ORANGE if cur else EXIST)
     for ch in chs:
-        x, yy = MC00.pt(ch, -10.0)
+        x, yy = al.pt(ch, -10.0)
         text(c, ox + x * k, oy + yy * k + 1.2, "%d" % ch, F, 5.5, INK, "c")

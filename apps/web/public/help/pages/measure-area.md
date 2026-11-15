@@ -25,7 +25,16 @@ Select the area and open the [Properties panel](#properties):
 
 > **Tip:** To outline a room in one click, use [Smart Fill](#smart-fill).
 
-> **Tip:** To draw a curved section as you go, hold [[Ctrl]], press where the next corner goes and drag away from it. The section bends through the pointer; release to set it, then let go of [[Ctrl]]. Further clicks are straight again, and [[Backspace]] removes the curved corner. The length and area follow the curve.
+## Tracing curves
+
+Kerb returns, curved walls and road edges can be traced as you draw, two ways:
+
+- **Arc (3-point)**: press [[Shift+B]] (or choose {{Takeoff > Measure > Arc (3-point)}}, or right-click while drawing). Click a point anywhere on the curve, then click the end of the arc. The section from the last corner to the end follows the circle through all three points; after it, clicks are straight again. Arm it again for the next arc. You can arm it before the first click, too: the arc then starts at that click. The status bar says which click comes next, and [[Esc]] or [[Backspace]] drops an arc you have not finished without losing the rest.
+- **Ctrl+drag**: hold [[Ctrl]], press where the end of the curved section goes and drag away from it. The section bends through the pointer; release to set it. This suits a quick bend by eye, where the 3-point arc suits tracing a curve printed on the drawing.
+
+Snapping works for both clicks of an arc as it does for corners (hold [[Alt]] to place a point without snapping). Three points nearly in a line make a straight section.
+
+The closing side, back to the first corner, stays straight unless you end an arc on the first corner: that click closes the area along the arc. [[Backspace]] removes a curved corner with its curve, and the length and area follow the curves. Perimeter and Volume trace curves the same way.
 
 ## Edit the corners and curves
 

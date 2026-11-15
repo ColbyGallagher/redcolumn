@@ -8,8 +8,9 @@ import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
+import { imageFrame } from './imageCrop';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
-import { BLEND_MODES, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
+import { BLEND_MODES, blendsFillOnly, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { fontKeyword } from './fonts';
 import { styledParts, type ArtText, type LineArt, type TextMeasure } from './lineStyle';
 import { connectorLabel } from './flowchart';
@@ -199,6 +200,8 @@ export interface MeasureLabel {
   lines: string[];
   at: [number, number];
   angle: number;
+  /** Drawn as a tag: filled, with a dashed border (a typed quantity, not a drawn one). */
+  boxed?: boolean;
 }
 
 export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel | null {
@@ -206,6 +209,11 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   const line = dimensionLine(m);
   const at: [number, number] = line ? [line.text[0], line.text[1]] : labelAnchor(m.type, m.points);
   const value = measureLabel(m.type, m.points, scale, measureProps(m));
+  if (m.type === 'manual') {
+    const label = markupLabel(m);
+    const text = `${m.subject?.trim() || 'Manual'} · ${value}`;
+    return { text, lines: label ? [label, text] : [text], at: [m.points[0]![0], m.points[0]![1]], angle: 0, boxed: true };
+  }
   const label = m.type === 'count' ? '' : markupLabel(m);
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
@@ -359,7 +367,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   }
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
-  ctx.globalCompositeOperation = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
+  const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
+  // A filled shape blends its fill and hatch only; its border and text draw normally.
+  const fillOnly = blendsFillOnly(m);
+  ctx.globalCompositeOperation = fillOnly ? 'source-over' : blend;
   const lineWidth = Math.max(style.width, 1 / zoom);
   ctx.lineWidth = lineWidth;
   ctx.strokeStyle = style.stroke;
@@ -372,12 +383,16 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       continue;
     }
     if (part.hatch && part.clip) {
+      ctx.save();
+      if (fillOnly) ctx.globalCompositeOperation = blend;
       paintHatch(ctx, part.clip, part.evenOdd, part.hatch, style.opacity * (style.fillOpacity ?? 1), zoom);
+      ctx.restore();
       continue;
     }
     tracePath(ctx, part.path);
     if (part.fill) {
       ctx.save();
+      if (fillOnly && !part.decoration) ctx.globalCompositeOperation = blend;
       ctx.globalAlpha = style.opacity * (part.decoration ? 1 : (style.fillOpacity ?? 1));
       ctx.fillStyle = part.fill;
       ctx.fill(part.evenOdd ? 'evenodd' : 'nonzero');
@@ -405,7 +420,15 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.rotate(label.angle);
       x = y = 0;
     }
-    if (background) {
+    if (label.boxed) {
+      ctx.globalAlpha = style.opacity;
+      ctx.fillStyle = style.fill ?? '#ffffff';
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.strokeStyle = style.stroke;
+      ctx.setLineDash(dash.length ? dash : [style.width * 3, style.width * 2]);
+      ctx.strokeRect(x - w / 2, y - h / 2, w, h);
+      ctx.setLineDash([]);
+    } else if (background) {
       ctx.globalAlpha = 0.85 * style.opacity;
       ctx.fillStyle = background;
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
@@ -449,9 +472,16 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillText(flow.text, flow.at[0], flow.at[1]);
   }
   if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
-    const b = boundsOf(m.points);
     const img = markupImage(m.image);
-    if (img) ctx.drawImage(img, b.x, b.y, b.w, b.h);
+    if (img) {
+      const { clip, full } = imageFrame(m);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(clip.x, clip.y, clip.w, clip.h);
+      ctx.clip();
+      ctx.drawImage(img, full.x, full.y, full.w, full.h);
+      ctx.restore();
+    }
   }
   if (isTextType(m.type) && m.text) {
     const b = contentBox(m);

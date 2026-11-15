@@ -156,8 +156,9 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
         const saved = async () =>
           readdirSync(saves)
             .sort()
-            .flatMap((sub) => readdirSync(join(saves, sub)).map((name) => join(saves, sub, name)))
-            .filter((f) => statSync(f).size > 0)
+            // The app writes a hidden .tmp file and renames it into place: skip one caught mid-write.
+            .flatMap((sub) => readdirSync(join(saves, sub)).filter((name) => !(name.startsWith('.') && name.endsWith('.tmp'))).map((name) => join(saves, sub, name)))
+            .filter((f) => statSync(f, { throwIfNoEntry: false })?.size)
             .map((f) => ({ name: basename(f), bytes: readFileSync(f) }));
         const win = await electronApp.firstWindow();
         // Printing answers itself too: the print channels (apps/desktop/src/main.ts) would send the

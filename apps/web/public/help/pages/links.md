@@ -37,30 +37,21 @@ Click a row to see that callout. **Re-detect** finds links again, for example af
 
 ## Teach redcolumn your links
 
-Links are found from the text, so marks drawn as shapes, or titles set in an unusual way, can be missed. Show redcolumn one mark and what it points to, and it finds the rest:
+Links are found from the text, so marks drawn as shapes, or titles set in an unusual way, can be missed. Show redcolumn one mark and what it points to, and it finds the rest. Teaching is part of a client's [drawing standard](#drawing-standards), so what you teach is used on every set from that client:
 
-1. Click **Teach links…** in the Links tab (or choose {{View > Teach Sheet Links…}}). The **Teach Links** panel opens.
-2. Pick what to teach: **Sections**, **Details**, **Elevations** or **Chainage**.
-3. Drag a box around one mark, such as a section mark. Include its label: the section letter and the sheet it points to.
-4. The panel shows what you boxed. Line work that runs out of the box, such as a road edge behind the mark, is shown in red and left out. White masks drawn under a label to hide the drawing behind it are not shown at all. Click a line or a word to leave it out or put it back, then click **Next**.
-5. Go to the sheet the mark points to (**Go to *sheet*** takes you there) and box the section's title.
-6. redcolumn checks the pair: the letters must match, and the mark must name the sheet the title is on. It says what it learned, for example that the client's callouts cite only part of the drawing number. Click **Keep**.
+1. Click **Teach links…** in the Links tab (or choose {{Document > Teach Sheet Links…}}). The [drawing standard setup](#drawing-standards) opens at its link steps. Start a standard for the client first, if the set has none.
+2. Pick **Sections**, **Elevations**, **Details**, **Match lines** or **Chainages** along the top.
+3. Box one mark, such as a section mark, with its label: the section letter and the sheet it points to. Click **Next**: the setup goes to the sheet the mark names. Box the section's title there.
+4. Click **Find the rest**. redcolumn checks the pair (the letters must match, and the mark must name the sheet the title is on), says what it learned, and shows how many it found with a few to check.
 
-Teach each kind once or twice. A callout that points to a whole sheet, with no title to box, can be kept alone: click **No title to box**.
-
-For **Chainage**, box the chainage on a cross section with the word in front of it (*CHAINAGE 101180*), then the same chainage on the plan. redcolumn learns the word, and the title words of the client's plan and cross-section sheets (see [Alignments and chainage](#drawing-standards)).
-
-Chainage needs two things first, and the panel says how to get them: a [drawing standard](#drawing-standards) to keep what you teach, and the sheet titles, which tell plans from cross sections. Give the standard a box for the sheet title (choose **Sheet title** for it) and click **Save and use**; if the standard has the box but the set has not been read with it, click **Read sheets with *standard***.
-
-A chainage on a cross section links to the plan that covers it, never to another cross section at the same chainage (often on another road). On the plan, each chainage with a cross section drawn at it links to that cross section. When the client has more than one alignment, name the road in the cross-section sheets' titles (or have the standard read titles that do), so these links are kept; otherwise they wait under **Needs review**.
-
-When the document is read with a [drawing standard](#drawing-standards), what you teach is kept in the standard, so it is used on every set from that client.
-
-redcolumn finds every mark drawn the same way in this set, reads the label inside it, and lists each match under **Needs review** with how sure it is (for example *87%*). Matches are outlined with dashes on the sheet, so you can click one to check where it goes, but none is saved as a link until you click **✓**. A wrong match never sneaks in.
+Links found from taught marks wait under **Needs review** with how sure the match is (for example *87%*), and none is saved as a link until you click **✓**.
 
 - **Section marks** and **detail callouts** link to the sheet their label names. Box the bubble without its cut arrow, so the mark is found whichever way the arrow points.
 - **Section titles**, **elevation titles** and **detail titles** show callouts where on the sheet their drawing is, so the preview opens on it. A title that names the sheet it is cut on also links back there.
+- A chainage on a cross section links to the plan that covers it, never to another cross section at the same chainage (often on another road). See **Chainages** in [Drawing standards](#drawing-standards).
 
-Taught marks are kept in your [profile](#profiles) on this device (they go with it if you export or back up the profile), and are looked for in every set you open from then on. They are listed under **Taught marks** in the Links tab; click **×** to forget one (links you already kept stay).
+Marks you taught before standards kept their own are still listed under **Taught marks** in the Links tab, and are looked for in every set; click **×** to forget one (links you already kept stay). The setup's review can move them into a standard.
+
+Links an AI assistant proposes over [MCP](#mcp) also wait under **Needs review**; hover the percentage to see its reasoning.
 
 > **Tip:** To link a whole folder of files at once, use [Bulk Auto-Link Sheets](#batch-link).

@@ -57,6 +57,8 @@ interface FontInfo {
   name: string;
   /** Cap height as a fraction of the em. */
   cap: number;
+  ascent: number;
+  descent: number;
 }
 
 export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: PdfMeta): Promise<Uint8Array> {
@@ -92,9 +94,15 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
     if (!f) {
       const font = await doc.embedFont(fonts[key], { subset: true });
       // Text height in CAD is the capital height: size the em from the font's own cap height.
-      const kit = (font as unknown as { embedder?: { font?: { capHeight?: number; unitsPerEm?: number } } }).embedder?.font;
+      const kit = (font as unknown as { embedder?: { font?: { capHeight?: number; unitsPerEm?: number; ascent?: number; descent?: number } } }).embedder?.font;
       const cap = kit?.capHeight && kit.unitsPerEm ? kit.capHeight / kit.unitsPerEm : 0.7;
-      f = { font, name: `F${fontInfo.size}`, cap };
+      f = {
+        font,
+        name: `F${fontInfo.size}`,
+        cap,
+        ascent: kit?.unitsPerEm ? (kit.ascent ?? kit.unitsPerEm) / kit.unitsPerEm : 1,
+        descent: kit?.unitsPerEm ? (kit.descent ?? -kit.unitsPerEm * 0.3) / kit.unitsPerEm : -0.3,
+      };
       fontInfo.set(key, f);
     }
     return f;
@@ -170,7 +178,7 @@ export async function writePdf(sheets: readonly Sheet[], fonts: CadFonts, meta: 
         } else {
           const f = await fontFor(p.font);
           usedFonts.add(f);
-          textOps(p, f, ops);
+          textOps(p, f, ops, sheet.pageScale ? sheet : undefined);
         }
       }
     };
@@ -225,11 +233,13 @@ function textLines(p: TextPrim, f: FontInfo, em: number, wf: number): string[] {
   return out;
 }
 
-function textOps(p: TextPrim, f: FontInfo, ops: string[]) {
+function textOps(p: TextPrim, f: FontInfo, ops: string[], modelPage?: { width: number; height: number }) {
   let em = p.h / f.cap;
   let wf = p.widthFactor;
   const lines = textLines(p, f, em, wf);
-  const widths = lines.map((l) => f.font.widthOfTextAtSize(l, 1));
+  if (p.runs && lines.length !== p.lines.length) throw new Error('Inline-height MTEXT wrapping is not supported. Use an explicit paper layout with unwrapped text.');
+  const runs = lines.map((line, i) => p.runs?.[i] ?? [{ text: line, scale: 1 }]);
+  const widths = runs.map((line) => line.reduce((sum, run) => sum + f.font.widthOfTextAtSize(run.text, 1) * run.scale, 0));
   if (p.fit && widths[0]) {
     const k = p.fit / (widths[0] * em * wf);
     if (p.fitHeight) em *= k;
@@ -249,13 +259,33 @@ function textOps(p: TextPrim, f: FontInfo, ops: string[]) {
     const w = widths[i]! * em * wf;
     const dx = p.halign === 1 ? -w / 2 : p.halign === 2 ? -w : 0;
     const dy = y0 - i * spacing;
-    const a = p.u[0] * em * wf;
-    const b = p.u[1] * em * wf;
-    const c = p.v[0] * em + p.u[0] * em * t;
-    const d = p.v[1] * em + p.u[1] * em * t;
-    const e = p.origin[0] + p.u[0] * dx + p.v[0] * dy;
-    const ff = p.origin[1] + p.u[1] * dx + p.v[1] * dy;
-    ops.push(`${fmt6(a)} ${fmt6(b)} ${fmt6(c)} ${fmt6(d)} ${fmt(e)} ${fmt(ff)} Tm`, `${f.font.encodeText(line).toString()} Tj`);
+    let advance = dx;
+    for (const run of runs[i]!) {
+      if (!run.text) continue;
+      const size = em * run.scale;
+      const runWidth = f.font.widthOfTextAtSize(run.text, 1) * size * wf;
+      if (modelPage && ((p.wrap && lines.length > p.lines.length) || p.runs)) {
+        // Model extents are measured before font wrapping or inline heights: refuse cropped output.
+        for (const x of [advance, advance + runWidth]) {
+          for (const y of [dy + size * f.descent, dy + size * f.ascent]) {
+            const shearedX = x + (y - dy) * t;
+            const px = p.origin[0] + p.u[0] * shearedX + p.v[0] * y;
+            const py = p.origin[1] + p.u[1] * shearedX + p.v[1] * y;
+            if (px < -0.1 || py < -0.1 || px > modelPage.width + 0.1 || py > modelPage.height + 0.1) {
+              throw new Error('Model-space MTEXT exceeds the computed sheet after wrapping or inline styling. Use a paper-space layout or enlarge the model drawing bounds before converting.');
+            }
+          }
+        }
+      }
+      const a = p.u[0] * size * wf;
+      const b = p.u[1] * size * wf;
+      const c = p.v[0] * size + p.u[0] * size * t;
+      const d = p.v[1] * size + p.u[1] * size * t;
+      const e = p.origin[0] + p.u[0] * advance + p.v[0] * dy;
+      const ff = p.origin[1] + p.u[1] * advance + p.v[1] * dy;
+      ops.push(`${fmt6(a)} ${fmt6(b)} ${fmt6(c)} ${fmt6(d)} ${fmt(e)} ${fmt(ff)} Tm`, `${f.font.encodeText(run.text).toString()} Tj`);
+      advance += runWidth;
+    }
   });
   ops.push('ET');
 }

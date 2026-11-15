@@ -92,3 +92,24 @@ test('nothing switches mid-gesture, and the switch follows when it ends', () => 
   assert.equal(s.onFormat, false);
   assert.equal(followFormat(select(FOLLOW_START, 'a'), { type: 'gone' }).onFormat, false);
 });
+
+test('a tool brings the Format tab forward, and putting it down goes back', () => {
+  let s = followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: true });
+  assert.deepEqual([s.onFormat, s.auto], [true, true]);
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.deepEqual([s.onFormat, s.auto], [false, false]);
+  // A tool with nothing to format leaves the tab alone.
+  assert.deepEqual(followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: false }), FOLLOW_START);
+});
+
+test('a Format tab the user picked is not taken back when the tool is put down', () => {
+  let s = followFormat(FOLLOW_START, { type: 'pick', format: true });
+  s = followFormat(s, { type: 'tool', active: true, contextual: true });
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.equal(s.onFormat, true);
+  // Picking another tab while the tool is active keeps that tab.
+  s = followFormat(FOLLOW_START, { type: 'tool', active: true, contextual: true });
+  s = followFormat(s, { type: 'pick', format: false });
+  s = followFormat(s, { type: 'tool', active: false, contextual: true });
+  assert.equal(s.onFormat, false);
+});

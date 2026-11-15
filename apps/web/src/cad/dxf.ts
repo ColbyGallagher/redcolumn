@@ -120,6 +120,7 @@ export function readDxf(input: string | Uint8Array): Drawing {
     layerByHandle: new Map(),
     linetypes: new Map(),
     styles: new Map(),
+    dimstyles: new Map(),
     blocks: new Map(),
     blockByRecord: new Map(),
     layouts: [],
@@ -173,6 +174,8 @@ export function readDxf(input: string | Uint8Array): Drawing {
         };
         d.layers.set(layer.name, layer);
         if (layer.handle) d.layerByHandle.set(layer.handle, layer.name);
+      } else if (o.type === 'DIMSTYLE') {
+        d.dimstyles!.set(str(g, 2).toUpperCase(), g);
       } else if (o.type === 'LTYPE') {
         // Element lengths (49), each possibly followed by shape/text data (74 > 0) we skip.
         d.linetypes.set(str(g, 2).toUpperCase(), { name: str(g, 2), pattern: nums(g, 49) });

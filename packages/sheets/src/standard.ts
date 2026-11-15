@@ -213,21 +213,49 @@ export function readSheet(page: PageText, hints: SheetHints): SheetInfo | null {
       .map((r) => fieldText(page.words, r, field))
       .filter(Boolean)
       .join(' ') || null;
-  const revision = text('revision');
+  const revision = boxes('revision').map((r) => revisionIn(page.words, r)).find(Boolean) ?? null;
   const info: SheetInfo = {
     number,
     title: text('title'),
     discipline: disciplineOf(number, hints),
     scaleText: text('scale'),
     paperText: text('sheetSize'),
-    // A revision box often holds the whole history; the current one is the last entry.
-    revision: revision ? revision.split(' ').at(-1)! : null,
+    revision,
     source: 'standard',
     confidence: pattern ? 0.95 : 0.8,
   };
   const fields = customFields(page, hints.boxes);
   if (fields) info.fields = fields;
   return info;
+}
+
+/**
+ * What one title-block box holds on a page, as the standard would read it: the number that fits
+ * the template, the title or scale without the label printed in front, a revision box's last
+ * entry, a custom field without its name. Null when the box is empty (or holds no number).
+ */
+export function readBox(page: PageText, box: TitleBox, template: string | null = null): string | null {
+  const r = regionOfBox(box, page);
+  if (box.field === 'number') return numberIn(page.words, r, template ? templateRegex(template) : null);
+  if (box.field === 'custom') return customFields(page, [{ ...box, name: box.name || 'Field' }])?.[box.name || 'Field'] ?? null;
+  if (box.field === 'revision') return revisionIn(page.words, r);
+  return fieldText(page.words, r, box.field) || null;
+}
+
+/**
+ * The current revision in a box: of the box's largest lettering (the revision is printed big; a
+ * label or the next cell's caption caught by a loose box is small), the last entry, as a box
+ * often holds the whole history (`A B C`).
+ */
+function revisionIn(words: readonly Word[], r: Region): string | null {
+  const inside = words.filter((w) => inBox(w, r) && w.text.trim());
+  if (!inside.length) return null;
+  const big = Math.max(...inside.map((w) => w.size));
+  const text = textInRegion(
+    inside.filter((w) => w.size >= big * 0.8),
+    r,
+  ).replace(FIELD_LABEL.revision, '');
+  return text.trim().split(/\s+/).at(-1) || null;
 }
 
 /** The custom fields' values on a page, each without its own name printed in front (`STATUS: FOR CONSTRUCTION`). */

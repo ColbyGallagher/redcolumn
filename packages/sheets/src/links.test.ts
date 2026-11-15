@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_LINK_HINTS, detailId, detectLinks, isLinkKind, SheetLookup } from './links.ts';
+import { DEFAULT_LINK_HINTS, detailId, detectLinks, isLinkKind, SheetLookup, matchLineLabels, nearbyText } from './links.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2592;
@@ -73,7 +73,8 @@ test('slash references and plain sheet references', () => {
   );
   // Detail 3 does not exist on C-501 here, so the link falls back to the sheet with lower confidence.
   assert.equal(links[0]!.targetRect, null);
-  assert.equal(links[0]!.confidence, 0.65);
+  assert.equal(links[0]!.confidence, 0.63);
+  assert.deepEqual(links[0]!.evidence, ['slash', 'noTarget']);
 });
 
 test("a sheet's own title-block number is not a link; unknown sheets are ignored", () => {
@@ -307,4 +308,53 @@ test("a drawing standard's link hints: its identifiers, title and match-line wor
   );
   assert.equal(new SheetLookup(nums, 1).find('501', true), 2);
   assert.equal(new SheetLookup(nums).find('501', true), null);
+});
+
+test('a title bubble naming the sheet it is called up on links back with the kind its title gives', () => {
+  const pages = [
+    page([...bubble('3', 'C-501', 900, 800), ...bubble('E1', 'C-501', 900, 1000), ...titleBlock('C-101')]),
+    page(titleBlock('C-102')),
+    // On C-501: titles whose bubbles name C-101, their words beside the bubble a little lower than its letter.
+    page([...bubble('3', 'C-101', 600, 900, 14), word('DETAIL', 640, 912, 12), word('KERB', 700, 912, 12), ...bubble('E1', 'C-101', 600, 1100, 14), word('ELEVATION', 640, 1112, 12), word('HEADWALL', 730, 1112, 12), ...titleBlock('C-501')]),
+  ];
+  const kinds = detectLinks(pages, numbers).map((l) => [pages.indexOf(pages[l.pageIndex]!), l.label, l.kind]);
+  assert.deepEqual(
+    kinds.filter(([p]) => p === 2),
+    [
+      [2, '3/C-101', 'detail'],
+      [2, 'E1/C-101', 'elevation'],
+    ],
+  );
+  // The callouts to them say the same.
+  assert.deepEqual(
+    kinds.filter(([p]) => p === 0),
+    [
+      [0, '3/C-501', 'detail'],
+      [0, 'E1/C-501', 'elevation'],
+    ],
+  );
+});
+
+/** A word turned a quarter anticlockwise (reading up the page), from (x, y) along -y. */
+function up(text: string, x: number, y: number, size: number): Word {
+  const len = text.length * size * 0.6;
+  return { text, x0: x, y0: y - len, x1: x + size * 0.75, y1: y, size, angle: (3 * Math.PI) / 2 };
+}
+
+test('match-line labels of two lines, turned to run along the line, link as match lines', () => {
+  // MATCH LINE CH 280.000 over ADJOINS DRG C-102, reading up the page.
+  const label = [up('MATCH', 2000, 900, 8), up('LINE', 2000, 860, 8), up('CH', 2000, 830, 8), up('280.000', 2000, 810, 8), up('ADJOINS', 2010, 940, 8), up('DRG', 2010, 890, 8), up('C-102', 2010, 860, 8)];
+  // Flat, too: the sheet number on the line below the words.
+  const flat = [word('MATCH', 400, 1200, 8), word('LINE', 440, 1200, 8), word('CH', 470, 1200, 8), word('565.000', 490, 1200, 8), word('ADJOINS', 380, 1212, 8), word('DRG', 440, 1212, 8), word('C-102.', 470, 1212, 8)];
+  const pages = [page([...label, ...flat, ...titleBlock('C-101')]), page(titleBlock('C-102')), page(titleBlock('C-501'))];
+  const links = detectLinks(pages, numbers).filter((l) => l.pageIndex === 0);
+  assert.deepEqual(
+    links.map((l) => [l.label, l.kind, l.targetPage]),
+    [
+      ['C-102', 'matchline', 1],
+      ['C-102', 'matchline', 1],
+    ],
+  );
+  assert.equal(matchLineLabels(pages[0]!).length, 2);
+  assert.match(nearbyText(pages[0]!, label[6]!, 30, 1), /^MATCH LINE CH 280\.000 ADJOINS DRG C-102$/);
 });

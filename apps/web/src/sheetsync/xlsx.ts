@@ -110,21 +110,47 @@ export function sheetName(name: string): string {
   return name.replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || 'Markups';
 }
 
-function sheetXml(table: readonly (readonly TableCell[])[]): string {
+/** How a column's numbers show in Excel (the value stays a number). */
+export type XlsxNumberFormat = 'qty' | 'money' | 'pct';
+
+/** One sheet of a workbook. */
+export interface SheetSpec {
+  name: string;
+  table: readonly (readonly TableCell[])[];
+  /** Number format per column. */
+  formats?: readonly (XlsxNumberFormat | undefined)[];
+  /** Rows (0-based, header included) drawn in bold: group headings, subtotals and totals. */
+  boldRows?: ReadonlySet<number>;
+  /** An AutoFilter over the whole table (on by default). */
+  filter?: boolean;
+}
+
+// Cell styles (cellXfs): 0 normal, 1 bold, 2 number, 3 percent, 4 bold number, 5 bold percent, 6 text that looks like a formula.
+const STYLE = { bold: 1, num: 2, pct: 3, boldNum: 4, boldPct: 5, quote: 6 } as const;
+/** Text Excel would read as a formula when typed (see `asText` in the desktop app): kept as text with a quote prefix. */
+const FORMULA_LIKE = /^[=+\-@\t\r]/;
+
+function sheetXml(spec: SheetSpec): string {
+  const table = spec.table;
   const cols = Math.max(1, ...table.map((r) => r.length));
   const widths = Array.from({ length: cols }, (_, c) => {
     const longest = Math.max(4, ...table.slice(0, 200).map((r) => String(r[c] ?? '').split('\n')[0]!.length));
     return Math.min(60, longest + 2);
   });
   const rows = table.map((row, r) => {
+    const bold = r === 0 || !!spec.boldRows?.has(r);
     const cells = row
       .map((v, c) => {
         const ref = `${columnName(c)}${r + 1}`;
-        const style = r === 0 ? ' s="1"' : '';
-        if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"${style}><v>${v}</v></c>`;
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          const f = spec.formats?.[c];
+          const s = f === 'pct' ? (bold ? STYLE.boldPct : STYLE.pct) : f ? (bold ? STYLE.boldNum : STYLE.num) : bold ? STYLE.bold : 0;
+          return `<c r="${ref}"${s ? ` s="${s}"` : ''}><v>${v}</v></c>`;
+        }
         const text = String(v);
         if (text === '') return '';
-        return `<c r="${ref}"${style} t="inlineStr"><is><t xml:space="preserve">${xml(text)}</t></is></c>`;
+        const s = bold ? STYLE.bold : FORMULA_LIKE.test(text) ? STYLE.quote : 0;
+        return `<c r="${ref}"${s ? ` s="${s}"` : ''} t="inlineStr"><is><t xml:space="preserve">${xml(text)}</t></is></c>`;
       })
       .join('');
     return `<row r="${r + 1}">${cells}</row>`;
@@ -136,50 +162,76 @@ function sheetXml(table: readonly (readonly TableCell[])[]): string {
     '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' +
     `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` +
     `<sheetData>${rows.join('')}</sheetData>` +
-    `<autoFilter ref="A1:${last}"/>` +
+    (spec.filter === false ? '' : `<autoFilter ref="A1:${last}"/>`) +
     '</worksheet>'
   );
 }
 
-/** The table as an .xlsx file. */
-export function buildXlsx(table: readonly (readonly TableCell[])[], name = 'Markups'): Uint8Array {
-  const sheet = sheetName(name);
+const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+/** Sheet names made unique (Excel ignores case) by numbering repeats. */
+export function uniqueNames(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  return names.map((raw) => {
+    const base = sheetName(raw);
+    let name = base;
+    for (let n = 2; seen.has(name.toLowerCase()); n++) name = `${base.slice(0, 31 - String(n).length - 1)} ${n}`;
+    seen.add(name.toLowerCase());
+    return name;
+  });
+}
+
+/** The sheets as an .xlsx workbook, one sheet each, in order. */
+export function buildWorkbook(sheets: readonly SheetSpec[]): Uint8Array {
+  const list: readonly SheetSpec[] = sheets.length ? sheets : [{ name: 'Markups', table: [[]] }];
+  const names = uniqueNames(list.map((s) => s.name));
   const parts: [string, string][] = [
     [
       '[Content_Types].xml',
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      `${HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        list.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') +
         '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
     ],
-    [
-      '_rels/.rels',
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>',
-    ],
+    ['_rels/.rels', `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${REL}/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
     [
       'xl/workbook.xml',
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
-        `<sheets><sheet name="${xml(sheet)}" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      `${HEAD}<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${REL}">` +
+        `<sheets>${names.map((n, i) => `<sheet name="${xml(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`,
     ],
     [
       'xl/_rels/workbook.xml.rels',
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
-        '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
-        '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+      `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+        list.map((_, i) => `<Relationship Id="rId${i + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('') +
+        `<Relationship Id="rId${list.length + 1}" Type="${REL}/styles" Target="styles.xml"/></Relationships>`,
     ],
     [
       'xl/styles.xml',
-      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      `${HEAD}<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
+        '<numFmts count="1"><numFmt numFmtId="164" formatCode="0.0&quot;%&quot;"/></numFmts>' +
         '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
         '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
         '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>' +
+        '<cellXfs count="7">' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+        '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+        '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
+        '<xf numFmtId="4" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+        '<xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>' +
+        '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" quotePrefix="1"/>' +
+        '</cellXfs>' +
         '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>',
     ],
-    ['xl/worksheets/sheet1.xml', sheetXml(table)],
+    ...list.map((s, i): [string, string] => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)]),
   ];
   return zipStore(parts.map(([name, text]) => ({ name, data: enc.encode(text) })));
+}
+
+/** The table as an .xlsx file with one sheet. */
+export function buildXlsx(table: readonly (readonly TableCell[])[], name = 'Markups'): Uint8Array {
+  return buildWorkbook([{ name, table }]);
 }

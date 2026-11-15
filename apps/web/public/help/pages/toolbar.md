@@ -30,7 +30,7 @@ redcolumn starts with a ribbon, as in Word, Excel and AutoCAD: tabs of commands 
 
 The same choices are under {{Window > Toolbar Display}}. Press **Ctrl+F1**, or double-click a tab, to fold the ribbon to its tabs or open it again.
 
-The ribbon's tabs are **Home**, **Markup**, **Measure**, **Modify**, **Document**, **Bulk** and **View**. **Modify** holds every editing command (Move, Rotate, Trim, Fillet, Join, Explode, Align, Arrange, Group, and Edit Text, Erase Content and Cut Content for the PDF's own content). **Bulk** runs a job across many files, as the Bulk menu does. Its buttons follow what you select: a command that cannot work on the selection is greyed out, so with a text box selected Explode and Trim are off. The tab shows how many markups are selected.
+The ribbon's tabs are **Home**, **Markup**, **Measure**, **Takeoff**, **Diagram**, **Modify**, **Document**, **Bulk** and **View**. **Takeoff** gathers what an estimator needs in one place (see [The Takeoff tab](#takeoff-tab)). **Diagram** holds flowchart shapes and connectors. **Modify** holds every editing command (Move, Rotate, Trim, Fillet, Join, Explode, Align, Arrange, Group, and Edit Text, Erase Content and Cut Content for the PDF's own content). **Bulk** runs a job across many files, as the Bulk menu does. Its buttons follow what you select: a command that cannot work on the selection is greyed out, so with a text box selected Explode and Trim are off. The tab shows how many markups are selected.
 
 ## Hide the whole toolbar
 

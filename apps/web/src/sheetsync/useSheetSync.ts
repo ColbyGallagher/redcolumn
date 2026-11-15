@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalExcelTarget, localExcel, SyncStoppedError, targetFor, type SyncLink, type SyncTarget } from './targets';
 import { tableKey, type TableCell } from './table';
+import type { SheetSpec } from './xlsx';
 
 /** An error with `retryAt` is tried again by itself then; without one, only a click tries again. */
 export type SyncStatus = { kind: 'idle' } | { kind: 'syncing' } | { kind: 'synced'; at: number } | { kind: 'error'; message: string; retryAt?: number };
@@ -47,6 +48,7 @@ export function useSheetSync(docKey: string | null) {
   const [status, setStatus] = useState<SyncStatus>({ kind: 'idle' });
   const target = useRef<SyncTarget | null>(null);
   const latest = useRef<Table | null>(null);
+  const latestExtras = useRef<readonly SheetSpec[]>([]);
   const written = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const running = useRef<Promise<void>>(Promise.resolve());
@@ -69,6 +71,7 @@ export function useSheetSync(docKey: string | null) {
     target.current = null;
     written.current = null;
     latest.current = null;
+    latestExtras.current = [];
     setLink(docKey ? savedLink(docKey) : null);
     setStatus({ kind: 'idle' });
   }, [docKey]);
@@ -87,7 +90,8 @@ export function useSheetSync(docKey: string | null) {
       if (gen !== generation.current || !table || !docKey) return;
       const current = savedLink(docKey);
       if (!current) return;
-      const key = tableKey(table);
+      const extras = current.quantities ? latestExtras.current : [];
+      const key = tableKey(table, extras);
       if (key === written.current) {
         // Back to what the sheet already holds (an undo after a failed write): nothing left to retry.
         stopRetry();
@@ -99,7 +103,7 @@ export function useSheetSync(docKey: string | null) {
       setStatus({ kind: 'syncing' });
       try {
         target.current ??= targetFor(current);
-        await target.current.push(table);
+        await target.current.push(table, extras);
         if (gen !== generation.current) return;
         written.current = key;
         failures.current = 0;
@@ -136,10 +140,11 @@ export function useSheetSync(docKey: string | null) {
     };
   }, [flush]);
 
-  /** Call with the table as it stands now; writes soon if it changed. */
+  /** Call with the table as it stands now (and the quantities sheet, if there is one); writes soon if it changed. */
   const update = useCallback(
-    (table: Table) => {
+    (table: Table, extras: readonly SheetSpec[] = []) => {
       latest.current = table;
+      latestExtras.current = extras;
       if (!docKey || !savedLink(docKey)) return;
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => void flush(), DEBOUNCE_MS);
@@ -149,19 +154,20 @@ export function useSheetSync(docKey: string | null) {
 
   /** Asks where to save a workbook on this computer, then starts syncing to it (Windows desktop app). */
   const connectLocal = useCallback(
-    async (title: string, table: Table) => {
+    async (title: string, table: Table, extras: readonly SheetSpec[] = [], quantities = false) => {
       const excel = localExcel();
       if (!docKey || !excel) return;
       setStatus({ kind: 'syncing' });
       try {
-        const made = await LocalExcelTarget.create(title, table, excel);
+        const made = await LocalExcelTarget.create(title, table, excel, quantities ? extras : [], quantities);
         if (!made) {
           setStatus({ kind: 'idle' });
           return;
         }
         target.current = made.target;
         latest.current = table;
-        written.current = tableKey(table);
+        latestExtras.current = extras;
+        written.current = tableKey(table, quantities ? extras : []);
         failures.current = 0;
         save(docKey, made.link);
         setLink(made.link);
@@ -169,6 +175,21 @@ export function useSheetSync(docKey: string | null) {
       } catch (err) {
         setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not create the workbook.' });
       }
+    },
+    [docKey],
+  );
+
+  /** Turns the Quantities sheet on or off; the workbook is brought up to date at once. */
+  const setQuantities = useCallback(
+    (on: boolean) => {
+      const current = docKey ? savedLink(docKey) : null;
+      if (!docKey || !current) return;
+      const next: SyncLink = { ...current };
+      if (on) next.quantities = true;
+      else delete next.quantities;
+      save(docKey, next);
+      setLink(next);
+      void flushRef.current();
     },
     [docKey],
   );
@@ -195,5 +216,5 @@ export function useSheetSync(docKey: string | null) {
     setStatus({ kind: 'idle' });
   }, [docKey]);
 
-  return { link, status, update, connectLocal, syncNow, disconnect };
+  return { link, status, update, connectLocal, setQuantities, syncNow, disconnect };
 }

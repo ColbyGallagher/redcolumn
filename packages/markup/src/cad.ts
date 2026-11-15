@@ -606,11 +606,17 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
     return [tidy(x), tidy(y)];
   };
   const out: Partial<Markup> = {};
+  // A box's width and height follow how the transform stretches its own axes (a stretch that is not a
+  // similarity, as a group's box makes, changes them separately).
+  const r1 = ((m.rotation ?? 0) * Math.PI) / 180;
+  const lin = (x: number, y: number) => Math.hypot(t.a * x + t.c * y, t.b * x + t.d * y);
+  const kx = lin(Math.cos(r1), Math.sin(r1));
+  const ky = lin(-Math.sin(r1), Math.cos(r1));
   const scaleBox = (pts: readonly Point[]): Point[] => {
     const b = boundsOf(pts);
     const c = f([b.x + b.w / 2, b.y + b.h / 2]);
-    const w = (b.w * k) / 2;
-    const h = (b.h * k) / 2;
+    const w = (b.w * kx) / 2;
+    const h = (b.h * ky) / 2;
     return [
       [c[0] - w, c[1] - h],
       [c[0] + w, c[1] + h],
@@ -628,7 +634,22 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
       if (flip && m.arcAngles) out.arcAngles = [-m.arcAngles[1], -m.arcAngles[0]];
     }
   } else if (m.type === 'callout' && m.points.length >= 4) {
-    out.points = [...m.points.slice(0, 2).map(f), ...scaleBox(m.points.slice(2, 4))];
+    // A callout turns whole about the middle of its text box (its `rotation`), so its text turns while its
+    // arrow tips go where the transform sends them: the leader points are stored in the box's own frame.
+    const box = scaleBox(m.points.slice(2, 4));
+    const r0 = ((m.rotation ?? 0) * Math.PI) / 180;
+    const ax = applyAffine({ ...t, e: 0, f: 0 }, [Math.cos(r0), Math.sin(r0)]);
+    // A mirror leaves the text upright (as for other text), so the whole callout is stored unturned.
+    const rot = flip ? 0 : Math.round(((Math.atan2(ax[1], ax[0]) * 180) / Math.PI) * 1e6) / 1e6;
+    const c0 = rotationCentre(m);
+    const c1: Point = [(box[0]![0] + box[1]![0]) / 2, (box[0]![1] + box[1]![1]) / 2];
+    const leader = (p: Point): Point => {
+      const seen = m.rotation ? rotatePoint(p, c0, m.rotation) : p;
+      const [x, y] = f(seen);
+      return rot ? rotatePoint([x, y], c1, -rot) : [x, y];
+    };
+    out.points = [leader(m.points[0]!), leader(m.points[1]!), ...box, ...m.points.slice(4).map(leader)];
+    if (Math.abs(rot) > 1e-6 || m.rotation) out.rotation = rot || undefined;
   } else {
     out.points = m.points.map(f);
     if (m.holes) out.holes = m.holes.map((h) => h.map(f));

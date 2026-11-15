@@ -1,5 +1,5 @@
 import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
-import { areaUnitOf, DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
+import { areaUnitOf, DEFAULT_SCALE, effectiveSlopeFactor, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, planValue, quantityOf, slopeApplies, slopeIsFlat, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
 
@@ -36,6 +36,12 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'wallArea', label: 'Wall Area', align: 'right', defaultWidth: 100 },
   { key: 'depth', label: 'Depth', align: 'right', defaultWidth: 90 },
   { key: 'slope', label: 'Slope', align: 'right', defaultWidth: 70 },
+  { key: 'planLength', label: 'Plan Length', align: 'right', defaultWidth: 100 },
+  { key: 'planArea', label: 'Plan Area', align: 'right', defaultWidth: 100 },
+  { key: 'slopeFactor', label: 'Slope Factor', align: 'right', defaultWidth: 80 },
+  { key: 'pitch', label: 'Pitch', align: 'right', defaultWidth: 60 },
+  { key: 'slopeAngle', label: 'Slope Angle', align: 'right', defaultWidth: 70 },
+  { key: 'slopePercent', label: 'Slope %', align: 'right', defaultWidth: 60 },
   { key: 'assembly', label: 'Assembly', defaultWidth: 150 },
   { key: 'author', label: 'Author', defaultWidth: 100 },
   { key: 'date', label: 'Date', defaultWidth: 140 },
@@ -50,11 +56,14 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'capture', label: 'Capture', defaultWidth: 70 },
 ];
 
+/** The numeric slope columns (plan values, factor, pitch, angle, grade): added later, hidden in saved layouts. */
+const SLOPE_COLUMNS = ['planLength', 'planArea', 'slopeFactor', 'pitch', 'slopeAngle', 'slopePercent'];
+
 /** Shown until the user changes the layout. */
 const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'label', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
 
 /** Built-in columns that existed before layouts could lack them: one missing from a saved layout is shown. */
-const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'assembly'].includes(k)));
+const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'assembly', ...SLOPE_COLUMNS].includes(k)));
 
 export const customKey = (id: string) => `custom:${id}`;
 
@@ -140,12 +149,45 @@ export function statusName(id: string, statuses: readonly MarkupStatusDef[]): st
   return statuses.find((s) => s.id === id)?.name ?? id;
 }
 
+/**
+ * The numeric slope columns: plan length or area (before the slope, in display units), the factor
+ * the slope made, and that slope as pitch (rise per 12), angle (degrees) and grade (%). A hip's are
+ * along the hip itself, and a run with elevations its own over its plan length. Measurements the
+ * slope does not change read factor 1 and 0 slope, so formulas work on every measurement. A manual
+ * (typed) quantity is never sloped: its plan length or area is the value typed.
+ */
+function slopeCells(m: Markup, scale: Scale, props: ReturnType<typeof measureProps>): Record<string, Cell> {
+  const blank = { planLength: cell(''), planArea: cell(''), slopeFactor: cell(''), pitch: cell(''), slopeAngle: cell(''), slopePercent: cell('') };
+  if (!isMeasureKind(m.type)) return blank;
+  const kind = m.type;
+  const q = quantityOf(kind, props);
+  if (q !== 'length' && q !== 'area' && q !== 'volume') return blank;
+  const manual = kind === 'manual';
+  const plan = planValue(kind, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint);
+  const per = METERS_PER_UNIT[scale.unit];
+  const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
+  // A typed volume has no plan area to show.
+  const planArea = q === 'length' ? undefined : q === 'area' ? plan : manual ? undefined : planValue('area', m.points, scale.metersPerPoint, props, scale.yMetersPerPoint);
+  const factor = q === 'volume' || manual ? 1 : effectiveSlopeFactor(kind, plan, m.slope);
+  const sloped = factor !== 1;
+  const tan = Math.sqrt(Math.max(0, factor * factor - 1));
+  const show = (text: string, num: number) => cell(sloped ? text : '', num);
+  return {
+    planLength: q === 'length' ? cell(formatLength(plan, scale), plan / per) : cell(''),
+    planArea: planArea !== undefined ? cell(formatArea(planArea, scale), planArea / (perArea * perArea)) : cell(''),
+    slopeFactor: show(factor.toFixed(4), factor),
+    pitch: show((12 * tan).toFixed(2), 12 * tan),
+    slopeAngle: show(`${((Math.atan(tan) * 180) / Math.PI).toFixed(2)}°`, (Math.atan(tan) * 180) / Math.PI),
+    slopePercent: show(`${(100 * tan).toFixed(1)}%`, 100 * tan),
+  };
+}
+
 /** Every column's cell for one markup, calculation columns included. */
 export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   const scale = ctx.scaleOf(m) ?? DEFAULT_SCALE;
   const props = measureProps(m);
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : null;
-  const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale) : null;
+  const qty = value !== null && isMeasureKind(m.type) ? toDisplayQuantity(m.type, value, scale, props) : null;
   const details = isMeasureKind(m.type) ? measureDetails(m.type, m.points, scale.metersPerPoint, props, scale.yMetersPerPoint) : {};
   const per = METERS_PER_UNIT[scale.unit];
   const perArea = METERS_PER_UNIT[areaUnitOf(scale)];
@@ -159,13 +201,14 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),
     sheet: cell(ctx.sheets[m.pageIndex]?.number ?? ''),
     space: cell(ctx.spaces?.length ? spacePath(m, ctx.spaces) : ''),
-    measurement: cell(value !== null && isMeasureKind(m.type) ? formatMeasure(m.type, value, scale) : '', qty ? qty.value : null),
+    measurement: cell(value !== null && isMeasureKind(m.type) ? formatMeasure(m.type, value, scale, props) : '', qty ? qty.value : null),
     length: q(details.length, formatLength, per),
     area: q(details.area, formatArea, perArea * perArea),
     volume: q(details.volume, formatVolume, perVolume * perVolume * perVolume),
     wallArea: q(details.wallArea, formatArea, perArea * perArea),
     depth: q(m.depth, formatLength, per),
-    slope: cell(m.slope?.value ? formatSlope(m.slope) : ''),
+    slope: cell(isMeasureKind(m.type) && m.slope && slopeApplies(m.type, m.slope) && !slopeIsFlat(m.slope) ? formatSlope(m.slope) : ''),
+    ...slopeCells(m, scale, props),
     assembly: cell(m.assemblyId ? (ctx.assemblies?.find((a) => a.id === m.assemblyId)?.name ?? '(deleted assembly)') : ''),
     author: cell(m.author),
     date: { text: new Date(m.modifiedAt).toLocaleString(), num: m.modifiedAt },

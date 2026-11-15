@@ -10,6 +10,8 @@ Click **Thumbnails** on the panel rail.
 
 Under each picture is the page's **label** (sheet number) and page number, for example *A-101 · 1*.
 
+Click a page that is the same size as the one you are on and the view stays at the same zoom, on the same part of the sheet. Zoom into a stair on one floor, click the next floor, and the same stair is in view.
+
 ## The controls
 
 ![The controls at the top of the Thumbnails panel](img/thumbnails-controls.png)
@@ -21,7 +23,7 @@ Under each picture is the page's **label** (sheet number) and page number, for e
 5. **Insert PDF…** — insert another PDF's pages after the selection.
 6. **Scale** — set the scale of the selected pages. See [Set the scale](#scale).
 7. **Label** — the sheet number of the selected page. See [Page labels](#page-labels).
-8. **Thumbnail size** — drag to make the pictures bigger or smaller.
+8. **Thumbnail size** — drag to make the pictures bigger or smaller. The thumbnails fill the panel in as many columns as fit, so widening the panel or choosing a smaller size shows more pages at once.
 
 ## Select pages
 

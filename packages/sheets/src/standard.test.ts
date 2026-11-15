@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { detectSheets } from './detect.ts';
-import { boxFromRegion, deriveTemplate, disciplineOf, numberParts, readSheet, regionOfBox, standardCoverage, standardFit, templateRegex, type SheetHints } from './standard.ts';
+import { boxFromRegion, deriveTemplate, disciplineOf, numberParts, readBox, readSheet, regionOfBox, standardCoverage, standardFit, templateRegex, type SheetHints } from './standard.ts';
 import type { PageText, Word } from './types.ts';
 
 const W = 2384; // A1 landscape, points
@@ -172,4 +172,21 @@ test('a sheet size box is read without its label', () => {
   p.words.push(...phrase('SHEET SIZE A1', 1500, 1640, 10));
   const withSize: SheetHints = { ...hints, boxes: [...hints.boxes, { field: 'sheetSize', x: 1490 / W, y: 1620 / H, w: 150 / W, h: 30 / H }] };
   assert.equal(readSheet(p, withSize)?.paperText, 'A1');
+});
+
+test('one box read on its own, as the setup wizard checks it across sheets', () => {
+  const p = sheet('KST1RDS-ACMEA-0508-BR-DRG-300082', 'GENERAL ARRANGEMENT', 'C');
+  const [title, number, ignore, revision] = hints.boxes;
+  assert.equal(readBox(p, number!, hints.template), 'KST1RDS-ACMEA-0508-BR-DRG-300082');
+  // Without a template, still the number, not its label.
+  assert.equal(readBox(p, number!), 'KST1RDS-ACMEA-0508-BR-DRG-300082');
+  assert.equal(readBox(p, title!), 'GENERAL ARRANGEMENT');
+  assert.equal(readBox(p, revision!), 'C');
+  // A loose revision box that catches the small caption of the cell below still reads the revision.
+  const loose = { ...p, words: [...p.words, word('EDMS', 2300, 1648, 5), word('No', 2330, 1648, 5)] };
+  assert.equal(readBox(loose, { ...revision!, h: revision!.h + 0.01 }), 'C');
+  // An ignore box is read as printed, label and all.
+  assert.equal(readBox(p, ignore!), 'CONTRACT NO. C-2041');
+  assert.equal(readBox(p, boxFromRegion({ x: 10, y: 10, w: 20, h: 20 }, page, 'scale')), null);
+  assert.equal(readBox(p, boxFromRegion({ x: 2140, y: 1600, w: 140, h: 50 }, page, 'custom', 'Contract No.')), 'C-2041');
 });

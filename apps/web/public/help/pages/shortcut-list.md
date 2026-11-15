@@ -169,6 +169,7 @@ The standard keyboard shortcuts. You can change any of them: see [Keyboard short
 | Volume | [[Alt]]+[[Shift]]+[[V]] |
 | Dynamic Fill | [[J]] |
 | Next Measure Tool | [[Shift]]+[[M]] |
+| Arc (3-point) | [[Shift]]+[[B]] |
 | Apply Redactions | [[Shift]]+[[A]] |
 | Sign with Digital ID | [[X]] |
 | Forms Panel | [[Ctrl]]+[[Shift]]+[[F]] |

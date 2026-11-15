@@ -18,7 +18,7 @@ In the desktop app, an AI client on your computer (Copilot, Claude, Codex or Cur
 - **Allow prompts.** Anything that deletes, saves, or changes a document waits for you to click **Allow** in redcolumn. The client waits about two minutes for your answer, then gives up.
 - **Undo works.** Every change the client makes is one step in {{Edit > Undo}}, however many markups it touched.
 - **Some things cannot be changed.** Read-only drawings, locked markups, and other people's markups. The tool says so.
-- **Suggestions are not applied.** Takeoff proposals and page scales wait in a review panel for you.
+- **Suggestions are not applied.** Takeoff proposals, page scales, sheet links and drawing-standard words wait for you to review.
 - **Pages are numbered from 1.** Positions are in PDF points (72 to the inch), measured from the **top-left** of the page, with y going **down**.
 - Most tools take a **document** (name or id). Leave it out and the drawing on screen is used.
 - **Mistakes are safe.** When a client sends many items at once, redcolumn checks all of them first. One bad item means nothing is changed.
@@ -39,7 +39,9 @@ In the desktop app, an AI client on your computer (Copilot, Claude, Codex or Cur
 | `delete_markups` | Deletes markups (asks first). | [Edit and delete markups](#mcp-edit) |
 | `list_commands`, `run_command` | Finds and runs menu commands. | [Run commands](#mcp-commands), [Every command](#mcp-command-list) |
 | `list_assemblies`, `propose_takeoff`, `list_takeoff_proposals` | Suggests takeoff assemblies. | [Takeoff proposals](#mcp-takeoff) |
+| `find_symbol_matches`, `propose_counts`, `list_count_proposals` | Finds repeats of a symbol and suggests a count. | [AI auto count](#ai-auto-count) |
 | `get_sheet_info`, `propose_page_scale` | Reads and suggests sheet scales. | [Sheet scales](#mcp-scale) |
+| `get_drawing_standard`, `list_sheet_links`, `propose_sheet_links`, `propose_standard_hints` | Finishes a drawing standard's links. | [Drawing standards](#drawing-standards) |
 | `start_comparison`, `get_comparison`, `report_document_changes` | AI comparison of two revisions. | [Compare documents](#mcp-compare) |
 | `get_stitching`, `get_stitch_image`, `place_match_lines`, `update_match_lines`, `delete_match_lines`, `set_stitch_region`, `show_stitched_view`, `stitch_to_page` | Joins sheets. | [Stitch sheets](#mcp-stitch) |
 | `list_viewports`, `place_viewport`, `place_viewports`, `set_viewport_scale` | Regions with their own scale. | [Viewports](#mcp-viewports) |

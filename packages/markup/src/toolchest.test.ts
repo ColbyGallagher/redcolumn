@@ -217,3 +217,17 @@ test('a group box keeps /RD as left, top, right, bottom; a sequence numbers only
   assert.deepEqual(box!.points, [[0, 6], [40, 39]]);
   assert.deepEqual([num!.text, title!.text], ['7', 'A101']);
 });
+
+test("a tool keeps Revu's Label and Comment columns; a text tool's words show as its comment, a measurement reading does not", async () => {
+  const xml = `<BluebeamRevuToolSet Version="1"><Title>T</Title>
+${item('Note', 'Bluebeam.PDF.Annotations.AnnotationSquare', '<</Subtype/Square/Subj(Rectangle)/Label(Tile 1)/Contents(Check this)>>')}
+${item('Words', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</Subtype/FreeText/Subj(Text Box)/Contents(Sample)/DA(0 0 0 rg /Helv 12 Tf)>>')}
+${item('Len', 'Bluebeam.PDF.Annotations.AnnotationLine', '<</Subtype/Line/IT/LineDimension/L[0 0 10 0]/Subj(Dimension)/Label()/Contents(50)>>')}
+</BluebeamRevuToolSet>`;
+  const set = await parseBtx(xml);
+  assert.equal(set.items[0]!.markupLabel, 'Tile 1');
+  assert.equal(set.items[0]!.comment, 'Check this');
+  assert.equal(set.items[1]!.comment, 'Sample');
+  assert.equal(set.items[2]!.comment, undefined);
+  assert.equal(set.items[2]!.markupLabel, undefined);
+});

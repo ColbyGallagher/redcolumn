@@ -67,6 +67,20 @@ test('a hatched polygon clips the pattern and does not expand every tile', () =>
   assert.equal(hatch.hatch!.scale, 150);
 });
 
+test('a hatch is painted over the fill and under the border, so it never runs into the line', () => {
+  const parts = markupShape(rect('dots20', { width: 6 }));
+  const at = (pred: (p: (typeof parts)[number]) => boolean) => parts.findIndex(pred);
+  const fill = at((p) => !!p.fill && !p.hatch);
+  const hatch = at((p) => !!p.hatch);
+  const border = at((p) => p.stroke && !p.decoration && !p.hatch);
+  assert.ok(fill >= 0 && hatch > fill && border > hatch, `fill ${fill}, hatch ${hatch}, border ${border}`);
+  assert.equal(parts[fill]!.stroke, false, 'the fill is not stroked under the hatch');
+  assert.equal(parts[border]!.fill, null, 'the border does not fill over the hatch');
+  // Without a border there is nothing to keep it under: the fill, then the hatch.
+  const borderless = markupShape({ ...rect('dots20'), type: 'area' });
+  assert.ok(borderless.findIndex((p) => !!p.hatch) > borderless.findIndex((p) => !!p.fill && !p.hatch));
+});
+
 test('an area cutout clips the hatch with the even-odd rule', () => {
   const m = rect('grid');
   m.type = 'area';

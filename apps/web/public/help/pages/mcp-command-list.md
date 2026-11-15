@@ -96,6 +96,8 @@ Undo, clipboard, selection, align, arrange, and the Modify tools. (73 commands)
 | `edit.flipHorizontal` | Flip Horizontal |  |
 | `edit.flipVertical` | Flip Vertical |  |
 | `edit.scaleToLength` | Scale to Length… | Dialog |
+| `edit.cropImage` | Crop Image |  |
+| `edit.resetCrop` | Reset Crop |  |
 | `edit.bringToFront` | Bring to Front |  |
 | `edit.bringForward` | Bring Forward |  |
 | `edit.sendBackward` | Send Backward |  |
@@ -219,6 +221,7 @@ Page and whole-file work. (38 commands)
 | `document.scaleRegions` | Bulk Apply Page Scale… | Allow, Dialog |
 | `document.scaleReview` | Review Sheet Scales… | Dialog |
 | `document.drawingStandards` | Drawing Standards… | Dialog |
+| `document.setUpDrawingStandard` | Set Up Drawing Standard… | Dialog |
 | `document.thumbnails` | Edit Page Labels in Thumbnails |  |
 | `document.teachMark` | Teach Sheet Links… | Dialog |
 

@@ -23,7 +23,7 @@ const scaleText = (s: Scale) => `${s.label} (${scaleEquation(s)})`;
 
 /** Measurements whose result is a real-world size, so they need a scale (angles and counts do not). */
 function needsScale(type: string): boolean {
-  return isMeasureKind(type) && type !== 'angle' && type !== 'count';
+  return isMeasureKind(type) && type !== 'angle' && type !== 'count' && type !== 'manual';
 }
 
 /**

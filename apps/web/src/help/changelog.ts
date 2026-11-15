@@ -11,6 +11,39 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.20',
+    date: '2026-11-13',
+    items: [
+      'Takeoff tab: sloped measurements, 3-point arcs, manual quantities, estimating and reports (PDF, Excel, CSV)',
+      'Drawing standards setup wizard in its own window',
+      'MCP auto count: find symbol matches and propose counts',
+      'Viewports: separate Y scale and a Create Viewport command',
+      'Tool Library: Comment and Label columns, read and written for .btx',
+      'Columns: import Bluebeam custom columns XML',
+      'Thumbnails fill as many columns as the panel fits and keep zoom on same-size pages',
+      'Double-click the middle mouse button to zoom to extents',
+      'Bluebeam rotated text boxes keep their rotation on import',
+      'Fixes: layer visibility, hatch order, blend mode on fills, Linux middle-click paste',
+    ],
+  },
+  {
+    version: '0.1.19',
+    date: '2026-11-09',
+    items: [
+      'Open DWG and DXF drawings, converted to vector PDF',
+      'Group box with rotate and scale handles; nested Markups list rows',
+      'Select by window or crossing with a right-to-left box or lasso',
+      'Ctrl-drag duplicates a markup; Shift-drag locks it to an axis',
+      'Curve segments and edit measurement vertices with Ctrl, Shift and Alt clicks',
+      'Resume a count, polylength or polyline; drag a rectangle with Area and Volume tools',
+      'Installed fonts in markups, embedded in exported PDFs',
+      'Blend modes for images, shapes and lines',
+      'Subject, Label and Layer for the selection and active tool',
+      'Markup Format tab comes forward on selection, with grouped controls',
+      'The PDF renderer restarts itself if it crashes or hangs',
+    ],
+  },
+  {
     version: '0.1.18',
     date: '2026-11-05',
     items: [

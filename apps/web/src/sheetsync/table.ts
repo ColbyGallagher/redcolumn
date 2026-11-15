@@ -24,7 +24,7 @@ export function toTable(rows: readonly ListRowData[], columns: readonly ListColu
   return [header, ...body];
 }
 
-/** A cheap fingerprint, so an unchanged table is not sent again. */
-export function tableKey(table: readonly (readonly TableCell[])[]): string {
-  return JSON.stringify(table);
+/** A cheap fingerprint, so an unchanged table (and further sheets) is not sent again. */
+export function tableKey(table: readonly (readonly TableCell[])[], extras: readonly { name: string; table: readonly (readonly TableCell[])[] }[] = []): string {
+  return JSON.stringify(extras.length ? [table, extras.map((e) => [e.name, e.table])] : table);
 }

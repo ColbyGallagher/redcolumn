@@ -13,6 +13,7 @@ import { startProfileBackup } from './workspace/profileBackup';
 import { installTheme } from './theme/theme';
 import { installDialogDrag } from './dialogDrag';
 import { installDialogFocus } from './dialogFocus';
+import { installNoMiddleClickPaste } from './middleClickPaste';
 import { App } from './App';
 import './theme/themes.css';
 import './styles.css';
@@ -30,6 +31,7 @@ installLogCapture();
 installDesktopBridge();
 installDialogDrag();
 installDialogFocus();
+installNoMiddleClickPaste();
 
 // A new version waits until nothing is in progress, then reloads the page (the service worker).
 // The app shows why it is waiting (Help › Check for Updates). The desktop app has no service

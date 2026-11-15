@@ -216,6 +216,11 @@ export interface MarkHit {
   sheet: Word | null;
   /** For a title: the section or detail it names, as far as its underline suggests; `rect` is the title alone. */
   frame?: Rect;
+  /**
+   * The mark's line work is here but there is no text in it to read (outlined lettering, a
+   * scanned stamp): a place a person or an AI has to read. Never made into a link.
+   */
+  unreadable?: boolean;
 }
 
 /**
@@ -260,10 +265,47 @@ export function sectionFrame(segments: ArrayLike<number>, box: Rect, pageWidth: 
   return { x: x0, y: top, w, h: bottom - top };
 }
 
+const inRect = (w: Word, r: Rect) => {
+  const [cx, cy] = center(w);
+  return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+};
+
 function overlap(a: Rect, b: Rect): number {
   const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
   const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
   return w > 0 && h > 0 ? (w * h) / Math.min(a.w * a.h, b.w * b.h) : 0;
+}
+
+/**
+ * A sheet number printed in pieces near (ex, ey) inside `box`: two or three words on one row,
+ * touching, that read as a sheet number together. Returned as one word spanning them.
+ */
+function joinedSheet(page: PageText, box: Rect, ex: number, ey: number, reach: number, taken: ReadonlySet<Word>, lookup: SheetLookup): Word | null {
+  const inside = page.words
+    .filter((w) => {
+      if (taken.has(w)) return false;
+      const [cx, cy] = center(w);
+      return cx >= box.x && cx <= box.x + box.w && cy >= box.y && cy <= box.y + box.h;
+    })
+    .sort((a, b) => a.x0 - b.x0);
+  let best: { w: Word; d: number } | null = null;
+  for (let i = 0; i < inside.length; i++) {
+    let run = [inside[i]!];
+    for (let j = i + 1; j < inside.length && run.length < 3; j++) {
+      const prev = run[run.length - 1]!;
+      const next = inside[j]!;
+      const size = Math.max(prev.size, next.size);
+      if (Math.abs((prev.y0 + prev.y1) / 2 - (next.y0 + next.y1) / 2) > size * 0.5 || next.x0 - prev.x1 > size * 0.6) continue;
+      run = [...run, next];
+      const text = run.map((w) => w.text.trim()).join('');
+      if (lookup.find(text, true) === null) continue;
+      const w: Word = { text, x0: run[0]!.x0, y0: Math.min(...run.map((r) => r.y0)), x1: next.x1, y1: Math.max(...run.map((r) => r.y1)), size, angle: run[0]!.angle };
+      const [cx, cy] = center(w);
+      const d = Math.hypot(cx - ex, cy - ey);
+      if (d <= reach && (!best || d < best.d)) best = { w, d };
+    }
+  }
+  return best?.w ?? null;
 }
 
 /** Reads the example's words at a candidate place (box top-left `ox, oy`, size `k` times the example's). */
@@ -302,6 +344,11 @@ function readLabel(mark: TaughtMark, page: PageText, ox: number, oy: number, k: 
         }) ?? null;
       if (best) score -= 0.5;
     }
+    // A sheet number split into pieces (`A-` `501`, `A` `-` `501`): read the pieces on its row together.
+    if (!best && mw.role === 'sheet') {
+      best = joinedSheet(page, box, ex, ey, tol * 2, taken, lookup);
+      if (best) score -= 0.25;
+    }
     if (!best) continue;
     taken.add(best);
     score += 1;
@@ -310,8 +357,12 @@ function readLabel(mark: TaughtMark, page: PageText, ox: number, oy: number, k: 
   return { box, text: mark.words.length ? Math.max(0, score) / mark.words.length : 0, detail: found.detail ?? null, sheet: found.sheet ?? null };
 }
 
-/** Every place a taught mark appears on a page whose label can be read. */
-function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup: SheetLookup, isId: (t: string) => boolean): MarkHit[] {
+/**
+ * Every place a taught mark appears on a page whose label can be read, drawn at the example's size
+ * or up to twice as large or small. With `unreadable`, also each place its line work is found
+ * with no text in it at all (see MarkHit.unreadable).
+ */
+function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup: SheetLookup, isId: (t: string) => boolean, unreadable = false): MarkHit[] {
   const hits: MarkHit[] = [];
   const needs = (h: ReturnType<typeof readLabel>) =>
     // A mark that showed a sheet number must show one here too (grid bubbles are the same circles).
@@ -322,9 +373,12 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
     // The matcher reports where the line work's extent lands; the box sits at the same offset from it.
     const tx = Math.min(...segs.flatMap((s) => [s[0], s[2]]));
     const ty = Math.min(...segs.flatMap((s) => [s[1], s[3]]));
-    for (const m of visualSearch(page.segments, segs, { minScore: 0.8 })) {
-      const read = readLabel(mark, page, m.rect.x - tx, m.rect.y - ty, 1, lookup, isId);
+    const labelled = mark.words.some((w) => w.role !== 'text');
+    for (const m of visualSearch(page.segments, segs, { minScore: 0.8, scales: true })) {
+      const k = m.scale;
+      const read = readLabel(mark, page, m.rect.x - tx * k, m.rect.y - ty * k, k, lookup, isId);
       if (needs(read)) hits.push({ mark, pageIndex, rect: read.box, shape: m.score, text: read.text, detail: read.detail, sheet: read.sheet, frame: isTitleKind(mark.kind) ? (sectionFrame(page.segments, read.box, page.width) ?? undefined) : undefined });
+      else if (unreadable && labelled && m.score >= 0.9 && !page.words.some((w) => inRect(w, m.rect))) hits.push({ mark, pageIndex, rect: read.box, shape: m.score, text: 0, detail: null, sheet: null, unreadable: true });
     }
     return hits;
   }
@@ -345,6 +399,7 @@ function findOnPage(mark: TaughtMark, page: MarkPage, pageIndex: number, lookup:
 }
 
 function confidence(h: MarkHit): number {
+  if (h.unreadable) return 0;
   const c = h.shape === null ? 0.3 + 0.4 * h.text : 0.4 + 0.3 * h.shape + 0.25 * h.text;
   return Math.min(0.95, c);
 }
@@ -377,10 +432,10 @@ export function mayHoldMarks(page: PageText, lookup: SheetLookup, marks: readonl
   return marks.some((m) => (ids || !m.words.some((w) => w.role === 'detail')) && (sheets || !m.words.some((w) => w.role === 'sheet')));
 }
 
-/** Every taught mark found on one page (one per place). */
-export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: SheetLookup, marks: readonly TaughtMark[], isId: (t: string) => boolean = anyId): MarkHit[] {
+/** Every taught mark found on one page (one per place); with `unreadable`, also the places found by shape alone that hold no text. */
+export function findMarksOnPage(page: MarkPage, pageIndex: number, lookup: SheetLookup, marks: readonly TaughtMark[], isId: (t: string) => boolean = anyId, unreadable = false): MarkHit[] {
   const onPage: MarkHit[] = [];
-  for (const mark of marks) onPage.push(...findOnPage(mark, page, pageIndex, lookup, isId));
+  for (const mark of marks) onPage.push(...findOnPage(mark, page, pageIndex, lookup, isId, unreadable));
   // One mark per place: the best of overlapping matches (two examples of one style, say).
   onPage.sort((a, b) => confidence(b) - confidence(a));
   const out: MarkHit[] = [];
@@ -412,6 +467,7 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
 
   const links: DetectedLink[] = [];
   for (const h of hits) {
+    if (h.unreadable) continue;
     const detail = h.detail ? detailId(h.detail.text) : null;
     const sheetText = h.sheet ? clean(h.sheet.text) : null;
     const named = h.sheet ? lookup.find(h.sheet.text, true) : null;
@@ -433,6 +489,8 @@ export function marksToLinks(pages: readonly PageText[], sheetNumbers: readonly 
         const title = titles.get(`${targetPage}:${detail}`) ?? findDetailTitle(pages[targetPage]!, detail, sheetNumbers[targetPage] ?? null, lookup, targetPage);
         // On its own sheet, the callout must not take itself for the title.
         const own = title && targetPage === h.pageIndex && overlap({ x: title.x0, y: title.y0, w: title.x1 - title.x0, h: title.y1 - title.y0 }, h.rect) > 0;
+        // A bubble on its own sheet whose detail's title is itself: the title (a callout drawn larger), not a link.
+        if (own) continue;
         // A taught title is framed as taught; one found by its text gets a frame for the whole detail.
         if (title && !own) targetRect = titleRects.get(`${targetPage}:${detail}`) ?? detailFrame(title);
       }
