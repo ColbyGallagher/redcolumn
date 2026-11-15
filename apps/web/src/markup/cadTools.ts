@@ -129,7 +129,7 @@ export interface CadChanges {
   update: [id: string, patch: Partial<Markup>][];
   add: Markup[];
   remove: string[];
-  /** Pictures (by id, after the edit) whose pixels turn over to finish a mirror. */
+  /** Pictures (by id, after the edit) whose pixels turn over to finish a mirror (Mirror pictures ticked). */
   mirrorPictures?: [id: string, axis: Axis][];
 }
 
@@ -273,7 +273,7 @@ function selectionCentre(ms: readonly Markup[]): Point {
 }
 
 /** The selection moved by `t`, or copied when `copy`. */
-function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolean, keepOriginals = true): { done: CadChanges; select: string[]; again: boolean } {
+function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolean, keepOriginals = true, turnPictures = false): { done: CadChanges; select: string[]; again: boolean } {
   const out = none();
   const select: string[] = keepOriginals || !copy ? ctx.selected.map((m) => m.id) : [];
   for (const t of ts) {
@@ -282,7 +282,7 @@ function transformSelection(ctx: CadContext, ts: readonly Affine[], copy: boolea
     const copies: Markup[] = [];
     for (const m of ctx.selected) {
       const patch = transformMarkup(m, t);
-      const turnOver = pictureMirror(m, t);
+      const turnOver = turnPictures ? pictureMirror(m, t) : null;
       let id = m.id;
       if (copy) {
         const groupId = m.groupId ? (groups.get(m.groupId) ?? groups.set(m.groupId, crypto.randomUUID()).get(m.groupId)) : undefined;
@@ -400,7 +400,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       if (!picks.length) return { picks: [{ at: p }] };
       const a = picks[0]!.at;
       if (Math.hypot(...sub(p, a)) < 1e-6) return { error: 'Pick a second point on the mirror line' };
-      return transformSelection(ctx, [mirrorAcross(a, p)], s.mirrorKeep);
+      return transformSelection(ctx, [mirrorAcross(a, p)], s.mirrorKeep, true, s.mirrorPictures);
     }
     case 'rotateRef': {
       const typed = s.rotateAngle.trim();

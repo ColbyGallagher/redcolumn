@@ -190,7 +190,7 @@ test('mirror, rotate and align move points and turn boxes', () => {
   assert.equal(text.style?.fontSize, 20);
 });
 
-test('mirrored pictures are turned so flipping their pixels finishes the mirror', () => {
+test('mirrored pictures stay upright; flipping their pixels as pictureMirror says finishes the mirror', () => {
   const pic = markup('image', [[0, 0], [20, 10]], { image: 'data:image/png;base64,AA==' });
   // Across an upright line: reversed left to right, not turned upside down.
   const upright = mirrorAcross([50, 0], [50, 10]);

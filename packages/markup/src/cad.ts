@@ -612,8 +612,9 @@ export function pictureMirror(m: Pick<Markup, 'type' | 'image' | 'rotation'>, t:
 /**
  * A markup moved by a similarity transform (`Affine`) (Mirror, Rotate, Align, arrays): its points, cutouts and
  * curves; boxes keep their shape and turn when they can; text grows with the scale. Mirrored text
- * stays readable, as AutoCAD leaves mirrored text. A mirrored picture is turned so that flipping its
- * pixels as `pictureMirror` says finishes the mirror; the caller flips them.
+ * stays readable, as AutoCAD leaves mirrored text. A mirrored picture is turned to stay as near upright
+ * as it can; flipping its pixels as `pictureMirror` says then finishes a true mirror, which the caller
+ * does when asked.
  */
 export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   const det = t.a * t.d - t.b * t.c;
@@ -645,8 +646,8 @@ export function transformMarkup(m: Markup, t: Affine): Partial<Markup> {
   if (isBox(m)) {
     out.points = scaleBox(m.points);
     if (ROTATABLE.has(m.type)) {
-      // Where the box's own x-axis goes decides its new turn; a picture flipped left to right turns half
-      // round more (`pictureMirror`).
+      // Where the box's own x-axis goes decides its new turn; a mirrored picture turns half round more
+      // when that leaves it nearer upright (`pictureMirror`), whether or not its pixels are flipped.
       let rot = boxTurn(m, t);
       if (pictureMirror(m, t) === 'horizontal') rot = Math.round((rot > 0 ? rot - 180 : rot + 180) * 1e6) / 1e6;
       if (Math.abs(rot) > 1e-6 || m.rotation) out.rotation = rot || undefined;

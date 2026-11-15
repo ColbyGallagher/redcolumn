@@ -115,7 +115,7 @@ test.describe('modify', () => {
     expect(round(turned.points)).toEqual([[300, 600], [300, 550]]);
   });
 
-  test('mirror reverses a picture instead of turning it upside down', async ({ app }) => {
+  test('mirror keeps a picture upright; with Mirror pictures ticked it reverses it', async ({ app }) => {
     if (app.kind === 'desktop') await app.answerOpenDialog(app.fixture('picture.png'));
     const chooser = app.kind === 'desktop' ? null : app.page.waitForEvent('filechooser');
     await app.cmd('tool.image');
@@ -124,18 +124,31 @@ test.describe('modify', () => {
     await app.drag([300, 450], [380, 500]);
     await app.tool('select');
     const [before] = await app.raw();
-    await select(app, [before!.id as string]);
+    const id = before!.id as string;
+    const xs = (m: typeof before) => (m!.points as number[][]).map(([x]) => x!);
+    // Upright, give or take how square the clicked line was.
+    const upright = (m: typeof before) => Math.abs((m!.rotation as number | undefined) ?? 0) < 0.01;
+
+    // Unticked: moved across x = 400 and kept upright, its pixels as they were.
+    await select(app, [id]);
     await app.cmd('edit.mirror');
     await bar(app).getByLabel('Keep original', { exact: true }).setChecked(false);
+    await expect(bar(app).getByLabel('Mirror pictures')).not.toBeChecked();
+    await app.clicks([[400, 300], [400, 650]]);
+    await expect.poll(async () => Math.round(Math.min(...xs((await app.raw())[0])))).toBe(Math.round(800 - Math.max(...xs(before))));
+    const [moved] = await app.raw();
+    expect(upright(moved)).toBe(true);
+    expect(moved!.image).toBe(before!.image);
+
+    // Ticked: mirrored back, and each row of the picture now reads right to left.
+    await select(app, [id]);
+    await app.cmd('edit.mirror');
+    await bar(app).getByLabel('Mirror pictures').setChecked(true);
     await app.clicks([[400, 300], [400, 650]]);
     await expect.poll(async () => (await app.raw())[0]!.image).not.toBe(before!.image);
     const [after] = await app.raw();
-    // Upright, give or take how square the clicked line was.
-    expect(Math.abs((after!.rotation as number | undefined) ?? 0)).toBeLessThan(0.01);
-    const xs = (m: typeof after) => (m!.points as number[][]).map(([x]) => x!);
-    // Across x = 400 the box's left edge lands where its right edge mirrors to.
-    expect(Math.round(Math.min(...xs(after)))).toBe(Math.round(800 - Math.max(...xs(before))));
-    // Each row of the new picture is the old row read right to left.
+    expect(upright(after)).toBe(true);
+    expect(Math.round(Math.min(...xs(after)))).toBe(Math.round(Math.min(...xs(before))));
     const reversed = await app.page.evaluate(async ([a, b]) => {
       const rows = async (src: string) => {
         const img = new Image();

@@ -212,6 +212,8 @@ export interface Settings {
   divideSpacing: string;
   /** Mirror keeps the originals (copies the mirror image). */
   mirrorKeep: boolean;
+  /** Mirror reverses pictures' pixels too; off, they are moved and kept upright, unreversed. */
+  mirrorPictures: boolean;
   /** Rotate: an angle typed (counter-clockwise degrees), else by reference points. */
   rotateAngle: string;
   /** Align scales to fit the second pair of points. */
@@ -458,6 +460,7 @@ export const DEFAULT_SETTINGS: Settings = {
   divideCount: 4,
   divideSpacing: '',
   mirrorKeep: true,
+  mirrorPictures: false,
   rotateAngle: '',
   alignScale: false,
   moveDistance: '',
