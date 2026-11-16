@@ -928,7 +928,7 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
           disabled={readOnly}
           aria-label="Depth"
           onBlur={(e) => {
-            const text = e.target.value.replace(new RegExp(`\\s*${scale.unit}$`), '').trim();
+            const text = e.target.value.trim();
             if (!text) {
               if (m.depth) update({ depth: undefined });
               return;

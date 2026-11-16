@@ -9,6 +9,7 @@ Any of these work:
 - **Hold the middle mouse button** (the wheel) and drag. This works with every tool.
 - With the **Select** tool, press on an **empty** part of the page and drag.
 - In **Continuous** view, roll the mouse wheel to scroll up and down through the pages.
+- In **Single** page view, with the wheel set to **Scroll** ([Preferences](#preferences) › **General** › **Navigation**), roll the wheel to scroll down the page. Once you reach the bottom, the next notch turns to the next page, which opens at its top. Rolling up does the same in reverse.
 
 ## The Pan tool
 

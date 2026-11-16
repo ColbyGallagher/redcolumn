@@ -72,6 +72,7 @@ export interface CommandActions {
   print: () => void;
   preferences: () => void;
   manageProfiles: () => void;
+  migrateRevu: () => void;
   shortcuts: () => void;
   about: () => void;
   undo: () => void;
@@ -201,6 +202,8 @@ export interface CommandActions {
   manageColumns: () => void;
   /** Tools › Takeoff › Assemblies… */
   manageAssemblies: () => void;
+  /** Tools › Takeoff › Browse Library…: the community library's trade packs, listed from GitHub on open. */
+  browseLibrary: () => void;
   /** Tools › Takeoff › Takeoff Quantities… */
   takeoffQuantities: () => void;
   /** Tools › Scripts: rules that find markups and change them. */
@@ -237,7 +240,7 @@ export interface CommandActions {
   toggleBottom: () => void;
   commandPalette: () => void;
   install: () => void;
-  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
+  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'sponsor' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
   manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
@@ -403,6 +406,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),
     cmd('file.manageProfiles', 'File', 'Manage Profiles…', a.manageProfiles),
+    cmd('file.migrateRevu', 'File', 'Migrate from Revu…', a.migrateRevu),
     cmd('file.shortcuts', 'File', 'Keyboard Shortcuts…', a.shortcuts),
     cmd('file.about', 'File', 'About redcolumn', a.about),
 
@@ -582,6 +586,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
+    cmd('tools.library', 'Tools', 'Browse Library…', a.browseLibrary, true),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
     cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
@@ -640,6 +645,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...(desktop() ? [] : [cmd('help.install', 'Help', 'Install App…', a.install)]),
     cmd('help.support', 'Help', 'Technical Support', () => a.help('support')),
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
+    cmd('help.sponsor', 'Help', 'Sponsor', () => a.help('sponsor')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),
     cmd('help.logs', 'Help', 'Send Log Files', () => a.help('logs')),
   ].map(applyCommandPolicy);
