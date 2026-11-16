@@ -589,7 +589,9 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
     else
       for (const c of children)
         out.push('    <Child>', `      <Type>${esc(c.type)}</Type>`, `      <Raw>${await packText(c.raw)}</Raw>`, `      <X>${fmt(c.x)}</X>`, `      <Y>${fmt(c.y)}</Y>`, `      <Index>${index++}</Index>`, '    </Child>');
-    out.push(`    <Mode>${src?.mode ?? (children.length || it.template ? 'drawing' : 'properties')}</Mode>`);
+    // The tool's own choice wins over how Revu stored it (Drawing places a copy, Properties draws in its look).
+    const mode = it.mode === 'copy' ? 'drawing' : it.mode === 'style' ? 'properties' : (src?.mode ?? (children.length || it.template ? 'drawing' : 'properties'));
+    out.push(`    <Mode>${mode}</Mode>`);
     if (it.sequence) out.push('    <Sequence>', '      <Enabled>True</Enabled>', '      <Style>Number</Style>', `      <Start>${it.sequence.start}</Start>`, `      <Increment>${it.sequence.increment}</Increment>`, '    </Sequence>');
     out.push('  </ToolChestItem>');
   }

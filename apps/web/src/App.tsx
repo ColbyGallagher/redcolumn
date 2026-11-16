@@ -6219,7 +6219,7 @@ export function App() {
   };
 
   /** Draws with a tool library tool. */
-  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = settings.get().toolChestMode) => {
+  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = item.mode ?? settings.get().toolChestMode) => {
     const tools = activeTools;
     if (!tools) return;
     if (item.markups?.length && mode === 'copy') {
