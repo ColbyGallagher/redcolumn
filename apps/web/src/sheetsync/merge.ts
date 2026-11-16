@@ -54,6 +54,8 @@ export interface CellChange {
   to: string;
   /** The exported value, or null when the workbook no longer says. */
   base: string | null;
+  /** For a new reply: who it is from, when the row's responder column says. */
+  author?: string;
 }
 
 /** A value that does not fit its column: a status that is not one of the document's, text in a number column. */

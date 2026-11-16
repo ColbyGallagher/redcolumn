@@ -1,3 +1,4 @@
+import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -129,6 +130,8 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Comment register templates, one per client (kept on this device; shared as files). */
+  registerTemplates?: RegisterTemplate[];
   /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
   customColors?: string[];
 }
