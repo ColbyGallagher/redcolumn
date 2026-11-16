@@ -197,6 +197,8 @@ export interface MarkupStyle {
   /** Measurement label visibility (default shown) and background (default white; null for none). */
   showLabel?: boolean;
   labelBackground?: string | null;
+  /** Polylengths: label each segment's length as well as the total (default shown; false shows only the total). */
+  showSegmentLabels?: boolean;
   /** Length dimensions: offset of the dimension line from the measured points, with extension lines. */
   leader?: number;
   /**
