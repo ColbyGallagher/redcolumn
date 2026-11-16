@@ -15,6 +15,12 @@ export interface SyncLink {
   title: string;
   /** Also keep the quantities in a second sheet of the workbook. */
   quantities?: boolean;
+  /**
+   * The columns the sheet has, by key, chosen when the link was made. A two-way link keeps this set
+   * until it is changed on purpose: hiding a column in the list must not look like a deleted column.
+   * Links from before two-way sync have none and follow the list.
+   */
+  columns?: string[];
 }
 
 /** A failure that trying again will not fix: sync shows it and stops retrying until the next change or click. */
