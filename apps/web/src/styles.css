@@ -1740,20 +1740,126 @@ select[size] {
   user-select: none;
 }
 
-/* Brand ribbon: the redcolumn mark at the head of the menu bar. */
+/* The redcolumn mark at the head of the menu bar: it opens the one menu holding File, Edit, View… */
+.brand-menu {
+  flex: none;
+  align-items: stretch;
+}
+
 .brand-mark {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 7px;
-  padding: 0 14px 0 10px;
+  min-height: 30px;
+  padding: 0 10px 0 10px;
   margin-right: 4px;
+  border: 0;
   border-right: 1px solid var(--tint);
+  background: none;
   color: var(--text);
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.brand-mark:hover,
+.brand-menu.open .brand-mark {
+  background: var(--surface-active);
+}
+
+.brand-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.brand-caret {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* A newer version of the desktop app is ready: the menu's Update item says what to do. */
+.brand-badge {
+  position: absolute;
+  top: 5px;
+  left: 24px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--ribbon);
+}
+
+.brand-drop {
+  min-width: 300px;
+}
+
+/* The search box heads the menu; its results list in the menu, under the box, rather than popping
+   over it (the menu scrolls and would clip a popup). */
+.brand-drop .menu-search {
+  flex-wrap: wrap;
+  align-self: stretch;
+  min-width: 0;
+  margin: 2px 8px 4px;
+}
+
+.brand-drop .menu-search-icon {
+  top: 6px;
+}
+
+.brand-drop .menu-search-drop {
+  position: static;
+  flex-basis: 100%;
+  width: auto;
+  max-height: min(50vh, 420px);
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+/* The rest of the row: the ribbon's tabs (see Ribbon.tsx), or empty space that drags the desktop window. */
+.menubar-slot {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+}
+
+.menubar .rb-tabs {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 0 2px;
+  border-bottom: 0;
+}
+
+.menubar .rb-tab {
+  flex: none;
+}
+
+/* The selected tab covers the menu bar's bottom edge, so it runs into the commands below. */
+.menubar .rb-tab[aria-selected='true'] {
+  z-index: 1;
+}
+
+/* The simplified toolbar in the menu bar's row: it takes the bar's look rather than framing itself. */
+.menubar .toolbar.tools {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  padding: 2px 8px 2px 4px;
+  border-bottom: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* With the tabs up in the menu bar, a collapsed ribbon has nothing left to frame. */
+.ribbon.tabs-up.collapsed {
+  border-bottom: 0;
 }
 
 .brand-col {
@@ -1779,7 +1885,9 @@ select[size] {
     app-region: drag;
   }
   .menubar .menu,
-  .menubar button {
+  .menubar button,
+  .menubar input,
+  .menubar select {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
@@ -1796,68 +1904,10 @@ select[size] {
 }
 .titlebar-overlay .menubar .menu,
 .titlebar-overlay .menubar button,
-.titlebar-overlay .menubar .menu-search {
+.titlebar-overlay .menubar input,
+.titlebar-overlay .menubar select {
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-
-/* Search sits in the middle of the space between the menus and the window buttons, so it never
-   covers either; on narrow windows it shrinks rather than sliding under the buttons. */
-.titlebar-overlay .menubar .menu-search {
-  min-width: 96px;
-  margin: 0 auto;
-}
-
-.install-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 auto;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.install-app-btn:hover {
-  filter: brightness(1.12);
-}
-
-/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
-.update-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 0;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.update-app-btn:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-
-.update-app-btn.busy {
-  background: var(--tint-strong);
-  color: var(--text);
-  font-weight: 500;
-  cursor: default;
 }
 
 .menu {
