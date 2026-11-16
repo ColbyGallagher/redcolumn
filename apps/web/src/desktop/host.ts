@@ -97,6 +97,9 @@ export interface RedcolumnDesktop {
   forgetToken(token: string): Promise<boolean>;
   takeLaunchFiles(): Promise<DesktopToken[]>;
   onLaunchFiles(cb: (files: DesktopToken[]) => void): () => void;
+  /** Links to a comment the app was started with or handed while running (redcolumn://markup?…). Absent in desktop apps from before such links. */
+  takeMarkupLinks?(): Promise<{ doc: string; markup: string; name: string }[]>;
+  onMarkupLinks?(cb: (links: { doc: string; markup: string; name: string }[]) => void): () => void;
   printPdf(bytes: Uint8Array): Promise<void>;
   /** Pages drawn to images are sent one at a time; the main process builds and prints the document. */
   beginPrint(): Promise<string>;
@@ -228,6 +231,8 @@ export interface ExcelFill {
   validations: { col: number; type: 'list' | 'date' | 'number'; formula?: string }[];
   /** Columns holding dates. */
   dates: number[];
+  /** A column whose cells link to their comments: one address per row, '' for none. */
+  links?: { col: number; urls: string[] };
 }
 
 /** Excel workbooks on this computer, by ID; the page never sees their paths. */

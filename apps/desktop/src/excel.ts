@@ -493,7 +493,12 @@ export interface FillRequest {
   hidden: { name: string; table: Table };
   validations: LiveValidation[];
   dates: number[];
+  /** A column whose cells link to their comments: one address per row, '' for none. */
+  links?: { col: number; urls: string[] };
 }
+
+/** The addresses a cell may link to: a web page, or this app's own link scheme. */
+const LINK_URL = /^(https?|redcolumn):\/\/[^\s<>"']{1,2000}$/i;
 
 const EXCEL_ROWS = 1_048_576;
 const EXCEL_COLS = 16_384;
@@ -558,6 +563,16 @@ export function checkFill(value: unknown): FillRequest {
     dates: list(v.dates ?? [], MAX_COLS).map(col),
   };
   if (out.key.cells.length !== count || out.hidden.name === out.sheet) throw bad();
+  if (v.links !== undefined) {
+    const l = obj(v.links);
+    const urls = list(l.urls, MAX_ROWS).map((u) => {
+      if (u === '') return '';
+      if (typeof u !== 'string' || !LINK_URL.test(u)) throw bad();
+      return u;
+    });
+    if (urls.length !== count) throw bad();
+    out.links = { col: col(l.col), urls };
+  }
   return out;
 }
 
@@ -670,6 +685,14 @@ try {
           if ($ws.Cells($first, $col).NumberFormat -eq 'General') { $ws.Range($ws.Cells($first, $col), $ws.Cells($first + $count - 1, $col)).NumberFormat = 'yyyy-mm-dd' }
         }
       }
+      # Each item number links to its comment.
+      if ($in.ContainsKey('links') -and $in['links']) {
+        $col = [int]$in['links']['col']
+        $urls = @($in['links']['urls'])
+        for ($i = 0; $i -lt $urls.Count; $i++) {
+          if ($urls[$i]) { [void]$ws.Hyperlinks.Add($ws.Cells($first + $i, $col), [string]$urls[$i]) }
+        }
+      }
       $book.Save()
     }
   }
@@ -744,6 +767,7 @@ export async function fillWorkbook(source: string, dest: string, fill: FillReque
     hidden: { name: fill.hidden.name, cols, rows: fill.hidden.table.map((row) => row.map(forceText)) },
     validations: fill.validations,
     dates: fill.dates,
+    ...(fill.links ? { links: fill.links } : {}),
   });
   let answer: string;
   try {

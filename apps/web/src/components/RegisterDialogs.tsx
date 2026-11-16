@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MarkupStatusDef } from '@nb/markup';
-import { REGISTER_VALUES, blankKey, cellRef, fieldKey, parseCellRef, withStatuses, type RegisterCell, type RegisterColumn, type RegisterField, type RegisterTemplate, type RegisterValue } from '../sheetsync/register';
+import { REGISTER_VALUES, THUMB_AUTO_ROWS, THUMB_KEY, THUMB_MAX_ROWS, blankKey, cellRef, fieldKey, parseCellRef, withStatuses, type RegisterCell, type RegisterColumn, type RegisterField, type RegisterTemplate, type RegisterValue } from '../sheetsync/register';
 import { columnName } from '../sheetsync/xlsx';
 
 /** Which markups a register lists: those that say something, or every markup. */
@@ -16,8 +16,8 @@ interface ExportProps {
   counts: Record<RegisterScope, number>;
   /** Whether this app can fill in a client's own file (the Windows desktop app). */
   canFill: boolean;
-  /** `fill`: write into a copy of the template's client file instead of a new workbook. */
-  onExport: (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, fill: boolean) => Promise<void>;
+  /** `fill`: write into a copy of the template's client file instead of a new workbook. `thumbnails`: put the pictures in the template's thumbnail column. */
+  onExport: (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => Promise<void>;
   /** Opens the template editor (on this template, or to make the first one). */
   onTemplates: (id?: string) => void;
   onClose: () => void;
@@ -32,6 +32,11 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
   const [busy, setBusy] = useState(false);
   const template = templates.find((t) => t.id === id) ?? templates[0];
   const fill = canFill && !!template?.clientFile && into === 'client';
+  // Pictures make a register heavy to email: on for a short register, asked for on a long one.
+  const hasThumbs = !!template?.columns.some((c) => fieldKey(c.field) === THUMB_KEY) && !fill;
+  const [thumbs, setThumbs] = useState<boolean | null>(null);
+  const tooMany = counts[scope] > THUMB_MAX_ROWS;
+  const thumbnails = hasThumbs && !tooMany && (thumbs ?? counts[scope] <= THUMB_AUTO_ROWS);
   // Only the details this template shows are asked for.
   const used = REGISTER_VALUES.filter((v) => template?.cells.some((c) => c.value === v.value));
   return (
@@ -78,6 +83,20 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
                 <input aria-label={v.label} value={values[v.value] ?? ''} onChange={(e) => setValues((cur) => ({ ...cur, [v.value]: e.target.value }))} />
               </label>
             ))}
+            {hasThumbs && (
+              <label className="check">
+                <input type="checkbox" aria-label="Include thumbnails" checked={thumbnails} disabled={tooMany} onChange={(e) => setThumbs(e.target.checked)} />
+                Include thumbnails
+                <span className="hint-text">
+                  {' '}
+                  {tooMany
+                    ? `(not with more than ${THUMB_MAX_ROWS} rows)`
+                    : counts[scope] > THUMB_AUTO_ROWS
+                      ? `(${counts[scope]} pictures make the workbook large to email)`
+                      : '(a picture of each markup in the Thumbnail column)'}
+                </span>
+              </label>
+            )}
             <p className="hint-text">
               {fill
                 ? 'Excel fills in a copy of the client’s file: its title block, logos and styles stay as they are, and you choose where the copy is saved. The copy is not protected.'
@@ -103,7 +122,7 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
             onClick={() => {
               if (!template) return;
               setBusy(true);
-              void onExport(template, scope, values, fill).finally(() => setBusy(false));
+              void onExport(template, scope, values, { fill, thumbnails }).finally(() => setBusy(false));
             }}
           >
             {busy ? 'Exporting…' : 'Export'}
@@ -180,6 +199,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
     ...listColumns.map((c) => ({ key: c.key, label: c.label })),
     ...THREADS.map((n) => ({ key: `reply:${n}`, label: `Reply ${n} (text)` })),
     ...THREADS.map((n) => ({ key: `responder:${n}`, label: `Reply ${n} (who wrote it)` })),
+    { key: THUMB_KEY, label: 'Thumbnail (picture of the markup)' },
     ...THREADS.map((n) => ({ key: blankKey(n), label: `Nothing: left blank (${n})` })),
   ];
   return (
@@ -274,6 +294,11 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 </label>
               )}
             </div>
+            <label className="check">
+              <input type="checkbox" aria-label="Link item numbers" checked={!!draft.links} onChange={(e) => edit({ links: e.target.checked || undefined })} />
+              Link each item number to its comment
+              <span className="hint-text"> (clicking it in Excel opens the document at the comment, on a computer that has the document in redcolumn)</span>
+            </label>
             {onPickClientFile && (
               <div className="register-client-file">
                 <span className="register-client-label">Client’s file</span>

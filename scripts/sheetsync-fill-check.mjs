@@ -65,6 +65,7 @@ const statuses = DEFAULT_STATUSES;
 const template = {
   ...starterTemplate('tpl-kestrel', statuses, 0),
   name: 'Kestrel register',
+  links: true,
   sheet: 'Review Comments',
   headerRow: 6,
   firstCol: 0,
@@ -95,7 +96,7 @@ const markups = comments.map((comment, i) => ({
   ...(i === 4 ? { replies: [{ id: 'r1', author: 'Priya', text: 'Toe added', createdAt: 1 }] } : {}),
 }));
 const rows = withThreads(buildRows(markups, ctx, {}, null), ctx);
-const exported = { rows, columns: listCols, statuses, template, docId: 'doc-1', exportedAt: '2026-11-16T00:00:00.000Z', values: { document: 'KR-C-101 General arrangement', exportDate: '2026-11-16' } };
+const exported = { rows, columns: listCols, statuses, template, docId: 'doc-1', exportedAt: '2026-11-16T00:00:00.000Z', values: { document: 'KR-C-101 General arrangement', exportDate: '2026-11-16' }, linkOf: (id) => `redcolumn://markup/?doc=doc-1&markup=${id}` };
 
 const before = await readWorkbook(readFileSync(blank));
 assert.deepEqual(checkClientFile(before, template).problems, []);
@@ -143,6 +144,8 @@ try {
   $o.statusValidation = $ws.Range('F8').Validation.Type
   $o.statusFormula = [string]$ws.Range('F8').Validation.Formula1
   $o.protected = [bool]$ws.ProtectContents
+  $o.links = $ws.Hyperlinks.Count
+  $o.link5 = $ws.Range('A12').Hyperlinks.Item(1).Address
   $b.Close($false)
   Add-Type -AssemblyName System.Web.Extensions
   (New-Object System.Web.Script.Serialization.JavaScriptSerializer).Serialize($o)
@@ -175,6 +178,8 @@ assert.equal(report.keyHidden, true);
 assert.equal(report.key1, 'm1');
 assert.equal(report.statusValidation, 3);
 assert.equal(report.protected, false);
+assert.equal(report.links, 5, 'each item number links to its comment');
+assert.equal(report.link5, 'redcolumn://markup/?doc=doc-1&markup=m5');
 
 // The filled copy imports: every row by its key, nothing to change, and the sign-off block is not rows added.
 const book = await readWorkbook(readFileSync(out));

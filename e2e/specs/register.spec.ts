@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildWorkbook, type LooseCell, type SheetSpec } from '../../apps/web/src/sheetsync/xlsx.ts';
-import { readWorkbook, type CellValue } from '../../apps/web/src/sheetsync/xlsxRead.ts';
+import { readWorkbook, workbookParts, type CellValue } from '../../apps/web/src/sheetsync/xlsxRead.ts';
 import { expect, test, type App } from '../support/app.ts';
 
 // Comment registers: make a template for a client, export the comments in its layout, fill the
@@ -152,5 +152,57 @@ test.describe('comment register', () => {
     await (await chooser).setFiles({ name: filled.name, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: filled.bytes });
     const preview = app.page.getByRole('dialog', { name: 'Import from Excel' });
     await expect(preview.getByTestId('import-summary')).toContainText('3 rows matched (3 by row key). 0 cells to change, 0 replies to add, 0 conflicts, 0 unknown values, 0 rows skipped');
+  });
+
+  test('a register with thumbnails and links: a picture of each markup, and an item number that opens its comment', async ({ app }) => {
+    await app.open('plan.pdf');
+    await addMarkups(app, ['Kerb line clashes with pit lid', 'Show the batter extent']);
+
+    await app.cmd('file.registerTemplates');
+    const editor = app.page.getByRole('dialog', { name: 'Register templates' });
+    await editor.getByRole('button', { name: 'New', exact: true }).click();
+    await editor.getByLabel('Template name').fill('Kestrel pictures');
+    // A tenth column for the picture, and a link on each item number.
+    await editor.getByRole('button', { name: 'Add Column' }).click();
+    await editor.getByLabel('Field 10').selectOption('thumb');
+    await editor.getByLabel('Heading 10').fill('Location');
+    await editor.getByLabel('Link item numbers').check();
+    await editor.getByRole('button', { name: 'Save Template' }).click();
+    await editor.getByRole('button', { name: 'Close' }).click();
+
+    await app.cmd('file.exportRegister');
+    const exportDialog = app.page.getByRole('dialog', { name: 'Export comment register' });
+    // A short register has its pictures unless they are turned off.
+    await expect(exportDialog.getByLabel('Include thumbnails')).toBeChecked();
+    await exportDialog.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect.poll(async () => (await app.saved()).some((f) => f.name.endsWith('Kestrel pictures.xlsx')), { timeout: 30_000 }).toBe(true);
+    const exported = (await app.saved()).find((f) => f.name.endsWith('Kestrel pictures.xlsx'))!;
+
+    const parts = workbookParts(exported.bytes);
+    expect(parts.names.filter((n) => n.startsWith('xl/media/')).sort()).toEqual(['xl/media/image1.jpeg', 'xl/media/image2.jpeg']);
+    const sheet = (await parts.text('xl/worksheets/sheet1.xml'))!;
+    expect(sheet).toContain('<hyperlink ref="A6" r:id="rId1"/><hyperlink ref="A7" r:id="rId2"/>');
+    expect(sheet).toContain('<drawing r:id="rId3"/>');
+    const drawing = (await parts.text('xl/drawings/drawing1.xml'))!;
+    // The pictures are in the tenth column, on the comments' rows.
+    expect(drawing).toContain('<xdr:col>9</xdr:col>');
+    expect(drawing.match(/<xdr:twoCellAnchor/g)).toHaveLength(2);
+    const target = /Id="rId2"[^>]*Target="([^"]+)"/.exec((await parts.text('xl/worksheets/_rels/sheet1.xml.rels'))!)![1]!.replace(/&amp;/g, '&');
+    // It still reads as a register.
+    expect((await readWorkbook(exported.bytes)).sheets[0]!.rows[4]![9]).toBe('Location');
+
+    if (app.kind === 'desktop') {
+      // The desktop app's links use its own scheme; Windows hands a clicked one to the app.
+      expect(target).toMatch(/^redcolumn:\/\/markup\/\?doc=[^&]+&markup=e2e-cloud-1&name=plan\.pdf$/);
+      return;
+    }
+    // The web app's link is its own address: opening it brings up the document at the comment.
+    expect(target).toMatch(/^http:\/\/[^/]+\/\?doc=[^&]+&markup=e2e-cloud-1&name=plan\.pdf$/);
+    await app.page.evaluate(() => (window.__nb.tools as unknown as { select(ids: string[]): void }).select([]));
+    await app.page.goto(target);
+    await app.page.waitForFunction(() => !!window.__nb?.tools);
+    await expect.poll(async () => (await app.toolState()).selected, { timeout: 30_000 }).toEqual(['e2e-cloud-1']);
+    // The link is followed once: it is gone from the address.
+    expect(new URL(app.page.url()).search).toBe('');
   });
 });

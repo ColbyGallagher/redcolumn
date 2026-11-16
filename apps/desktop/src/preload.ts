@@ -46,6 +46,12 @@ contextBridge.exposeInMainWorld('redcolumn', {
     ipcRenderer.on('launch-files', listener);
     return () => unsubscribe('launch-files', listener as (...args: unknown[]) => void);
   },
+  takeMarkupLinks: () => call('launch:take-links'),
+  onMarkupLinks(cb: (links: { doc: string; markup: string; name: string }[]) => void) {
+    const listener = (_event: unknown, links: { doc: string; markup: string; name: string }[]) => cb(links);
+    ipcRenderer.on('launch-links', listener);
+    return () => unsubscribe('launch-links', listener as (...args: unknown[]) => void);
+  },
   printPdf: (bytes: Uint8Array) => call('print:pdf', bytes),
   beginPrint: () => call('print:begin'),
   addPrintPage: (job: string, bytes: Uint8Array, type: string, width: number, height: number) => call('print:page', job, bytes, type, width, height),
