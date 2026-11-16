@@ -78,6 +78,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           caps={styleCapabilities(toolType)}
           disabled={false}
           markups={markups}
+          segments={toolType === 'polylength'}
           onChange={(patch) => tools.setDefaultStyle(toolType, patch)}
         />
         <div className="props-actions">
@@ -285,7 +286,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           </fieldset>
         </Section>
       )}
-      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} onChange={changeStyle} />
+      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} segments={types.every((t) => t === 'polylength')} onChange={changeStyle} />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
@@ -459,10 +460,12 @@ interface EditorProps {
   caps: StyleCapabilities;
   disabled: boolean;
   markups: readonly Markup[];
+  /** Offer the segment-lengths toggle: every markup edited is a polylength. */
+  segments: boolean;
   onChange: (patch: Partial<MarkupStyle>) => void;
 }
 
-function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorProps) {
+function StyleEditor({ style, type, caps, disabled, markups, segments, onChange }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const measure = isMeasureKind(type);
@@ -658,6 +661,11 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               <Row label="Show label">
                 <input type="checkbox" checked={style.showLabel ?? true} onChange={(e) => set('showLabel', e.target.checked ? undefined : false)} />
               </Row>
+              {segments && (
+                <Row label="Segment lengths">
+                  <input type="checkbox" checked={style.showSegmentLabels ?? true} disabled={style.showLabel === false} onChange={(e) => set('showSegmentLabels', e.target.checked ? undefined : false)} />
+                </Row>
+              )}
               <Row label="Background">
                 <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} />
               </Row>
