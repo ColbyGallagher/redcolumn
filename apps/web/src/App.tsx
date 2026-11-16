@@ -32,6 +32,10 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
 import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
+import { exportListWorkbook, planImport } from './sheetsync/importExcel';
+import { isOpenChange, patchesFor } from './sheetsync/apply';
+import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
+import { ImportExcelDialog } from './components/ImportExcelDialog';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { useSheetSync } from './sheetsync/useSheetSync';
 import { localExcel } from './sheetsync/targets';
@@ -1090,6 +1094,8 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
+  const [importExcel, setImportExcel] = useState<{ fileId: string; fileName: string; book: ReadWorkbook; aliases: Record<string, Record<string, string>> } | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportsBusy, setReportsBusy] = useState(false);
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -6367,6 +6373,36 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  // Import from Excel: what the workbook would change, against every markup and column (not only those the list shows).
+  const importPlan = useMemo(
+    () =>
+      importExcel && activeOpen?.file.id === importExcel.fileId
+        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses }, { docId: importExcel.fileId, aliases: importExcel.aliases })
+        : null,
+    // The context is rebuilt every render; these are what it depends on.
+    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet],
+  );
+  const exportMarkupsXlsx = () => {
+    if (!activeOpen) return;
+    // Preferences › Markups List › Exclude Filtered Markups on Export, as for the CSV.
+    const only = prefs.excludeFilteredOnExport;
+    const rows = withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext);
+    const bytes = exportListWorkbook({ rows, columns: visibleListColumns, statuses: columnSet.statuses, docId: activeOpen.file.id, exportedAt: new Date().toISOString() });
+    download(activeOpen.file.name.replace(/\.pdf$/i, '') + ' markups.xlsx', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  };
+  const importMarkupsXlsx = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (!file) return;
+    try {
+      if (file.size > READ_LIMITS.maxBytes) throw new Error('That workbook is too large to import.');
+      const book = await readWorkbook(new Uint8Array(await file.arrayBuffer()));
+      setImportExcel({ fileId: cur.file.id, fileName: file.name, book, aliases: {} });
+    } catch (err) {
+      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
   /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
   const quantitiesSheet = async () => {
     const { buildReport, reportPageLabel } = await import('./takeoff/reports');
@@ -8149,6 +8185,8 @@ export function App() {
       const only = prefs.excludeFilteredOnExport;
       downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
     },
+    exportXlsx: exportMarkupsXlsx,
+    importXlsx: () => void importMarkupsXlsx(),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -11439,6 +11477,44 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             manualPendingRef.current = request;
             activeTools?.setTool('manual');
           }}
+        />
+      )}
+      {importExcel && importPlan && activeOpen && (
+        <ImportExcelDialog
+          fileName={importExcel.fileName}
+          result={importPlan}
+          rowLabel={(key) => {
+            const m = activeOpen.store.get(key);
+            return { itemNo: m?.seq ? String(m.seq) : '', sheet: m ? sheets[m.pageIndex]?.number || `Page ${m.pageIndex + 1}` : '' };
+          }}
+          blocked={(change) => {
+            const m = activeOpen.store.get(change.rowKey);
+            return !!m && !activeOpen.store.mayEdit(m) && !isOpenChange(change);
+          }}
+          replyAuthor={importExcel.book.lastModifiedBy ?? ''}
+          aliases={importExcel.aliases}
+          onAlias={(column, value, option) =>
+            setImportExcel((cur) => {
+              if (!cur) return cur;
+              const forColumn = { ...cur.aliases[column] };
+              if (option) forColumn[value.toLowerCase()] = option;
+              else delete forColumn[value.toLowerCase()];
+              return { ...cur, aliases: { ...cur.aliases, [column]: forColumn } };
+            })
+          }
+          onApply={(changes, replyAuthor) => {
+            const store = activeOpen.store;
+            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID() });
+            // One undo step for the whole import.
+            store.checkpoint();
+            store.batch(() => {
+              for (const [id, patch] of patches) store.update(id, patch);
+            });
+            store.checkpoint();
+            setNotice(`Imported ${importExcel.fileName}: ${changes.length} change${changes.length === 1 ? '' : 's'} to ${patches.size} markup${patches.size === 1 ? '' : 's'}. Undo takes them back in one step.`);
+            setImportExcel(null);
+          }}
+          onClose={() => setImportExcel(null)}
         />
       )}
       {syncOpen && activeOpen && syncTable && (

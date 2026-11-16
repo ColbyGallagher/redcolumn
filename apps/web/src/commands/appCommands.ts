@@ -68,6 +68,10 @@ export interface CommandActions {
   save: () => void;
   saveAs: () => void;
   exportCsv: () => void;
+  /** The Markups list as an .xlsx that can be edited in Excel and imported again. */
+  exportXlsx: () => void;
+  /** An edited .xlsx back in: a preview of what it changes, then the changes. */
+  importXlsx: () => void;
   exportSummary: () => void;
   print: () => void;
   preferences: () => void;
@@ -399,6 +403,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.importBax', 'File', 'Import Markups from Bluebeam BAX…', a.importBax, s.editable),
     cmd('file.importPdfMarkups', 'File', 'Import Markups from PDF…', a.importMarkupsFromPdf, s.editable),
     cmd('file.exportCsv', 'File', 'Export Markups CSV', a.exportCsv, doc && s.canSaveCopy),
+    cmd('file.exportXlsx', 'File', 'Export Markups for Excel', a.exportXlsx, doc && s.canSaveCopy),
+    cmd('file.importXlsx', 'File', 'Import Markups from Excel…', a.importXlsx, s.editable),
     cmd('file.exportSummary', 'File', 'Markup Summary…', a.exportSummary, doc && s.canSaveCopy),
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),

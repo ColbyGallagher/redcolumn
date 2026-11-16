@@ -183,6 +183,7 @@ window.HELP_TOC = [
       { id: 'list-status', title: 'Statuses' },
       { id: 'list-group', title: 'Group and total' },
       { id: 'list-export', title: 'Export the list (CSV, summary)' },
+      { id: 'list-excel', title: 'Edit the list in Excel and bring it back' },
       { id: 'sheet-sync', title: 'Keep the list in a spreadsheet' },
       { id: 'scripts', title: 'Scripts: change many markups at once' },
     ],
