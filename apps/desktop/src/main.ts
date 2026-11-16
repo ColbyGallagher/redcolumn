@@ -11,7 +11,7 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
-import { checkLive, checkSheets, checkTable, loadExcelLinks, readWorkbookNow, writeWorkbook } from './excel';
+import { checkFill, checkLive, checkSheets, checkTable, fillWorkbook, loadExcelLinks, readSource, readWorkbookNow, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -264,6 +264,34 @@ async function start() {
     handle('excel:write', (id, xlsx, table, extra, live) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra), checkLive(live)));
     // Two-way sync reads the sheet it wrote and the hidden sheet beside it, nothing else in the workbook.
     handle('excel:read', (id) => readWorkbookNow(excel.path(id), ['Markups', '_redcolumn']));
+    // A comment register in the client's own file: the page picks the client's blank file, reads it to
+    // place the rows, and Excel fills a copy in. The client's file itself is only ever read.
+    handle('excel:pick-source', async () => {
+      const win = mainWindow;
+      const options = { title: 'Choose the client’s register file', properties: ['openFile' as const], filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+      const filePath = result.filePaths[0];
+      if (result.canceled || !filePath || !/\.xlsx$/i.test(filePath)) return null;
+      const data = await readSource(filePath);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath), bytes: data };
+    });
+    handle('excel:read-source', (id) => readSource(excel.path(id)));
+    handle('excel:fill', async (sourceId, suggestedName, fill) => {
+      const source = excel.path(sourceId);
+      const request = checkFill(fill);
+      const win = mainWindow;
+      const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Comment register'}.xlsx`;
+      const options = { title: 'Save the filled-in register', defaultPath: path.join(path.dirname(source), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return null;
+      const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
+      await fillWorkbook(source, filePath, request);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath) };
+    });
     handle('excel:open', async (id) => {
       const failed = await shell.openPath(excel.path(id));
       if (failed) throw new Error(failed);

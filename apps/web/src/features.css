@@ -6565,6 +6565,17 @@ tr.hidden-markup td {
   width: 70px;
 }
 
+.register-client-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.register-client-label {
+  font-weight: 600;
+}
+
 .register-row-actions {
   white-space: nowrap;
 }

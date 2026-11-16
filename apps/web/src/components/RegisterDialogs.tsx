@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MarkupStatusDef } from '@nb/markup';
-import { REGISTER_VALUES, cellRef, fieldKey, parseCellRef, withStatuses, type RegisterCell, type RegisterColumn, type RegisterField, type RegisterTemplate, type RegisterValue } from '../sheetsync/register';
+import { REGISTER_VALUES, blankKey, cellRef, fieldKey, parseCellRef, withStatuses, type RegisterCell, type RegisterColumn, type RegisterField, type RegisterTemplate, type RegisterValue } from '../sheetsync/register';
 import { columnName } from '../sheetsync/xlsx';
 
 /** Which markups a register lists: those that say something, or every markup. */
@@ -14,18 +14,24 @@ interface ExportProps {
   /** What the cells above the table start with. */
   values: Partial<Record<RegisterValue, string>>;
   counts: Record<RegisterScope, number>;
-  onExport: (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>) => void;
+  /** Whether this app can fill in a client's own file (the Windows desktop app). */
+  canFill: boolean;
+  /** `fill`: write into a copy of the template's client file instead of a new workbook. */
+  onExport: (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, fill: boolean) => Promise<void>;
   /** Opens the template editor (on this template, or to make the first one). */
   onTemplates: (id?: string) => void;
   onClose: () => void;
 }
 
 /** File › Export › Comment Register: pick the client's template, check the details, export. */
-export function ExportRegisterDialog({ docName, templates, initialId, values: initial, counts, onExport, onTemplates, onClose }: ExportProps) {
+export function ExportRegisterDialog({ docName, templates, initialId, values: initial, counts, canFill, onExport, onTemplates, onClose }: ExportProps) {
   const [id, setId] = useState(initialId ?? templates[0]?.id ?? '');
   const [scope, setScope] = useState<RegisterScope>('comments');
   const [values, setValues] = useState(initial);
+  const [into, setInto] = useState<'client' | 'new'>('client');
+  const [busy, setBusy] = useState(false);
   const template = templates.find((t) => t.id === id) ?? templates[0];
+  const fill = canFill && !!template?.clientFile && into === 'client';
   // Only the details this template shows are asked for.
   const used = REGISTER_VALUES.filter((v) => template?.cells.some((c) => c.value === v.value));
   return (
@@ -57,6 +63,15 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
                 <option value="all">Every markup ({counts.all})</option>
               </select>
             </label>
+            {canFill && template.clientFile && (
+              <label className="col-field">
+                <span>Workbook</span>
+                <select aria-label="Register workbook" value={into} onChange={(e) => setInto(e.target.value === 'new' ? 'new' : 'client')}>
+                  <option value="client">A copy of the client’s file ({template.clientFile.name})</option>
+                  <option value="new">A new workbook in the template’s layout</option>
+                </select>
+              </label>
+            )}
             {used.map((v) => (
               <label key={v.value} className="col-field">
                 <span>{v.label}</span>
@@ -64,7 +79,9 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
               </label>
             ))}
             <p className="hint-text">
-              {template.protection === 'protected'
+              {fill
+                ? 'Excel fills in a copy of the client’s file: its title block, logos and styles stay as they are, and you choose where the copy is saved. The copy is not protected.'
+                : template.protection === 'protected'
                 ? 'This template is protected: only the columns to fill in can be changed. The designer can filter the sheet but not sort it. The password is written on the workbook’s Read me sheet.'
                 : 'This template is open: nothing is locked, so the sheet can be sorted.'}
             </p>
@@ -82,8 +99,14 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
           <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="btn primary" disabled={!template || !counts[scope]} onClick={() => template && onExport(template, scope, values)}>
-            Export
+          <button type="button" className="btn primary" disabled={!template || !counts[scope] || busy}
+            onClick={() => {
+              if (!template) return;
+              setBusy(true);
+              void onExport(template, scope, values, fill).finally(() => setBusy(false));
+            }}
+          >
+            {busy ? 'Exporting…' : 'Export'}
           </button>
         </div>
       </div>
@@ -107,6 +130,12 @@ interface TemplatesProps {
   /** Reads a shared template file; null when cancelled or unreadable (the caller says why). */
   onImportFile: () => Promise<RegisterTemplate | null>;
   onExportFile: (template: RegisterTemplate) => void;
+  /**
+   * Picks the client's own register file and checks it against the template as it is being edited;
+   * null when cancelled or unreadable (the caller says why). Absent where a client's file cannot be
+   * filled in (the web app).
+   */
+  onPickClientFile?: (draft: RegisterTemplate) => Promise<{ id: string; name: string; problems: string[] } | null>;
   onClose: () => void;
 }
 
@@ -118,13 +147,16 @@ const fieldOf = (key: string): RegisterField => {
 };
 
 /** Register templates: one per client, edited here and shared as files. */
-export function RegisterTemplatesDialog({ templates, initialId, standards, listColumns, statuses, onNew, onSave, onDelete, onImportFile, onExportFile, onClose }: TemplatesProps) {
+export function RegisterTemplatesDialog({ templates, initialId, standards, listColumns, statuses, onNew, onSave, onDelete, onImportFile, onExportFile, onPickClientFile, onClose }: TemplatesProps) {
   const first = templates.find((t) => t.id === initialId) ?? templates[0] ?? null;
   const [draft, setDraft] = useState<RegisterTemplate | null>(first ? withStatuses(first, statuses) : null);
   const [dirty, setDirty] = useState(false);
+  /** What checking the client's file against the template found, when it was last picked. */
+  const [fileCheck, setFileCheck] = useState<string[] | null>(null);
   const open = (t: RegisterTemplate | null, changed = false) => {
     setDraft(t ? withStatuses(t, statuses) : null);
     setDirty(changed);
+    setFileCheck(null);
   };
   const edit = (patch: Partial<RegisterTemplate>) => {
     setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -148,6 +180,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
     ...listColumns.map((c) => ({ key: c.key, label: c.label })),
     ...THREADS.map((n) => ({ key: `reply:${n}`, label: `Reply ${n} (text)` })),
     ...THREADS.map((n) => ({ key: `responder:${n}`, label: `Reply ${n} (who wrote it)` })),
+    ...THREADS.map((n) => ({ key: blankKey(n), label: `Nothing: left blank (${n})` })),
   ];
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -241,6 +274,55 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 </label>
               )}
             </div>
+            {onPickClientFile && (
+              <div className="register-client-file">
+                <span className="register-client-label">Client’s file</span>
+                <span data-testid="client-file-name">{draft.clientFile ? draft.clientFile.name : 'None: the export makes a new workbook in this layout'}</span>
+                <button
+                  type="button"
+                  className="btn small"
+                  onClick={() =>
+                    void onPickClientFile(draft).then((picked) => {
+                      if (!picked) return;
+                      edit({ clientFile: { id: picked.id, name: picked.name } });
+                      setFileCheck(picked.problems);
+                    })
+                  }
+                >
+                  Choose…
+                </button>
+                {draft.clientFile && (
+                  <button
+                    type="button"
+                    className="btn small"
+                    onClick={() => {
+                      edit({ clientFile: undefined });
+                      setFileCheck(null);
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            )}
+            {onPickClientFile && draft.clientFile && (
+              <p className="hint-text">
+                The export can fill in a copy of this file with Excel, keeping its title block, logos, merged headings and styles. The sheet name, header row, first column and headings below must be the file’s own. Text cells above the table, widths and protection are not used: the file keeps
+                its own.
+              </p>
+            )}
+            {fileCheck &&
+              (fileCheck.length ? (
+                fileCheck.map((p) => (
+                  <p key={p} className="warn" data-testid="client-file-check">
+                    {p}
+                  </p>
+                ))
+              ) : (
+                <p className="hint-text" data-testid="client-file-check">
+                  The file’s headings match this template.
+                </p>
+              ))}
             {draft.protection === 'protected' && <p className="hint-text">Protection stops a column being deleted or overtyped by accident. It is not security: the password is written on the workbook’s Read me sheet so anyone who needs to sort or restructure the sheet can.</p>}
 
             <h4>Columns</h4>

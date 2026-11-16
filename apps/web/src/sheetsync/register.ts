@@ -78,8 +78,17 @@ export interface RegisterTemplate {
   /** Written in the workbook's Read me sheet: protection is against accidents, not people. */
   password?: string;
   cells: RegisterCell[];
+  /**
+   * The client's own register file, on this computer (Windows desktop app): an export can fill in a
+   * copy of it instead of making a workbook that looks like it. `id` is the desktop app's name for
+   * the file; it means nothing on another computer, so it is not shared with the template.
+   */
+  clientFile?: { id: string; name: string };
   updatedAt: number;
 }
+
+/** A column of the client's file that the register has nothing for: its heading is checked and its cells are left alone. */
+export const blankKey = (n: number) => `blank:${n}`;
 
 /** The password of a protected register whose template sets none. */
 export const DEFAULT_PASSWORD = 'redcolumn';
@@ -309,7 +318,7 @@ function whole(v: unknown, max: number, what: string): number {
 
 export function exportTemplate(t: RegisterTemplate): string {
   // Which client it is kept beside is this person's own arrangement.
-  const { standardId: _standard, ...shared } = t;
+  const { standardId: _standard, clientFile: _file, ...shared } = t;
   return JSON.stringify({ format: FORMAT, version: VERSION, template: shared }, null, 2);
 }
 

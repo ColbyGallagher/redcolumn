@@ -38,6 +38,7 @@ import type { CellChange } from './sheetsync/merge';
 import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { checkClientFile, planFill } from './sheetsync/clientFile';
 import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
@@ -6397,10 +6398,29 @@ export function App() {
   const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
   /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
   const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || !!(isTextType(m.type) ? m.text : m.comment)?.trim() || !!m.replies?.length));
-  const exportRegister = (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>) => {
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, fill: boolean) => {
     if (!activeOpen) return;
-    const bytes = exportRegisterWorkbook({ rows: buildRows(registerMarkups(scope), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values });
-    download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}.xlsx`, new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const register = { rows: buildRows(registerMarkups(scope), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values };
+    const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
+    const excel = localExcel();
+    if (fill && template.clientFile && excel?.readSource && excel.fill) {
+      // The client's own file: read it to place the rows, then Excel fills a copy in.
+      try {
+        const plan = planFill(await readWorkbook(await excel.readSource(template.clientFile.id)), register);
+        if (!plan.ok) {
+          setError(plan.problem);
+          return;
+        }
+        const saved = await excel.fill(template.clientFile.id, name, plan.fill);
+        if (!saved) return;
+        setNotice(`${saved.name} saved: the register in a copy of ${template.clientFile.name}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The client’s file could not be filled in.');
+        return;
+      }
+    } else {
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook(register) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    }
     setRegisterOpen(false);
   };
   const exportMarkupsXlsx = () => {
@@ -11585,6 +11605,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
           values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
           counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          canFill={!!localExcel()?.fill}
           onExport={exportRegister}
           onTemplates={(id) => setRegisterTemplatesOpen({ id })}
           onClose={() => setRegisterOpen(false)}
@@ -11612,6 +11633,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }
           }}
           onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onPickClientFile={
+            localExcel()?.pickSource
+              ? async (draft) => {
+                  try {
+                    const picked = await localExcel()!.pickSource!();
+                    if (!picked) return null;
+                    return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'That file could not be read.');
+                    return null;
+                  }
+                }
+              : undefined
+          }
           onClose={() => setRegisterTemplatesOpen(null)}
         />
       )}

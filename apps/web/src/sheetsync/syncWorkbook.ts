@@ -50,6 +50,11 @@ export interface SyncSheetOptions {
   widths?: readonly (number | undefined)[];
   /** How a register's statuses are worded, recorded with the export so it can be read back on a computer without the template. */
   register?: RegisterRecord;
+  /**
+   * Rows of the sheet that are not the table's and never were: the sign-off block below the table of a
+   * client's own file, each as its first cell's text. An import passes over them without a word.
+   */
+  ignore?: readonly string[];
 }
 
 /** What a register export records about its template. */
@@ -57,6 +62,32 @@ export interface RegisterRecord {
   templateId: string;
   /** Per status id: the word the register shows for it, and other words that mean it. */
   statuses: { id: string; word: string; also: string[] }[];
+}
+
+/** Excel holds 32,767 characters in a cell. */
+const MAX_IGNORE = 30_000;
+
+/** The rows to pass over, as one cell: as many as fit. */
+function ignoreCell(rows: readonly string[] | undefined): string {
+  const kept: string[] = [];
+  let size = 2;
+  for (const r of new Set(rows ?? [])) {
+    const more = JSON.stringify(r).length + 1;
+    if (size + more > MAX_IGNORE) break;
+    kept.push(r);
+    size += more;
+  }
+  return kept.length ? JSON.stringify(kept) : '';
+}
+
+function ignoreRows(value: CellValue | undefined): string[] {
+  if (typeof value !== 'string' || !value || value.length > MAX_IGNORE + 100) return [];
+  try {
+    const v: unknown = JSON.parse(value);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 /** A column people read a paragraph in: it wraps and gets a set width. */
@@ -75,7 +106,7 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
   const cols = table.columns;
   const editable = cols.map((c) => c.edit === 'editable');
   const base: TableCell[][] = [
-    [MARK, VERSION, opts.docId, opts.exportedAt, opts.sheet, opts.origin?.row ?? 0, opts.origin?.col ?? 0, cols.length, table.rows.length, opts.register ? JSON.stringify(opts.register) : ''],
+    [MARK, VERSION, opts.docId, opts.exportedAt, opts.sheet, opts.origin?.row ?? 0, opts.origin?.col ?? 0, cols.length, table.rows.length, opts.register ? JSON.stringify(opts.register) : '', ignoreCell(opts.ignore)],
     ['key', 'itemNo', ...cols.map((c) => c.key)],
     [KEY_LABEL, '', ...cols.map((c) => c.label)],
     ...table.rows.map((r): TableCell[] => [r.key, r.match?.itemNo ?? '', ...cols.map((c, i) => opts.keep?.get(r.key)?.get(c.key)?.base ?? (editable[i] && !r.locked ? canonOwn(c, r.cells[i] ?? '') : ''))]),
@@ -136,6 +167,8 @@ export interface Snapshot {
   rows: Map<string, { itemNo: number | null; values: Map<string, string> }>;
   /** Set when the export was a register: its template and status wording. */
   register?: RegisterRecord;
+  /** Rows that were below the table when it was written (a sign-off block), each as its first cell's text. */
+  ignore: string[];
 }
 
 /** The register record as written, or nothing when it is missing or not what this app writes. */
@@ -174,5 +207,5 @@ export function readSnapshot(book: ReadWorkbook): Snapshot | null {
     const itemNo = typeof row[1] === 'number' ? row[1] : null;
     rows.set(key, { itemNo, values: new Map(columns.map((c, i) => [c.key, text(row[LEAD_COLS + i])])) });
   }
-  return { docId: text(meta[2]), exportedAt: text(meta[3]), sheet: text(meta[4]), headerRow: Number(meta[5]) || 0, firstCol: Number(meta[6]) || 0, columns, rows, ...(registerRecord(meta[9]) ? { register: registerRecord(meta[9])! } : {}) };
+  return { docId: text(meta[2]), exportedAt: text(meta[3]), sheet: text(meta[4]), headerRow: Number(meta[5]) || 0, firstCol: Number(meta[6]) || 0, columns, rows, ignore: ignoreRows(meta[10]), ...(registerRecord(meta[9]) ? { register: registerRecord(meta[9])! } : {}) };
 }
