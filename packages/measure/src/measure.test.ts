@@ -125,7 +125,18 @@ test('parseLength accepts decimals and feet-inches', () => {
   assert.equal(parseLength(`10'`, 'in'), 120);
   assert.equal(parseLength('abc', 'ft'), null);
   assert.equal(parseLength('0', 'ft'), null);
-  assert.equal(parseLength(`5'`, 'm'), null);
+});
+
+test('parseLength converts feet-inches and named units to the target unit', () => {
+  const near = (a: number | null, b: number) => assert.ok(a !== null && Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+  near(parseLength(`5'`, 'm'), 1.524);
+  near(parseLength(`302'9"`, 'm'), (302 + 9 / 12) * 0.3048);
+  near(parseLength(`6"`, 'mm'), 152.4);
+  near(parseLength('300mm', 'm'), 0.3);
+  near(parseLength('12 m', 'ft'), 12 / 0.3048);
+  near(parseLength('5 FT', 'in'), 60);
+  assert.equal(parseLength('5 furlongs', 'm'), null);
+  assert.equal(parseLength('0 m', 'ft'), null);
 });
 
 test('display quantities for spreadsheets', () => {

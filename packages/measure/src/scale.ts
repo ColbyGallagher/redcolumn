@@ -239,9 +239,11 @@ export function formatArea(squareMeters: number, scale: Scale): string {
 }
 
 /**
- * Parses a length typed by a user into `unit`s. Accepts plain numbers (`25`, `25.5`) and, for
- * feet, feet-inches with optional fractions (`25'-6"`, `25' 6 1/2"`, `6"`, `3/4"`).
- * Returns null when the text is not a positive length.
+ * Parses a length typed by a user into `unit`s. Accepts plain numbers (`25`, `25.5`, taken as
+ * `unit`s), feet-inches with optional fractions (`25'-6"`, `25' 6 1/2"`, `6"`, `3/4"`), and a
+ * number with a unit name (`12 m`, `300mm`, `5 ft`). Feet-inches and named units convert to
+ * `unit`, so `5'` reads as 1.524 when `unit` is meters. Returns null when the text is not a
+ * positive length.
  */
 export function parseLength(text: string, unit: LengthUnit): number | null {
   const t = text.trim();
@@ -249,13 +251,19 @@ export function parseLength(text: string, unit: LengthUnit): number | null {
     const v = Number(t);
     return v > 0 ? v : null;
   }
-  if (unit !== 'ft' && unit !== 'in') return null;
+  const named = /^(\d*\.?\d+)\s*(in|ft|yd|mi|mm|cm|m|km)\.?$/i.exec(t);
+  if (named) {
+    const from = named[2]!.toLowerCase() as LengthUnit;
+    const v = Number(named[1]) * (METERS_PER_UNIT[from] / METERS_PER_UNIT[unit]);
+    return v > 0 ? v : null;
+  }
   const m = /^(?:(\d*\.?\d+)\s*')?\s*-?\s*(?:(\d+(?:\.\d+)?)?\s*(?:(\d+)\s*\/\s*(\d+))?\s*")?$/.exec(t);
   if (!m || (!m[1] && !m[2] && !m[3])) return null;
   const feet = Number(m[1] ?? 0);
   const inches = Number(m[2] ?? 0) + (m[3] && m[4] ? Number(m[3]) / Number(m[4]) : 0);
   const totalFeet = feet + inches / 12;
-  const value = unit === 'ft' ? totalFeet : totalFeet * 12;
+  // Exact in the units the text was typed in; converted only for other units.
+  const value = unit === 'ft' ? totalFeet : unit === 'in' ? totalFeet * 12 : totalFeet * (METERS_PER_UNIT.ft / METERS_PER_UNIT[unit]);
   return value > 0 ? value : null;
 }
 
