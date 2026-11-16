@@ -32,6 +32,11 @@ export interface ToolChestItem {
    * of it. Tools without one (imported, recent) draw new markups in their style.
    */
   markups?: Markup[];
+  /**
+   * How clicking a tool with saved `markups` uses it: `copy` places the exact markup, `style` draws
+   * new markups in its look. Set from the tool's right-click menu; unset follows Preferences.
+   */
+  mode?: 'copy' | 'style';
   /** The page scale (metres per point) it was saved at, for tool sets that scale to the page. */
   metersPerPoint?: number;
   /** Drawn with the Cloud+ tool (a cloud, then a callout): `type` is its cloud. */
