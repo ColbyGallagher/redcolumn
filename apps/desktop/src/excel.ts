@@ -691,10 +691,17 @@ const MAX_SOURCE = 50 * 1024 * 1024;
 /** The client's register file, for the page to find the table in. */
 export async function readSource(filePath: string): Promise<Uint8Array> {
   const name = path.basename(filePath);
-  const stat = await fs.stat(filePath).catch(() => null);
-  if (!stat?.isFile()) throw new Error(`${name} is no longer where it was. Choose the client’s file again in the template.`);
-  if (stat.size > MAX_SOURCE) throw new Error(`${name} is too large to use as a register file.`);
-  return fs.readFile(filePath);
+  // One handle for the check and the read, so the file checked is the file read.
+  const handle = await fs.open(filePath, 'r').catch(() => null);
+  if (!handle) throw new Error(`${name} is no longer where it was. Choose the client’s file again in the template.`);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error(`${name} is no longer where it was. Choose the client’s file again in the template.`);
+    if (stat.size > MAX_SOURCE) throw new Error(`${name} is too large to use as a register file.`);
+    return await handle.readFile();
+  } finally {
+    await handle.close();
+  }
 }
 
 export interface FillDeps {
@@ -714,8 +721,9 @@ const fillDeps: FillDeps = {
  * never written, and a copy Excel could not fill is not left behind.
  */
 export async function fillWorkbook(source: string, dest: string, fill: FillRequest, deps: FillDeps = fillDeps): Promise<void> {
-  const name = path.basename(dest);
-  if (path.resolve(source).toLowerCase() === path.resolve(dest).toLowerCase()) throw new Error('Save the register under another name: the client’s blank file is kept as it is.');
+  // Windows paths, wherever this runs (the tests run on other systems too).
+  const name = path.win32.basename(dest);
+  if (path.win32.resolve(source).toLowerCase() === path.win32.resolve(dest).toLowerCase()) throw new Error('Save the register under another name: the client’s blank file is kept as it is.');
   try {
     await deps.copy(source, dest);
   } catch (err) {
@@ -746,7 +754,7 @@ export async function fillWorkbook(source: string, dest: string, fill: FillReque
   }
   if (answer === 'ok') return;
   await deps.remove(dest).catch(() => undefined);
-  const from = path.basename(source);
+  const from = path.win32.basename(source);
   if (answer === 'no-excel') throw new Error('Filling in the client’s file needs Excel, and Excel was not found on this computer. Export a new workbook instead.');
   if (answer === 'protected') throw new Error(`${from} is protected, so rows cannot be written into it. Unprotect the sheet and the workbook in Excel, save it, and export again.`);
   if (answer === 'no-sheet') throw new Error(`${from} no longer has a sheet named “${fill.sheet}”.`);

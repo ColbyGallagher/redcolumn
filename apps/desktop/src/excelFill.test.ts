@@ -46,8 +46,8 @@ test('fillWorkbook copies the client’s file, has Excel fill the copy, and mark
   const calls: string[] = [];
   let input: Record<string, unknown> = {};
   const deps: FillDeps = {
-    copy: async (from, to) => void calls.push(`copy ${path.basename(from)} > ${path.basename(to)}`),
-    remove: async (p) => void calls.push(`remove ${path.basename(p)}`),
+    copy: async (from, to) => void calls.push(`copy ${path.win32.basename(from)} > ${path.win32.basename(to)}`),
+    remove: async (p) => void calls.push(`remove ${path.win32.basename(p)}`),
     run: async (script, text) => {
       assert.equal(script, FILL_SCRIPT);
       input = JSON.parse(text) as Record<string, unknown>;
@@ -71,7 +71,7 @@ test('fillWorkbook never writes the client’s file, and leaves no copy that Exc
   const removed: string[] = [];
   const deps = (answer: string | Error): FillDeps => ({
     copy: async () => undefined,
-    remove: async (p) => void removed.push(path.basename(p)),
+    remove: async (p) => void removed.push(path.win32.basename(p)),
     run: async () => {
       if (answer instanceof Error) throw answer;
       return answer;
