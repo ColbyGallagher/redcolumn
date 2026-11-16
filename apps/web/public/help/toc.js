@@ -185,6 +185,7 @@ window.HELP_TOC = [
       { id: 'list-export', title: 'Export the list (CSV, summary)' },
       { id: 'list-excel', title: 'Edit the list in Excel and bring it back' },
       { id: 'comment-register', title: 'Comment registers' },
+      { id: 'close-out', title: 'Close out comments' },
       { id: 'sheet-sync', title: 'Keep the list in a spreadsheet' },
       { id: 'scripts', title: 'Scripts: change many markups at once' },
     ],

@@ -482,6 +482,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.overlay" />
             <Cmd id="document.slipSheet" />
             <Cmd id="document.revisions" />
+            <Cmd id="document.closeOut" />
             <Cmd id="document.stitching" />
             <Cmd id="document.geospatial" />
             <Cmd id="document.stitchToPage" />

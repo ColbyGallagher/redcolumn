@@ -6600,6 +6600,26 @@ tr.hidden-markup td {
   overflow: auto;
 }
 
+/* Close-out: comments by sheet */
+.close-out-table tbody tr {
+  cursor: pointer;
+}
+
+.close-out-table tbody tr:hover,
+.close-out-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.close-out-table tr.close-out-sheet td {
+  font-weight: 600;
+}
+
+.close-out-table tr.close-out-comment .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
+}
+
 /* Comments table (a Project's or Live Session's comments) */
 .comments-table th .th-sort {
   all: unset;

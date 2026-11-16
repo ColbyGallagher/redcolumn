@@ -17,7 +17,7 @@ import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useC
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, keepRevisionOf, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { studioFileId, studioDocOf } from './studio/documentId';
 import { saveConfirmedArchiveFile } from './studio/archive';
@@ -39,6 +39,8 @@ import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRe
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
 import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
+import { CloseOutDialog } from './components/CloseOutDialog';
 import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
@@ -1105,6 +1107,9 @@ export function App() {
   const [syncOpen, setSyncOpen] = useState(false);
   /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
   const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
+  const [closeOutOpen, setCloseOutOpen] = useState(false);
+  const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
   /** Export Comment Register, and the template editor (on one template, or the list). */
   const [registerOpen, setRegisterOpen] = useState(false);
   const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
@@ -3100,7 +3105,13 @@ export function App() {
             const targetLabels = cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number ?? null);
             const plan = planSlipSheet(targetLabels, incoming, spec.mode, spec.addUnmatched);
             const labelOf = (p: IncomingPage) => p.label ?? `${opened[p.source]!.name} p${p.page + 1}`;
-            if (!plan.replace.length && !plan.add.length) return { plan, labelOf };
+            if (!plan.replace.length && !plan.add.length) return { plan, labelOf, left: 0 };
+            // Comments on the sheets being replaced: the revision they were raised on is the one going out,
+            // and the closed ones stay with it when asked.
+            const replaced = new Set(plan.replace.map((r) => r.target));
+            const before = cur.store.all();
+            const raised = raisedRevisions(before, cur.store.allSheets(), replaced);
+            const behind = spec.leaveClosed ? closedComments(before, replaced, closedStatuses(closeOutTemplateOf(cur.store))) : [];
 
             const moves = new Map<number, { scale: number; dx: number; dy: number }>();
             if (spec.alignMarkups)
@@ -3127,24 +3138,35 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            await keepRevision(cur.file.id, `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`);
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
+            // The revision kept is the stored file, which has no markups in it. Comments left behind are
+            // written into the copy that is kept, so they can still be read there.
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, `${note} (with its markups: ${behind.length} closed comment${behind.length === 1 ? '' : 's'} left behind)`);
+            else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
+              cur.store.batch(() => {
+                for (const [id, raisedRev] of raised) cur.store.update(id, { raisedRev });
+                cur.store.remove(behind.map((m) => m.id));
+              });
               cur.store.transformPages(moves);
+              // The replaced sheets are the new revision now.
+              cur.store.setDetectedSheets(plan.replace.flatMap((r) => (opened[r.incoming.source]!.sheets[r.incoming.page] ? [[r.target, opened[r.incoming.source]!.sheets[r.incoming.page]!] as [number, SheetInfo]] : [])));
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
             }, undefined, 'Slip Sheet');
-            return { plan, labelOf };
+            return { plan, labelOf, left: behind.filter((m) => !cur.store.get(m.id)).length };
           } finally {
             for (const o of opened) void o.doc.close();
           }
         });
-        const { plan, labelOf } = report;
+        const { plan, labelOf, left } = report;
         const list = (items: IncomingPage[]) => items.slice(0, 8).map(labelOf).join(', ') + (items.length > 8 ? ` and ${items.length - 8} more` : '');
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
           plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
         setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
         void refreshLibrary();
@@ -3155,7 +3177,7 @@ export function App() {
         job.end();
       }
     },
-    [ctl, swapDocument, refreshLibrary],
+    [ctl, swapDocument, refreshLibrary, registerTemplates, closeOutTemplate],
   );
 
   /** Revisions: a kept version made the document's contents again (the current one is kept too). */
@@ -6397,10 +6419,23 @@ export function App() {
   );
   const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
   /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
-  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || !!(isTextType(m.type) ? m.text : m.comment)?.trim() || !!m.replies?.length));
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
+  /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
+  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
   const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, fill: boolean) => {
     if (!activeOpen) return;
-    const register = { rows: buildRows(registerMarkups(scope), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values };
+    // A comment's first export records the revision of its sheet: what it was raised on.
+    const listed = registerMarkups(scope);
+    const raised = raisedRevisions(listed, sheets);
+    if (raised.size) {
+      const store = activeOpen.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, raisedRev] of raised) store.update(id, { raisedRev });
+      });
+      store.checkpoint();
+    }
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values };
     const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
     const excel = localExcel();
     if (fill && template.clientFile && excel?.readSource && excel.fill) {
@@ -8551,6 +8586,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     digitalIds: () => setIdsOpen(true),
     slipSheet: () => setSlipSheetOpen(true),
+    closeOut: () => setCloseOutOpen(true),
     revisions: () => activeOpen && setRevisionsOf(activeOpen.file.id),
     overlay: () => setCompareOpen('overlay'),
     ocr: () => {
@@ -10834,6 +10870,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SlipSheetDialog
           targetName={activeOpen.file.name}
           files={library.filter((f) => f.id !== activeOpen.file.id)}
+          closed={(() => {
+            const template = closeOutTemplateOf(activeOpen.store);
+            const ids = closedStatuses(template);
+            const names = columnSet.statuses.filter((s) => ids.has(s.id)).map((s) => s.name);
+            return { count: markups.filter((m) => isComment(m) && ids.has(m.status || 'none')).length, means: names.length ? names.join(', ').replace(/, ([^,]*)$/, ' or $1') : 'closed' };
+          })()}
           onCancel={() => setSlipSheetOpen(false)}
           onRun={(spec) => {
             setSlipSheetOpen(false);
@@ -11596,6 +11638,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setImportExcel(null);
           }}
           onClose={() => setImportExcel(null)}
+        />
+      )}
+      {closeOutOpen && activeOpen && (
+        <CloseOutDialog
+          docName={activeOpen.file.name}
+          sheets={closeOut(markups, sheets, closedStatuses(closeOutTemplateOf(activeOpen.store)), columnSet.statuses)}
+          templates={registerTemplates.map((t) => ({ id: t.id, name: t.name }))}
+          templateId={closeOutTemplateOf(activeOpen.store)?.id ?? ''}
+          onTemplate={setCloseOutTemplate}
+          onOpen={(id, pageIndex) => {
+            setCloseOutOpen(false);
+            navigate(pageIndex, null);
+            (paneB ? ctlB : ctl)?.tools.select([id]);
+          }}
+          onExportCsv={(csv) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} close-out.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }))}
+          onClose={() => setCloseOutOpen(false)}
         />
       )}
       {registerOpen && activeOpen && (
