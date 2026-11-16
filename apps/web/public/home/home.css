@@ -373,3 +373,67 @@ section.wrap {
   height: auto;
   display: block;
 }
+
+/* Coming from Revu: compatibility tables, gaps and the benchmark. */
+#revu {
+  padding-top: 48px;
+  padding-bottom: 48px;
+}
+#revu h3.group {
+  margin-top: 32px;
+}
+.table-scroll {
+  overflow-x: auto;
+  display: grid;
+  gap: 16px;
+  margin-top: 12px;
+}
+table.compat {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+table.compat th,
+table.compat td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+table.compat thead th {
+  background: var(--panel);
+  font-weight: 600;
+  white-space: nowrap;
+}
+table.compat tbody th {
+  font-weight: 500;
+}
+ul.gaps {
+  padding-left: 1.2em;
+  margin: 8px 0 12px;
+}
+ul.gaps li {
+  margin: 4px 0;
+}
+.bench-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 24px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+.bench-meta dt {
+  color: var(--muted);
+}
+.bench-meta dd {
+  margin: 0 0 4px;
+}
+table.compat td.num,
+table.compat th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

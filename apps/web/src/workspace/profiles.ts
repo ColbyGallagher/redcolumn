@@ -59,6 +59,8 @@ export interface ToolSet {
   view?: 'icon' | 'detail';
   /** Tools keep their real-world size: placed copies grow or shrink with the page's scale. */
   scaleToPage?: boolean;
+  /** The trade pack it was added from (its library id, or its name for a pack file): adding the pack again replaces it. */
+  pack?: string;
   items: ToolChestItem[];
 }
 
