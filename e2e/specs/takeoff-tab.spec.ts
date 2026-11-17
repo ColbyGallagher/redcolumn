@@ -150,6 +150,7 @@ test.describe('takeoff tab', () => {
           ],
           items: [{ id: 'conc', name: 'Concrete', unit: 'cf', formula: '[Length] * [Width] * [Thickness]' }],
         },
+        { id: 'curb', name: 'Curb', variables: [], items: [{ id: 'c', name: 'Curb', unit: 'lf', formula: '[Length]' }] },
       ]);
     });
     await app.tool('length');
@@ -182,12 +183,24 @@ test.describe('takeoff tab', () => {
     await app.tool('select');
     await page.evaluate((id) => window.__nb.tools.select([id]), String(run!.id));
     await openTab(app);
-    await expect(applies).toHaveText('1 selected');
+    await expect(applies).toHaveText('1 measurement selected');
     await variables.click();
-    await expect(pop).toContainText('Applies to: 1 selected');
+    await expect(pop).toContainText('Applies to: 1 measurement selected');
     await expect(pop.getByLabel('Input Thickness')).toHaveValue('1.5');
-    await pop.getByLabel('Input Width').fill('3');
-    await expect.poll(async () => (await app.raw())[0]!.assemblyInputs).toEqual({ Width: 3, Thickness: 1.5 });
+    const inputs = async () => (await app.raw()).find((m) => m.id === run!.id)!.assemblyInputs;
+    // Typed slowly, one key at a time: applied once, on Enter, as one undo step.
+    const width = pop.getByLabel('Input Width');
+    await width.fill('');
+    await width.pressSequentially('3.5', { delay: 400 });
+    expect(await inputs()).toEqual({ Thickness: 1.5 });
+    await width.press('Enter');
+    await expect.poll(inputs).toEqual({ Width: 3.5, Thickness: 1.5 });
+    await app.cmd('edit.undo');
+    await expect.poll(inputs).toEqual({ Thickness: 1.5 });
+    await expect(width).toHaveValue('2');
+    await width.fill('3');
+    await width.press('Enter');
+    await expect.poll(inputs).toEqual({ Width: 3, Thickness: 1.5 });
     await page.keyboard.press('Escape');
     await expect(pop).toBeHidden();
 
@@ -195,6 +208,41 @@ test.describe('takeoff tab', () => {
     await app.cmd('tools.quantities');
     const totals = page.getByRole('dialog', { name: 'Takeoff quantities' });
     await expect(totals.locator('tbody tr', { has: page.locator('td', { hasText: /^Concrete/ }) }).locator('td').nth(5)).toHaveText('90.00');
+    await totals.getByRole('button', { name: 'Close', exact: true }).click();
+
+    // A second run taken off as Curb; with both selected the assemblies differ, so there are no variables to set.
+    await page.evaluate(() => window.__nb.tools.select([]));
+    await openTab(app);
+    await group.getByLabel('Takeoff assembly').selectOption({ label: 'Curb' });
+    await app.tool('length');
+    await app.clicks([
+      [300, 500],
+      [500, 500],
+    ]);
+    const curb = (await app.raw()).find((m) => m.id !== run!.id)!;
+    expect(curb).toMatchObject({ assemblyId: 'curb' });
+    await app.tool('select');
+    await page.evaluate((ids) => window.__nb.tools.select(ids), [String(run!.id), String(curb.id)]);
+    await openTab(app);
+    await expect(applies).toHaveText('2 measurements selected');
+    await expect(group.getByLabel('Takeoff assembly')).toHaveValue('*');
+    await expect(variables).toBeDisabled();
+    await expect(variables).toHaveAttribute('title', /different assemblies/);
+
+    // Nothing in the ribbon scrolls at the window's minimum width, with an assembly picked and a selection.
+    if (test.info().project.name === 'web') {
+      await page.setViewportSize({ width: 800, height: 700 });
+      const clipped = await ribbon(app).locator('.rb-group').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).length);
+      expect(clipped).toBe(0);
+    }
+
+    // The inputs are saved in the PDF and read back.
+    await app.cmd('file.saveAs');
+    await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBeGreaterThan(0);
+    const bytes = (await app.saved()).at(-1)!.bytes;
+    await page.locator('input[type=file][accept*="pdf"]').first().setInputFiles({ name: 'footing-reopened.pdf', mimeType: 'application/pdf', buffer: Buffer.from(bytes) });
+    await expect.poll(async () => (await app.documents()).some((d) => d.active && d.name.startsWith('footing-reopened')), { timeout: 30_000 }).toBe(true);
+    await expect.poll(async () => (await app.raw()).find((m) => m.assemblyId === 'ftg')?.assemblyInputs).toEqual({ Width: 3, Thickness: 1.5 });
   });
 
   test('takeoff.syncExcel opens the Excel sync dialog', async ({ app }) => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { isMeasureKind, type Assembly, type Markup, type MarkupStore } from '@nb/markup';
-import { appliesTo } from '../assemblies/assemblyChoice';
+import type { Assembly, Markup, MarkupStore } from '@nb/markup';
+import { appliesTo, takesAssembly } from '../assemblies/assemblyChoice';
 import { AssemblyInputFields, useAssemblyChoice } from './AssemblyInputs';
 import type { MeasureDefaults } from './MeasurementsPanel';
 
@@ -22,13 +22,14 @@ export interface TakeoffAssemblyProps {
  * the assembly's defaults). The Measurements panel edits the same choice.
  */
 export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAssemblyProps | null | undefined; selection: { markups: readonly Markup[]; store: MarkupStore } | null | undefined; enabled: boolean }) {
-  const chosen = (selection?.markups ?? []).filter((m) => isMeasureKind(m.type) && m.type !== 'angle');
+  const chosen = (selection?.markups ?? []).filter(takesAssembly);
   const store = selection?.store ?? null;
-  const canEdit = !!info && (chosen.length ? !!store && chosen.every((m) => store.mayEdit(m)) : enabled);
+  const mayEdit = !!info && (chosen.length ? !!store && chosen.every((m) => store.mayEdit(m)) : enabled);
   const { choice, pick, setInput, dialog } = useAssemblyChoice({
     chosen,
+    selected: selection?.markups.length ?? 0,
     store,
-    canEdit,
+    canEdit: mayEdit,
     defaults: info?.defaults ?? { subject: '', label: '' },
     onDefaults: (next) => info?.onDefaults(next),
     assemblies: info?.assemblies ?? [],
@@ -37,15 +38,23 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
   const button = useRef<HTMLButtonElement>(null);
   const pop = useRef<HTMLDivElement>(null);
   const { value, assembly } = choice;
+  // A selection with no measurements in it is not edited (and not taken for "the next markups").
+  const canEdit = mayEdit && choice.target !== 'none';
   const vars = assembly?.variables.length ?? 0;
   const applies = appliesTo(choice);
+  // Quantities set by hand when a takeoff was approved stand, whatever the inputs.
+  const setByHand = chosen.some((m) => Object.keys(m.assemblyOverrides ?? {}).length > 0);
 
-  // Closes on a press outside it (not on the button, which toggles it) and on Escape.
+  // Closes on a press outside it (not on the button, which toggles it) and on Escape. A value being
+  // typed is applied first (the box hands it back when it loses focus).
   useEffect(() => {
     if (!open) return;
     const down = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (!pop.current?.contains(t) && !button.current?.contains(t)) setOpen(null);
+      if (pop.current?.contains(t) || button.current?.contains(t)) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && pop.current?.contains(active)) active.blur();
+      setOpen(null);
     };
     const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(null);
     window.addEventListener('mousedown', down, true);
@@ -60,12 +69,19 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
     if (open && !vars) setOpen(null);
   }, [open, vars]);
 
-  const title = assembly ? `${assembly.name}: ${vars ? `${vars} variable${vars === 1 ? '' : 's'}` : 'no variables'}` : 'Pick an assembly first';
+  const title =
+    choice.target === 'none'
+      ? 'No measurements selected: select measurements, or nothing to set the next ones'
+      : value === '*'
+        ? 'The selected measurements use different assemblies: pick one to edit its variables'
+        : assembly
+          ? `${assembly.name}: ${vars ? `${vars} variable${vars === 1 ? '' : 's'}` : 'no variables'}`
+          : 'Pick an assembly first';
   return (
     <div className="rb-stack rb-assembly">
       <select
         aria-label="Takeoff assembly"
-        title={`The assembly ${chosen.length ? 'the selected measurements are' : 'the next measurements are'} taken off as`}
+        title={choice.target === 'none' ? 'No measurements selected' : `The assembly ${chosen.length ? 'the selected measurements are' : 'the next measurements are'} taken off as`}
         value={value}
         disabled={!canEdit}
         onChange={(e) => (e.target.value === '__manage' ? info?.onManage() : pick(e.target.value))}
@@ -109,8 +125,13 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
               <strong>{assembly.name}</strong>
               <span className="muted">Applies to: {applies}</span>
             </div>
-            <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${assembly.id}`} assembly={assembly} values={choice.values} varies={choice.varies} disabled={!canEdit} onChange={setInput} />
-            <p className="muted rb-asm-note">{chosen.length ? 'Changes these measurements’ inputs; their quantities follow.' : 'The next measurements you draw take these values.'}</p>
+            <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${assembly.id}`} assembly={assembly} values={choice.values} varies={choice.varies} disabled={!canEdit} commitOnBlur onChange={setInput} />
+            <p className="muted rb-asm-note">{chosen.length ? 'Changes these measurements’ inputs (Enter or Tab to apply); their quantities follow.' : 'The next measurements you draw take these values (Enter or Tab to apply).'}</p>
+            {setByHand && (
+              <p className="warn rb-asm-note" role="note">
+                Some quantities were set by hand when the takeoff was approved: they stay as set, whatever these inputs.
+              </p>
+            )}
           </div>,
           document.body,
         )}

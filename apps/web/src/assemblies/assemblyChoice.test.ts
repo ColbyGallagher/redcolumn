@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import type { Assembly, Markup } from '@nb/markup';
 import type { Scale } from '@nb/measure';
 import type { CellContext } from '../columns/listColumns';
-import { appliesTo, assemblyChoice, inputValues, withInput } from './assemblyChoice';
+import { appliesTo, assemblyChoice, inputValues, takesAssembly, withInput } from './assemblyChoice';
 import { markupQuantities } from './quantities';
 
 /** One PDF point is one foot. */
@@ -56,13 +56,29 @@ test('selected measurements: their own inputs, falling back to the defaults, and
   const b = run();
   const c = assemblyChoice([a, b], {}, [footing]);
   assert.equal(c.target, 'selected');
-  assert.equal(appliesTo(c), '2 selected');
+  assert.equal(appliesTo(c), '2 measurements selected');
   assert.deepEqual(c.values, { Width: 3, Thickness: 1, Extra: 5 });
   assert.deepEqual([...c.varies], ['Width']);
   // Two assemblies: several, nothing to edit.
   const other = run({ assemblyId: 'x' });
   assert.equal(assemblyChoice([a, other], {}, [footing]).value, '*');
   assert.equal(assemblyChoice([a, other], {}, [footing]).assembly, undefined);
+});
+
+test('other markups in the selection are counted, and a selection with no measurements edits nothing', () => {
+  assert.equal(appliesTo(assemblyChoice([run()], {}, [footing], 3)), '1 measurement (of 3 selected)');
+  // Only a rectangle selected: not the next markups (that would read as the selection being ignored).
+  const none = assemblyChoice([], { assemblyId: 'ftg' }, [footing], 1);
+  assert.equal(none.target, 'none');
+  assert.equal(none.assembly, undefined);
+  assert.equal(appliesTo(none), 'No measurements selected');
+});
+
+test('measurements other than angles take an assembly', () => {
+  assert.deepEqual(
+    (['length', 'area', 'count', 'angle', 'rectangle', 'text'] as Markup['type'][]).filter((type) => takesAssembly({ type })),
+    ['length', 'area', 'count'],
+  );
 });
 
 test('setting one variable keeps the others, and drops values back at the default', () => {

@@ -571,6 +571,10 @@ body,
   font-size: 11px;
 }
 
+.rb-asm-pop .warn {
+  color: var(--warning, #d97706);
+}
+
 /* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;

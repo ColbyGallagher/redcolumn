@@ -1,4 +1,5 @@
 import { AssemblyInputFields, useAssemblyChoice } from './AssemblyInputs';
+import { takesAssembly } from '../assemblies/assemblyChoice';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MARKUP_LABELS,
@@ -722,7 +723,7 @@ function Properties({
           onBlur={commit}
         />
       </label>
-      {takeoff && <AssemblyPicker chosen={chosen} store={store} canEdit={canEdit} defaults={defaults} onDefaults={onDefaults} takeoff={takeoff} />}
+      {takeoff && <AssemblyPicker chosen={chosen.filter(takesAssembly)} selected={markups.filter((m) => selected.has(m.id)).length} store={store} canEdit={canEdit} defaults={defaults} onDefaults={onDefaults} takeoff={takeoff} />}
     </div>
   );
 }
@@ -734,13 +735,17 @@ function Properties({
  */
 function AssemblyPicker({
   chosen,
+  selected,
   store,
   canEdit,
   defaults,
   onDefaults,
   takeoff,
 }: {
+  /** The selected markups that can take an assembly (see takesAssembly). */
   chosen: Markup[];
+  /** How many markups are selected in all. */
+  selected: number;
   store: MarkupStore | null;
   canEdit: boolean;
   defaults: MeasureDefaults;
@@ -748,7 +753,7 @@ function AssemblyPicker({
   takeoff: TakeoffProps;
 }) {
   const { assemblies } = takeoff;
-  const { choice, pick: choose, setInput, dialog } = useAssemblyChoice({ chosen, store, canEdit, defaults, onDefaults, assemblies });
+  const { choice, pick: choose, setInput, dialog } = useAssemblyChoice({ chosen, selected, store, canEdit, defaults, onDefaults, assemblies });
   const { value, assembly: shared } = choice;
   const pick = (id: string) => (id === '__manage' ? takeoff.onManage() : choose(id));
   const rows = chosen.length ? takeoff.totals(chosen) : [];
@@ -756,7 +761,7 @@ function AssemblyPicker({
     <>
       <label className="ms-line">
         <span className="ms-k">Assembly:</span>
-        <select aria-label="Assembly" value={value} disabled={!canEdit} onChange={(e) => pick(e.target.value)}>
+        <select aria-label="Assembly" value={value} disabled={!canEdit || choice.target === 'none'} title={choice.target === 'none' ? 'No measurements selected' : undefined} onChange={(e) => pick(e.target.value)}>
           {value === '*' && <option value="*">(several)</option>}
           <option value="">None</option>
           {assemblies.map((a) => (
@@ -771,7 +776,7 @@ function AssemblyPicker({
       {shared && shared.variables.length > 0 && choice.varies.size === 0 && (
         <div className="ms-asm-inputs" role="group" aria-label="Assembly inputs">
           <span className="ms-k">Inputs:</span>
-          <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${shared.id}`} assembly={shared} values={choice.values} disabled={!canEdit} onChange={setInput} />
+          <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${shared.id}`} assembly={shared} values={choice.values} disabled={!canEdit} commitOnBlur onChange={setInput} />
         </div>
       )}
       {dialog}

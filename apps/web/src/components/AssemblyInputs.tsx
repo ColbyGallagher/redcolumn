@@ -10,6 +10,7 @@ export function AssemblyInputFields({
   values,
   varies,
   disabled,
+  commitOnBlur,
   onChange,
 }: {
   assembly: Assembly;
@@ -17,6 +18,11 @@ export function AssemblyInputFields({
   /** Variables whose value differs between the measurements being edited: marked, and a change sets them all. */
   varies?: ReadonlySet<string>;
   disabled?: boolean;
+  /**
+   * Number boxes hand back their value when the edit ends (Enter or leaving the box) rather than on
+   * every keystroke, so editing measurements is one undo step per field.
+   */
+  commitOnBlur?: boolean;
   onChange: (name: string, value: number) => void;
 }) {
   return (
@@ -27,12 +33,13 @@ export function AssemblyInputFields({
             <th scope="row">{v.name}</th>
             <td>
               {v.type === 'boolean' ? (
-                <select aria-label={`Input ${v.name}`} value={values[v.name] ? '1' : '0'} disabled={disabled} onChange={(e) => onChange(v.name, Number(e.target.value))}>
+                <select aria-label={`Input ${v.name}`} value={varies?.has(v.name) ? '' : values[v.name] ? '1' : '0'} disabled={disabled} onChange={(e) => e.target.value !== '' && onChange(v.name, Number(e.target.value))}>
+                  {varies?.has(v.name) && <option value="">—</option>}
                   <option value="1">Yes</option>
                   <option value="0">No</option>
                 </select>
               ) : (
-                <NumberInput label={`Input ${v.name}`} value={values[v.name] ?? v.value} disabled={disabled} onChange={(n) => onChange(v.name, n)} />
+                <NumberInput label={`Input ${v.name}`} value={values[v.name] ?? v.value} varies={!!varies?.has(v.name)} commitOnBlur={commitOnBlur} disabled={disabled} onChange={(n) => onChange(v.name, n)} />
               )}
               {v.unit && v.type !== 'boolean' && <span className="muted"> {v.unit}</span>}
               {varies?.has(v.name) && (
@@ -50,27 +57,50 @@ export function AssemblyInputFields({
   );
 }
 
-function NumberInput({ label, value, disabled, onChange }: { label: string; value: number; disabled?: boolean; onChange: (n: number) => void }) {
-  const [text, setText] = useState(String(value));
+/**
+ * A number box. With `varies` it starts empty (placeholder "varies"), so any value typed is applied
+ * to every measurement, even the one whose value was shown. With `commitOnBlur` the value is handed
+ * back on Enter or on leaving the box, once per edit.
+ */
+function NumberInput({ label, value, varies, commitOnBlur, disabled, onChange }: { label: string; value: number; varies?: boolean; commitOnBlur?: boolean; disabled?: boolean; onChange: (n: number) => void }) {
+  const shown = varies ? '' : String(value);
+  const [text, setText] = useState(shown);
   const n = Number(text);
+  const valid = text.trim() !== '' && Number.isFinite(n);
   // Set elsewhere (the ribbon and the Measurements panel edit the same inputs): show the new value.
   useEffect(() => {
-    setText((t) => (t.trim() !== '' && Number(t) === value ? t : String(value)));
-  }, [value]);
+    setText((t) => (!varies && t.trim() !== '' && Number(t) === value ? t : shown));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, varies]);
+  const commit = () => {
+    if (valid && (varies || n !== value)) onChange(n);
+  };
   return (
     <input
       aria-label={label}
       type="number"
       step="any"
       value={text}
+      placeholder={varies ? 'varies' : undefined}
       disabled={disabled}
-      aria-invalid={text.trim() === '' || !Number.isFinite(n)}
+      aria-invalid={!valid && !(varies && text.trim() === '')}
       style={{ width: 90 }}
       onChange={(e) => {
         setText(e.target.value);
+        if (commitOnBlur) return;
         const x = Number(e.target.value);
         if (e.target.value.trim() !== '' && Number.isFinite(x)) onChange(x);
       }}
+      onBlur={commitOnBlur ? commit : undefined}
+      onKeyDown={
+        commitOnBlur
+          ? (e) => {
+              if (e.key !== 'Enter') return;
+              e.preventDefault();
+              commit();
+            }
+          : undefined
+      }
     />
   );
 }
@@ -120,7 +150,9 @@ export function AssemblyInputsDialog({ assembly, inputs, onOk, onCancel }: { ass
  * for the next ones drawn (the Measurements panel and the Takeoff ribbon share this). Picking one
  * also names a measurement after it while its subject is empty or still the old assembly's name;
  * applied to measurements, an assembly with variables asks for their inputs first (`dialog`).
- * Setting one input changes only that variable on each measurement, so their other inputs stay.
+ * Setting one input changes only that variable on each measurement, so their other inputs stay,
+ * as one undo step. `selected` counts every selected markup: when some are selected but none is a
+ * measurement, nothing is edited (not even the next markups').
  */
 export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string }>({
   chosen,
@@ -129,19 +161,23 @@ export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string
   defaults,
   onDefaults,
   assemblies,
+  selected = chosen.length,
 }: {
   chosen: readonly Markup[];
+  selected?: number;
   store: MarkupStore | null;
   canEdit: boolean;
   defaults: D;
   onDefaults: (next: D) => void;
   assemblies: readonly Assembly[];
 }): { choice: AssemblyChoice; pick: (id: string) => void; setInput: (name: string, value: number) => void; dialog: ReactNode } {
-  const choice = assemblyChoice(chosen, defaults, assemblies);
+  const choice = assemblyChoice(chosen, defaults, assemblies, selected);
+  const ignored = choice.target === 'none';
   const [asking, setAsking] = useState<Assembly | null>(null);
   const nameOf = (id: string | undefined) => assemblies.find((a) => a.id === id)?.name ?? '';
   const renamed = (subject: string, oldId: string | undefined, newId: string) => (!subject.trim() || subject.trim() === nameOf(oldId) ? nameOf(newId) : subject);
   const apply = (id: string, inputs: Record<string, number> | undefined) => {
+    if (ignored) return;
     if (!chosen.length) {
       onDefaults({ ...defaults, assemblyId: id || undefined, assemblyInputs: id ? inputs : undefined, subject: renamed(defaults.subject, defaults.assemblyId, id) });
       return;
@@ -156,7 +192,7 @@ export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string
     );
   };
   const pick = (id: string) => {
-    if (chosen.length && (!store || !canEdit)) return;
+    if (ignored || (chosen.length && (!store || !canEdit))) return;
     // Applied to measurements, an assembly with variables asks for their inputs first. (For the
     // next measurement, the inputs are edited beside the picker instead.)
     const assembly = assemblies.find((a) => a.id === id);
@@ -165,11 +201,13 @@ export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string
   };
   const setInput = (name: string, value: number) => {
     const a = choice.assembly;
-    if (!a) return;
+    if (!a || ignored) return;
     if (!chosen.length) return onDefaults({ ...defaults, assemblyInputs: withInput(a, defaults.assemblyInputs, name, value) });
     if (!store || !canEdit) return;
     store.checkpoint();
     store.batch(() => chosen.forEach((m) => store.update(m.id, { assemblyInputs: withInput(a, m.assemblyInputs, name, value) })));
+    // Its own undo step: an edit straight after is not merged into it.
+    store.checkpoint();
   };
   const dialog = asking && (
     <AssemblyInputsDialog
