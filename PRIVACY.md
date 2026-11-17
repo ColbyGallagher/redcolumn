@@ -143,6 +143,11 @@ These only run when you use them:
   the document.
 - **Email invitations** to a Live Session or Project are sent by OneDrive when the
   host shares the folder.
+- **Community library:** Tools › Takeoff › Browse Library asks GitHub
+  (`raw.githubusercontent.com`) for the list of shared trade packs when you open it, and for a
+  pack when you add one. The requests carry no cookies, sign-in or referrer, and nothing from your
+  documents or settings; GitHub receives your IP address and the request's standard headers, and
+  handles them under its privacy policy. Packs you add are kept on your device like your own.
 - **Help → Send Log Files** saves a file of recent app messages to your device. Nothing is sent
   unless you choose to send that file to someone.
 

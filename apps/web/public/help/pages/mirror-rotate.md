@@ -11,7 +11,11 @@ Mirror, Rotate and Align work on the selection. If nothing is selected, the firs
 1. Select the markups and choose {{Edit > Modify > Mirror}}.
 2. Click two points on the mirror line.
 
-**Keep original** makes a mirrored copy. Untick it to flip the originals over. Text and pictures stay readable.
+**Keep original** makes a mirrored copy. Untick it to flip the originals over.
+
+Text, stamps and pictures stay readable: they move to their mirrored place and keep as near upright as they can, so they never come out upside down.
+
+**Mirror pictures** (off by default) reverses images and signatures too, for a true mirror image. A cropped picture keeps showing the same part. Each time a JPEG picture is reversed it loses a little quality.
 
 ## Rotate
 

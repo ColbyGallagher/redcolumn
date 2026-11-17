@@ -275,6 +275,66 @@ test.describe('view', () => {
     });
   }
 
+  test.describe('wheel set to scroll in single page view', () => {
+    test.use({ settings: { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', singlePageWheel: 'scroll' } });
+
+    test('scrolls to the edge of the page, then turns the page', async ({ app }) => {
+      await app.cmd('view.singlePage');
+      await expect.poll(async () => (await app.view()).mode).toBe('single');
+      // Over the middle of the fitted page, which stays over the view however it scrolls.
+      const c = await app.at([612, 396]);
+      // Each mouse-wheel notch arrives as its own event, after the last one's pause.
+      const notch = async (dy: number) => {
+        await app.page.mouse.move(c.x, c.y);
+        await app.page.mouse.wheel(0, dy);
+        await app.page.waitForTimeout(200);
+      };
+      const fit = (await app.view()).zoom;
+      // The whole page in view: each notch turns a page, at the same zoom, and stops at the ends.
+      await notch(100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+      expect((await app.view()).zoom).toBeCloseTo(fit, 5);
+      await notch(-100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(0);
+      await notch(-100);
+      expect((await app.view()).pageIndex).toBe(0);
+
+      // Zoomed in, the wheel scrolls down the sheet first and turns only once its bottom is in view.
+      await app.page.evaluate(() => window.__nb.viewer.zoomBy(4));
+      const zoom = (await app.view()).zoom;
+      const panY = await app.page.evaluate(() => window.__nb.viewer.getView().panY);
+      await notch(100);
+      expect((await app.view()).pageIndex).toBe(0);
+      expect(await app.page.evaluate(() => window.__nb.viewer.getView().panY)).toBeLessThan(panY);
+      for (let i = 0; i < 100 && (await app.view()).pageIndex === 0; i++) await notch(100);
+      // The next page opens at its top (a 24 px margin), at the same zoom.
+      const next = await app.page.evaluate(() => window.__nb.viewer.getView());
+      expect(next.pageIndex).toBe(1);
+      expect(next.zoom).toBeCloseTo(zoom, 5);
+      expect(next.panY).toBeCloseTo(24, 0);
+      // Back up: the previous page opens at its bottom.
+      await notch(-100);
+      const prev = await app.page.evaluate(() => window.__nb.viewer.getView());
+      expect(prev.pageIndex).toBe(0);
+      const height = await app.page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLCanvasElement).clientHeight, [c.x, c.y] as const);
+      expect(prev.panY + 792 * prev.zoom).toBeCloseTo(height - 24, 0);
+    });
+    test('a trackpad gesture turns one page, however long it runs', async ({ app }) => {
+      await app.cmd('view.singlePage');
+      await expect.poll(async () => (await app.view()).mode).toBe('single');
+      const c = await app.at([612, 396]);
+      // Small deltas with no pause between them: one swipe and its momentum. Sent in one go from the
+      // page, so a busy test machine cannot space them out into separate gestures.
+      await app.page.evaluate(([x, y]) => {
+        const target = document.elementFromPoint(x, y)!;
+        for (let i = 0; i < 30; i++) target.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      }, [c.x, c.y] as const);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+      await app.page.waitForTimeout(300);
+      expect((await app.view()).pageIndex).toBe(1);
+    });
+  });
+
   test.describe('grid', () => {
     // A half-inch grid: 36 pt.
     test.use({ settings: { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', gridSize: 0.5 } });

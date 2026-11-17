@@ -277,6 +277,7 @@ Markup tools, measuring tools, flowchart shapes and takeoff commands. (92 comman
 | `tools.autoFields` | Auto-Create Fields… | Allow, Dialog |
 | `tools.columns` | Markup Columns & Statuses… | Dialog |
 | `tools.assemblies` | Assemblies… | Dialog |
+| `tools.library` | Browse Library… | Dialog |
 | `tools.quantities` | Takeoff Quantities… | Dialog |
 | `tools.scripts` | Scripts… | Dialog |
 | `tools.takeoffReview` | Review AI Proposals… | Dialog |
@@ -392,6 +393,7 @@ Help menu. (9 commands)
 | `help.install` | Install App… | Dialog |
 | `help.support` | Technical Support |  |
 | `help.suggest` | Make a Suggestion |  |
+| `help.sponsor` | Sponsor |  |
 | `help.community` | redcolumn Community |  |
 | `help.logs` | Send Log Files |  |
 | `help.whatsNew` | Learn What's New |  |

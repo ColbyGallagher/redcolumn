@@ -289,6 +289,12 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
     e.preventDefault();
     e.stopPropagation();
     const others = ws.toolChests.filter((t) => t.id !== set.id && t.id !== RECENT_TOOLS_ID);
+    // The mode chosen here sticks to the tool: later clicks on it use it too.
+    const mode = item.mode ?? prefs.toolChestMode;
+    const useMode = (m: 'copy' | 'style') => {
+      if (m !== item.mode) editSet(set.id, (s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? { ...i, mode: m } : i)) }));
+      onUse({ ...item, mode: m }, m);
+    };
     const copyTo: MenuEntry[] = others.length ? others.map((t) => ({ label: t.name, onClick: () => moveItem(set.id, item.id, t.id) })) : [{ label: 'No other tool sets', disabled: true }];
     setMenu({
       x: e.clientX,
@@ -296,8 +302,8 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       items: [
         ...(item.markups?.length && item.type !== 'signature'
           ? [
-              { label: 'Place Copy', checked: prefs.toolChestMode === 'copy', disabled: !enabled, onClick: () => onUse(item, 'copy') },
-              { label: 'Draw with Style', checked: prefs.toolChestMode === 'style', disabled: !enabled, onClick: () => onUse(item, 'style') },
+              { label: 'Place Copy', checked: mode === 'copy', disabled: !enabled, onClick: () => useMode('copy') },
+              { label: 'Draw with Style', checked: mode === 'style', disabled: !enabled, onClick: () => useMode('style') },
             ]
           : [{ label: 'Use Tool', disabled: !enabled, onClick: () => onUse(item) }]),
         { label: 'Rename…', onClick: () => setNaming({ setId: set.id, itemId: item.id }) },

@@ -136,6 +136,7 @@ test('parseLength reads any unit and converts to the scale unit', () => {
   near(parseLength('1 inch', 'cm'), 2.54);
   near(parseLength(`5'`, 'm'), 1.524);
   near(parseLength(`3'-6"`, 'mm'), 1066.8);
+  near(parseLength(`302'9"`, 'm'), (302 + 9 / 12) * 0.3048);
   near(parseLength('2 feet', 'm'), 0.6096);
   near(parseLength(`1 1/2"`, 'mm'), 38.1);
   near(parseLength('3/4in', 'mm'), 19.05);
