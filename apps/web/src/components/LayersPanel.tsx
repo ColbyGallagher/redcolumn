@@ -1,8 +1,10 @@
 import {
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { PdfLayer } from "../documents/layers";
@@ -42,7 +44,29 @@ interface LayerPrefs {
 /** How the list is shown, for every document (Show Layers On Page Only is a preference). */
 interface LayerView {
   sort: boolean;
+  /** Column widths in pixels, as dragged at the header edges; missing ones use the defaults. */
+  widths?: Partial<Record<Column, number>>;
 }
+
+type Column = "name" | "lock" | "print" | "export";
+const COLUMNS: { key: Column; label: string }[] = [
+  { key: "name", label: "Layer" },
+  { key: "lock", label: "Lock" },
+  { key: "print", label: "Print" },
+  { key: "export", label: "Export" },
+];
+const DEFAULT_WIDTHS: Record<Column, number> = {
+  name: 200,
+  lock: 50,
+  print: 50,
+  export: 50,
+};
+const MIN_WIDTH: Record<Column, number> = {
+  name: 80,
+  lock: 34,
+  print: 34,
+  export: 34,
+};
 
 const DEFAULT_CONFIG = "Default";
 const PREFS_KEY = "redcolumn.layers.";
@@ -157,6 +181,57 @@ export function LayersPanel({
   /** The layer the Dial is on in Fade mode, where every layer stays visible. */
   const [dialed, setDialed] = useState<string | null>(null);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const table = useRef<HTMLTableElement>(null);
+  const widths = { ...DEFAULT_WIDTHS, ...view.widths };
+  const total = COLUMNS.reduce((sum, c) => sum + widths[c.key], 0);
+
+  /** Dragging a header's right edge resizes that column; it is saved on release. */
+  const startResize = (e: ReactPointerEvent<HTMLElement>, key: Column) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[key];
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    let width = startW;
+    const move = (ev: PointerEvent) => {
+      width = Math.max(MIN_WIDTH[key], Math.round(startW + ev.clientX - startX));
+      // Resized live without re-rendering the list; the table's minimum width grows with it so
+      // the panel scrolls sideways once the columns are wider than it.
+      const col = table.current?.querySelector<HTMLTableColElement>(`col[data-key="${key}"]`);
+      if (col) col.style.width = `${width}px`;
+      if (table.current) table.current.style.minWidth = `${total + width - startW}px`;
+    };
+    const end = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", end);
+      target.removeEventListener("pointercancel", end);
+      if (width !== startW) setView({ ...view, widths: { ...view.widths, [key]: width } });
+    };
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", end);
+    target.addEventListener("pointercancel", end);
+  };
+  const resetWidth = (key: Column) => {
+    const { [key]: _, ...rest } = view.widths ?? {};
+    setView({ ...view, widths: rest });
+  };
+  const resizer = (key: Column, label: string) => (
+    <span
+      className="col-resize"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize the ${label} column`}
+      title="Drag to resize; double-click to reset"
+      onPointerDown={(e) => startResize(e, key)}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        resetWidth(key);
+      }}
+    />
+  );
 
   const flagsOf = (r: Row, flags = prefs.flags): Required<LayerFlags> => ({
     lock: flags[r.key]?.lock ?? r.fileLocked,
@@ -568,7 +643,14 @@ export function LayersPanel({
         </button>
       </div>
       <div className="layers-grid">
-        <table>
+        <table ref={table} style={{ minWidth: total }}>
+          <colgroup>
+            {COLUMNS.map((c) => (
+              <col key={c.key} data-key={c.key} style={{ width: widths[c.key] }} />
+            ))}
+            {/* Takes up whatever width the columns leave, so each keeps the width it was given. */}
+            <col className="layer-filler" />
+          </colgroup>
           <thead>
             <tr>
               <th className="layer-name">
@@ -583,10 +665,15 @@ export function LayersPanel({
                   {allCollapsed ? "+" : "−"}
                 </button>
                 Layer
+                {resizer("name", "Layer")}
               </th>
-              <th>Lock</th>
-              <th>Print</th>
-              <th>Export</th>
+              {COLUMNS.slice(1).map((c) => (
+                <th key={c.key}>
+                  {c.label}
+                  {resizer(c.key, c.label)}
+                </th>
+              ))}
+              <th className="layer-filler" aria-hidden="true" />
             </tr>
           </thead>
           <tbody>
@@ -659,6 +746,7 @@ export function LayersPanel({
                   {check(r, "lock", "Lock")}
                   {check(r, "print", "Print")}
                   {check(r, "export", "Export")}
+                  <td className="layer-filler" />
                 </tr>
               );
             })}

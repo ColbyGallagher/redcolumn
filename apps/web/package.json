@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p .",
-    "test": "node --experimental-transform-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\""
+    "test": "node --experimental-transform-types --import ./test/resolve-ts.mjs --test \"src/**/*.test.ts\"",
+    "library:seed": "node --experimental-transform-types --import ./test/resolve-ts.mjs src/library/writeSeedPacks.ts"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.23.0",
