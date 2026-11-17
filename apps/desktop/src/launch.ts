@@ -2,6 +2,7 @@ import { app, BrowserWindow, type WebContents } from 'electron';
 import path from 'node:path';
 import type { PathAllowlist } from './allowlist';
 import { linkArguments, type MarkupLink } from './links';
+import { OpenFileRouter } from './open-file';
 import { pdfArguments } from './pdf-args';
 
 export interface LaunchItem {
@@ -95,12 +96,12 @@ export class LaunchQueue {
   }
 }
 
-/** open-file can arrive before ready. The caller drains this in whenReady. */
-export function captureEarlyOpens(): string[] {
-  const early: string[] = [];
+/** Registers the open-file handler right away (it must exist before ready) and returns its router. */
+export function captureOpenFiles(): OpenFileRouter {
+  const router = new OpenFileRouter();
   app.on('open-file', (event, filePath) => {
     event.preventDefault();
-    early.push(filePath);
+    router.handle(filePath);
   });
-  return early;
+  return router;
 }
