@@ -38,7 +38,7 @@ test.describe('takeoff tab', () => {
     const tabs = await ribbon(app).getByRole('tab').allTextContents();
     expect(tabs.indexOf('Takeoff')).toBe(tabs.indexOf('Measure') + 1);
     await openTab(app);
-    for (const group of ['Setup', 'Measure', 'Manual', 'Slope', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
+    for (const group of ['Setup', 'Measure', 'Assembly', 'Manual', 'Slope', 'Estimating', 'Auto Count', 'Output']) await expect(ribbon(app).getByRole('group', { name: group, exact: true })).toBeVisible();
     for (const id of ['calibrate', 'length', 'polylength', 'area', 'count', 'visualSearch']) await expect(tool(app, id)).toBeVisible();
     for (const id of ['document.scaleRegions', 'document.scaleReview', 'document.labelRegions', 'batch.pageLabels', 'tool.cutout', 'tools.nextMeasure', 'takeoff.manual', 'takeoff.hip', 'takeoff.valley', 'tools.assemblies', 'tools.quantities', 'tools.takeoffReview', 'takeoff.items', 'takeoff.productLists', 'takeoff.templates', 'takeoff.saveTemplate', 'takeoff.syncExcel', 'tools.columns'])
       await expect(button(app, id)).toBeVisible();
@@ -134,6 +134,67 @@ test.describe('takeoff tab', () => {
     await app.clicks([[300, 450], [500, 450]]);
     const line = (await app.raw()).find((m) => m.type === 'length');
     expect(line!.slope).toEqual({ kind: 'ratio', rise: 1, run: 4 });
+  });
+
+  test('the Assembly group picks the assembly and sets its variables, for the next markups then the selected one', async ({ app }) => {
+    const { page } = app;
+    await page.evaluate(() => {
+      const store = (window.__nb.tools as unknown as { store: { setAssemblies(a: unknown[]): void } }).store;
+      store.setAssemblies([
+        {
+          id: 'ftg',
+          name: 'Strip footing',
+          variables: [
+            { name: 'Width', value: 2, unit: 'ft' },
+            { name: 'Thickness', value: 1, unit: 'ft' },
+          ],
+          items: [{ id: 'conc', name: 'Concrete', unit: 'cf', formula: '[Length] * [Width] * [Thickness]' }],
+        },
+      ]);
+    });
+    await app.tool('length');
+    await openTab(app);
+    const group = ribbon(app).getByRole('group', { name: 'Assembly', exact: true });
+    const variables = group.getByRole('button', { name: 'Variables ▾' });
+    const applies = group.getByTestId('assembly-applies');
+    // No assembly yet: no variables to set.
+    await expect(variables).toBeDisabled();
+    await group.getByLabel('Takeoff assembly').selectOption({ label: 'Strip footing' });
+    await expect(applies).toHaveText('Next markups');
+
+    // Before drawing: the values the next markups take.
+    await variables.click();
+    const pop = page.getByRole('dialog', { name: 'Assembly variables' });
+    await expect(pop).toContainText('Applies to: Next markups');
+    await expect(pop.getByLabel('Input Width')).toHaveValue('2');
+    await pop.getByLabel('Input Thickness').fill('1.5');
+    await variables.click();
+    await expect(pop).toBeHidden();
+    expect((await app.toolState()).tool).toBe('length');
+    await app.clicks([
+      [300, 450],
+      [500, 450],
+    ]);
+    const [run] = await app.raw();
+    expect(run).toMatchObject({ assemblyId: 'ftg', subject: 'Strip footing', assemblyInputs: { Thickness: 1.5 } });
+
+    // Selected: the change goes to that measurement, keeping its other input.
+    await app.tool('select');
+    await page.evaluate((id) => window.__nb.tools.select([id]), String(run!.id));
+    await openTab(app);
+    await expect(applies).toHaveText('1 selected');
+    await variables.click();
+    await expect(pop).toContainText('Applies to: 1 selected');
+    await expect(pop.getByLabel('Input Thickness')).toHaveValue('1.5');
+    await pop.getByLabel('Input Width').fill('3');
+    await expect.poll(async () => (await app.raw())[0]!.assemblyInputs).toEqual({ Width: 3, Thickness: 1.5 });
+    await page.keyboard.press('Escape');
+    await expect(pop).toBeHidden();
+
+    // Takeoff Quantities follows: 20 ft x 3 ft x 1.5 ft = 90 cf.
+    await app.cmd('tools.quantities');
+    const totals = page.getByRole('dialog', { name: 'Takeoff quantities' });
+    await expect(totals.locator('tbody tr', { has: page.locator('td', { hasText: /^Concrete/ }) }).locator('td').nth(5)).toHaveText('90.00');
   });
 
   test('takeoff.syncExcel opens the Excel sync dialog', async ({ app }) => {

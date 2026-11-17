@@ -10,6 +10,7 @@ import { MENU_ICONS } from './menuIcons';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './ContextMenu';
 import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
+import { RibbonAssembly } from './RibbonAssembly';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
@@ -529,6 +530,12 @@ function TemplatesMenu() {
   );
 }
 
+/** Takeoff › Assembly: the assembly picker and its Variables drop-down (see RibbonAssembly). */
+function TakeoffAssembly() {
+  const { toolbar } = useContext(Ctx);
+  return <RibbonAssembly info={toolbar.takeoffAssembly} selection={toolbar.selection} enabled={toolbar.enabled} />;
+}
+
 function SlopePicker() {
   const { toolbar } = useContext(Ctx);
   const { tools, state, selection, enabled } = toolbar;
@@ -826,6 +833,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="tools.nextMeasure" />
                 <Cmd id="draw.arc" />
               </Stack>
+            </Group>
+            <Group label="Assembly">
+              <TakeoffAssembly />
             </Group>
             <Group label="Manual">
               <Cmd id="takeoff.manual" size="large" />

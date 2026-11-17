@@ -9941,6 +9941,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
           takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
+          takeoffAssembly: activeOpen ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (

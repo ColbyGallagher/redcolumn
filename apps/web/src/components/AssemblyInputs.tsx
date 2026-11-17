@@ -1,26 +1,24 @@
-import { useState } from 'react';
-import type { Assembly } from '@nb/markup';
+import { useEffect, useState, type ReactNode } from 'react';
+import type { Assembly, Markup, MarkupStore } from '@nb/markup';
+import { assemblyChoice, changedInputs, inputValues, withInput, type AssemblyChoice, type AssemblyDefaults } from '../assemblies/assemblyChoice';
 
-/** A measurement's value for each of `assembly`'s variables: its own input, else the default. */
-export function inputValues(assembly: Assembly, inputs: Readonly<Record<string, number>> | undefined): Record<string, number> {
-  const own = new Map(Object.entries(inputs ?? {}).map(([k, v]) => [k.trim().toLowerCase(), v]));
-  return Object.fromEntries(assembly.variables.map((v) => [v.name, own.get(v.name.trim().toLowerCase()) ?? v.value]));
-}
-
-/** `values` without the ones that are the variables' defaults (undefined when none is left), as a measurement keeps them. */
-export function changedInputs(assembly: Assembly, values: Readonly<Record<string, number>>): Record<string, number> | undefined {
-  const out: Record<string, number> = {};
-  for (const v of assembly.variables) {
-    const x = values[v.name];
-    if (x === undefined || !Number.isFinite(x)) continue;
-    const norm = v.type === 'boolean' ? (x ? 1 : 0) : x;
-    if (norm !== (v.type === 'boolean' ? (v.value ? 1 : 0) : v.value)) out[v.name] = norm;
-  }
-  return Object.keys(out).length ? out : undefined;
-}
+export { changedInputs, inputValues };
 
 /** One row per variable: a number box, or a Yes/No switch. */
-export function AssemblyInputFields({ assembly, values, disabled, onChange }: { assembly: Assembly; values: Readonly<Record<string, number>>; disabled?: boolean; onChange: (name: string, value: number) => void }) {
+export function AssemblyInputFields({
+  assembly,
+  values,
+  varies,
+  disabled,
+  onChange,
+}: {
+  assembly: Assembly;
+  values: Readonly<Record<string, number>>;
+  /** Variables whose value differs between the measurements being edited: marked, and a change sets them all. */
+  varies?: ReadonlySet<string>;
+  disabled?: boolean;
+  onChange: (name: string, value: number) => void;
+}) {
   return (
     <table className="asm-inputs">
       <tbody>
@@ -37,6 +35,12 @@ export function AssemblyInputFields({ assembly, values, disabled, onChange }: { 
                 <NumberInput label={`Input ${v.name}`} value={values[v.name] ?? v.value} disabled={disabled} onChange={(n) => onChange(v.name, n)} />
               )}
               {v.unit && v.type !== 'boolean' && <span className="muted"> {v.unit}</span>}
+              {varies?.has(v.name) && (
+                <span className="muted" title="The measurements being edited have different values: a change sets them all">
+                  {' '}
+                  (varies)
+                </span>
+              )}
               {(values[v.name] ?? v.value) !== v.value && <span className="muted" title="The assembly's default"> (default {v.type === 'boolean' ? (v.value ? 'Yes' : 'No') : v.value})</span>}
             </td>
           </tr>
@@ -49,6 +53,10 @@ export function AssemblyInputFields({ assembly, values, disabled, onChange }: { 
 function NumberInput({ label, value, disabled, onChange }: { label: string; value: number; disabled?: boolean; onChange: (n: number) => void }) {
   const [text, setText] = useState(String(value));
   const n = Number(text);
+  // Set elsewhere (the ribbon and the Measurements panel edit the same inputs): show the new value.
+  useEffect(() => {
+    setText((t) => (t.trim() !== '' && Number(t) === value ? t : String(value)));
+  }, [value]);
   return (
     <input
       aria-label={label}
@@ -105,4 +113,74 @@ export function AssemblyInputsDialog({ assembly, inputs, onOk, onCancel }: { ass
       </form>
     </div>
   );
+}
+
+/**
+ * Picking the assembly and setting its inputs for the selected measurements, or with none selected
+ * for the next ones drawn (the Measurements panel and the Takeoff ribbon share this). Picking one
+ * also names a measurement after it while its subject is empty or still the old assembly's name;
+ * applied to measurements, an assembly with variables asks for their inputs first (`dialog`).
+ * Setting one input changes only that variable on each measurement, so their other inputs stay.
+ */
+export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string }>({
+  chosen,
+  store,
+  canEdit,
+  defaults,
+  onDefaults,
+  assemblies,
+}: {
+  chosen: readonly Markup[];
+  store: MarkupStore | null;
+  canEdit: boolean;
+  defaults: D;
+  onDefaults: (next: D) => void;
+  assemblies: readonly Assembly[];
+}): { choice: AssemblyChoice; pick: (id: string) => void; setInput: (name: string, value: number) => void; dialog: ReactNode } {
+  const choice = assemblyChoice(chosen, defaults, assemblies);
+  const [asking, setAsking] = useState<Assembly | null>(null);
+  const nameOf = (id: string | undefined) => assemblies.find((a) => a.id === id)?.name ?? '';
+  const renamed = (subject: string, oldId: string | undefined, newId: string) => (!subject.trim() || subject.trim() === nameOf(oldId) ? nameOf(newId) : subject);
+  const apply = (id: string, inputs: Record<string, number> | undefined) => {
+    if (!chosen.length) {
+      onDefaults({ ...defaults, assemblyId: id || undefined, assemblyInputs: id ? inputs : undefined, subject: renamed(defaults.subject, defaults.assemblyId, id) });
+      return;
+    }
+    if (!store || !canEdit) return;
+    store.checkpoint();
+    store.batch(() =>
+      chosen.forEach((m) => {
+        const subject = renamed(m.subject ?? '', m.assemblyId, id);
+        store.update(m.id, { assemblyId: id || undefined, assemblyInputs: id ? inputs : undefined, ...(subject !== (m.subject ?? '') ? { subject: subject || undefined } : {}) });
+      }),
+    );
+  };
+  const pick = (id: string) => {
+    if (chosen.length && (!store || !canEdit)) return;
+    // Applied to measurements, an assembly with variables asks for their inputs first. (For the
+    // next measurement, the inputs are edited beside the picker instead.)
+    const assembly = assemblies.find((a) => a.id === id);
+    if (chosen.length && assembly?.variables.length) setAsking(assembly);
+    else apply(id, undefined);
+  };
+  const setInput = (name: string, value: number) => {
+    const a = choice.assembly;
+    if (!a) return;
+    if (!chosen.length) return onDefaults({ ...defaults, assemblyInputs: withInput(a, defaults.assemblyInputs, name, value) });
+    if (!store || !canEdit) return;
+    store.checkpoint();
+    store.batch(() => chosen.forEach((m) => store.update(m.id, { assemblyInputs: withInput(a, m.assemblyInputs, name, value) })));
+  };
+  const dialog = asking && (
+    <AssemblyInputsDialog
+      assembly={asking}
+      inputs={chosen.length && chosen.every((m) => m.assemblyId === asking.id) ? chosen[0]!.assemblyInputs : undefined}
+      onOk={(inputs) => {
+        apply(asking.id, inputs);
+        setAsking(null);
+      }}
+      onCancel={() => setAsking(null)}
+    />
+  );
+  return { choice, pick, setInput, dialog };
 }

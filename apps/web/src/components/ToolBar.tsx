@@ -17,6 +17,7 @@ import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
 import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
+import type { TakeoffAssemblyProps } from './RibbonAssembly';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -250,6 +251,8 @@ export interface ToolBarProps {
   toolbarMenu?: ReactNode;
   /** Takeoff › Templates: the document's takeoff templates (the library's are read when the menu opens), and arming one. */
   takeoffTemplates?: { document: readonly TakeoffTemplate[]; onUse: (t: TakeoffTemplate) => void } | null;
+  /** Takeoff › Assembly: the assembly (and its variables' values) the next measurements are taken off as. */
+  takeoffAssembly?: TakeoffAssemblyProps | null;
 }
 
 export function toolTitle(tool: Tool) {
