@@ -512,6 +512,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.darkPages', 'View', 'Dark Mode (Pages)', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dark' ? 'none' : 'dark' }), true, s.settings.pageFilter === 'dark'),
     cmd('view.dimmer', 'View', 'Dimmer', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dim' ? 'none' : 'dim' }), true, s.settings.pageFilter === 'dim'),
     cmd('view.thinLines', 'View', 'Disable Line Weights', () => a.setSettings({ thinLines: !s.settings.thinLines }), true, s.settings.thinLines),
+    cmd('view.keepView', 'View', 'Keep View Between Pages', () => a.setSettings({ keepViewBetweenPages: !s.settings.keepViewBetweenPages }), true, s.settings.keepViewBetweenPages),
     cmd('view.magnifier', 'View', 'Magnifier', a.magnifier, doc, s.magnifier),
     cmd('view.fullScreen', 'View', 'Full Screen', a.fullScreen, doc, s.fullScreen),
     cmd('view.replyIndicators', 'View', 'Always Show Reply Indicators', () => a.setSettings({ replyIndicators: !s.settings.replyIndicators }), true, s.settings.replyIndicators),

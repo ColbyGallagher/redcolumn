@@ -5986,10 +5986,11 @@ export function App() {
       if (!viewer) continue;
       viewer.setPageFilter(prefs.pageFilter);
       viewer.setThinLines(prefs.thinLines);
+      viewer.keepViewBetweenPages = prefs.keepViewBetweenPages;
       const cur = viewer.spread;
       if (cur.columns !== spread.columns || cur.cover !== spread.cover) viewer.setSpread(spread.columns, spread.cover);
     }
-  }, [prefs.pageFilter, prefs.thinLines, spread, ctl, ctlB]);
+  }, [prefs.pageFilter, prefs.thinLines, prefs.keepViewBetweenPages, spread, ctl, ctlB]);
 
   // Read each open document's PDF layers once; layers the file starts with off count as hidden.
   useEffect(() => {
@@ -8164,11 +8165,11 @@ export function App() {
             onCustom={() => setCustomScalePane(which)}
           />
         }
-        onFirst={() => viewer?.goToPage(0)}
+        onFirst={() => viewer?.changePage(0)}
         onPrev={() => viewer?.prevPage()}
         onNext={() => viewer?.nextPage()}
-        onLast={() => viewer?.goToPage(Math.max(0, count - 1))}
-        onGoTo={(i) => viewer?.goToPage(i)}
+        onLast={() => viewer?.changePage(Math.max(0, count - 1))}
+        onGoTo={(i) => viewer?.changePage(i)}
         onZoomTo={(z) => viewer && viewer.zoomBy(z / viewer.currentZoom)}
         onBack={goBack}
         onForward={goForward}
@@ -8454,7 +8455,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!v) return;
       if (which === 'next') v.nextPage();
       else if (which === 'prev') v.prevPage();
-      else v.goToPage(which === 'first' ? 0 : pageCount - 1);
+      else v.changePage(which === 'first' ? 0 : pageCount - 1);
     },
     documentProperties: () => setDocPropsOpen(true),
     rotatePages: (quarterTurns) => {
@@ -9220,7 +9221,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             sheets={sheets}
             scales={scales}
             busy={busyPages || indexing}
-            onGoTo={(i) => v?.goToPage(i, true)}
+            onGoTo={(i) => v?.changePage(i)}
             onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
             onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
             onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}

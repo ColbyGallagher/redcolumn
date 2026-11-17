@@ -166,6 +166,7 @@ Zoom, page layout, split, snapping, rulers and display aids. (44 commands)
 | `view.darkPages` | Dark Mode (Pages) | on/off |
 | `view.dimmer` | Dimmer | on/off |
 | `view.thinLines` | Disable Line Weights | on/off |
+| `view.keepView` | Keep View Between Pages | on/off |
 | `view.magnifier` | Magnifier | on/off |
 | `view.fullScreen` | Full Screen | on/off |
 | `view.replyIndicators` | Always Show Reply Indicators | on/off |

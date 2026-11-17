@@ -75,6 +75,33 @@ test.describe('view', () => {
     await expect.poll(() => page(app)).toBe(1);
   });
 
+  test('Keep View Between Pages keeps the zoom and position, and off does not', async ({ app }) => {
+    const centre = () => app.page.evaluate(() => (window.__nb.viewer as unknown as { pageView(): { centre: [number, number] } }).pageView().centre);
+    expect((await app.command('view.keepView')).checked).toBe(true);
+    const fit = (await app.view()).zoom;
+    await app.page.evaluate(() => window.__nb.viewer.zoomToRect({ x: 100, y: 100, w: 200, h: 150 }, 1));
+    const zoomed = (await app.view()).zoom;
+    expect(zoomed).toBeGreaterThan(fit * 2);
+    const at = await centre();
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    expect((await app.view()).zoom).toBeCloseTo(zoomed, 5);
+    const next = await centre();
+    expect(next[0]).toBeCloseTo(at[0], 1);
+    expect(next[1]).toBeCloseTo(at[1], 1);
+    await app.cmd('view.prevPage');
+    await expect.poll(() => page(app)).toBe(1);
+    expect((await app.view()).zoom).toBeCloseTo(zoomed, 5);
+    // Off: a page change opens the page as before, at its top.
+    await app.cmd('view.keepView');
+    await expect.poll(async () => (await app.command('view.keepView')).checked).toBe(false);
+    await expect.poll(() => app.page.evaluate(() => (window.__nb.viewer as unknown as { keepViewBetweenPages: boolean }).keepViewBetweenPages)).toBe(false);
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    const off = await centre();
+    expect(Math.abs(off[0] - at[0]) + Math.abs(off[1] - at[1])).toBeGreaterThan(5);
+  });
+
   test('back and forward retrace jumps', async ({ app }) => {
     // Views are remembered when a link, bookmark or search jumps somewhere: follow a hyperlink.
     expect((await app.command('view.back')).enabled).toBe(false);
@@ -263,6 +290,7 @@ test.describe('view', () => {
     'view.magnifier',
     'view.replyIndicators',
     'view.reuse',
+    'view.keepView',
   ];
   for (const id of TOGGLES) {
     test(`${id} toggles`, async ({ app }) => {

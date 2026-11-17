@@ -3,6 +3,7 @@ import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
 import { deskColour } from '../theme/themes';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
+import { keptCentre } from './keepView';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
 
@@ -719,9 +720,17 @@ export class TileViewer {
     }
   }
 
+  /** Keep View Between Pages: plain page changes (arrows, thumbnails, page box) keep zoom and position. */
+  keepViewBetweenPages = true;
+
+  /** A plain page change: keeps the view when Keep View Between Pages is on. */
+  changePage(index: number) {
+    this.goToPage(index, this.keepViewBetweenPages);
+  }
+
   /**
-   * Shows a page. With `keepView`, a page the same size as the current one opens at the same zoom and
-   * on the same part of the sheet (the same stair on the next floor); any other page opens as usual.
+   * Shows a page. With `keepView`, the page opens at the same zoom on the same part of the sheet (the
+   * same stair on the next floor), clamped to the new page when the sizes differ; otherwise as usual.
    */
   goToPage(index: number, keepView = false) {
     const keep = keepView ? this.viewToKeep(index) : null;
@@ -737,11 +746,11 @@ export class TileViewer {
   /** The zoom and the page point at the centre of the view, when `index` is a page of the same size. */
   private viewToKeep(index: number): { zoom: number; point: PagePoint } | null {
     if (!this.doc || this.mode === 'stitch' || index === this.pageIndex) return null;
-    const from = this.doc.pages[this.pageIndex];
     const to = this.doc.pages[index];
-    if (!from || !to || Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1) return null;
+    if (!to || !this.doc.pages[this.pageIndex]) return null;
     const rect = this.canvas.getBoundingClientRect();
-    return { zoom: this.zoom, point: this.clientToPage(rect.left + this.canvas.clientWidth / 2, rect.top + this.canvas.clientHeight / 2) };
+    const centre = this.clientToPage(rect.left + this.canvas.clientWidth / 2, rect.top + this.canvas.clientHeight / 2);
+    return { zoom: this.zoom, point: keptCentre(centre, to) };
   }
 
   private showTarget(index: number) {
@@ -768,12 +777,12 @@ export class TileViewer {
   }
 
   nextPage() {
-    this.goToPage(this.currentRow().at(-1)! + 1);
+    this.changePage(this.currentRow().at(-1)! + 1);
   }
 
   prevPage() {
     const row = this.currentRow();
-    if (row[0]! > 0) this.goToPage(row[0]! - 1);
+    if (row[0]! > 0) this.changePage(row[0]! - 1);
   }
 
   /** World-space bounds of one placed sheet (its visible part). */
