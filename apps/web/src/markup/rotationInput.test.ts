@@ -96,6 +96,11 @@ describe('parseRotationInput, edge cases', () => {
     assert.ok(!r.ok && r.error.includes('decimal point'));
     assert.equal(parseRotationInput('2,5').ok, false);
   });
+  it('rejects numbers too large to be finite', () => {
+    assert.equal(parseRotationInput('1e999').ok, false);
+    assert.equal(parseRotationInput('-1e999').ok, false);
+    assert.equal(parseRotationInput('1e999', 'ccw').ok, false);
+  });
   it('warns on a ratio steeper than 1:1', () => {
     assert.ok(parse('1:0.5').warning);
     assert.equal(parse('1:1').warning, undefined);

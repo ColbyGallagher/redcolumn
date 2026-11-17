@@ -180,6 +180,32 @@ test.describe('modify', () => {
     expect(await angle()).toBe(0);
   });
 
+  test('the Rotation field reverts on Escape and on an invalid value, with no undo step', async ({ app }) => {
+    const r = await rect(app);
+    await select(app, [r.id]);
+    await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
+    const field = app.page.locator('.props-panel').getByLabel('Rotation', { exact: true });
+    const angle = async () => ((await app.raw()).find((m) => m.id === r.id)!.rotation as number | undefined) ?? 0;
+
+    await field.fill('30');
+    await field.press('Enter');
+    expect(await angle()).toBe(30);
+
+    await field.fill('-2%');
+    await field.press('Escape');
+    await expect(field).toHaveValue('30');
+    expect(await angle()).toBe(30);
+
+    await field.fill('1:0');
+    await field.blur();
+    await expect(field).toHaveValue('30');
+    expect(await angle()).toBe(30);
+
+    // Nothing above made an undo step: one undo goes straight back to the unrotated markup.
+    await app.cmd('edit.undo');
+    expect(await angle()).toBe(0);
+  });
+
   test('mirror keeps a picture upright; with Mirror pictures ticked it reverses it', async ({ app }) => {
     const before = await placePicture(app);
     const id = before.id as string;

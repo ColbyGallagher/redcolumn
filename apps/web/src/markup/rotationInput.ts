@@ -41,6 +41,7 @@ export function parseRotationInput(text: string, turn: Turn = 'clockwise'): Rota
   const deg = DEGREES.exec(t);
   if (deg) {
     const d = Number(deg[1]);
+    if (!Number.isFinite(d)) return { ok: false, error: 'That number is too large.' };
     return { ok: true, unit: 'degrees', degrees: turn === 'ccw' ? d : norm(d), readout: gradeReadout(turn === 'ccw' ? -d : d) ?? '' };
   }
 
@@ -60,6 +61,6 @@ export function parseRotationInput(text: string, turn: Turn = 'clockwise'): Rota
     return { ok: true, unit: 'ratio', degrees: out(math), readout: `≈ ${fmt(Math.abs(math), 3)}° (${fmt(Math.abs(100 / n), 2)}%)`, ...(n < 1 ? { warning: 'Steeper than 1:1 (45°).' } : {}) };
   }
 
-  if (/^[+-]?\d+,\d+\s*(%|°)?$/.test(t)) return { ok: false, error: 'Use a decimal point, not a comma (2.5).' };
+  if (/^[+-]?\d+,\d+\s*(%|°)?$/.test(t)) return { ok: false, error: 'Use a decimal point, not a comma.' };
   return { ok: false, error: 'Not a valid angle. Use degrees (45), a percentage (2%) or a ratio (1:50).' };
 }
