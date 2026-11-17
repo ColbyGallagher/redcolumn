@@ -36,6 +36,7 @@ function fromRevu(set: RevuToolSet): { set: ToolSet; skipped: number } {
             }
           : {}),
         ...(i.sequence ? { sequence: i.sequence } : {}),
+        ...(i.mode ? { mode: i.mode } : {}),
         ...(i.source ? { revu: i.source } : {}),
       })),
     },
@@ -67,6 +68,7 @@ export async function revuToolSetFile(set: ToolSet): Promise<{ blob: Blob; dropp
       ...(i.tool ? { tool: i.tool } : {}),
       ...(i.markups?.length ? { template: i.markups } : {}),
       ...(i.sequence ? { sequence: i.sequence } : {}),
+      ...(i.mode ? { mode: i.mode } : {}),
       ...(i.revu ? { source: i.revu } : {}),
     }),
   );

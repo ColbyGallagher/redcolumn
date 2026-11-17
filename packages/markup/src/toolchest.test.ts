@@ -81,6 +81,9 @@ ${item('AQQEDGQEWPZTPYWL', 'Bluebeam.PDF.Annotations.AnnotationFreeText', '<</DS
   assert.deepEqual([text!.name, text!.type, text!.style.noBox], ['Text Box', 'text', true]);
   assert.equal(bubble!.type, 'ellipse');
   assert.deepEqual(bubble!.sequence, { start: 1, increment: 1 });
+  // Revu's Drawing mode places a copy; Properties mode only matters for tools that have one to place.
+  assert.equal(bubble!.mode, 'copy');
+  assert.equal(cloudPlus!.mode, undefined);
   const [circle, number] = bubble!.template!;
   // The circle is inset by its /RD; the number's box is centred in it, where Revu's <X>/<Y> put it.
   assert.deepEqual(circle!.points, [[1, 1], [37, 37]]);

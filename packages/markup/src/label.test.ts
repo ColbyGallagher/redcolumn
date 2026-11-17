@@ -55,6 +55,13 @@ test('a polylength labels each segment as well as the whole', () => {
   assert.equal(segmentLabels(base({ id: 'l3', type: 'length', points: [[0, 0], [100, 0]] })).length, 0);
 });
 
+test('a polylength with segment lengths turned off shows only its total', () => {
+  const m = base({ id: 'p5', type: 'polylength', points: [[0, 0], [100, 0], [100, 50]] });
+  const totalOnly = { ...m, style: { ...m.style, showSegmentLabels: false } };
+  assert.equal(segmentLabels(totalOnly).length, 0);
+  assert.ok(measurementLabel(totalOnly), 'the total still shows');
+});
+
 test('the label and every segment label are drawn into the exported PDF', async () => {
   const m = base({ id: 'p3', type: 'polylength', points: [[20, 20], [120, 20], [120, 90]], text: 'Cable' });
   const bytes = await exportWithAnnotations(await blank(), [m]);

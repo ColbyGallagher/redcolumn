@@ -4650,10 +4650,11 @@ tr.hidden-markup td {
 .layers-bar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  height: 34px;
-  padding: 0 4px;
+  min-height: 34px;
+  padding: 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -4683,6 +4684,8 @@ tr.hidden-markup td {
 }
 
 .layers-menu-btn.title {
+  /* Not pushed right by the app-wide .title rule. */
+  margin-left: 0;
   padding: 0 8px;
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   font-size: 14px;
@@ -4716,18 +4719,21 @@ tr.hidden-markup td {
   position: sticky;
   top: 0;
   z-index: 1;
-  width: 50px;
   height: 26px;
   padding: 0 6px;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font-weight: 600;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.layers-grid th.layer-name {
-  width: auto;
+.layers-grid th.layer-filler,
+.layers-grid td.layer-filler {
+  border-right: 0;
 }
 
 .layers-grid th .layer-twisty {
@@ -8253,4 +8259,160 @@ tr.hidden-markup td {
 }
 .sw-check-pair {
   flex-wrap: nowrap;
+}
+
+/* Tools › Takeoff › Browse Library */
+.modal.library-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+.library-intro {
+  margin-top: 0;
+}
+.library-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.library-filters input {
+  flex: 1;
+  min-width: 0;
+}
+.library-list {
+  flex: 1;
+  min-height: 160px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.library-list .empty {
+  padding: 16px;
+  text-align: center;
+}
+.library-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.library-entry:last-child {
+  border-bottom: none;
+}
+.library-entry-text {
+  flex: 1;
+  min-width: 0;
+}
+.library-entry h4 {
+  margin: 0 0 2px;
+}
+.library-entry p {
+  margin: 4px 0;
+}
+.library-meta {
+  font-size: 12px;
+  opacity: 0.75;
+}
+.library-added {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 4px;
+}
+.library-error {
+  color: var(--danger-text);
+}
+
+/* File › Migrate from Revu (RevuMigrationDialog). */
+.modal.revu-migration {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.revu-migration code {
+  user-select: all;
+}
+
+.revu-migration .revu-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.revu-migration .revu-groups,
+.revu-migration .revu-results {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 12px;
+}
+
+.revu-migration .revu-group {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.revu-migration .revu-group:last-child {
+  border-bottom: 0;
+}
+
+.revu-migration .revu-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.revu-migration .revu-group-head label {
+  flex: 1 1 auto;
+  font-weight: 600;
+}
+
+.revu-migration .revu-group .count,
+.revu-migration .revu-files .size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.revu-migration .revu-group .pref-hint {
+  margin: 2px 0 0 22px;
+}
+
+.revu-migration .revu-files {
+  list-style: none;
+  margin: 4px 0 2px 22px;
+  padding: 0;
+}
+
+.revu-migration .revu-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.revu-migration .revu-results {
+  padding: 8px 10px;
+}
+
+.revu-migration .revu-results h4 {
+  margin: 8px 0 2px;
+}
+
+.revu-migration .revu-results p {
+  margin: 0 0 4px;
+}
+
+.revu-migration .revu-results .failed {
+  color: var(--danger-text);
+}
+
+.revu-migration progress {
+  width: 100%;
+  margin-bottom: 12px;
 }
