@@ -1238,11 +1238,11 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="view.darkPages" label="Dark Pages" />
                 <Cmd id="view.dimmer" />
                 <Cmd id="view.thinLines" label="Thin Lines" />
-                <Cmd id="view.keepView" label="Keep View" />
               </Stack>
               <Stack>
                 <Cmd id="view.showLinks" />
                 <Cmd id="view.fullScreen" />
+                <Cmd id="view.keepView" />
               </Stack>
             </Group>
             <Group label="Panels">

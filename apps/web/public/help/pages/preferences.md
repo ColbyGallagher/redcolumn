@@ -26,7 +26,7 @@ Settings marked with a small circle (○) are saved, imported and exported with 
 - **File Access** — how many documents {{File > Open Recent}} lists, and how far back.
 - **Markups List** — **Zoom Fit Markups when selected** (off, clicking a markup in the list only goes to its page), **Wrap Comment Text** (the list's own wrap setting), **Exclude Filtered Markups on Export** (CSV and Markup Summary exports leave out what the list's filters hide; off, they export every markup), what the page does with **Filtered Markups** (show, dim or hide them), and how faint dimmed ones are.
 - **Layers** — **Hide Child Layers when Hiding Parent Layers**, **Show Layers On Page Only** (the Layers panel lists only the layers the current page uses), and the **Dial**: **Isolate** shows one layer at a time, **Fade** draws the other markup layers faintly instead (a PDF's own layers can only be hidden).
-- **Display** — **Page Colours** (**As printed**, **Dark Mode** or **Dimmer**; see [Dark pages](#display)), **Disable Line Weights**, **Show Rulers**, **Show Spaces** and **Show Hyperlink Areas** (outlines [sheet links](#links)).
+- **Display** — **Page Colours** (**As printed**, **Dark Mode** or **Dimmer**; see [Dark pages](#display)), **Disable Line Weights**, **Keep View Between Pages**, **Show Rulers**, **Show Spaces** and **Show Hyperlink Areas** (outlines [sheet links](#links)).
 
 ![Preferences: Interface › Markups List](img/prefs-interface-markups-list.png)
 
