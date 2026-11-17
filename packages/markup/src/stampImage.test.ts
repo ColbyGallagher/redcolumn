@@ -4,7 +4,7 @@ import { deflateSync } from 'node:zlib';
 import { PDFDict, PDFDocument, PDFName, PDFRawStream } from 'pdf-lib';
 import { exportWithAnnotations } from './export.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
-import { imageStamp, imageStampName, MAX_STAMP_IMAGE_SIDE, stampImageSize } from './stampImage.ts';
+import { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_SIDE, stampImageSize } from './stampImage.ts';
 import { resolveStamp, stampAspect } from './stamp.ts';
 
 function crc32(buf: Buffer): number {
@@ -78,4 +78,29 @@ test('a transparent PNG stamp is exported with a soft mask', async () => {
     if (dict.get(PDFName.of('Subtype')) === PDFName.of('Image') && dict.get(PDFName.of('SMask'))) masked++;
   }
   assert.equal(masked, 1);
+});
+
+test('a picture is sized from its header: PNG, GIF, BMP, WebP and JPEG', () => {
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47]);
+  new DataView(png.buffer).setUint32(16, 300);
+  new DataView(png.buffer).setUint32(20, 120);
+  assert.deepEqual(imageDimensions(png), { width: 300, height: 120 });
+  assert.deepEqual(imageDimensions(Uint8Array.from([...Buffer.from('GIF89a'), 5, 0, 7, 0])), { width: 5, height: 7 });
+  const bmp = new Uint8Array(26);
+  bmp.set(Buffer.from('BM'));
+  new DataView(bmp.buffer).setUint32(14, 40, true);
+  new DataView(bmp.buffer).setInt32(18, 64, true);
+  new DataView(bmp.buffer).setInt32(22, -32, true);
+  assert.deepEqual(imageDimensions(bmp), { width: 64, height: 32 });
+  const webp = new Uint8Array(30);
+  webp.set(Buffer.from('RIFF'), 0);
+  webp.set(Buffer.from('WEBPVP8X'), 8);
+  webp.set([99, 0, 0], 24);
+  webp.set([49, 0, 0], 27);
+  assert.deepEqual(imageDimensions(webp), { width: 100, height: 50 });
+  // SOI, an APP0 segment, then SOF0 with height 40, width 90.
+  const jpeg = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0, 40, 0, 90, 3]);
+  assert.deepEqual(imageDimensions(jpeg), { width: 90, height: 40 });
+  assert.equal(imageDimensions(Buffer.from('plain text, not a picture')), null);
 });

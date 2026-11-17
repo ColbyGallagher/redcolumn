@@ -1,6 +1,17 @@
 import { PDFDict, PDFDocument, PDFName } from 'pdf-lib';
 import { expect, test } from '../support/app.ts';
 
+/** How many pictures in a saved PDF have a soft mask (a see-through part). */
+async function softMasks(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  let masked = 0;
+  for (const [, obj] of doc.context.enumerateIndirectObjects()) {
+    const dict = (obj as { dict?: PDFDict }).dict;
+    if (dict?.get(PDFName.of('Subtype')) === PDFName.of('Image') && dict.get(PDFName.of('SMask'))) masked++;
+  }
+  return masked;
+}
+
 test.describe('image stamps', () => {
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
@@ -42,17 +53,17 @@ test.describe('image stamps', () => {
     await app.cmd('file.saveAs');
     await expect.poll(async () => (await app.saved()).length, { timeout: 20_000 }).toBe(before + 1);
     const saved = (await app.saved()).at(-1)!.bytes;
-    const doc = await PDFDocument.load(saved, { ignoreEncryption: true });
-    let masked = 0;
-    for (const [, obj] of doc.context.enumerateIndirectObjects()) {
-      const dict = (obj as { dict?: PDFDict }).dict;
-      if (dict?.get(PDFName.of('Subtype')) === PDFName.of('Image') && dict.get(PDFName.of('SMask'))) masked++;
-    }
+    const masked = await softMasks(saved);
     expect(masked).toBeGreaterThan(0);
 
     // Reopened, the stamp is still there.
     await app.page.locator('input[type=file][accept*="pdf"]').first().setInputFiles({ name: 'sealed.pdf', mimeType: 'application/pdf', buffer: Buffer.from(saved) });
     await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name, { timeout: 30_000 }).toMatch(/^sealed/);
     await expect.poll(async () => (await app.markups()).map((x) => x.type)).toEqual(['stamp']);
+    // Still see-through: saving it again still writes its picture with a soft mask.
+    const again = (await app.saved()).length;
+    await app.cmd('file.saveAs');
+    await expect.poll(async () => (await app.saved()).length, { timeout: 20_000 }).toBe(again + 1);
+    expect(await softMasks((await app.saved()).at(-1)!.bytes)).toBeGreaterThan(0);
   });
 });

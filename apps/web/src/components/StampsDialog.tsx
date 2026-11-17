@@ -371,7 +371,8 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                   setMessage('Importing…');
                   void importStampFiles(files).then(({ added, failed }) => {
                     if (added[0]) setPickedId(added[0].id);
-                    setMessage([added.length ? `Imported ${added.length} stamp${added.length === 1 ? '' : 's'}.` : '', ...failed].filter(Boolean).join(' ') || 'Nothing to import.');
+                    const parts = [added.length ? `Imported ${added.length} stamp${added.length === 1 ? '' : 's'}` : '', ...failed].filter(Boolean).map((m) => m.replace(/[.;\s]+$/, ''));
+                    setMessage(parts.length ? `${parts.join('; ')}.` : 'Nothing to import.');
                   });
                 }}
               />
