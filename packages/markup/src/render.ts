@@ -9,6 +9,8 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { imageFrame } from './imageCrop';
+import { hasVector, pictureMatrix, type Matrix } from './vectorPicture';
+import type { VectorPicture } from './model';
 import { hatchDraw, paintHatchCell, type HatchDraw, type HatchSpec } from './hatches';
 import { BLEND_MODES, blendsFillOnly, cssFont, dashPattern, effectiveBlendMode, FONT_FAMILIES, labelStyle, textColor } from './style';
 import { fontKeyword } from './fonts';
@@ -25,6 +27,26 @@ const imageListeners = new Set<() => void>();
 export function onImageLoad(listener: () => void): () => void {
   imageListeners.add(listener);
   return () => imageListeners.delete(listener);
+}
+
+/**
+ * Draws a vector Snapshot's page (`Markup.vector`): `place` maps its shown space (points, y down)
+ * into the context's current space. Drawing is synchronous, so the painter draws what it has
+ * rendered and renders the rest in the background (then calls the `onImageLoad` listeners); when
+ * what it has does not cover the part in view it calls `fallback` first, which draws the picture.
+ */
+export type VectorPainter = (ctx: CanvasRenderingContext2D, picture: VectorPicture, place: Matrix, fallback: () => void) => void;
+
+let vectorPainter: VectorPainter | null = null;
+
+/** Sets how vector Snapshots are drawn (the app renders their PDF); without one they draw as their picture. */
+export function setVectorPainter(painter: VectorPainter | null) {
+  vectorPainter = painter;
+}
+
+/** Tells everything drawing markups to redraw: a picture or a vector Snapshot's rendering is ready. */
+export function notifyImagesChanged() {
+  imageListeners.forEach((l) => l());
 }
 
 function markupImage(src: string): HTMLImageElement | null {
@@ -471,7 +493,24 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.fillStyle = textColor(style);
     ctx.fillText(flow.text, flow.at[0], flow.at[1]);
   }
-  if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
+  if (hasVector(m) && vectorPainter) {
+    const img = m.image ? markupImage(m.image) : null;
+    const { clip, full } = imageFrame(m);
+    const place = pictureMatrix(m);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(clip.x, clip.y, clip.w, clip.h);
+    ctx.clip();
+    vectorPainter(ctx, m.vector, place, () => {
+      if (img) ctx.drawImage(img, full.x, full.y, full.w, full.h);
+    });
+    const overlay = m.vector.overlay ? markupImage(m.vector.overlay) : null;
+    if (overlay) {
+      ctx.transform(...place);
+      ctx.drawImage(overlay, 0, 0, m.vector.width, m.vector.height);
+    }
+    ctx.restore();
+  } else if ((isImageType(m.type) || m.type === 'attachment') && m.image) {
     const img = markupImage(m.image);
     if (img) {
       const { clip, full } = imageFrame(m);

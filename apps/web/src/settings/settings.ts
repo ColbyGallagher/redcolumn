@@ -239,6 +239,8 @@ export interface Settings {
   hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
+  /** Snapshot: a rectangle keeps the drawing as vector content (sharp at any zoom, snapped to); off copies a picture only. */
+  snapshotVector: boolean;
   /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
   embedHostHooks: boolean;
 
@@ -472,6 +474,7 @@ export const DEFAULT_SETTINGS: Settings = {
   startTips: true,
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
+  snapshotVector: true,
   embedHostHooks: false,
 
   tabTruncation: 'end',

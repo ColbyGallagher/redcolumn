@@ -1,5 +1,5 @@
 import { StallTracker, STALL_CHECK_MS, stallLimit } from './stall';
-import { RENDER_CANCELLED, type AnnotImage, type CopyCheck, type DocumentInfo, type OutlineItem, type RedactReport, type RedactRequest, type RenderResult, type TextObjectInfo, type PageOp, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
+import { RENDER_CANCELLED, type AnnotImage, type CopyCheck, type DocumentInfo, type OutlineItem, type RedactReport, type RedactRequest, type RenderResult, type TextObjectInfo, type PageOp, type PageRegion, type PageSize, type PdfAnnotation, type TextWord, type TileRequest, type WorkerRequest, type WorkerResponse } from './protocol';
 
 type Success = Extract<WorkerResponse, { ok: true }>;
 type Pending = { resolve: (v: Success) => void; reject: (e: Error) => void; onProgress?: (done: number, total: number) => void };
@@ -310,6 +310,13 @@ export class PdfEngine {
   }
 
   /** @internal */
+  async clipRegion(docId: number, pageIndex: number, rect: PageRegion): Promise<ArrayBuffer> {
+    const res = await this.call({ type: 'clipRegion', docId, pageIndex, rect });
+    if (res.type !== 'clipRegion') throw new Error('Unexpected response');
+    return res.bytes;
+  }
+
+  /** @internal */
   async pageText(docId: number, pageIndex: number): Promise<TextWord[]> {
     const res = await this.call({ type: 'text', docId, pageIndex });
     if (res.type !== 'text') throw new Error('Unexpected response');
@@ -411,6 +418,15 @@ export class PdfDocument {
    */
   geometry(pageIndex: number) {
     return this.engine.pageGeometry(this.id, pageIndex);
+  }
+
+  /**
+   * Part of a page (`rect`, page space) as a one-page PDF that stays vector: what lies wholly
+   * outside is removed and the boxes are cut to it. Annotations imported as markups are left out;
+   * the others are flattened in. For Snapshot.
+   */
+  clipRegion(pageIndex: number, rect: PageRegion) {
+    return this.engine.clipRegion(this.id, pageIndex, rect);
   }
 
   /** Words on a page with positions in page space. Empty for scanned pages without a text layer. */
