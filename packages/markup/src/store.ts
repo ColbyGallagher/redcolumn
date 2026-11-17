@@ -1434,5 +1434,6 @@ function editKind(was: Markup, now: Markup): string {
   if ((was.rotation ?? 0) !== (now.rotation ?? 0)) return 'Rotate';
   if (!!was.locked !== !!now.locked) return now.locked ? 'Lock' : 'Unlock';
   if ((was.assemblyId ?? '') !== (now.assemblyId ?? '')) return 'Set assembly of';
+  if ((was.raisedRev ?? '') !== (now.raisedRev ?? '')) return 'Record revision of';
   return 'Edit';
 }
