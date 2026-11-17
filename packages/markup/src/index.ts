@@ -22,6 +22,7 @@ export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCallout
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_SIDE, stampImageSize } from './stampImage';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
   actionTarget,

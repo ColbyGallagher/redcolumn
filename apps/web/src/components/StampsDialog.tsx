@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_STYLES, drawMarkup, fillStampFieldsNow, onImageLoad, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampDef, type StampField, type StampOption } from '@nb/markup';
-import { importRevuStamps } from '../stamps/revuStamps';
+import { importStampFiles, STAMP_FILE_ACCEPT } from '../stamps/imageStamps';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
 interface Props {
@@ -355,13 +355,13 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
               <button className="btn" onClick={() => setDraft(blankStamp())}>
                 New…
               </button>
-              <button className="btn" title="Import stamps from Bluebeam® Revu® (the PDFs in its Stamps folder)" onClick={() => importRef.current?.click()}>
+              <button className="btn" title="Import stamps from Bluebeam® Revu® (the PDFs in its Stamps folder), or pictures (PNG, JPEG, GIF, BMP, WebP)" onClick={() => importRef.current?.click()}>
                 Import…
               </button>
               <input
                 ref={importRef}
                 type="file"
-                accept=".pdf,application/pdf"
+                accept={STAMP_FILE_ACCEPT}
                 multiple
                 hidden
                 onChange={(e) => {
@@ -369,7 +369,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                   e.target.value = '';
                   if (!files.length) return;
                   setMessage('Importing…');
-                  void importRevuStamps(files).then(({ added, failed }) => {
+                  void importStampFiles(files).then(({ added, failed }) => {
                     if (added[0]) setPickedId(added[0].id);
                     setMessage([added.length ? `Imported ${added.length} stamp${added.length === 1 ? '' : 's'}.` : '', ...failed].filter(Boolean).join(' ') || 'Nothing to import.');
                   });
