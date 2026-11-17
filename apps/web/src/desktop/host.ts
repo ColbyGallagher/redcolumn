@@ -131,6 +131,11 @@ export interface RedcolumnDesktop {
     list(): Promise<{ family: string; styles: { id: string; style: string; bold: boolean; italic: boolean }[] }[]>;
     read(id: string): Promise<Uint8Array>;
   };
+  /** Revu's settings folders on this computer, one per version, newest first: library files by opaque id and relative path (apps/desktop/src/revuSettings.ts). */
+  revuSettings?: {
+    scan(): Promise<{ version: string; files: { id: string; path: string; size: number }[] }[]>;
+    read(id: string): Promise<Uint8Array>;
+  };
   /** Smart cards and USB tokens through their PKCS#11 drivers (apps/desktop/src/token.ts). */
   tokens?: DesktopTokens;
   microsoftAccount(clientId: string): Promise<{ email: string; name: string } | null>;

@@ -87,6 +87,10 @@ contextBridge.exposeInMainWorld('redcolumn', {
     list: () => call('fonts:list'),
     read: async (id: string) => new Uint8Array(await call<Uint8Array>('fonts:read', id)),
   },
+  revuSettings: {
+    scan: () => call('revu:scan'),
+    read: async (id: string) => new Uint8Array(await call<Uint8Array>('revu:read', id)),
+  },
   tokens: {
     modules: () => call('token:modules'),
     addModule: () => call('token:add-module'),

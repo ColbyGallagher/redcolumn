@@ -19,6 +19,7 @@ import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
 import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
+import { RevuSettings, revuSettingsRoot } from './revuSettings';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -172,6 +173,10 @@ async function start() {
   const systemFonts = new SystemFonts(systemFontDirs());
   handle('fonts:list', () => systemFonts.list());
   handle('fonts:read', (id) => systemFonts.read(id));
+  // Revu's settings folders, for the Revu migration wizard: library files only, ids and relative paths (revuSettings.ts).
+  const revuSettings = new RevuSettings(revuSettingsRoot());
+  handle('revu:scan', () => revuSettings.scan());
+  handle('revu:read', (id) => revuSettings.read(id));
   // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
   // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenClient(() => {

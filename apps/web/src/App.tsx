@@ -160,6 +160,7 @@ import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
@@ -226,6 +227,9 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readP
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
+import { LibraryDialog } from './components/LibraryDialog';
+import { installPack } from './library/install';
+import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
@@ -1202,6 +1206,7 @@ export function App() {
     return () => window.removeEventListener('nb-update-ready', ready);
   }, []);
   const [installOpen, setInstallOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   useEffect(() => {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
@@ -1281,6 +1286,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
@@ -6303,7 +6309,7 @@ export function App() {
   };
 
   /** Draws with a tool library tool. */
-  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = settings.get().toolChestMode) => {
+  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = item.mode ?? settings.get().toolChestMode) => {
     const tools = activeTools;
     if (!tools) return;
     if (item.markups?.length && mode === 'copy') {
@@ -8388,6 +8394,7 @@ export function App() {
       setPrefsOpen(true);
     },
     manageProfiles: () => setProfilesOpen(true),
+    migrateRevu: () => setRevuMigrationOpen(true),
     shortcuts: () => setShortcutsOpen(true),
     about: () =>
       alert(
@@ -8480,6 +8487,7 @@ export function App() {
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
+      else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
       else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {
@@ -8718,6 +8726,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
+    browseLibrary: () => setLibraryOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
@@ -9251,7 +9260,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     return (
       <aside
         className={`panel side ${side}${tab === 'sessions' || tab === 'projects' ? ' rc-chrome' : ''}${railDrag?.side === side && !railDrag.over ? ' drop-target' : ''}`}
-        style={{ width: tab === 'layers' ? Math.max(width, 380) : width }}
+        style={{ width }}
         onDragOver={(e) => dragOverSide(e, side)}
         onDrop={(e) => dropOnSide(e, side)}
       >
@@ -11363,6 +11372,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {revuMigrationOpen && (
+        <RevuMigrationDialog
+          onClose={() => setRevuMigrationOpen(false)}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#revu-migration`, '_blank', 'noopener')}
+        />
+      )}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}
@@ -11827,6 +11842,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
+      {libraryOpen && (
+        <LibraryDialog
+          onInstall={(pack, source) => {
+            const { counts, saved } = installPack(pack, source);
+            const added = describeCounts(counts);
+            if (!saved) setError(`Added ${pack.name}, but this browser would not keep all of it (a private window, or storage is full).`);
+            return added;
+          }}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#community-library`, '_blank', 'noopener')}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
