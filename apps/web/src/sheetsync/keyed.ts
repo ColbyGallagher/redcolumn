@@ -51,6 +51,14 @@ export function replyIndex(key: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** A column holding who wrote the Nth reply (1-based). Typed beside a new response, it is who that reply is from. */
+export const responderKey = (n: number) => `responder:${n}`;
+/** Which reply a responder column names the author of (1-based), or null for other columns. */
+export function responderIndex(key: string): number | null {
+  const m = /^responder:(\d+)$/.exec(key);
+  return m ? Number(m[1]) : null;
+}
+
 export const YES = 'Yes';
 export const NO = 'No';
 
@@ -137,7 +145,7 @@ export function canonOwn(col: Pick<SyncColumn, 'kind' | 'options'>, value: Table
 
 export interface SyncContext {
   statuses: readonly MarkupStatusDef[];
-  /** Thread columns to add after the list's columns. */
+  /** Thread and responder columns to add after the list's columns. */
   replyColumns?: readonly SyncColumn[];
 }
 
@@ -148,12 +156,16 @@ export interface SyncContext {
 export function toSyncTable(rows: readonly ListRowData[], columns: readonly ListColumn[], ctx: SyncContext): SyncTable {
   const cols = [...columns.map((c) => syncColumn(c, ctx.statuses)), ...(ctx.replyColumns ?? [])];
   const out: SyncRow[] = rows.map((r) => {
-    const thread = r.reply ? [] : threadReplies(r.markup.replies ?? []).map((t) => t.reply.text);
+    const thread = r.reply ? [] : threadReplies(r.markup.replies ?? []).map((t) => t.reply);
     const cells = cols.map((c, i): TableCell => {
       const at = replyIndex(c.key);
-      if (at !== null) return at === 0 ? '' : (thread[at - 1] ?? '');
+      if (at !== null) return at === 0 ? '' : (thread[at - 1]?.text ?? '');
+      const who = responderIndex(c.key);
+      if (who !== null) return thread[who - 1]?.author ?? '';
       const list = columns[i]!;
       if (list.key === 'date') return new Date(r.reply?.at ?? r.markup.modifiedAt).toISOString().replace('T', ' ').slice(0, 19);
+      // A date reads as a date, not as the count of milliseconds the list sorts it by.
+      if (list.key === 'created' && !r.reply) return new Date(r.markup.createdAt).toISOString().replace('T', ' ').slice(0, 19);
       const v = r.cells[list.key];
       if (!v) return c.kind === 'check' && c.edit === 'editable' ? NO : '';
       if (v.error) return `#${v.error}`;

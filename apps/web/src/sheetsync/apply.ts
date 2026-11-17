@@ -15,6 +15,8 @@ export interface ApplyContext {
   replyAuthor: string;
   now: number;
   newId: () => string;
+  /** The status id a status cell's text means, when it is not the status's own name (a register's wording). */
+  statusId?: (text: string) => string | undefined;
 }
 
 /** Whether a change is one anybody may make to someone else's markup: its status, its checkmark, a reply. */
@@ -33,7 +35,7 @@ export function patchesFor(changes: readonly CellChange[], get: (id: string) => 
     const at = replyIndex(key);
     if (at !== null) {
       const replies: Reply[] = patch.replies ?? [...(m.replies ?? [])];
-      if (c.kind === 'replyAdd') replies.push({ id: ctx.newId(), author: ctx.replyAuthor, text: c.to, createdAt: ctx.now + replies.length });
+      if (c.kind === 'replyAdd') replies.push({ id: ctx.newId(), author: c.author?.trim() || ctx.replyAuthor, text: c.to, createdAt: ctx.now + replies.length });
       else {
         // The Nth reply of the thread, as exported.
         const target = threadReplies(m.replies ?? [])[at - 1]?.reply;
@@ -43,7 +45,7 @@ export function patchesFor(changes: readonly CellChange[], get: (id: string) => 
       }
       patch.replies = replies;
     } else if (key === 'status') {
-      const id = c.to === '' ? 'none' : ctx.statuses.find((s) => s.name === c.to)?.id;
+      const id = ctx.statusId?.(c.to) ?? (c.to === '' ? 'none' : ctx.statuses.find((s) => s.name === c.to)?.id);
       if (id === undefined) continue;
       patch.status = id;
     } else if (key === 'comment') {
