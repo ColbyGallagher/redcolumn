@@ -48,6 +48,8 @@ async function colourStats(app: App, image: string) {
 }
 
 test.describe('adjust image', () => {
+  test.use({ toolbar: 'ribbon' });
+
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
   });
@@ -78,9 +80,12 @@ test.describe('adjust image', () => {
     expect(app.errors).toEqual([]);
   });
 
-  test('the right-click menu opens the same dialog, and Make white see-through clears pixels', async ({ app }) => {
+  test('the right-click menu opens the same dialog, and Make white see-through clears only the light half', async ({ app }) => {
+    // The fixture is a red half and a blue half. Greyscale then Invert makes them light grey (179) and
+    // near white (226); a cut-off of 204 clears the blue half and keeps the red one.
     const placed = await placePicture(app);
     const before = await colourStats(app, placed.image);
+    expect(before.clear).toBe(0);
     await app.page.evaluate((id) => window.__nb.tools.select([id]), placed.id);
     const [[x0, y0], [x1, y1]] = placed.points as [[number, number], [number, number]];
     const c = await app.at([(x0 + x1) / 2, (y0 + y1) / 2]);
@@ -88,13 +93,44 @@ test.describe('adjust image', () => {
     await app.page.getByText('Adjust Image…', { exact: true }).click();
     const dialog = app.page.locator('form.adjust-image');
     await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Greyscale').check();
     await dialog.getByLabel('Invert').check();
-    await dialog.getByLabel('Make white see-through').fill('30');
+    await dialog.getByLabel('Make white see-through').fill('20');
     await dialog.getByRole('button', { name: 'Apply' }).click();
     await expect(dialog).toBeHidden();
     const after = await colourStats(app, (await picture(app)).image);
-    expect(after.clear).toBeGreaterThanOrEqual(before.clear);
+    expect(after.clear, 'the blue half (20 x 20 pixels) is see-through').toBe(400);
+    expect(after.coloured).toBe(0);
     expect(app.errors).toEqual([]);
+  });
+
+  test('an adjusted picture survives Save and reopening', async ({ app }) => {
+    const placed = await placePicture(app);
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), placed.id);
+    await app.cmd('edit.adjustImage');
+    const dialog = app.page.locator('form.adjust-image');
+    await dialog.getByLabel('Greyscale').check();
+    await dialog.getByRole('button', { name: 'Apply' }).click();
+    await expect(dialog).toBeHidden();
+
+    await app.cmd('file.saveAs');
+    await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBeGreaterThan(0);
+    const saved = (await app.saved()).at(-1)!;
+    await app.page.locator('input[type=file][accept*="pdf"]').first().setInputFiles({ name: 'adjusted-reopened.pdf', mimeType: 'application/pdf', buffer: saved.bytes });
+    await expect.poll(async () => (await app.documents()).some((d) => d.active && d.name.startsWith('adjusted-reopened')), { timeout: 30_000 }).toBe(true);
+    await expect.poll(async () => (await app.raw()).some((m) => m.type === 'image'), { timeout: 30_000 }).toBe(true);
+    const back = await picture(app);
+    expect((await colourStats(app, back.image)).coloured, 'still grey after reopening').toBe(0);
+    expect(app.errors).toEqual([]);
+  });
+
+  test('the Modify tab fits at the smallest window width, with nothing scrolling', async ({ app }) => {
+    await app.page.setViewportSize({ width: 800, height: 700 });
+    const ribbon = app.page.locator('.ribbon');
+    await ribbon.getByRole('tab', { name: 'Modify' }).click();
+    await expect(ribbon.getByRole('group', { name: 'Picture', exact: true })).toBeVisible();
+    const clipped = await ribbon.locator('.rb-group').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).length);
+    expect(clipped).toBe(0);
   });
 
   test('Adjust Image needs a picture selected', async ({ app }) => {

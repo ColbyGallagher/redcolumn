@@ -151,6 +151,7 @@ import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
 import { AdjustImageDialog } from './components/AdjustImageDialog';
+import { bakePicture } from './markup/pictureBake';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -10532,17 +10533,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const store = paneParts(adjustImageFor.pane).o?.store;
           const ms = store ? adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m)) : [];
           if (!store || !ms.length) return null;
-          const loadPixels = async (source: string) => {
-            const img = new Image();
-            img.src = source;
-            await img.decode();
-            const canvas = document.createElement('canvas');
-            canvas.width = img.naturalWidth;
-            canvas.height = img.naturalHeight;
-            const g = canvas.getContext('2d')!;
-            g.drawImage(img, 0, 0);
-            return { canvas, g, pixels: g.getImageData(0, 0, canvas.width, canvas.height) };
-          };
           return (
             <AdjustImageDialog
               source={ms[0]!.image!}
@@ -10555,14 +10545,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={async (adjust) => {
                 // Bake every picture first, so a failure leaves them all as they were; then one undo step.
                 const baked: [string, string][] = [];
-                for (const m of ms) {
-                  const { canvas, g, pixels } = await loadPixels(m.image!);
-                  adjustPixels(pixels.data, adjust);
-                  g.putImageData(pixels, 0, 0);
-                  baked.push([m.id, canvas.toDataURL('image/png')]);
+                // Re-resolved now, not when the dialog opened: a picture may have gone or been locked since.
+                const now = adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m));
+                for (const m of now) baked.push([m.id, await bakePicture(m.image!, (d) => adjustPixels(d, adjust))]);
+                // Pictures deleted, locked or changed under the dialog meanwhile are skipped.
+                const live = baked.filter(([id]) => {
+                  const m = store.get(id);
+                  return !!m?.image && !m.locked && store.mayEdit(m);
+                });
+                if (live.length) {
+                  store.checkpoint();
+                  store.batch(() => live.forEach(([id, image]) => store.update(id, { image })));
                 }
-                store.checkpoint();
-                for (const [id, image] of baked) store.update(id, { image });
                 setAdjustImageFor(null);
               }}
             />
@@ -10601,19 +10595,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               source={source}
               onCancel={() => setPictureColoursFor(null)}
               onApply={async (mode) => {
-                const img = new Image();
-                img.src = source;
-                await img.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const g = canvas.getContext('2d')!;
-                g.drawImage(img, 0, 0);
-                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
-                recolourPixels(pixels.data, mode);
-                g.putImageData(pixels, 0, 0);
+                const image = await bakePicture(source, (d) => recolourPixels(d, mode));
+                const now = store.get(m.id);
+                if (!now?.image || now.locked || !store.mayEdit(now)) return setPictureColoursFor(null);
                 store.checkpoint();
-                store.update(m.id, { image: canvas.toDataURL('image/png') });
+                store.batch(() => store.update(m.id, { image }));
                 setPictureColoursFor(null);
               }}
             />

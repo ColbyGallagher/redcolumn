@@ -109,6 +109,9 @@ export interface PictureAdjust {
   whiteOut: number;
 }
 
+/** How many levels below the cut-off a light pixel fades out over. */
+const WHITE_FADE = 16;
+
 export const NO_ADJUST: PictureAdjust = { brightness: 0, contrast: 0, greyscale: false, invert: false, whiteOut: 0 };
 
 /** Whether the adjustment changes any pixel. */
@@ -116,7 +119,7 @@ export const adjustsPicture = (a: PictureAdjust): boolean => a.brightness !== 0 
 
 /**
  * Adjusts RGBA pixels in place: greyscale, then brightness, then contrast, then invert, then the
- * near-white pixels made see-through. Transparency is kept.
+ * near-white pixels made see-through (fading over the last few levels). Transparency is kept.
  */
 export function adjustPixels(data: Uint8ClampedArray, a: PictureAdjust): void {
   if (!adjustsPicture(a)) return;
@@ -149,6 +152,11 @@ export function adjustPixels(data: Uint8ClampedArray, a: PictureAdjust): void {
     data[i] = r;
     data[i + 1] = g;
     data[i + 2] = b;
-    if (a.whiteOut > 0 && Math.min(r, g, b) >= cut) data[i + 3] = 0;
+    if (a.whiteOut > 0) {
+      // Fully white goes; a little under that fades out, so soft edges leave no pale halo.
+      const light = Math.min(r, g, b);
+      if (light >= cut) data[i + 3] = 0;
+      else if (light > cut - WHITE_FADE) data[i + 3] = Math.round((data[i + 3]! * (cut - light)) / WHITE_FADE);
+    }
   }
 }

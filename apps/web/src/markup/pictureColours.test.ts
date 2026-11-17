@@ -78,3 +78,10 @@ test('whiting out makes near-white pixels see-through and keeps the rest', () =>
   adjustPixels(d, { ...NO_ADJUST, whiteOut: 5 });
   assert.deepEqual([d[3], d[7], d[11]], [0, 0, 255]);
 });
+
+test('a pixel just short of the white cut-off fades instead of leaving a pale halo', () => {
+  // whiteOut 5 cuts at 242.25: 234 is 8.25 levels under, so about half its alpha stays; 242 is nearly at the cut.
+  const d = px(234, 234, 234, 255, 242, 242, 242, 200);
+  adjustPixels(d, { ...NO_ADJUST, whiteOut: 5 });
+  assert.deepEqual([d[3], d[7]], [131, 3]);
+});
