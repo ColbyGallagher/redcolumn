@@ -14,7 +14,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
-import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { dimensionText, labelBox, measurementLabel, segmentLabels, textBaselineOffset, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
 import { daFontName, fontKeyword, fontPermissions, isNamedFont, isTrueTypeOutline, type FontKeyword } from './fonts';
@@ -160,7 +160,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
     `font: ${family} ${fmt(s.fontSize ?? 12)}pt`,
     `text-align:${s.textAlign ?? 'left'}`,
     ...(s.verticalAlign && s.verticalAlign !== 'top' ? [`text-valign:${s.verticalAlign}`] : []),
-    ...(s.textMargin !== undefined ? [`margin:${fmt(Math.max(0, s.textMargin - 1))}pt`] : []),
+    ...(s.textMargin !== undefined ? [`margin:${fmt(s.textMargin - 1)}pt`] : []),
     ...(s.lineHeight ? [`line-height:${fmt((s.fontSize ?? 12) * s.lineHeight)}pt`] : []),
     `color:${textColor(s).toUpperCase()}`,
     ...(s.bold ? ['font-weight:bold'] : []),
@@ -584,7 +584,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
     const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
-    const ascent = font.heightAtSize(size, { descender: false });
+    const ascent = textBaselineOffset({ ...style, fontSize: size });
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
       // Page space is y-down; flip the text matrix so glyphs stay upright.
@@ -677,7 +677,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
         fontRefs[fontNames.get(fontName)!] = font.ref;
       }
       const size = cell.style.fontSize ?? 12;
-      const ascent = font.heightAtSize(size, { descender: false });
+      const ascent = textBaselineOffset({ ...cell.style, fontSize: size });
       const [cr, cg, cb] = rgb(textColor(cell.style));
       const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);

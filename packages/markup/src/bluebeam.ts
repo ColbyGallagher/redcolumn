@@ -168,7 +168,7 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
       // One to four lengths ("3pt", "3pt 5pt"); the first stands for the box's inset. Bluebeam draws
       // the text one point further in than the margin it writes (3pt margin, text 4pt from the edge).
       const n = parseFloat(value);
-      if (Number.isFinite(n) && n >= 0 && n <= 50) out.textMargin = (/px/i.test(value.split(/\s+/)[0]!) ? Math.round(n * 750) / 1000 : n) + 1;
+      if (Number.isFinite(n) && n >= -1 && n <= 50) out.textMargin = (/px/i.test(value.split(/\s+/)[0]!) ? Math.round(n * 750) / 1000 : n) + 1;
     }
     else if (key === 'text-align' && /^(left|center|right|justify)$/.test(value)) out.textAlign = value as TextAlign;
     else if (key === 'text-valign' || key === 'vertical-align') {

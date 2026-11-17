@@ -1,7 +1,7 @@
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
-import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
+import { HATCH_PATTERNS, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { ALIGN_ICONS, LineSpacing, NumberField, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
@@ -549,6 +549,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <label className="field" title="Line spacing">
             Spacing
             <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
+          </label>
+          <label className="field" title="Gap between the box edge and its text">
+            Padding
+            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
         </>
       )}

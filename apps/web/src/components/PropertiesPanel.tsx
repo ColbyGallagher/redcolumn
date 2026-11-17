@@ -14,6 +14,7 @@ import {
   measureProps,
   refillStamp,
   styleCapabilities,
+  TEXT_PADDING,
   type FontFamily,
   type LineEnding,
   type Markup,
@@ -654,6 +655,9 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
               <Row label="Line spacing">
                 <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
               </Row>
+              <Row label="Padding">
+                <NumberField value={style.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => set('textMargin', v)} />
+              </Row>
             </>
           )}
           {caps.label && (
@@ -1048,7 +1052,7 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
 }
 
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */
-function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
+export function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
   const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
