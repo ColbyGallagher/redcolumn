@@ -6542,6 +6542,26 @@ tr.hidden-markup td {
   width: 80px;
 }
 
+/* Import from Excel: the preview of what a workbook changes */
+.import-excel-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 200px;
+}
+
+.import-excel-table tr.conflict td {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.import-excel-dialog .import-unknown select {
+  margin-left: 4px;
+}
+
+.import-excel-dialog .import-skipped {
+  margin-top: 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+
 /* Comments table (a Project's or Live Session's comments) */
 .comments-table th .th-sort {
   all: unset;
