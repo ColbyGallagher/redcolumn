@@ -39,8 +39,10 @@ import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRe
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
 import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { checkMarkupLink, linkedFile, markupLinkUrl, parseMarkupQuery, stripMarkupQuery, type LinkBase, type MarkupLink } from './sheetsync/links';
 import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
 import { CloseOutDialog } from './components/CloseOutDialog';
+import { THUMB_PX, type RegisterThumb } from './sheetsync/register';
 import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
@@ -1111,6 +1113,8 @@ export function App() {
   const [syncOpen, setSyncOpen] = useState(false);
   /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
   const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** A link to a comment being followed: its document is opening, and the comment is gone to once its markups are there. */
+  const [pendingLink, setPendingLink] = useState<{ fileId: string; markupId: string; since: number } | null>(null);
   /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
   const [closeOutOpen, setCloseOutOpen] = useState(false);
   const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
@@ -2194,6 +2198,40 @@ export function App() {
     },
     [openStored, activateTab, refreshLibrary, split, activePane],
   );
+
+  /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
+  const openMarkupLink = useCallback(
+    async (link: MarkupLink) => {
+      const file = linkedFile(await listFiles(), link);
+      if (!file) {
+        setNotice(`The document this link is for${link.name ? ` (${link.name})` : ''} is not in the library on this device.`);
+        return;
+      }
+      setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
+      await openFromLibrary(file);
+    },
+    [openFromLibrary],
+  );
+  const openMarkupLinkRef = useRef(openMarkupLink);
+  openMarkupLinkRef.current = openMarkupLink;
+  useEffect(() => {
+    if (!ctl || !libraryReady) return;
+    const follow = (links: readonly unknown[]) => {
+      // One at a time: the last link clicked is the one that shows.
+      const link = checkMarkupLink(links[links.length - 1] as MarkupLink | undefined);
+      if (link) void openMarkupLinkRef.current(link);
+    };
+    // The web app is opened at a link's address; the desktop app is handed the link.
+    const inAddress = parseMarkupQuery(window.location.search);
+    if (inAddress) {
+      stripMarkupQuery();
+      follow([inAddress]);
+    }
+    const host = desktop();
+    void host?.takeMarkupLinks?.().then(follow, () => undefined);
+    return host?.onMarkupLinks?.(follow);
+    // Once, when the viewer and the library are ready.
+  }, [ctl, libraryReady]);
 
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
@@ -6428,8 +6466,52 @@ export function App() {
   const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
   /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
   const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
-  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, fill: boolean) => {
+  // A followed link: once its document is in front and has its markups, go to the comment.
+  useEffect(() => {
+    if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
+    const m = markups.find((x) => x.id === pendingLink.markupId);
+    if (m) {
+      setPendingLink(null);
+      const b = shapeBounds(m);
+      const pad = Math.max(48, Math.max(b.w, b.h));
+      navigate(m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      (paneB ? ctlB : ctl)?.tools.select([m.id]);
+      return;
+    }
+    // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
+    const wait = setTimeout(() => {
+      setPendingLink(null);
+      setNotice('The comment this link is for is no longer in the document.');
+    }, Math.max(0, pendingLink.since + 8000 - Date.now()));
+    return () => clearTimeout(wait);
+    // The markups are what is waited for.
+  }, [pendingLink, activeOpen?.file.id, markups]);
+
+  /** A picture of each markup with the drawing around it, for a register's thumbnail column. Small JPEGs: they travel by email. */
+  const registerThumbs = async (o: OpenFile, list: readonly Markup[]) => {
+    const out = new Map<string, RegisterThumb>();
+    for (const m of list) {
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, THUMB_PX / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      const blob = await new Promise<Blob | null>((done) => flat.toBlob(done, 'image/jpeg', 0.7));
+      if (blob) out.set(m.id, { data: new Uint8Array(await blob.arrayBuffer()), type: 'jpeg', width: flat.width, height: flat.height });
+    }
+    return out;
+  };
+
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => {
     if (!activeOpen) return;
+    const { fill } = options;
     // A comment's first export records the revision of its sheet: what it was raised on.
     const listed = registerMarkups(scope);
     const raised = raisedRevisions(listed, sheets);
@@ -6441,7 +6523,11 @@ export function App() {
       });
       store.checkpoint();
     }
-    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values };
+    // Links open the comment in the app they were made in: the desktop app's own scheme, or this web address.
+    const linkBase: LinkBase = desktop() ? { kind: 'desktop' } : { kind: 'web', href: window.location.href };
+    const linkFile = activeOpen.file;
+    const linkOf = (markupId: string) => markupLinkUrl(linkBase, { doc: linkFile.id, markup: markupId, name: linkFile.name });
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values, linkOf };
     const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
     const excel = localExcel();
     if (fill && template.clientFile && excel?.readSource && excel.fill) {
@@ -6460,7 +6546,14 @@ export function App() {
         return;
       }
     } else {
-      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook(register) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      let thumbnails: Map<string, RegisterThumb> | undefined;
+      try {
+        if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
+      } catch (err) {
+        setError(`The thumbnails could not be made: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     }
     setRegisterOpen(false);
   };

@@ -16,6 +16,7 @@ import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
+import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
 import { RevuSettings, revuSettingsRoot } from './revuSettings';
@@ -74,11 +75,19 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.focus();
     }
   });
+  // macOS hands a clicked comment link to the running app (or the starting one) as an event.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    noteArgv([url]);
+  });
   void app.whenReady().then(start);
 }
 
 async function start() {
   registerAppProtocol();
+  // Links to a comment (redcolumn://markup?…, see links.ts) open this app. Only the installed app
+  // registers: a development or test run must not take the links over.
+  if (app.isPackaged && !smoke && process.env.RECOLUMN_E2E !== '1') app.setAsDefaultProtocolClient(LINK_SCHEME);
   installMenu();
   installPermissions(session.defaultSession);
   const allowFile = path.join(app.getPath('userData'), 'path-allowlist.json');

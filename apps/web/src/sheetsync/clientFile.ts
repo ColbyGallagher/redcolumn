@@ -1,6 +1,6 @@
 import type { ExcelFill } from '../desktop/host';
 import { headerCells, rowLabel } from './merge';
-import { cellRef, fieldKey, registerRecord, registerTable, uniqueColumns, type RegisterExport, type RegisterTemplate } from './register';
+import { cellRef, fieldKey, registerExtras, registerRecord, registerTable, uniqueColumns, type RegisterExport, type RegisterTemplate } from './register';
 import { buildSyncSheets, readSnapshot } from './syncWorkbook';
 import { HIDDEN_SHEET } from './xlsx';
 import type { CellValue, ReadSheet, ReadWorkbook } from './xlsxRead';
@@ -107,6 +107,7 @@ export function planFill(book: ReadWorkbook, e: RegisterExport): FillPlan {
     ...(under.length && under.length <= MAX_BELOW ? { ignore: under.map(rowLabel) } : {}),
   });
   const body = visible!.table.slice(1);
+  const extras = registerExtras(e, table);
   const known = new Set(e.columns.map((c) => c.key));
   return {
     ok: true,
@@ -128,6 +129,7 @@ export function planFill(book: ReadWorkbook, e: RegisterExport): FillPlan {
       hidden: { name: hidden!.name, table: hidden!.table.map((row) => [...row]) },
       validations: (visible!.validations ?? []).map((v) => (v.kind === 'list' ? { col: c0 + v.column + 1, type: 'list' as const, formula: `=${v.source}` } : { col: c0 + v.column + 1, type: v.kind })),
       dates: table.columns.flatMap((c, i) => (c.edit === 'editable' && c.kind === 'date' ? [c0 + i + 1] : [])),
+      ...(extras.linkCol >= 0 && extras.links.some(Boolean) ? { links: { col: c0 + extras.linkCol + 1, urls: extras.links.map((u) => u ?? '') } } : {}),
     },
   };
 }

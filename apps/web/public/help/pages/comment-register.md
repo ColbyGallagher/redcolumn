@@ -24,6 +24,15 @@ A template says what the client's register looks like. You make it once per clie
 
 > **Tip:** **Save as File…** saves the template to share with your team. They use **Open File…** to add it.
 
+### Pictures and links
+
+- **Thumbnail**: add a column that **Holds** *Thumbnail (picture of the markup)*. Each row then shows its markup with the drawing around it, so the designer can see where the comment is without opening the drawing.
+- **Link each item number to its comment**: clicking an item number in Excel opens the document at that comment.
+
+> **Note:** A link opens the comment on a computer that has the document in redcolumn. Documents are kept on your device, so the links are for you and your team, not for someone who only has the workbook. A workbook exported from the desktop app opens the desktop app; one exported from the web version opens the web version.
+
+Pictures make a workbook large to email. With more than 200 rows they are left out unless you tick **Include thumbnails** at export, and a register of more than 2000 rows cannot have them.
+
 ### Protected or open
 
 - **Protected** (the default): only the columns to fill in can be changed. This stops a column being deleted or overtyped by accident. The designer can filter the sheet but not sort it, because Excel does not sort a protected sheet.
@@ -51,6 +60,7 @@ What goes into the copy:
 - The details you mapped above the table, such as the document name. Fixed text cells in the template are not written: the file has its own.
 - A hidden column beside the table and a hidden sheet, which tie each row to its comment.
 - A dropdown on **Status** and the other columns that have set values, unless the file already has its own dropdown there.
+- A link on each item number, when the template links them. Thumbnails are not put into a client's file.
 
 > **Note:** The copy is not protected and has no **Read me** sheet. It is the client's file, so its own protection and sheets are left as they are. If the client's sheet is protected, unprotect it in Excel and save it before you export.
 
