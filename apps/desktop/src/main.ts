@@ -15,6 +15,7 @@ import { checkLive, checkSheets, checkTable, loadExcelLinks, readWorkbookNow, wr
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
+import { openIntoWindow } from './open-file';
 import { captureOpenFiles, LaunchQueue, type LaunchItem } from './launch';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
@@ -373,10 +374,7 @@ async function start() {
   app.on('web-contents-created', (_event, contents) => harden(contents));
   createWindow();
   // open-file from here on (Finder Open With on a running app): to the front window, or a new one if all were closed.
-  openFiles.start((filePath) => {
-    if (!focusedLaunches()) createWindow();
-    focusedLaunches()?.note(filePath);
-  });
+  openFiles.start((filePath) => openIntoWindow(focusedLaunches, () => createWindow(), () => quitting, filePath));
   noteArgv(process.argv);
   for (const argv of waitingArgv.splice(0)) focusedLaunches()?.noteArgv(argv);
   // A moment after launch, so the check never competes with the page loading.
