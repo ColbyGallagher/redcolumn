@@ -240,9 +240,9 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
 
-/** A Polylength's labels: each segment's length on the segment, turned along it. (The whole's is `measurementLabel`.) */
+/** A Polylength's labels: each segment's length on the segment, turned along it, unless turned off. (The whole's is `measurementLabel`.) */
 export function segmentLabels(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel[] {
-  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false) return [];
+  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false || m.style.showSegmentLabels === false) return [];
   return m.points.slice(1).map((b, i) => {
     const a = m.points[i]!;
     let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);

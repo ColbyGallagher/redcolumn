@@ -1,3 +1,4 @@
+import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -32,6 +33,11 @@ export interface ToolChestItem {
    * of it. Tools without one (imported, recent) draw new markups in their style.
    */
   markups?: Markup[];
+  /**
+   * How clicking a tool with saved `markups` uses it: `copy` places the exact markup, `style` draws
+   * new markups in its look. Set from the tool's right-click menu; unset follows Preferences.
+   */
+  mode?: 'copy' | 'style';
   /** The page scale (metres per point) it was saved at, for tool sets that scale to the page. */
   metersPerPoint?: number;
   /** Drawn with the Cloud+ tool (a cloud, then a callout): `type` is its cloud. */
@@ -59,6 +65,8 @@ export interface ToolSet {
   view?: 'icon' | 'detail';
   /** Tools keep their real-world size: placed copies grow or shrink with the page's scale. */
   scaleToPage?: boolean;
+  /** The trade pack it was added from (its library id, or its name for a pack file): adding the pack again replaces it. */
+  pack?: string;
   items: ToolChestItem[];
 }
 
@@ -129,6 +137,8 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Comment register templates, one per client (kept on this device; shared as files). */
+  registerTemplates?: RegisterTemplate[];
   /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
   customColors?: string[];
 }

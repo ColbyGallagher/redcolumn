@@ -68,10 +68,19 @@ export interface CommandActions {
   save: () => void;
   saveAs: () => void;
   exportCsv: () => void;
+  /** The Markups list as an .xlsx that can be edited in Excel and imported again. */
+  exportXlsx: () => void;
+  /** An edited .xlsx back in: a preview of what it changes, then the changes. */
+  importXlsx: () => void;
+  /** The comments in a client's register layout, as an .xlsx to fill in and import again. */
+  exportRegister: () => void;
+  /** The register templates: column headings, status wording and the block above the table, per client. */
+  registerTemplates: () => void;
   exportSummary: () => void;
   print: () => void;
   preferences: () => void;
   manageProfiles: () => void;
+  migrateRevu: () => void;
   shortcuts: () => void;
   about: () => void;
   undo: () => void;
@@ -181,6 +190,8 @@ export interface CommandActions {
   autoFields: () => void;
   batch: (kind: BatchKind) => void;
   slipSheet: () => void;
+  /** What is still open on each sheet, and the revision each comment was raised on. */
+  closeOut: () => void;
   revisions: () => void;
   overlay: () => void;
   deletePages: () => void;
@@ -201,6 +212,8 @@ export interface CommandActions {
   manageColumns: () => void;
   /** Tools › Takeoff › Assemblies… */
   manageAssemblies: () => void;
+  /** Tools › Takeoff › Browse Library…: the community library's trade packs, listed from GitHub on open. */
+  browseLibrary: () => void;
   /** Tools › Takeoff › Takeoff Quantities… */
   takeoffQuantities: () => void;
   /** Tools › Scripts: rules that find markups and change them. */
@@ -237,7 +250,7 @@ export interface CommandActions {
   toggleBottom: () => void;
   commandPalette: () => void;
   install: () => void;
-  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'support' | 'community' | 'updates') => void;
+  help: (what: 'docs' | 'whatsNew' | 'logs' | 'suggest' | 'sponsor' | 'support' | 'community' | 'updates') => void;
   manageStamps: () => void;
   manageLineStyles: () => void;
   /** Diagram: arms the Flowchart Shape tool with a shape. */
@@ -399,10 +412,15 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.importBax', 'File', 'Import Markups from Bluebeam BAX…', a.importBax, s.editable),
     cmd('file.importPdfMarkups', 'File', 'Import Markups from PDF…', a.importMarkupsFromPdf, s.editable),
     cmd('file.exportCsv', 'File', 'Export Markups CSV', a.exportCsv, doc && s.canSaveCopy),
+    cmd('file.exportXlsx', 'File', 'Export Markups for Excel', a.exportXlsx, doc && s.canSaveCopy),
+    cmd('file.importXlsx', 'File', 'Import Markups from Excel…', a.importXlsx, s.editable),
+    cmd('file.exportRegister', 'File', 'Export Comment Register…', a.exportRegister, doc && s.canSaveCopy),
+    cmd('file.registerTemplates', 'File', 'Register Templates…', a.registerTemplates, doc),
     cmd('file.exportSummary', 'File', 'Markup Summary…', a.exportSummary, doc && s.canSaveCopy),
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),
     cmd('file.manageProfiles', 'File', 'Manage Profiles…', a.manageProfiles),
+    cmd('file.migrateRevu', 'File', 'Migrate from Revu…', a.migrateRevu),
     cmd('file.shortcuts', 'File', 'Keyboard Shortcuts…', a.shortcuts),
     cmd('file.about', 'File', 'About redcolumn', a.about),
 
@@ -536,6 +554,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.ocr', 'Document', 'OCR…', a.ocr, s.pagesEditable),
     cmd('document.slipSheet', 'Document', 'Slip Sheet…', a.slipSheet, s.pagesEditable),
     cmd('document.revisions', 'Document', 'Revisions…', a.revisions, doc),
+    cmd('document.closeOut', 'Document', 'Close-out…', a.closeOut, doc),
     ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Bulk', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
     cmd('document.security', 'Document', 'Security…', a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
@@ -582,6 +601,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.selectText', 'Edit', 'Select Text', () => a.setTool('selectText'), doc, s.tool === 'selectText'),
     cmd('tools.columns', 'Tools', 'Markup Columns & Statuses…', a.manageColumns, doc),
     cmd('tools.assemblies', 'Tools', 'Assemblies…', a.manageAssemblies, doc),
+    cmd('tools.library', 'Tools', 'Browse Library…', a.browseLibrary, true),
     cmd('tools.quantities', 'Tools', 'Takeoff Quantities…', a.takeoffQuantities, doc),
     cmd('tools.scripts', 'Tools', 'Scripts…', a.scripts, doc),
     cmd('takeoff.manual', 'Tools', 'Manual Quantity…', a.manualQuantity, doc && s.editable, s.tool === 'manual'),
@@ -640,6 +660,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...(desktop() ? [] : [cmd('help.install', 'Help', 'Install App…', a.install)]),
     cmd('help.support', 'Help', 'Technical Support', () => a.help('support')),
     cmd('help.suggest', 'Help', 'Make a Suggestion', () => a.help('suggest')),
+    cmd('help.sponsor', 'Help', 'Sponsor', () => a.help('sponsor')),
     cmd('help.community', 'Help', 'redcolumn Community', () => a.help('community')),
     cmd('help.logs', 'Help', 'Send Log Files', () => a.help('logs')),
   ].map(applyCommandPolicy);

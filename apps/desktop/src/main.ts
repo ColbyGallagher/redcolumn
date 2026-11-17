@@ -11,13 +11,15 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
-import { checkSheets, checkTable, loadExcelLinks, writeWorkbook } from './excel';
+import { checkFill, checkLive, checkSheets, checkTable, fillWorkbook, loadExcelLinks, readSource, readWorkbookNow, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
 import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
+import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
+import { RevuSettings, revuSettingsRoot } from './revuSettings';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -73,11 +75,19 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.focus();
     }
   });
+  // macOS hands a clicked comment link to the running app (or the starting one) as an event.
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    noteArgv([url]);
+  });
   void app.whenReady().then(start);
 }
 
 async function start() {
   registerAppProtocol();
+  // Links to a comment (redcolumn://markup?…, see links.ts) open this app. Only the installed app
+  // registers: a development or test run must not take the links over.
+  if (app.isPackaged && !smoke && process.env.RECOLUMN_E2E !== '1') app.setAsDefaultProtocolClient(LINK_SCHEME);
   installMenu();
   installPermissions(session.defaultSession);
   const allowFile = path.join(app.getPath('userData'), 'path-allowlist.json');
@@ -163,6 +173,10 @@ async function start() {
   const systemFonts = new SystemFonts(systemFontDirs());
   handle('fonts:list', () => systemFonts.list());
   handle('fonts:read', (id) => systemFonts.read(id));
+  // Revu's settings folders, for the Revu migration wizard: library files only, ids and relative paths (revuSettings.ts).
+  const revuSettings = new RevuSettings(revuSettingsRoot());
+  handle('revu:scan', () => revuSettings.scan());
+  handle('revu:read', (id) => revuSettings.read(id));
   // Smart cards and USB tokens (token.ts), run in the card service (token-host.ts) so a card
   // waiting for its PIN never freezes the windows. Drivers are only ever picked here, in a native dialog.
   const tokens = new TokenClient(() => {
@@ -261,7 +275,37 @@ async function start() {
       await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
       return { id, name: path.basename(filePath) };
     });
-    handle('excel:write', (id, xlsx, table, extra) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra)));
+    handle('excel:write', (id, xlsx, table, extra, live) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra), checkLive(live)));
+    // Two-way sync reads the sheet it wrote and the hidden sheet beside it, nothing else in the workbook.
+    handle('excel:read', (id) => readWorkbookNow(excel.path(id), ['Markups', '_redcolumn']));
+    // A comment register in the client's own file: the page picks the client's blank file, reads it to
+    // place the rows, and Excel fills a copy in. The client's file itself is only ever read.
+    handle('excel:pick-source', async () => {
+      const win = mainWindow;
+      const options = { title: 'Choose the client’s register file', properties: ['openFile' as const], filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+      const filePath = result.filePaths[0];
+      if (result.canceled || !filePath || !/\.xlsx$/i.test(filePath)) return null;
+      const data = await readSource(filePath);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath), bytes: data };
+    });
+    handle('excel:read-source', (id) => readSource(excel.path(id)));
+    handle('excel:fill', async (sourceId, suggestedName, fill) => {
+      const source = excel.path(sourceId);
+      const request = checkFill(fill);
+      const win = mainWindow;
+      const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Comment register'}.xlsx`;
+      const options = { title: 'Save the filled-in register', defaultPath: path.join(path.dirname(source), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) return null;
+      const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
+      await fillWorkbook(source, filePath, request);
+      const id = excel.add(filePath);
+      await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
+      return { id, name: path.basename(filePath) };
+    });
     handle('excel:open', async (id) => {
       const failed = await shell.openPath(excel.path(id));
       if (failed) throw new Error(failed);

@@ -125,7 +125,54 @@ test('parseLength accepts decimals and feet-inches', () => {
   assert.equal(parseLength(`10'`, 'in'), 120);
   assert.equal(parseLength('abc', 'ft'), null);
   assert.equal(parseLength('0', 'ft'), null);
-  assert.equal(parseLength(`5'`, 'm'), null);
+  assert.equal(parseLength('-5', 'ft'), null);
+});
+
+test('parseLength reads any unit and converts to the scale unit', () => {
+  const near = (a: number | null, b: number) => assert.ok(a !== null && Math.abs(a - b) < 1e-9, `${a} ≈ ${b}`);
+  // Imperial typed under a metric scale.
+  near(parseLength(`1"`, 'mm'), 25.4);
+  near(parseLength('1 in', 'mm'), 25.4);
+  near(parseLength('1 inch', 'cm'), 2.54);
+  near(parseLength(`5'`, 'm'), 1.524);
+  near(parseLength(`3'-6"`, 'mm'), 1066.8);
+  near(parseLength(`302'9"`, 'm'), (302 + 9 / 12) * 0.3048);
+  near(parseLength('2 feet', 'm'), 0.6096);
+  near(parseLength(`1 1/2"`, 'mm'), 38.1);
+  near(parseLength('3/4in', 'mm'), 19.05);
+  // Metric typed under an imperial scale.
+  near(parseLength('25.4mm', 'in'), 1);
+  near(parseLength('1 m', 'ft'), 1 / 0.3048);
+  near(parseLength('30 cm', 'in'), 300 / 25.4);
+  // Within a system, exact.
+  assert.equal(parseLength('450mm', 'm'), 0.45);
+  assert.equal(parseLength('1m 25cm', 'mm'), 1250);
+  assert.equal(parseLength('1.5 metres', 'cm'), 150);
+  assert.equal(parseLength('2 yd', 'ft'), 6);
+  assert.equal(parseLength('6 in.', 'ft'), 0.5);
+  assert.equal(parseLength('5ft 3in', 'in'), 63);
+  // Marks and spacing users type.
+  assert.equal(parseLength(`5' 6`, 'ft'), 5.5);
+  assert.equal(parseLength(`2-1/2"`, 'in'), 2.5);
+  assert.equal(parseLength(`6''`, 'in'), 6);
+  assert.equal(parseLength('25′-6″', 'ft'), 25.5);
+  assert.equal(parseLength('10 FT', 'ft'), 10);
+  assert.equal(parseLength('.5', 'm'), 0.5);
+  assert.equal(parseLength('5 1/2', 'in'), 5.5);
+  // What formatLength writes reads back, digit groups and unit included.
+  assert.equal(parseLength('1,250.50 m', 'm'), 1250.5);
+  assert.equal(parseLength('2,500mm', 'm'), 2.5);
+  assert.equal(parseLength('12.5 ft', 'ft'), 12.5);
+  // A metric suffix that ends in the scale's unit letter is not cut short.
+  assert.equal(parseLength('450mm', 'm'), 0.45);
+  // Not lengths.
+  assert.equal(parseLength('1,25', 'm'), null);
+  assert.equal(parseLength('5 parsecs', 'm'), null);
+  assert.equal(parseLength('1m 25', 'mm'), null);
+  assert.equal(parseLength('5 6', 'ft'), null);
+  assert.equal(parseLength('1/0"', 'in'), null);
+  assert.equal(parseLength(`0'`, 'ft'), null);
+  assert.equal(parseLength('5.', 'ft'), null);
 });
 
 test('display quantities for spreadsheets', () => {

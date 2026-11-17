@@ -5,6 +5,7 @@ import type { EditRule, MarkupStore } from '@nb/markup';
 import type { RecordEntry } from '../protocol';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DriveProps } from './DriveApi';
 import { DriveSession } from './DriveSession';
+import type { PendingRoom, SessionJournal } from './pending';
 import { newIdentity, parseSecret } from '../crypto/keys';
 import { SessionCrypto } from '../crypto/sessionCrypto';
 import type { HostKeys } from '../crypto/store';
@@ -127,6 +128,21 @@ function fakeStore() {
 }
 
 const opts = { pollMs: 0, authorize: async () => {}, onRemoved: () => {} };
+class MemoryJournal implements SessionJournal {
+  saved = new Map<string, PendingRoom[]>();
+  fail = false;
+  failClear = false;
+  failRead = false;
+  async read(scope: string) {
+    if (this.failRead) throw new Error('Local journal could not be read');
+    return structuredClone(this.saved.get(scope) ?? []);
+  }
+  async write(scope: string, rooms: PendingRoom[]) {
+    if (this.fail || (this.failClear && !rooms.length)) throw new Error('Local storage unavailable');
+    this.saved.set(scope, structuredClone(rooms));
+  }
+  pending() { return [...this.saved.values()].flat(); }
+}
 const PDF = new TextEncoder().encode('%PDF-1.7').buffer as ArrayBuffer;
 
 async function twoAttendees() {
@@ -748,4 +764,141 @@ test('encrypted: the invite email never carries the key, and a seat cannot borro
   assert.deepEqual([enc.seats[seat.id]?.email, enc.seats[seat.id]?.verified], ['vic@x.com', true]);
   const may = (hana as unknown as { seatMay: (s: unknown, r: string) => boolean }).seatMay.bind(hana);
   assert.equal(may(enc.seats[seat.id], 'doc'), false, 'matched by the verified email, not the claimed name');
+});
+
+for (const encrypt of [false, true]) test(`pending chat and activity survive restart without duplicate IDs (encrypted=${encrypt})`, async () => {
+  const drive = new FakeStore();
+  const journal = new MemoryJournal();
+  const api = new FakeDrive(drive, 'hana');
+  const identity = person();
+  const hostKeys = memoryHostKeys();
+  const hana = await DriveSession.create(api, 'Review', 'Hana', { markup: true, addDocuments: true }, { ...opts, journal, encrypt, identity, hostKeys, linkCanEdit: true });
+  const secret = encrypt ? parseSecret(hana.getSnapshot().inviteLink) : undefined;
+  const doc = await hana.addDocument('plan.pdf', PDF);
+  const a = fakeStore();
+  await hana.attach(doc.id, a.store);
+  await hana.flush();
+  api.signedIn = false;
+  hana.sendChat('Pending clearance question');
+  a.markups.set('pending-markup', { id: 'pending-markup', type: 'cloud', pageIndex: 0, status: 'none' });
+  await hana.saveLocally();
+  const recordIds = hana.getSnapshot().record.map((e) => e.id).sort();
+  assert.equal(hana.getSnapshot().localSave, 'saved');
+  assert.ok(hana.getSnapshot().pendingChanges! > 0);
+  assert.ok(journal.pending().length >= 2, 'both activity and document updates are durable');
+  if (encrypt) {
+    assert.ok(journal.pending().every((r) => r.sealed));
+    assert.ok(!journal.pending().some((r) => new TextDecoder().decode(r.bytes).includes('clearance')));
+  }
+  await hana.flush();
+  assert.ok(journal.pending().length, 'failed upload does not clear durable operations');
+  const seat = seatOf(hana);
+  hana.destroy();
+  const again = await remembering(hana.id, seat, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, journal, identity, hostKeys, secret, interactive: true }));
+  const b = fakeStore();
+  await again.attach(doc.id, b.store);
+  assert.ok(b.markups.has('pending-markup'));
+  assert.deepEqual(again.getSnapshot().record.map((e) => e.id).sort(), recordIds);
+  await again.flush();
+  await again.poll();
+  assert.equal(again.getSnapshot().pendingChanges, 0);
+  assert.equal(journal.pending().length, 0);
+  assert.deepEqual(again.getSnapshot().record.map((e) => e.id).sort(), recordIds);
+  const observer = await DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, secret, identity: person(), interactive: true });
+  assert.equal(observer.getSnapshot().record.filter((e) => e.text === 'Pending clearance question').length, 1);
+  again.destroy(); observer.destroy();
+});
+
+test('a crash after upload but before clearing the journal replays exactly once', async () => {
+  const journal = new MemoryJournal();
+  const drive = new FakeStore();
+  const api = new FakeDrive(drive, 'hana');
+  const hana = await DriveSession.create(api, 'Review', 'Hana', { markup: true, addDocuments: true }, { ...opts, journal, linkCanEdit: true });
+  await hana.flush();
+  hana.sendChat('Uploaded before crash');
+  await hana.saveLocally();
+  journal.failClear = true;
+  await hana.flush();
+  assert.equal(hana.getSnapshot().localSave, 'error');
+  assert.ok(journal.pending().length);
+  const seat = seatOf(hana);
+  hana.destroy();
+  journal.failClear = false;
+  const again = await remembering(hana.id, seat, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, journal, interactive: true }));
+  await again.flush();
+  const observer = await DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true });
+  assert.equal(observer.getSnapshot().record.filter((e) => e.text === 'Uploaded before crash').length, 1);
+  assert.equal(journal.pending().length, 0);
+  again.destroy(); observer.destroy();
+});
+
+test('local storage failure is visible, blocks closeout and retries without losing chat', async () => {
+  const journal = new MemoryJournal();
+  const drive = new FakeStore();
+  const hana = await DriveSession.create(new FakeDrive(drive, 'hana'), 'Review', 'Hana', { markup: true, addDocuments: true }, { ...opts, journal, linkCanEdit: true });
+  await hana.flush();
+  const writes = drive.writes.length;
+  journal.fail = true;
+  hana.sendChat('Keep this open');
+  await assert.rejects(hana.saveLocally(), /Local storage/);
+  await hana.flush();
+  assert.equal(drive.writes.length, writes, 'upload is gated on local durability');
+  assert.equal(hana.getSnapshot().localSave, 'error');
+  await assert.rejects(hana.prepareCloseout(), /Local storage/);
+  journal.fail = false;
+  await hana.prepareCloseout();
+  assert.equal(hana.getSnapshot().localSave, 'saved');
+  assert.equal(hana.getSnapshot().pendingChanges, 0);
+  assert.equal(hana.getSnapshot().record.filter((e) => e.text === 'Keep this open').length, 1);
+  hana.destroy();
+});
+
+test('an edit during upload stays durable after the earlier upload is acknowledged', async () => {
+  const journal = new MemoryJournal();
+  const drive = new FakeStore();
+  const api = new FakeDrive(drive, 'hana');
+  const hana = await DriveSession.create(api, 'Review', 'Hana', { markup: true, addDocuments: true }, { ...opts, journal, linkCanEdit: true });
+  await hana.flush();
+  const create = api.createFile.bind(api);
+  let entered!: () => void;
+  const started = new Promise<void>((r) => { entered = r; });
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  api.createFile = async (...args) => { entered(); await gate; return create(...args); };
+  hana.sendChat('Earlier');
+  const uploading = hana.flush();
+  await started;
+  hana.sendChat('During upload');
+  await hana.saveLocally();
+  release();
+  await uploading;
+  assert.ok(hana.getSnapshot().pendingChanges! > 0);
+  assert.ok(journal.pending().length);
+  const seat = seatOf(hana);
+  hana.destroy();
+  const again = await remembering(hana.id, seat, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, journal, interactive: true }));
+  await again.flush();
+  const observer = await DriveSession.join(new FakeDrive(drive, 'sam'), hana.id, 'Sam', { ...opts, interactive: true });
+  for (const text of ['Earlier', 'During upload']) assert.equal(observer.getSnapshot().record.filter((e) => e.text === text).length, 1);
+  again.destroy(); observer.destroy();
+});
+
+test('failed recovery does not replace the saved journal with an empty queue', async () => {
+  const journal = new MemoryJournal();
+  const drive = new FakeStore();
+  const hana = await DriveSession.create(new FakeDrive(drive, 'hana'), 'Review', 'Hana', { markup: true, addDocuments: true }, { ...opts, journal, linkCanEdit: true });
+  hana.sendChat('Retain through failed recovery');
+  await hana.saveLocally();
+  const before = structuredClone(journal.pending());
+  const seat = seatOf(hana);
+  hana.destroy();
+  journal.failRead = true;
+  await assert.rejects(remembering(hana.id, seat, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, journal, interactive: true })), /could not be read/);
+  assert.deepEqual(journal.pending(), before);
+  journal.failRead = false;
+  const again = await remembering(hana.id, seat, () => DriveSession.join(new FakeDrive(drive, 'hana'), hana.id, 'Hana', { ...opts, journal, interactive: true }));
+  assert.equal(again.getSnapshot().record.filter((e) => e.text === 'Retain through failed recovery').length, 1);
+  await again.flush();
+  assert.equal(journal.pending().length, 0);
+  again.destroy();
 });

@@ -130,7 +130,10 @@ import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer'
 import { applyAffine, type Affine } from '../viewer/affine';
 import { drawGroupBox, groupAffine, groupFrame, groupHandleAt, onGroupOutline, type GroupFrame, type GroupHandle } from './groupBox';
 import { toolFieldsPatch, type ToolFields } from './selectionFormat';
-import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadContext, type CadPick, type CadTool } from './cadTools';
+import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadChanges, type CadContext, type CadPick, type CadTool } from './cadTools';
+
+/** A CAD Modify tool in use: its page, the points picked so far, and where the pointer is. */
+type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean };
 
 /**
  * `calibrate` draws a temporary line whose real length the user then enters. `labelRegion` draws a
@@ -643,7 +646,9 @@ export class MarkupTools implements ViewerOverlay {
   /** Where the connector being drawn began (its first point is moved onto the shape it glues to). */
   private connectStart: Point | null = null;
   /** A CAD Modify tool's steps: the page, the points picked so far and where the pointer is. */
-  private cad: { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean } | null = null;
+  private cad: CadSession | null = null;
+  /** A mirror is turning its pictures over before it is made (`commitMirroredPictures`). */
+  private cadPending = false;
   /** The markups the pointer is over that the tool's next click would pick (highlighted so it is clear what a click takes). */
   private pickIds: string[] = [];
   private hoveredLink: string | null = null;
@@ -4712,8 +4717,81 @@ export class MarkupTools implements ViewerOverlay {
     return this.resolve(pt, mods, picks.at(-1)?.at ?? null);
   }
 
+  /** A CAD edit made as one undo step, then the tool carries on (`again`) or hands back to Select. */
+  private commitCad(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }) {
+    const { update, add, remove } = done;
+    store.checkpoint();
+    store.batch(() => {
+      if (remove.length) store.remove(remove);
+      for (const [id, patch] of update) store.update(id, patch);
+      for (const m of add) store.add(m);
+    });
+    // The tool was put down or changed while the edit waited: it is not picked back up.
+    if (this.cad !== c) return;
+    c.picks = r.picks ?? [];
+    // The step is done: its snap marker and tracking lines go until the pointer moves again.
+    this.snapHit = null;
+    this.clearTracking();
+    const selected = new Set(r.select.filter((id) => store.get(id)));
+    if (r.again) this.setState({ selected, cad: { picks: c.picks.length, error: null } });
+    else {
+      this.cad = null;
+      this.setState({ tool: 'select', selected, cad: null });
+      this.viewer.refreshPointerCursor();
+    }
+  }
+
+  /**
+   * A mirror whose pictures turn their pixels over too (Mirror pictures). The pictures are turned over
+   * first and the whole edit is then made at once, with each picture's crop turned over with it as
+   * Flip does, so one undo puts everything back. If the markups changed while the pictures were being
+   * turned over (a delete, a drag, an undo, someone else's edit), or the tool was put down, nothing is
+   * made.
+   */
+  private async commitMirroredPictures(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }, sources: readonly string[]) {
+    const patches = new Map(done.update);
+    const added = new Map(done.add.map((m) => [m.id, m]));
+    // What the mirrored markups looked like when the mirror was worked out: the selection it was worked
+    // out from (copies are placed from it) and any markup it edits in place.
+    const stamps = new Map([...sources, ...done.update.map(([id]) => id)].map((id) => [id, store.get(id)?.modifiedAt]));
+    // Its points are all picked, so one Esc while it waits leaves the tool (and so calls the mirror off).
+    c.picks = [];
+    this.setState({ cad: { picks: 0, error: null } });
+    this.cadPending = true;
+    let flipped: (Pick<Markup, 'image' | 'crop'> | null)[];
+    try {
+      flipped = await Promise.all(
+        (done.mirrorPictures ?? []).map(async ([id, axis]) => {
+          const m = added.get(id) ?? store.get(id);
+          if (!m?.image) return null;
+          const image = await mirrorDataUrl(m.image, axis).catch(() => null);
+          const crop = cropOf(m);
+          return image ? { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}) } : null;
+        }),
+      );
+    } finally {
+      this.cadPending = false;
+    }
+    // The tool was put down (Esc, another tool) while the pictures were turning over: the mirror is off.
+    if (this.cad !== c) return;
+    if (this.store !== store || [...stamps].some(([id, at]) => store.get(id)?.modifiedAt !== at)) {
+      this.setState({ cad: { picks: c.picks.length, error: 'The markups changed while mirroring; mirror again' } });
+      return;
+    }
+    (done.mirrorPictures ?? []).forEach(([id], i) => {
+      const pixels = flipped[i];
+      if (!pixels) return;
+      const copy = added.get(id);
+      if (copy) added.set(id, { ...copy, ...pixels });
+      else patches.set(id, { ...patches.get(id), ...pixels });
+    });
+    this.commitCad(store, c, { ...done, update: [...patches], add: done.add.map((m) => added.get(m.id) ?? m) }, r);
+  }
+
   /** A click with a CAD Modify tool: the next pick, a markup picked, or the edit made as one undo step. */
   private cadClickAt(tool: CadTool, pt: PagePoint, e: Modifiers, pageIndex: number) {
+    // A mirror is still turning its pictures over: the next click waits for it.
+    if (this.cadPending) return;
     const store = this.store!;
     let c = this.cad;
     if (!c || c.tool !== tool) c = this.cad = { tool, pageIndex, picks: [], hover: null, shift: false };
@@ -4725,30 +4803,15 @@ export class MarkupTools implements ViewerOverlay {
     // What was under the pointer is picked (or not) now; the next move finds the next target.
     this.pickIds = [];
     const p = this.cadPoint(tool, pt, e);
-    const r = cadClick(tool, c.picks, p, this.cadContext(pageIndex, e.shiftKey));
+    const ctx = this.cadContext(pageIndex, e.shiftKey);
+    const r = cadClick(tool, c.picks, p, ctx);
     if ('error' in r) {
       this.setState({ cad: { picks: c.picks.length, error: r.error } });
       return;
     }
     if ('done' in r) {
-      const { update, add, remove } = r.done;
-      store.checkpoint();
-      store.batch(() => {
-        if (remove.length) store.remove(remove);
-        for (const [id, patch] of update) store.update(id, patch);
-        for (const m of add) store.add(m);
-      });
-      c.picks = r.picks ?? [];
-      // The step is done: its snap marker and tracking lines go until the pointer moves again.
-      this.snapHit = null;
-      this.clearTracking();
-      const selected = new Set(r.select.filter((id) => store.get(id)));
-      if (r.again) this.setState({ selected, cad: { picks: c.picks.length, error: null } });
-      else {
-        this.cad = null;
-        this.setState({ tool: 'select', selected, cad: null });
-        this.viewer.refreshPointerCursor();
-      }
+      if (r.done.mirrorPictures?.length) void this.commitMirroredPictures(store, c, r.done, r, ctx.selected.map((m) => m.id));
+      else this.commitCad(store, c, r.done, r);
       return;
     }
     if ('select' in r) {

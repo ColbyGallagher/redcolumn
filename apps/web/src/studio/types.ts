@@ -28,6 +28,12 @@ export interface StudioSnapshot {
   /** This attendee's Microsoft email, when signed in. */
   email?: string | null;
   status: ConnectionStatus;
+  /** Local durability and writes to the configured storage, not delivery to other reviewers. */
+  pendingChanges?: number;
+  localSave?: 'saving' | 'saved' | 'error';
+  syncing?: boolean;
+  /** Changes to review rooms, including remote changes; excludes participant presence. */
+  revision?: number;
   record: RecordEntry[];
   presence: Presence[];
   /** A link that opens this session in the app. */
@@ -80,6 +86,9 @@ export interface CollabSession {
   /** Sends a Markup Alert: everyone is shown the markup and can jump to it. */
   sendAlert(docId: string, markupId: string, page: number, text: string): void;
   update(patch: SessionUpdate): Promise<void>;
+  /** Refresh and confirm this participant's writes before preparing a closeout archive. */
+  prepareCloseout?(): Promise<void>;
+  saveLocally?(): Promise<void>;
   /**
    * Host: ends the session for good. It finishes (everyone's documents become read-only), then
    * its folder and every file in it go to the drive's trash. Save anything wanted first.

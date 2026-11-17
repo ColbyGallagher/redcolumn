@@ -23,6 +23,44 @@ async function rect(app: App): Promise<MarkupInfo> {
   return (await app.markups()).at(-1)!;
 }
 
+/** Picks picture.png with the Image tool, places it beside the mirror line at x = 400 and goes back to Select. */
+async function placePicture(app: App) {
+  if (app.kind === 'desktop') await app.answerOpenDialog(app.fixture('picture.png'));
+  const chooser = app.kind === 'desktop' ? null : app.page.waitForEvent('filechooser');
+  await app.cmd('tool.image');
+  if (chooser) await (await chooser).setFiles(app.fixture('picture.png'));
+  await expect.poll(async () => (await app.toolState()).tool).toBe('image');
+  await app.drag([300, 450], [380, 500]);
+  await app.tool('select');
+  return (await app.raw()).find((m) => m.type === 'image')!;
+}
+
+type Raw = Awaited<ReturnType<App['raw']>>[number] | undefined;
+const xs = (m: Raw) => (m!.points as number[][]).map(([x]) => x!);
+/** Upright, give or take how square the clicked mirror line was. */
+const upright = (m: Raw) => Math.abs((m!.rotation as number | undefined) ?? 0) < 0.01;
+
+/** True if each row of picture `b` is the same row of picture `a` read right to left. */
+function reversedRows(app: App, a: string, b: string): Promise<boolean> {
+  return app.page.evaluate(async ([a, b]) => {
+    const rows = async (src: string) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(img, 0, 0);
+      return { w: c.width, h: c.height, d: ctx.getImageData(0, 0, c.width, c.height).data };
+    };
+    const [x, y] = [await rows(a), await rows(b)];
+    if (x.w !== y.w || x.h !== y.h) return false;
+    for (let r = 0; r < x.h; r++) for (let c = 0; c < x.w; c++) for (let k = 0; k < 4; k++) if (x.d[(r * x.w + c) * 4 + k] !== y.d[(r * x.w + (x.w - 1 - c)) * 4 + k]) return false;
+    return true;
+  }, [a, b] as [string, string]);
+}
+
 test.describe('modify', () => {
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');
@@ -113,6 +151,111 @@ test.describe('modify', () => {
     // Counter-clockwise on paper: the far end turns up the page.
     const turned = (await app.markups()).find((m) => m.id === l.id)!;
     expect(round(turned.points)).toEqual([[300, 600], [300, 550]]);
+  });
+
+  test('mirror keeps a picture upright; with Mirror pictures ticked it reverses it', async ({ app }) => {
+    const before = await placePicture(app);
+    const id = before.id as string;
+
+    // Unticked: moved across x = 400 and kept upright, its pixels as they were.
+    await select(app, [id]);
+    await app.cmd('edit.mirror');
+    await bar(app).getByLabel('Keep original', { exact: true }).setChecked(false);
+    await expect(bar(app).getByLabel('Mirror pictures')).not.toBeChecked();
+    await app.clicks([[400, 300], [400, 650]]);
+    await expect.poll(async () => Math.round(Math.min(...xs((await app.raw())[0])))).toBe(Math.round(800 - Math.max(...xs(before))));
+    const [moved] = await app.raw();
+    expect(upright(moved)).toBe(true);
+    expect(moved!.image).toBe(before.image);
+
+    // Ticked: mirrored back, and each row of the picture now reads right to left.
+    await select(app, [id]);
+    await app.cmd('edit.mirror');
+    await bar(app).getByLabel('Mirror pictures').setChecked(true);
+    await app.clicks([[400, 300], [400, 650]]);
+    await expect.poll(async () => (await app.raw())[0]!.image).not.toBe(before.image);
+    const [after] = await app.raw();
+    expect(upright(after)).toBe(true);
+    expect(Math.round(Math.min(...xs(after)))).toBe(Math.round(Math.min(...xs(before))));
+    expect(await reversedRows(app, String(before.image), String(after!.image))).toBe(true);
+
+    // One undo puts back both where it was and its pixels.
+    await app.cmd('edit.undo');
+    const [undone] = await app.raw();
+    expect(undone!.image).toBe(before.image);
+    expect(undone!.points).toEqual(moved!.points);
+  });
+
+  test('Mirror pictures with Keep original reverses the copy and its crop, and leaves the original alone', async ({ app }) => {
+    const placed = await placePicture(app);
+    const id = placed.id as string;
+    // Crop it to about its left half.
+    const [[x0, y0], [x1, y1]] = placed.points as [[number, number], [number, number]];
+    const w = x1 - x0;
+    const h = y1 - y0;
+    await select(app, [id]);
+    await app.cmd('edit.cropImage');
+    await expect.poll(async () => (await app.toolState()).tool).toBe('cropImage');
+    await app.drag([x0 + 0.05 * w, y0 + 0.1 * h], [x0 + 0.55 * w, y0 + 0.9 * h]);
+    const [original] = await app.raw();
+    const crop = original!.crop as { x: number; y: number; w: number; h: number };
+    expect(crop).toBeTruthy();
+
+    await select(app, [id]);
+    await app.cmd('edit.mirror');
+    await bar(app).getByLabel('Keep original', { exact: true }).setChecked(true);
+    await bar(app).getByLabel('Mirror pictures').setChecked(true);
+    await app.clicks([[400, 300], [400, 650]]);
+    await expect.poll(async () => (await app.raw()).filter((m) => m.type === 'image').length).toBe(2);
+    const pictures = (await app.raw()).filter((m) => m.type === 'image');
+    const kept = pictures.find((m) => m.id === id)!;
+    const copy = pictures.find((m) => m.id !== id)!;
+    expect(kept.image, 'the original keeps its pixels').toBe(original!.image);
+    expect(kept.crop).toEqual(crop);
+    expect(await reversedRows(app, String(original!.image), String(copy.image))).toBe(true);
+    // The copy shows the same part of the picture, now on the other side of the reversed pixels.
+    const turned = copy.crop as typeof crop;
+    expect(turned.x).toBeCloseTo(1 - crop.x - crop.w, 6);
+    expect([turned.y, turned.w, turned.h]).toEqual([crop.y, crop.w, crop.h]);
+    expect(upright(copy)).toBe(true);
+
+    // One undo takes the copy away.
+    await app.cmd('edit.undo');
+    const left = (await app.raw()).filter((m) => m.type === 'image');
+    expect(left.map((m) => m.id)).toEqual([id]);
+  });
+
+  test('a slow Mirror pictures is called off by Esc, or when the original changes meanwhile', async ({ app }) => {
+    const placed = await placePicture(app);
+    const id = placed.id as string;
+    // Pictures take a second to decode, so there is time to act while the mirror waits.
+    await app.page.evaluate(() => {
+      const decode = HTMLImageElement.prototype.decode;
+      HTMLImageElement.prototype.decode = function () {
+        return new Promise<void>((done) => setTimeout(done, 1000)).then(() => decode.call(this));
+      };
+    });
+    const mirror = async () => {
+      await select(app, [id]);
+      await app.cmd('edit.mirror');
+      await bar(app).getByLabel('Keep original', { exact: true }).setChecked(true);
+      await bar(app).getByLabel('Mirror pictures').setChecked(true);
+      await app.clicks([[400, 300], [400, 650]]);
+    };
+    const pictures = async () => (await app.raw()).filter((m) => m.type === 'image');
+
+    // Esc while it waits: one press leaves the tool, and no copy is made.
+    await mirror();
+    await app.page.keyboard.press('Escape');
+    await app.page.waitForTimeout(1500);
+    expect((await pictures()).map((m) => m.id)).toEqual([id]);
+    expect((await app.toolState()).tool).toBe('select');
+
+    // The original deleted while it waits: no copy of it appears, and the bar says why.
+    await mirror();
+    await app.page.evaluate((id) => window.__nb.tools.store!.remove([id]), id);
+    await expect(bar(app)).toContainText('The markups changed while mirroring');
+    expect(await pictures()).toEqual([]);
   });
 
   test('align to points moves a markup by two point pairs; stretch drags the points in a window', async ({ app }) => {

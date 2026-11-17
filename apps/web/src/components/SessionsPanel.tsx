@@ -478,6 +478,20 @@ function InSession({
           </div>
         )}
         {viewOnly && <p className="rc-banner">View only: the session folder is shared with you read-only.</p>}
+        {!ended && snapshot.localSave && (
+          <div className={snapshot.localSave === 'error' ? 'session-error' : 'rc-banner'} role="status" aria-label="Session sync status">
+            {snapshot.localSave === 'error'
+              ? 'Changes could not be saved on this device. Keep redcolumn open and retry.'
+              : snapshot.localSave === 'saving'
+                ? 'Saving changes on this device…'
+                : snapshot.pendingChanges
+                  ? `Saved on this device · ${snapshot.pendingChanges} updates waiting to sync${snapshot.syncing ? ' (syncing…)' : ''}.`
+                  : inFolder
+                    ? 'No pending changes on this device. Delivery to other reviewers depends on your folder sync.'
+                    : 'No pending changes on this device. Writes to OneDrive are complete.'}
+            {(snapshot.localSave === 'error' || !!snapshot.pendingChanges) && <button className="rc-text-btn" onClick={() => session.retry()}>Retry sync</button>}
+          </div>
+        )}
         {!isHost && access === 'view' && !finished && !denied && <p className="rc-banner">You can view documents and chat. The host has not given you comment access.</p>}
         {finished && !ended && <p className="rc-banner">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
         {ended && <p className="session-error">The host ended this session and removed its files. Documents you have open stay read-only until you close them.</p>}

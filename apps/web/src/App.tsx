@@ -17,8 +17,10 @@ import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useC
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, keepRevisionOf, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
+import { studioFileId, studioDocOf } from './studio/documentId';
+import { saveConfirmedArchiveFile } from './studio/archive';
 import { DriveAuthError } from './studio/drive/DriveApi';
 import { microsoftUser, OneDrive, subscribeMicrosoftUser, oneDriveSharingEnabled, parseOneDriveInvite, signInWithMicrosoft } from './studio/drive/onedrive';
 import { currentSessions, type SessionRef } from './studio/local';
@@ -30,8 +32,22 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
 import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
+import { exportListWorkbook, planImport } from './sheetsync/importExcel';
+import { isOpenChange, patchesFor } from './sheetsync/apply';
+import type { CellChange } from './sheetsync/merge';
+import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
+import { ImportExcelDialog } from './components/ImportExcelDialog';
+import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { checkMarkupLink, linkedFile, markupLinkUrl, parseMarkupQuery, stripMarkupQuery, type LinkBase, type MarkupLink } from './sheetsync/links';
+import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
+import { CloseOutDialog } from './components/CloseOutDialog';
+import { THUMB_PX, type RegisterThumb } from './sheetsync/register';
+import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
-import { useSheetSync } from './sheetsync/useSheetSync';
+import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
+import { NEW_REPLY, replyColumn, toSyncTable } from './sheetsync/keyed';
+import { NEW_REPLY_LABEL } from './sheetsync/importExcel';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
@@ -144,6 +160,7 @@ import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
 import { CommandPalette } from './components/CommandPalette';
 import { ShortcutsDialog } from './components/ShortcutsDialog';
+import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
@@ -210,6 +227,9 @@ import { forgetText, fromOtherTools, importPdfAnnotations, readGeoRegions, readP
 import { requireOnline } from './offline/network';
 import { updateGate } from './offline/updates';
 import { InstallDialog } from './components/InstallDialog';
+import { LibraryDialog } from './components/LibraryDialog';
+import { installPack } from './library/install';
+import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
 import { hostDocumentId } from './desktop/embedHost';
@@ -401,6 +421,9 @@ async function pickTemplate(templates: readonly StoredFile[]): Promise<StoredFil
   return templates.find((t) => t.id === id) ?? null;
 }
 
+/** One empty list, so a profile without templates gives the same value every render. */
+const NO_REGISTER_TEMPLATES: RegisterTemplate[] = [];
+
 /** Asks the user for one file of the given types; null if they cancel. */
 function pickFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {
@@ -513,16 +536,6 @@ function anchorDownload(name: string, blob: Blob) {
 /** Stops PDFium drawing annotations that were imported as editable markups. */
 async function hideImported(doc: PdfDocument, store: MarkupStore) {
   await Promise.all(Object.entries(store.importedAnnotations()).map(([page, indices]) => doc.hideAnnotations(Number(page), indices)));
-}
-
-/** Library-style ids for documents opened from a Live Session: `studio:<session>:<doc>`. */
-function studioFileId(sessionId: string, docId: string) {
-  return `studio:${sessionId}:${docId}`;
-}
-
-function studioDocOf(fileId: string | undefined): { sessionId: string; docId: string } | null {
-  const m = fileId ? /^studio:([^:]+):(.+)$/.exec(fileId) : null;
-  return m ? { sessionId: m[1]!, docId: m[2]! } : null;
 }
 
 const STUDIO_HASHES = 'nb.studio.docs';
@@ -1101,6 +1114,17 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
+  const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** A link to a comment being followed: its document is opening, and the comment is gone to once its markups are there. */
+  const [pendingLink, setPendingLink] = useState<{ fileId: string; markupId: string; since: number } | null>(null);
+  /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
+  const [closeOutOpen, setCloseOutOpen] = useState(false);
+  const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
+  /** Export Comment Register, and the template editor (on one template, or the list). */
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
+  const [importExcel, setImportExcel] = useState<{ fileId: string; fileName: string; book: ReadWorkbook; aliases: Record<string, Record<string, string>> } | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportsBusy, setReportsBusy] = useState(false);
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -1185,6 +1209,7 @@ export function App() {
     return () => window.removeEventListener('nb-update-ready', ready);
   }, []);
   const [installOpen, setInstallOpen] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   useEffect(() => {
     const host = desktop();
     if (host) void host.assistantInfo().then((info) => setAssistantOn(info.enabled));
@@ -1264,6 +1289,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
@@ -2175,6 +2201,40 @@ export function App() {
     },
     [openStored, activateTab, refreshLibrary, split, activePane],
   );
+
+  /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
+  const openMarkupLink = useCallback(
+    async (link: MarkupLink) => {
+      const file = linkedFile(await listFiles(), link);
+      if (!file) {
+        setNotice(`The document this link is for${link.name ? ` (${link.name})` : ''} is not in the library on this device.`);
+        return;
+      }
+      setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
+      await openFromLibrary(file);
+    },
+    [openFromLibrary],
+  );
+  const openMarkupLinkRef = useRef(openMarkupLink);
+  openMarkupLinkRef.current = openMarkupLink;
+  useEffect(() => {
+    if (!ctl || !libraryReady) return;
+    const follow = (links: readonly unknown[]) => {
+      // One at a time: the last link clicked is the one that shows.
+      const link = checkMarkupLink(links[links.length - 1] as MarkupLink | undefined);
+      if (link) void openMarkupLinkRef.current(link);
+    };
+    // The web app is opened at a link's address; the desktop app is handed the link.
+    const inAddress = parseMarkupQuery(window.location.search);
+    if (inAddress) {
+      stripMarkupQuery();
+      follow([inAddress]);
+    }
+    const host = desktop();
+    void host?.takeMarkupLinks?.().then(follow, () => undefined);
+    return host?.onMarkupLinks?.(follow);
+    // Once, when the viewer and the library are ready.
+  }, [ctl, libraryReady]);
 
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
@@ -3092,7 +3152,13 @@ export function App() {
             const targetLabels = cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number ?? null);
             const plan = planSlipSheet(targetLabels, incoming, spec.mode, spec.addUnmatched);
             const labelOf = (p: IncomingPage) => p.label ?? `${opened[p.source]!.name} p${p.page + 1}`;
-            if (!plan.replace.length && !plan.add.length) return { plan, labelOf };
+            if (!plan.replace.length && !plan.add.length) return { plan, labelOf, left: 0 };
+            // Comments on the sheets being replaced: the revision they were raised on is the one going out,
+            // and the closed ones stay with it when asked.
+            const replaced = new Set(plan.replace.map((r) => r.target));
+            const before = cur.store.all();
+            const raised = raisedRevisions(before, cur.store.allSheets(), replaced);
+            const behind = spec.leaveClosed ? closedComments(before, replaced, closedStatuses(closeOutTemplateOf(cur.store))) : [];
 
             const moves = new Map<number, { scale: number; dx: number; dy: number }>();
             if (spec.alignMarkups)
@@ -3119,24 +3185,35 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            await keepRevision(cur.file.id, `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`);
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
+            // The revision kept is the stored file, which has no markups in it. Comments left behind are
+            // written into the copy that is kept, so they can still be read there.
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, `${note} (with its markups: ${behind.length} closed comment${behind.length === 1 ? '' : 's'} left behind)`);
+            else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
+              cur.store.batch(() => {
+                for (const [id, raisedRev] of raised) cur.store.update(id, { raisedRev });
+                cur.store.remove(behind.map((m) => m.id));
+              });
               cur.store.transformPages(moves);
+              // The replaced sheets are the new revision now.
+              cur.store.setDetectedSheets(plan.replace.flatMap((r) => (opened[r.incoming.source]!.sheets[r.incoming.page] ? [[r.target, opened[r.incoming.source]!.sheets[r.incoming.page]!] as [number, SheetInfo]] : [])));
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
             }, undefined, 'Slip Sheet');
-            return { plan, labelOf };
+            return { plan, labelOf, left: behind.filter((m) => !cur.store.get(m.id)).length };
           } finally {
             for (const o of opened) void o.doc.close();
           }
         });
-        const { plan, labelOf } = report;
+        const { plan, labelOf, left } = report;
         const list = (items: IncomingPage[]) => items.slice(0, 8).map(labelOf).join(', ') + (items.length > 8 ? ` and ${items.length - 8} more` : '');
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
           plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
         setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
         void refreshLibrary();
@@ -3147,7 +3224,7 @@ export function App() {
         job.end();
       }
     },
-    [ctl, swapDocument, refreshLibrary],
+    [ctl, swapDocument, refreshLibrary, registerTemplates, closeOutTemplate],
   );
 
   /** Revisions: a kept version made the document's contents again (the current one is kept too). */
@@ -4345,27 +4422,30 @@ export function App() {
     const stores = [...tabsA, ...tabsB];
     let last: boolean | null = null;
     const report = () => {
-      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t));
+      const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) || sessions.some((s) => {
+        const state = s.getSnapshot().localSave;
+        return state === 'saving' || state === 'error';
+      });
       if (on !== last) host.setUnsavedChanges!((last = on));
     };
     report();
-    const offs = stores.map((t) => t.store.subscribe(report));
+    const offs = [...stores.map((t) => t.store.subscribe(report)), ...sessions.map((s) => s.subscribe(report))];
     return () => offs.forEach((off) => off());
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // In a browser, leaving or refreshing the page while documents have unsaved changes asks first
   // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
   useEffect(() => {
     if (desktop()) return;
     const stores = [...tabsA, ...tabsB];
     const warn = (e: BeforeUnloadEvent) => {
-      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t))) return;
+      if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) && !sessions.some((s) => ['saving', 'error'].includes(s.getSnapshot().localSave ?? ''))) return;
       e.preventDefault();
       // Older browsers show the prompt only when returnValue is set.
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);
-  }, [tabsA, tabsB, savedTick]);
+  }, [tabsA, tabsB, savedTick, sessions]);
   // Document Recovery: remember which open documents have changes not saved to their file.
   const recovery = prefs.documentRecovery;
   useEffect(() => {
@@ -4399,6 +4479,8 @@ export function App() {
               if (!(await settleUnsaved(pane, t.file.id))) return;
             }
           }
+          try { await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.())); }
+          catch { setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.'); return; }
           host.closeWindow?.();
         } finally {
           asking = false;
@@ -4745,7 +4827,7 @@ export function App() {
     async (sessionId: string, choice: EndSessionChoice, onProgress: (p: EndProgress) => void = () => {}) => {
       const session = sessionById(sessionId);
       if (!session?.end) return;
-      const meta = session.meta;
+      let meta = session.meta;
       const saving = choice.pdfs || choice.markupsCsv || choice.recordCsv || choice.reportPdf;
       // Each file is made, then saved; then documents go back to the library; then the session is removed.
       const made = (choice.pdfs ? meta.documents.length : 0) + (choice.markupsCsv && meta.documents.length ? 1 : 0) + (choice.recordCsv ? 1 : 0) + (choice.reportPdf ? 1 : 0);
@@ -4771,6 +4853,12 @@ export function App() {
       } else if (saving && choice.destination === 'onedrive') await authorizeMicrosoft();
       else if (saving && choice.destination === 'project' && choice.projectId) project = projectById(choice.projectId) ?? (await openProject(choice.projectId, authorRef.current, true, false));
 
+      // Ask for a destination while the initiating user gesture is still available.
+      // Then confirm our writes and refresh the shared state before preparing exports.
+      await session.prepareCloseout?.();
+      meta = session.meta;
+      const reviewState = () => JSON.stringify({ documents: session.meta.documents, revision: session.getSnapshot().revision, record: session.getSnapshot().record });
+      const archivedState = reviewState();
       const files: { name: string; blob: Blob }[] = [];
       if (choice.pdfs && meta.documents.length) {
         const { exportWithAnnotations } = await import('@nb/markup/export');
@@ -4830,9 +4918,9 @@ export function App() {
           } else {
             for (const f of files) {
               step(`Saving ${f.name}`);
-              download(f.name, f.blob);
+              await saveConfirmedArchiveFile(f.name, f.blob);
             }
-            where = 'your Downloads';
+            where = 'the files you chose';
           }
         } else if (choice.destination === 'onedrive') {
           const folder = `${meta.name} (ended ${stamp})`;
@@ -4857,6 +4945,8 @@ export function App() {
       }
 
       // Session Roundtrip: library documents take the session's markups (and its newer revision, if the host updated it).
+      await session.prepareCloseout?.();
+      if (reviewState() !== archivedState) throw new Error('The review changed while its archive was being saved. Its shared files have been kept. Check the latest changes and save the archive again.');
       const sentBack: string[] = [];
       for (const d of meta.documents) {
         const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
@@ -6270,7 +6360,7 @@ export function App() {
   };
 
   /** Draws with a tool library tool. */
-  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = settings.get().toolChestMode) => {
+  const useToolItem = (item: ToolChestItem, mode: 'copy' | 'style' = item.mode ?? settings.get().toolChestMode) => {
     const tools = activeTools;
     if (!tools) return;
     if (item.markups?.length && mode === 'copy') {
@@ -6413,6 +6503,141 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  // Import from Excel: what the workbook would change, against every markup and column (not only those the list shows).
+  const importPlan = useMemo(
+    () =>
+      importExcel && activeOpen?.file.id === importExcel.fileId
+        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, templates: registerTemplates }, { docId: importExcel.fileId, aliases: importExcel.aliases })
+        : null,
+    // The context is rebuilt every render; these are what it depends on.
+    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet, registerTemplates],
+  );
+  const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
+  /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
+  /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
+  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
+  // A followed link: once its document is in front and has its markups, go to the comment.
+  useEffect(() => {
+    if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
+    const m = markups.find((x) => x.id === pendingLink.markupId);
+    if (m) {
+      setPendingLink(null);
+      const b = shapeBounds(m);
+      const pad = Math.max(48, Math.max(b.w, b.h));
+      navigate(m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      (paneB ? ctlB : ctl)?.tools.select([m.id]);
+      return;
+    }
+    // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
+    const wait = setTimeout(() => {
+      setPendingLink(null);
+      setNotice('The comment this link is for is no longer in the document.');
+    }, Math.max(0, pendingLink.since + 8000 - Date.now()));
+    return () => clearTimeout(wait);
+    // The markups are what is waited for.
+  }, [pendingLink, activeOpen?.file.id, markups]);
+
+  /** A picture of each markup with the drawing around it, for a register's thumbnail column. Small JPEGs: they travel by email. */
+  const registerThumbs = async (o: OpenFile, list: readonly Markup[]) => {
+    const out = new Map<string, RegisterThumb>();
+    for (const m of list) {
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, THUMB_PX / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      const blob = await new Promise<Blob | null>((done) => flat.toBlob(done, 'image/jpeg', 0.7));
+      if (blob) out.set(m.id, { data: new Uint8Array(await blob.arrayBuffer()), type: 'jpeg', width: flat.width, height: flat.height });
+    }
+    return out;
+  };
+
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => {
+    if (!activeOpen) return;
+    const { fill } = options;
+    // A comment's first export records the revision of its sheet: what it was raised on.
+    const listed = registerMarkups(scope);
+    const raised = raisedRevisions(listed, sheets);
+    if (raised.size) {
+      const store = activeOpen.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, raisedRev] of raised) store.update(id, { raisedRev });
+      });
+      store.checkpoint();
+    }
+    // Links open the comment in the app they were made in: the desktop app's own scheme, or this web address.
+    const linkBase: LinkBase = desktop() ? { kind: 'desktop' } : { kind: 'web', href: window.location.href };
+    const linkFile = activeOpen.file;
+    const linkOf = (markupId: string) => markupLinkUrl(linkBase, { doc: linkFile.id, markup: markupId, name: linkFile.name });
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values, linkOf };
+    const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
+    const excel = localExcel();
+    if (fill && template.clientFile && excel?.readSource && excel.fill) {
+      // The client's own file: read it to place the rows, then Excel fills a copy in.
+      try {
+        const plan = planFill(await readWorkbook(await excel.readSource(template.clientFile.id)), register);
+        if (!plan.ok) {
+          setError(plan.problem);
+          return;
+        }
+        const saved = await excel.fill(template.clientFile.id, name, plan.fill);
+        if (!saved) return;
+        setNotice(`${saved.name} saved: the register in a copy of ${template.clientFile.name}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The client’s file could not be filled in.');
+        return;
+      }
+    } else {
+      let thumbnails: Map<string, RegisterThumb> | undefined;
+      try {
+        if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
+      } catch (err) {
+        setError(`The thumbnails could not be made: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    }
+    setRegisterOpen(false);
+  };
+  const exportMarkupsXlsx = () => {
+    if (!activeOpen) return;
+    // Preferences › Markups List › Exclude Filtered Markups on Export, as for the CSV.
+    const only = prefs.excludeFilteredOnExport;
+    const rows = withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext);
+    const bytes = exportListWorkbook({ rows, columns: visibleListColumns, statuses: columnSet.statuses, docId: activeOpen.file.id, exportedAt: new Date().toISOString() });
+    download(activeOpen.file.name.replace(/\.pdf$/i, '') + ' markups.xlsx', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  };
+  const importMarkupsXlsx = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (!file) return;
+    try {
+      if (file.size > READ_LIMITS.maxBytes) throw new Error('That workbook is too large to import.');
+      const book = await readWorkbook(new Uint8Array(await file.arrayBuffer()));
+      setImportExcel({ fileId: cur.file.id, fileName: file.name, book, aliases: {} });
+    } catch (err) {
+      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  // A two-way link has its own columns and every markup: a filter or a hidden column in the list must not look like deleted rows or columns.
+  const syncColumns = sheetSync.link?.columns;
+  const syncKeyed = useMemo(() => {
+    if (!syncColumns || !isTwoWay(sheetSync.link)) return null;
+    const all = new Map(listColumns(columnSet.columns).map((c) => [c.key, c]));
+    const columns = syncColumns.flatMap((k) => all.get(k) ?? []);
+    return toSyncTable(withThreads(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, {}, null), cellContext), columns, { statuses: columnSet.statuses, replyColumns: [replyColumn(NEW_REPLY, NEW_REPLY_LABEL)] });
+    // The context is rebuilt every render; these are what it depends on.
+  }, [sheetSync.link, syncColumns, markups, scaleOf, sheets, columnSet]);
   /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
   const quantitiesSheet = async () => {
     const { buildReport, reportPageLabel } = await import('./takeoff/reports');
@@ -6435,10 +6660,24 @@ export function App() {
     // The context is rebuilt every render; these are what the quantities depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
+  // Edits typed in Excel, applied to the document as one undo step. Replies are from the person at this computer: it is their workbook.
+  const syncApplyRef = useRef<(changes: CellChange[]) => void>(() => undefined);
+  syncApplyRef.current = (changes) => {
+    const store = activeOpen?.store;
+    if (!store) return;
+    const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor: authorRef.current, now: Date.now(), newId: () => crypto.randomUUID() });
+    store.checkpoint();
+    store.batch(() => {
+      for (const [id, patch] of patches) store.update(id, patch);
+    });
+    store.checkpoint();
+  };
+  const syncDocId = activeOpen?.file.id;
+  const syncTwoWay = useMemo<TwoWay | null>(() => (syncKeyed && syncDocId ? { table: syncKeyed, docId: syncDocId, apply: (changes) => syncApplyRef.current(changes) } : null), [syncKeyed, syncDocId]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : []);
-  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : [], syncTwoWay);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities, syncTwoWay]);
 
   /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
   const runReports = async (req: ReportRequest) => {
@@ -8195,6 +8434,10 @@ export function App() {
       const only = prefs.excludeFilteredOnExport;
       downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
     },
+    exportXlsx: exportMarkupsXlsx,
+    exportRegister: () => setRegisterOpen(true),
+    registerTemplates: () => setRegisterTemplatesOpen({}),
+    importXlsx: () => void importMarkupsXlsx(),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -8202,6 +8445,7 @@ export function App() {
       setPrefsOpen(true);
     },
     manageProfiles: () => setProfilesOpen(true),
+    migrateRevu: () => setRevuMigrationOpen(true),
     shortcuts: () => setShortcutsOpen(true),
     about: () =>
       alert(
@@ -8294,6 +8538,7 @@ export function App() {
       else if (what === 'community') open('/discussions');
       else if (what === 'support') open('/issues/new?labels=bug&title=Problem%3A%20');
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
+      else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
       else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {
@@ -8493,6 +8738,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     digitalIds: () => setIdsOpen(true),
     slipSheet: () => setSlipSheetOpen(true),
+    closeOut: () => setCloseOutOpen(true),
     revisions: () => activeOpen && setRevisionsOf(activeOpen.file.id),
     overlay: () => setCompareOpen('overlay'),
     ocr: () => {
@@ -8531,6 +8777,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     setTool: (tool) => activeTools?.setTool(tool),
     manageColumns: () => setColumnsOpen(true),
     manageAssemblies: () => setAssembliesOpen(true),
+    browseLibrary: () => setLibraryOpen(true),
     takeoffQuantities: () => setQuantitiesOpen(true),
     scripts: () => setScriptsOpen(true),
     takeoffReview: () => setTakeoffReviewOpen(true),
@@ -9064,7 +9311,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     return (
       <aside
         className={`panel side ${side}${tab === 'sessions' || tab === 'projects' ? ' rc-chrome' : ''}${railDrag?.side === side && !railDrag.over ? ' drop-target' : ''}`}
-        style={{ width: tab === 'layers' ? Math.max(width, 380) : width }}
+        style={{ width }}
         onDragOver={(e) => dragOverSide(e, side)}
         onDrop={(e) => dropOnSide(e, side)}
       >
@@ -9658,7 +9905,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       onExport={onExportList}
       onSync={() => setSyncOpen(true)}
       syncing={!!sheetSync.link}
-      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : sheetSync.issues.length ? `${sheetSync.issues.length} cell${sheetSync.issues.length === 1 ? ' is' : 's are'} paused: changed here and in Excel. Click to choose.` : null}
       onFiltered={setListKept}
       allHidden={allMarkupsHidden}
       onToggleAllHidden={toggleAllMarkupsHidden}
@@ -10777,6 +11024,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SlipSheetDialog
           targetName={activeOpen.file.name}
           files={library.filter((f) => f.id !== activeOpen.file.id)}
+          closed={(() => {
+            const template = closeOutTemplateOf(activeOpen.store);
+            const ids = closedStatuses(template);
+            const names = columnSet.statuses.filter((s) => ids.has(s.id)).map((s) => s.name);
+            return { count: markups.filter((m) => isComment(m) && ids.has(m.status || 'none')).length, means: names.length ? names.join(', ').replace(/, ([^,]*)$/, ' or $1') : 'closed' };
+          })()}
           onCancel={() => setSlipSheetOpen(false)}
           onRun={(spec) => {
             setSlipSheetOpen(false);
@@ -11171,6 +11424,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {revuMigrationOpen && (
+        <RevuMigrationDialog
+          onClose={() => setRevuMigrationOpen(false)}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#revu-migration`, '_blank', 'noopener')}
+        />
+      )}
       {stampsOpen && (
         <StampsDialog
           key={stampsCreating ? 'new' : 'library'}
@@ -11488,15 +11747,141 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {importExcel && importPlan && activeOpen && (
+        <ImportExcelDialog
+          fileName={importExcel.fileName}
+          result={importPlan}
+          rowLabel={(key) => {
+            const m = activeOpen.store.get(key);
+            return { itemNo: m?.seq ? String(m.seq) : '', sheet: m ? sheets[m.pageIndex]?.number || `Page ${m.pageIndex + 1}` : '' };
+          }}
+          blocked={(change) => {
+            const m = activeOpen.store.get(change.rowKey);
+            return !!m && !activeOpen.store.mayEdit(m) && !isOpenChange(change);
+          }}
+          replyAuthor={importExcel.book.lastModifiedBy ?? ''}
+          aliases={importExcel.aliases}
+          onAlias={(column, value, option) =>
+            setImportExcel((cur) => {
+              if (!cur) return cur;
+              const forColumn = { ...cur.aliases[column] };
+              if (option) forColumn[value.toLowerCase()] = option;
+              else delete forColumn[value.toLowerCase()];
+              return { ...cur, aliases: { ...cur.aliases, [column]: forColumn } };
+            })
+          }
+          onApply={(changes, replyAuthor) => {
+            const store = activeOpen.store;
+            // A register words its statuses the client's way.
+            const record = importPlan.register;
+            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID(), ...(record ? { statusId: wording(record, columnSet.statuses).statusId } : {}) });
+            // Words mapped to a status in this import are remembered in the register's template, so they are not asked again.
+            const mapped = Object.entries(importExcel.aliases.status ?? {});
+            const template = record ? registerTemplates.find((t) => t.id === record.templateId) : undefined;
+            if (template && mapped.length) {
+              saveRegisterTemplate({
+                ...template,
+                statuses: template.statuses.map((s) => {
+                  const more = mapped.filter(([typed, word]) => word === s.word && !s.also.some((a) => a.toLowerCase() === typed)).map(([typed]) => typed);
+                  return more.length ? { ...s, also: [...s.also, ...more] } : s;
+                }),
+                updatedAt: Date.now(),
+              });
+            }
+            // One undo step for the whole import.
+            store.checkpoint();
+            store.batch(() => {
+              for (const [id, patch] of patches) store.update(id, patch);
+            });
+            store.checkpoint();
+            setNotice(`Imported ${importExcel.fileName}: ${changes.length} change${changes.length === 1 ? '' : 's'} to ${patches.size} markup${patches.size === 1 ? '' : 's'}. Undo takes them back in one step.`);
+            setImportExcel(null);
+          }}
+          onClose={() => setImportExcel(null)}
+        />
+      )}
+      {closeOutOpen && activeOpen && (
+        <CloseOutDialog
+          docName={activeOpen.file.name}
+          sheets={closeOut(markups, sheets, closedStatuses(closeOutTemplateOf(activeOpen.store)), columnSet.statuses)}
+          templates={registerTemplates.map((t) => ({ id: t.id, name: t.name }))}
+          templateId={closeOutTemplateOf(activeOpen.store)?.id ?? ''}
+          onTemplate={setCloseOutTemplate}
+          onOpen={(id, pageIndex) => {
+            setCloseOutOpen(false);
+            navigate(pageIndex, null);
+            (paneB ? ctlB : ctl)?.tools.select([id]);
+          }}
+          onExportCsv={(csv) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} close-out.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }))}
+          onClose={() => setCloseOutOpen(false)}
+        />
+      )}
+      {registerOpen && activeOpen && (
+        <ExportRegisterDialog
+          docName={activeOpen.file.name}
+          templates={registerTemplates}
+          initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
+          values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
+          counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          canFill={!!localExcel()?.fill}
+          onExport={exportRegister}
+          onTemplates={(id) => setRegisterTemplatesOpen({ id })}
+          onClose={() => setRegisterOpen(false)}
+        />
+      )}
+      {registerTemplatesOpen && (
+        <RegisterTemplatesDialog
+          templates={registerTemplates}
+          initialId={registerTemplatesOpen.id}
+          standards={ws.drawingStandards.map((s) => ({ id: s.id, name: s.name }))}
+          listColumns={listColumns(columnSet.columns).map((c) => ({ key: c.key, label: c.label }))}
+          statuses={columnSet.statuses}
+          onNew={() => starterTemplate(crypto.randomUUID(), columnSet.statuses, Date.now())}
+          onSave={saveRegisterTemplate}
+          onDelete={(id) => updateWorkspace((w) => ({ ...w, registerTemplates: (w.registerTemplates ?? []).filter((t) => t.id !== id) }))}
+          onImportFile={async () => {
+            const file = await pickFile('.rcregister,application/json');
+            if (!file) return null;
+            try {
+              // A shared template gets an id of its own here: it never replaces one of this person's.
+              return { ...parseTemplateFile(await file.text()), id: crypto.randomUUID() };
+            } catch (err) {
+              setError(err instanceof Error ? err.message : `${file.name} could not be read.`);
+              return null;
+            }
+          }}
+          onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onPickClientFile={
+            localExcel()?.pickSource
+              ? async (draft) => {
+                  try {
+                    const picked = await localExcel()!.pickSource!();
+                    if (!picked) return null;
+                    return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'That file could not be read.');
+                    return null;
+                  }
+                }
+              : undefined
+          }
+          onClose={() => setRegisterTemplatesOpen(null)}
+        />
+      )}
       {syncOpen && activeOpen && syncTable && (
         <SheetSyncDialog
           docName={activeOpen.file.name}
           link={sheetSync.link}
           status={sheetSync.status}
-          rowCount={Math.max(0, syncTable.length - 1)}
+          rowCount={syncKeyed ? syncKeyed.rows.length : Math.max(0, syncTable.length - 1)}
+          twoWay={sheetSync.twoWay}
+          canTwoWay={!!localExcel()?.read}
+          issues={sheetSync.issues.map((i) => ({ ...i, itemNo: String(activeOpen.store.get(i.rowKey)?.seq ?? '') }))}
+          onResolve={sheetSync.resolve}
+          onUseListColumns={() => sheetSync.setColumns(visibleListColumns.map((c) => c.key))}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities))()}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities, localExcel()?.read ? visibleListColumns.map((c) => c.key) : undefined))()}
           onSetQuantities={sheetSync.setQuantities}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
@@ -11509,6 +11894,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <ReportsDialog counts={reportCounts} pageLabel={activeOpen.store.allSheets()[pageIndex]?.number || `Page ${pageIndex + 1}`} busy={reportsBusy} error={reportsError} onExport={(req) => void runReports(req)} onClose={() => setReportsOpen(false)} />
       )}
       {installOpen && <InstallDialog onClose={() => setInstallOpen(false)} />}
+      {libraryOpen && (
+        <LibraryDialog
+          onInstall={(pack, source) => {
+            const { counts, saved } = installPack(pack, source);
+            const added = describeCounts(counts);
+            if (!saved) setError(`Added ${pack.name}, but this browser would not keep all of it (a private window, or storage is full).`);
+            return added;
+          }}
+          onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#community-library`, '_blank', 'noopener')}
+          onClose={() => setLibraryOpen(false)}
+        />
+      )}
       {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog

@@ -22,7 +22,7 @@ const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
 ];
 
 /** Help menu commands also shown as buttons in the top bar. */
-const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest'] as const;
+const HELP_BUTTONS = ['help.docs', 'help.support', 'help.suggest', 'help.sponsor'] as const;
 
 export type LeftTab =
   | 'files'
@@ -269,6 +269,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.manageProfiles" />
             </Submenu>
             <Cmd id="file.shortcuts" />
+            <Cmd id="file.migrateRevu" />
             <Sep />
             <Cmd id="file.newPdf" />
             <Cmd id="file.newFromTemplate" />
@@ -299,6 +300,9 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.save" label="PDF with markups" />
               <Cmd id="file.exportImages" />
               <Cmd id="file.exportCsv" label="Markups CSV" />
+              <Cmd id="file.exportXlsx" label="Markups for Excel" />
+              <Cmd id="file.exportRegister" label="Comment Register…" />
+              <Cmd id="file.registerTemplates" />
               <Cmd id="file.exportXfdf" />
               <Cmd id="file.exportFdf" />
               <Cmd id="file.exportBax" />
@@ -309,6 +313,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.importFdf" label="Markups from FDF…" />
               <Cmd id="file.importBax" label="Markups from Bluebeam BAX…" />
               <Cmd id="file.importPdfMarkups" label="Markups from Another PDF…" />
+              <Cmd id="file.importXlsx" label="Markups from Excel…" />
             </Submenu>
             <Cmd id="file.print" />
           </>
@@ -478,6 +483,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.overlay" />
             <Cmd id="document.slipSheet" />
             <Cmd id="document.revisions" />
+            <Cmd id="document.closeOut" />
             <Cmd id="document.stitching" />
             <Cmd id="document.geospatial" />
             <Cmd id="document.stitchToPage" />
@@ -555,6 +561,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="takeoff.productLists" />
               <Cmd id="takeoff.templates" />
               <Cmd id="takeoff.saveTemplate" />
+              <Cmd id="tools.library" />
               <Cmd id="tool.cutout" />
               <Cmd id="takeoff.manual" />
               <Cmd id="takeoff.reports" />
@@ -649,6 +656,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             {!desktop() && <Cmd id="help.install" />}
             <Cmd id="help.support" />
             <Cmd id="help.suggest" />
+            <Cmd id="help.sponsor" />
             <Cmd id="help.logs" />
             <Sep />
             <Cmd id="help.whatsNew" />
@@ -674,7 +682,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             role="menuitem"
             aria-haspopup="true"
             aria-expanded={open === id}
-            onClick={() => setOpen(id)}
+            onClick={() => setOpen(open === id ? null : id)}
             onMouseEnter={() => {
               if (open) setOpen(id);
             }}
