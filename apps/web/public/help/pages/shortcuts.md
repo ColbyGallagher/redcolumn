@@ -23,3 +23,7 @@ If the keys were used by another command, they move to this one and redcolumn te
 Shortcuts are part of your [profile](#profiles).
 
 For a printable list of the standard shortcuts, see the [Shortcut reference](#shortcut-list).
+
+## Coming from Revu
+
+The defaults follow Bluebeam® Revu® 21. **Import…** also reads Revu's `KeyboardShortcuts.xml`, and **Revu 21 Preset** keeps only Revu's own keys. See [Move from Bluebeam Revu](#revu-migration).
