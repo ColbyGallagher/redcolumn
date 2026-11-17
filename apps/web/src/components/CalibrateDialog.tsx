@@ -74,7 +74,7 @@ export function CalibrateDialog({ delta, current, pageCount, defaultAllPages, vi
           <input
             autoFocus
             value={text}
-            placeholder={unit === 'ft' ? `e.g. 25 or 25'-6"` : 'e.g. 12.5'}
+            placeholder={unit === 'ft' || unit === 'in' ? `e.g. 25 or 25'-6"` : `e.g. 12.5, 300mm or 25'-6"`}
             onChange={(e) => setText(e.target.value)}
             aria-invalid={text !== '' && value === null}
           />

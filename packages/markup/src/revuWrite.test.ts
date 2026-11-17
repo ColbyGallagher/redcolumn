@@ -129,6 +129,21 @@ test('.btx: an imported tool is written back as Revu stored it; a restyled one k
   assert.equal(restyled.items[0]!.template?.length, 2);
 });
 
+test('.btx: a tool\'s Place Copy / Draw with Style choice is Revu\'s Drawing / Properties mode', async () => {
+  const dict = '<</IC[1 0 0]/RD[1 1 1 1]/Subj(Architect)/Subtype/Circle/Rect[0 0 38 38]/C[1 0 0]/BS<</W 2>>>>';
+  const child = `<Child><Type>Bluebeam.PDF.Annotations.AnnotationFreeText</Type><Raw>${hexZ('<</DS(font: Helvetica 12pt; color:#000000)/Subj(Text Box)/Subtype/FreeText/Rect[0 0 36 34]/C[]/BS<</W 0>>>>')}</Raw><X>0</X><Y>-1</Y></Child>`;
+  const xml = (mode: string) => `<BluebeamRevuToolSet Version="1"><Title>T</Title><ToolChestItem Version="1"><Name>Bubble</Name><Type>Bluebeam.PDF.Annotations.AnnotationCircle</Type><Raw>${hexZ(dict)}</Raw><X>1</X><Y>1</Y>${child}<Mode>${mode}</Mode></ToolChestItem></BluebeamRevuToolSet>`;
+  const drawing = await parseBtx(xml('drawing'), defaults);
+  const properties = await parseBtx(xml('properties'), defaults);
+  assert.equal(drawing.items[0]!.mode, 'copy');
+  assert.equal(properties.items[0]!.mode, 'style');
+  // Written back as stored, and as changed: the tool's own choice wins over the stored <Mode>.
+  assert.match(await writeBtx(properties), /<Mode>properties<\/Mode>/);
+  const switched = await writeBtx({ title: 'T', items: [{ ...drawing.items[0]!, mode: 'style' }] });
+  assert.match(switched, /<Mode>properties<\/Mode>/);
+  assert.equal((await parseBtx(switched, defaults)).items[0]!.mode, 'style');
+});
+
 test('.btx: tools Revu cannot carry are reported, not written', async () => {
   const dropped: Dropped[] = [];
   const style = defaults.stamp;

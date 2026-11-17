@@ -76,6 +76,11 @@ redcolumn is licensed under the [Apache License 2.0](LICENSE). You can read the 
 yourself, change it and use it at work without paying for it. There is no paid tier that unlocks
 features. See [Licence](#licence).
 
+If redcolumn saves you time, you can support its development through
+[GitHub Sponsors](https://github.com/sponsors/ColbyGallagher). It is optional and unlocks nothing.
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aaa?logo=githubsponsors)](https://github.com/sponsors/ColbyGallagher)
+
 ### Bluebeam compatibility
 
 redcolumn reads and writes the PDF annotations that Bluebeam Revu uses, so markups travel both ways
@@ -115,6 +120,14 @@ Revu tool sets and markup settings files can be imported and exported:
 - `.bhx` hatch sets: read and written in full.
 - `.bpx` markup-list profiles: read and written in full (only the markup list is written).
 
+**File › Migrate from Revu…** brings all of these across in one step. The desktop app finds Revu's
+settings folder (`%APPDATA%\Bluebeam Software\Revu\21`) and lists its tool sets, stamps, line
+styles, hatches, profiles, bookmark templates, Sets categories and `KeyboardShortcuts.xml`; tick what
+you want and import. The default keyboard shortcuts already follow Revu 21's, and Keyboard Shortcuts
+has a strict **Revu 21 Preset**. What does not carry over (Revu preferences, Digital IDs, Studio,
+non-markup tool set items, profile toolbars) is listed in the
+[help](apps/web/public/help/pages/revu-migration.md#what-does-not-come-across).
+
 Compatibility is not a promise that every Revu feature comes through unchanged. Anything that does not
 map is listed in the compatibility report, not dropped silently. If you find a file that does not
 round-trip, please open an issue with the file or a description of it.
@@ -128,9 +141,23 @@ is slow to draw because of how it was exported (hundreds of thousands of separat
 example), redcolumn can draw it from an optimised copy. The copy is only used after it has been checked
 to look the same as the original, and the file itself never changes.
 
-There is no published head-to-head benchmark against Revu yet. Timings depend heavily on the
-machine, the drawing and how it was exported, so we will publish comparisons with the files and
-hardware used, rather than general claims.
+Benchmark on a public 45-sheet architectural set (the [Hastings Secondary College EIS 2
+architectural documents](https://www.schoolinfrastructure.nsw.gov.au/content/dam/infrastructure/projects/h/hastings-secondary-college/ssd-jan-2022/A2_-_EIS_2_-_Architectural_Documents.pdf),
+38 MB, A1, exported from ArchiCAD), measured 15 November 2026 with `pnpm bench:render <file>` on a
+laptop with an Intel Core i7-12650H, 32 GB RAM and an NVMe SSD, Windows 11 Pro, Node 24: PDFium
+(WebAssembly) on one thread, each sheet parsed and drawn whole at 2048 px on its long side.
+
+| Sheet | Drawing objects | As exported | Optimised copy | Pixels that differ |
+|---|--:|--:|--:|--:|
+| 40 (heaviest) | 662,375 | 4.2 s | 1.3 s | 0.013% |
+| 41 | 372,688 | 2.7 s | 0.8 s | 0.007% |
+| 33 | 224,511 | 1.6 s | 0.3 s | 0.014% |
+| All 45 sheets | | 27.2 s | 11.2 s | at most 0.18% |
+
+Building the optimised copy took 26.8 s, once, in the background. These are not time-to-screen
+figures: the app draws in tiles as you zoom. Revu has not been timed on the same laptop yet; when it
+is, the result goes here and on the [landing page](apps/web/public/home/index.html) with its version
+and settings. The file is public, so you can time any app yourself.
 
 ## How I use it every day
 
