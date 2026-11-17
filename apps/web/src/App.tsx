@@ -77,6 +77,7 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { clearLayout, DEFAULT_LAYOUT, loadLayout, saveLayout } from './workspace/layoutState';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
@@ -1033,7 +1034,9 @@ export function App() {
   const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
   const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
-  const [leftWidth, setLeftWidth] = useState(440);
+  // Panel widths and the Markups list's state, kept between launches (see workspace/layoutState.ts).
+  const [savedLayout] = useState(loadLayout);
+  const [leftWidth, setLeftWidth] = useState(() => savedLayout?.leftWidth ?? DEFAULT_LAYOUT.leftWidth);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
@@ -1045,7 +1048,7 @@ export function App() {
       /* storage off limits: the layout lasts for this session */
     }
   }, [leftTab, leftOpen, rightTab, rightOpen]);
-  const [rightWidth, setRightWidth] = useState(360);
+  const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
@@ -1122,17 +1125,32 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
-  const [dockHeight, setDockHeight] = useState(180);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && (savedLayout?.showBottom ?? true));
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() => savedLayout?.bottomTab ?? 'markups');
+  const [dockHeight, setDockHeight] = useState(() => savedLayout?.dockHeight ?? DEFAULT_LAYOUT.dockHeight);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
-  const [dockOpen, setDockOpen] = useState(true);
-  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  const [dockOpen, setDockOpen] = useState(() => savedLayout?.dockOpen ?? true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
+  // where the strip is how it was left.
+  const lastShowBottom = useRef(showBottom);
   useEffect(() => {
-    if (showBottom) setDockOpen(true);
+    if (showBottom && !lastShowBottom.current) setDockOpen(true);
+    lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
+  const resetLayout = () => {
+    clearLayout();
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!profiles.active().state.markupsDocked);
+    setDockOpen(true);
+    setLeftOpen(true);
+    setRightOpen(!!firstPanelOn('right'));
+    updateWorkspace((w) => ({ ...w, ribbonCollapsed: false }));
+  };
   const toggleBottom = () => {
     if (bottomOpen) setShowBottom(false);
     else {
@@ -1149,6 +1167,13 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // The layout is saved a moment after it settles, so dragging a divider writes once. On a phone the
+  // panels are drawers whatever was saved, so what is there is not kept.
+  useEffect(() => {
+    if (narrow) return;
+    const t = window.setTimeout(() => saveLayout({ leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight }), 300);
+    return () => window.clearTimeout(t);
+  }, [narrow, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -8600,6 +8625,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
+    resetLayout,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,

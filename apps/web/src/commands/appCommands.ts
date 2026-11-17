@@ -242,6 +242,8 @@ export interface CommandActions {
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
   setToolbarStyle: (style: ToolbarStyle, collapsed?: boolean) => void;
+  /** Puts the side panels, Markups list and ribbon back to how a fresh install has them. */
+  resetLayout: () => void;
   toggleLeft: () => void;
   /** Shows or hides the side panel of the panels docked on the right. */
   toggleRight: () => void;
@@ -633,6 +635,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),
     cmd('window.panels', 'Window', 'Toggle Panels', a.togglePanels),
+    cmd('window.resetLayout', 'Window', 'Reset Layout', a.resetLayout),
     cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, sidePanelOpen('files')),
     cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, sidePanelOpen('pages')),
     cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, sidePanelOpen('bookmarks')),
