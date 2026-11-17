@@ -292,10 +292,23 @@ export interface RelinkPlan {
 /** How close two points must be (page points) for a hand-drawn markup to count as the same as a mirrored one. */
 const SAME_PLACE = 0.5;
 
-/** Whether a local markup already stands for a mirrored item: same type, subject and geometry. */
+/** How far apart two markups' points are at most (page points); Infinity when their point counts differ. */
+function pointDistance(a: Markup, b: Markup): number {
+  if (a.points.length !== b.points.length) return Infinity;
+  let d = 0;
+  a.points.forEach((p, i) => (d = Math.max(d, Math.abs(p[0] - b.points[i]![0]), Math.abs(p[1] - b.points[i]![1]))));
+  return d;
+}
+
+/**
+ * Whether a local markup already stands for a mirrored item: the same geometry (within half a
+ * point) and every shared field the same (type, subject, label, text, layer, style, rotation,
+ * assembly, columns...: all a copy would take from the item).
+ */
 export function sameItem(a: Markup, b: Markup): boolean {
-  if (a.type !== b.type || (a.subject ?? '') !== (b.subject ?? '') || a.points.length !== b.points.length) return false;
-  return a.points.every((p, i) => Math.abs(p[0] - b.points[i]![0]) <= SAME_PLACE && Math.abs(p[1] - b.points[i]![1]) <= SAME_PLACE);
+  if (pointDistance(a, b) > SAME_PLACE) return false;
+  const patch = sharedPatch({ ...a, points: b.points }, b);
+  return patch === null;
 }
 
 export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterable<Markup>, newId: () => string, at = Date.now(), mayEdit: (m: Markup) => boolean = () => true): RelinkPlan {
@@ -309,7 +322,7 @@ export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterab
   const local = new Map<number, Markup[]>();
   for (const m of markups) {
     if (!m.portalLink) {
-      if (added.includes(m.pageIndex) && mayEdit(m)) {
+      if (added.includes(m.pageIndex) && mayEdit(m) && canMirror(m)) {
         const list = local.get(m.pageIndex);
         if (list) list.push(m);
         else local.set(m.pageIndex, [m]);
@@ -336,7 +349,9 @@ export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterab
     for (const page of added) {
       if (group.some((m) => m.pageIndex === page)) continue;
       // The same item drawn there by hand already: it joins the item rather than being doubled.
-      const match = (local.get(page) ?? []).find((m) => !taken.has(m.id) && sameItem(m, from));
+      // The nearest of several matches.
+      let match: Markup | undefined;
+      for (const m of local.get(page) ?? []) if (!taken.has(m.id) && sameItem(m, from) && (!match || pointDistance(m, from) < pointDistance(match, from))) match = m;
       if (match) {
         taken.add(match.id);
         plan.set.push({ ...match, portalLink: { ...from.portalLink! }, modifiedAt: at });

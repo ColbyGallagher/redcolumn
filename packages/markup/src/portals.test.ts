@@ -443,3 +443,23 @@ test('store: linked pages past the document end are ignored once the page count 
   assert.deepEqual(store.portals(), []);
   await store.destroy();
 });
+
+test('adoption needs every shared field to match, skips markups that cannot mirror, and takes the nearest match', () => {
+  const link = { portalId: 'p1', linkId: 'L' };
+  const item: Markup = { ...rect('m0', 0, 150, 150), assemblyId: 'slab', portalLink: link };
+  const two: Markup = { ...item, id: 'm1', pageIndex: 1 };
+  const widen = (local: Markup[]) => relinkPlan({ ...PORTAL, pages: [0, 1] }, PORTAL, [item, two, ...local], ids, 1);
+  // Same spot, another assembly: copied, not adopted.
+  const otherAssembly: Markup = { ...rect('h', 2, 150, 150), assemblyId: 'wall' };
+  assert.deepEqual([widen([otherAssembly]).adopted, widen([otherAssembly]).copied], [0, 1]);
+  const otherStyle: Markup = { ...rect('h', 2, 150, 150), assemblyId: 'slab', style: { ...DEFAULT_STYLES.rect, stroke: '#00ff00' } };
+  assert.equal(widen([otherStyle]).adopted, 0);
+  // A grouped markup is never adopted.
+  assert.equal(widen([{ ...rect('g', 2, 150, 150), assemblyId: 'slab', groupId: 'G' }]).adopted, 0);
+  // Two matches: the nearer one is adopted.
+  const far: Markup = { ...rect('far', 2, 150.4, 150.4), assemblyId: 'slab', points: [[150.4, 150.4], [170.4, 170.4]] };
+  const near: Markup = { ...rect('near', 2, 150.1, 150), assemblyId: 'slab', points: [[150.1, 150], [170.1, 170]] };
+  const plan = widen([far, near]);
+  assert.equal(plan.adopted, 1);
+  assert.deepEqual(plan.set.map((m) => m.id), ['near']);
+});
