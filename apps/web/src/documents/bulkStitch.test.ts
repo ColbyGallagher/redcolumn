@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pairInOrder } from '@nb/stitch';
 import type { StoredManualStitch } from '@nb/markup';
-import { bulkStitch, placeCopies, replacementSummary, sameSize, stitchSourceSheets, unpartneredLines } from './bulkStitch.ts';
+import { applyStitching, bulkStitch, placeCopies, replacementSummary, sameSize, stitchSourceSheets, unpartneredLines, type StitchDocument } from './bulkStitch.ts';
 import { mergeStitch } from './stitching.ts';
 
 /** A vertical match line at x on a sheet, drawn as one segment from y 100 to 500. */
@@ -79,8 +79,13 @@ test('bulkStitch copies onto a mismatched sheet without snapping it', async () =
   });
   assert.deepEqual(copy.lines.find((l) => l.pageIndex === 4)!.p0, [100, 110]);
   assert.equal(results.find((r) => r.target === 4)!.problem, 'A different page size');
+  assert.deepEqual(results.map((r) => r.checked), [true, false]);
   assert.equal(sameSize({ width: 2384, height: 1684 }, { width: 2383, height: 1685 }), true);
   assert.equal(sameSize({ width: 2384, height: 1684 }, { width: 1684, height: 2384 }), false);
+  // A half turn, or a quarter turn of a square page, keeps the size: the rotation tells them apart.
+  assert.equal(sameSize({ width: 2384, height: 1684, rotation: 0 }, { width: 2384, height: 1684, rotation: 180 }), false);
+  assert.equal(sameSize({ width: 800, height: 800, rotation: 90 }, { width: 800, height: 800, rotation: -270 }), true);
+  assert.equal(sameSize({ width: 800, height: 800, rotation: 90 }, { width: 800, height: 800 }), true);
 });
 
 test('a skipped partner row leaves its partner unmatched, and says so', async () => {
@@ -126,4 +131,21 @@ test('bulkStitch stops when aborted', async () => {
   const ac = new AbortController();
   ac.abort();
   await assert.rejects(bulkStitch({ source: roads, pairs: pairInOrder([0, 1], [3, 4]), toleranceMm: 0, sourceSegments: none, targetSegments: none, signal: ac.signal }));
+});
+
+test('applyStitching stopped part way writes nothing', async () => {
+  let written = 0;
+  const doc: StitchDocument = {
+    store: { manualStitch: () => roads, setManualStitch: () => void written++ },
+    doc: { geometry: async () => ({ segments: drawn(700) }) },
+  };
+  const ac = new AbortController();
+  const progress: number[] = [];
+  // Stop is pressed once the first pair is done.
+  await assert.rejects(applyStitching(doc, doc, pairInOrder([0, 1], [3, 4]), 3, { signal: ac.signal, onProgress: (d) => (progress.push(d), ac.abort()) }));
+  assert.deepEqual(progress, [1]);
+  assert.equal(written, 0);
+  // Not stopped: written once.
+  await applyStitching(doc, doc, pairInOrder([0, 1], [3, 4]), 3);
+  assert.equal(written, 1);
 });

@@ -64,9 +64,11 @@ Before you apply, the dialog warns you when:
 - the target sheets already have stitching (it is replaced, and lines on other sheets matched to it lose their match);
 - a copied line's partner sheet is skipped, so the copy won't join anything;
 - you picked more target sheets than there are stitched sheets;
-- a target page is a different size from its stitched sheet. Those lines are copied without snapping.
+- a target page is a different size from its stitched sheet. Those lines are copied without snapping. A page turned half way round keeps its size, so check that the target sheets face the same way as the stitched ones.
 
 A line only moves as far as **Snap within**. It stays put when the nearest line is farther away, or looks unlike the source's match line (a long kerb next to a short dashed match line, say).
+
+Choose **Stop** while it runs to leave everything as it was.
 
 > **Note:** One {{Edit > Undo}} in the target document puts back what it had before.
 

@@ -37,8 +37,19 @@ export function replacementSummary(target: StoredManualStitch, targets: readonly
 
 /** Pages this much apart in width or height (points) are not the same sheet size. */
 const SIZE_SLACK = 2;
-/** Whether a target page is the source page's size (rotation is applied in both sizes). */
-export const sameSize = (a: { width: number; height: number }, b: { width: number; height: number }) => Math.abs(a.width - b.width) <= SIZE_SLACK && Math.abs(a.height - b.height) <= SIZE_SLACK;
+/** A page as the pairing compares it: its size in points (rotation applied) and, when known, its rotation in degrees. */
+export interface PageShape {
+  width: number;
+  height: number;
+  rotation?: number | null;
+}
+const turn = (deg: number) => ((Math.round(deg) % 360) + 360) % 360;
+/**
+ * Whether a target page is laid out like its source page: the same size, and the same rotation
+ * when both are known (a half turn, or a quarter turn of a square page, keeps the size).
+ */
+export const sameSize = (a: PageShape, b: PageShape) =>
+  Math.abs(a.width - b.width) <= SIZE_SLACK && Math.abs(a.height - b.height) <= SIZE_SLACK && (a.rotation == null || b.rotation == null || turn(a.rotation) === turn(b.rotation));
 
 /** How one target sheet came out. */
 export interface SheetResult {
@@ -54,6 +65,8 @@ export interface SheetResult {
   confidence: number;
   /** The farthest any of its lines moved (paper mm). */
   movedMm: number;
+  /** False when its lines were copied without looking for drawn line work (copy only). */
+  checked: boolean;
   /** Why a line was left where it was copied to, when one was. */
   problem: string | null;
 }
@@ -101,9 +114,10 @@ export async function bulkStitch({ source, pairs, toleranceMm, sourceSegments, t
   for (const [k, { source: from, target: page }] of live.entries()) {
     signal?.throwIfAborted();
     const mine = copied.filter((l) => l.pageIndex === from);
-    const r: SheetResult = { source: from, target: page, lines: 0, snapped: 0, unpartnered: 0, confidence: 1, movedMm: 0, problem: null };
+    const r: SheetResult = { source: from, target: page, lines: 0, snapped: 0, unpartnered: 0, confidence: 1, movedMm: 0, checked: true, problem: null };
     if (mine.length) results.push(r);
     const skipWhy = copyOnly?.get(page) ?? (tolerance > 0 ? null : 'Not checked (tolerance 0)');
+    if (skipWhy) r.checked = false;
     // Only this pair's line work is held, cut down to what lies near its lines.
     let src: Float32Array | null = null;
     let tgt: Float32Array | null = null;
