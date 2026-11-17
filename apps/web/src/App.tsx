@@ -153,6 +153,7 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './compo
 import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
+import { anyLinked, PortalDialogHost, usePortalGuides, type PortalDialogState } from './takeoff/portalsUi';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
 import { MENU_ICONS } from './components/menuIcons';
@@ -825,6 +826,7 @@ async function annotatedBytes(
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
+    portals: cur.store.portals(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -1387,6 +1389,8 @@ export function App() {
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const portalDrawnRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const [portalDialog, setPortalDialog] = useState<PortalDialogState | null>(null);
   const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
   /** The Geospatial panel's handlers for drags and picks on the page (null while it is closed). */
@@ -1540,6 +1544,7 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onMatchLine: (pageIndex, p0, p1) => matchLineRef.current(pane, pageIndex, p0, p1),
       onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
+      onPortalDrawn: (pageIndex, points) => portalDrawnRef.current(pane, pageIndex, points),
       onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
       onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
       onGeoMoved: (dx, dy) => geoHandlersRef.current?.moved(dx, dy),
@@ -4882,6 +4887,7 @@ export function App() {
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
+                portals: store.portals(),
                 places: store.places(),
               },
             );
@@ -8268,6 +8274,8 @@ export function App() {
     if (!pair) return;
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
+  portalDrawnRef.current = (pane, pageIndex, points) => setPortalDialog({ pane, draft: { pageIndex, points } });
+  usePortalGuides([[ctl, open?.store], [ctlB, openB?.store]]);
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
     if (!doc || doc.store.readOnly) return;
@@ -8732,6 +8740,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    portals: () => setPortalDialog({ pane: paneB ? 'b' : 'a' }),
+    breakPortalLink: () => {
+      activeOpen?.store.breakPortalLinks(selectedMarkups.filter((m) => m.portalLink).map((m) => m.id));
+      setNotice('The selected markups are no longer mirrored: they are ordinary markups on their page now.');
+    },
     takeoffReports: () => {
       setReportsError(null);
       setReportsOpen(true);
@@ -9125,6 +9138,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
+    selectionLinked: anyLinked(selectedMarkups),
     selectionJoinable: selectedMarkups.filter(canJoin).length > 1,
     selectionExplodable: selectedMarkups.some(canExplode),
     selectionCloudable: selectedMarkups.some(canCloud),
@@ -11814,6 +11828,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               : undefined
           }
           onClose={() => setRegisterTemplatesOpen(null)}
+        />
+      )}
+      {portalDialog && (portalDialog.pane === 'b' ? openB : open) && (
+        <PortalDialogHost
+          state={portalDialog}
+          store={(portalDialog.pane === 'b' ? openB : open)!.store}
+          pageCount={(portalDialog.pane === 'b' ? openB : open)!.doc.pages.length}
+          pageLabel={(i) => (portalDialog.pane === 'b' ? sheetsB : sheetsA)[i]?.number || `Page ${i + 1}`}
+          onClose={() => setPortalDialog(null)}
+          onNotice={setNotice}
         />
       )}
       {syncOpen && activeOpen && syncTable && (

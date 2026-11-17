@@ -389,6 +389,11 @@ export interface Markup {
   locked?: boolean;
   /** Markups sharing a group id are selected, moved and deleted together. */
   groupId?: string;
+  /**
+   * Portals (Experimental): this markup is one of the copies of a markup mirrored across a portal's
+   * linked pages (see portals.ts); copies share `linkId` and are kept in sync.
+   */
+  portalLink?: { portalId: string; linkId: string };
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */

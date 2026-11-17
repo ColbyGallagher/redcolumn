@@ -224,6 +224,10 @@ export interface CommandActions {
   cutout: () => void;
   /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
   syncExcel: () => void;
+  /** Portals (Experimental): the document's portals, to change their linked pages or remove them. */
+  portals: () => void;
+  /** The selected mirrored markups become ordinary markups on their pages. */
+  breakPortalLink: () => void;
   /** Takeoff › Reports: the quantity, detail and count reports as PDF, Excel or CSV. */
   takeoffReports: () => void;
   /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
@@ -283,6 +287,8 @@ export interface CommandState {
   hiddenCount: number;
   selectionLocked: boolean;
   selectionGrouped: boolean;
+  /** Some selected markup is mirrored through a portal. */
+  selectionLinked: boolean;
   /** Join and Explode have something selected to work on. */
   selectionJoinable: boolean;
   selectionExplodable: boolean;
@@ -608,6 +614,9 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
     cmd('takeoff.reports', 'Tools', 'Takeoff Reports…', a.takeoffReports, doc),
+    cmd('takeoff.definePortal', 'Tools', 'Define Portal (Experimental)', () => a.setTool('portalPolygon'), doc && s.editable && s.pageCount > 1, s.tool === 'portalPolygon'),
+    cmd('takeoff.portals', 'Tools', 'Portals… (Experimental)', a.portals, doc),
+    cmd('takeoff.breakPortalLink', 'Tools', 'Break Portal Link (Experimental)', a.breakPortalLink, s.selectionLinked && s.editable),
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),

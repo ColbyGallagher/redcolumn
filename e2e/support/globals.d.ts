@@ -39,6 +39,10 @@ interface Window {
         all(): NbMarkup[];
         remove(ids: string[]): void;
         hasScale(pageIndex: number): boolean;
+        update(id: string, patch: Record<string, unknown>): void;
+        checkpoint(): void;
+        setScale(pages: number[], scale: unknown): void;
+        portals(): { name: string; pages: number[]; points: [number, number][] }[];
       };
     };
     commands(): ReadonlyMap<string, NbCommand>;

@@ -12,6 +12,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
+import { planPortalSync, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 2;
@@ -80,6 +81,8 @@ export interface ImportedExtras {
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
   spaces?: Record<number, number[]>;
+  /** Portals the file was saved with (/NBPortals); taken when the document has none. */
+  portals?: Portal[];
   /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
   geo?: GeoRegion[];
 }
@@ -137,6 +140,9 @@ export function setMarkupPersistence(factory: MarkupPersistenceFactory | null) {
 const DETECTION = Symbol('detection');
 /** Markup IDs handed out to markups that had none, or settled after two people made the same one. */
 const NUMBERING = Symbol('numbering');
+/** The copies a portal keeps in step with a local edit: undone with it, and never synced again in turn. */
+const PORTAL = Symbol('portal');
+const NO_PORTALS: Portal[] = [];
 
 /**
  * Markups for one PDF, held in a Yjs document so offline edits persist locally (IndexedDB) and
@@ -186,6 +192,8 @@ export class MarkupStore {
   private placeSnapshot: Place[] = [];
   private viewportSnapshot: Viewport[] = [];
   private geoSnapshot: GeoRegion[] = NO_GEO;
+  private portalRaw: unknown = undefined;
+  private portalSnapshot: Portal[] = NO_PORTALS;
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private assemblyRaw: unknown = undefined;
@@ -211,7 +219,7 @@ export class MarkupStore {
     this.outline = this.doc.getMap('outline');
     this.viewports = this.doc.getMap<Viewport>('viewports');
     this.files = this.doc.getMap<FileState>('files');
-    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta], { trackedOrigins: new Set([LOCAL]), captureTimeout: 300 });
+    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta], { trackedOrigins: new Set<unknown>([LOCAL, PORTAL]), captureTimeout: 300 });
     // Each undo step is labelled with what it did, for the Undo History list.
     const label = (event: { stackItem: { meta: Map<unknown, unknown> }; changedParentTypes: Map<Y.AbstractType<Y.YEvent<never>>, Y.YEvent<never>[]> }) => {
       const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta);
@@ -232,14 +240,17 @@ export class MarkupStore {
     this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
-      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === this.undoManager)) this.edits++;
+      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === PORTAL || tr.origin === this.undoManager)) this.edits++;
+      // Portals: what this edit means for the other copies, worked out against the markups before it.
+      const portalChanges = tr.origin === LOCAL && !this.fileStepping && this.portalSnapshot.length ? this.changedMarkups(tr) : null;
       if (tr.changed.size) this.refresh(tr.changed);
+      if (portalChanges?.length) this.syncPortals(portalChanges);
       const seq = (this.meta.get('seq') as number | undefined) ?? 0;
       if (seq > this.seqHigh) this.seqHigh = seq;
       // Markups that arrive without an ID (stored before IDs, or from an older version in a Live
       // Session), or with one someone else handed out at the same time, are numbered once the
       // change has landed.
-      if (tr.changed.has(this.map as Y.AbstractType<any>) && tr.origin !== NUMBERING && tr.origin !== LOCAL) this.scheduleNumbering();
+      if (tr.changed.has(this.map as Y.AbstractType<any>) && tr.origin !== NUMBERING && tr.origin !== LOCAL && tr.origin !== PORTAL) this.scheduleNumbering();
     });
   }
 
@@ -317,6 +328,12 @@ export class MarkupStore {
       const manual = this.meta.get('manualStitch') as StoredManualStitch | undefined;
       this.manualStitchSnapshot = manual ?? NO_MANUAL_STITCH;
       this.geoSnapshot = (this.meta.get('geo') as GeoRegion[] | undefined) ?? NO_GEO;
+      const portals = this.meta.get('portals');
+      if (portals !== this.portalRaw) {
+        this.portalRaw = portals;
+        // Checked here as well as on import: Live Session peers write this map too.
+        this.portalSnapshot = portals ? sanitizePortals(portals) : NO_PORTALS;
+      }
       const raw = this.meta.get('columns');
       if (raw !== this.columnRaw) {
         this.columnRaw = raw;
@@ -808,6 +825,7 @@ export class MarkupStore {
       }
       if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
       if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
+      if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -880,6 +898,11 @@ export class MarkupStore {
       this.meta.set('importedSpaces', spaces);
       this.meta.delete('stitch');
       if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, to, turn));
+      if (this.meta.has('portals')) {
+        const portals = remapPortals(this.portalSnapshot, to);
+        if (portals.length) this.meta.set('portals', portals);
+        else this.meta.delete('portals');
+      }
       for (const [id, v] of [...this.viewports.entries()]) {
         const n = to(v.pageIndex);
         if (n === null) this.viewports.delete(id);
@@ -942,6 +965,8 @@ export class MarkupStore {
         delete copy.pdfAnnot;
         delete copy.statusHistory;
         delete copy.locked;
+        // A pasted page is not one of a portal's pages: its copies are ordinary markups.
+        delete copy.portalLink;
         if (copy.legend?.nameId) {
           const { nameId: _, ...legend } = copy.legend;
           copy.legend = legend;
@@ -1109,6 +1134,81 @@ export class MarkupStore {
     if (this.locked) return;
     this.undoManager.stopCapturing();
     this.doc.transact(() => this.meta.set('columns', { columns: set.columns, statuses: set.statuses }), LOCAL);
+  }
+
+  /** The document's portals (Experimental; stable until they change). */
+  portals(): Portal[] {
+    return this.portalSnapshot;
+  }
+
+  /** Adds a portal, or replaces the one with its id, as one undo step. */
+  setPortal(portal: Portal) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    const list = this.portalSnapshot.filter((p) => p.id !== portal.id);
+    this.doc.transact(() => this.meta.set('portals', structuredClone([...list, portal])), LOCAL);
+    this.undoManager.stopCapturing();
+  }
+
+  /** Removes a portal; its copies stay, as ordinary markups on their pages (one undo step). */
+  removePortal(id: string) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      const rest = this.portalSnapshot.filter((p) => p.id !== id);
+      if (rest.length) this.meta.set('portals', structuredClone(rest));
+      else this.meta.delete('portals');
+      for (const m of [...this.map.values()]) if (m.portalLink?.portalId === id && this.mayEdit(m)) this.map.set(m.id, withoutLink(m));
+    }, PORTAL);
+    this.undoManager.stopCapturing();
+  }
+
+  /** Break Link: the markups become ordinary ones on their pages; their copies elsewhere stay linked to each other. */
+  breakPortalLinks(ids: Iterable<string>) {
+    if (this.locked) return;
+    this.undoManager.stopCapturing();
+    this.doc.transact(() => {
+      for (const id of ids) {
+        const m = this.map.get(id);
+        if (m?.portalLink && this.mayEdit(m)) this.map.set(id, { ...withoutLink(m), modifiedAt: Date.now() });
+      }
+    }, PORTAL);
+    this.undoManager.stopCapturing();
+  }
+
+  /** The markups a local transaction added, changed or deleted, before and after. */
+  private changedMarkups(tr: Y.Transaction): MarkupChange[] | null {
+    const keys = tr.changed.get(this.map as Y.AbstractType<any>);
+    if (!keys?.size) return null;
+    const before = new Map<string, Markup>();
+    for (const m of this.snapshot) if (keys.has(m.id)) before.set(m.id, m);
+    const out: MarkupChange[] = [];
+    for (const key of keys) {
+      if (key === null) continue;
+      const was = before.get(key);
+      const now = this.map.get(key);
+      if (was || now) out.push({ ...(was ? { was } : {}), ...(now ? { now } : {}) });
+    }
+    return out;
+  }
+
+  /**
+   * Keeps every copy of a mirrored markup in step with a local edit (see `planPortalSync`). Runs in
+   * a transaction of its own right after the edit's, which the undo manager merges into the edit's
+   * step; its origin is not LOCAL, so it never sets off another round.
+   */
+  private syncPortals(changes: readonly MarkupChange[]) {
+    const plan = planPortalSync({ changes, markups: this.map.values(), portals: this.portalSnapshot, newId: () => crypto.randomUUID(), mayEdit: (m) => this.mayEdit(m) });
+    if (!plan.set.length && !plan.remove.length) return;
+    this.doc.transact(() => {
+      let seq = this.lastSeq();
+      for (const m of plan.set) {
+        const existing = this.map.get(m.id);
+        this.map.set(m.id, existing ? m : { ...m, seq: ++seq });
+      }
+      if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
+      for (const id of plan.remove) this.map.delete(id);
+    }, PORTAL);
   }
 
   /** The document's assemblies (stable until they change). */
@@ -1376,7 +1476,7 @@ function describeChange(
   if (changed.has(outline as never)) return 'Edit bookmarks';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
-    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : 'Edit columns';
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : keys?.has('portals') ? 'Edit portals' : 'Edit columns';
   }
   return 'Edit';
 }
@@ -1411,6 +1511,11 @@ function mapManualStitch(s: StoredManualStitch, to: (page: number) => number | n
     if (n !== null) regions[n] = pts.map((p) => map(Number(k), p));
   }
   return { lines, regions };
+}
+
+function withoutLink(m: Markup): Markup {
+  const { portalLink: _link, ...rest } = m;
+  return rest as Markup;
 }
 
 function nameOf(m: Markup): string {

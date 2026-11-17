@@ -1,7 +1,8 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, type PDFObject } from 'pdf-lib';
 import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue } from './bluebeam';
 import { toPdfValue } from './pdfValue';
-import { ASSEMBLIES_KEY, ESTIMATING_KEY, pageMatrix } from './export';
+import { ASSEMBLIES_KEY, ESTIMATING_KEY, PORTALS_KEY, pageMatrix } from './export';
+import { sanitizePortals, type Portal } from './portals';
 import { sanitizeAssemblies, type Assembly } from './assemblies';
 import { sanitizeEstimating, type Estimating } from './estimating';
 
@@ -73,7 +74,8 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
   const estimating = readEstimating(str(value(doc.catalog.get(PDFName.of(ESTIMATING_KEY)), ESTIMATING_KEY, 0)));
-  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}) };
+  const portals = readPortals(str(value(doc.catalog.get(PDFName.of(PORTALS_KEY)), PORTALS_KEY, 0)));
+  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}) };
 }
 
 /** The /BBox of an annotation's normal appearance stream, or null. */
@@ -101,6 +103,15 @@ function readEstimating(json: string | null): Estimating | null {
     return out.items.length || out.productLists.length || out.templates.length ? out : null;
   } catch {
     return null;
+  }
+}
+
+function readPortals(json: string | null): Portal[] {
+  if (!json) return [];
+  try {
+    return sanitizePortals(JSON.parse(json));
+  } catch {
+    return [];
   }
 }
 
