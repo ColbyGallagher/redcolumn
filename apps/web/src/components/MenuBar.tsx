@@ -307,6 +307,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="file.exportImages" />
               <Cmd id="file.exportCsv" label="Markups CSV" />
               <Cmd id="file.exportXlsx" label="Markups for Excel" />
+              <Cmd id="file.exportRegister" label="Comment Register…" />
+              <Cmd id="file.registerTemplates" />
               <Cmd id="file.exportXfdf" />
               <Cmd id="file.exportFdf" />
               <Cmd id="file.exportBax" />

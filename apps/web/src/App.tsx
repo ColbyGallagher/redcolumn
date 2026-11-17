@@ -37,6 +37,8 @@ import { isOpenChange, patchesFor } from './sheetsync/apply';
 import type { CellChange } from './sheetsync/merge';
 import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
 import { ImportExcelDialog } from './components/ImportExcelDialog';
+import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
 import { NEW_REPLY, replyColumn, toSyncTable } from './sheetsync/keyed';
@@ -413,6 +415,9 @@ async function pickTemplate(templates: readonly StoredFile[]): Promise<StoredFil
   const id = await askText('New PDF from Template', templates[0]!.id, { label: 'Start from which template?', confirm: 'Next', choices: templates.map((t) => ({ value: t.id, label: t.name })) });
   return templates.find((t) => t.id === id) ?? null;
 }
+
+/** One empty list, so a profile without templates gives the same value every render. */
+const NO_REGISTER_TEMPLATES: RegisterTemplate[] = [];
 
 /** Asks the user for one file of the given types; null if they cancel. */
 function pickFile(accept: string): Promise<File | null> {
@@ -1102,6 +1107,10 @@ export function App() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
+  const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** Export Comment Register, and the template editor (on one template, or the list). */
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
   const [importExcel, setImportExcel] = useState<{ fileId: string; fileName: string; book: ReadWorkbook; aliases: Record<string, Record<string, string>> } | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportsBusy, setReportsBusy] = useState(false);
@@ -6386,11 +6395,20 @@ export function App() {
   const importPlan = useMemo(
     () =>
       importExcel && activeOpen?.file.id === importExcel.fileId
-        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses }, { docId: importExcel.fileId, aliases: importExcel.aliases })
+        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, templates: registerTemplates }, { docId: importExcel.fileId, aliases: importExcel.aliases })
         : null,
     // The context is rebuilt every render; these are what it depends on.
-    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet],
+    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet, registerTemplates],
   );
+  const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
+  /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || !!(isTextType(m.type) ? m.text : m.comment)?.trim() || !!m.replies?.length));
+  const exportRegister = (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>) => {
+    if (!activeOpen) return;
+    const bytes = exportRegisterWorkbook({ rows: buildRows(registerMarkups(scope), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values });
+    download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}.xlsx`, new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    setRegisterOpen(false);
+  };
   const exportMarkupsXlsx = () => {
     if (!activeOpen) return;
     // Preferences › Markups List › Exclude Filtered Markups on Export, as for the CSV.
@@ -8218,6 +8236,8 @@ export function App() {
       downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
     },
     exportXlsx: exportMarkupsXlsx,
+    exportRegister: () => setRegisterOpen(true),
+    registerTemplates: () => setRegisterTemplatesOpen({}),
     importXlsx: () => void importMarkupsXlsx(),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
@@ -11547,7 +11567,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }
           onApply={(changes, replyAuthor) => {
             const store = activeOpen.store;
-            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID() });
+            // A register words its statuses the client's way.
+            const record = importPlan.register;
+            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID(), ...(record ? { statusId: wording(record, columnSet.statuses).statusId } : {}) });
+            // Words mapped to a status in this import are remembered in the register's template, so they are not asked again.
+            const mapped = Object.entries(importExcel.aliases.status ?? {});
+            const template = record ? registerTemplates.find((t) => t.id === record.templateId) : undefined;
+            if (template && mapped.length) {
+              saveRegisterTemplate({
+                ...template,
+                statuses: template.statuses.map((s) => {
+                  const more = mapped.filter(([typed, word]) => word === s.word && !s.also.some((a) => a.toLowerCase() === typed)).map(([typed]) => typed);
+                  return more.length ? { ...s, also: [...s.also, ...more] } : s;
+                }),
+                updatedAt: Date.now(),
+              });
+            }
             // One undo step for the whole import.
             store.checkpoint();
             store.batch(() => {
@@ -11558,6 +11593,43 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setImportExcel(null);
           }}
           onClose={() => setImportExcel(null)}
+        />
+      )}
+      {registerOpen && activeOpen && (
+        <ExportRegisterDialog
+          docName={activeOpen.file.name}
+          templates={registerTemplates}
+          initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
+          values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
+          counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          onExport={exportRegister}
+          onTemplates={(id) => setRegisterTemplatesOpen({ id })}
+          onClose={() => setRegisterOpen(false)}
+        />
+      )}
+      {registerTemplatesOpen && (
+        <RegisterTemplatesDialog
+          templates={registerTemplates}
+          initialId={registerTemplatesOpen.id}
+          standards={ws.drawingStandards.map((s) => ({ id: s.id, name: s.name }))}
+          listColumns={listColumns(columnSet.columns).map((c) => ({ key: c.key, label: c.label }))}
+          statuses={columnSet.statuses}
+          onNew={() => starterTemplate(crypto.randomUUID(), columnSet.statuses, Date.now())}
+          onSave={saveRegisterTemplate}
+          onDelete={(id) => updateWorkspace((w) => ({ ...w, registerTemplates: (w.registerTemplates ?? []).filter((t) => t.id !== id) }))}
+          onImportFile={async () => {
+            const file = await pickFile('.rcregister,application/json');
+            if (!file) return null;
+            try {
+              // A shared template gets an id of its own here: it never replaces one of this person's.
+              return { ...parseTemplateFile(await file.text()), id: crypto.randomUUID() };
+            } catch (err) {
+              setError(err instanceof Error ? err.message : `${file.name} could not be read.`);
+              return null;
+            }
+          }}
+          onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onClose={() => setRegisterTemplatesOpen(null)}
         />
       )}
       {syncOpen && activeOpen && syncTable && (

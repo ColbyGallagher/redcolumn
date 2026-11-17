@@ -72,6 +72,10 @@ export interface CommandActions {
   exportXlsx: () => void;
   /** An edited .xlsx back in: a preview of what it changes, then the changes. */
   importXlsx: () => void;
+  /** The comments in a client's register layout, as an .xlsx to fill in and import again. */
+  exportRegister: () => void;
+  /** The register templates: column headings, status wording and the block above the table, per client. */
+  registerTemplates: () => void;
   exportSummary: () => void;
   print: () => void;
   preferences: () => void;
@@ -408,6 +412,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.exportCsv', 'File', 'Export Markups CSV', a.exportCsv, doc && s.canSaveCopy),
     cmd('file.exportXlsx', 'File', 'Export Markups for Excel', a.exportXlsx, doc && s.canSaveCopy),
     cmd('file.importXlsx', 'File', 'Import Markups from Excel…', a.importXlsx, s.editable),
+    cmd('file.exportRegister', 'File', 'Export Comment Register…', a.exportRegister, doc && s.canSaveCopy),
+    cmd('file.registerTemplates', 'File', 'Register Templates…', a.registerTemplates, doc),
     cmd('file.exportSummary', 'File', 'Markup Summary…', a.exportSummary, doc && s.canSaveCopy),
     cmd('file.print', 'File', 'Print…', a.print, doc && s.canSaveCopy),
     cmd('file.preferences', 'File', 'Preferences…', a.preferences),

@@ -6482,6 +6482,39 @@ tr.hidden-markup td {
   width: 80px;
 }
 
+/* Comment register: export and template editor */
+.modal.register-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.register-editor {
+  padding: 8px 12px;
+}
+
+.register-editor h4 {
+  margin: 14px 0 4px;
+}
+
+.register-basics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+}
+
+.register-editor .qty-table input:not([type='checkbox']),
+.register-editor .qty-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.register-editor .qty-table input[type='number'] {
+  width: 70px;
+}
+
+.register-row-actions {
+  white-space: nowrap;
+}
+
 /* Import from Excel: the preview of what a workbook changes */
 .import-excel-table .comment-text {
   white-space: pre-wrap;

@@ -41,6 +41,22 @@ export interface SyncSheetOptions {
    * answer) while still writing the rest of the sheet.
    */
   keep?: ReadonlyMap<string, ReadonlyMap<string, { cell: TableCell; base: string }>>;
+  /**
+   * Where the hidden key column goes: before the columns (the default) or after them. A register puts
+   * it last, so the client's columns sit where the client's layout has them.
+   */
+  keyAt?: 'first' | 'last';
+  /** Column widths in characters, per column of the table; a long text column is 50 when none is given. */
+  widths?: readonly (number | undefined)[];
+  /** How a register's statuses are worded, recorded with the export so it can be read back on a computer without the template. */
+  register?: RegisterRecord;
+}
+
+/** What a register export records about its template. */
+export interface RegisterRecord {
+  templateId: string;
+  /** Per status id: the word the register shows for it, and other words that mean it. */
+  statuses: { id: string; word: string; also: string[] }[];
 }
 
 /** A column people read a paragraph in: it wraps and gets a set width. */
@@ -59,7 +75,7 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
   const cols = table.columns;
   const editable = cols.map((c) => c.edit === 'editable');
   const base: TableCell[][] = [
-    [MARK, VERSION, opts.docId, opts.exportedAt, opts.sheet, opts.origin?.row ?? 0, opts.origin?.col ?? 0, cols.length, table.rows.length],
+    [MARK, VERSION, opts.docId, opts.exportedAt, opts.sheet, opts.origin?.row ?? 0, opts.origin?.col ?? 0, cols.length, table.rows.length, opts.register ? JSON.stringify(opts.register) : ''],
     ['key', 'itemNo', ...cols.map((c) => c.key)],
     [KEY_LABEL, '', ...cols.map((c) => c.label)],
     ...table.rows.map((r): TableCell[] => [r.key, r.match?.itemNo ?? '', ...cols.map((c, i) => opts.keep?.get(r.key)?.get(c.key)?.base ?? (editable[i] && !r.locked ? canonOwn(c, r.cells[i] ?? '') : ''))]),
@@ -73,9 +89,13 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
     while (row.length < c) row.push('');
     row[c] = v;
   };
+  // The key column is first or last; `off` is how far that moves the table's columns along.
+  const last = opts.keyAt === 'last';
+  const off = last ? 0 : 1;
+  const keyed = <T,>(key: T, rest: T[]): T[] => (last ? [...rest, key] : [key, ...rest]);
   cols.forEach((c, i) => {
     if (!editable[i]) return;
-    const column = i + 1;
+    const column = i + off;
     const options = c.kind === 'check' ? [YES, NO] : c.kind === 'choice' ? (c.options ?? []) : [];
     if (options.length) {
       put(1, listCol, `list:${c.key}`);
@@ -86,19 +106,19 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
     } else if (c.kind === 'date') validations.push({ column, kind: 'date', message: `${c.label} is a date.` });
     else if (c.kind === 'number') validations.push({ column, kind: 'number', message: `${c.label} is a number.` });
   });
-  const formats: (XlsxNumberFormat | undefined)[] = [undefined, ...cols.map((c, i) => (editable[i] && c.kind === 'date' ? ('date' as const) : undefined))];
-  const long = new Set(cols.flatMap((c, i) => (isLong(c) ? [i + 1] : [])));
+  const formats = keyed<XlsxNumberFormat | undefined>(undefined, cols.map((c, i) => (editable[i] && c.kind === 'date' ? ('date' as const) : undefined)));
+  const long = new Set(cols.flatMap((c, i) => (isLong(c) ? [i + off] : [])));
   const visible: SheetSpec = {
     name: opts.sheet,
-    table: [[KEY_LABEL, ...cols.map((c) => c.label)], ...table.rows.map((r) => [r.key, ...cols.map((c, i) => shown(c, opts.keep?.get(r.key)?.get(c.key)?.cell ?? r.cells[i] ?? ''))])],
+    table: [keyed<TableCell>(KEY_LABEL, cols.map((c) => c.label)), ...table.rows.map((r) => keyed<TableCell>(r.key, cols.map((c, i) => shown(c, opts.keep?.get(r.key)?.get(c.key)?.cell ?? r.cells[i] ?? ''))))],
     formats,
-    hiddenColumns: new Set([0]),
+    hiddenColumns: new Set([last ? cols.length : 0]),
     wrap: long,
-    widths: [undefined, ...cols.map((c) => (isLong(c) ? 50 : undefined))],
+    widths: keyed<number | undefined>(undefined, cols.map((c, i) => opts.widths?.[i] ?? (isLong(c) ? 50 : undefined))),
     validations,
     ...(opts.origin ? { origin: opts.origin } : {}),
     ...(opts.cells ? { cells: opts.cells } : {}),
-    ...(opts.protect ? { protection: { ...(opts.protect.password ? { password: opts.protect.password } : {}), unlocked: new Set(editable.flatMap((e, i) => (e ? [i + 1] : []))) } } : {}),
+    ...(opts.protect ? { protection: { ...(opts.protect.password ? { password: opts.protect.password } : {}), unlocked: new Set(editable.flatMap((e, i) => (e ? [i + off] : []))) } } : {}),
   };
   return [visible, { name: HIDDEN_SHEET, state: 'veryHidden', filter: false, table: base }];
 }
@@ -114,6 +134,23 @@ export interface Snapshot {
   columns: { key: string; label: string }[];
   /** Per row key: its Item No and the exported value of each column, by column key. */
   rows: Map<string, { itemNo: number | null; values: Map<string, string> }>;
+  /** Set when the export was a register: its template and status wording. */
+  register?: RegisterRecord;
+}
+
+/** The register record as written, or nothing when it is missing or not what this app writes. */
+function registerRecord(value: CellValue | undefined): RegisterRecord | undefined {
+  if (typeof value !== 'string' || !value || value.length > 100_000) return undefined;
+  try {
+    const v = JSON.parse(value) as { templateId?: unknown; statuses?: unknown };
+    if (typeof v.templateId !== 'string' || !Array.isArray(v.statuses) || v.statuses.length > 200) return undefined;
+    const statuses = v.statuses.flatMap((s: { id?: unknown; word?: unknown; also?: unknown }) =>
+      typeof s?.id === 'string' && typeof s.word === 'string' ? [{ id: s.id.slice(0, 200), word: s.word.slice(0, 200), also: Array.isArray(s.also) ? s.also.filter((a): a is string => typeof a === 'string').slice(0, 50).map((a) => a.slice(0, 200)) : [] }] : [],
+    );
+    return { templateId: v.templateId.slice(0, 200), statuses };
+  } catch {
+    return undefined;
+  }
 }
 
 const text = (v: CellValue | undefined) => (v === null || v === undefined ? '' : String(v));
@@ -137,5 +174,5 @@ export function readSnapshot(book: ReadWorkbook): Snapshot | null {
     const itemNo = typeof row[1] === 'number' ? row[1] : null;
     rows.set(key, { itemNo, values: new Map(columns.map((c, i) => [c.key, text(row[LEAD_COLS + i])])) });
   }
-  return { docId: text(meta[2]), exportedAt: text(meta[3]), sheet: text(meta[4]), headerRow: Number(meta[5]) || 0, firstCol: Number(meta[6]) || 0, columns, rows };
+  return { docId: text(meta[2]), exportedAt: text(meta[3]), sheet: text(meta[4]), headerRow: Number(meta[5]) || 0, firstCol: Number(meta[6]) || 0, columns, rows, ...(registerRecord(meta[9]) ? { register: registerRecord(meta[9])! } : {}) };
 }
