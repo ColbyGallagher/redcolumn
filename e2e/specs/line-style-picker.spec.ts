@@ -41,7 +41,8 @@ test.describe('line style picker', () => {
     const options = list(app).getByRole('option');
     const swatches = list(app).locator('canvas.ls-swatch');
     // The built-in dashes are all in view, so all are drawn.
-    const drawn = await swatches.evaluateAll((cs) =>
+    const inkOf = () =>
+      swatches.evaluateAll((cs) =>
       cs.slice(0, 6).map((c) => {
         const canvas = c as HTMLCanvasElement;
         const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -50,8 +51,9 @@ test.describe('line style picker', () => {
         return ink;
       }),
     );
-    expect(drawn).toHaveLength(6);
-    for (const ink of drawn) expect(ink).toBeGreaterThan(20);
+    // Swatches draw a frame after the list opens (when they scroll into view), so wait for the ink.
+    await expect.poll(async () => (await inkOf()).filter((n) => n > 20).length).toBe(6);
+    const drawn = await inkOf();
     // A dashed swatch has less ink than a solid one.
     expect(drawn[1]!).toBeLessThan(drawn[0]!);
 
@@ -71,6 +73,41 @@ test.describe('line style picker', () => {
     await app.page.keyboard.press('Tab');
     await expect(list(app)).toBeHidden();
     await expect(picker(app)).toContainText('Solid');
+  });
+
+  test('at the narrowest window a long style name is cut inside the picker, and the ribbon gets no wider', async ({ app }) => {
+    await app.tool('line');
+    await app.drag(A, B);
+    await app.tool('select');
+    const [m] = await app.markups();
+    await app.page.setViewportSize({ width: 800, height: 700 });
+    await app.page.evaluate((id) => window.__nb.tools.select([id]), m!.id);
+    const ribbonWidth = () => app.page.evaluate(() => document.querySelector<HTMLElement>('.ribbon')!.scrollWidth);
+    const before = await ribbonWidth();
+    // A custom dash array is listed as "Custom (...)": a long name.
+    await app.page.evaluate((id) => {
+      const store = window.__nb.tools.store as unknown as {
+        get(id: string): { style: object };
+        update(id: string, patch: object): void;
+      };
+      store.update(id, { style: { ...store.get(id).style, dashArray: [1.11, 2.22, 3.33, 4.44, 5.55, 6.66, 7.77] } });
+      window.__nb.tools.select([id]);
+    }, m!.id);
+    await expect(picker(app)).toContainText('Custom (1.11');
+    const fit = await app.page.evaluate(() => {
+      const button = document.querySelector<HTMLElement>('.ribbon .ls-select')!;
+      const group = button.closest<HTMLElement>('.rb-group')!;
+      
+      const b = button.getBoundingClientRect();
+      const g = group.getBoundingClientRect();
+      const name = button.querySelector<HTMLElement>('.ls-name')!;
+      return { width: b.width, inGroup: b.left >= g.left - 0.5 && b.right <= g.right + 0.5, cut: name.scrollWidth > name.clientWidth };
+    });
+    expect(fit.width).toBeLessThanOrEqual(150);
+    expect(fit.inGroup).toBe(true);
+    // The long name adds nothing to the ribbon's width.
+    expect(await ribbonWidth()).toBeLessThanOrEqual(before);
+    expect(fit.cut).toBe(true);
   });
 
   test('a selection with different styles shows Mixed, and the Properties panel has the picker too', async ({ app }) => {

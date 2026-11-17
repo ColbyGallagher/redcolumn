@@ -50,9 +50,13 @@ function start() {
     bump();
   };
   watchDpr();
+  // A theme that follows the system changes colour without touching the page's attributes.
+  const dark = window.matchMedia('(prefers-color-scheme: dark)');
+  dark.addEventListener('change', bump);
   stop = () => {
     mo.disconnect();
     mq?.removeEventListener('change', onDpr);
+    dark.removeEventListener('change', bump);
   };
 }
 function subscribe(l: () => void) {
