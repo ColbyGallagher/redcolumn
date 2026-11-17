@@ -31,6 +31,33 @@ A template says what the client's register looks like. You make it once per clie
 
 > **Note:** Protection is not security. The password is written on the workbook's **Read me** sheet, so anyone who needs to sort or restructure the sheet can unprotect it on purpose.
 
+## Use the client's own file
+
+Many clients require their own register file. In the Windows desktop app, with Excel installed, the export can fill in a copy of that file instead of making a workbook that looks like it. The copy keeps the file's title block, logos, merged headings and styles.
+
+1. Choose {{File > Export > Register Templates…}} and open the client's template.
+2. Beside **Client's file**, click **Choose…** and pick the client's blank register (.xlsx).
+3. Make the template match the file:
+   - **Sheet name**: the sheet the register is on. A file with one sheet needs no name.
+   - **Header row** and **First column**: where the file's table starts. For a heading over two rows, use the lower row.
+   - **Columns**: one for each column of the file's table, in the file's order, with the file's **Heading**. For a column redcolumn has nothing for, choose **Nothing: left blank**. Its cells stay as the file has them.
+4. redcolumn checks the headings against the file and says which do not match. Click **Save Template**.
+
+At each export, choose **A copy of the client's file** as the **Workbook**, and choose where to save the copy. The client's blank file is never changed.
+
+What goes into the copy:
+
+- One row per comment under the header. When the file has something under its table, such as a sign-off block or a total, rows are inserted above it, so it moves down and is not written over.
+- The details you mapped above the table, such as the document name. Fixed text cells in the template are not written: the file has its own.
+- A hidden column beside the table and a hidden sheet, which tie each row to its comment.
+- A dropdown on **Status** and the other columns that have set values, unless the file already has its own dropdown there.
+
+> **Note:** The copy is not protected and has no **Read me** sheet. It is the client's file, so its own protection and sheets are left as they are. If the client's sheet is protected, unprotect it in Excel and save it before you export.
+
+> **Tip:** Start from the client's blank file. Rows that are already in the file under the header are kept, and the comments are inserted above them.
+
+The filled-in file is imported like any other register.
+
 ## Export a register
 
 1. Choose {{File > Export > Comment Register…}}.

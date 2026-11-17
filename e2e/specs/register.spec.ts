@@ -1,4 +1,8 @@
-import { buildWorkbook, type SheetSpec } from '../../apps/web/src/sheetsync/xlsx.ts';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { buildWorkbook, type LooseCell, type SheetSpec } from '../../apps/web/src/sheetsync/xlsx.ts';
 import { readWorkbook, type CellValue } from '../../apps/web/src/sheetsync/xlsxRead.ts';
 import { expect, test, type App } from '../support/app.ts';
 
@@ -16,6 +20,15 @@ async function addMarkups(app: App, comments: (string | null)[]) {
     );
   }, comments);
   await expect.poll(async () => (await rows(app)).length).toBe(comments.length);
+}
+
+/** Whether Excel is installed: filling a client's file drives it. */
+function hasExcel(): boolean {
+  try {
+    return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "if ([Type]::GetTypeFromProgID('Excel.Application')) { 'yes' } else { 'no' }"], { encoding: 'utf8', windowsHide: true }).trim() === 'yes';
+  } catch {
+    return false;
+  }
 }
 
 test.describe('comment register', () => {
@@ -80,5 +93,64 @@ test.describe('comment register', () => {
     // The template is there to edit from the menu command too.
     await app.cmd('file.registerTemplates');
     await expect(app.page.getByRole('dialog', { name: 'Register templates' }).getByLabel('Template name')).toHaveValue('Kestrel register');
+  });
+
+  test('a register fills in a copy of the client’s own file, which keeps its title block and what is under its table', async ({ app }) => {
+    test.skip(app.kind !== 'desktop' || process.platform !== 'win32', 'Excel fills the client’s file in, in the Windows desktop app');
+    test.skip(!hasExcel(), 'Excel is not installed here');
+    test.setTimeout(180_000);
+    // The client's blank register (the fictional Kestrel Road set): a title block, the header on row 5,
+    // two blank rows, then a sign-off block.
+    const heads = ['Item No', 'Sheet', 'Comment', 'Raised by', 'Date raised', 'Status', 'Designer Response', 'Response by', 'Reviewer Close-out'];
+    const cells: LooseCell[] = [
+      { row: 0, col: 0, value: 'KESTREL ROAD UPGRADE', bold: true },
+      { row: 1, col: 0, value: 'Document' },
+      ...heads.map((value, col) => ({ row: 4, col, value, bold: true })),
+      { row: 7, col: 0, value: 'Reviewed by' },
+      { row: 7, col: 2, value: 'Signature' },
+    ];
+    const blank = join(mkdtempSync(join(tmpdir(), 'e2e-register-')), 'KR client register.xlsx');
+    writeFileSync(blank, buildWorkbook([{ name: 'Review Comments', filter: false, table: [], cells }]));
+
+    await app.open('plan.pdf');
+    await addMarkups(app, ['Kerb line clashes with pit lid', 'Show the batter extent', 'Label the culvert']);
+
+    // The template points at the client's file. Its sheet name is not the file's, and the file has one sheet: it is found.
+    await app.cmd('file.registerTemplates');
+    const editor = app.page.getByRole('dialog', { name: 'Register templates' });
+    await editor.getByRole('button', { name: 'New', exact: true }).click();
+    await editor.getByLabel('Template name').fill('Kestrel own file');
+    await app.answerOpenDialog(blank);
+    await editor.getByRole('button', { name: 'Choose…' }).click();
+    await expect(editor.getByTestId('client-file-name')).toHaveText('KR client register.xlsx');
+    await expect(editor.getByTestId('client-file-check')).toHaveText('The file’s headings match this template.');
+    await editor.getByRole('button', { name: 'Save Template' }).click();
+    await editor.getByRole('button', { name: 'Close' }).click();
+
+    await app.cmd('file.exportRegister');
+    const exportDialog = app.page.getByRole('dialog', { name: 'Export comment register' });
+    await expect(exportDialog.getByLabel('Register workbook')).toHaveValue('client');
+    await exportDialog.getByLabel('Document name').fill('KR-C-101 General arrangement');
+    await exportDialog.getByRole('button', { name: 'Export', exact: true }).click();
+    await expect.poll(async () => (await app.saved()).some((f) => f.name.endsWith('Kestrel own file.xlsx')), { timeout: 120_000 }).toBe(true);
+    await expect(exportDialog).toBeHidden({ timeout: 120_000 });
+
+    const filled = (await app.saved()).find((f) => f.name.endsWith('Kestrel own file.xlsx'))!;
+    const book = await readWorkbook(filled.bytes);
+    expect(book.sheets.map((s) => `${s.name}:${s.state}`)).toEqual(['Review Comments:visible', '_redcolumn:veryHidden']);
+    const rowsOf = book.sheets[0]!.rows;
+    expect(rowsOf[0]![0]).toBe('KESTREL ROAD UPGRADE');
+    expect(rowsOf[1]![2]).toBe('KR-C-101 General arrangement');
+    expect(rowsOf[4]!.slice(0, 10)).toEqual([...heads, 'redcolumn key']);
+    expect(rowsOf.slice(5, 8).map((r) => [r[0], r[2], r[5]])).toEqual([[1, 'Kerb line clashes with pit lid', 'Open'], [2, 'Show the batter extent', 'Open'], [3, 'Label the culvert', 'Open']]);
+    // Three comments and room for two: a row was inserted, and the sign-off block is a row further down.
+    expect([rowsOf[8]![0], rowsOf[8]![2]]).toEqual(['Reviewed by', 'Signature']);
+
+    // The filled-in file comes back like any register, and the sign-off block is not a row added.
+    const chooser = app.page.waitForEvent('filechooser');
+    await app.cmd('file.importXlsx');
+    await (await chooser).setFiles({ name: filled.name, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: filled.bytes });
+    const preview = app.page.getByRole('dialog', { name: 'Import from Excel' });
+    await expect(preview.getByTestId('import-summary')).toContainText('3 rows matched (3 by row key). 0 cells to change, 0 replies to add, 0 conflicts, 0 unknown values, 0 rows skipped');
   });
 });
