@@ -12,6 +12,7 @@ import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
+import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
@@ -7078,9 +7079,9 @@ export function App() {
                 {
                   label: 'Rotate…',
                   onClick: () =>
-                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
-                      const deg = Number(t);
-                      if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
+                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.', confirm: 'Rotate' }).then((t) => {
+                      const r = t === null ? undefined : parseRotationInput(t);
+                      if (r?.ok) turnMarkups(store, ms, r.degrees, true);
                     }),
                 },
                 { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },

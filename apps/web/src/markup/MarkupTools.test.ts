@@ -2046,3 +2046,21 @@ test('restyling a selected markup leaves the tool default alone; with nothing se
   assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
   await h.store.destroy();
 });
+
+test('Rotate by a typed grade: positive rises to the right, negative falls to the right', async () => {
+  for (const [typed, sign] of [['-2%', 1], ['2%', -1], ['-1:50', 1]] as const) {
+    const h = await setup();
+    const l = put(h, 'line', [[100, 100], [200, 100]]);
+    h.tools.select([l.id]);
+    settings.set({ rotateAngle: typed });
+    try {
+      h.tools.setTool('rotateRef');
+      click(h.tools, [100, 100]);
+      const end = h.store.get(l.id)!.points[1]!;
+      // Page y grows downwards, so a fall to the right makes y larger.
+      assert.ok(Math.abs(end[1]! - 100 - sign * 2) < 0.1, typed + ': ' + end);
+    } finally {
+      settings.set({ rotateAngle: '' });
+    }
+  }
+});
