@@ -153,6 +153,33 @@ test.describe('modify', () => {
     expect(round(turned.points)).toEqual([[300, 600], [300, 550]]);
   });
 
+  test('the Rotation field takes -2% and -1:25 typed character by character, as one undo step each', async ({ app }) => {
+    const r = await rect(app);
+    await select(app, [r.id]);
+    await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
+    const field = app.page.locator('.props-panel').getByLabel('Rotation', { exact: true });
+    const angle = async () => ((await app.raw()).find((m) => m.id === r.id)!.rotation as number | undefined) ?? 0;
+
+    await field.click();
+    await field.fill('');
+    await field.pressSequentially('-2%');
+    await expect(field).toHaveValue('-2%'); // not rewritten while typing
+    expect(await angle()).toBe(0); // nothing applied by the prefixes
+    await field.press('Enter');
+    expect(Math.abs((await angle()) - 1.15)).toBeLessThan(0.01);
+
+    await field.fill('');
+    await field.pressSequentially('-1:25');
+    await field.press('Enter');
+    expect(Math.abs((await angle()) - 2.29)).toBeLessThan(0.01);
+
+    // One undo step per entered value: the first undo returns to the -2% result, not a prefix.
+    await app.cmd('edit.undo');
+    expect(Math.abs((await angle()) - 1.15)).toBeLessThan(0.01);
+    await app.cmd('edit.undo');
+    expect(await angle()).toBe(0);
+  });
+
   test('mirror keeps a picture upright; with Mirror pictures ticked it reverses it', async ({ app }) => {
     const before = await placePicture(app);
     const id = before.id as string;

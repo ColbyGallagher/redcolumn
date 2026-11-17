@@ -10,6 +10,7 @@ import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import { frameRect, groupFrame, groupHandles } from './groupBox';
 import type { MarkupTools as Tools, MarkupToolsOptions, TableDraft } from './MarkupTools';
+import { parseRotationInput } from './rotationInput';
 
 // MarkupTools listens on `window` for modifier keys when it loads.
 type WinListener = (e: { shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean; key?: string; repeat?: boolean }) => void;
@@ -2045,6 +2046,37 @@ test('restyling a selected markup leaves the tool default alone; with nothing se
   h.tools.setDefaultStyle('line', { ...h.store.get(line.id)!.style });
   assert.equal(h.tools.getState().styles.line.dash, 'dashed', 'Set as Default still sets it');
   await h.store.destroy();
+});
+
+test('setRotation turns clockwise on screen: a fall to the right is a positive angle', async () => {
+  for (const [typed, expected] of [['-2%', 1.15], ['2%', 358.85], ['-1:50', 1.15], ['30', 30]] as const) {
+    const h = await setup();
+    const box = put(h, 'rect', [[300, 100], [400, 200]]);
+    h.tools.select([box.id]);
+    const r = parseRotationInput(typed);
+    assert.ok(r.ok);
+    h.tools.setRotation(r.degrees);
+    assert.ok(Math.abs(h.store.get(box.id)!.rotation! - expected) < 1e-6, typed);
+  }
+});
+
+test('Rotate by a typed grade turns an already diagonal line the right way', async () => {
+  for (const [typed, sign] of [['-2%', 1], ['2%', -1]] as const) {
+    const h = await setup();
+    const l = put(h, 'line', [[100, 100], [200, 200]]);
+    h.tools.select([l.id]);
+    settings.set({ rotateAngle: typed });
+    try {
+      h.tools.setTool('rotateRef');
+      click(h.tools, [100, 100]);
+      const end = h.store.get(l.id)!.points[1]!;
+      // Page y grows down, so a fall to the right (-2%) grows the angle from +x.
+      const angle = Math.atan2(end[1]! - 100, end[0]! - 100) * (180 / Math.PI);
+      assert.ok(Math.abs(angle - (45 + sign * 1.1458)) < 0.01, `${typed}: ${angle}`);
+    } finally {
+      settings.set({ rotateAngle: '' });
+    }
+  }
 });
 
 test('Rotate by a typed grade: positive rises to the right, negative falls to the right', async () => {

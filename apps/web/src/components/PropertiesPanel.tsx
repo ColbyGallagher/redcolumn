@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BLEND_MODES,
   CELL_STYLE_KEYS,
@@ -33,7 +33,7 @@ import {
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type ManualKind, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
 import { defaultManualUnit, makeManual, manualEditValue, MANUAL_KIND_LABELS, MANUAL_UNITS } from '../measure/manualQuantity';
 import { gradeReadout, parseRotationInput } from '../markup/rotationInput';
-import { isMarkupTool,type MarkupTools, type ToolsState } from '../markup/MarkupTools';
+import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
 import { LineStyleSelect } from './LineStyleSelect';
@@ -1049,38 +1049,44 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
 }
 
 /**
- * Rotation as clockwise degrees, or a road-style grade such as `2%` or `1:50`. A plain number applies
- * as you type; a grade applies on Enter or when you leave the field. Shows the equivalent value.
+ * Rotation as clockwise degrees, or a road-style grade such as `2%` or `1:50`. Whatever is typed
+ * applies once, on Enter or when you leave the field (Escape reverts), so half-typed grades such as
+ * `-2` are never applied. Shows the equivalent value as you type.
  */
 function RotationField({ value, onApply }: { value: number | undefined; onApply: (degrees: number) => void }) {
   const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
   const [text, setText] = useState(shown);
-  useEffect(() => setText(shown), [shown]);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(shown);
+  }, [shown]);
   const parsed = text.trim() === '' || text === shown ? undefined : parseRotationInput(text);
   const bad = parsed && !parsed.ok;
   const note = parsed ? (parsed.ok ? [parsed.readout, parsed.warning].filter(Boolean).join(' ') : parsed.error) : value !== undefined ? gradeReadout(value) : undefined;
+  const commit = () => {
+    if (!parsed?.ok) return false;
+    onApply(parsed.degrees);
+    setText(String(Math.round(parsed.degrees * 100) / 100));
+    return true;
+  };
   return (
     <>
       <input
         type="text"
-        inputMode="decimal"
         className="num"
         value={text}
         placeholder={value === undefined ? 'Mixed' : undefined}
         aria-label="Rotation"
         aria-invalid={bad ? true : undefined}
         title="Degrees clockwise, or a grade such as 2% or 1:50. Positive rises to the right, negative (-2%) falls to the right."
-        onChange={(e) => {
-          setText(e.target.value);
-          const p = parseRotationInput(e.target.value);
-          if (p.ok && p.unit === 'degrees') onApply(p.degrees);
-        }}
+        onFocus={() => (focused.current = true)}
+        onChange={(e) => setText(e.target.value)}
         onBlur={() => {
-          if (parsed?.ok) onApply(parsed.degrees);
-          setText(shown);
+          focused.current = false;
+          if (!commit()) setText(shown);
         }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && parsed?.ok) onApply(parsed.degrees);
+          if (e.key === 'Enter') commit();
           if (e.key === 'Escape') setText(shown);
         }}
       />

@@ -14,9 +14,9 @@ export type RotationParse =
   | { ok: true; unit: RotationUnit; /** Clockwise degrees in [0, 360). */ degrees: number; /** Text for the live readout. */ readout: string; warning?: string }
   | { ok: false; error: string };
 
-const DEGREES = /^([+-]?(?:\d+\.?\d*|\.\d+))\s*°?$/;
+const DEGREES = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*°?$/i;
 const PERCENT = /^([+-]?)\s*(\d+\.?\d*|\.\d+)\s*%$/;
-const RATIO = /^([+-]?)\s*1\s*:\s*([+-]?)\s*(\d+\.?\d*|\.\d+)$/;
+const RATIO = /^([+-]?)\s*1\s*:\s*(\d+\.?\d*|\.\d+)$/;
 
 const DEG = 180 / Math.PI;
 const norm = (d: number) => (((d % 360) + 360) % 360) || 0;
@@ -34,8 +34,8 @@ export function gradeReadout(clockwiseDegrees: number): string | undefined {
 
 /** `turn` is how plain degrees (and the returned `degrees`) are measured: clockwise (default) or counter-clockwise on paper. */
 export function parseRotationInput(text: string, turn: Turn = 'clockwise'): RotationParse {
-  const out = (math: number) => (turn === 'ccw' ? math : norm(-math));
-  const t = text.trim();
+  const out = (math: number) => (turn === 'ccw' ? math || 0 : norm(-math));
+  const t = text.trim().replace(/−/g, '-');
   if (!t) return { ok: false, error: 'Type an angle, a percentage such as 2% or a ratio such as 1:50.' };
 
   const deg = DEGREES.exec(t);
@@ -53,12 +53,13 @@ export function parseRotationInput(text: string, turn: Turn = 'clockwise'): Rota
 
   const ratio = RATIO.exec(t);
   if (ratio) {
-    const n = Number(ratio[3]);
+    const n = Number(ratio[2]);
     if (n === 0) return { ok: false, error: 'A ratio of 1:0 is vertical. Use 90 degrees instead.' };
-    const sign = (ratio[1] === '-' ? -1 : 1) * (ratio[2] === '-' ? -1 : 1);
+    const sign = ratio[1] === '-' ? -1 : 1;
     const math = sign * Math.atan(1 / n) * DEG;
     return { ok: true, unit: 'ratio', degrees: out(math), readout: `≈ ${fmt(Math.abs(math), 3)}° (${fmt(Math.abs(100 / n), 2)}%)`, ...(n < 1 ? { warning: 'Steeper than 1:1 (45°).' } : {}) };
   }
 
+  if (/^[+-]?\d+,\d+\s*(%|°)?$/.test(t)) return { ok: false, error: 'Use a decimal point, not a comma (2.5).' };
   return { ok: false, error: 'Not a valid angle. Use degrees (45), a percentage (2%) or a ratio (1:50).' };
 }

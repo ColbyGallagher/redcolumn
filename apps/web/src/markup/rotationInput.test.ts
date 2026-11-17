@@ -73,3 +73,35 @@ describe('parseRotationInput, counter-clockwise tools', () => {
     near(ccw('-1:50'), -Math.atan(1 / 50) * RAD);
   });
 });
+
+describe('parseRotationInput, edge cases', () => {
+  it('accepts a unicode minus, a leading plus and exponent degrees', () => {
+    near(deg('−2%'), deg('-2%'));
+    assert.equal(deg('+2%'), deg('2%'));
+    assert.equal(deg('+30'), 30);
+    assert.equal(deg('1e2'), 100);
+    assert.equal(deg('1E1'), 10);
+  });
+  it('treats -0% and zero ratios properly', () => {
+    assert.equal(deg('-0%'), 0);
+    const z = parseRotationInput('-0%', 'ccw');
+    assert.ok(z.ok && z.degrees === 0 && !Object.is(z.degrees, -0));
+    assert.equal(parseRotationInput('1:00').ok, false);
+    assert.equal(parseRotationInput('1:0.0').ok, false);
+  });
+  it('rejects a signed denominator and explains a decimal comma', () => {
+    assert.equal(parseRotationInput('1:-50').ok, false);
+    assert.equal(parseRotationInput('-1:-50').ok, false);
+    const r = parseRotationInput('2,5%');
+    assert.ok(!r.ok && r.error.includes('decimal point'));
+    assert.equal(parseRotationInput('2,5').ok, false);
+  });
+  it('warns on a ratio steeper than 1:1', () => {
+    assert.ok(parse('1:0.5').warning);
+    assert.equal(parse('1:1').warning, undefined);
+  });
+  it('reads out the grade for a plain counter-clockwise angle', () => {
+    const r = parseRotationInput('1.1458', 'ccw');
+    assert.ok(r.ok && r.readout === '≈ 2%');
+  });
+});

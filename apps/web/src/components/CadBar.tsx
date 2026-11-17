@@ -148,7 +148,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       fields = (
         <label title="Counter-clockwise degrees, or a grade such as 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% falls to the right). Leave empty to rotate from a reference direction to a new one.">
           Angle
-          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder="by reference" aria-label="Rotate angle" aria-invalid={rotateParse && !rotateParse.ok ? true : undefined} />°{rotateParse?.ok && rotateParse.unit !== 'degrees' ? ` ${rotateParse.readout}` : null}
+          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder="by reference" aria-label="Rotate angle" aria-invalid={rotateParse && !rotateParse.ok ? true : undefined} />{rotateParse?.ok && rotateParse.unit !== 'degrees' ? ` ${rotateParse.readout}` : '°'}
         </label>
       );
       if (rotateParse && !rotateParse.ok) bad = true;

@@ -7079,10 +7079,20 @@ export function App() {
                 {
                   label: 'Rotate…',
                   onClick: () =>
-                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.', confirm: 'Rotate' }).then((t) => {
-                      const r = t === null ? undefined : parseRotationInput(t);
-                      if (r?.ok) turnMarkups(store, ms, r.degrees, true);
-                    }),
+                    void (async () => {
+                      const help = 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.';
+                      let initial = String(first.rotation ?? 0);
+                      let note = '';
+                      // Ask again, with the reason, until the input is understood or the dialog is cancelled.
+                      for (;;) {
+                        const t = await askText('Rotate', initial, { label: note ? `${note}\n${help}` : help, confirm: 'Rotate' });
+                        if (t === null) return;
+                        const r = parseRotationInput(t);
+                        if (r.ok && (!r.warning || t === initial)) return turnMarkups(store, ms, r.degrees, true);
+                        initial = t;
+                        note = r.ok ? `${r.warning} Press Rotate again to apply it.` : r.error;
+                      }
+                    })(),
                 },
                 { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
               ],
