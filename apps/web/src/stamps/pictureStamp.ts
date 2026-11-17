@@ -47,7 +47,12 @@ export async function stampFromImage(file: File, env: PictureEnv = browserPictur
   if (!file.size) throw new Error('the file is empty');
   if (file.size > MAX_STAMP_IMAGE_BYTES) throw new Error(`the picture is over ${Math.round(MAX_STAMP_IMAGE_BYTES / MB)} MB`);
   // Its size from the header first: a small file can still hold a picture too big to decode.
-  const dims = imageDimensions(new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()));
+  let dims = imageDimensions(new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()));
+  // A JPEG can hold a lot of metadata before its size: read further before giving up.
+  if (!dims && file.size > 64 * 1024) {
+    const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+    if (head[0] === 0xff && head[1] === 0xd8) dims = imageDimensions(new Uint8Array(await file.slice(0, 1024 * 1024).arrayBuffer()));
+  }
   if (!dims || !(dims.width > 0) || !(dims.height > 0)) throw new Error('this is not a picture that can be read (PNG, JPEG, GIF, BMP or WebP)');
   if (dims.width * dims.height > MAX_STAMP_IMAGE_PIXELS) throw new Error(`the picture is too large (${dims.width} x ${dims.height} pixels)`);
 
@@ -113,4 +118,24 @@ export function addPictureStamps(library: StampDef[], added: StampDef[]): { stam
     return name === s.name ? s : { ...s, name, lines: s.lines.map((l) => (l === s.name ? name : l)) };
   });
   return { stamps: [...stamps, ...result], added: result };
+}
+
+/**
+ * Adds picture stamps through `update` (the workspace's updater, which says whether the change was
+ * kept). When it was not, the library is put back exactly as it was, replaced stamps included.
+ */
+export function commitPictureStamps<W extends { stamps: StampDef[] }>(made: StampDef[], update: (fn: (w: W) => W) => boolean): { saved: boolean; added: StampDef[] } {
+  let previous: StampDef[] | null = null;
+  let result: ReturnType<typeof addPictureStamps> | null = null;
+  const kept = update((w) => {
+    previous = w.stamps;
+    result = addPictureStamps(w.stamps, made);
+    return { ...w, stamps: result.stamps };
+  });
+  if (kept && result) return { saved: true, added: (result as ReturnType<typeof addPictureStamps>).added };
+  if (previous) {
+    const stamps: StampDef[] = previous;
+    update((w) => ({ ...w, stamps }));
+  }
+  return { saved: false, added: [] };
 }

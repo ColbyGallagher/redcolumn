@@ -1,6 +1,6 @@
 import type { StampDef } from '@nb/markup';
 import { updateWorkspace } from '../workspace/profiles';
-import { addPictureStamps, isImageFile, stampFromImage } from './pictureStamp';
+import { commitPictureStamps, isImageFile, stampFromImage } from './pictureStamp';
 import { importRevuStamps } from './revuStamps';
 
 export { STAMP_FILE_ACCEPT } from './pictureStamp';
@@ -20,18 +20,9 @@ export async function importStampFiles(files: File[]): Promise<{ added: StampDef
     }
   }
   if (made.length) {
-    let result: ReturnType<typeof addPictureStamps> | null = null;
-    const kept = updateWorkspace((w) => {
-      result = addPictureStamps(w.stamps, made);
-      return { ...w, stamps: result.stamps };
-    });
-    if (kept && result) added.push(...(result as ReturnType<typeof addPictureStamps>).added);
-    else {
-      // The browser would not keep them: take them out again, so the library is the same after a reload.
-      const ids = new Set(made.map((s) => s.id));
-      updateWorkspace((w) => ({ ...w, stamps: w.stamps.filter((s) => !ids.has(s.id)) }));
-      failed.push('The pictures were not saved: the browser has no room left for stamps. Delete some stamps and try again.');
-    }
+    const r = commitPictureStamps(made, updateWorkspace);
+    if (r.saved) added.push(...r.added);
+    else failed.push('The pictures were not saved: the browser has no room left for stamps. Delete some stamps and try again.');
   }
   if (pdfs.length) {
     const r = await importRevuStamps(pdfs);

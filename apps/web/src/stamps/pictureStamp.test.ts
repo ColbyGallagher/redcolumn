@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { STAMP_IMAGE_BUDGET, type StampDef } from '@nb/markup';
-import { addPictureStamps, stampFromImage, type PictureBitmap, type PictureCanvas, type PictureEnv } from './pictureStamp.ts';
+import { addPictureStamps, commitPictureStamps, stampFromImage, type PictureBitmap, type PictureCanvas, type PictureEnv } from './pictureStamp.ts';
 
 /** A PNG header claiming `w` x `h` (just enough of a file to be sized). */
 function pngHeader(w: number, h: number): Uint8Array {
@@ -121,4 +121,34 @@ test('importing pictures: the last of a name in a batch wins, and only picture s
   assert.deepEqual(stamps.map((s) => s.id), ['t', 'r', 'b', 'c', 'd']);
   assert.deepEqual(added.map((s) => s.name), ['Seal', 'Approved (2)', 'Revu (2)']);
   assert.equal(added[1]!.lines[0], 'Approved (2)');
+});
+
+test('a failed save puts the library back as it was, a replaced picture stamp included', () => {
+  let state = { stamps: [stamp('t', 'Approved'), stamp('p', 'Seal', true)] };
+  const before = state.stamps;
+  const failing = (fn: (w: typeof state) => typeof state) => {
+    state = fn(state);
+    return false;
+  };
+  const r = commitPictureStamps([stamp('n', 'Seal', true), stamp('m', 'Logo', true)], failing);
+  assert.equal(r.saved, false);
+  assert.equal(state.stamps, before);
+  const ok = commitPictureStamps([stamp('n', 'Seal', true)], (fn) => ((state = fn(state)), true));
+  assert.deepEqual([ok.saved, state.stamps.map((s) => s.id)], [true, ['t', 'n']]);
+});
+
+test('a JPEG with a lot of metadata before its size is still sized', async () => {
+  const { env } = fakeEnv();
+  const pad = new Uint8Array(200 * 1024);
+  // SOI, an APP1 segment of 200 KB (split in segments of 64 KB - 2), then SOF0.
+  const parts: number[] = [0xff, 0xd8];
+  let left = pad.length;
+  while (left > 0) {
+    const n = Math.min(left, 65000);
+    parts.push(0xff, 0xe1, (n + 2) >> 8, (n + 2) & 255, ...new Array(n).fill(0));
+    left -= n;
+  }
+  parts.push(0xff, 0xc0, 0, 11, 8, 0, 40, 0, 90, 3, 0, 0, 0);
+  const stamp = await stampFromImage(file(Uint8Array.from(parts), 'meta.jpg', 'image/jpeg'), env);
+  assert.ok(stamp.art);
 });
