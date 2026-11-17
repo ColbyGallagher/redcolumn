@@ -77,7 +77,7 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
-import { clearLayout, DEFAULT_LAYOUT, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
 import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
@@ -1138,8 +1138,11 @@ export function App() {
   // last time stays saved until they show or hide it themselves.
   const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
   const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
+  const restoringBottom = useRef(false);
   useEffect(() => {
-    if (showBottom && !lastShowBottom.current) setDockOpen(true);
+    // Not when it came back by itself (wider window, undocked profile): the strip stays a strip.
+    if (showBottom && !lastShowBottom.current && !restoringBottom.current) setDockOpen(true);
+    restoringBottom.current = false;
     if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
     lastShowBottom.current = showBottom;
   }, [showBottom]);
@@ -1165,6 +1168,7 @@ export function App() {
   useEffect(() => {
     if (!narrow && !ws.markupsDocked && showBottomForced.current) {
       showBottomForced.current = false;
+      restoringBottom.current = layoutRef.current.showBottom !== showBottom;
       setShowBottom(layoutRef.current.showBottom);
     }
   }, [narrow, ws.markupsDocked]);
@@ -1182,7 +1186,16 @@ export function App() {
     }, 300);
     return () => window.clearTimeout(t);
   }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
-  /** Window > Reset Layout: side panels, rails, the Markups list, ribbon, toolbar and split view as a new install has them. */
+  /** The side panels as drawn: the saved widths, shrunk when both are open in a window too small for them. */
+  const shownWidths = (() => {
+    const [left, right] = leftOpen && rightOpen ? fitWidths(leftWidth, rightWidth, window.innerWidth) : [leftWidth, rightWidth];
+    return { left, right };
+  })();
+  /**
+   * Window > Reset Layout: side panel tabs, widths and rail labels, panel order and hidden panels, the
+   * Markups list (shown, size, tab), ribbon and toolbar visibility, split view, and the remembered
+   * Recents and Measurements sections. Documents, profiles and tools are untouched.
+   */
   const resetLayout = () => {
     clearLayout();
     layoutRef.current = DEFAULT_LAYOUT;
@@ -6698,7 +6711,7 @@ export function App() {
   const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = side === 'left' ? leftWidth : rightWidth;
+    const startW = side === 'left' ? shownWidths.left : shownWidths.right;
     const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
     // The right panel's inner edge is its left one: dragging it left widens the panel.
     const dir = side === 'left' ? 1 : -1;
@@ -9171,7 +9184,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    const width = side === 'left' ? leftWidth : rightWidth;
+    const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
       <aside

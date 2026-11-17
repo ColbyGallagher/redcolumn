@@ -52,7 +52,7 @@ export function fitWidths(left: number, right: number, windowWidth: number): [nu
 }
 
 /** Reads a saved layout, replacing anything missing or out of range with the default. */
-export function parseLayout(raw: string | null, windowHeight = 1000, windowWidth = 4000): LayoutState {
+export function parseLayout(raw: string | null, windowHeight = 1000): LayoutState {
   let o: Record<string, unknown> = {};
   try {
     const v: unknown = JSON.parse(raw ?? 'null');
@@ -61,14 +61,10 @@ export function parseLayout(raw: string | null, windowHeight = 1000, windowWidth
     /* unreadable: use the defaults */
   }
   const d = DEFAULT_LAYOUT;
-  const [leftWidth, rightWidth] = fitWidths(
-    clampNum(o.leftWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.leftWidth),
-    clampNum(o.rightWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.rightWidth),
-    windowWidth,
-  );
+  // Widths stay as the user left them; `fitWidths` shrinks them for display in a small window.
   return {
-    leftWidth,
-    rightWidth,
+    leftWidth: clampNum(o.leftWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.leftWidth),
+    rightWidth: clampNum(o.rightWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.rightWidth),
     showBottom: typeof o.showBottom === 'boolean' ? o.showBottom : d.showBottom,
     dockOpen: typeof o.dockOpen === 'boolean' ? o.dockOpen : d.dockOpen,
     bottomTab: o.bottomTab === 'links' || o.bottomTab === 'markups' ? o.bottomTab : d.bottomTab,
@@ -84,7 +80,7 @@ export function serializeLayout(layout: LayoutState): string {
 export function loadLayout(): LayoutState | null {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
-    return raw === null ? null : parseLayout(raw, window.innerHeight, window.innerWidth);
+    return raw === null ? null : parseLayout(raw, window.innerHeight);
   } catch {
     return null;
   }

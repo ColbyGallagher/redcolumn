@@ -9,7 +9,10 @@ const saved = (app: App) => app.page.evaluate(() => JSON.parse(localStorage.getI
 
 /** Drags a divider by the given offset. */
 async function drag(app: App, selector: string, dx: number, dy: number) {
-  const box = (await app.page.locator(selector).boundingBox())!;
+  const handle = app.page.locator(selector).first();
+  await handle.waitFor();
+  await expect.poll(async () => (await handle.boundingBox())?.width ?? 0).toBeGreaterThan(0);
+  const box = (await handle.boundingBox())!;
   const x = box.x + box.width / 2;
   const y = box.y + box.height / 2;
   await app.page.mouse.move(x, y);
@@ -49,7 +52,6 @@ test.describe('layout between launches', () => {
   test('panel width, list height and the list tab are kept', async ({ app }) => {
     await app.open('plan.pdf');
     await app.cmd('document.thumbnails');
-    const before = (await app.page.locator('.panel-split').first().boundingBox())!.x;
     await drag(app, '.panel-split', -60, 0);
     await drag(app, '.dock-split', 0, -50);
     await app.page.getByRole('tab', { name: /^Links/ }).click();
@@ -60,7 +62,8 @@ test.describe('layout between launches', () => {
     await app.page.reload();
     await app.open('plan.pdf');
     await expect(app.page.getByRole('tab', { name: /^Links/ })).toHaveAttribute('aria-selected', 'true');
-    expect((await app.page.locator('.panel-split').first().boundingBox())!.x).toBeCloseTo(before - 60, -1);
+    // The panel is drawn at the saved width (retrying: it lays out after the reload).
+    await expect.poll(async () => Math.round((await app.page.locator('aside.panel.side.left').boundingBox())?.width ?? 0)).toBe(s.leftWidth);
     expect((await saved(app))?.dockHeight).toBe(s.dockHeight);
   });
 

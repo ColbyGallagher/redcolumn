@@ -242,7 +242,7 @@ export interface CommandActions {
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
   setToolbarStyle: (style: ToolbarStyle, collapsed?: boolean) => void;
-  /** Puts the side panels, Markups list and ribbon back to how a fresh install has them. */
+  /** Puts the side panels, Markups list, ribbon, toolbar and split view back to their standard arrangement. */
   resetLayout: () => void;
   toggleLeft: () => void;
   /** Shows or hides the side panel of the panels docked on the right. */

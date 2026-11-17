@@ -35,9 +35,10 @@ test('a small window keeps the list at least its minimum height', () => {
 });
 
 test('two wide panels are shrunk together to leave room for the drawing', () => {
-  const l = parseLayout('{"leftWidth":480,"rightWidth":480}', 900, 1100);
-  assert.ok(l.leftWidth + l.rightWidth <= 700);
-  assert.ok(l.leftWidth >= 180 && l.rightWidth >= 180);
+  const l = parseLayout('{"leftWidth":480,"rightWidth":480}', 900);
+  assert.deepEqual([l.leftWidth, l.rightWidth], [480, 480]);
+  const [a, b] = fitWidths(480, 480, 1100);
+  assert.ok(a + b <= 700 && a >= 180 && b >= 180);
   assert.deepEqual(fitWidths(300, 300, 1920), [300, 300]);
   assert.deepEqual(fitWidths(480, 480, 500), [180, 180]);
 });
