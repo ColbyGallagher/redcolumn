@@ -39,3 +39,20 @@ export function swatchMarkup(spec: SwatchSpec, width = SWATCH_WIDTH, height = SW
     modifiedAt: 0,
   };
 }
+
+/** The swatch's line width in points. */
+export const SWATCH_LINE_WIDTH = 1.5;
+
+/**
+ * How much to shrink a swatch so a style reaching `reach` points to either side of its line fits the
+ * swatch height; 1 when it already fits. Never below 0.4, where a symbol would be unreadable anyway.
+ */
+export function swatchScale(reach: number, height = SWATCH_HEIGHT): number {
+  if (!(reach > 0)) return 1;
+  return Math.max(0.4, Math.min(1, (height - 2) / (2 * reach)));
+}
+
+/** The key a swatch is cached under: one string per style, made once where the options are built. */
+export function swatchKey(spec: SwatchSpec): string {
+  return JSON.stringify([spec.dash ?? null, spec.dashArray ?? null, spec.line ? [spec.line.name, spec.line.spec] : null]);
+}

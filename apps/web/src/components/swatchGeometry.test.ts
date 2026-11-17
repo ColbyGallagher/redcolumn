@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { swatchMarkup, SWATCH_HEIGHT, SWATCH_WIDTH } from './swatchGeometry';
+import { swatchKey, swatchMarkup, swatchScale, SWATCH_HEIGHT, SWATCH_WIDTH } from './swatchGeometry';
 
 test('a swatch runs a horizontal line across the middle with a margin at each end', () => {
   const m = swatchMarkup({ dash: 'dashed' });
@@ -26,4 +26,16 @@ test('a line style replaces any dash', () => {
 
 test('a swatch draws in the colour it is given', () => {
   assert.equal(swatchMarkup({}, 80, 12, 'rgb(1, 2, 3)').style.stroke, 'rgb(1, 2, 3)');
+});
+
+test('a style that fits keeps its size and a tall one shrinks to fit, but not below 0.4', () => {
+  assert.equal(swatchScale(0), 1);
+  assert.equal(swatchScale(3), 1);
+  assert.equal(swatchScale(12), (SWATCH_HEIGHT - 2) / 24);
+  assert.equal(swatchScale(500), 0.4);
+});
+
+test('swatch keys tell styles apart', () => {
+  assert.notEqual(swatchKey({ dash: 'dashed' }), swatchKey({ dash: 'dotted' }));
+  assert.equal(swatchKey({ dash: 'dashed' }), swatchKey({ dash: 'dashed' }));
 });

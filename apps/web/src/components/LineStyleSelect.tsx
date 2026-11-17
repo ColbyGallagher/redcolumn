@@ -1,9 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { documentLineStyles, LINE_DASHES, type CustomLine, type LineDash, type Markup, type MarkupStyle } from '@nb/markup';
 import { lineSetLibrary, useWorkspace } from '../workspace/profiles';
 import { openLineStyles } from './LineStylesDialog';
 import { LineStyleSwatch } from './LineStyleSwatch';
+import { swatchKey } from './swatchGeometry';
 import type { SwatchSpec } from './swatchGeometry';
 import './lineStyleSelect.css';
 
@@ -21,6 +22,8 @@ interface Item {
   value: string;
   label: string;
   swatch?: SwatchSpec;
+  /** The swatch's cache key, made once when the item is. */
+  swatchId?: string;
   /** The heading it is listed under. */
   group?: string;
 }
@@ -63,7 +66,10 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
     LINE_DASHES.forEach((d) => out.push({ value: d.value, label: d.label, swatch: { dash: d.value } }));
     inDocument.forEach((l, i) => out.push({ value: `doc:${i}`, label: l.name || 'Custom', swatch: { line: l }, group: 'In this document' }));
     sets.forEach((set, si) => set.styles.forEach((l, li) => out.push({ value: `line:${si}:${li}`, label: l.name, swatch: { line: l }, group: set.title })));
-    out.push({ value: 'manage', label: 'Manage line styles…' });
+    out.push({ value: 'manage', label: 'Manage line styles…', group: 'Actions' });
+    out.forEach((it) => {
+      if (it.swatch) it.swatchId = swatchKey(it.swatch);
+    });
     return out;
   }, [value, mixed, style.lineStyle, style.dashArray, inDocument, sets]);
 
@@ -71,7 +77,7 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   const listId = `${uid}-list`;
   const optionId = (i: number) => `${uid}-opt-${i}`;
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const listRef = useRef<HTMLUListElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const typed = useRef({ text: '', at: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -130,11 +136,17 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
       if (!buttonRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
     };
     const close = () => setOpen(false);
+    // Scrolling anything behind the list moves the button out from under it; the list's own scrolling stays.
+    const scrolled = (e: Event) => {
+      if (!listRef.current?.contains(e.target as Node)) setOpen(false);
+    };
     document.addEventListener('pointerdown', away, true);
     window.addEventListener('resize', close);
+    window.addEventListener('scroll', scrolled, true);
     return () => {
       document.removeEventListener('pointerdown', away, true);
       window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', scrolled, true);
     };
   }, [open]);
 
@@ -143,6 +155,8 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key;
+    // Keys the picker uses are its own: the app's shortcuts (L for Line, Space to finish a measurement) must not see them.
+    if (k !== 'Tab' && !(k === 'Escape' && !open)) e.stopPropagation();
     if (k === 'ArrowDown' || k === 'ArrowUp') {
       e.preventDefault();
       if (!open) openList(k === 'ArrowDown' && selectedIndex < 0 ? 0 : selectedIndex);
@@ -193,8 +207,25 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   };
 
   const shown = selected === '' ? undefined : items[selectedIndex];
+  const valueText = mixed ? 'Mixed' : (shown?.label ?? '');
 
-  let lastGroup: string | undefined;
+  // The option rows never change with the hovered or active row, only the two that do re-render.
+  const latest = useRef({ pick, items });
+  latest.current = { pick, items };
+  const onPick = useCallback((i: number) => latest.current.pick(latest.current.items[i]!), []);
+  const onHover = useCallback((i: number) => setActive(i), []);
+
+  // Runs of items under one heading: a group in the listbox, so a screen reader announces where it is.
+  const runs: { group?: string; rows: number[] }[] = [];
+  items.forEach((it, i) => {
+    const last = runs[runs.length - 1];
+    if (last && last.group === it.group) last.rows.push(i);
+    else runs.push({ group: it.group, rows: [i] });
+  });
+  const row = (i: number) => (
+    <Option key={items[i]!.value} item={items[i]!} id={optionId(i)} index={i} active={i === active} selected={items[i]!.value === selected} onHover={onHover} onPick={onPick} />
+  );
+
   return (
     <>
       <button
@@ -202,21 +233,27 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
         type="button"
         className="ls-select"
         role="combobox"
-        aria-label="Line style"
+        aria-labelledby={`${uid}-label ${uid}-value`}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-activedescendant={open ? optionId(active) : undefined}
+        title={valueText || undefined}
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={onKeyDown}
         onBlur={() => setOpen(false)}
       >
-        {shown?.swatch && <LineStyleSwatch spec={shown.swatch} />}
-        <span className="ls-name">{mixed ? 'Mixed' : (shown?.label ?? '')}</span>
+        <span id={`${uid}-label`} className="ls-sr">
+          Line style
+        </span>
+        {shown?.swatch && !mixed && <LineStyleSwatch spec={shown.swatch} id={shown.swatchId!} />}
+        <span id={`${uid}-value`} className="ls-name">
+          {valueText}
+        </span>
       </button>
       {open &&
         createPortal(
-          <ul
+          <div
             ref={listRef}
             id={listId}
             role="listbox"
@@ -226,34 +263,49 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
             // Clicking an option must not take focus off the picker.
             onMouseDown={(e) => e.preventDefault()}
           >
-            {items.map((item, i) => {
-              const heading = item.group !== lastGroup && item.group ? item.group : undefined;
-              lastGroup = item.group;
-              return (
-                <li key={item.value} role="presentation">
-                  {heading && (
-                    <div className="ls-group" role="presentation">
-                      {heading}
-                    </div>
-                  )}
-                  <div
-                    id={optionId(i)}
-                    role="option"
-                    aria-selected={item.value === selected}
-                    data-value={item.value}
-                    className={`ls-option${i === active ? ' active' : ''}${item.value === 'manage' ? ' manage' : ''}`}
-                    onMouseMove={() => i !== active && setActive(i)}
-                    onClick={() => pick(item)}
-                  >
-                    {item.swatch && <LineStyleSwatch spec={item.swatch} />}
-                    <span className="ls-name">{item.label}</span>
+            {runs.map((run, ri) =>
+              run.group ? (
+                <div key={`${run.group}:${ri}`} role="group" aria-label={run.group}>
+                  <div className="ls-group" aria-hidden="true">
+                    {run.group}
                   </div>
-                </li>
-              );
-            })}
-          </ul>,
+                  {run.rows.map(row)}
+                </div>
+              ) : (
+                run.rows.map(row)
+              ),
+            )}
+          </div>,
           document.body,
         )}
     </>
   );
 }
+
+interface OptionProps {
+  item: Item;
+  id: string;
+  index: number;
+  active: boolean;
+  selected: boolean;
+  onHover: (i: number) => void;
+  onPick: (i: number) => void;
+}
+
+const Option = memo(function Option({ item, id, index, active, selected, onHover, onPick }: OptionProps) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      data-value={item.value}
+      className={`ls-option${active ? ' active' : ''}${item.value === 'manage' ? ' manage' : ''}`}
+      onMouseMove={() => !active && onHover(index)}
+      onClick={() => onPick(index)}
+    >
+      {item.swatch && <LineStyleSwatch spec={item.swatch} id={item.swatchId!} />}
+      <span className="ls-name">{item.label}</span>
+    </div>
+  );
+});
+

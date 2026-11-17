@@ -889,7 +889,7 @@ function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
 }
 
 function isTyping(target: EventTarget | null) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.getAttribute('role') === 'combobox');
 }
 
 /** Opens the editor on the selected table cell at once, so keys typed right after the first reach it. */

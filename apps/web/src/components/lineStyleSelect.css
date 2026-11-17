@@ -5,6 +5,8 @@
   gap: 6px;
   min-width: 0;
   width: 100%;
+  box-sizing: border-box;
+  position: relative;
   height: var(--select-h, 24px);
   padding: 0 24px 0 8px;
   border: 1px solid var(--border);
@@ -28,12 +30,25 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ls-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .ls-swatch {
   flex: none;
 }
+/* The compact ribbon never scrolls: the picker has a fixed width there and its name is cut with an ellipsis. */
+.rb-props .prop-line > .field > .ls-select {
+  width: 150px;
+  max-width: 150px;
+}
 .ls-list {
   position: fixed;
-  z-index: 90;
+  z-index: 1000;
   overflow-y: auto;
   margin: 0;
   padding: 4px 0;
