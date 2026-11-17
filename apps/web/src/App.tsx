@@ -34,10 +34,13 @@ import { ManualQuantityDialog, type ManualRequest } from './components/ManualQua
 import { toTable } from './sheetsync/table';
 import { exportListWorkbook, planImport } from './sheetsync/importExcel';
 import { isOpenChange, patchesFor } from './sheetsync/apply';
+import type { CellChange } from './sheetsync/merge';
 import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 import type { SheetSpec } from './sheetsync/xlsx';
-import { useSheetSync } from './sheetsync/useSheetSync';
+import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
+import { NEW_REPLY, replyColumn, toSyncTable } from './sheetsync/keyed';
+import { NEW_REPLY_LABEL } from './sheetsync/importExcel';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
@@ -6409,6 +6412,15 @@ export function App() {
       setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
+  // A two-way link has its own columns and every markup: a filter or a hidden column in the list must not look like deleted rows or columns.
+  const syncColumns = sheetSync.link?.columns;
+  const syncKeyed = useMemo(() => {
+    if (!syncColumns || !isTwoWay(sheetSync.link)) return null;
+    const all = new Map(listColumns(columnSet.columns).map((c) => [c.key, c]));
+    const columns = syncColumns.flatMap((k) => all.get(k) ?? []);
+    return toSyncTable(withThreads(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, {}, null), cellContext), columns, { statuses: columnSet.statuses, replyColumns: [replyColumn(NEW_REPLY, NEW_REPLY_LABEL)] });
+    // The context is rebuilt every render; these are what it depends on.
+  }, [sheetSync.link, syncColumns, markups, scaleOf, sheets, columnSet]);
   /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
   const quantitiesSheet = async () => {
     const { buildReport, reportPageLabel } = await import('./takeoff/reports');
@@ -6431,10 +6443,24 @@ export function App() {
     // The context is rebuilt every render; these are what the quantities depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
+  // Edits typed in Excel, applied to the document as one undo step. Replies are from the person at this computer: it is their workbook.
+  const syncApplyRef = useRef<(changes: CellChange[]) => void>(() => undefined);
+  syncApplyRef.current = (changes) => {
+    const store = activeOpen?.store;
+    if (!store) return;
+    const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor: authorRef.current, now: Date.now(), newId: () => crypto.randomUUID() });
+    store.checkpoint();
+    store.batch(() => {
+      for (const [id, patch] of patches) store.update(id, patch);
+    });
+    store.checkpoint();
+  };
+  const syncDocId = activeOpen?.file.id;
+  const syncTwoWay = useMemo<TwoWay | null>(() => (syncKeyed && syncDocId ? { table: syncKeyed, docId: syncDocId, apply: (changes) => syncApplyRef.current(changes) } : null), [syncKeyed, syncDocId]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : []);
-  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : [], syncTwoWay);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities, syncTwoWay]);
 
   /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
   const runReports = async (req: ReportRequest) => {
@@ -9659,7 +9685,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       onExport={onExportList}
       onSync={() => setSyncOpen(true)}
       syncing={!!sheetSync.link}
-      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : sheetSync.issues.length ? `${sheetSync.issues.length} cell${sheetSync.issues.length === 1 ? ' is' : 's are'} paused: changed here and in Excel. Click to choose.` : null}
       onFiltered={setListKept}
       allHidden={allMarkupsHidden}
       onToggleAllHidden={toggleAllMarkupsHidden}
@@ -11537,10 +11563,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           docName={activeOpen.file.name}
           link={sheetSync.link}
           status={sheetSync.status}
-          rowCount={Math.max(0, syncTable.length - 1)}
+          rowCount={syncKeyed ? syncKeyed.rows.length : Math.max(0, syncTable.length - 1)}
+          twoWay={sheetSync.twoWay}
+          canTwoWay={!!localExcel()?.read}
+          issues={sheetSync.issues.map((i) => ({ ...i, itemNo: String(activeOpen.store.get(i.rowKey)?.seq ?? '') }))}
+          onResolve={sheetSync.resolve}
+          onUseListColumns={() => sheetSync.setColumns(visibleListColumns.map((c) => c.key))}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities))()}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities, localExcel()?.read ? visibleListColumns.map((c) => c.key) : undefined))()}
           onSetQuantities={sheetSync.setQuantities}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}

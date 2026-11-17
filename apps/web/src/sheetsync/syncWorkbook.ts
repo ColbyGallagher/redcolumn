@@ -35,6 +35,12 @@ export interface SyncSheetOptions {
   cells?: readonly LooseCell[];
   /** Locks every cell but those of the editable columns. A password is optional. */
   protect?: { password?: string };
+  /**
+   * Cells written as given instead of from the table, with the exported value recorded for them: row
+   * key → column key. Live sync uses it to leave a cell alone in Excel (a conflict waiting for an
+   * answer) while still writing the rest of the sheet.
+   */
+  keep?: ReadonlyMap<string, ReadonlyMap<string, { cell: TableCell; base: string }>>;
 }
 
 /** A column people read a paragraph in: it wraps and gets a set width. */
@@ -56,7 +62,7 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
     [MARK, VERSION, opts.docId, opts.exportedAt, opts.sheet, opts.origin?.row ?? 0, opts.origin?.col ?? 0, cols.length, table.rows.length],
     ['key', 'itemNo', ...cols.map((c) => c.key)],
     [KEY_LABEL, '', ...cols.map((c) => c.label)],
-    ...table.rows.map((r): TableCell[] => [r.key, r.match?.itemNo ?? '', ...cols.map((c, i) => (editable[i] && !r.locked ? canonOwn(c, r.cells[i] ?? '') : ''))]),
+    ...table.rows.map((r): TableCell[] => [r.key, r.match?.itemNo ?? '', ...cols.map((c, i) => opts.keep?.get(r.key)?.get(c.key)?.base ?? (editable[i] && !r.locked ? canonOwn(c, r.cells[i] ?? '') : ''))]),
   ];
   // Validation lists, one column each, after a gap to the right of the rows.
   const validations: SheetValidation[] = [];
@@ -84,7 +90,7 @@ export function buildSyncSheets(table: SyncTable, opts: SyncSheetOptions): Sheet
   const long = new Set(cols.flatMap((c, i) => (isLong(c) ? [i + 1] : [])));
   const visible: SheetSpec = {
     name: opts.sheet,
-    table: [[KEY_LABEL, ...cols.map((c) => c.label)], ...table.rows.map((r) => [r.key, ...cols.map((c, i) => shown(c, r.cells[i] ?? ''))])],
+    table: [[KEY_LABEL, ...cols.map((c) => c.label)], ...table.rows.map((r) => [r.key, ...cols.map((c, i) => shown(c, opts.keep?.get(r.key)?.get(c.key)?.cell ?? r.cells[i] ?? ''))])],
     formats,
     hiddenColumns: new Set([0]),
     wrap: long,
