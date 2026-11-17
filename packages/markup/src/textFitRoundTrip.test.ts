@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { PDFDict, PDFDocument, PDFHexString, PDFName, PDFRawStream, PDFRef, StandardFonts, decodePDFRawStream } from 'pdf-lib';
 import { autoSizedPoints } from './edits.ts';
 import { exportWithAnnotations } from './export.ts';
-import { importAnnotations } from './import.ts';
+import { daFont, importAnnotations } from './import.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { DEFAULT_STYLES, contentBox, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point } from './model.ts';
 import { textBaselineOffset, textBoxLines } from './render.ts';
@@ -46,7 +46,10 @@ test('auto-size slack covers the gap between canvas and PDF text widths', async 
   const canvasW = pdfW * 0.99; // the PDF's font tables may measure a little wider than a browser's
   const m = mk('text', [[0, 0], [1000, 100]], { text, style: { ...DEFAULT_STYLES.text, fontSize: size } });
   const [a, b] = autoSizedPoints(m, () => canvasW)!;
-  assert.ok(b![0] - a![0] - 8 >= pdfW, 'the text fits its box even when the PDF measures it wider');
+  const room = b![0] - a![0] - 8;
+  // ceil only adds room, so these bounds hold without depending on it.
+  assert.ok(room >= canvasW + size * 0.15, 'slack scales with the font size');
+  assert.ok(room >= pdfW, 'the text fits its box even when the PDF measures it wider');
 });
 
 async function exported(m: Markup) {
@@ -77,11 +80,37 @@ test('a middle-aligned box is drawn with its baseline at the layout offset', asy
   const streams = doc.context.enumerateIndirectObjects().flatMap(([, o]) => (o instanceof PDFRawStream && o.dict.get(PDFName.of('Subtype')) === PDFName.of('Form') ? [Buffer.from(decodePDFRawStream(o).decode()).toString('latin1')] : []));
   const tm = streams.join('\n').match(/1 0 0 -1 ([-\d.]+) ([-\d.]+) Tm/);
   assert.ok(tm);
-  // The appearance's own space is the box's bounding box, so compare the baseline's distance below the box top.
+  // Page space, y down. Box 20..120, 12pt sans: cap-top to baseline is 8.616 tall, centred in the 100pt box (top 63.136), baseline 0.931 em below the line top.
   const font = await (await PDFDocument.create()).embedFont(StandardFonts.Helvetica);
   const line = textBoxLines(m, (s) => font.widthOfTextAtSize(s, 12))[0]!;
-  const expected = line.y + textBaselineOffset(style) - 20;
-  const ys = streams.join('\n').match(/\/BBox \[[^\]]*\]/);
   const y = Number(tm![2]);
-  assert.ok(Math.abs(y - expected) < 0.6 || Math.abs(y - (line.y + textBaselineOffset(style))) < 0.6, `${y} vs ${expected} (${ys})`);
+  assert.ok(Math.abs(y - 74.308) < 0.01, `${y}`);
+  assert.ok(Math.abs(y - (line.y + textBaselineOffset(style))) < 1e-6);
+});
+
+test('a hand-edited /DS margin wins over a stale private padding key', async () => {
+  const m = mk('text', [[20, 20], [220, 120]], { text: 'hello', style: { ...DEFAULT_STYLES.text, textMargin: 7 } });
+  const doc = await PDFDocument.load(await exported(m));
+  const ref = doc.getPages()[0]!.node.Annots()!.get(0) as PDFRef;
+  const dict = doc.context.lookup(ref, PDFDict);
+  const ds = (dict.get(PDFName.of('DS')) as PDFHexString).decodeText();
+  assert.match(ds, /margin:6pt/);
+  dict.set(PDFName.of('DS'), PDFHexString.fromText(ds.replace('margin:6pt', 'margin:2pt')));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null };
+  const { markups } = importAnnotations(0, [{ ...base, index: 0, objectNumber: ref.objectNumber, subtype: 'FreeText', contents: 'hello' }], () => null, extras);
+  assert.equal(markups[0]!.style.textMargin, 3);
+});
+
+test('daFont reads the Tf operator in linear time', () => {
+  assert.deepEqual(daFont('/Helv 12 Tf 0 0 0 rg'), { name: 'Helv', size: 12 });
+  assert.deepEqual(daFont('0 g /TiRo 9.5 Tf'), { name: 'TiRo', size: 9.5 });
+  assert.deepEqual(daFont('0 g'), { name: '', size: 0 });
+  assert.deepEqual(daFont(undefined), { name: '', size: 0 });
+  const hostile = `${'.'.repeat(200000)} x`;
+  const start = Date.now();
+  assert.equal(daFont(hostile).size, 0);
+  assert.equal(daFont(`${'.'.repeat(200000)} Tf`).size, 0);
+  assert.ok(Date.now() - start < 500);
 });

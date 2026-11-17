@@ -87,6 +87,22 @@ const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
 
 /**
+ * The font name and size a /DA string sets with its `Tf` operator (`/Helv 12 Tf`), found by
+ * splitting on whitespace so a long hostile string costs linear time. Size is 0 when absent.
+ */
+export function daFont(da: string | null | undefined): { name: string; size: number } {
+  const tokens = (da ?? '').split(/\s+/);
+  const at = tokens.indexOf('Tf');
+  if (at < 1) return { name: '', size: 0 };
+  const sizeToken = tokens[at - 1]!;
+  let start = sizeToken.length;
+  while (start > 0 && /[\d.]/.test(sizeToken[start - 1]!)) start--;
+  const size = Number(sizeToken.slice(start)) || 0;
+  const nameToken = at >= 2 ? tokens[at - 2]! : '';
+  return { name: nameToken.startsWith('/') && !nameToken.includes('/', 1) ? nameToken.slice(1) : '', size };
+}
+
+/**
  * The text another program left in /Contents of a markup of ours, when it is no longer the text we saved;
  * null when it is the same, missing, or not the markup's text (a shape's /Contents is a comment, a measurement's its value).
  */
@@ -397,16 +413,16 @@ export function importAnnotations(
         }
         if (f.type === 'typewriter') style.width = 0;
         if (f.type === 'text' || f.type === 'typewriter') {
-          style.fontSize = Number(/([\d.]+)\s+Tf/.exec(a.da)?.[1]) || 12;
+          style.fontSize = daFont(a.da).size || 12;
           // Font resource names in /DA hint at the family (Acrobat: Helv, TiRo, Cour).
-          const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1] ?? '';
-          const font = daFont.toLowerCase();
+          const daName = daFont(a.da).name;
+          const font = daName.toLowerCase();
           if (/^(tiro|times)/.test(font)) style.fontFamily = 'serif';
           else if (/^cour/.test(font)) style.fontFamily = 'mono';
-          else if (daFont && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
+          else if (daName && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
             // Any other font name is an installed font's, kept as it is (a name written by an
             // earlier export has its spaces taken out; the rich text, read later, has them).
-            const named = familyFromPdfName(daFont.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
+            const named = familyFromPdfName(daName.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
             if (named !== 'sans') style.fontFamily = named;
           }
           if (/bold|,b/.test(font)) style.bold = true;
@@ -642,7 +658,9 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const interior = colorHex(r.IC);
   const ds = str(r.DS);
   const nbMargin = num(r.NBTextMargin);
-  const textStyle: Partial<MarkupStyle> = { ...(ds ? parseDefaultStyle(ds, Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || undefined) : {}), ...(typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 ? { textMargin: nbMargin } : {}) };
+  const textStyle: Partial<MarkupStyle> = ds ? parseDefaultStyle(ds, daFont(str(r.DA) ?? a.da).size || undefined) : {};
+  // Our exact padding, trusted only while it agrees with the /DS margin written beside it: another reader that edited /DS leaves it stale.
+  if (typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 && textStyle.textMargin !== undefined && Math.abs(textStyle.textMargin - Math.max(1, nbMargin)) < 1e-6) textStyle.textMargin = nbMargin;
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
@@ -729,7 +747,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       };
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;
-      if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
+      if (!textStyle.fontSize) style.fontSize = daFont(str(r.DA) ?? a.da).size || 12;
       let box = innerBox();
       if (intent === 'FreeTextCallout') {
         const cl = pagePoints(nums(r.CL), toPage);
