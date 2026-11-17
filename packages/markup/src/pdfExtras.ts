@@ -74,7 +74,7 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const statusDefs = arr(value(doc.catalog.get(PDFName.of('BSIStatus')), 'BSIStatus', 0)).flatMap((c) => (dict(c) ? [dict(c)!] : []));
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
   const estimating = readEstimating(str(value(doc.catalog.get(PDFName.of(ESTIMATING_KEY)), ESTIMATING_KEY, 0)));
-  const portals = readPortals(str(value(doc.catalog.get(PDFName.of(PORTALS_KEY)), PORTALS_KEY, 0)));
+  const portals = readPortals(str(value(doc.catalog.get(PDFName.of(PORTALS_KEY)), PORTALS_KEY, 0)), pages.length);
   return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}) };
 }
 
@@ -106,10 +106,10 @@ function readEstimating(json: string | null): Estimating | null {
   }
 }
 
-function readPortals(json: string | null): Portal[] {
+function readPortals(json: string | null, pageCount: number): Portal[] {
   if (!json) return [];
   try {
-    return sanitizePortals(JSON.parse(json));
+    return sanitizePortals(JSON.parse(json), pageCount);
   } catch {
     return [];
   }

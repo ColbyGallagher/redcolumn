@@ -12,7 +12,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
-import { planPortalSync, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
+import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 2;
@@ -826,6 +826,8 @@ export class MarkupStore {
       if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
       if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
       if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals));
+      // Copies whose portal the file does not have (or no longer links their page) are ordinary markups.
+      this.stripOrphanLinks(sanitizePortals(this.meta.get('portals')));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -902,6 +904,8 @@ export class MarkupStore {
         const portals = remapPortals(this.portalSnapshot, to);
         if (portals.length) this.meta.set('portals', portals);
         else this.meta.delete('portals');
+        // A portal left with one page is gone: its copies are ordinary markups now.
+        this.stripOrphanLinks(portals);
       }
       for (const [id, v] of [...this.viewports.entries()]) {
         const n = to(v.pageIndex);
@@ -1145,9 +1149,23 @@ export class MarkupStore {
   setPortal(portal: Portal) {
     if (this.locked) return;
     this.undoManager.stopCapturing();
+    const was = this.portalSnapshot.find((p) => p.id === portal.id);
     const list = this.portalSnapshot.filter((p) => p.id !== portal.id);
-    this.doc.transact(() => this.meta.set('portals', structuredClone([...list, portal])), LOCAL);
+    // A page newly linked gets a copy of each mirrored item; one no longer linked keeps its
+    // copies as ordinary markups. All in the portal's undo step, and not synced again.
+    const relinked = relinkPlan(was, portal, this.map.values(), () => crypto.randomUUID());
+    this.doc.transact(() => {
+      this.meta.set('portals', structuredClone([...list, portal]));
+      let seq = this.lastSeq();
+      for (const m of relinked) this.map.set(m.id, this.map.has(m.id) ? m : { ...m, seq: ++seq });
+      if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
+    }, PORTAL);
     this.undoManager.stopCapturing();
+  }
+
+  /** Inside a transaction: markups linked to a portal that is gone (or no longer links their page) lose the link. */
+  private stripOrphanLinks(portals: readonly Portal[]) {
+    for (const m of orphanedLinks(this.map.values(), portals)) if (this.mayEdit(m)) this.map.set(m.id, m);
   }
 
   /** Removes a portal; its copies stay, as ordinary markups on their pages (one undo step). */

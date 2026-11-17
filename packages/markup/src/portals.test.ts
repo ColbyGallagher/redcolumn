@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MarkupStore } from './store.ts';
 import { DEFAULT_STYLES, type Markup, type Point } from './model.ts';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
+import { planPageOps } from './pages.ts';
 import { exportWithAnnotations } from './export.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { canMirror, markupInside, planPortalSync, remapPortals, sanitizePortals, scaleMismatches, sharedPatch, type Portal } from './portals.ts';
@@ -281,5 +282,118 @@ test('portals are saved in the catalog, and each copy is an ordinary annotation 
   const store = await MarkupStore.open('portal-import', { persist: false });
   store.importAnnotations([], [], {}, { portals: extras.portals });
   assert.deepEqual(store.portals(), [PORTAL]);
+  await store.destroy();
+});
+
+// ---- Review follow-ups ---------------------------------------------------------------------
+
+test('store: a page unlinked from the portal keeps its copy as a local markup', async () => {
+  const store = await portalStore();
+  store.add(rect('a', 0, 150, 150));
+  store.checkpoint();
+  store.setPortal({ ...PORTAL, pages: [0, 1] });
+  const onThree = store.all().find((m) => m.pageIndex === 2)!;
+  assert.equal(onThree.portalLink, undefined);
+  store.checkpoint();
+  store.remove(['a']);
+  assert.deepEqual(store.all().map((m) => m.id), [onThree.id]);
+  await store.destroy();
+});
+
+test('the planner leaves alone a copy on a page the portal no longer links', () => {
+  const all = linkedSet();
+  const narrowed: Portal = { ...PORTAL, pages: [0, 1] };
+  const plan = planPortalSync({ changes: [{ was: all[0]! }], markups: [all[1]!, all[2]!], portals: [narrowed], newId: ids });
+  assert.deepEqual(plan.remove, ['m1']);
+  const now: Markup = { ...all[0]!, comment: 'x' };
+  const edit = planPortalSync({ changes: [{ was: all[0]!, now }], markups: [now, all[1]!, all[2]!], portals: [narrowed], newId: ids });
+  assert.deepEqual(edit.set.map((m) => m.id), ['m1']);
+});
+
+test('store: pasting all three copies of a mirrored item gives one new item on each page, not nine', async () => {
+  const store = await portalStore();
+  store.add(rect('a', 0, 150, 150));
+  store.checkpoint();
+  const copies = store.all().map((m) => ({ ...structuredClone(m), id: `paste-${m.pageIndex}` }));
+  store.batch(() => {
+    for (const c of copies) store.add(c);
+  });
+  assert.equal(store.all().length, 6);
+  const pasted = store.all().filter((m) => m.id.startsWith('paste-'));
+  assert.equal(new Set(pasted.map((m) => m.portalLink?.linkId)).size, 1);
+  assert.notEqual(pasted[0]!.portalLink!.linkId, store.get('a')!.portalLink!.linkId);
+  // Pasting one copy alone makes a new mirrored item: three more.
+  store.checkpoint();
+  store.add({ ...structuredClone(store.get('a')!), id: 'single' });
+  assert.equal(store.all().length, 9);
+  await store.destroy();
+});
+
+test('a hand-edited /NBPortals is bounded: pages past the end and duplicates go, oversized portals are dropped', async () => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 3; i++) doc.addPage([400, 400]);
+  const huge = Array.from({ length: 5000 }, (_, i) => [i, i]);
+  const bad = [
+    { ...PORTAL, pages: [0, 999999, 1, 1, 2.5, -3] },
+    { id: 'big', name: 'Big', points: huge, pages: [0, 1], sourcePage: 0 },
+    { id: 'lonely', name: 'One page', points: SQUARE, pages: [0, 50], sourcePage: 0 },
+    { id: 'many', name: 'Many', points: SQUARE, pages: Array.from({ length: 10000 }, (_, i) => i), sourcePage: 0 },
+  ];
+  doc.catalog.set(PDFName.of('NBPortals'), PDFHexString.fromText(JSON.stringify(bad)));
+  const extras = (await readPdfExtras(await doc.save()))!;
+  assert.deepEqual(extras.portals, [{ ...PORTAL, pages: [0, 1] }]);
+});
+
+test('store: links to a portal the file does not have are dropped on import', async () => {
+  const store = await MarkupStore.open('portal-orphans', { persist: false });
+  const stray: Markup = { ...rect('s', 0, 150, 150), portalLink: { portalId: 'gone', linkId: 'L' } };
+  const kept: Markup = { ...rect('k', 1, 150, 150), portalLink: { portalId: 'p1', linkId: 'M' } };
+  store.importAnnotations([stray, kept], [], {}, { portals: [PORTAL] });
+  assert.equal(store.get('s')!.portalLink, undefined);
+  assert.deepEqual(store.get('k')!.portalLink, { portalId: 'p1', linkId: 'M' });
+  await store.destroy();
+});
+
+test('store: a page operation that leaves a portal one page drops it and unlinks its copies', async () => {
+  const store = await MarkupStore.open('portal-pages', { persist: false });
+  store.setPortal({ ...PORTAL, pages: [0, 1] });
+  store.add(rect('a', 0, 150, 150));
+  assert.equal(store.all().length, 2);
+  store.remapPages(planPageOps(2, [{ type: 'delete', pages: [1] }]), [{ width: 400, height: 400 }, { width: 400, height: 400 }]);
+  assert.equal(store.portals().length, 0);
+  assert.equal(store.all().length, 1);
+  assert.equal(store.all()[0]!.portalLink, undefined);
+  await store.destroy();
+});
+
+test('store: linking another page copies the mirrored items onto it, in one undo step', async () => {
+  const store = await MarkupStore.open('portal-backfill', { persist: false });
+  store.setPortal({ ...PORTAL, pages: [0, 1] });
+  store.checkpoint();
+  store.add(rect('a', 0, 150, 150));
+  store.checkpoint();
+  store.setPortal({ ...PORTAL, pages: [0, 1, 2] });
+  assert.deepEqual(byPage(store), [0, 1, 2]);
+  assert.equal(new Set(store.all().map((m) => m.portalLink?.linkId)).size, 1);
+  // The new copy follows edits like the others.
+  store.checkpoint();
+  store.update('a', { comment: 'all' });
+  assert.equal(store.all().filter((m) => m.comment === 'all').length, 3);
+  store.checkpoint();
+  store.undo();
+  store.undo();
+  assert.deepEqual(byPage(store), [0, 1]);
+  assert.deepEqual(store.portals()[0]!.pages, [0, 1]);
+  await store.destroy();
+});
+
+test('store: a copy moved out of the portal unlinks and moves alone', async () => {
+  const store = await portalStore();
+  store.add(rect('a', 0, 150, 150));
+  store.checkpoint();
+  store.update('a', { points: [[290, 150], [310, 170]] });
+  assert.equal(store.get('a')!.portalLink, undefined);
+  const others = store.all().filter((m) => m.id !== 'a');
+  assert.ok(others.every((m) => m.points[0]![0] === 150 && !!m.portalLink));
   await store.destroy();
 });

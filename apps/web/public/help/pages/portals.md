@@ -19,7 +19,10 @@ If a linked page has a different scale from the page you outlined it on, the dia
 - A markup that **crosses the edge** of the portal stays on its own page.
 - **Moving, reshaping, deleting** or changing the **style, subject, label, layer, assembly or custom columns** of any copy changes every copy. One **Undo** takes the change back on every page.
 - Each copy keeps its own **status, replies, checkmark and flag**, so you can review each floor separately.
+- If you **move a copy out of the portal**, or across its edge, that copy stops being linked and moves alone. The other copies stay where they are.
+- Pasting a mirrored markup inside the portal makes a new mirrored markup. Pasting all of its copies together makes one new mirrored markup, not one per copy.
 - Connectors, grouped markups, signatures and file attachments are not mirrored.
+- In a Live Session, a copy on a markup you are not allowed to edit (someone else's) does not follow your changes.
 
 ## Quantities
 
@@ -31,7 +34,9 @@ To make one floor different, select the copy and choose **Tools › Takeoff › 
 
 ## Change or remove a portal
 
-**Tools › Takeoff › Portals… (Experimental)** lists the document's portals. Pick one to rename it, change its linked pages, or **Remove Portal**. Removing a portal keeps its copies, as ordinary markups on each page.
+**Tools › Takeoff › Portals… (Experimental)** lists the document's portals. Pick one to rename it, change its linked pages, or **Remove Portal**. A page you link gets a copy of every markup already mirrored. A page you unlink keeps its copies, as ordinary markups. Removing a portal keeps its copies too, as ordinary markups on each page. So does deleting pages until a portal links only one.
+
+The scale warning appears only in the Define Portal and Portals dialogs. If you change a linked page's scale later, check the portal again in **Portals…**.
 
 Portals and their links are saved in the PDF.
 
