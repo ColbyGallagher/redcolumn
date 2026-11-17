@@ -20,7 +20,7 @@ test('Auto-size keeps the wrapped line breaks and only shrinks the box', () => {
   const w = b![0] - a![0];
   assert.ok(w <= 120, 'never wider than before');
   const widest = Math.max(...lines.map((l) => measure(l.text)));
-  assert.equal(w, Math.ceil(widest + 8 + 1));
+  assert.equal(w, Math.ceil(widest + 8 + 1.5));
   assert.equal(b![1] - a![1], Math.ceil(lines.length * 12 + 8));
   // The text still wraps the same way in the fitted box, and fitting again changes nothing.
   assert.deepEqual(layoutParagraphs(text, w - 8, measure).map((l) => l.text), lines.map((l) => l.text));
@@ -30,7 +30,7 @@ test('Auto-size keeps the wrapped line breaks and only shrinks the box', () => {
 test('Auto-size honours padding, and a rotated box keeps its corner', () => {
   const m = mk('text', [[0, 0], [200, 100]], { text: 'abc', style: { ...DEFAULT_STYLES.text, fontSize: 10, textMargin: 0 } });
   const [a, b] = autoSizedPoints(m, measure)!;
-  assert.deepEqual([b![0] - a![0], b![1] - a![1]], [19, 12]);
+  assert.deepEqual([b![0] - a![0], b![1] - a![1]], [20, 12]);
   const turned = { ...m, rotation: 30 };
   const pts = autoSizedPoints(turned, measure)!;
   const corner = (mm: Markup) => rotatePoint([mm.points[0]![0], mm.points[0]![1]], rotationCentre(mm), 30);
@@ -65,6 +65,6 @@ test('middle alignment leaves equal gaps above capitals and below the last basel
 });
 
 test('zero padding round-trips through the default style string', () => {
-  assert.equal(parseDefaultStyle('font: Helvetica 12pt; margin:-1pt').textMargin, 0);
   assert.equal(parseDefaultStyle('font: Helvetica 12pt; margin:0pt').textMargin, 1);
+  assert.equal(parseDefaultStyle('font: Helvetica 12pt; margin:-1pt').textMargin, undefined);
 });

@@ -58,7 +58,8 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   const box = contentBox(m);
   const lines = layoutParagraphs(m.text ?? '', box.w - pad * 2, measure);
   const textW = Math.max(0, ...lines.map((l) => l.indent + measure(l.text.trimEnd())));
-  let w = Math.ceil(textW + pad * 2 + 1);
+  // Slack scaled to the font: the exported PDF measures text with its own font tables, a hair off the canvas.
+  let w = Math.ceil(textW + pad * 2 + Math.max(1, size * 0.15));
   if (textW <= box.w - pad * 2) w = Math.min(w, box.w);
   const h = Math.ceil(lines.length * size * textLineHeight(m.style) + pad * 2);
   let pts: Point[];
@@ -78,9 +79,9 @@ export function autoSizedPoints(m: Markup, measure: (s: string) => number): Poin
   }
   if (!m.rotation) return pts;
   // Turned about its centre, a smaller box would swing its corner away: slide it back.
-  const corner = boundsOf(m.points);
+  const corner = contentBox(m);
   const before = rotatePoint([corner.x, corner.y], rotationCentre(m), m.rotation);
-  const after = rotatePoint([corner.x, corner.y], rotationCentre({ type: m.type, points: pts }), m.rotation);
+  const after = rotatePoint([contentBox({ type: m.type, points: pts }).x, contentBox({ type: m.type, points: pts }).y], rotationCentre({ type: m.type, points: pts }), m.rotation);
   const [dx, dy] = [before[0] - after[0], before[1] - after[1]];
   return pts.map((p) => [p[0] + dx, p[1] + dy] as Point);
 }

@@ -641,7 +641,8 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const color = colorHex(r.C);
   const interior = colorHex(r.IC);
   const ds = str(r.DS);
-  const textStyle = ds ? parseDefaultStyle(ds, Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || undefined) : {};
+  const nbMargin = num(r.NBTextMargin);
+  const textStyle: Partial<MarkupStyle> = { ...(ds ? parseDefaultStyle(ds, Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || undefined) : {}), ...(typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 ? { textMargin: nbMargin } : {}) };
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;

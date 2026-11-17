@@ -550,7 +550,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             Spacing
             <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
           </label>
-          <label className="field" title="Gap between the box edge and its text">
+          <label className="field" title="Gap between the box edge and the text lines (measured to the line box, not the ink)">
             Padding
             <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
