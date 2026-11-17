@@ -10544,18 +10544,19 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               } : undefined}
               onApply={async (adjust) => {
                 // Bake every picture first, so a failure leaves them all as they were; then one undo step.
-                const baked: [string, string][] = [];
+                const baked: { id: string; from: string; image: string }[] = [];
                 // Re-resolved now, not when the dialog opened: a picture may have gone or been locked since.
                 const now = adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m));
-                for (const m of now) baked.push([m.id, await bakePicture(m.image!, (d) => adjustPixels(d, adjust))]);
-                // Pictures deleted, locked or changed under the dialog meanwhile are skipped.
-                const live = baked.filter(([id]) => {
-                  const m = store.get(id);
-                  return !!m?.image && !m.locked && store.mayEdit(m);
+                for (const m of now) baked.push({ id: m.id, from: m.image!, image: await bakePicture(m.image!, (d) => adjustPixels(d, adjust)) });
+                // Pictures deleted, locked or given another image under the dialog meanwhile are skipped, so
+                // a collaborator's change is not overwritten.
+                const live = baked.filter((b) => {
+                  const m = store.get(b.id);
+                  return !!m?.image && !m.locked && store.mayEdit(m) && m.image === b.from;
                 });
                 if (live.length) {
                   store.checkpoint();
-                  store.batch(() => live.forEach(([id, image]) => store.update(id, { image })));
+                  store.batch(() => live.forEach((b) => store.update(b.id, { image: b.image })));
                 }
                 setAdjustImageFor(null);
               }}
@@ -10597,7 +10598,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={async (mode) => {
                 const image = await bakePicture(source, (d) => recolourPixels(d, mode));
                 const now = store.get(m.id);
-                if (!now?.image || now.locked || !store.mayEdit(now)) return setPictureColoursFor(null);
+                if (!now?.image || now.locked || !store.mayEdit(now) || now.image !== source) return setPictureColoursFor(null);
                 store.checkpoint();
                 store.batch(() => store.update(m.id, { image }));
                 setPictureColoursFor(null);
