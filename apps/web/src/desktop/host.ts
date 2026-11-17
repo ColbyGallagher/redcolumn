@@ -192,12 +192,31 @@ export interface DesktopTokens {
   sign(ref: string, hash: 'SHA-256' | 'SHA-384' | 'SHA-512', data: Uint8Array, pin: string | null): Promise<Uint8Array>;
 }
 
+/** Extras for a write into the open workbook (apps/desktop/src/excel.ts). */
+export interface ExcelLiveOptions {
+  /** The fingerprint the read gave: the write answers `changed`, and writes nothing, when the sheet no longer matches it. */
+  stamp?: string;
+  hideKey?: boolean;
+  /** Write every text cell as text, never as the number or date Excel would read it as. */
+  text?: boolean;
+  validations?: { col: number; type: 'list' | 'date' | 'number'; formula?: string }[];
+  /** Extra sheets to make very hidden. */
+  hidden?: string[];
+}
+
+export type ExcelRead = { kind: 'none' } | { kind: 'file'; bytes: Uint8Array } | { kind: 'live'; stamp: string; sheets: { name: string; rows: (string | number | boolean | null)[][] }[] };
+
 /** Excel workbooks on this computer, by ID; the page never sees their paths. */
 export interface DesktopExcel {
   /** A Save dialog for the workbook; null when cancelled. */
   pick(suggestedName: string): Promise<{ id: string; name: string } | null>;
   /** Replaces the file, or writes the cells into it while it is open in Excel (`live`). */
-  write(id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[]): Promise<'file' | 'live'>;
+  write(id: string, xlsx: Uint8Array, table: (string | number)[][], extra?: { name: string; table: (string | number)[][] }[], live?: ExcelLiveOptions): Promise<'file' | 'live' | 'changed'>;
+  /**
+   * What the workbook holds now, for a two-way sync: nothing yet, the saved file, or the cells of
+   * the workbook open in Excel. Absent in desktop apps from before two-way sync.
+   */
+  read?(id: string): Promise<ExcelRead>;
   /** Opens the workbook in Excel. */
   open(id: string): Promise<void>;
   show(id: string): Promise<void>;

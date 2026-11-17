@@ -11,7 +11,7 @@ import { AssistantService } from './assistant/service';
 import { DesktopAuth } from './auth';
 import { GraphBroker, type GraphRequest } from './graph';
 import { FolderStore } from './folderDrive';
-import { checkSheets, checkTable, loadExcelLinks, writeWorkbook } from './excel';
+import { checkLive, checkSheets, checkTable, loadExcelLinks, readWorkbookNow, writeWorkbook } from './excel';
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
@@ -266,7 +266,9 @@ async function start() {
       await fs.writeFile(excelFile, JSON.stringify(excel.saved()));
       return { id, name: path.basename(filePath) };
     });
-    handle('excel:write', (id, xlsx, table, extra) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra)));
+    handle('excel:write', (id, xlsx, table, extra, live) => writeWorkbook(excel.path(id), bytes(xlsx), checkTable(table), 'Markups', undefined, checkSheets(extra), checkLive(live)));
+    // Two-way sync reads the sheet it wrote and the hidden sheet beside it, nothing else in the workbook.
+    handle('excel:read', (id) => readWorkbookNow(excel.path(id), ['Markups', '_redcolumn']));
     handle('excel:open', async (id) => {
       const failed = await shell.openPath(excel.path(id));
       if (failed) throw new Error(failed);
