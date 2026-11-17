@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_LAYOUT, parseLayout, serializeLayout } from './layoutState.ts';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, parseLayout, saveLayout, serializeLayout } from './layoutState.ts';
 
 test('a saved layout round trips', () => {
   const l = { leftWidth: 300, rightWidth: 250, showBottom: false, dockOpen: false, bottomTab: 'links' as const, dockHeight: 220 };
@@ -32,4 +32,41 @@ test('non-numbers do not get through', () => {
 
 test('a small window keeps the list at least its minimum height', () => {
   assert.equal(parseLayout('{"dockHeight":200}', 100).dockHeight, 80);
+});
+
+test('two wide panels are shrunk together to leave room for the drawing', () => {
+  const l = parseLayout('{"leftWidth":480,"rightWidth":480}', 900, 1100);
+  assert.ok(l.leftWidth + l.rightWidth <= 700);
+  assert.ok(l.leftWidth >= 180 && l.rightWidth >= 180);
+  assert.deepEqual(fitWidths(300, 300, 1920), [300, 300]);
+  assert.deepEqual(fitWidths(480, 480, 500), [180, 180]);
+});
+
+function stubStorage(mode: 'ok' | 'off') {
+  const store = new Map<string, string>();
+  const refuse = () => {
+    throw new Error('storage is off limits');
+  };
+  (globalThis as Record<string, unknown>).window = { innerHeight: 1000, innerWidth: 1920 };
+  (globalThis as Record<string, unknown>).localStorage =
+    mode === 'off'
+      ? { getItem: refuse, setItem: refuse, removeItem: refuse }
+      : { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+}
+
+test('saveLayout, loadLayout and clearLayout round trip through storage', () => {
+  stubStorage('ok');
+  assert.equal(loadLayout(), null);
+  const l = { ...DEFAULT_LAYOUT, dockOpen: false, leftWidth: 300 };
+  saveLayout(l);
+  assert.deepEqual(loadLayout(), l);
+  clearLayout();
+  assert.equal(loadLayout(), null);
+});
+
+test('storage that refuses reads and writes never throws', () => {
+  stubStorage('off');
+  assert.equal(loadLayout(), null);
+  assert.doesNotThrow(() => saveLayout(DEFAULT_LAYOUT));
+  assert.doesNotThrow(() => clearLayout());
 });

@@ -34,6 +34,7 @@ import { SCALE_GROUPS, unitsFor, useSettings, type UnitSystem } from '../setting
 import { formatNumber } from '../columns/listColumns';
 import type { RollupRow } from '../assemblies/quantities';
 import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
+import { usePersistedState } from '../workspace/layoutPrefs';
 
 export interface MeasureDefaults {
   subject: string;
@@ -1040,7 +1041,10 @@ export function MeasurementsPanel({
   takeoff?: TakeoffProps | null;
 }) {
   const scale = scales[pageIndex] ?? null;
-  const [open, setOpen] = useState({ scale: true, props: true, view: true, list: true });
+  const [open, setOpen] = usePersistedState('nb.measure.sections', { scale: true, props: true, view: true, list: true }, (v): v is { scale: boolean; props: boolean; view: boolean; list: boolean } => {
+    const o = v as Record<string, unknown> | null;
+    return !!o && typeof o === 'object' && (['scale', 'props', 'view', 'list'] as const).every((k) => typeof o[k] === 'boolean');
+  });
   const rows = markups.filter((m) => isMeasureKind(m.type));
   const toggle = (key: keyof typeof open) => setOpen((s) => ({ ...s, [key]: !s[key] }));
   const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();

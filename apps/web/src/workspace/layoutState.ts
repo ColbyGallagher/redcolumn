@@ -38,8 +38,21 @@ const clampNum = (v: unknown, min: number, max: number, fallback: number) =>
 /** Largest the Markups list may be: half the window, never below its minimum. */
 export const maxDockHeight = (windowHeight: number) => Math.max(DOCK_HEIGHT_MIN, Math.floor(windowHeight * 0.5));
 
+/** Room always left for the drawing between the two side panels. */
+export const MIN_DRAWING_WIDTH = 400;
+
+/** Shrinks two side widths together so they leave the drawing at least MIN_DRAWING_WIDTH. */
+export function fitWidths(left: number, right: number, windowWidth: number): [number, number] {
+  const cap = Math.max(SIDE_WIDTH_RANGE.min * 2, windowWidth - MIN_DRAWING_WIDTH);
+  if (left + right <= cap) return [left, right];
+  const k = cap / (left + right);
+  const l = Math.max(SIDE_WIDTH_RANGE.min, Math.round(left * k));
+  const r = Math.max(SIDE_WIDTH_RANGE.min, Math.round(right * k));
+  return [l, r];
+}
+
 /** Reads a saved layout, replacing anything missing or out of range with the default. */
-export function parseLayout(raw: string | null, windowHeight = 1000): LayoutState {
+export function parseLayout(raw: string | null, windowHeight = 1000, windowWidth = 4000): LayoutState {
   let o: Record<string, unknown> = {};
   try {
     const v: unknown = JSON.parse(raw ?? 'null');
@@ -48,9 +61,14 @@ export function parseLayout(raw: string | null, windowHeight = 1000): LayoutStat
     /* unreadable: use the defaults */
   }
   const d = DEFAULT_LAYOUT;
+  const [leftWidth, rightWidth] = fitWidths(
+    clampNum(o.leftWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.leftWidth),
+    clampNum(o.rightWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.rightWidth),
+    windowWidth,
+  );
   return {
-    leftWidth: clampNum(o.leftWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.leftWidth),
-    rightWidth: clampNum(o.rightWidth, SIDE_WIDTH_RANGE.min, SIDE_WIDTH_RANGE.max, d.rightWidth),
+    leftWidth,
+    rightWidth,
     showBottom: typeof o.showBottom === 'boolean' ? o.showBottom : d.showBottom,
     dockOpen: typeof o.dockOpen === 'boolean' ? o.dockOpen : d.dockOpen,
     bottomTab: o.bottomTab === 'links' || o.bottomTab === 'markups' ? o.bottomTab : d.bottomTab,
@@ -66,7 +84,7 @@ export function serializeLayout(layout: LayoutState): string {
 export function loadLayout(): LayoutState | null {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
-    return raw === null ? null : parseLayout(raw, window.innerHeight);
+    return raw === null ? null : parseLayout(raw, window.innerHeight, window.innerWidth);
   } catch {
     return null;
   }

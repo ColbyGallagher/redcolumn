@@ -77,7 +77,8 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
-import { clearLayout, DEFAULT_LAYOUT, loadLayout, saveLayout } from './workspace/layoutState';
+import { clearLayout, DEFAULT_LAYOUT, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
@@ -1133,24 +1134,17 @@ export function App() {
   // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
   // where the strip is how it was left.
   const lastShowBottom = useRef(showBottom);
+  // The list was left off at launch by the window width or a profile, not by the user: what they chose
+  // last time stays saved until they show or hide it themselves.
+  const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
+  const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
   useEffect(() => {
     if (showBottom && !lastShowBottom.current) setDockOpen(true);
+    if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
     lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
-  const resetLayout = () => {
-    clearLayout();
-    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
-    setRightWidth(DEFAULT_LAYOUT.rightWidth);
-    setDockHeight(DEFAULT_LAYOUT.dockHeight);
-    setBottomTab(DEFAULT_LAYOUT.bottomTab);
-    setShowBottom(!profiles.active().state.markupsDocked);
-    setDockOpen(true);
-    setLeftOpen(true);
-    setRightOpen(!!firstPanelOn('right'));
-    updateWorkspace((w) => ({ ...w, ribbonCollapsed: false }));
-  };
   const toggleBottom = () => {
     if (bottomOpen) setShowBottom(false);
     else {
@@ -1167,13 +1161,58 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
-  // The layout is saved a moment after it settles, so dragging a divider writes once. On a phone the
-  // panels are drawers whatever was saved, so what is there is not kept.
+  // Back from a phone-width window, or off a profile that docks the list, it returns as it was left.
+  useEffect(() => {
+    if (!narrow && !ws.markupsDocked && showBottomForced.current) {
+      showBottomForced.current = false;
+      setShowBottom(layoutRef.current.showBottom);
+    }
+  }, [narrow, ws.markupsDocked]);
+  // The layout is saved a moment after it changes, so dragging a divider writes once. Nothing is written
+  // on a phone (the panels are drawers), when nothing differs from what is saved, or for the list's
+  // visibility while something other than the user is deciding it.
   useEffect(() => {
     if (narrow) return;
-    const t = window.setTimeout(() => saveLayout({ leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight }), 300);
+    const forced = showBottomForced.current || ws.markupsDocked;
+    const next = { leftWidth, rightWidth, showBottom: forced ? layoutRef.current.showBottom : showBottom, dockOpen, bottomTab, dockHeight };
+    if (serializeLayout(next) === serializeLayout(layoutRef.current)) return;
+    const t = window.setTimeout(() => {
+      layoutRef.current = next;
+      saveLayout(next);
+    }, 300);
     return () => window.clearTimeout(t);
-  }, [narrow, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  /** Window > Reset Layout: side panels, rails, the Markups list, ribbon, toolbar and split view as a new install has them. */
+  const resetLayout = () => {
+    clearLayout();
+    layoutRef.current = DEFAULT_LAYOUT;
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    window.dispatchEvent(new Event(LAYOUT_RESET_EVENT));
+    updateWorkspace((w) => ({ ...w, hiddenPanels: [], panelOrder: [], showToolbar: true, ribbonCollapsed: false }));
+    const docked = profiles.active().state.markupsDocked;
+    showBottomForced.current = narrow || docked;
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!narrow && !docked);
+    setDockOpen(true);
+    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
+    setRightTab(firstPanelOn('right') ?? 'properties');
+    // On a phone the panels are drawers over the drawing, so they stay shut.
+    setLeftOpen(!narrow);
+    setRightOpen(!narrow && !!firstPanelOn('right'));
+    setRailLabels({ left: true, right: true });
+    setSplitRatio(0.5);
+    setSplitHorizontal(false);
+    if (split) unsplit();
+  };
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
