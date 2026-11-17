@@ -8275,7 +8275,7 @@ export function App() {
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
   portalDrawnRef.current = (pane, pageIndex, points) => setPortalDialog({ pane, draft: { pageIndex, points } });
-  usePortalGuides([[ctl, open?.store], [ctlB, openB?.store]]);
+  usePortalGuides([[ctl, open?.store, open?.doc.pages.length], [ctlB, openB?.store, openB?.doc.pages.length]]);
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
     if (!doc || doc.store.readOnly) return;

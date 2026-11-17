@@ -6,7 +6,7 @@ import { PDFDocument, PDFHexString, PDFName } from 'pdf-lib';
 import { planPageOps } from './pages.ts';
 import { exportWithAnnotations } from './export.ts';
 import { readPdfExtras } from './pdfExtras.ts';
-import { canMirror, markupInside, planPortalSync, remapPortals, sanitizePortals, scaleMismatches, sharedPatch, type Portal } from './portals.ts';
+import { canMirror, markupInside, planPortalSync, relinkPlan, remapPortals, sameItem, sanitizePortals, scaleMismatches, sharedPatch, type Portal } from './portals.ts';
 
 const SQUARE: Point[] = [[100, 100], [300, 100], [300, 300], [100, 300]];
 const PORTAL: Portal = { id: 'p1', name: 'Typical floor', points: SQUARE, pages: [0, 1, 2], sourcePage: 0 };
@@ -395,5 +395,51 @@ test('store: a copy moved out of the portal unlinks and moves alone', async () =
   assert.equal(store.get('a')!.portalLink, undefined);
   const others = store.all().filter((m) => m.id !== 'a');
   assert.ok(others.every((m) => m.points[0]![0] === 150 && !!m.portalLink));
+  await store.destroy();
+});
+
+test('store: linking a page that already has the item drawn by hand adopts it instead of doubling it', async () => {
+  const store = await MarkupStore.open('portal-adopt', { persist: false });
+  store.setPortal({ ...PORTAL, pages: [0, 1] });
+  store.checkpoint();
+  store.add(rect('a', 0, 150, 150));
+  // Drawn by hand on page 3, a fraction of a point off.
+  store.add({ ...rect('hand', 2, 150.2, 149.9), points: [[150.2, 149.9], [170.1, 170.2]] });
+  // Something else on page 3 is left alone.
+  store.add(rect('other', 2, 400, 400));
+  store.checkpoint();
+  const result = store.setPortal({ ...PORTAL, pages: [0, 1, 2] });
+  assert.deepEqual(result, { copied: 0, adopted: 1, unlinked: 0 });
+  assert.equal(store.all().length, 4);
+  assert.equal(store.all().filter((m) => m.pageIndex === 2).length, 2);
+  assert.equal(store.get('hand')!.portalLink?.linkId, store.get('a')!.portalLink?.linkId);
+  assert.equal(store.get('other')!.portalLink, undefined);
+  // The adopted one now follows the item.
+  store.checkpoint();
+  store.update('a', { comment: 'typical' });
+  assert.equal(store.get('hand')!.comment, 'typical');
+  await store.destroy();
+});
+
+test('relinking leaves alone copies, and hand-drawn matches, that this person may not edit', () => {
+  const link = { portalId: 'p1', linkId: 'L' };
+  const mine = { ...rect('m0', 0, 150, 150), portalLink: link };
+  const theirs: Markup = { ...rect('t2', 2, 150, 150), portalLink: link, author: 'Someone else' };
+  const narrowed = relinkPlan(PORTAL, { ...PORTAL, pages: [0, 1] }, [mine, { ...mine, id: 'm1', pageIndex: 1 }, theirs], ids, 1, (m) => m.author !== 'Someone else');
+  assert.deepEqual(narrowed.set, []);
+  assert.equal(narrowed.unlinked, 0);
+  const hand: Markup = { ...rect('h', 2, 150, 150), author: 'Someone else' };
+  const widened = relinkPlan({ ...PORTAL, pages: [0, 1] }, PORTAL, [mine, { ...mine, id: 'm1', pageIndex: 1 }, hand], ids, 1, (m) => m.author !== 'Someone else');
+  assert.deepEqual([widened.adopted, widened.copied], [0, 1]);
+  assert.ok(sameItem(mine, { ...mine, points: [[150.4, 150], [170, 169.6]] }));
+  assert.ok(!sameItem(mine, { ...mine, subject: 'Other' }));
+});
+
+test('store: linked pages past the document end are ignored once the page count is known', async () => {
+  const store = await MarkupStore.open('portal-count', { persist: false });
+  store.importAnnotations([], [], {}, { pageCount: 2, portals: [{ ...PORTAL, pages: [0, 1, 7] }] });
+  assert.deepEqual(store.portals()[0]!.pages, [0, 1]);
+  store.setPageCount(1);
+  assert.deepEqual(store.portals(), []);
   await store.destroy();
 });

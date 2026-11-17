@@ -278,18 +278,51 @@ export function planPortalSync({ changes, markups, portals, newId, at = Date.now
  * onto a page newly linked (when it has no copy there yet), and copies on a page no longer linked
  * become ordinary markups. `was` unset is a new portal (nothing to change).
  */
-export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterable<Markup>, newId: () => string, at = Date.now()): Markup[] {
-  if (!was) return [];
+export interface RelinkPlan {
+  /** Markups to write: new copies, adopted local markups and unlinked copies. */
+  set: Markup[];
+  /** New copies made on newly linked pages. */
+  copied: number;
+  /** Local markups on a newly linked page that already matched an item, joined to it instead of copied. */
+  adopted: number;
+  /** Copies on unlinked pages that became ordinary markups. */
+  unlinked: number;
+}
+
+/** How close two points must be (page points) for a hand-drawn markup to count as the same as a mirrored one. */
+const SAME_PLACE = 0.5;
+
+/** Whether a local markup already stands for a mirrored item: same type, subject and geometry. */
+export function sameItem(a: Markup, b: Markup): boolean {
+  if (a.type !== b.type || (a.subject ?? '') !== (b.subject ?? '') || a.points.length !== b.points.length) return false;
+  return a.points.every((p, i) => Math.abs(p[0] - b.points[i]![0]) <= SAME_PLACE && Math.abs(p[1] - b.points[i]![1]) <= SAME_PLACE);
+}
+
+export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterable<Markup>, newId: () => string, at = Date.now(), mayEdit: (m: Markup) => boolean = () => true): RelinkPlan {
+  const plan: RelinkPlan = { set: [], copied: 0, adopted: 0, unlinked: 0 };
+  if (!was) return plan;
   const added = now.pages.filter((p) => !was.pages.includes(p));
   const dropped = new Set(was.pages.filter((p) => !now.pages.includes(p)));
-  if (!added.length && !dropped.size) return [];
-  const out: Markup[] = [];
+  if (!added.length && !dropped.size) return plan;
   const groups = new Map<string, Markup[]>();
+  /** Unlinked markups on newly linked pages that could be adopted, by page. */
+  const local = new Map<number, Markup[]>();
   for (const m of markups) {
-    if (m.portalLink?.portalId !== now.id) continue;
+    if (!m.portalLink) {
+      if (added.includes(m.pageIndex) && mayEdit(m)) {
+        const list = local.get(m.pageIndex);
+        if (list) list.push(m);
+        else local.set(m.pageIndex, [m]);
+      }
+      continue;
+    }
+    if (m.portalLink.portalId !== now.id) continue;
     if (dropped.has(m.pageIndex)) {
+      // A copy this person may not edit is left as it is.
+      if (!mayEdit(m)) continue;
       const { portalLink: _drop, ...rest } = m;
-      out.push({ ...(rest as Markup), modifiedAt: at });
+      plan.set.push({ ...(rest as Markup), modifiedAt: at });
+      plan.unlinked++;
       continue;
     }
     if (!was.pages.includes(m.pageIndex)) continue;
@@ -297,11 +330,24 @@ export function relinkPlan(was: Portal | undefined, now: Portal, markups: Iterab
     if (list) list.push(m);
     else groups.set(m.portalLink.linkId, [m]);
   }
+  const taken = new Set<string>();
   for (const group of groups.values()) {
     const from = group.find((m) => m.pageIndex === now.sourcePage) ?? group[0]!;
-    for (const page of added) if (!group.some((m) => m.pageIndex === page)) out.push(mirrorCopy(from, page, newId(), from.portalLink!, at));
+    for (const page of added) {
+      if (group.some((m) => m.pageIndex === page)) continue;
+      // The same item drawn there by hand already: it joins the item rather than being doubled.
+      const match = (local.get(page) ?? []).find((m) => !taken.has(m.id) && sameItem(m, from));
+      if (match) {
+        taken.add(match.id);
+        plan.set.push({ ...match, portalLink: { ...from.portalLink! }, modifiedAt: at });
+        plan.adopted++;
+      } else {
+        plan.set.push(mirrorCopy(from, page, newId(), from.portalLink!, at));
+        plan.copied++;
+      }
+    }
   }
-  return out;
+  return plan;
 }
 
 /**

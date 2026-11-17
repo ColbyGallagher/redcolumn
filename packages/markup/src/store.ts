@@ -81,6 +81,8 @@ export interface ImportedExtras {
   statuses?: MarkupStatusDef[];
   /** Bluebeam Spaces brought in (by page, /BSISpaces index). */
   spaces?: Record<number, number[]>;
+  /** The document's page count, which linked pages are checked against. */
+  pageCount?: number;
   /** Portals the file was saved with (/NBPortals); taken when the document has none. */
   portals?: Portal[];
   /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
@@ -194,6 +196,8 @@ export class MarkupStore {
   private geoSnapshot: GeoRegion[] = NO_GEO;
   private portalRaw: unknown = undefined;
   private portalSnapshot: Portal[] = NO_PORTALS;
+  /** The document's page count when known (portals' pages past it are ignored). */
+  private pageCount: number | undefined = undefined;
   private columnRaw: unknown = undefined;
   private columnSnapshot: ColumnSet = DEFAULT_COLUMN_SET;
   private assemblyRaw: unknown = undefined;
@@ -332,7 +336,7 @@ export class MarkupStore {
       if (portals !== this.portalRaw) {
         this.portalRaw = portals;
         // Checked here as well as on import: Live Session peers write this map too.
-        this.portalSnapshot = portals ? sanitizePortals(portals) : NO_PORTALS;
+        this.portalSnapshot = portals ? sanitizePortals(portals, this.pageCount) : NO_PORTALS;
       }
       const raw = this.meta.get('columns');
       if (raw !== this.columnRaw) {
@@ -825,9 +829,10 @@ export class MarkupStore {
       }
       if (extras.assemblies?.length) this.meta.set('assemblies', mergeAssemblies(this.assemblies(), extras.assemblies));
       if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
-      if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals));
+      if (extras.pageCount !== undefined) this.pageCount = extras.pageCount;
+      if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals, this.pageCount));
       // Copies whose portal the file does not have (or no longer links their page) are ordinary markups.
-      this.stripOrphanLinks(sanitizePortals(this.meta.get('portals')));
+      this.stripOrphanLinks(sanitizePortals(this.meta.get('portals'), this.pageCount));
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
@@ -1145,22 +1150,38 @@ export class MarkupStore {
     return this.portalSnapshot;
   }
 
-  /** Adds a portal, or replaces the one with its id, as one undo step. */
-  setPortal(portal: Portal) {
-    if (this.locked) return;
+  /**
+   * The document's page count, so portals' linked pages past its end are ignored (a file or a peer
+   * may say otherwise). Re-reads the portals when it changes.
+   */
+  setPageCount(count: number) {
+    if (this.pageCount === count) return;
+    this.pageCount = count;
+    this.portalRaw = undefined;
+    this.refresh(new Map([[this.meta as Y.AbstractType<any>, null]]));
+  }
+
+  /**
+   * Adds a portal, or replaces the one with its id, as one undo step. Says what linking or
+   * unlinking pages did: copies made, local markups adopted, copies unlinked.
+   */
+  setPortal(portal: Portal): { copied: number; adopted: number; unlinked: number } {
+    const none = { copied: 0, adopted: 0, unlinked: 0 };
+    if (this.locked) return none;
     this.undoManager.stopCapturing();
     const was = this.portalSnapshot.find((p) => p.id === portal.id);
     const list = this.portalSnapshot.filter((p) => p.id !== portal.id);
     // A page newly linked gets a copy of each mirrored item; one no longer linked keeps its
     // copies as ordinary markups. All in the portal's undo step, and not synced again.
-    const relinked = relinkPlan(was, portal, this.map.values(), () => crypto.randomUUID());
+    const relinked = relinkPlan(was, portal, this.map.values(), () => crypto.randomUUID(), Date.now(), (m) => this.mayEdit(m));
     this.doc.transact(() => {
       this.meta.set('portals', structuredClone([...list, portal]));
       let seq = this.lastSeq();
-      for (const m of relinked) this.map.set(m.id, this.map.has(m.id) ? m : { ...m, seq: ++seq });
+      for (const m of relinked.set) this.map.set(m.id, this.map.has(m.id) ? m : { ...m, seq: ++seq });
       if (seq > ((this.meta.get('seq') as number | undefined) ?? 0)) this.meta.set('seq', seq);
     }, PORTAL);
     this.undoManager.stopCapturing();
+    return { copied: relinked.copied, adopted: relinked.adopted, unlinked: relinked.unlinked };
   }
 
   /** Inside a transaction: markups linked to a portal that is gone (or no longer links their page) lose the link. */
