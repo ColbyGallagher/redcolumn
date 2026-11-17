@@ -46,6 +46,21 @@ If the sheets don't quite meet, you can fix it by hand. Keep {{View > Stitched V
 To adjust sheets that redcolumn joined by itself, choose **Edit Detected Lines** in the Stitching panel. The joins it found become match lines you can move, still placed exactly as they were.
 
 Every change can be undone with {{Edit > Undo}}.
+## Apply the stitching to other disciplines
+
+On a civil set, the match lines are usually in the same places on every discipline's plans: roadworks, drainage, utilities. Set up the stitching once, on one discipline's plan sheets, then copy it to the others.
+
+1. Mark and match the match lines on the first discipline's plan sheets (above).
+2. Choose {{Document > Apply Stitching to Other Sheets…}}.
+3. **Pick the target sheets.** In **Pages**, type the other discipline's plan sheets, for example *9-12*. If they are in another open PDF, pick it in **Document** first.
+4. **Check the pairing.** The stitched sheets are paired with the target sheets in order: the first with the first, and so on. To change a pair, pick another sheet in its **Copy onto** list. Use **▲ ▼** to swap a row with its neighbour, or choose **Skip**.
+5. **Snap within** sets how far (mm on the paper) a copied line may move to land on the match line drawn on the target sheet. The default is 3 mm. Set it to 0 to copy the lines exactly.
+6. Choose **Apply**.
+
+The match lines and regions are copied to the same place on each target sheet. Each line is then moved onto the match line drawn close by, so a sheet drawn a little out of register still joins up. The results list each sheet: how many lines snapped, how sure redcolumn is, and how far they moved. A sheet marked ⚠ kept the line where it was copied. Check it in the Stitching panel and drag its ends if needed. Choose **View** to see a sheet stitched.
+
+> **Note:** Stitching already on the target sheets is replaced. One {{Edit > Undo}} puts it back.
+
 ## Stitch to a new page
 
 To keep the joined sheets as a page of their own, for takeoffs, markups or sending:

@@ -42,6 +42,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'diagram.straight': { spec: 'diagram' },
   'diagram.terminator': { spec: 'diagram' },
   'document.addBookmark': { spec: 'document' },
+  'document.applyStitching': { spec: 'bulk-stitch' },
   'document.closeOut': { spec: 'close-out' },
   'document.colour': 'todo',
   'document.compare': { spec: 'compare-stitch' },
