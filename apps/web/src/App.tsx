@@ -82,7 +82,7 @@ import { documentDigest, signatures, type SavedSignature } from './signatures/si
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
-import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
+import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -150,6 +150,7 @@ import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
+import { AdjustImageDialog } from './components/AdjustImageDialog';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -1361,6 +1362,7 @@ export function App() {
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
+  const [adjustImageFor, setAdjustImageFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -7051,6 +7053,9 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      ...(ms.some((m) => m.type === 'image' && m.image)
+        ? [{ label: 'Adjust Image…', disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
+        : []),
       // A picture's own colours are swapped, not the line and fill colours the other markups have.
       { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
@@ -8532,6 +8537,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     distribute: (axis) => activeTools?.distributeSelected(axis),
     scaleToLength: () => activeTools?.setTool('scaleLength'),
     resetCrop: () => activeTools?.resetCropSelected(),
+    pictureDialog: (which) => {
+      const ms = selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked);
+      if (!ms.length) return;
+      if (which === 'adjust') setAdjustImageFor({ pane, ids: ms.map((m) => m.id) });
+      else setPictureColoursFor({ pane, id: ms[0]!.id });
+    },
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showPanel('signatures');
@@ -8982,6 +8993,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     selectionReversible: selectedMarkups.some(canReverse),
     selectionAutoSizable: selectedMarkups.some(canAutoSize),
     selectionCroppable: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length === 1,
+    selectionPictures: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length,
     selectionCropped: selectedMarkups.some((m) => m.type === 'image' && !m.locked && !!cropOf(m)),
     selectionFits: (tool) => (tool === 'offset' ? !selectedMarkups.length || selectedMarkups.some(canOffset) : cadToolFits(tool, selectedMarkups)),
     canPaste: clipboardCount > 0,
@@ -10511,6 +10523,47 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={(rows, columns, gapX, gapY) => {
                 c.tools.multiply(rows, columns, gapX, gapY);
                 setMultiplyFor(null);
+              }}
+            />
+          );
+        })()}
+      {adjustImageFor &&
+        (() => {
+          const store = paneParts(adjustImageFor.pane).o?.store;
+          const ms = store ? adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m)) : [];
+          if (!store || !ms.length) return null;
+          const loadPixels = async (source: string) => {
+            const img = new Image();
+            img.src = source;
+            await img.decode();
+            const canvas = document.createElement('canvas');
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            const g = canvas.getContext('2d')!;
+            g.drawImage(img, 0, 0);
+            return { canvas, g, pixels: g.getImageData(0, 0, canvas.width, canvas.height) };
+          };
+          return (
+            <AdjustImageDialog
+              source={ms[0]!.image!}
+              count={ms.length}
+              onCancel={() => setAdjustImageFor(null)}
+              onChangeColours={ms.length === 1 ? () => {
+                setAdjustImageFor(null);
+                setPictureColoursFor({ pane: adjustImageFor.pane, id: ms[0]!.id });
+              } : undefined}
+              onApply={async (adjust) => {
+                // Bake every picture first, so a failure leaves them all as they were; then one undo step.
+                const baked: [string, string][] = [];
+                for (const m of ms) {
+                  const { canvas, g, pixels } = await loadPixels(m.image!);
+                  adjustPixels(pixels.data, adjust);
+                  g.putImageData(pixels, 0, 0);
+                  baked.push([m.id, canvas.toDataURL('image/png')]);
+                }
+                store.checkpoint();
+                for (const [id, image] of baked) store.update(id, { image });
+                setAdjustImageFor(null);
               }}
             />
           );

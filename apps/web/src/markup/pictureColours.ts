@@ -96,3 +96,59 @@ export function polygonBox(points: readonly Point[]): { x: number; y: number; w:
 export function polygonInPixels(points: readonly Point[], scale: number, origin: Point): Point[] {
   return points.map((p): Point => [p[0] * scale - origin[0], p[1] * scale - origin[1]]);
 }
+
+/** How a picture is lightened, darkened or toned. Every field's rest value changes nothing. */
+export interface PictureAdjust {
+  /** -100 (black) to 100 (white); 0 leaves the picture as it is. */
+  brightness: number;
+  /** -100 (flat grey) to 100 (hard); 0 leaves the picture as it is. */
+  contrast: number;
+  greyscale: boolean;
+  invert: boolean;
+  /** 0 keeps every pixel; above 0 makes the near-white pixels see-through (the larger, the more white goes). */
+  whiteOut: number;
+}
+
+export const NO_ADJUST: PictureAdjust = { brightness: 0, contrast: 0, greyscale: false, invert: false, whiteOut: 0 };
+
+/** Whether the adjustment changes any pixel. */
+export const adjustsPicture = (a: PictureAdjust): boolean => a.brightness !== 0 || a.contrast !== 0 || a.greyscale || a.invert || a.whiteOut > 0;
+
+/**
+ * Adjusts RGBA pixels in place: greyscale, then brightness, then contrast, then invert, then the
+ * near-white pixels made see-through. Transparency is kept.
+ */
+export function adjustPixels(data: Uint8ClampedArray, a: PictureAdjust): void {
+  if (!adjustsPicture(a)) return;
+  const shift = (a.brightness / 100) * 255;
+  const c = a.contrast * 2.55;
+  const k = (259 * (c + 255)) / (255 * (259 - c));
+  const cut = 255 - a.whiteOut * 2.55;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    let r = data[i]!;
+    let g = data[i + 1]!;
+    let b = data[i + 2]!;
+    if (a.greyscale) r = g = b = 0.299 * r + 0.587 * g + 0.114 * b;
+    r += shift;
+    g += shift;
+    b += shift;
+    if (a.contrast !== 0) {
+      r = k * (r - 128) + 128;
+      g = k * (g - 128) + 128;
+      b = k * (b - 128) + 128;
+    }
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+    if (a.invert) {
+      r = 255 - r;
+      g = 255 - g;
+      b = 255 - b;
+    }
+    data[i] = r;
+    data[i + 1] = g;
+    data[i + 2] = b;
+    if (a.whiteOut > 0 && Math.min(r, g, b) >= cut) data[i + 3] = 0;
+  }
+}
