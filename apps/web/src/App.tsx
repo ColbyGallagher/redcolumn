@@ -17,7 +17,7 @@ import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useC
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, keepRevisionOf, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { studioFileId, studioDocOf } from './studio/documentId';
 import { saveConfirmedArchiveFile } from './studio/archive';
@@ -38,6 +38,11 @@ import type { CellChange } from './sheetsync/merge';
 import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
 import { ImportExcelDialog } from './components/ImportExcelDialog';
 import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { checkMarkupLink, linkedFile, markupLinkUrl, parseMarkupQuery, stripMarkupQuery, type LinkBase, type MarkupLink } from './sheetsync/links';
+import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
+import { CloseOutDialog } from './components/CloseOutDialog';
+import { THUMB_PX, type RegisterThumb } from './sheetsync/register';
 import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
 import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
@@ -1108,6 +1113,11 @@ export function App() {
   const [syncOpen, setSyncOpen] = useState(false);
   /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
   const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** A link to a comment being followed: its document is opening, and the comment is gone to once its markups are there. */
+  const [pendingLink, setPendingLink] = useState<{ fileId: string; markupId: string; since: number } | null>(null);
+  /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
+  const [closeOutOpen, setCloseOutOpen] = useState(false);
+  const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
   /** Export Comment Register, and the template editor (on one template, or the list). */
   const [registerOpen, setRegisterOpen] = useState(false);
   const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
@@ -2189,6 +2199,40 @@ export function App() {
     [openStored, activateTab, refreshLibrary, split, activePane],
   );
 
+  /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
+  const openMarkupLink = useCallback(
+    async (link: MarkupLink) => {
+      const file = linkedFile(await listFiles(), link);
+      if (!file) {
+        setNotice(`The document this link is for${link.name ? ` (${link.name})` : ''} is not in the library on this device.`);
+        return;
+      }
+      setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
+      await openFromLibrary(file);
+    },
+    [openFromLibrary],
+  );
+  const openMarkupLinkRef = useRef(openMarkupLink);
+  openMarkupLinkRef.current = openMarkupLink;
+  useEffect(() => {
+    if (!ctl || !libraryReady) return;
+    const follow = (links: readonly unknown[]) => {
+      // One at a time: the last link clicked is the one that shows.
+      const link = checkMarkupLink(links[links.length - 1] as MarkupLink | undefined);
+      if (link) void openMarkupLinkRef.current(link);
+    };
+    // The web app is opened at a link's address; the desktop app is handed the link.
+    const inAddress = parseMarkupQuery(window.location.search);
+    if (inAddress) {
+      stripMarkupQuery();
+      follow([inAddress]);
+    }
+    const host = desktop();
+    void host?.takeMarkupLinks?.().then(follow, () => undefined);
+    return host?.onMarkupLinks?.(follow);
+    // Once, when the viewer and the library are ready.
+  }, [ctl, libraryReady]);
+
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
     restoredTabs.current = true;
@@ -3105,7 +3149,13 @@ export function App() {
             const targetLabels = cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number ?? null);
             const plan = planSlipSheet(targetLabels, incoming, spec.mode, spec.addUnmatched);
             const labelOf = (p: IncomingPage) => p.label ?? `${opened[p.source]!.name} p${p.page + 1}`;
-            if (!plan.replace.length && !plan.add.length) return { plan, labelOf };
+            if (!plan.replace.length && !plan.add.length) return { plan, labelOf, left: 0 };
+            // Comments on the sheets being replaced: the revision they were raised on is the one going out,
+            // and the closed ones stay with it when asked.
+            const replaced = new Set(plan.replace.map((r) => r.target));
+            const before = cur.store.all();
+            const raised = raisedRevisions(before, cur.store.allSheets(), replaced);
+            const behind = spec.leaveClosed ? closedComments(before, replaced, closedStatuses(closeOutTemplateOf(cur.store))) : [];
 
             const moves = new Map<number, { scale: number; dx: number; dy: number }>();
             if (spec.alignMarkups)
@@ -3132,24 +3182,35 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            await keepRevision(cur.file.id, `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`);
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
+            // The revision kept is the stored file, which has no markups in it. Comments left behind are
+            // written into the copy that is kept, so they can still be read there.
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, `${note} (with its markups: ${behind.length} closed comment${behind.length === 1 ? '' : 's'} left behind)`);
+            else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
+              cur.store.batch(() => {
+                for (const [id, raisedRev] of raised) cur.store.update(id, { raisedRev });
+                cur.store.remove(behind.map((m) => m.id));
+              });
               cur.store.transformPages(moves);
+              // The replaced sheets are the new revision now.
+              cur.store.setDetectedSheets(plan.replace.flatMap((r) => (opened[r.incoming.source]!.sheets[r.incoming.page] ? [[r.target, opened[r.incoming.source]!.sheets[r.incoming.page]!] as [number, SheetInfo]] : [])));
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
             }, undefined, 'Slip Sheet');
-            return { plan, labelOf };
+            return { plan, labelOf, left: behind.filter((m) => !cur.store.get(m.id)).length };
           } finally {
             for (const o of opened) void o.doc.close();
           }
         });
-        const { plan, labelOf } = report;
+        const { plan, labelOf, left } = report;
         const list = (items: IncomingPage[]) => items.slice(0, 8).map(labelOf).join(', ') + (items.length > 8 ? ` and ${items.length - 8} more` : '');
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
           plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
         setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
         void refreshLibrary();
@@ -3160,7 +3221,7 @@ export function App() {
         job.end();
       }
     },
-    [ctl, swapDocument, refreshLibrary],
+    [ctl, swapDocument, refreshLibrary, registerTemplates, closeOutTemplate],
   );
 
   /** Revisions: a kept version made the document's contents again (the current one is kept too). */
@@ -6402,11 +6463,98 @@ export function App() {
   );
   const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
   /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
-  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || !!(isTextType(m.type) ? m.text : m.comment)?.trim() || !!m.replies?.length));
-  const exportRegister = (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>) => {
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
+  /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
+  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
+  // A followed link: once its document is in front and has its markups, go to the comment.
+  useEffect(() => {
+    if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
+    const m = markups.find((x) => x.id === pendingLink.markupId);
+    if (m) {
+      setPendingLink(null);
+      const b = shapeBounds(m);
+      const pad = Math.max(48, Math.max(b.w, b.h));
+      navigate(m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      (paneB ? ctlB : ctl)?.tools.select([m.id]);
+      return;
+    }
+    // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
+    const wait = setTimeout(() => {
+      setPendingLink(null);
+      setNotice('The comment this link is for is no longer in the document.');
+    }, Math.max(0, pendingLink.since + 8000 - Date.now()));
+    return () => clearTimeout(wait);
+    // The markups are what is waited for.
+  }, [pendingLink, activeOpen?.file.id, markups]);
+
+  /** A picture of each markup with the drawing around it, for a register's thumbnail column. Small JPEGs: they travel by email. */
+  const registerThumbs = async (o: OpenFile, list: readonly Markup[]) => {
+    const out = new Map<string, RegisterThumb>();
+    for (const m of list) {
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, THUMB_PX / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      const blob = await new Promise<Blob | null>((done) => flat.toBlob(done, 'image/jpeg', 0.7));
+      if (blob) out.set(m.id, { data: new Uint8Array(await blob.arrayBuffer()), type: 'jpeg', width: flat.width, height: flat.height });
+    }
+    return out;
+  };
+
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => {
     if (!activeOpen) return;
-    const bytes = exportRegisterWorkbook({ rows: buildRows(registerMarkups(scope), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values });
-    download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}.xlsx`, new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const { fill } = options;
+    // A comment's first export records the revision of its sheet: what it was raised on.
+    const listed = registerMarkups(scope);
+    const raised = raisedRevisions(listed, sheets);
+    if (raised.size) {
+      const store = activeOpen.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, raisedRev] of raised) store.update(id, { raisedRev });
+      });
+      store.checkpoint();
+    }
+    // Links open the comment in the app they were made in: the desktop app's own scheme, or this web address.
+    const linkBase: LinkBase = desktop() ? { kind: 'desktop' } : { kind: 'web', href: window.location.href };
+    const linkFile = activeOpen.file;
+    const linkOf = (markupId: string) => markupLinkUrl(linkBase, { doc: linkFile.id, markup: markupId, name: linkFile.name });
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values, linkOf };
+    const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
+    const excel = localExcel();
+    if (fill && template.clientFile && excel?.readSource && excel.fill) {
+      // The client's own file: read it to place the rows, then Excel fills a copy in.
+      try {
+        const plan = planFill(await readWorkbook(await excel.readSource(template.clientFile.id)), register);
+        if (!plan.ok) {
+          setError(plan.problem);
+          return;
+        }
+        const saved = await excel.fill(template.clientFile.id, name, plan.fill);
+        if (!saved) return;
+        setNotice(`${saved.name} saved: the register in a copy of ${template.clientFile.name}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The client’s file could not be filled in.');
+        return;
+      }
+    } else {
+      let thumbnails: Map<string, RegisterThumb> | undefined;
+      try {
+        if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
+      } catch (err) {
+        setError(`The thumbnails could not be made: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    }
     setRegisterOpen(false);
   };
   const exportMarkupsXlsx = () => {
@@ -8539,6 +8687,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     digitalIds: () => setIdsOpen(true),
     slipSheet: () => setSlipSheetOpen(true),
+    closeOut: () => setCloseOutOpen(true),
     revisions: () => activeOpen && setRevisionsOf(activeOpen.file.id),
     overlay: () => setCompareOpen('overlay'),
     ocr: () => {
@@ -10823,6 +10972,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SlipSheetDialog
           targetName={activeOpen.file.name}
           files={library.filter((f) => f.id !== activeOpen.file.id)}
+          closed={(() => {
+            const template = closeOutTemplateOf(activeOpen.store);
+            const ids = closedStatuses(template);
+            const names = columnSet.statuses.filter((s) => ids.has(s.id)).map((s) => s.name);
+            return { count: markups.filter((m) => isComment(m) && ids.has(m.status || 'none')).length, means: names.length ? names.join(', ').replace(/, ([^,]*)$/, ' or $1') : 'closed' };
+          })()}
           onCancel={() => setSlipSheetOpen(false)}
           onRun={(spec) => {
             setSlipSheetOpen(false);
@@ -11593,6 +11748,22 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setImportExcel(null)}
         />
       )}
+      {closeOutOpen && activeOpen && (
+        <CloseOutDialog
+          docName={activeOpen.file.name}
+          sheets={closeOut(markups, sheets, closedStatuses(closeOutTemplateOf(activeOpen.store)), columnSet.statuses)}
+          templates={registerTemplates.map((t) => ({ id: t.id, name: t.name }))}
+          templateId={closeOutTemplateOf(activeOpen.store)?.id ?? ''}
+          onTemplate={setCloseOutTemplate}
+          onOpen={(id, pageIndex) => {
+            setCloseOutOpen(false);
+            navigate(pageIndex, null);
+            (paneB ? ctlB : ctl)?.tools.select([id]);
+          }}
+          onExportCsv={(csv) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} close-out.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }))}
+          onClose={() => setCloseOutOpen(false)}
+        />
+      )}
       {registerOpen && activeOpen && (
         <ExportRegisterDialog
           docName={activeOpen.file.name}
@@ -11600,6 +11771,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
           values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
           counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          canFill={!!localExcel()?.fill}
           onExport={exportRegister}
           onTemplates={(id) => setRegisterTemplatesOpen({ id })}
           onClose={() => setRegisterOpen(false)}
@@ -11627,6 +11799,20 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }
           }}
           onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onPickClientFile={
+            localExcel()?.pickSource
+              ? async (draft) => {
+                  try {
+                    const picked = await localExcel()!.pickSource!();
+                    if (!picked) return null;
+                    return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'That file could not be read.');
+                    return null;
+                  }
+                }
+              : undefined
+          }
           onClose={() => setRegisterTemplatesOpen(null)}
         />
       )}

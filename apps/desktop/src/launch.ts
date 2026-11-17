@@ -1,6 +1,7 @@
 import { app, BrowserWindow, type WebContents } from 'electron';
 import path from 'node:path';
 import type { PathAllowlist } from './allowlist';
+import { linkArguments, type MarkupLink } from './links';
 import { OpenFileRouter } from './open-file';
 import { pdfArguments } from './pdf-args';
 
@@ -20,6 +21,8 @@ export interface LaunchItem {
  */
 export class LaunchQueue {
   private pending: LaunchItem[] = [];
+  /** Links to a comment (clicked in a register), waiting like files do. */
+  private pendingLinks: MarkupLink[] = [];
   private listening = false;
   private window: BrowserWindow | null = null;
   private last: { path: string; at: number } | null = null;
@@ -42,8 +45,21 @@ export class LaunchQueue {
     return this.pending.splice(0);
   }
 
+  /** Takes the queued comment links once. Later ones are delivered as launch-links events. */
+  takeLinks(): MarkupLink[] {
+    return this.pendingLinks.splice(0);
+  }
+
   noteArgv(argv: readonly string[]) {
     for (const filePath of pdfArguments(argv)) this.note(filePath);
+    for (const link of linkArguments(argv)) this.noteLink(link);
+  }
+
+  noteLink(link: MarkupLink) {
+    const contents: WebContents | undefined = this.window?.webContents;
+    if (!this.listening || !contents || contents.isDestroyed()) this.pendingLinks.push(link);
+    else contents.send('launch-links', [link]);
+    this.focus();
   }
 
   note(filePath: string) {
