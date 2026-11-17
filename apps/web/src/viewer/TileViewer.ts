@@ -1657,18 +1657,24 @@ export class TileViewer {
     const wheel = settings.get()[this.mode === 'continuous' ? 'continuousWheel' : 'singlePageWheel'];
     // Preferences › Navigation › Sensitivity: 4 is the browser's own rate.
     const sensitivity = settings.get().wheelSensitivity / 4;
+    // A mouse-wheel notch (line mode, or a large pixel delta), as against a trackpad's small deltas.
+    const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
     if (wheel === 'scroll' && !e.ctrlKey) {
       const k = (e.deltaMode === 1 ? 32 : 1) * sensitivity;
-      this.panX -= (e.shiftKey ? e.deltaY : e.deltaX) * k;
-      this.panY -= (e.shiftKey ? 0 : e.deltaY) * k;
+      const dx = (e.shiftKey ? e.deltaY : e.deltaX) * k;
+      const dy = (e.shiftKey ? 0 : e.deltaY) * k;
+      if (this.mode === 'single') {
+        this.wheelSinglePage(dx, dy, notch, e.timeStamp);
+        return;
+      }
+      this.panX -= dx;
+      this.panY -= dy;
       this.invalidate();
       return;
     }
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    // A mouse-wheel notch (line mode, or a large pixel delta) steps the zoom by the flat amount set
-    // in Preferences; trackpad pinch sends small fractional deltas and keeps a smooth rate.
-    const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
+    // A notch steps the zoom by the flat amount set in Preferences; trackpad pinch keeps a smooth rate.
     if (notch) {
       const prefs = settings.get();
       const notches = Math.max(1, Math.round(Math.abs(e.deltaY) / (e.deltaMode === 1 ? 3 : 100)));
@@ -1678,6 +1684,65 @@ export class TileViewer {
     }
     this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015 * sensitivity)), x, y);
   };
+
+  /** Last wheel event in single page view, and whether the trackpad gesture it belongs to has already scrolled or turned a page. */
+  private pageWheel = { t: -Infinity, used: false };
+
+  /**
+   * The wheel set to Scroll in single page view, as in Revu: it scrolls the page until its edge is in
+   * view, and the next notch turns to the next (or previous) page, which opens at its top (or bottom)
+   * at the same zoom. A trackpad gesture (and its momentum) either scrolls or turns one page, never
+   * both; a pause starts a new gesture. Each mouse-wheel notch counts on its own.
+   */
+  private wheelSinglePage(dx: number, dy: number, notch: boolean, t: number) {
+    const gap = t - this.pageWheel.t;
+    this.pageWheel.t = t;
+    if (gap > 150) this.pageWheel.used = false;
+    const x = this.scrollRange('x');
+    const y = this.scrollRange('y');
+    this.panX = Math.max(x.lo, Math.min(x.hi, this.panX - dx));
+    if (dy === 0) return this.invalidate();
+    const down = dy > 0;
+    const atEdge = down ? this.panY <= y.lo + 0.5 : this.panY >= y.hi - 0.5;
+    if (!atEdge) {
+      this.panY = Math.max(y.lo, Math.min(y.hi, this.panY - dy));
+      this.pageWheel.used = true;
+      return this.invalidate();
+    }
+    if (!notch && this.pageWheel.used) return this.invalidate();
+    const row = this.currentRow();
+    const target = down ? row.at(-1)! + 1 : row[0]! - 1;
+    if (!this.doc || target < 0 || target >= this.doc.pages.length) return this.invalidate();
+    this.pageWheel.used = true;
+    const { zoom, panX } = this;
+    this.goToPage(target);
+    this.zoom = zoom;
+    const nx = this.scrollRange('x', false);
+    this.panX = Math.max(nx.lo, Math.min(nx.hi, panX));
+    const ny = this.scrollRange('y', false);
+    this.panY = down ? ny.hi : ny.lo;
+    this.invalidate();
+  }
+
+  /**
+   * How far the wheel may scroll a single page along one axis: the pan that puts the page's near edge
+   * a margin inside the view, to the pan that puts its far edge there. A page that fits is centred, and
+   * a view the user has dragged past the edge is left where it is rather than snapped back (unless
+   * `keepPan` is false, for placing a newly shown page).
+   */
+  private scrollRange(axis: 'x' | 'y', keepPan = true): { lo: number; hi: number } {
+    const b = this.worldBounds();
+    const current = axis === 'x' ? this.panX : this.panY;
+    if (!Number.isFinite(b.w)) return { lo: current, hi: current };
+    const view = axis === 'x' ? this.canvas.clientWidth : this.canvas.clientHeight;
+    const start = (axis === 'x' ? b.x : b.y) * this.zoom;
+    const size = (axis === 'x' ? b.w : b.h) * this.zoom;
+    const margin = 24;
+    const fits = size + margin * 2 <= view;
+    const lo = fits ? (view - size) / 2 - start : view - margin - start - size;
+    const hi = fits ? lo : margin - start;
+    return keepPan ? { lo: Math.min(lo, current), hi: Math.max(hi, current) } : { lo, hi };
+  }
 
   private lastMiddleDown: { t: number; x: number; y: number } | null = null;
 

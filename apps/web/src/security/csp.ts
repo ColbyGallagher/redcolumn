@@ -10,6 +10,9 @@ export interface CspOptions {
   microsoft: boolean;
 }
 
+/** The community library's list and packs (Tools › Takeoff › Browse Library), fetched only when asked for. */
+const LIBRARY_CONNECT = ['https://raw.githubusercontent.com'];
+
 const MICROSOFT_CONNECT = [
   'https://graph.microsoft.com',
   'https://login.microsoftonline.com',
@@ -33,7 +36,7 @@ export function appCsp({ microsoft }: CspOptions): string {
     ['script-src', ["'self'", "'wasm-unsafe-eval'"]],
     // Tesseract starts its worker from a blob: URL it makes itself.
     ['worker-src', ["'self'", 'blob:']],
-    ['connect-src', ["'self'", ...(microsoft ? MICROSOFT_CONNECT : [])]],
+    ['connect-src', ["'self'", ...LIBRARY_CONNECT, ...(microsoft ? MICROSOFT_CONNECT : [])]],
     ['frame-src', ["'none'"]],
     ['img-src', ["'self'", 'blob:', 'data:']],
     ['style-src', ["'self'"]],

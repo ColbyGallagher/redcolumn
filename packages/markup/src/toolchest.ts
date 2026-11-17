@@ -36,6 +36,11 @@ export interface ToolChestItem {
    * the tool has children we can draw and is not a Cloud+.
    */
   template?: Markup[];
+  /**
+   * How a tool with a `template` is used: `copy` places it (Revu's Drawing mode), `style` draws new
+   * markups in its look (Revu's Properties mode). Unset follows the app's preference.
+   */
+  mode?: 'copy' | 'style';
   /** Numbers each copy's text on from the last one in the document (Revu's <Sequence>). */
   sequence?: { start: number; increment: number };
   /** The tool as Revu stored it, so an unchanged tool is written back to a .btx the same. */
@@ -302,6 +307,8 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
         ? await contentTemplate(type, dict, style, await loadResources(body), subject || named)
         : undefined;
     const template = grouped ?? content;
+    const modeTag = tag(body, 'Mode')?.trim().toLowerCase();
+    const revuMode = modeTag === 'drawing' ? ('copy' as const) : modeTag === 'properties' ? ('style' as const) : undefined;
     const elements = (re: RegExp) => [...m[1]!.matchAll(re)].map((e) => `    ${e[0]}`).join('\r\n');
     const label = cloudPlus ? 'Cloud+' : template && sequence ? 'Numbered ' + MARKUP_LABELS[type!] : type ? MARKUP_LABELS[type] : '';
     const name = named || (given === 'CopyItem' && subject ? subject : '') || label || subject || str(dict.T) || 'Tool';
@@ -324,6 +331,7 @@ export async function parseBtx(xml: string, defaults: Defaults, fallbackTitle = 
       ...(cloudPlus ? { tool: 'cloudPlus' as const } : {}),
       ...(template ? { template } : {}),
       ...(template && sequence ? { sequence } : {}),
+      ...(template && revuMode ? { mode: revuMode } : {}),
       ...(raw && !unread
         ? {
             source: {

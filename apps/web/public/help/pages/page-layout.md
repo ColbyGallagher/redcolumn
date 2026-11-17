@@ -10,7 +10,7 @@ Click the **Single / Continuous** button in the navigation bar.
 
 | Layout | What you see | What the mouse wheel does |
 |---|---|---|
-| **Single** | One page at a time. | Zooms in and out. |
+| **Single** | One page at a time. | Zooms in and out. Set it to **Scroll** in Preferences to scroll the page and turn to the next or previous page at its edge. |
 | **Continuous** | All pages in one long column. | Scrolls up and down. Hold [[Ctrl]] to zoom. |
 
 ## All the layouts
