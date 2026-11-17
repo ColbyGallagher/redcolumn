@@ -53,7 +53,7 @@ def match_line(n, shift):
 
 
 def build(path):
-    c = canvas.Canvas(path, pagesize=(SHEET_W * mm, SHEET_H * mm), pageCompression=1)
+    c = canvas.Canvas(path, pagesize=(SHEET_W * mm, SHEET_H * mm), pageCompression=1, invariant=1)
     c.setTitle("Kestrel Road Upgrade Stage 2 - roadworks and drainage plans (sample)")
     c.setAuthor("Meridian Civil Consulting (fictional)")
     info = []

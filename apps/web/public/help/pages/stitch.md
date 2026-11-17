@@ -59,7 +59,16 @@ On a civil set, the match lines are usually in the same places on every discipli
 
 The match lines and regions are copied to the same place on each target sheet. Each line is then moved onto the match line drawn close by, so a sheet drawn a little out of register still joins up. The results list each sheet: how many lines snapped, how sure redcolumn is, and how far they moved. A sheet marked ⚠ kept the line where it was copied. Check it in the Stitching panel and drag its ends if needed. Choose **View** to see a sheet stitched.
 
-> **Note:** Stitching already on the target sheets is replaced. One {{Edit > Undo}} puts it back.
+Before you apply, the dialog warns you when:
+
+- the target sheets already have stitching (it is replaced, and lines on other sheets matched to it lose their match);
+- a copied line's partner sheet is skipped, so the copy won't join anything;
+- you picked more target sheets than there are stitched sheets;
+- a target page is a different size from its stitched sheet. Those lines are copied without snapping.
+
+A line only moves as far as **Snap within**. It stays put when the nearest line is farther away, or looks unlike the source's match line (a long kerb next to a short dashed match line, say).
+
+> **Note:** One {{Edit > Undo}} in the target document puts back what it had before.
 
 ## Stitch to a new page
 

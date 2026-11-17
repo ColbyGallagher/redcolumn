@@ -1,4 +1,4 @@
-import { dot, len, perp, sub, unit, type Vec } from './affine.ts';
+import type { Vec } from './affine.ts';
 
 /**
  * Bulk stitching: civil sets put their match lines in the same places on every discipline's
@@ -19,14 +19,24 @@ export interface SheetPair {
  */
 export function pairInOrder(sources: readonly number[], targets: readonly number[], exclude: readonly number[] = sources): SheetPair[] {
   const src = [...new Set(sources)].sort((a, b) => a - b);
+  const tgt = usableTargets(targets, exclude);
+  return src.map((source, i) => ({ source, target: tgt[i] ?? null }));
+}
+
+/** How many targets `pairInOrder` leaves over once every source has one. */
+export function leftoverTargets(sources: readonly number[], targets: readonly number[], exclude: readonly number[] = sources): number {
+  return Math.max(0, usableTargets(targets, exclude).length - new Set(sources).size);
+}
+
+function usableTargets(targets: readonly number[], exclude: readonly number[]): number[] {
   const used = new Set(exclude);
-  const tgt: number[] = [];
+  const out: number[] = [];
   for (const t of targets) {
     if (used.has(t)) continue;
     used.add(t);
-    tgt.push(t);
+    out.push(t);
   }
-  return src.map((source, i) => ({ source, target: tgt[i] ?? null }));
+  return out;
 }
 
 /** Points per millimetre of paper. */
@@ -45,10 +55,41 @@ export interface LineworkFind {
   runnerUp: number;
 }
 
-/** Segments within this angle of the line count as running along it. */
-const PARALLEL = (2 * Math.PI) / 180;
+/**
+ * Segments must run within this angle of the line. A segment also has to lie wholly inside the
+ * band `tolerance` either side of the line, which allows a long segment far less skew than
+ * this (atan(2 · tolerance / length)); the smaller of the two applies.
+ */
+const PARALLEL = (1 * Math.PI) / 180;
 /** Candidates whose offsets are this close (points) are one drawn line. */
 const SAME_LINE = 0.6;
+
+/**
+ * Only the segments of `segments` that could lie along one of `lines`: those touching a line's
+ * bounding box grown by `tolerance`. Cuts a heavy sheet down to a few thousand segments, once,
+ * before each line is searched.
+ */
+export function segmentsNear(segments: ArrayLike<number>, lines: readonly { p0: Vec; p1: Vec }[], tolerance: number): Float32Array {
+  const boxes = lines.map((l) => [Math.min(l.p0[0], l.p1[0]) - tolerance, Math.min(l.p0[1], l.p1[1]) - tolerance, Math.max(l.p0[0], l.p1[0]) + tolerance, Math.max(l.p0[1], l.p1[1]) + tolerance] as const);
+  const out: number[] = [];
+  for (let i = 0; i + 3 < segments.length; i += 4) {
+    const ax = segments[i]!;
+    const ay = segments[i + 1]!;
+    const bx = segments[i + 2]!;
+    const by = segments[i + 3]!;
+    const x0 = Math.min(ax, bx);
+    const x1 = Math.max(ax, bx);
+    const y0 = Math.min(ay, by);
+    const y1 = Math.max(ay, by);
+    for (const [bx0, by0, bx1, by1] of boxes) {
+      if (x1 >= bx0 && x0 <= bx1 && y1 >= by0 && y0 <= by1) {
+        out.push(ax, ay, bx, by);
+        break;
+      }
+    }
+  }
+  return Float32Array.from(out);
+}
 
 /**
  * The drawn line work within `tolerance` points of the line p0-p1 that runs along it, or null
@@ -56,24 +97,33 @@ const SAME_LINE = 0.6;
  * with lines nearer `expected` (the offset across) preferred.
  */
 export function findLinework(p0: Vec, p1: Vec, segments: ArrayLike<number>, tolerance: number, expected = 0): LineworkFind | null {
-  const L = len(sub(p1, p0));
+  const dx = p1[0] - p0[0];
+  const dy = p1[1] - p0[1];
+  const L = Math.hypot(dx, dy);
   if (L < 1 || !(tolerance > 0)) return null;
-  const u = unit(sub(p1, p0));
-  const n = perp(u);
+  const ux = dx / L;
+  const uy = dy / L;
+  // perp(u)
+  const nx = -uy;
+  const ny = ux;
   const cosTol = Math.cos(PARALLEL);
   const found: { d: number; a: number; b: number }[] = [];
   for (let i = 0; i + 3 < segments.length; i += 4) {
-    const a: Vec = [segments[i]!, segments[i + 1]!];
-    const b: Vec = [segments[i + 2]!, segments[i + 3]!];
-    const v = sub(b, a);
-    const sl = len(v);
-    if (sl < 0.5) continue;
-    if (Math.abs(dot(v, u)) / sl < cosTol) continue;
-    const da = dot(sub(a, p0), n);
-    const db = dot(sub(b, p0), n);
-    if (Math.abs(da) > tolerance || Math.abs(db) > tolerance) continue;
-    const ta = dot(sub(a, p0), u);
-    const tb = dot(sub(b, p0), u);
+    const ax = segments[i]! - p0[0];
+    const ay = segments[i + 1]! - p0[1];
+    const bx = segments[i + 2]! - p0[0];
+    const by = segments[i + 3]! - p0[1];
+    // Cheapest rejection first: both ends inside the band either side of the line.
+    const da = ax * nx + ay * ny;
+    if (da > tolerance || da < -tolerance) continue;
+    const db = bx * nx + by * ny;
+    if (db > tolerance || db < -tolerance) continue;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const sl = Math.hypot(vx, vy);
+    if (sl < 0.5 || Math.abs(vx * ux + vy * uy) / sl < cosTol) continue;
+    const ta = ax * ux + ay * uy;
+    const tb = bx * ux + by * uy;
     const lo = Math.min(ta, tb);
     const hi = Math.max(ta, tb);
     // It has to run alongside the line, not lie beyond its ends.
@@ -144,13 +194,21 @@ export const SNAP_CONFIDENCE = 0.5;
 /** Found line work shorter than this fraction of the line says too little to snap to. */
 const MIN_COVERAGE = 0.3;
 
+/** a / b or b / a, whichever is at most 1 (1 when both are 0). */
+const likeness = (a: number, b: number) => (Math.max(a, b) > 0 ? Math.min(a, b) / Math.max(a, b) : 1);
+
 /**
  * Nudges a match line copied from a source sheet onto a target sheet at the same page
  * coordinates. On both sheets it looks for the drawn match line within `tolerance` points of the
  * line, then moves the copy so it sits on the target's drawn line exactly as the original sits
- * on the source's: across it, and along it when both drawn lines are the same length. The copy is
- * kept where it is when the source line has no drawn line under it, the target has none close
- * by, or the target's is too unlike the source's to trust.
+ * on the source's: across it, and along it when both drawn lines are the same length.
+ *
+ * Confidence is how alike the two drawn lines are: how much of the line each covers, how long
+ * each runs (a long kerb or frame line is not a short dashed match line), how far the target's
+ * is from where the source's says it should be, and whether another line close by is nearly as
+ * good on either sheet. The copy is kept where it is when the source line has no drawn line
+ * under it, the target has none close by, the move would be farther than `tolerance`, or the
+ * confidence is below SNAP_CONFIDENCE.
  */
 export function refineCopiedLine(line: { p0: Vec; p1: Vec }, source: ArrayLike<number> | null, target: ArrayLike<number>, tolerance: number): LineRefine {
   const keep = (reason: string, confidence = 0): LineRefine => ({ p0: [line.p0[0], line.p0[1]], p1: [line.p1[0], line.p1[1]], shift: [0, 0], confidence, snapped: false, reason });
@@ -158,23 +216,33 @@ export function refineCopiedLine(line: { p0: Vec; p1: Vec }, source: ArrayLike<n
   if (!fs || fs.coverage < MIN_COVERAGE) return keep('No drawn line under the source match line');
   const ft = findLinework(line.p0, line.p1, target, tolerance, fs.offset);
   if (!ft || ft.coverage < MIN_COVERAGE) return keep('No matching line close by on the target sheet');
-  const u = unit(sub(line.p1, line.p0));
-  const n = perp(u);
+  const dx = line.p1[0] - line.p0[0];
+  const dy = line.p1[1] - line.p0[1];
+  const L = Math.hypot(dx, dy);
+  const [ux, uy] = [dx / L, dy / L];
+  const [nx, ny] = [-uy, ux];
   const across = ft.offset - fs.offset;
+  const spanS = fs.tMax - fs.tMin;
+  const spanT = ft.tMax - ft.tMin;
   // The drawn lines' ends say how far the target slid along, when both lines show both ends.
-  const sameLength = Math.abs(ft.tMax - ft.tMin - (fs.tMax - fs.tMin)) <= SAME_LINE * 2;
+  const sameLength = Math.abs(spanT - spanS) <= SAME_LINE * 2;
   const alongRaw = (ft.tMin - fs.tMin + (ft.tMax - fs.tMax)) / 2;
-  const along = sameLength && Math.abs(alongRaw) <= tolerance ? alongRaw : 0;
-  let confidence = Math.min(1, ft.coverage / fs.coverage);
-  if (!sameLength) confidence *= 0.8;
+  const along = sameLength ? alongRaw : 0;
+  if (Math.hypot(along, across) > tolerance) return keep('The line close by on the target sheet is farther than the tolerance');
+
+  let confidence = likeness(ft.coverage, fs.coverage) * likeness(spanT, spanS);
+  // The farther the move, the likelier it found some other line.
+  confidence *= 1 - (0.3 * Math.hypot(along, across)) / tolerance;
   // Another line nearly as long close by: the pick may be the wrong one.
   if (ft.runnerUp >= ft.coverage * 0.8) confidence *= 0.5;
+  if (fs.runnerUp >= fs.coverage * 0.8) confidence *= 0.7;
   confidence = Math.round(confidence * 100) / 100;
   if (confidence < SNAP_CONFIDENCE) return keep('The line close by on the target sheet is unlike the source', confidence);
-  const move: Vec = [u[0] * along + n[0] * across, u[1] * along + n[1] * across];
+  const mx = ux * along + nx * across;
+  const my = uy * along + ny * across;
   return {
-    p0: [line.p0[0] + move[0], line.p0[1] + move[1]],
-    p1: [line.p1[0] + move[0], line.p1[1] + move[1]],
+    p0: [line.p0[0] + mx, line.p0[1] + my],
+    p1: [line.p1[0] + mx, line.p1[1] + my],
     shift: [along, across],
     confidence,
     snapped: true,

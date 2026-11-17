@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { pairInOrder, type SheetPair } from '@nb/stitch';
+import { leftoverTargets, pairInOrder, type SheetPair } from '@nb/stitch';
+import type { StoredManualStitch } from '@nb/markup';
 import { parsePageRange } from '../documents/printPdf';
-import type { SheetResult } from '../documents/bulkStitch';
+import { replacementSummary, sameSize, stitchSourceSheets, unpartneredLines, type SheetResult } from '../documents/bulkStitch';
 
 export interface StitchTargetDoc {
   id: string;
@@ -9,14 +10,22 @@ export interface StitchTargetDoc {
   pageCount: number;
   readOnly: boolean;
   label: (pageIndex: number) => string;
+  /** The page's size in points, rotation applied. */
+  size: (pageIndex: number) => { width: number; height: number };
+  /** The document's hand-placed stitching now. */
+  stitch: () => StoredManualStitch;
+}
+
+export interface ApplyOptions {
+  /** Target sheets to copy onto without snapping, with the reason. */
+  copyOnly: Map<number, string>;
+  onProgress: (done: number, total: number) => void;
 }
 
 interface Props {
   /** Open documents the stitch can be copied into; the first is the one it comes from. */
   documents: StitchTargetDoc[];
-  /** Sheets of the source document with matched match lines (0-based, page order). */
-  sources: number[];
-  onApply: (targetId: string, pairs: SheetPair[], toleranceMm: number) => Promise<SheetResult[]>;
+  onApply: (targetId: string, pairs: SheetPair[], toleranceMm: number, options: ApplyOptions) => Promise<SheetResult[]>;
   /** Opens the Stitched View at a target sheet. */
   onShow: (targetId: string, pageIndex: number) => void;
   onClose: () => void;
@@ -24,6 +33,8 @@ interface Props {
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const range = (from: number, to: number) => (to > from ? `${from}-${to}` : `${from}`);
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const SIZE_NOTE = 'Page size differs from its stitched sheet: copied without snapping';
 
 /**
  * Apply Stitching to Other Sheets: pick another discipline's plan sheets, check how they pair
@@ -31,8 +42,10 @@ const range = (from: number, to: number) => (to > from ? `${from}-${to}` : `${fr
  * the match lines and regions across. Each copied line is then nudged onto the drawn match line
  * found within the tolerance, and the result says which sheets snapped.
  */
-export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onClose }: Props) {
+export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Props) {
   const source = documents[0]!;
+  const sourceStitch = useMemo(() => source.stitch(), [source]);
+  const sources = useMemo(() => stitchSourceSheets(sourceStitch), [sourceStitch]);
   const after = Math.max(...sources) + 2;
   const [targetId, setTargetId] = useState(source.id);
   const target = documents.find((d) => d.id === targetId) ?? source;
@@ -41,17 +54,23 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
   const [text, setText] = useState(() => defaultRange(source));
   const [tolerance, setTolerance] = useState(3);
   const picked = useMemo(() => (text.trim() ? parsePageRange(text, target.pageCount) : []), [text, target.pageCount]);
-  const autoPairs = useMemo(() => pairInOrder(sources, picked ?? [], same ? sources : []), [sources, picked, same]);
+  const exclude = same ? sources : [];
+  const autoPairs = useMemo(() => pairInOrder(sources, picked ?? [], exclude), [sources, picked, same]);
   /** Rows the user changed by hand, by source sheet. */
   const [edits, setEdits] = useState<Map<number, number | null>>(new Map());
   const pairs = autoPairs.map((p): SheetPair => (edits.has(p.source) ? { source: p.source, target: edits.get(p.source)! } : p));
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [results, setResults] = useState<SheetResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const mismatched = (p: SheetPair) => p.target !== null && !sameSize(source.size(p.source), target.size(p.target));
   const choices = Array.from({ length: target.pageCount }, (_, i) => i).filter((i) => !same || !sources.includes(i));
   const used = pairs.map((p) => p.target).filter((t): t is number => t !== null);
   const twice = used.find((t, i) => used.indexOf(t) !== i);
+  const replaced = useMemo(() => replacementSummary(target.stitch(), used), [target, used.join()]);
+  const unpartnered = unpartneredLines(sourceStitch, pairs);
+  const leftover = leftoverTargets(sources, picked ?? [], exclude);
+  const sizeOff = pairs.filter(mismatched).length;
   const problem =
     picked === null
       ? 'Enter target sheets as a page range such as 5-8.'
@@ -77,27 +96,34 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
     setEdits(next);
   };
   const apply = async () => {
-    setBusy(true);
+    setBusy('Applying…');
     setError(null);
     try {
-      setResults(await onApply(target.id, pairs, tolerance));
+      const copyOnly = new Map(pairs.filter(mismatched).map((p) => [p.target!, SIZE_NOTE]));
+      setResults(await onApply(target.id, pairs, tolerance, { copyOnly, onProgress: (d, n) => setBusy(`Applying… ${d} of ${n}`) }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
+  // While applying, the dialog stays open: closing it would hide a change still to come.
+  const close = () => {
+    if (!busy) onClose();
+  };
+  const undoHint = `Edit › Undo in ${target.name} puts it back.`;
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose}>
+    <div className="modal-backdrop" onMouseDown={close}>
       <form
         className="modal page-tools print-dialog apply-stitching"
         role="dialog"
         aria-label="Apply Stitching to Other Sheets"
+        aria-busy={!!busy}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
-          if (e.key === 'Escape') onClose();
+          if (e.key === 'Escape') close();
         }}
         onSubmit={(e) => {
           e.preventDefault();
@@ -108,7 +134,7 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
         {!results ? (
           <>
             <p className="muted">Copies the match lines and regions of the stitched sheets onto another discipline&rsquo;s plans, at the same place on each page, then snaps each line onto the match line drawn close by.</p>
-            <fieldset>
+            <fieldset disabled={!!busy}>
               <legend>Target sheets</legend>
               {documents.length > 1 && (
                 <label className="row">
@@ -132,7 +158,7 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
                 mm on paper (0: copy only)
               </label>
             </fieldset>
-            <fieldset>
+            <fieldset disabled={!!busy}>
               <legend>Pairing</legend>
               <table className="apply-stitching-pairs" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
@@ -155,6 +181,12 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
                             </option>
                           ))}
                         </select>
+                        {mismatched(p) && (
+                          <span className="print-error" title={SIZE_NOTE}>
+                            {' '}
+                            ⚠ Different page size: copy only
+                          </span>
+                        )}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button type="button" className="btn small" title="Swap with the row above" disabled={i === 0} onClick={() => swap(i, i - 1)}>
@@ -169,12 +201,25 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
                 </tbody>
               </table>
             </fieldset>
-            <p className="muted">Stitching already on the target sheets is replaced. Edit › Undo puts it back.</p>
+            <ul className="apply-stitching-notes muted">
+              {replaced.sheets > 0 && (
+                <li className="print-error">
+                  Replaces {plural(replaced.lines, 'match line')}
+                  {replaced.regions ? ` and ${plural(replaced.regions, 'region')}` : ''} on {plural(replaced.sheets, 'sheet')} of {target.name}
+                  {replaced.broken ? `; ${plural(replaced.broken, 'line')} on other sheets lose${replaced.broken === 1 ? 's' : ''} its match` : ''}.
+                </li>
+              )}
+              {unpartnered > 0 && <li className="print-error">{plural(unpartnered, 'copied line')} will have no partner: the sheet it joins is skipped.</li>}
+              {leftover > 0 && <li>{plural(leftover, 'target sheet')} beyond the stitched sheets {leftover === 1 ? 'is' : 'are'} left out.</li>}
+              {sizeOff > 0 && <li>{plural(sizeOff, 'pair')} with different page sizes {sizeOff === 1 ? 'is' : 'are'} copied without snapping.</li>}
+              <li>{undoHint}</li>
+            </ul>
           </>
         ) : (
           <>
             <p>
-              Copied onto {results.length} sheet{results.length === 1 ? '' : 's'}; {results.filter((r) => r.snapped === r.lines).length} snapped to their drawn match lines.
+              Copied onto {plural(results.length, 'sheet')} of {target.name}; {results.filter((r) => r.snapped === r.lines).length} snapped to their drawn match lines.
+              {results.some((r) => r.unpartnered) && ` ${plural(results.reduce((s, r) => s + r.unpartnered, 0), 'line')} have no partner (their sheet was skipped).`}
             </p>
             <table className="apply-stitching-results" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -193,6 +238,7 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
                     <td>
                       {r.snapped} of {r.lines}
                       {r.problem && <span className="print-error"> ⚠ {r.problem}: kept where copied</span>}
+                      {r.unpartnered > 0 && <span className="print-error"> ⚠ {plural(r.unpartnered, 'line')} without a partner</span>}
                     </td>
                     <td>{pct(r.confidence)}</td>
                     <td>{r.movedMm.toFixed(1)} mm</td>
@@ -205,6 +251,7 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
                 ))}
               </tbody>
             </table>
+            <p className="muted">{undoHint}</p>
           </>
         )}
         {(error ?? (!results && problem)) && <p className="print-error">{error ?? problem}</p>}
@@ -212,11 +259,11 @@ export function ApplyStitchingDialog({ documents, sources, onApply, onShow, onCl
           <span className="spacer" />
           {!results ? (
             <>
-              <button type="button" className="btn" onClick={onClose}>
+              <button type="button" className="btn" onClick={close} disabled={!!busy}>
                 Cancel
               </button>
-              <button type="submit" className="btn primary" disabled={!!problem || busy} autoFocus>
-                {busy ? 'Applying…' : 'Apply'}
+              <button type="submit" className="btn primary" disabled={!!problem || !!busy} autoFocus>
+                {busy ?? 'Apply'}
               </button>
             </>
           ) : (

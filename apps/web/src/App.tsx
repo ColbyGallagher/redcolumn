@@ -10331,11 +10331,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           )}
           {applyStitch && activeOpen && (
             <ApplyStitchingDialog
-              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i) }))}
-              sources={stitchSourceSheets(activeOpen.store.manualStitch())}
-              onApply={(targetId, pairs, tol) => {
+              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              onApply={(targetId, pairs, tol, options) => {
                 const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
-                return applyStitching(activeOpen, target, pairs, tol);
+                return applyStitching(activeOpen, target, pairs, tol, options);
               }}
               onShow={(targetId, page) => {
                 setApplyStitch(false);

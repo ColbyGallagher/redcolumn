@@ -40,6 +40,8 @@ test.describe('apply stitching to other sheets', () => {
     // The sheets after the stitched ones are picked and paired in order.
     await expect(dialog.getByLabel('Target pages')).toHaveValue('3-4');
     await expect(dialog.getByRole('combobox', { name: /^Target for/ })).toHaveCount(2);
+    // Nothing to replace on the drainage sheets; Undo is in this document.
+    await expect(dialog.locator('.apply-stitching-notes')).toHaveText('Edit › Undo in road-disciplines.pdf puts it back.');
     await dialog.getByRole('button', { name: 'Apply' }).click();
     await expect(dialog.locator('.apply-stitching-results tbody tr')).toHaveCount(2, { timeout: 60_000 });
     await expect(dialog).toContainText('2 snapped to their drawn match lines');
