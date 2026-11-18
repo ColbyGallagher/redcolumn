@@ -348,6 +348,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'window.pages': 'todo',
   'window.panels': 'todo',
   'window.properties': 'todo',
+  'window.resetLayout': { spec: 'layout-persist' },
   'window.ribbon': { spec: 'ribbon' },
   'window.ribbonTabs': { spec: 'ribbon' },
   'window.rightPanel': 'todo',

@@ -83,6 +83,8 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
@@ -1041,7 +1043,9 @@ export function App() {
   const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
   const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
-  const [leftWidth, setLeftWidth] = useState(440);
+  // Panel widths and the Markups list's state, kept between launches (see workspace/layoutState.ts).
+  const [savedLayout] = useState(loadLayout);
+  const [leftWidth, setLeftWidth] = useState(() => savedLayout?.leftWidth ?? DEFAULT_LAYOUT.leftWidth);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
@@ -1053,7 +1057,7 @@ export function App() {
       /* storage off limits: the layout lasts for this session */
     }
   }, [leftTab, leftOpen, rightTab, rightOpen]);
-  const [rightWidth, setRightWidth] = useState(360);
+  const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
@@ -1135,14 +1139,25 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
-  const [dockHeight, setDockHeight] = useState(180);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && (savedLayout?.showBottom ?? true));
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() => savedLayout?.bottomTab ?? 'markups');
+  const [dockHeight, setDockHeight] = useState(() => savedLayout?.dockHeight ?? DEFAULT_LAYOUT.dockHeight);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
-  const [dockOpen, setDockOpen] = useState(true);
-  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  const [dockOpen, setDockOpen] = useState(() => savedLayout?.dockOpen ?? true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
+  // where the strip is how it was left.
+  const lastShowBottom = useRef(showBottom);
+  // The list was left off at launch by the window width or a profile, not by the user: what they chose
+  // last time stays saved until they show or hide it themselves.
+  const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
+  const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
+  const restoringBottom = useRef(false);
   useEffect(() => {
-    if (showBottom) setDockOpen(true);
+    // Not when it came back by itself (wider window, undocked profile): the strip stays a strip.
+    if (showBottom && !lastShowBottom.current && !restoringBottom.current) setDockOpen(true);
+    restoringBottom.current = false;
+    if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
+    lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
@@ -1162,6 +1177,68 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // Back from a phone-width window, or off a profile that docks the list, it returns as it was left.
+  useEffect(() => {
+    if (!narrow && !ws.markupsDocked && showBottomForced.current) {
+      showBottomForced.current = false;
+      restoringBottom.current = layoutRef.current.showBottom !== showBottom;
+      setShowBottom(layoutRef.current.showBottom);
+    }
+  }, [narrow, ws.markupsDocked]);
+  // The layout is saved a moment after it changes, so dragging a divider writes once. Nothing is written
+  // on a phone (the panels are drawers), when nothing differs from what is saved, or for the list's
+  // visibility while something other than the user is deciding it.
+  useEffect(() => {
+    if (narrow) return;
+    const forced = showBottomForced.current || ws.markupsDocked;
+    const next = { leftWidth, rightWidth, showBottom: forced ? layoutRef.current.showBottom : showBottom, dockOpen, bottomTab, dockHeight };
+    if (serializeLayout(next) === serializeLayout(layoutRef.current)) return;
+    const t = window.setTimeout(() => {
+      layoutRef.current = next;
+      saveLayout(next);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  /** The side panels as drawn: the saved widths, shrunk when both are open in a window too small for them. */
+  const shownWidths = (() => {
+    const [left, right] = leftOpen && rightOpen ? fitWidths(leftWidth, rightWidth, window.innerWidth) : [leftWidth, rightWidth];
+    return { left, right };
+  })();
+  /**
+   * Window > Reset Layout: side panel tabs, widths and rail labels, panel order and hidden panels, the
+   * Markups list (shown, size, tab), ribbon and toolbar visibility, split view, and the remembered
+   * Recents and Measurements sections. Documents, profiles and tools are untouched.
+   */
+  const resetLayout = () => {
+    clearLayout();
+    layoutRef.current = DEFAULT_LAYOUT;
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    window.dispatchEvent(new Event(LAYOUT_RESET_EVENT));
+    updateWorkspace((w) => ({ ...w, hiddenPanels: [], panelOrder: [], showToolbar: true, ribbonCollapsed: false }));
+    const docked = profiles.active().state.markupsDocked;
+    showBottomForced.current = narrow || docked;
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!narrow && !docked);
+    setDockOpen(true);
+    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
+    setRightTab(firstPanelOn('right') ?? 'properties');
+    // On a phone the panels are drawers over the drawing, so they stay shut.
+    setLeftOpen(!narrow);
+    setRightOpen(!narrow && !!firstPanelOn('right'));
+    setRailLabels({ left: true, right: true });
+    setSplitRatio(0.5);
+    setSplitHorizontal(false);
+    if (split) unsplit();
+  };
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -6786,7 +6863,7 @@ export function App() {
   const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = side === 'left' ? leftWidth : rightWidth;
+    const startW = side === 'left' ? shownWidths.left : shownWidths.right;
     const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
     // The right panel's inner edge is its left one: dragging it left widens the panel.
     const dir = side === 'left' ? 1 : -1;
@@ -8772,6 +8849,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
+    resetLayout,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,
@@ -9279,7 +9357,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    const width = side === 'left' ? leftWidth : rightWidth;
+    const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
       <aside

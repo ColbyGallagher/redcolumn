@@ -628,6 +628,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="window.rightPanel" />
             <Cmd id="window.bottomPanel" />
             <Cmd id="window.panels" />
+            <Cmd id="window.resetLayout" />
             <Sep />
             <Submenu label="Panels">
               <Cmd id="window.files" />
