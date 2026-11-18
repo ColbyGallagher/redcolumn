@@ -24,10 +24,10 @@ const box = (m: Raw) => {
 };
 
 async function typeAndCommit(app: App, text: string) {
-  await expect(app.page.locator('textarea.text-editor')).toBeVisible();
+  await expect(app.page.locator('div.text-editor')).toBeVisible();
   await app.page.keyboard.type(text);
   await app.page.keyboard.press('Control+Enter');
-  await expect(app.page.locator('textarea.text-editor')).toHaveCount(0);
+  await expect(app.page.locator('div.text-editor')).toHaveCount(0);
   // The new shape is selected, which switches the ribbon to Markup Format.
   await app.page.locator('.ribbon').getByRole('tab', { name: 'Diagram' }).click();
 }
