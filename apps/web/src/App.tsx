@@ -12,12 +12,15 @@ import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
+import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
+import { ApplyStitchingDialog } from './components/ApplyStitchingDialog';
+import { applyStitching, stitchSourceSheets } from './documents/bulkStitch';
 import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
-import { cacheFile, contentHash, holdContents, keepRevision, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
+import { cacheFile, contentHash, holdContents, keepRevision, keepRevisionOf, listFiles, readFile, releaseContents, removeFile, removeRevision, renameFile, replaceFileContent, saveFile, touchFile, type FileRevision, type StoredFile } from './storage/fileStore';
 import { DriveSession } from './studio/drive/DriveSession';
 import { studioFileId, studioDocOf } from './studio/documentId';
 import { saveConfirmedArchiveFile } from './studio/archive';
@@ -32,8 +35,22 @@ import { SheetSyncDialog } from './components/SheetSyncDialog';
 import { ReportsDialog, type ReportRequest } from './components/ReportsDialog';
 import { ManualQuantityDialog, type ManualRequest } from './components/ManualQuantityDialog';
 import { toTable } from './sheetsync/table';
+import { exportListWorkbook, planImport } from './sheetsync/importExcel';
+import { isOpenChange, patchesFor } from './sheetsync/apply';
+import type { CellChange } from './sheetsync/merge';
+import { READ_LIMITS, readWorkbook, type ReadWorkbook } from './sheetsync/xlsxRead';
+import { ImportExcelDialog } from './components/ImportExcelDialog';
+import { ExportRegisterDialog, RegisterTemplatesDialog, type RegisterScope } from './components/RegisterDialogs';
+import { checkClientFile, planFill } from './sheetsync/clientFile';
+import { checkMarkupLink, linkedFile, markupLinkUrl, parseMarkupQuery, stripMarkupQuery, type LinkBase, type MarkupLink } from './sheetsync/links';
+import { closeOut, closedComments, closedStatuses, isComment, raisedRevisions } from './sheetsync/closeOut';
+import { CloseOutDialog } from './components/CloseOutDialog';
+import { THUMB_PX, type RegisterThumb } from './sheetsync/register';
+import { exportRegisterWorkbook, exportTemplate, parseTemplateFile, starterTemplate, templateFileName, templateFor, wording, type RegisterTemplate, type RegisterValue } from './sheetsync/register';
 import type { SheetSpec } from './sheetsync/xlsx';
-import { useSheetSync } from './sheetsync/useSheetSync';
+import { isTwoWay, useSheetSync, type TwoWay } from './sheetsync/useSheetSync';
+import { NEW_REPLY, replyColumn, toSyncTable } from './sheetsync/keyed';
+import { NEW_REPLY_LABEL } from './sheetsync/importExcel';
 import { localExcel } from './sheetsync/targets';
 import { askText, AskTextHost } from './components/AskText';
 import { parseSecret } from './studio/crypto/keys';
@@ -68,12 +85,14 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
-import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
+import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -139,8 +158,11 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './compo
 import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
+import { anyLinked, PortalDialogHost, usePortalGuides, type PortalDialogState } from './takeoff/portalsUi';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
+import { AdjustImageDialog } from './components/AdjustImageDialog';
+import { bakePicture } from './markup/pictureBake';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -406,6 +428,9 @@ async function pickTemplate(templates: readonly StoredFile[]): Promise<StoredFil
   const id = await askText('New PDF from Template', templates[0]!.id, { label: 'Start from which template?', confirm: 'Next', choices: templates.map((t) => ({ value: t.id, label: t.name })) });
   return templates.find((t) => t.id === id) ?? null;
 }
+
+/** One empty list, so a profile without templates gives the same value every render. */
+const NO_REGISTER_TEMPLATES: RegisterTemplate[] = [];
 
 /** Asks the user for one file of the given types; null if they cancel. */
 function pickFile(accept: string): Promise<File | null> {
@@ -808,6 +833,7 @@ async function annotatedBytes(
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
+    portals: cur.store.portals(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -877,7 +903,7 @@ function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
 }
 
 function isTyping(target: EventTarget | null) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.getAttribute('role') === 'combobox');
 }
 
 /** Opens the editor on the selected table cell at once, so keys typed right after the first reach it. */
@@ -1021,7 +1047,9 @@ export function App() {
   const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
   const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
-  const [leftWidth, setLeftWidth] = useState(440);
+  // Panel widths and the Markups list's state, kept between launches (see workspace/layoutState.ts).
+  const [savedLayout] = useState(loadLayout);
+  const [leftWidth, setLeftWidth] = useState(() => savedLayout?.leftWidth ?? DEFAULT_LAYOUT.leftWidth);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
@@ -1033,7 +1061,7 @@ export function App() {
       /* storage off limits: the layout lasts for this session */
     }
   }, [leftTab, leftOpen, rightTab, rightOpen]);
-  const [rightWidth, setRightWidth] = useState(360);
+  const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
@@ -1094,6 +1122,17 @@ export function App() {
   const [scaleReadings, setScaleReadings] = useState<{ file: string; pages: Record<number, PageScan>; done: boolean } | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
+  /** Import from Excel: the workbook being previewed, for which document, and the words mapped to choices so far. */
+  const registerTemplates = ws.registerTemplates ?? NO_REGISTER_TEMPLATES;
+  /** A link to a comment being followed: its document is opening, and the comment is gone to once its markups are there. */
+  const [pendingLink, setPendingLink] = useState<{ fileId: string; markupId: string; since: number } | null>(null);
+  /** Document › Close-out, and the register template whose closed statuses it counts by ('' is the usual ones; null follows the document's client). */
+  const [closeOutOpen, setCloseOutOpen] = useState(false);
+  const [closeOutTemplate, setCloseOutTemplate] = useState<string | null>(null);
+  /** Export Comment Register, and the template editor (on one template, or the list). */
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [registerTemplatesOpen, setRegisterTemplatesOpen] = useState<{ id?: string } | null>(null);
+  const [importExcel, setImportExcel] = useState<{ fileId: string; fileName: string; book: ReadWorkbook; aliases: Record<string, Record<string, string>> } | null>(null);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [reportsBusy, setReportsBusy] = useState(false);
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -1104,14 +1143,25 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
-  const [dockHeight, setDockHeight] = useState(180);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && (savedLayout?.showBottom ?? true));
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() => savedLayout?.bottomTab ?? 'markups');
+  const [dockHeight, setDockHeight] = useState(() => savedLayout?.dockHeight ?? DEFAULT_LAYOUT.dockHeight);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
-  const [dockOpen, setDockOpen] = useState(true);
-  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  const [dockOpen, setDockOpen] = useState(() => savedLayout?.dockOpen ?? true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
+  // where the strip is how it was left.
+  const lastShowBottom = useRef(showBottom);
+  // The list was left off at launch by the window width or a profile, not by the user: what they chose
+  // last time stays saved until they show or hide it themselves.
+  const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
+  const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
+  const restoringBottom = useRef(false);
   useEffect(() => {
-    if (showBottom) setDockOpen(true);
+    // Not when it came back by itself (wider window, undocked profile): the strip stays a strip.
+    if (showBottom && !lastShowBottom.current && !restoringBottom.current) setDockOpen(true);
+    restoringBottom.current = false;
+    if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
+    lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
@@ -1131,6 +1181,68 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // Back from a phone-width window, or off a profile that docks the list, it returns as it was left.
+  useEffect(() => {
+    if (!narrow && !ws.markupsDocked && showBottomForced.current) {
+      showBottomForced.current = false;
+      restoringBottom.current = layoutRef.current.showBottom !== showBottom;
+      setShowBottom(layoutRef.current.showBottom);
+    }
+  }, [narrow, ws.markupsDocked]);
+  // The layout is saved a moment after it changes, so dragging a divider writes once. Nothing is written
+  // on a phone (the panels are drawers), when nothing differs from what is saved, or for the list's
+  // visibility while something other than the user is deciding it.
+  useEffect(() => {
+    if (narrow) return;
+    const forced = showBottomForced.current || ws.markupsDocked;
+    const next = { leftWidth, rightWidth, showBottom: forced ? layoutRef.current.showBottom : showBottom, dockOpen, bottomTab, dockHeight };
+    if (serializeLayout(next) === serializeLayout(layoutRef.current)) return;
+    const t = window.setTimeout(() => {
+      layoutRef.current = next;
+      saveLayout(next);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  /** The side panels as drawn: the saved widths, shrunk when both are open in a window too small for them. */
+  const shownWidths = (() => {
+    const [left, right] = leftOpen && rightOpen ? fitWidths(leftWidth, rightWidth, window.innerWidth) : [leftWidth, rightWidth];
+    return { left, right };
+  })();
+  /**
+   * Window > Reset Layout: side panel tabs, widths and rail labels, panel order and hidden panels, the
+   * Markups list (shown, size, tab), ribbon and toolbar visibility, split view, and the remembered
+   * Recents and Measurements sections. Documents, profiles and tools are untouched.
+   */
+  const resetLayout = () => {
+    clearLayout();
+    layoutRef.current = DEFAULT_LAYOUT;
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    window.dispatchEvent(new Event(LAYOUT_RESET_EVENT));
+    updateWorkspace((w) => ({ ...w, hiddenPanels: [], panelOrder: [], showToolbar: true, ribbonCollapsed: false }));
+    const docked = profiles.active().state.markupsDocked;
+    showBottomForced.current = narrow || docked;
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!narrow && !docked);
+    setDockOpen(true);
+    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
+    setRightTab(firstPanelOn('right') ?? 'properties');
+    // On a phone the panels are drawers over the drawing, so they stay shut.
+    setLeftOpen(!narrow);
+    setRightOpen(!narrow && !!firstPanelOn('right'));
+    setRailLabels({ left: true, right: true });
+    setSplitRatio(0.5);
+    setSplitHorizontal(false);
+    if (split) unsplit();
+  };
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -1231,6 +1343,8 @@ export function App() {
    * pop-ups are blocked. `step` is where it opens; `n` changes when a command asks for a step.
    */
   const [setup, setSetup] = useState<{ pane: Pane; inline: boolean; step?: WizardStepId; n: number } | null>(null);
+  /** Apply Stitching to Other Sheets is open (from the active document). */
+  const [applyStitch, setApplyStitch] = useState(false);
   const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
@@ -1343,6 +1457,7 @@ export function App() {
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
+  const [adjustImageFor, setAdjustImageFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -1359,6 +1474,8 @@ export function App() {
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const portalDrawnRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const [portalDialog, setPortalDialog] = useState<PortalDialogState | null>(null);
   const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
   /** The Geospatial panel's handlers for drags and picks on the page (null while it is closed). */
@@ -1512,6 +1629,7 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onMatchLine: (pageIndex, p0, p1) => matchLineRef.current(pane, pageIndex, p0, p1),
       onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
+      onPortalDrawn: (pageIndex, points) => portalDrawnRef.current(pane, pageIndex, points),
       onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
       onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
       onGeoMoved: (dx, dy) => geoHandlersRef.current?.moved(dx, dy),
@@ -2170,6 +2288,40 @@ export function App() {
     },
     [openStored, activateTab, refreshLibrary, split, activePane],
   );
+
+  /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
+  const openMarkupLink = useCallback(
+    async (link: MarkupLink) => {
+      const file = linkedFile(await listFiles(), link);
+      if (!file) {
+        setNotice(`The document this link is for${link.name ? ` (${link.name})` : ''} is not in the library on this device.`);
+        return;
+      }
+      setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
+      await openFromLibrary(file);
+    },
+    [openFromLibrary],
+  );
+  const openMarkupLinkRef = useRef(openMarkupLink);
+  openMarkupLinkRef.current = openMarkupLink;
+  useEffect(() => {
+    if (!ctl || !libraryReady) return;
+    const follow = (links: readonly unknown[]) => {
+      // One at a time: the last link clicked is the one that shows.
+      const link = checkMarkupLink(links[links.length - 1] as MarkupLink | undefined);
+      if (link) void openMarkupLinkRef.current(link);
+    };
+    // The web app is opened at a link's address; the desktop app is handed the link.
+    const inAddress = parseMarkupQuery(window.location.search);
+    if (inAddress) {
+      stripMarkupQuery();
+      follow([inAddress]);
+    }
+    const host = desktop();
+    void host?.takeMarkupLinks?.().then(follow, () => undefined);
+    return host?.onMarkupLinks?.(follow);
+    // Once, when the viewer and the library are ready.
+  }, [ctl, libraryReady]);
 
   useEffect(() => {
     if (restoredTabs.current || !ctl || !libraryReady) return;
@@ -3087,7 +3239,13 @@ export function App() {
             const targetLabels = cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number ?? null);
             const plan = planSlipSheet(targetLabels, incoming, spec.mode, spec.addUnmatched);
             const labelOf = (p: IncomingPage) => p.label ?? `${opened[p.source]!.name} p${p.page + 1}`;
-            if (!plan.replace.length && !plan.add.length) return { plan, labelOf };
+            if (!plan.replace.length && !plan.add.length) return { plan, labelOf, left: 0 };
+            // Comments on the sheets being replaced: the revision they were raised on is the one going out,
+            // and the closed ones stay with it when asked.
+            const replaced = new Set(plan.replace.map((r) => r.target));
+            const before = cur.store.all();
+            const raised = raisedRevisions(before, cur.store.allSheets(), replaced);
+            const behind = spec.leaveClosed ? closedComments(before, replaced, closedStatuses(closeOutTemplateOf(cur.store))) : [];
 
             const moves = new Map<number, { scale: number; dx: number; dy: number }>();
             if (spec.alignMarkups)
@@ -3114,24 +3272,35 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            await keepRevision(cur.file.id, `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`);
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
+            // The revision kept is the stored file, which has no markups in it. Comments left behind are
+            // written into the copy that is kept, so they can still be read there.
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, `${note} (with its markups: ${behind.length} closed comment${behind.length === 1 ? '' : 's'} left behind)`);
+            else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
               cur.store.forgetImported(plan.replace.map((r) => r.target));
+              cur.store.batch(() => {
+                for (const [id, raisedRev] of raised) cur.store.update(id, { raisedRev });
+                cur.store.remove(behind.map((m) => m.id));
+              });
               cur.store.transformPages(moves);
+              // The replaced sheets are the new revision now.
+              cur.store.setDetectedSheets(plan.replace.flatMap((r) => (opened[r.incoming.source]!.sheets[r.incoming.page] ? [[r.target, opened[r.incoming.source]!.sheets[r.incoming.page]!] as [number, SheetInfo]] : [])));
               cur.store.setDetectedSheets(plan.add.flatMap((p, k) => (opened[p.source]!.sheets[p.page] ? [[first + k, opened[p.source]!.sheets[p.page]!] as [number, SheetInfo]] : [])));
             }, undefined, 'Slip Sheet');
-            return { plan, labelOf };
+            return { plan, labelOf, left: behind.filter((m) => !cur.store.get(m.id)).length };
           } finally {
             for (const o of opened) void o.doc.close();
           }
         });
-        const { plan, labelOf } = report;
+        const { plan, labelOf, left } = report;
         const list = (items: IncomingPage[]) => items.slice(0, 8).map(labelOf).join(', ') + (items.length > 8 ? ` and ${items.length - 8} more` : '');
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
           plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
         setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
         void refreshLibrary();
@@ -3142,7 +3311,7 @@ export function App() {
         job.end();
       }
     },
-    [ctl, swapDocument, refreshLibrary],
+    [ctl, swapDocument, refreshLibrary, registerTemplates, closeOutTemplate],
   );
 
   /** Revisions: a kept version made the document's contents again (the current one is kept too). */
@@ -4803,6 +4972,7 @@ export function App() {
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
+                portals: store.portals(),
                 places: store.places(),
               },
             );
@@ -5968,10 +6138,11 @@ export function App() {
       if (!viewer) continue;
       viewer.setPageFilter(prefs.pageFilter);
       viewer.setThinLines(prefs.thinLines);
+      viewer.keepViewBetweenPages = prefs.keepViewBetweenPages;
       const cur = viewer.spread;
       if (cur.columns !== spread.columns || cur.cover !== spread.cover) viewer.setSpread(spread.columns, spread.cover);
     }
-  }, [prefs.pageFilter, prefs.thinLines, spread, ctl, ctlB]);
+  }, [prefs.pageFilter, prefs.thinLines, prefs.keepViewBetweenPages, spread, ctl, ctlB]);
 
   // Read each open document's PDF layers once; layers the file starts with off count as hidden.
   useEffect(() => {
@@ -6373,6 +6544,141 @@ export function App() {
     // The context and layout are rebuilt every render; these are what they depend on.
     [sheetSync.link, syncOpen, markups, scaleOf, sheets, columnSet, ws.list],
   );
+  // Import from Excel: what the workbook would change, against every markup and column (not only those the list shows).
+  const importPlan = useMemo(
+    () =>
+      importExcel && activeOpen?.file.id === importExcel.fileId
+        ? planImport(importExcel.book, { rows: withThreads(buildRows(markups, cellContext, {}, null), cellContext), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, templates: registerTemplates }, { docId: importExcel.fileId, aliases: importExcel.aliases })
+        : null,
+    // The context is rebuilt every render; these are what it depends on.
+    [importExcel, activeOpen?.file.id, markups, scaleOf, sheets, columnSet, registerTemplates],
+  );
+  const saveRegisterTemplate = (t: RegisterTemplate) => updateWorkspace((w) => ({ ...w, registerTemplates: [...(w.registerTemplates ?? []).filter((x) => x.id !== t.id), t] }));
+  /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
+  const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
+  /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
+  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
+  // A followed link: once its document is in front and has its markups, go to the comment.
+  useEffect(() => {
+    if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
+    const m = markups.find((x) => x.id === pendingLink.markupId);
+    if (m) {
+      setPendingLink(null);
+      const b = shapeBounds(m);
+      const pad = Math.max(48, Math.max(b.w, b.h));
+      navigate(m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 });
+      (paneB ? ctlB : ctl)?.tools.select([m.id]);
+      return;
+    }
+    // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
+    const wait = setTimeout(() => {
+      setPendingLink(null);
+      setNotice('The comment this link is for is no longer in the document.');
+    }, Math.max(0, pendingLink.since + 8000 - Date.now()));
+    return () => clearTimeout(wait);
+    // The markups are what is waited for.
+  }, [pendingLink, activeOpen?.file.id, markups]);
+
+  /** A picture of each markup with the drawing around it, for a register's thumbnail column. Small JPEGs: they travel by email. */
+  const registerThumbs = async (o: OpenFile, list: readonly Markup[]) => {
+    const out = new Map<string, RegisterThumb>();
+    for (const m of list) {
+      const b = shapeBounds(m);
+      const pad = Math.max(24, Math.max(b.w, b.h) * 0.25);
+      const region = await renderRegion(o, m.pageIndex, { x: b.x - pad, y: b.y - pad, w: b.w + pad * 2, h: b.h + pad * 2 }, (w, h) => Math.min(3, THUMB_PX / Math.max(w, h)));
+      if (!region) continue;
+      // JPEG has no transparency: paper white behind the drawing.
+      const flat = document.createElement('canvas');
+      flat.width = region.canvas.width;
+      flat.height = region.canvas.height;
+      const g = flat.getContext('2d')!;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, flat.width, flat.height);
+      g.drawImage(region.canvas, 0, 0);
+      const blob = await new Promise<Blob | null>((done) => flat.toBlob(done, 'image/jpeg', 0.7));
+      if (blob) out.set(m.id, { data: new Uint8Array(await blob.arrayBuffer()), type: 'jpeg', width: flat.width, height: flat.height });
+    }
+    return out;
+  };
+
+  const exportRegister = async (template: RegisterTemplate, scope: RegisterScope, values: Partial<Record<RegisterValue, string>>, options: { fill: boolean; thumbnails: boolean }) => {
+    if (!activeOpen) return;
+    const { fill } = options;
+    // A comment's first export records the revision of its sheet: what it was raised on.
+    const listed = registerMarkups(scope);
+    const raised = raisedRevisions(listed, sheets);
+    if (raised.size) {
+      const store = activeOpen.store;
+      store.checkpoint();
+      store.batch(() => {
+        for (const [id, raisedRev] of raised) store.update(id, { raisedRev });
+      });
+      store.checkpoint();
+    }
+    // Links open the comment in the app they were made in: the desktop app's own scheme, or this web address.
+    const linkBase: LinkBase = desktop() ? { kind: 'desktop' } : { kind: 'web', href: window.location.href };
+    const linkFile = activeOpen.file;
+    const linkOf = (markupId: string) => markupLinkUrl(linkBase, { doc: linkFile.id, markup: markupId, name: linkFile.name });
+    const register = { rows: buildRows(listed.map((m) => (raised.has(m.id) ? { ...m, raisedRev: raised.get(m.id)! } : m)), cellContext, {}, null), columns: listColumns(columnSet.columns), statuses: columnSet.statuses, template, docId: activeOpen.file.id, exportedAt: new Date().toISOString(), values, linkOf };
+    const name = `${activeOpen.file.name.replace(/\.pdf$/i, '')} ${template.name}`;
+    const excel = localExcel();
+    if (fill && template.clientFile && excel?.readSource && excel.fill) {
+      // The client's own file: read it to place the rows, then Excel fills a copy in.
+      try {
+        const plan = planFill(await readWorkbook(await excel.readSource(template.clientFile.id)), register);
+        if (!plan.ok) {
+          setError(plan.problem);
+          return;
+        }
+        const saved = await excel.fill(template.clientFile.id, name, plan.fill);
+        if (!saved) return;
+        setNotice(`${saved.name} saved: the register in a copy of ${template.clientFile.name}.`);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The client’s file could not be filled in.');
+        return;
+      }
+    } else {
+      let thumbnails: Map<string, RegisterThumb> | undefined;
+      try {
+        if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
+      } catch (err) {
+        setError(`The thumbnails could not be made: ${err instanceof Error ? err.message : String(err)}`);
+        return;
+      }
+      download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    }
+    setRegisterOpen(false);
+  };
+  const exportMarkupsXlsx = () => {
+    if (!activeOpen) return;
+    // Preferences › Markups List › Exclude Filtered Markups on Export, as for the CSV.
+    const only = prefs.excludeFilteredOnExport;
+    const rows = withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext);
+    const bytes = exportListWorkbook({ rows, columns: visibleListColumns, statuses: columnSet.statuses, docId: activeOpen.file.id, exportedAt: new Date().toISOString() });
+    download(activeOpen.file.name.replace(/\.pdf$/i, '') + ' markups.xlsx', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  };
+  const importMarkupsXlsx = async () => {
+    const cur = activeOpen;
+    if (!cur) return;
+    const file = await pickFile('.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    if (!file) return;
+    try {
+      if (file.size > READ_LIMITS.maxBytes) throw new Error('That workbook is too large to import.');
+      const book = await readWorkbook(new Uint8Array(await file.arrayBuffer()));
+      setImportExcel({ fileId: cur.file.id, fileName: file.name, book, aliases: {} });
+    } catch (err) {
+      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+  // A two-way link has its own columns and every markup: a filter or a hidden column in the list must not look like deleted rows or columns.
+  const syncColumns = sheetSync.link?.columns;
+  const syncKeyed = useMemo(() => {
+    if (!syncColumns || !isTwoWay(sheetSync.link)) return null;
+    const all = new Map(listColumns(columnSet.columns).map((c) => [c.key, c]));
+    const columns = syncColumns.flatMap((k) => all.get(k) ?? []);
+    return toSyncTable(withThreads(buildRows(markups.filter((m) => m.type !== 'space'), cellContext, {}, null), cellContext), columns, { statuses: columnSet.statuses, replyColumns: [replyColumn(NEW_REPLY, NEW_REPLY_LABEL)] });
+    // The context is rebuilt every render; these are what it depends on.
+  }, [sheetSync.link, syncColumns, markups, scaleOf, sheets, columnSet]);
   /** The Quantities sheet: the Quantity Summary by Item over every measurement, as a second sheet of the synced workbook. */
   const quantitiesSheet = async () => {
     const { buildReport, reportPageLabel } = await import('./takeoff/reports');
@@ -6395,10 +6701,24 @@ export function App() {
     // The context is rebuilt every render; these are what the quantities depend on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantQuantities, markups, takeoffAssemblies, estimating, scaleOf, sheets, columnSet]);
+  // Edits typed in Excel, applied to the document as one undo step. Replies are from the person at this computer: it is their workbook.
+  const syncApplyRef = useRef<(changes: CellChange[]) => void>(() => undefined);
+  syncApplyRef.current = (changes) => {
+    const store = activeOpen?.store;
+    if (!store) return;
+    const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor: authorRef.current, now: Date.now(), newId: () => crypto.randomUUID() });
+    store.checkpoint();
+    store.batch(() => {
+      for (const [id, patch] of patches) store.update(id, patch);
+    });
+    store.checkpoint();
+  };
+  const syncDocId = activeOpen?.file.id;
+  const syncTwoWay = useMemo<TwoWay | null>(() => (syncKeyed && syncDocId ? { table: syncKeyed, docId: syncDocId, apply: (changes) => syncApplyRef.current(changes) } : null), [syncKeyed, syncDocId]);
   const pushSyncTable = sheetSync.update;
   useEffect(() => {
-    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : []);
-  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities]);
+    if (syncTable && sheetSync.link) pushSyncTable(syncTable, wantQuantities ? syncExtras : [], syncTwoWay);
+  }, [syncTable, sheetSync.link, pushSyncTable, syncExtras, wantQuantities, syncTwoWay]);
 
   /** Takeoff › Reports: builds the picked reports for the scope and saves them as one PDF, one workbook or CSV files. */
   const runReports = async (req: ReportRequest) => {
@@ -6554,7 +6874,7 @@ export function App() {
   const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = side === 'left' ? leftWidth : rightWidth;
+    const startW = side === 'left' ? shownWidths.left : shownWidths.right;
     const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
     // The right panel's inner edge is its left one: dragging it left widens the panel.
     const dir = side === 'left' ? 1 : -1;
@@ -6971,6 +7291,9 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      ...(ms.some((m) => m.type === 'image' && m.image)
+        ? [{ label: 'Adjust Image…', disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
+        : []),
       // A picture's own colours are swapped, not the line and fill colours the other markups have.
       { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
@@ -6998,10 +7321,20 @@ export function App() {
                 {
                   label: 'Rotate…',
                   onClick: () =>
-                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
-                      const deg = Number(t);
-                      if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
-                    }),
+                    void (async () => {
+                      const help = 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.';
+                      let initial = String(first.rotation ?? 0);
+                      let note = '';
+                      // Ask again, with the reason, until the input is understood or the dialog is cancelled.
+                      for (;;) {
+                        const t = await askText('Rotate', initial, { label: note ? `${note}\n${help}` : help, confirm: 'Rotate' });
+                        if (t === null) return;
+                        const r = parseRotationInput(t);
+                        if (r.ok && (!r.warning || t === initial)) return turnMarkups(store, ms, r.degrees, true);
+                        initial = t;
+                        note = r.ok ? `${r.warning} Press Rotate again to apply it.` : r.error;
+                      }
+                    })(),
                 },
                 { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
               ],
@@ -8040,6 +8373,8 @@ export function App() {
     if (!pair) return;
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
+  portalDrawnRef.current = (pane, pageIndex, points) => setPortalDialog({ pane, draft: { pageIndex, points } });
+  usePortalGuides([[ctl, open?.store, open?.doc.pages.length], [ctlB, openB?.store, openB?.doc.pages.length]]);
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
     if (!doc || doc.store.readOnly) return;
@@ -8084,11 +8419,11 @@ export function App() {
             onCustom={() => setCustomScalePane(which)}
           />
         }
-        onFirst={() => viewer?.goToPage(0)}
+        onFirst={() => viewer?.changePage(0)}
         onPrev={() => viewer?.prevPage()}
         onNext={() => viewer?.nextPage()}
-        onLast={() => viewer?.goToPage(Math.max(0, count - 1))}
-        onGoTo={(i) => viewer?.goToPage(i)}
+        onLast={() => viewer?.changePage(Math.max(0, count - 1))}
+        onGoTo={(i) => viewer?.changePage(i)}
         onZoomTo={(z) => viewer && viewer.zoomBy(z / viewer.currentZoom)}
         onBack={goBack}
         onForward={goForward}
@@ -8155,6 +8490,10 @@ export function App() {
       const only = prefs.excludeFilteredOnExport;
       downloadCsv(rowsToCsv(withThreads(buildRows(markups, cellContext, only ? listFilters : {}, listSort, only ? ws.list.advanced : null), cellContext), visibleListColumns, true));
     },
+    exportXlsx: exportMarkupsXlsx,
+    exportRegister: () => setRegisterOpen(true),
+    registerTemplates: () => setRegisterTemplatesOpen({}),
+    importXlsx: () => void importMarkupsXlsx(),
     exportSummary: openSummaryExport,
     print: () => setPrintOpen(true),
     preferences: () => {
@@ -8350,6 +8689,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    applyStitching: () => setApplyStitch(true),
     convertDrawingAgain: () => {
       if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
     },
@@ -8370,7 +8710,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!v) return;
       if (which === 'next') v.nextPage();
       else if (which === 'prev') v.prevPage();
-      else v.goToPage(which === 'first' ? 0 : pageCount - 1);
+      else v.changePage(which === 'first' ? 0 : pageCount - 1);
     },
     documentProperties: () => setDocPropsOpen(true),
     rotatePages: (quarterTurns) => {
@@ -8448,6 +8788,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     distribute: (axis) => activeTools?.distributeSelected(axis),
     scaleToLength: () => activeTools?.setTool('scaleLength'),
     resetCrop: () => activeTools?.resetCropSelected(),
+    pictureDialog: (which) => {
+      const ms = selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked);
+      if (!ms.length) return;
+      if (which === 'adjust') setAdjustImageFor({ pane, ids: ms.map((m) => m.id) });
+      else setPictureColoursFor({ pane, id: ms[0]!.id });
+    },
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showPanel('signatures');
@@ -8455,6 +8801,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     },
     digitalIds: () => setIdsOpen(true),
     slipSheet: () => setSlipSheetOpen(true),
+    closeOut: () => setCloseOutOpen(true),
     revisions: () => activeOpen && setRevisionsOf(activeOpen.file.id),
     overlay: () => setCompareOpen('overlay'),
     ocr: () => {
@@ -8499,6 +8846,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    portals: () => setPortalDialog({ pane: paneB ? 'b' : 'a' }),
+    breakPortalLink: () => {
+      activeOpen?.store.breakPortalLinks(selectedMarkups.filter((m) => m.portalLink).map((m) => m.id));
+      setNotice('The selected markups are no longer mirrored: they are ordinary markups on their page now.');
+    },
     takeoffReports: () => {
       setReportsError(null);
       setReportsOpen(true);
@@ -8516,6 +8868,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
+    resetLayout,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,
@@ -8892,12 +9245,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
+    selectionLinked: anyLinked(selectedMarkups),
     selectionJoinable: selectedMarkups.filter(canJoin).length > 1,
     selectionExplodable: selectedMarkups.some(canExplode),
     selectionCloudable: selectedMarkups.some(canCloud),
     selectionReversible: selectedMarkups.some(canReverse),
     selectionAutoSizable: selectedMarkups.some(canAutoSize),
     selectionCroppable: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length === 1,
+    selectionPictures: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length,
     selectionCropped: selectedMarkups.some((m) => m.type === 'image' && !m.locked && !!cropOf(m)),
     selectionFits: (tool) => (tool === 'offset' ? !selectedMarkups.length || selectedMarkups.some(canOffset) : cadToolFits(tool, selectedMarkups)),
     canPaste: clipboardCount > 0,
@@ -8915,6 +9270,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,
     canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
@@ -9022,7 +9378,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    const width = side === 'left' ? leftWidth : rightWidth;
+    const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
       <aside
@@ -9136,7 +9492,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             sheets={sheets}
             scales={scales}
             busy={busyPages || indexing}
-            onGoTo={(i) => v?.goToPage(i, true)}
+            onGoTo={(i) => v?.changePage(i)}
             onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
             onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
             onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
@@ -9621,7 +9977,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       onExport={onExportList}
       onSync={() => setSyncOpen(true)}
       syncing={!!sheetSync.link}
-      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : null}
+      syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : sheetSync.issues.length ? `${sheetSync.issues.length} cell${sheetSync.issues.length === 1 ? ' is' : 's are'} paused: changed here and in Excel. Click to choose.` : null}
       onFiltered={setListKept}
       allHidden={allMarkupsHidden}
       onToggleAllHidden={toggleAllMarkupsHidden}
@@ -9857,6 +10213,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
           takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
+          takeoffAssembly: activeOpen ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
@@ -10088,6 +10445,24 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 setLabelMode(null);
                 void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
+            />
+          )}
+          {applyStitch && activeOpen && (
+            <ApplyStitchingDialog
+              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              onApply={(targetId, pairs, tol, options) => {
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                return applyStitching(activeOpen, target, pairs, tol, options);
+              }}
+              onShow={(targetId, page) => {
+                setApplyStitch(false);
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                if (!target || target.file.id !== activeOpen.file.id) return setNotice(`Switch to ${target?.file.name ?? 'that document'} to see its stitched sheets.`);
+                const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
+                if (group) openStitch(group, page);
+                else setNotice('That sheet is not joined to another: check its match lines in the Stitching panel.');
+              }}
+              onClose={() => setApplyStitch(false)}
             />
           )}
           {setup &&
@@ -10431,6 +10806,41 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             />
           );
         })()}
+      {adjustImageFor &&
+        (() => {
+          const store = paneParts(adjustImageFor.pane).o?.store;
+          const ms = store ? adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m)) : [];
+          if (!store || !ms.length) return null;
+          return (
+            <AdjustImageDialog
+              source={ms[0]!.image!}
+              count={ms.length}
+              onCancel={() => setAdjustImageFor(null)}
+              onChangeColours={ms.length === 1 ? () => {
+                setAdjustImageFor(null);
+                setPictureColoursFor({ pane: adjustImageFor.pane, id: ms[0]!.id });
+              } : undefined}
+              onApply={async (adjust) => {
+                // Bake every picture first, so a failure leaves them all as they were; then one undo step.
+                const baked: { id: string; from: string; image: string }[] = [];
+                // Re-resolved now, not when the dialog opened: a picture may have gone or been locked since.
+                const now = adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m));
+                for (const m of now) baked.push({ id: m.id, from: m.image!, image: await bakePicture(m.image!, (d) => adjustPixels(d, adjust)) });
+                // Pictures deleted, locked or given another image under the dialog meanwhile are skipped, so
+                // a collaborator's change is not overwritten.
+                const live = baked.filter((b) => {
+                  const m = store.get(b.id);
+                  return !!m?.image && !m.locked && store.mayEdit(m) && m.image === b.from;
+                });
+                if (live.length) {
+                  store.checkpoint();
+                  store.batch(() => live.forEach((b) => store.update(b.id, { image: b.image })));
+                }
+                setAdjustImageFor(null);
+              }}
+            />
+          );
+        })()}
       {changeColoursFor &&
         (() => {
           const store = paneParts(changeColoursFor.pane).o?.store;
@@ -10464,19 +10874,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               source={source}
               onCancel={() => setPictureColoursFor(null)}
               onApply={async (mode) => {
-                const img = new Image();
-                img.src = source;
-                await img.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const g = canvas.getContext('2d')!;
-                g.drawImage(img, 0, 0);
-                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
-                recolourPixels(pixels.data, mode);
-                g.putImageData(pixels, 0, 0);
+                const image = await bakePicture(source, (d) => recolourPixels(d, mode));
+                const now = store.get(m.id);
+                if (!now?.image || now.locked || !store.mayEdit(now) || now.image !== source) return setPictureColoursFor(null);
                 store.checkpoint();
-                store.update(m.id, { image: canvas.toDataURL('image/png') });
+                store.batch(() => store.update(m.id, { image }));
                 setPictureColoursFor(null);
               }}
             />
@@ -10739,6 +11141,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <SlipSheetDialog
           targetName={activeOpen.file.name}
           files={library.filter((f) => f.id !== activeOpen.file.id)}
+          closed={(() => {
+            const template = closeOutTemplateOf(activeOpen.store);
+            const ids = closedStatuses(template);
+            const names = columnSet.statuses.filter((s) => ids.has(s.id)).map((s) => s.name);
+            return { count: markups.filter((m) => isComment(m) && ids.has(m.status || 'none')).length, means: names.length ? names.join(', ').replace(/, ([^,]*)$/, ' or $1') : 'closed' };
+          })()}
           onCancel={() => setSlipSheetOpen(false)}
           onRun={(spec) => {
             setSlipSheetOpen(false);
@@ -11456,15 +11864,151 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           }}
         />
       )}
+      {importExcel && importPlan && activeOpen && (
+        <ImportExcelDialog
+          fileName={importExcel.fileName}
+          result={importPlan}
+          rowLabel={(key) => {
+            const m = activeOpen.store.get(key);
+            return { itemNo: m?.seq ? String(m.seq) : '', sheet: m ? sheets[m.pageIndex]?.number || `Page ${m.pageIndex + 1}` : '' };
+          }}
+          blocked={(change) => {
+            const m = activeOpen.store.get(change.rowKey);
+            return !!m && !activeOpen.store.mayEdit(m) && !isOpenChange(change);
+          }}
+          replyAuthor={importExcel.book.lastModifiedBy ?? ''}
+          aliases={importExcel.aliases}
+          onAlias={(column, value, option) =>
+            setImportExcel((cur) => {
+              if (!cur) return cur;
+              const forColumn = { ...cur.aliases[column] };
+              if (option) forColumn[value.toLowerCase()] = option;
+              else delete forColumn[value.toLowerCase()];
+              return { ...cur, aliases: { ...cur.aliases, [column]: forColumn } };
+            })
+          }
+          onApply={(changes, replyAuthor) => {
+            const store = activeOpen.store;
+            // A register words its statuses the client's way.
+            const record = importPlan.register;
+            const patches = patchesFor(changes, (id) => store.get(id), { statuses: columnSet.statuses, columns: columnSet.columns, replyAuthor, now: Date.now(), newId: () => crypto.randomUUID(), ...(record ? { statusId: wording(record, columnSet.statuses).statusId } : {}) });
+            // Words mapped to a status in this import are remembered in the register's template, so they are not asked again.
+            const mapped = Object.entries(importExcel.aliases.status ?? {});
+            const template = record ? registerTemplates.find((t) => t.id === record.templateId) : undefined;
+            if (template && mapped.length) {
+              saveRegisterTemplate({
+                ...template,
+                statuses: template.statuses.map((s) => {
+                  const more = mapped.filter(([typed, word]) => word === s.word && !s.also.some((a) => a.toLowerCase() === typed)).map(([typed]) => typed);
+                  return more.length ? { ...s, also: [...s.also, ...more] } : s;
+                }),
+                updatedAt: Date.now(),
+              });
+            }
+            // One undo step for the whole import.
+            store.checkpoint();
+            store.batch(() => {
+              for (const [id, patch] of patches) store.update(id, patch);
+            });
+            store.checkpoint();
+            setNotice(`Imported ${importExcel.fileName}: ${changes.length} change${changes.length === 1 ? '' : 's'} to ${patches.size} markup${patches.size === 1 ? '' : 's'}. Undo takes them back in one step.`);
+            setImportExcel(null);
+          }}
+          onClose={() => setImportExcel(null)}
+        />
+      )}
+      {closeOutOpen && activeOpen && (
+        <CloseOutDialog
+          docName={activeOpen.file.name}
+          sheets={closeOut(markups, sheets, closedStatuses(closeOutTemplateOf(activeOpen.store)), columnSet.statuses)}
+          templates={registerTemplates.map((t) => ({ id: t.id, name: t.name }))}
+          templateId={closeOutTemplateOf(activeOpen.store)?.id ?? ''}
+          onTemplate={setCloseOutTemplate}
+          onOpen={(id, pageIndex) => {
+            setCloseOutOpen(false);
+            navigate(pageIndex, null);
+            (paneB ? ctlB : ctl)?.tools.select([id]);
+          }}
+          onExportCsv={(csv) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} close-out.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }))}
+          onClose={() => setCloseOutOpen(false)}
+        />
+      )}
+      {registerOpen && activeOpen && (
+        <ExportRegisterDialog
+          docName={activeOpen.file.name}
+          templates={registerTemplates}
+          initialId={templateFor(registerTemplates, activeOpen.store.drawingStandard()?.id)?.id}
+          values={{ document: activeOpen.file.name.replace(/\.pdf$/i, ''), exportDate: new Date().toLocaleDateString('en-CA'), reviewer: author }}
+          counts={{ comments: registerMarkups('comments').length, all: registerMarkups('all').length }}
+          canFill={!!localExcel()?.fill}
+          onExport={exportRegister}
+          onTemplates={(id) => setRegisterTemplatesOpen({ id })}
+          onClose={() => setRegisterOpen(false)}
+        />
+      )}
+      {registerTemplatesOpen && (
+        <RegisterTemplatesDialog
+          templates={registerTemplates}
+          initialId={registerTemplatesOpen.id}
+          standards={ws.drawingStandards.map((s) => ({ id: s.id, name: s.name }))}
+          listColumns={listColumns(columnSet.columns).map((c) => ({ key: c.key, label: c.label }))}
+          statuses={columnSet.statuses}
+          onNew={() => starterTemplate(crypto.randomUUID(), columnSet.statuses, Date.now())}
+          onSave={saveRegisterTemplate}
+          onDelete={(id) => updateWorkspace((w) => ({ ...w, registerTemplates: (w.registerTemplates ?? []).filter((t) => t.id !== id) }))}
+          onImportFile={async () => {
+            const file = await pickFile('.rcregister,application/json');
+            if (!file) return null;
+            try {
+              // A shared template gets an id of its own here: it never replaces one of this person's.
+              return { ...parseTemplateFile(await file.text()), id: crypto.randomUUID() };
+            } catch (err) {
+              setError(err instanceof Error ? err.message : `${file.name} could not be read.`);
+              return null;
+            }
+          }}
+          onExportFile={(t) => download(templateFileName(t), new Blob([exportTemplate(t)], { type: 'application/json' }))}
+          onPickClientFile={
+            localExcel()?.pickSource
+              ? async (draft) => {
+                  try {
+                    const picked = await localExcel()!.pickSource!();
+                    if (!picked) return null;
+                    return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : 'That file could not be read.');
+                    return null;
+                  }
+                }
+              : undefined
+          }
+          onClose={() => setRegisterTemplatesOpen(null)}
+        />
+      )}
+      {portalDialog && (portalDialog.pane === 'b' ? openB : open) && (
+        <PortalDialogHost
+          state={portalDialog}
+          store={(portalDialog.pane === 'b' ? openB : open)!.store}
+          pageCount={(portalDialog.pane === 'b' ? openB : open)!.doc.pages.length}
+          pageLabel={(i) => (portalDialog.pane === 'b' ? sheetsB : sheetsA)[i]?.number || `Page ${i + 1}`}
+          onClose={() => setPortalDialog(null)}
+          onNotice={setNotice}
+        />
+      )}
       {syncOpen && activeOpen && syncTable && (
         <SheetSyncDialog
           docName={activeOpen.file.name}
           link={sheetSync.link}
           status={sheetSync.status}
-          rowCount={Math.max(0, syncTable.length - 1)}
+          rowCount={syncKeyed ? syncKeyed.rows.length : Math.max(0, syncTable.length - 1)}
+          twoWay={sheetSync.twoWay}
+          canTwoWay={!!localExcel()?.read}
+          issues={sheetSync.issues.map((i) => ({ ...i, itemNo: String(activeOpen.store.get(i.rowKey)?.seq ?? '') }))}
+          onResolve={sheetSync.resolve}
+          onUseListColumns={() => sheetSync.setColumns(visibleListColumns.map((c) => c.key))}
           localExcelAvailable={!!localExcel()}
           inDesktopApp={!!desktop()}
-          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities))()}
+          onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities, localExcel()?.read ? visibleListColumns.map((c) => c.key) : undefined))()}
           onSetQuantities={sheetSync.setQuantities}
           onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
