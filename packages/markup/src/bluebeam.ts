@@ -7,6 +7,7 @@
 import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
+import type { Portal } from './portals';
 import type { Estimating } from './estimating';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
 import { MAX_FONT_STRING, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts';
@@ -71,6 +72,8 @@ export interface PdfExtras {
   assemblies?: Assembly[];
   /** The document's catalog items, product lists and takeoff templates, as saved by this app (/NBEstimating). */
   estimating?: Estimating;
+  /** The document's portals, as saved by this app (/NBPortals). */
+  portals?: Portal[];
   /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
   appearances?: Map<string, string>;
 }
