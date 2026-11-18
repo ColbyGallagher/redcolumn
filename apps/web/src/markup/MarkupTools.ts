@@ -2308,9 +2308,9 @@ export class MarkupTools implements ViewerOverlay {
   finishKey(key: string, target?: unknown): boolean {
     if (key !== ' ' && key !== 'Spacebar') return false;
     if (this.gesture?.kind !== 'multi') return false;
-    const t = target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+    const t = target as { tagName?: string; isContentEditable?: boolean; getAttribute?: (n: string) => string | null } | null | undefined;
     const tag = t?.tagName?.toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return false;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable || t?.getAttribute?.('role') === 'combobox') return false;
     this.finish();
     return true;
   }
