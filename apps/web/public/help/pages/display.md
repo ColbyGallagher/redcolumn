@@ -28,3 +28,14 @@ Choose {{View > Disable Line Weights}}. Choose it again to turn it off.
 Shows a small speech bubble with a count on markups that have [replies](#comments).
 
 Choose {{View > Always Show Reply Indicators}}.
+
+## Keep View Between Pages
+
+When you change page with the next and previous arrows, the page keys, First and Last Page, the page box or the thumbnails, the new page opens at the same zoom and on the same part of the sheet, so you can flip between floors or revisions and stay on the same detail. It is on by default.
+
+- If the new page is a different size and you were viewing the whole page (or its width), it is fitted the same way. If you were zoomed in, the same fraction of the sheet is shown, with the zoom adjusted so the same part of the drawing fills the view.
+- In continuous layout the page opens at the part of the sheet that was in the middle of the view.
+- Side-by-side layouts always fit the spread.
+- Bookmarks, links and search results still go to their own destination.
+
+Choose {{View > Keep View Between Pages}}, or **Preferences > Display**, to turn it off; each page then opens as before.

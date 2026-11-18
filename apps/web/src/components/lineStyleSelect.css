@@ -1,0 +1,84 @@
+/* Line style picker: a listbox whose options show the style drawn beside its name. */
+.ls-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
+  height: var(--select-h, 24px);
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background-color: var(--surface-sunken);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a3bc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ls-select:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.ls-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ls-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ls-swatch {
+  flex: none;
+}
+/* The compact ribbon never scrolls: the picker has a fixed width there and its name is cut with an ellipsis. */
+.rb-props .prop-line > .field > .ls-select {
+  width: 150px;
+  max-width: 150px;
+}
+.ls-list {
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  list-style: none;
+}
+.ls-group {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  opacity: 0.65;
+}
+.ls-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.ls-option.active {
+  background: var(--surface-hover);
+}
+.ls-option[aria-selected='true'] {
+  background: var(--surface-active);
+}
+.ls-option.manage {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
+}

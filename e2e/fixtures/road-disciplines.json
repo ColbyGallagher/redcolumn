@@ -1,0 +1,84 @@
+{
+  "page": {
+    "width": 2383.937,
+    "height": 1683.78
+  },
+  "pages": [
+    {
+      "page": 1,
+      "plan": 1,
+      "discipline": "ROADWORKS",
+      "shiftMm": [
+        0.0,
+        0.0
+      ],
+      "matchLine": [
+        [
+          1771.654,
+          340.157
+        ],
+        [
+          1771.654,
+          1179.213
+        ]
+      ]
+    },
+    {
+      "page": 2,
+      "plan": 2,
+      "discipline": "ROADWORKS",
+      "shiftMm": [
+        0.0,
+        0.0
+      ],
+      "matchLine": [
+        [
+          130.394,
+          254.616
+        ],
+        [
+          130.394,
+          1093.671
+        ]
+      ]
+    },
+    {
+      "page": 3,
+      "plan": 1,
+      "discipline": "DRAINAGE",
+      "shiftMm": [
+        0.0,
+        0.0
+      ],
+      "matchLine": [
+        [
+          1771.654,
+          340.157
+        ],
+        [
+          1771.654,
+          1179.213
+        ]
+      ]
+    },
+    {
+      "page": 4,
+      "plan": 2,
+      "discipline": "DRAINAGE",
+      "shiftMm": [
+        1.2,
+        -0.8
+      ],
+      "matchLine": [
+        [
+          133.795,
+          256.884
+        ],
+        [
+          133.795,
+          1095.939
+        ]
+      ]
+    }
+  ]
+}

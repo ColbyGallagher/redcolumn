@@ -197,6 +197,8 @@ export interface MarkupStyle {
   /** Measurement label visibility (default shown) and background (default white; null for none). */
   showLabel?: boolean;
   labelBackground?: string | null;
+  /** Polylengths: label each segment's length as well as the total (default shown; false shows only the total). */
+  showSegmentLabels?: boolean;
   /** Length dimensions: offset of the dimension line from the measured points, with extension lines. */
   leader?: number;
   /**
@@ -387,6 +389,11 @@ export interface Markup {
   locked?: boolean;
   /** Markups sharing a group id are selected, moved and deleted together. */
   groupId?: string;
+  /**
+   * Portals (Experimental): this markup is one of the copies of a markup mirrored across a portal's
+   * linked pages (see portals.ts); copies share `linkId` and are kept in sync.
+   */
+  portalLink?: { portalId: string; linkId: string };
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */
@@ -404,6 +411,12 @@ export interface Markup {
   rotation?: number;
   /** File Attachment markups: the embedded file. */
   attachment?: Attachment;
+  /**
+   * Comments: the revision of its sheet when the comment was raised. Set once, the first time the
+   * comment is exported to a register or its sheet is slip-sheeted, so a close-out can say what a
+   * comment still open on revision C was raised on.
+   */
+  raisedRev?: string;
   /** Imported from the PDF: the annotation it stands for, which saving replaces in place. */
   pdfAnnot?: PdfAnnotLink;
   status: MarkupStatus;

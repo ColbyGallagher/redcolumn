@@ -20,6 +20,7 @@ Drag a **square handle** at a corner or side.
 
 - Drag the **round handle** above the markup. Hold [[Shift]] to turn in 15° steps.
 - Or right-click it and choose **Rotate** › **Rotate 90° Clockwise**, **Rotate 90° Counterclockwise**, **Rotate…** (type an angle) or **Reset Rotation**.
+- Or type into the **Rotation** field on the Properties panel (Arrange). A plain number is degrees clockwise. You can also enter a road-style grade: a percentage (`2%`, `-2.5%`) or a ratio (`1:50`, `-1:50`). The angle is `atan(percent / 100)` or `atan(1 / N)` from the page horizontal. A positive grade rises to the right and a **negative grade falls to the right**. The field shows the equivalent (for example `≈ 1.146°` for `2%`, or `≈ -2%` beside a degree value). Grades steeper than 100% (45°) are allowed with a warning. Press Enter to apply a grade. The angle is stored to 0.01°.
 
 ## Reshape a line, polyline or polygon
 

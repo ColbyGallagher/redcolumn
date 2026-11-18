@@ -3,6 +3,7 @@ import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
 import { deskColour } from '../theme/themes';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
+import { keepView, type KeepPlan } from './keepView';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
 
@@ -719,29 +720,58 @@ export class TileViewer {
     }
   }
 
+  /** Keep View Between Pages: plain page changes (arrows, thumbnails, page box) keep zoom and position. */
+  keepViewBetweenPages = true;
+
   /**
-   * Shows a page. With `keepView`, a page the same size as the current one opens at the same zoom and
-   * on the same part of the sheet (the same stair on the next floor); any other page opens as usual.
+   * The entry point for a plain page change (arrows, page keys, first/last, the page box, thumbnails):
+   * keeps the view when Keep View Between Pages is on. Jumps to a destination (bookmark, link, search
+   * hit) call `goToPage` without `keepView` instead.
+   */
+  changePage(index: number) {
+    this.goToPage(index, this.keepViewBetweenPages);
+  }
+
+  /**
+   * Shows a page. With `keepView` (use `changePage`), see `keepView()` in keepView.ts: the same zoom
+   * and part of the sheet, refitted when the sheet size changes and the view was at fit. Side-by-side
+   * spreads always fit the spread.
    */
   goToPage(index: number, keepView = false) {
     const keep = keepView ? this.viewToKeep(index) : null;
     this.showTarget(index);
     if (!keep) return;
-    const [x, y] = this.pageToWorld(this.pageIndex, keep.point);
-    this.zoom = keep.zoom;
-    this.panX = this.canvas.clientWidth / 2 - x * keep.zoom;
-    this.panY = this.canvas.clientHeight / 2 - y * keep.zoom;
+    if (keep.refit) {
+      if (this.mode === 'continuous') this.fit();
+      return;
+    }
+    const [x, y] = this.pageToWorld(this.pageIndex, keep.centre);
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), keep.zoom));
+    this.panX = this.canvas.clientWidth / 2 - x * this.zoom;
+    this.panY = this.canvas.clientHeight / 2 - y * this.zoom;
     this.invalidate();
   }
 
-  /** The zoom and the page point at the centre of the view, when `index` is a page of the same size. */
-  private viewToKeep(index: number): { zoom: number; point: PagePoint } | null {
-    if (!this.doc || this.mode === 'stitch' || index === this.pageIndex) return null;
-    const from = this.doc.pages[this.pageIndex];
-    const to = this.doc.pages[index];
-    if (!from || !to || Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1) return null;
+  /** What to show on page `index` to keep the current view, or null to open it as usual. */
+  private viewToKeep(index: number): KeepPlan | null {
+    if (!this.doc || this.mode === 'stitch' || this.columns > 1) return null;
+    const clamped = Math.max(0, Math.min(this.doc.pages.length - 1, index));
+    const to = this.doc.pages[clamped];
+    if (!to || clamped === this.pageIndex) return null;
     const rect = this.canvas.getBoundingClientRect();
-    return { zoom: this.zoom, point: this.clientToPage(rect.left + this.canvas.clientWidth / 2, rect.top + this.canvas.clientHeight / 2) };
+    const cx = rect.left + this.canvas.clientWidth / 2;
+    const cy = rect.top + this.canvas.clientHeight / 2;
+    // In continuous layout the view centre can be on a neighbouring page or in a gap: take the page under it.
+    const under = (this.mode === 'continuous' ? this.pageAtClient(cx, cy) : null) ?? this.pageIndex;
+    const from = this.doc.pages[under];
+    if (!from) return null;
+    // At fit: the old page fitted (the whole page, or its width in continuous layout).
+    const saved = { zoom: this.zoom, panX: this.panX, panY: this.panY };
+    this.fit();
+    const fitZoom = this.zoom;
+    Object.assign(this, saved);
+    const atFit = Math.abs(saved.zoom - fitZoom) <= fitZoom * 0.01;
+    return keepView({ centre: this.clientToPage(cx, cy, under), zoom: saved.zoom, from, to, atFit, turns: this.turns });
   }
 
   private showTarget(index: number) {
@@ -768,12 +798,12 @@ export class TileViewer {
   }
 
   nextPage() {
-    this.goToPage(this.currentRow().at(-1)! + 1);
+    this.changePage(this.currentRow().at(-1)! + 1);
   }
 
   prevPage() {
     const row = this.currentRow();
-    if (row[0]! > 0) this.goToPage(row[0]! - 1);
+    if (row[0]! > 0) this.changePage(row[0]! - 1);
   }
 
   /** World-space bounds of one placed sheet (its visible part). */
@@ -1657,18 +1687,24 @@ export class TileViewer {
     const wheel = settings.get()[this.mode === 'continuous' ? 'continuousWheel' : 'singlePageWheel'];
     // Preferences › Navigation › Sensitivity: 4 is the browser's own rate.
     const sensitivity = settings.get().wheelSensitivity / 4;
+    // A mouse-wheel notch (line mode, or a large pixel delta), as against a trackpad's small deltas.
+    const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
     if (wheel === 'scroll' && !e.ctrlKey) {
       const k = (e.deltaMode === 1 ? 32 : 1) * sensitivity;
-      this.panX -= (e.shiftKey ? e.deltaY : e.deltaX) * k;
-      this.panY -= (e.shiftKey ? 0 : e.deltaY) * k;
+      const dx = (e.shiftKey ? e.deltaY : e.deltaX) * k;
+      const dy = (e.shiftKey ? 0 : e.deltaY) * k;
+      if (this.mode === 'single') {
+        this.wheelSinglePage(dx, dy, notch, e.timeStamp);
+        return;
+      }
+      this.panX -= dx;
+      this.panY -= dy;
       this.invalidate();
       return;
     }
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    // A mouse-wheel notch (line mode, or a large pixel delta) steps the zoom by the flat amount set
-    // in Preferences; trackpad pinch sends small fractional deltas and keeps a smooth rate.
-    const notch = e.deltaMode !== 0 || Math.abs(e.deltaY) >= 50;
+    // A notch steps the zoom by the flat amount set in Preferences; trackpad pinch keeps a smooth rate.
     if (notch) {
       const prefs = settings.get();
       const notches = Math.max(1, Math.round(Math.abs(e.deltaY) / (e.deltaMode === 1 ? 3 : 100)));
@@ -1678,6 +1714,65 @@ export class TileViewer {
     }
     this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015 * sensitivity)), x, y);
   };
+
+  /** Last wheel event in single page view, and whether the trackpad gesture it belongs to has already scrolled or turned a page. */
+  private pageWheel = { t: -Infinity, used: false };
+
+  /**
+   * The wheel set to Scroll in single page view, as in Revu: it scrolls the page until its edge is in
+   * view, and the next notch turns to the next (or previous) page, which opens at its top (or bottom)
+   * at the same zoom. A trackpad gesture (and its momentum) either scrolls or turns one page, never
+   * both; a pause starts a new gesture. Each mouse-wheel notch counts on its own.
+   */
+  private wheelSinglePage(dx: number, dy: number, notch: boolean, t: number) {
+    const gap = t - this.pageWheel.t;
+    this.pageWheel.t = t;
+    if (gap > 150) this.pageWheel.used = false;
+    const x = this.scrollRange('x');
+    const y = this.scrollRange('y');
+    this.panX = Math.max(x.lo, Math.min(x.hi, this.panX - dx));
+    if (dy === 0) return this.invalidate();
+    const down = dy > 0;
+    const atEdge = down ? this.panY <= y.lo + 0.5 : this.panY >= y.hi - 0.5;
+    if (!atEdge) {
+      this.panY = Math.max(y.lo, Math.min(y.hi, this.panY - dy));
+      this.pageWheel.used = true;
+      return this.invalidate();
+    }
+    if (!notch && this.pageWheel.used) return this.invalidate();
+    const row = this.currentRow();
+    const target = down ? row.at(-1)! + 1 : row[0]! - 1;
+    if (!this.doc || target < 0 || target >= this.doc.pages.length) return this.invalidate();
+    this.pageWheel.used = true;
+    const { zoom, panX } = this;
+    this.goToPage(target);
+    this.zoom = zoom;
+    const nx = this.scrollRange('x', false);
+    this.panX = Math.max(nx.lo, Math.min(nx.hi, panX));
+    const ny = this.scrollRange('y', false);
+    this.panY = down ? ny.hi : ny.lo;
+    this.invalidate();
+  }
+
+  /**
+   * How far the wheel may scroll a single page along one axis: the pan that puts the page's near edge
+   * a margin inside the view, to the pan that puts its far edge there. A page that fits is centred, and
+   * a view the user has dragged past the edge is left where it is rather than snapped back (unless
+   * `keepPan` is false, for placing a newly shown page).
+   */
+  private scrollRange(axis: 'x' | 'y', keepPan = true): { lo: number; hi: number } {
+    const b = this.worldBounds();
+    const current = axis === 'x' ? this.panX : this.panY;
+    if (!Number.isFinite(b.w)) return { lo: current, hi: current };
+    const view = axis === 'x' ? this.canvas.clientWidth : this.canvas.clientHeight;
+    const start = (axis === 'x' ? b.x : b.y) * this.zoom;
+    const size = (axis === 'x' ? b.w : b.h) * this.zoom;
+    const margin = 24;
+    const fits = size + margin * 2 <= view;
+    const lo = fits ? (view - size) / 2 - start : view - margin - start - size;
+    const hi = fits ? lo : margin - start;
+    return keepPan ? { lo: Math.min(lo, current), hi: Math.max(hi, current) } : { lo, hi };
+  }
 
   private lastMiddleDown: { t: number; x: number; y: number } | null = null;
 

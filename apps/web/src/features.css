@@ -4650,10 +4650,11 @@ tr.hidden-markup td {
 .layers-bar {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  height: 34px;
-  padding: 0 4px;
+  min-height: 34px;
+  padding: 4px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -4683,6 +4684,8 @@ tr.hidden-markup td {
 }
 
 .layers-menu-btn.title {
+  /* Not pushed right by the app-wide .title rule. */
+  margin-left: 0;
   padding: 0 8px;
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   font-size: 14px;
@@ -4716,18 +4719,21 @@ tr.hidden-markup td {
   position: sticky;
   top: 0;
   z-index: 1;
-  width: 50px;
   height: 26px;
   padding: 0 6px;
+  overflow: hidden;
   border-right: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font-weight: 600;
   text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.layers-grid th.layer-name {
-  width: auto;
+.layers-grid th.layer-filler,
+.layers-grid td.layer-filler {
+  border-right: 0;
 }
 
 .layers-grid th .layer-twisty {
@@ -6534,6 +6540,90 @@ tr.hidden-markup td {
 
 .geo-number {
   width: 80px;
+}
+
+/* Comment register: export and template editor */
+.modal.register-dialog {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.register-editor {
+  padding: 8px 12px;
+}
+
+.register-editor h4 {
+  margin: 14px 0 4px;
+}
+
+.register-basics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+}
+
+.register-editor .qty-table input:not([type='checkbox']),
+.register-editor .qty-table select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.register-editor .qty-table input[type='number'] {
+  width: 70px;
+}
+
+.register-client-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.register-client-label {
+  font-weight: 600;
+}
+
+.register-row-actions {
+  white-space: nowrap;
+}
+
+/* Import from Excel: the preview of what a workbook changes */
+.import-excel-table .comment-text {
+  white-space: pre-wrap;
+  min-width: 200px;
+}
+
+.import-excel-table tr.conflict td {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.import-excel-dialog .import-unknown select {
+  margin-left: 4px;
+}
+
+.import-excel-dialog .import-skipped {
+  margin-top: 8px;
+  max-height: 120px;
+  overflow: auto;
+}
+
+/* Close-out: comments by sheet */
+.close-out-table tbody tr {
+  cursor: pointer;
+}
+
+.close-out-table tbody tr:hover,
+.close-out-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.close-out-table tr.close-out-sheet td {
+  font-weight: 600;
+}
+
+.close-out-table tr.close-out-comment .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
 }
 
 /* Comments table (a Project's or Live Session's comments) */
@@ -8351,6 +8441,17 @@ tr.hidden-markup td {
 
 .revu-migration .revu-results .failed {
   color: var(--danger-text);
+}
+
+.adjust-image .adjust-row {
+  display: grid;
+  grid-template-columns: 11em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+}
+
+.adjust-image .adjust-row output {
+  text-align: right;
 }
 
 .revu-migration progress {

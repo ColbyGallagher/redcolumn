@@ -33,6 +33,8 @@ const toBase64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
 export interface Saved {
   name: string;
   bytes: Buffer;
+  /** Desktop only: where the file is, for a test that changes it on disk as another program would. */
+  path?: string;
 }
 
 /** Imperial feet unless a spec asks otherwise (test.use({ settings: ... })). */
@@ -159,7 +161,7 @@ export const test = base.extend<{ app: App; settings: Record<string, unknown>; t
             // The app writes a hidden .tmp file and renames it into place: skip one caught mid-write.
             .flatMap((sub) => readdirSync(join(saves, sub)).filter((name) => !(name.startsWith('.') && name.endsWith('.tmp'))).map((name) => join(saves, sub, name)))
             .filter((f) => statSync(f, { throwIfNoEntry: false })?.size)
-            .map((f) => ({ name: basename(f), bytes: readFileSync(f) }));
+            .map((f) => ({ name: basename(f), bytes: readFileSync(f), path: f }));
         const win = await electronApp.firstWindow();
         // Printing answers itself too: the print channels (apps/desktop/src/main.ts) would send the
         // PDF to the system's printer or open a print dialog. Each job is kept with its page count.

@@ -218,9 +218,9 @@ export function measurementLabel(m: Markup, scale: Scale = DEFAULT_SCALE): Measu
   return { text: value, lines: label ? [label, value] : [value], at, angle: line ? ((m.style.labelRotation ?? 0) * Math.PI) / 180 : 0 };
 }
 
-/** A Polylength's labels: each segment's length on the segment, turned along it. (The whole's is `measurementLabel`.) */
+/** A Polylength's labels: each segment's length on the segment, turned along it, unless turned off. (The whole's is `measurementLabel`.) */
 export function segmentLabels(m: Markup, scale: Scale = DEFAULT_SCALE): MeasureLabel[] {
-  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false) return [];
+  if (m.type !== 'polylength' || m.points.length < 3 || m.style.showLabel === false || m.style.showSegmentLabels === false) return [];
   return m.points.slice(1).map((b, i) => {
     const a = m.points[i]!;
     let angle = Math.atan2(b[1] - a[1], b[0] - a[0]);
@@ -274,6 +274,14 @@ export const TEXT_INK_METRICS = {
 } as const;
 
 /**
+ * How far below a line's top its baseline sits, in page units. Canvas, PDF appearance and the CSS
+ * editor all put the baseline here, so a line's ink lands in the same place in each.
+ */
+export function textBaselineOffset(style: { fontFamily?: string; fontSize?: number }): number {
+  return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * (style.fontSize ?? 12);
+}
+
+/**
  * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
  * space, for the box's alignment. `measure` gives a string's width at the box's font size.
  */
@@ -287,11 +295,12 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const valign = m.style.verticalAlign ?? 'top';
-  // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
+  // Middle and bottom place the visible ink, not the line boxes, which carry empty space below the glyphs.
+  // Middle centres the first line's cap top to the last baseline, so capitals and digits have equal gaps above and below (descenders hang into the lower gap). Bottom keeps descenders on the padding.
   // An installed font uses the metrics of the standard family it falls back to.
   const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
   const inkTopOffset = (fm.ascent - fm.cap) * size + lead;
-  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + fm.descent) * size;
+  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + (valign === 'middle' ? 0 : fm.descent)) * size;
   const top =
     valign === 'middle'
       ? b.y + (b.h - inkH) / 2 - inkTopOffset
@@ -489,13 +498,14 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.font = cssFont(style, size);
     ctx.fillStyle = textColor(style);
     ctx.strokeStyle = textColor(style);
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.beginPath();
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
+    const base = textBaselineOffset(style);
     for (const line of textBoxLines(m, (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, line);
+      drawJustified(ctx, { ...line, y: line.y + base });
       if (style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
       if (style.strikethrough && line.text) underline(ctx, line.x, line.y + size * 0.55, line.width, size);
     }
@@ -555,7 +565,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
 
 /** A table's cell text, each cell's lines laid out and clipped like a text box. */
 function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
-  ctx.textBaseline = 'top';
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   for (const cell of tableCells(m)) {
     if (!cell.text) continue;
@@ -568,7 +578,7 @@ function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
     ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
     ctx.clip();
     for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, line);
+      drawJustified(ctx, { ...line, y: line.y + textBaselineOffset({ ...cell.style, fontSize: size }) });
       if (cell.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
     }
     ctx.restore();

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BLEND_MODES,
   CELL_STYLE_KEYS,
@@ -14,6 +14,7 @@ import {
   measureProps,
   refillStamp,
   styleCapabilities,
+  TEXT_PADDING,
   type FontFamily,
   type LineEnding,
   type Markup,
@@ -32,6 +33,7 @@ import {
 } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type ManualKind, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
 import { defaultManualUnit, makeManual, manualEditValue, MANUAL_KIND_LABELS, MANUAL_UNITS } from '../measure/manualQuantity';
+import { gradeReadout, parseRotationInput } from '../markup/rotationInput';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
@@ -78,6 +80,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           caps={styleCapabilities(toolType)}
           disabled={false}
           markups={markups}
+          segments={toolType === 'polylength'}
           onChange={(patch) => tools.setDefaultStyle(toolType, patch)}
         />
         <div className="props-actions">
@@ -285,7 +288,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           </fieldset>
         </Section>
       )}
-      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} onChange={changeStyle} />
+      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} segments={types.every((t) => t === 'polylength')} onChange={changeStyle} />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
@@ -326,8 +329,8 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
   return (
     <Section title="Arrange">
       {rotatable && (
-        <Row label="Rotation" title="Degrees clockwise about the centre of the markup">
-          <NumberField value={sameAngle ? angle : undefined} placeholder={sameAngle ? undefined : 'Mixed'} min={0} max={359.99} step={1} unit="°" onChange={(v) => v !== undefined && tools.setRotation(v)} />
+        <Row label="Rotation" title="Degrees clockwise about the centre of the markup. You can also type a road grade: 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% or -1:50 falls to the right).">
+          <RotationField value={sameAngle ? angle : undefined} onApply={(v) => tools.setRotation(v)} />
           <button className="btn" title="Turn 90° anticlockwise" onClick={() => tools.setRotation(angle - 90)}>
             ↺
           </button>
@@ -459,10 +462,12 @@ interface EditorProps {
   caps: StyleCapabilities;
   disabled: boolean;
   markups: readonly Markup[];
+  /** Offer the segment-lengths toggle: every markup edited is a polylength. */
+  segments: boolean;
   onChange: (patch: Partial<MarkupStyle>) => void;
 }
 
-function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorProps) {
+function StyleEditor({ style, type, caps, disabled, markups, segments, onChange }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const measure = isMeasureKind(type);
@@ -651,6 +656,9 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               <Row label="Line spacing">
                 <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
               </Row>
+              <Row label="Padding">
+                <NumberField value={style.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => set('textMargin', v)} />
+              </Row>
             </>
           )}
           {caps.label && (
@@ -658,6 +666,11 @@ function StyleEditor({ style, type, caps, disabled, markups, onChange }: EditorP
               <Row label="Show label">
                 <input type="checkbox" checked={style.showLabel ?? true} onChange={(e) => set('showLabel', e.target.checked ? undefined : false)} />
               </Row>
+              {segments && (
+                <Row label="Segment lengths">
+                  <input type="checkbox" checked={style.showSegmentLabels ?? true} disabled={style.showLabel === false} onChange={(e) => set('showSegmentLabels', e.target.checked ? undefined : false)} />
+                </Row>
+              )}
               <Row label="Background">
                 <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} />
               </Row>
@@ -1039,8 +1052,60 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
   );
 }
 
+/**
+ * Rotation as clockwise degrees, or a road-style grade such as `2%` or `1:50`. Whatever is typed
+ * applies once, on Enter or when you leave the field (Escape reverts), so half-typed grades such as
+ * `-2` are never applied. Shows the equivalent value as you type.
+ */
+function RotationField({ value, onApply }: { value: number | undefined; onApply: (degrees: number) => void }) {
+  const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
+  const [text, setText] = useState(shown);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(shown);
+  }, [shown]);
+  const parsed = text.trim() === '' || text === shown ? undefined : parseRotationInput(text);
+  const bad = parsed && !parsed.ok;
+  const note = parsed ? (parsed.ok ? [parsed.readout, parsed.warning].filter(Boolean).join(' ') : parsed.error) : value !== undefined ? gradeReadout(value) : undefined;
+  const commit = () => {
+    if (!parsed?.ok) return false;
+    onApply(parsed.degrees);
+    setText(String(Math.round(parsed.degrees * 100) / 100));
+    return true;
+  };
+  return (
+    <>
+      <input
+        type="text"
+        className="num"
+        value={text}
+        placeholder={value === undefined ? 'Mixed' : undefined}
+        aria-label="Rotation"
+        aria-invalid={bad ? true : undefined}
+        title="Degrees clockwise, or a grade such as 2% or 1:50. Positive rises to the right, negative (-2%) falls to the right."
+        onFocus={() => (focused.current = true)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          focused.current = false;
+          if (!commit()) setText(shown);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') setText(shown);
+        }}
+      />
+      <span className="unit">°</span>
+      {note && (
+        <span className="unit rotation-note" role={bad ? 'alert' : undefined} style={bad ? { color: '#c0392b' } : undefined}>
+          {note}
+        </span>
+      )}
+    </>
+  );
+}
+
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */
-function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
+export function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
   const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);

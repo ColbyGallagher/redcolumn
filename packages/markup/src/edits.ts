@@ -1,4 +1,5 @@
-import { boundsOf, contentBox, flagTip, isTextType, type Markup, type MarkupStyle, type Point } from './model';
+import { boundsOf, contentBox, flagTip, isTextType, rotatePoint, rotationCentre, type Markup, type MarkupStyle, type Point } from './model';
+import { layoutParagraphs } from './textLists';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
 
@@ -43,32 +44,44 @@ export function canAutoSize(m: Pick<Markup, 'type' | 'text'>): boolean {
 }
 
 /**
- * The points of a text box resized to fit its text exactly: as wide as its longest line (no
- * wrapping), as tall as its lines, with the usual padding. The box keeps its top-left corner (a
- * callout keeps its leader). `measure` gives a string's width at the markup's font size. Null when
- * the markup cannot be auto-sized.
+ * The points of a text box resized to fit its text: the text keeps the line breaks it has at the
+ * box's current width, and the box shrinks to the widest of those lines and their height, with the
+ * usual padding. It never grows wider than it is (unless one unbreakable word already overflows
+ * it), so fitting twice changes nothing. The box keeps its top-left corner on the page, turned
+ * with it when rotated (a callout keeps its leader). `measure` gives a string's width at the
+ * markup's font size. Null when the markup cannot be auto-sized.
  */
 export function autoSizedPoints(m: Markup, measure: (s: string) => number): Point[] | null {
   if (!canAutoSize(m) || TYPE_INFO[m.type].content !== 'text') return null;
   const size = m.style.fontSize ?? 12;
-  const lines = (m.text ?? '').split('\n');
-  const textW = Math.max(...lines.map((l) => measure(l.trimEnd())));
-  const w = Math.ceil(textW + textPadding(m.style) * 2 + 1);
-  const h = Math.ceil(lines.length * size * textLineHeight(m.style) + textPadding(m.style) * 2);
+  const pad = textPadding(m.style);
   const box = contentBox(m);
+  const lines = layoutParagraphs(m.text ?? '', box.w - pad * 2, measure);
+  const textW = Math.max(0, ...lines.map((l) => l.indent + measure(l.text.trimEnd())));
+  // Slack scaled to the font: the exported PDF measures text with its own font tables, a hair off the canvas.
+  let w = Math.ceil(textW + pad * 2 + Math.max(1, size * 0.15));
+  if (textW <= box.w - pad * 2) w = Math.min(w, box.w);
+  const h = Math.ceil(lines.length * size * textLineHeight(m.style) + pad * 2);
+  let pts: Point[];
   if (m.type === 'callout') {
     if (m.points.length < 4) return null;
-    const pts = m.points.map((p) => [p[0], p[1]] as Point);
+    pts = m.points.map((p) => [p[0], p[1]] as Point);
     pts[2] = [box.x, box.y];
     pts[3] = [box.x + w, box.y + h];
-    return pts;
-  }
-  if (m.type === 'flagLabel') {
+  } else if (m.type === 'flagLabel') {
     // The pointed end grows with the box's height; solve for the outer width that leaves `w` for text.
     const b = boundsOf(m.points);
     let outer = w + h / 2;
     for (let i = 0; i < 4; i++) outer = w + flagTip({ x: 0, y: 0, w: outer, h });
-    return [[b.x, b.y], [b.x + outer, b.y + h]];
+    pts = [[b.x, b.y], [b.x + outer, b.y + h]];
+  } else {
+    pts = [[box.x, box.y], [box.x + w, box.y + h]];
   }
-  return [[box.x, box.y], [box.x + w, box.y + h]];
+  if (!m.rotation) return pts;
+  // Turned about its centre, a smaller box would swing its corner away: slide it back.
+  const corner = contentBox(m);
+  const before = rotatePoint([corner.x, corner.y], rotationCentre(m), m.rotation);
+  const after = rotatePoint([contentBox({ type: m.type, points: pts }).x, contentBox({ type: m.type, points: pts }).y], rotationCentre({ type: m.type, points: pts }), m.rotation);
+  const [dx, dy] = [before[0] - after[0], before[1] - after[1]];
+  return pts.map((p) => [p[0] + dx, p[1] + dy] as Point);
 }

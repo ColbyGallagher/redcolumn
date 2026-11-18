@@ -535,6 +535,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['dim', 'Dimmer'],
         ])}
         <C>{check('thinLines', 'Disable Line Weights')}</C>
+        <C>{check('keepViewBetweenPages', 'Keep View Between Pages')}</C>
         <C>{check('showRulers', 'Show Rulers')}</C>
         <C>{check('showSpaces', 'Show Spaces')}</C>
         <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
@@ -642,7 +643,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         ])}
         <C>{check('toolChestSticky', 'Keep the Tool Active after Placing', { title: 'Place several copies in a row; press Esc to stop' })}</C>
         <C>
-          <span className="pref-note">Dragging a tool onto the page always places a copy. Right-click a tool to use the other mode once.</span>
+          <span className="pref-note">Dragging a tool onto the page always places a copy. Right-click a tool to choose Place Copy or Draw with Style for that tool; it keeps the choice.</span>
         </C>
       </Grid>
     ),

@@ -1,3 +1,4 @@
+import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
@@ -32,6 +33,11 @@ export interface ToolChestItem {
    * of it. Tools without one (imported, recent) draw new markups in their style.
    */
   markups?: Markup[];
+  /**
+   * How clicking a tool with saved `markups` uses it: `copy` places the exact markup, `style` draws
+   * new markups in its look. Set from the tool's right-click menu; unset follows Preferences.
+   */
+  mode?: 'copy' | 'style';
   /** The page scale (metres per point) it was saved at, for tool sets that scale to the page. */
   metersPerPoint?: number;
   /** Drawn with the Cloud+ tool (a cloud, then a callout): `type` is its cloud. */
@@ -131,6 +137,8 @@ export interface WorkspaceState {
   taughtMarks: TaughtMark[];
   /** Clients' drawing standards (title block, drawing numbers), chosen per document (kept on this device; shared as files). */
   drawingStandards: DrawingStandard[];
+  /** Comment register templates, one per client (kept on this device; shared as files). */
+  registerTemplates?: RegisterTemplate[];
   /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
   customColors?: string[];
 }
@@ -209,16 +217,21 @@ function load(): Saved {
 }
 
 let saved = load();
+let persisted = true;
 const listeners = new Set<() => void>();
 
-function commit(next: Saved) {
+/** Saves the profiles. False when the browser would not keep them (storage full or blocked): they still apply for this visit. */
+function commit(next: Saved): boolean {
   saved = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(saved));
+    persisted = true;
   } catch {
     // Not persisted; the profile still applies for this visit.
+    persisted = false;
   }
   listeners.forEach((l) => l());
+  return persisted;
 }
 
 export const profiles = {
@@ -229,9 +242,9 @@ export const profiles = {
   get: () => saved,
   active: (): Profile => saved.profiles.find((p) => p.id === saved.activeId)!,
   /** Changes the active profile's workspace. */
-  update(fn: (s: WorkspaceState) => WorkspaceState) {
+  update(fn: (s: WorkspaceState) => WorkspaceState): boolean {
     const active = profiles.active();
-    commit({ ...saved, profiles: saved.profiles.map((p) => (p === active ? { ...p, state: fn(p.state) } : p)) });
+    return commit({ ...saved, profiles: saved.profiles.map((p) => (p === active ? { ...p, state: fn(p.state) } : p)) });
   },
   switchTo(id: string) {
     if (saved.profiles.some((p) => p.id === id)) commit({ ...saved, activeId: id });

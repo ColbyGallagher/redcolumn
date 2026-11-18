@@ -75,6 +75,123 @@ test.describe('view', () => {
     await expect.poll(() => page(app)).toBe(1);
   });
 
+  // Keep View Between Pages (on by default).
+  type Pt = [number, number];
+  type V = { pageView(): { centre: Pt }; pageAtClient(x: number, y: number): number | null; zoomFor(i: number): number };
+  const centre = (app: App) => app.page.evaluate(() => (window.__nb.viewer as unknown as V).pageView().centre);
+  const setting = (app: App) => app.page.evaluate(() => (window.__nb.viewer as unknown as { keepViewBetweenPages: boolean }).keepViewBetweenPages);
+  const zoomOf = async (app: App) => (await app.view()).zoom;
+  const turnOff = async (app: App) => {
+    await app.cmd('view.keepView');
+    await expect.poll(async () => (await app.command('view.keepView')).checked).toBe(false);
+    await expect.poll(() => setting(app)).toBe(false);
+  };
+
+  test('Keep View Between Pages in continuous layout: next page keeps zoom and the spot in view; off opens the page top', async ({ app }) => {
+    expect((await app.view()).mode).toBe('continuous');
+    expect((await app.command('view.keepView')).checked).toBe(true);
+    const fit = await zoomOf(app);
+    await app.page.evaluate(() => window.__nb.viewer.zoomToRect({ x: 100, y: 100, w: 200, h: 150 }, 1));
+    const zoomed = await zoomOf(app);
+    expect(zoomed).toBeGreaterThan(fit * 2);
+    const at = await centre(app);
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    expect(await zoomOf(app)).toBeCloseTo(zoomed, 5);
+    const next = await centre(app);
+    expect(next[0]).toBeCloseTo(at[0], 1);
+    expect(next[1]).toBeCloseTo(at[1], 1);
+    // The middle of the view is on page 2.
+    expect(next[0]).toBeGreaterThanOrEqual(0);
+    expect(next[1]).toBeGreaterThanOrEqual(0);
+    expect(next[1]).toBeLessThanOrEqual(792);
+    await app.cmd('view.prevPage');
+    await expect.poll(() => page(app)).toBe(1);
+    expect(await zoomOf(app)).toBeCloseTo(zoomed, 5);
+    // Off: the page opens as a destination does (its top), not at the spot.
+    await turnOff(app);
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    const off = await centre(app);
+    await app.page.evaluate(() => {
+      window.__nb.viewer.goToPage(0);
+      window.__nb.viewer.goToPage(1);
+    });
+    const dest = await centre(app);
+    expect(off[0]).toBeCloseTo(dest[0], 1);
+    expect(off[1]).toBeCloseTo(dest[1], 1);
+    expect(Math.abs(off[1] - at[1])).toBeGreaterThan(20);
+  });
+
+  test('Keep View Between Pages in single page layout: arrows, first/last and the page box', async ({ app }) => {
+    await app.cmd('view.singlePage');
+    await expect.poll(async () => (await app.view()).mode).toBe('single');
+    await app.page.evaluate(() => window.__nb.viewer.zoomToRect({ x: 100, y: 100, w: 200, h: 150 }, 1));
+    const zoomed = await zoomOf(app);
+    const at = await centre(app);
+    const kept = async (n: number) => {
+      await expect.poll(() => page(app)).toBe(n);
+      expect(await zoomOf(app)).toBeCloseTo(zoomed, 5);
+      const c = await centre(app);
+      expect(c[0]).toBeCloseTo(at[0], 1);
+      expect(c[1]).toBeCloseTo(at[1], 1);
+    };
+    await app.cmd('view.nextPage');
+    await kept(2);
+    await app.cmd('view.lastPage');
+    await kept(3);
+    await app.cmd('view.firstPage');
+    await kept(1);
+    const box = app.page.getByLabel('Page', { exact: true });
+    await box.fill('3');
+    await box.press('Enter');
+    await kept(3);
+  });
+
+  test('Keep View Between Pages with sheets of different sizes: fit stays fit, zoomed in keeps the part of the drawing', async ({ app }) => {
+    await app.open('paper.pdf');
+    await expect.poll(async () => (await app.view()).mode).toBe('single');
+    // Sheet 1 is A1, sheet 2 is A3 (half the width).
+    await app.cmd('view.fitPage');
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    const fitted = await zoomOf(app);
+    await app.fit();
+    expect(fitted).toBeCloseTo(await zoomOf(app), 5);
+    await app.cmd('view.prevPage');
+    await expect.poll(() => page(app)).toBe(1);
+    await app.fit();
+    // Zoomed in on the A1 sheet: the same fraction of the sheet, at twice the zoom on the A3 copy.
+    await app.page.evaluate(() => window.__nb.viewer.zoomToRect({ x: 600, y: 400, w: 400, h: 300 }, 1));
+    const zoomed = await zoomOf(app);
+    const [x, y] = await centre(app);
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    expect(await zoomOf(app)).toBeCloseTo((zoomed * 2384) / 1191, 3);
+    const [nx, ny] = await centre(app);
+    expect(nx / 1191).toBeCloseTo(x / 2384, 2);
+    expect(ny / 842).toBeCloseTo(y / 1684, 2);
+  });
+
+  test('Keep View Between Pages with side-by-side spreads and a cover fits the spread', async ({ app }) => {
+    await app.cmd('view.sideBySide');
+    await app.cmd('view.coverPage');
+    await expect.poll(async () => (await app.command('view.coverPage')).checked).toBe(true);
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(3));
+    await app.cmd('view.nextPage');
+    await expect.poll(() => page(app)).toBe(2);
+    const spread = await zoomOf(app);
+    await app.fit();
+    expect(spread).toBeCloseTo(await zoomOf(app), 5);
+    // The cover is whole on screen going back to it.
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(3));
+    await app.cmd('view.prevPage');
+    await expect.poll(() => page(app)).toBe(1);
+    const cover = await zoomOf(app);
+    await app.fit();
+    expect(cover).toBeCloseTo(await zoomOf(app), 5);
+  });
+
   test('back and forward retrace jumps', async ({ app }) => {
     // Views are remembered when a link, bookmark or search jumps somewhere: follow a hyperlink.
     expect((await app.command('view.back')).enabled).toBe(false);
@@ -263,6 +380,7 @@ test.describe('view', () => {
     'view.magnifier',
     'view.replyIndicators',
     'view.reuse',
+    'view.keepView',
   ];
   for (const id of TOGGLES) {
     test(`${id} toggles`, async ({ app }) => {
@@ -274,6 +392,66 @@ test.describe('view', () => {
       await expect.poll(async () => (await app.command(id)).checked).toBe(before);
     });
   }
+
+  test.describe('wheel set to scroll in single page view', () => {
+    test.use({ settings: { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft', singlePageWheel: 'scroll' } });
+
+    test('scrolls to the edge of the page, then turns the page', async ({ app }) => {
+      await app.cmd('view.singlePage');
+      await expect.poll(async () => (await app.view()).mode).toBe('single');
+      // Over the middle of the fitted page, which stays over the view however it scrolls.
+      const c = await app.at([612, 396]);
+      // Each mouse-wheel notch arrives as its own event, after the last one's pause.
+      const notch = async (dy: number) => {
+        await app.page.mouse.move(c.x, c.y);
+        await app.page.mouse.wheel(0, dy);
+        await app.page.waitForTimeout(200);
+      };
+      const fit = (await app.view()).zoom;
+      // The whole page in view: each notch turns a page, at the same zoom, and stops at the ends.
+      await notch(100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+      expect((await app.view()).zoom).toBeCloseTo(fit, 5);
+      await notch(-100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(0);
+      await notch(-100);
+      expect((await app.view()).pageIndex).toBe(0);
+
+      // Zoomed in, the wheel scrolls down the sheet first and turns only once its bottom is in view.
+      await app.page.evaluate(() => window.__nb.viewer.zoomBy(4));
+      const zoom = (await app.view()).zoom;
+      const panY = await app.page.evaluate(() => window.__nb.viewer.getView().panY);
+      await notch(100);
+      expect((await app.view()).pageIndex).toBe(0);
+      expect(await app.page.evaluate(() => window.__nb.viewer.getView().panY)).toBeLessThan(panY);
+      for (let i = 0; i < 100 && (await app.view()).pageIndex === 0; i++) await notch(100);
+      // The next page opens at its top (a 24 px margin), at the same zoom.
+      const next = await app.page.evaluate(() => window.__nb.viewer.getView());
+      expect(next.pageIndex).toBe(1);
+      expect(next.zoom).toBeCloseTo(zoom, 5);
+      expect(next.panY).toBeCloseTo(24, 0);
+      // Back up: the previous page opens at its bottom.
+      await notch(-100);
+      const prev = await app.page.evaluate(() => window.__nb.viewer.getView());
+      expect(prev.pageIndex).toBe(0);
+      const height = await app.page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLCanvasElement).clientHeight, [c.x, c.y] as const);
+      expect(prev.panY + 792 * prev.zoom).toBeCloseTo(height - 24, 0);
+    });
+    test('a trackpad gesture turns one page, however long it runs', async ({ app }) => {
+      await app.cmd('view.singlePage');
+      await expect.poll(async () => (await app.view()).mode).toBe('single');
+      const c = await app.at([612, 396]);
+      // Small deltas with no pause between them: one swipe and its momentum. Sent in one go from the
+      // page, so a busy test machine cannot space them out into separate gestures.
+      await app.page.evaluate(([x, y]) => {
+        const target = document.elementFromPoint(x, y)!;
+        for (let i = 0; i < 30; i++) target.dispatchEvent(new WheelEvent('wheel', { deltaY: 20, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      }, [c.x, c.y] as const);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+      await app.page.waitForTimeout(300);
+      expect((await app.view()).pageIndex).toBe(1);
+    });
+  });
 
   test.describe('grid', () => {
     // A half-inch grid: 36 pt.
