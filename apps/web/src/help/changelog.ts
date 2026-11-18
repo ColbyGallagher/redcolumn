@@ -18,7 +18,7 @@ export const CHANGELOG: readonly ChangelogEntry[] = [
       'Sync to Excel: two-way, with sheet sync that merges three ways',
       'Community library: Browse Library and .rctrade trade packs',
       'Revu migration wizard, keyboard import and preset',
-      'Stitching: apply a sheet set's stitching to other disciplines' plans',
+      "Stitching: apply a sheet set's stitching to other disciplines' plans",
       'Portals (Experimental): mirror takeoff markups across typical floors',
       'Takeoff ribbon: Assembly group with a Variables drop-down',
       'Stamps: import PNG, JPEG, GIF, BMP and WebP pictures',
