@@ -186,8 +186,9 @@ test('middle and bottom vertical alignment place the visible text block, not the
         const lines = textBoxLines({ ...base, style: { ...DEFAULT_STYLES.text, fontSize: size, fontFamily: family, verticalAlign: valign } }, measure);
         return { top: lines[0]!.y + (fm.ascent - fm.cap) * size, bottom: lines[lines.length - 1]!.y + (fm.ascent + fm.descent) * size };
       };
+      // Middle centres cap top to the last baseline (so capitals have equal gaps); descenders hang below.
       const mid = ink('middle');
-      assert.ok(Math.abs((mid.top + mid.bottom) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
+      assert.ok(Math.abs((mid.top + mid.bottom - fm.descent * size) / 2 - 50) < 0.5, `${family} ${text.length} middle`);
       const bot = ink('bottom');
       assert.ok(Math.abs(bot.bottom - (100 - TEXT_PADDING)) < 0.5, `${family} ${text.length} bottom`);
     }

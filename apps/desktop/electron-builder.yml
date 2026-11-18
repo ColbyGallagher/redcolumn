@@ -37,6 +37,11 @@ extraResources:
   # not the app executable (see apps/desktop/scripts/fetch-assistant-node.mjs).
   - from: dist/assistant
     to: assistant
+# Links to a comment (redcolumn://markup?…): a comment register can put one on each item number.
+protocols:
+  - name: redcolumn link
+    schemes:
+      - redcolumn
 # Registers redcolumn as a PDF (and DWG/DXF) handler. It does not become the default handler.
 # perMachine and any default-handler setting are left unset on purpose.
 fileAssociations:

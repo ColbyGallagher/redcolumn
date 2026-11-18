@@ -54,6 +54,8 @@ const ICONS: Record<string, ReactNode> = {
   'edit.stretch': ic('M2 4h6v8H2zM8 8h6M12 6l2 2-2 2'),
   'edit.scaleToLength': MENU_ICONS.scale,
   'edit.cropImage': ic('M4 1.5v10.5h10.5M1.5 4h10.5v10.5'),
+  'edit.adjustImage': ic('M2 2h12v12H2z', <path d="M8 2v12M8 4.5h4M8 8h4M8 11.5h4" />),
+  'edit.pictureColours': ic('M8 2c3 3.5 4.5 5.5 4.5 7.5a4.5 4.5 0 0 1-9 0C3.5 7.5 5 5.5 8 2z'),
   'edit.resetCrop': ic('M2 2h12v12H2z', <path d="M5 5h6v6H5z" strokeDasharray="2 1.5" />),
   'edit.createViewport': ic('M2 3h12v10H2z', <path d="M5 6h6v4H5z" strokeDasharray="2 1.5" />),
   'edit.offset': ic('M2 12.5 6 3.5h8M5 14.5l4-9h5'),
@@ -184,6 +186,7 @@ const ICONS: Record<string, ReactNode> = {
   'view.darkPages': ic('M12.5 10A5.5 5.5 0 0 1 6 3.5a5.5 5.5 0 1 0 6.5 6.5z'),
   'view.dimmer': ic('M8 4.5a3.5 3.5 0 1 0 0 7z', <circle cx="8" cy="8" r="3.5" />),
   'view.thinLines': ic('M2 4h12M2 8h12M2 12h12'),
+  'view.keepView': ic('M3 3h10v10H3zM6 6h4v4H6z'),
   'view.fullScreen': ic('M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4'),
   'window.leftPanel': ic('M1.5 2.5h13v11h-13zM5.5 2.5v11'),
   'window.rightPanel': ic('M1.5 2.5h13v11h-13zM10.5 2.5v11'),
@@ -961,6 +964,12 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.resetCrop" />
               </Stack>
             </Group>
+            <Group label="Picture">
+              <Cmd id="edit.adjustImage" size="large" label="Adjust Image" />
+              <Stack>
+                <Cmd id="edit.pictureColours" label="Colours" />
+              </Stack>
+            </Group>
             <Group label="Edit Geometry">
               <Cmd id="edit.offset" size="large" />
               <Stack>
@@ -1251,6 +1260,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="view.showLinks" />
                 <Cmd id="view.fullScreen" />
+                <Cmd id="view.keepView" />
               </Stack>
             </Group>
             <Group label="Panels">
